@@ -86,6 +86,11 @@ struct ContentView: View {
                 appState.isRecordingInline = isRecording
             }
         }
+        .onChange(of: recordingViewModel.isPreparing) { _, isPreparing in
+            withAnimation(AppAnimation.gentle) {
+                appState.isRecordingInline = isPreparing || recordingViewModel.isRecording
+            }
+        }
         .task {
             loadTags()
         }
@@ -115,69 +120,86 @@ struct ContentView: View {
 
     private var populatedView: some View {
         VStack(spacing: Spacing.lg) {
-            VStack(spacing: Spacing.md) {
-                recordButton
-                    .padding(.top, Spacing.md)
+            recordingArea
+                .padding(.top, Spacing.md)
 
-                if appState.isRecordingInline {
-                    inlineRecordingView
-                }
-
-                searchField
-            }
-
-            HStack {
-                ContextSummaryView(
-                    feedViewModel: feedViewModel,
-                    onTapTasks: {
-                        selectedSmartFilter = .todaysTasks
-                        selectedProjectId = nil
-                    },
-                    onTapRecent: {
-                        selectedSmartFilter = .recent
-                        selectedProjectId = nil
-                    }
-                )
-
-                Spacer()
-
-                viewModePicker
-            }
+            toolbarRow
 
             contentView
         }
     }
 
-    // MARK: - Record Button
+    // MARK: - Recording Area
 
-    private var recordButton: some View {
-        HStack(spacing: Spacing.xs) {
+    private var recordingArea: some View {
+        HStack(spacing: Spacing.md) {
+            // Circle mic/stop button
             Button {
                 recordingViewModel.toggleRecording()
             } label: {
-                HStack(spacing: Spacing.sm) {
-                    Image(systemName: recordingViewModel.isRecording ? "stop.fill" : "mic.fill")
-                        .font(.title3)
-                    Text(recordingViewModel.isRecording ? "Stop Recording" : "Record")
-                        .font(.body)
-                        .fontWeight(.semibold)
+                Group {
+                    if recordingViewModel.isPreparing {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(.white)
+                    } else {
+                        Image(systemName: recordingViewModel.isRecording ? "stop.fill" : "mic.fill")
+                            .font(.title3)
+                    }
                 }
                 .foregroundStyle(.white)
-                .padding(.horizontal, Spacing.xl)
-                .padding(.vertical, Spacing.md)
+                .frame(width: 44, height: 44)
                 .background(
-                    Capsule()
+                    Circle()
                         .fill(recordingViewModel.isRecording ? Color.red : Color.accentColor)
                 )
-                .modifier(FloatElevation(colorScheme: colorScheme))
             }
             .buttonStyle(.plain)
+            .disabled(recordingViewModel.isPreparing)
             .keyboardShortcut("r", modifiers: [.command])
 
-            if !recordingViewModel.isRecording {
+            if recordingViewModel.isRecording || recordingViewModel.isPreparing {
+                // Recording state: waveform + transcript
+                if recordingViewModel.isPreparing {
+                    Text("Preparing...")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                } else {
+                    WaveformView(level: recordingViewModel.audioLevel)
+                        .frame(width: 120, height: 32)
+
+                    if !recordingViewModel.liveTranscript.isEmpty {
+                        Text(recordingViewModel.liveTranscript)
+                            .font(.body)
+                            .foregroundStyle(.primary)
+                            .lineLimit(2)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    } else {
+                        Text("Listening...")
+                            .font(.subheadline)
+                            .foregroundStyle(.tertiary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+
+                if let error = recordingViewModel.errorMessage {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+            } else {
+                // Idle state: spacer + mic selection
+                Spacer()
                 microphoneMenu
             }
         }
+        .padding(Spacing.md)
+        .background(
+            RoundedRectangle(cornerRadius: Radius.lg)
+                .fill(AppColors.surface)
+        )
+        .animation(AppAnimation.gentle, value: recordingViewModel.isRecording)
+        .animation(AppAnimation.gentle, value: recordingViewModel.isPreparing)
     }
 
     private var microphoneMenu: some View {
@@ -194,10 +216,10 @@ struct ContentView: View {
                 }
             }
         } label: {
-            Image(systemName: "chevron.down")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .frame(width: 20, height: 20)
+            Text(audioDeviceManager.selectedDevice?.name ?? "Microphone")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
@@ -206,57 +228,57 @@ struct ContentView: View {
 
     @Environment(\.colorScheme) private var colorScheme
 
-    // MARK: - Inline Recording
+    // MARK: - Toolbar Row (Search + Notes Count + Projects Pill + View Picker)
 
-    private var inlineRecordingView: some View {
-        VStack(spacing: Spacing.md) {
-            WaveformView(level: recordingViewModel.audioLevel)
-                .frame(height: 40)
-
-            if !recordingViewModel.liveTranscript.isEmpty {
-                Text(recordingViewModel.liveTranscript)
-                    .font(.body)
-                    .foregroundStyle(.primary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(Spacing.md)
-                    .background(
-                        RoundedRectangle(cornerRadius: Radius.md)
-                            .fill(AppColors.surface)
-                    )
-            } else {
-                Text("Listening...")
-                    .font(.subheadline)
-                    .foregroundStyle(.tertiary)
-            }
-
-            if let error = recordingViewModel.errorMessage {
-                Text(error)
-                    .font(.caption)
-                    .foregroundStyle(.red)
-            }
-        }
-        .padding(Spacing.md)
-        .background(
-            RoundedRectangle(cornerRadius: Radius.lg)
-                .fill(AppColors.surface)
-        )
-        .gentleAppear()
-    }
-
-    // MARK: - Search Field
-
-    private var searchField: some View {
+    private var toolbarRow: some View {
         HStack(spacing: Spacing.sm) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(.tertiary)
-            TextField("Search your notes...", text: $searchText)
-                .textFieldStyle(.plain)
+            // Search field
+            HStack(spacing: Spacing.sm) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.tertiary)
+                TextField("Search your notes...", text: $searchText)
+                    .textFieldStyle(.plain)
+            }
+            .padding(Spacing.sm + 2)
+            .background(
+                RoundedRectangle(cornerRadius: Radius.md)
+                    .fill(AppColors.surfaceAlt)
+            )
+
+            // Notes count
+            HStack(spacing: Spacing.xs) {
+                Image(systemName: "doc.text")
+                    .font(.caption2)
+                Text("\(feedViewModel.notes.count) note\(feedViewModel.notes.count == 1 ? "" : "s")")
+                    .font(.caption)
+            }
+            .foregroundStyle(.secondary)
+            .fixedSize()
+
+            // Projects pill
+            Button {
+                if appState.currentViewMode == .projectGroups {
+                    appState.currentViewMode = .feed
+                } else {
+                    appState.currentViewMode = .projectGroups
+                }
+            } label: {
+                Text("Projects")
+                    .font(.caption)
+                    .fontWeight(.medium)
+                    .padding(.horizontal, Spacing.sm + 2)
+                    .padding(.vertical, Spacing.xs + 1)
+                    .background(
+                        Capsule()
+                            .fill(appState.currentViewMode == .projectGroups ? Color.accentColor.opacity(0.15) : Color.clear)
+                    )
+                    .foregroundStyle(appState.currentViewMode == .projectGroups ? Color.accentColor : .secondary)
+            }
+            .buttonStyle(.plain)
+
+            // View mode picker
+            viewModePicker
         }
-        .padding(Spacing.sm + 2)
-        .background(
-            RoundedRectangle(cornerRadius: Radius.md)
-                .fill(AppColors.surface)
-        )
     }
 
     // MARK: - View Mode Picker
@@ -346,10 +368,8 @@ struct ContentView: View {
                 projects: projectsViewModel.projects.map(\.project),
                 onDismiss: { selectedNoteId = nil },
                 onDelete: {
-                    let ctx = noteDetail.note.managedObjectContext ?? context
                     selectedNoteId = nil
-                    ctx.delete(noteDetail.note)
-                    try? ctx.save()
+                    feedViewModel.deleteNote(noteDetail)
                 }
             )
             .frame(width: 400)

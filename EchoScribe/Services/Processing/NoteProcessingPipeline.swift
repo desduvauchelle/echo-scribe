@@ -13,15 +13,20 @@ final class NoteProcessingPipeline {
     /// Saves a raw transcript as a note and runs AI processing asynchronously.
     @discardableResult
     func process(rawTranscript: String) async throws -> CDNote {
+        print("[Pipeline] process() — rawTranscript length=\(rawTranscript.count): \"\(rawTranscript.prefix(80))\"")
+
         // 1. Save raw note immediately on the view context
         let note = CDNote.insert(in: persistence.viewContext, rawTranscript: rawTranscript)
         persistence.save()
 
         let noteObjectID = note.objectID
+        print("[Pipeline] process() — note saved, objectID=\(noteObjectID)")
 
         // 2. Run AI analysis
+        print("[Pipeline] process() — starting AI analysis")
         do {
             let analysis = try await aiProcessor.analyze(rawTranscript: rawTranscript)
+            print("[Pipeline] process() — AI analysis complete: tasks=\(analysis.tasks.count), tags=\(analysis.tags.count), project=\(analysis.projectAction.name)")
 
             // 3. Write AI results on a background context
             let bgContext = persistence.newBackgroundContext()
@@ -90,11 +95,13 @@ final class NoteProcessingPipeline {
                 }
 
                 try bgContext.save()
+                print("[Pipeline] process() — background context saved")
             }
         } catch {
-            print("AI processing failed for note \(noteObjectID): \(error)")
+            print("[Pipeline] process() AI ERROR — note \(noteObjectID): \(error)")
         }
 
+        print("[Pipeline] process() — done, returning note")
         return note
     }
 }

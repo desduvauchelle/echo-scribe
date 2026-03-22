@@ -4,83 +4,174 @@ struct ProjectGroupView: View {
     @Bindable var feedViewModel: FeedViewModel
     var projects: [ProjectWithCount]
 
-    private var grouped: [(project: CDProject?, notes: [NoteWithDetails])] {
-        var byProject: [UUID?: [NoteWithDetails]] = [:]
-        for note in feedViewModel.notes {
-            byProject[note.note.project?.id, default: []].append(note)
+    private enum ProjectSelection: Hashable {
+        case project(UUID)
+        case unassigned
+    }
+
+    @State private var selection: ProjectSelection?
+
+    private var selectedNotes: [NoteWithDetails] {
+        switch selection {
+        case .project(let id):
+            return feedViewModel.notes.filter { $0.note.project?.id == id }
+        case .unassigned:
+            return feedViewModel.notes.filter { $0.note.project == nil }
+        case nil:
+            return []
         }
+    }
 
-        var result: [(project: CDProject?, notes: [NoteWithDetails])] = []
-
-        for pwc in projects {
-            if let notes = byProject[pwc.project.id], !notes.isEmpty {
-                result.append((project: pwc.project, notes: notes))
-            }
-        }
-
-        if let unassigned = byProject[nil], !unassigned.isEmpty {
-            result.append((project: nil, notes: unassigned))
-        }
-
-        return result
+    private var unassignedNoteCount: Int {
+        feedViewModel.notes.filter { $0.note.project == nil }.count
     }
 
     var body: some View {
-        if feedViewModel.notes.isEmpty {
+        if projects.isEmpty && unassignedNoteCount == 0 {
             emptyState
         } else {
-            LazyVStack(alignment: .leading, spacing: Spacing.lg) {
-                ForEach(grouped.indices, id: \.self) { index in
-                    let group = grouped[index]
-                    projectSection(project: group.project, notes: group.notes)
+            VStack(alignment: .leading, spacing: Spacing.lg) {
+                projectBarList
+
+                if selection != nil {
+                    selectedProjectNotes
                 }
             }
             .padding(.bottom, Spacing.xl)
         }
     }
 
-    private func projectSection(project: CDProject?, notes: [NoteWithDetails]) -> some View {
-        DisclosureGroup {
-            ForEach(notes) { noteDetail in
-                NoteCardView(noteDetail: noteDetail)
+    // MARK: - Project Bar List
+
+    private var projectBarList: some View {
+        VStack(spacing: Spacing.sm) {
+            ForEach(projects, id: \.project.id) { projectWithCount in
+                projectBar(projectWithCount)
+            }
+
+            if unassignedNoteCount > 0 {
+                unassignedBar
+            }
+        }
+    }
+
+    // MARK: - Project Bar
+
+    private func projectBar(_ projectWithCount: ProjectWithCount) -> some View {
+        let project = projectWithCount.project
+        let isSelected = selection == .project(project.id)
+        let projectColor = Color(hex: project.color) ?? .blue
+
+        return Button {
+            withAnimation(AppAnimation.gentle) {
+                selection = isSelected ? nil : .project(project.id)
             }
         } label: {
             HStack(spacing: Spacing.sm) {
-                if let project {
-                    Circle()
-                        .fill(Color(hex: project.color) ?? .blue)
-                        .frame(width: 10, height: 10)
-                    Text(project.name)
-                        .font(.title3)
-                        .fontWeight(.semibold)
-                } else {
-                    Circle()
-                        .fill(.gray)
-                        .frame(width: 10, height: 10)
-                    Text("Unassigned")
-                        .font(.title3)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(.secondary)
-                }
+                Circle()
+                    .fill(projectColor)
+                    .frame(width: 10, height: 10)
 
-                Text("\(notes.count)")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+                Text(project.name)
+                    .font(.body)
+                    .fontWeight(.bold)
+
+                Spacer()
+
+                Text("\(projectWithCount.noteCount)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                     .padding(.horizontal, Spacing.sm)
                     .padding(.vertical, Spacing.xs)
                     .background(.quaternary, in: Capsule())
             }
+            .padding(.horizontal, Spacing.md)
+            .padding(.vertical, Spacing.sm + 2)
+            .background(
+                RoundedRectangle(cornerRadius: Radius.md)
+                    .fill(isSelected ? projectColor.opacity(0.15) : projectColor.opacity(0.06))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: Radius.md)
+                    .strokeBorder(isSelected ? projectColor.opacity(0.3) : Color.clear, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - Unassigned Bar
+
+    private var unassignedBar: some View {
+        let isSelected = selection == .unassigned
+        return Button {
+            withAnimation(AppAnimation.gentle) {
+                selection = isSelected ? nil : .unassigned
+            }
+        } label: {
+            HStack(spacing: Spacing.sm) {
+                Circle()
+                    .fill(.gray)
+                    .frame(width: 10, height: 10)
+
+                Text("Unassigned")
+                    .font(.body)
+                    .fontWeight(.bold)
+                    .foregroundStyle(.secondary)
+
+                Spacer()
+
+                Text("\(unassignedNoteCount)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, Spacing.sm)
+                    .padding(.vertical, Spacing.xs)
+                    .background(.quaternary, in: Capsule())
+            }
+            .padding(.horizontal, Spacing.md)
+            .padding(.vertical, Spacing.sm + 2)
+            .background(
+                RoundedRectangle(cornerRadius: Radius.md)
+                    .fill(isSelected ? Color.gray.opacity(0.15) : Color.gray.opacity(0.06))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: Radius.md)
+                    .strokeBorder(isSelected ? Color.gray.opacity(0.3) : Color.clear, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - Selected Project Notes
+
+    private var selectedProjectNotes: some View {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+            if selectedNotes.isEmpty {
+                Text("No notes in this project yet")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .padding(.vertical, Spacing.lg)
+                    .frame(maxWidth: .infinity)
+            } else {
+                ForEach(selectedNotes) { noteDetail in
+                    NoteCardView(noteDetail: noteDetail)
+                }
+            }
         }
     }
+
+    // MARK: - Empty State
 
     private var emptyState: some View {
         VStack(spacing: Spacing.md) {
             Image(systemName: "folder")
                 .font(.system(size: 36))
                 .foregroundStyle(.tertiary)
-            Text("No notes to display")
+            Text("No projects yet")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
+            Text("Create a project from the sidebar")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

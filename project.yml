@@ -20,6 +20,18 @@ packages:
     url: https://github.com/sparkle-project/Sparkle.git
     from: "2.6.0"
 
+schemes:
+  EchoScribe:
+    build:
+      targets:
+        EchoScribe: all
+        EchoScribeTests: [test]
+        EchoScribeUITests: [test]
+    test:
+      targets:
+        - EchoScribeTests
+        - EchoScribeUITests
+
 targets:
   EchoScribe:
     type: application
@@ -30,11 +42,17 @@ targets:
           - Resources/Info.plist
     info:
       path: EchoScribe/Resources/Info.plist
+      properties:
+        CFBundleIconFile: AppIcon
+        CFBundleIconName: AppIcon
+        NSMicrophoneUsageDescription: Echo Scribe needs access to your microphone to record voice notes.
+        NSSpeechRecognitionUsageDescription: Echo Scribe uses speech recognition to transcribe your voice notes into text.
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.echoscribe.app
         PRODUCT_NAME: Echo Scribe
         SWIFT_VERSION: "6.0"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         GENERATE_INFOPLIST_FILE: false
         INFOPLIST_FILE: EchoScribe/Resources/Info.plist
         ENABLE_HARDENED_RUNTIME: true
@@ -52,3 +70,29 @@ targets:
         com.apple.security.app-sandbox: false
         com.apple.security.device.audio-input: true
         com.apple.security.network.client: true
+
+  EchoScribeTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: EchoScribeTests
+    dependencies:
+      - target: EchoScribe
+    settings:
+      base:
+        SWIFT_VERSION: "6.0"
+        GENERATE_INFOPLIST_FILE: true
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Echo Scribe.app/Contents/MacOS/Echo Scribe"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+
+  EchoScribeUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources:
+      - path: EchoScribeUITests
+    dependencies:
+      - target: EchoScribe
+    settings:
+      base:
+        SWIFT_VERSION: "6.0"
+        GENERATE_INFOPLIST_FILE: true

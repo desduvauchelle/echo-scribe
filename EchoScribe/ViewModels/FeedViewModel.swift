@@ -84,7 +84,9 @@ final class FeedViewModel: NSObject, NSFetchedResultsControllerDelegate {
     }
 
     private func refreshNotes() {
-        notes = (frc?.fetchedObjects ?? []).map(NoteWithDetails.from)
+        notes = (frc?.fetchedObjects ?? [])
+            .filter { $0.managedObjectContext != nil && !$0.isDeleted }
+            .map(NoteWithDetails.from)
     }
 
     // MARK: - NSFetchedResultsControllerDelegate
@@ -100,6 +102,8 @@ final class FeedViewModel: NSObject, NSFetchedResultsControllerDelegate {
     // MARK: - Actions
 
     func deleteNote(_ noteDetail: NoteWithDetails) {
+        // Remove from array first so SwiftUI never accesses the deleted managed object
+        notes.removeAll { $0.note.objectID == noteDetail.note.objectID }
         context.delete(noteDetail.note)
         PersistenceController.shared.save(context: context)
     }

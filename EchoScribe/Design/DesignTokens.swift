@@ -24,6 +24,7 @@ enum Radius {
 enum AppColors {
     static let surface = Color(nsColor: .controlBackgroundColor)
     static let surfaceHover = Color(nsColor: .unemphasizedSelectedContentBackgroundColor)
+    static let surfaceAlt = Color(nsColor: .textBackgroundColor)
     static let border = Color(nsColor: .separatorColor)
 }
 

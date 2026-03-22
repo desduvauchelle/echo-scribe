@@ -111,7 +111,7 @@ final class WhisperSpeechService: SpeechServiceProtocol {
     var audioDeviceManager: AudioDeviceManager? {
         didSet { audioCaptureManager.audioDeviceManager = audioDeviceManager }
     }
-    private var audioBuffers: [AVAudioPCMBuffer] = []
+    private var audioSamples: [Float] = []
     private let bufferLock = NSLock()
     private var continuation: AsyncStream<TranscriptionUpdate>.Continuation?
     private var audioLevelContinuation: AsyncStream<Float>.Continuation?
@@ -198,9 +198,14 @@ final class WhisperSpeechService: SpeechServiceProtocol {
     }
 
     func downloadModel() async throws {
-        guard whisperKit == nil else { return }
+        print("[WhisperService] downloadModel() — selectedModel=\(selectedModel)")
+        guard whisperKit == nil else {
+            print("[WhisperService] downloadModel() — whisperKit already loaded, skipping")
+            return
+        }
 
         modelState = .downloading(progress: 0)
+        print("[WhisperService] downloadModel() — initialising WhisperKit...")
 
         do {
             let pipe = try await WhisperKit(
@@ -212,12 +217,14 @@ final class WhisperSpeechService: SpeechServiceProtocol {
             )
             self.whisperKit = pipe
             modelState = .ready
+            print("[WhisperService] downloadModel() — WhisperKit ready for model=\(selectedModel)")
             // Mark variant as downloaded too
             if let variant = WhisperModelVariant(rawValue: selectedModel) {
                 variantStates[variant] = .downloaded
             }
         } catch {
             modelState = .error(error.localizedDescription)
+            print("[WhisperService] downloadModel() ERROR — \(error)")
             throw error
         }
     }
@@ -225,36 +232,52 @@ final class WhisperSpeechService: SpeechServiceProtocol {
     // MARK: - SpeechServiceProtocol
 
     func startRecording() async throws {
-        guard !isRecording else { return }
+        print("[WhisperService] startRecording() — isRecording=\(isRecording), whisperKitLoaded=\(whisperKit != nil)")
+        guard !isRecording else {
+            print("[WhisperService] startRecording() blocked — already recording")
+            return
+        }
 
         if whisperKit == nil {
+            print("[WhisperService] startRecording() — whisperKit is nil, loading model...")
             do {
                 try await downloadModel()
             } catch {
+                print("[WhisperService] startRecording() — model load failed: \(error)")
                 throw SpeechError.whisperModelNotLoaded
             }
+        } else {
+            print("[WhisperService] startRecording() — whisperKit already loaded, skipping download")
         }
 
-        bufferLock.withLock { audioBuffers.removeAll() }
+        bufferLock.withLock { audioSamples.removeAll() }
         finalTranscript = ""
+        print("[WhisperService] startRecording() — starting audio capture")
 
-        try audioCaptureManager.startCapture(
-            audioLevelCallback: { [weak self] level in
-                self?.audioLevelContinuation?.yield(level)
-            },
-            audioBufferCallback: { [weak self] buffer in
-                guard let self else { return }
-                self.bufferLock.lock()
-                self.audioBuffers.append(buffer)
-                self.bufferLock.unlock()
-            }
-        )
+        do {
+            try audioCaptureManager.startCapture(
+                audioLevelCallback: { [weak self] level in
+                    self?.audioLevelContinuation?.yield(level)
+                },
+                audioBufferCallback: { [weak self] samples in
+                    guard let self else { return }
+                    self.bufferLock.lock()
+                    self.audioSamples.append(contentsOf: samples)
+                    self.bufferLock.unlock()
+                }
+            )
+        } catch {
+            print("[WhisperService] startRecording() — audio capture failed: \(error)")
+            throw error
+        }
 
         isRecording = true
+        print("[WhisperService] startRecording() — audio capture started, isRecording=true")
         startPeriodicTranscription()
     }
 
     func stopRecording() async -> String {
+        print("[WhisperService] stopRecording() — stopping capture and running final transcription")
         transcriptionTimer?.cancel()
         transcriptionTimer = nil
 
@@ -262,11 +285,21 @@ final class WhisperSpeechService: SpeechServiceProtocol {
         isRecording = false
 
         // Final transcription pass on all accumulated audio
-        let audioArray = collectAudioSamples()
+        let audioArray: [Float] = bufferLock.withLock {
+            let samples = audioSamples
+            audioSamples.removeAll()
+            return samples
+        }
+        print("[WhisperService] stopRecording() — accumulated sampleCount=\(audioArray.count)")
         if !audioArray.isEmpty {
             if let text = await transcribeAudio(audioArray) {
                 finalTranscript = text
+                print("[WhisperService] stopRecording() — final transcription: \"\(text.prefix(80))\"")
+            } else {
+                print("[WhisperService] stopRecording() — final transcription returned nil")
             }
+        } else {
+            print("[WhisperService] stopRecording() — no audio samples collected")
         }
 
         continuation?.yield(TranscriptionUpdate(
@@ -280,6 +313,7 @@ final class WhisperSpeechService: SpeechServiceProtocol {
         audioLevelContinuation?.finish()
         audioLevelContinuation = nil
 
+        print("[WhisperService] stopRecording() — returning finalTranscript length=\(finalTranscript.count)")
         return finalTranscript
     }
 
@@ -298,47 +332,43 @@ final class WhisperSpeechService: SpeechServiceProtocol {
     // MARK: - Private
 
     private func startPeriodicTranscription() {
+        print("[WhisperService] startPeriodicTranscription() — starting 2s periodic transcription loop")
         transcriptionTimer = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(2))
                 guard let self, !Task.isCancelled else { break }
 
-                let audioArray = self.collectAudioSamples()
+                // Take a snapshot of all current samples for transcription
+                let audioArray: [Float] = self.bufferLock.withLock {
+                    return self.audioSamples
+                }
+                print("[WhisperService] periodicTranscription tick — sampleCount=\(audioArray.count)")
                 guard !audioArray.isEmpty else { continue }
 
                 if let text = await self.transcribeAudio(audioArray), !text.isEmpty {
+                    print("[WhisperService] periodicTranscription — result: \"\(text.prefix(80))\"")
                     self.finalTranscript = text
                     self.continuation?.yield(TranscriptionUpdate(
                         partialText: text,
                         isFinal: false,
                         confidence: 0.9
                     ))
+                } else {
+                    print("[WhisperService] periodicTranscription — transcription empty or nil")
                 }
             }
         }
     }
 
-    private func collectAudioSamples() -> [Float] {
-        bufferLock.lock()
-        let currentBuffers = audioBuffers
-        bufferLock.unlock()
-
-        var audioArray: [Float] = []
-        for buffer in currentBuffers {
-            guard let channelData = buffer.floatChannelData?[0] else { continue }
-            let frames = Int(buffer.frameLength)
-            audioArray.append(contentsOf: UnsafeBufferPointer(start: channelData, count: frames))
-        }
-        return audioArray
-    }
-
     nonisolated private func transcribeAudio(_ audioArray: [Float]) async -> String? {
+        print("[WhisperService] transcribeAudio() — sampleCount=\(audioArray.count)")
         do {
             let results = try await MainActor.run { self.whisperKit }?.transcribe(audioArray: audioArray)
             let text = results?.first?.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            print("[WhisperService] transcribeAudio() — result: \(text.map { "\"\($0.prefix(80))\"" } ?? "nil")")
             return text
         } catch {
-            print("WhisperKit transcription error: \(error)")
+            print("[WhisperService] transcribeAudio() ERROR — \(error)")
             return nil
         }
     }

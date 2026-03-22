@@ -45,16 +45,27 @@ final class AudioDeviceManager {
         UserDefaults.standard.set(device.uid, forKey: Constants.selectedMicrophoneUID)
     }
 
-    nonisolated func applyDevice(to audioEngine: AVAudioEngine) {
+    /// Applies the selected device to the audio engine and returns the device's actual hardware format.
+    /// The returned format should be used for tap installation since `inputNode.outputFormat` is unreliable.
+    nonisolated func applyDevice(to audioEngine: AVAudioEngine) -> AVAudioFormat? {
         let deviceUID = MainActor.assumeIsolated { self.selectedDevice?.uid }
-        guard let uid = deviceUID else { return }
+        guard let uid = deviceUID else {
+            print("[AudioDeviceManager] applyDevice — no selected device")
+            return nil
+        }
 
         // Access inputNode to ensure it's created
         let inputNode = audioEngine.inputNode
-        guard let audioUnit = inputNode.audioUnit else { return }
+        guard let audioUnit = inputNode.audioUnit else {
+            print("[AudioDeviceManager] applyDevice — no audioUnit on inputNode")
+            return nil
+        }
 
         // Find the CoreAudio device ID for this UID
-        guard let deviceID = Self.coreAudioDeviceIDStatic(for: uid) else { return }
+        guard let deviceID = Self.coreAudioDeviceIDStatic(for: uid) else {
+            print("[AudioDeviceManager] applyDevice — could not find CoreAudio device for uid=\(uid)")
+            return nil
+        }
 
         var mutableDeviceID = deviceID
         let status = AudioUnitSetProperty(
@@ -67,8 +78,94 @@ final class AudioDeviceManager {
         )
 
         if status != noErr {
-            print("[AudioDeviceManager] Failed to set device \(uid): \(status)")
+            print("[AudioDeviceManager] applyDevice — AudioUnitSetProperty failed: \(status)")
+        } else {
+            print("[AudioDeviceManager] applyDevice — device set successfully: \(uid)")
         }
+
+        // Query the ACTUAL hardware format directly from CoreAudio
+        // inputNode.outputFormat is unreliable (returns cached/default format)
+        return Self.getHardwareInputFormat(deviceID: deviceID)
+    }
+
+    /// Gets the actual hardware input format for a CoreAudio device.
+    nonisolated static func getHardwareInputFormat(deviceID: AudioDeviceID) -> AVAudioFormat? {
+        // Get the device's nominal sample rate
+        var sampleRate: Float64 = 0
+        var srSize = UInt32(MemoryLayout<Float64>.size)
+        var srAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyNominalSampleRate,
+            mScope: kAudioObjectPropertyScopeInput,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        let srStatus = AudioObjectGetPropertyData(deviceID, &srAddress, 0, nil, &srSize, &sampleRate)
+        if srStatus != noErr {
+            print("[AudioDeviceManager] getHardwareInputFormat — failed to get sample rate: \(srStatus)")
+            return nil
+        }
+
+        // Get the device's input stream configuration (channel count)
+        var configAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyStreamConfiguration,
+            mScope: kAudioObjectPropertyScopeInput,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var configSize: UInt32 = 0
+        let configSizeStatus = AudioObjectGetPropertyDataSize(deviceID, &configAddress, 0, nil, &configSize)
+        guard configSizeStatus == noErr, configSize > 0 else {
+            print("[AudioDeviceManager] getHardwareInputFormat — failed to get config size: \(configSizeStatus)")
+            return nil
+        }
+
+        let bufferListMemory = UnsafeMutableRawPointer.allocate(byteCount: Int(configSize), alignment: MemoryLayout<AudioBufferList>.alignment)
+        defer { bufferListMemory.deallocate() }
+        let bufferListPointer = bufferListMemory.bindMemory(to: AudioBufferList.self, capacity: 1)
+
+        let configStatus = AudioObjectGetPropertyData(deviceID, &configAddress, 0, nil, &configSize, bufferListPointer)
+        guard configStatus == noErr else {
+            print("[AudioDeviceManager] getHardwareInputFormat — failed to get config: \(configStatus)")
+            return nil
+        }
+
+        let bufferList = UnsafeMutableAudioBufferListPointer(bufferListPointer)
+        var totalChannels: UInt32 = 0
+        for buffer in bufferList {
+            totalChannels += buffer.mNumberChannels
+        }
+
+        guard totalChannels > 0, sampleRate > 0 else {
+            print("[AudioDeviceManager] getHardwareInputFormat — invalid: channels=\(totalChannels), sampleRate=\(sampleRate)")
+            return nil
+        }
+
+        let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: totalChannels)
+        print("[AudioDeviceManager] getHardwareInputFormat — actual HW format: \(sampleRate)Hz, \(totalChannels)ch")
+        return format
+    }
+
+    /// Gets the hardware format for the currently selected device.
+    nonisolated func getSelectedDeviceFormat() -> AVAudioFormat? {
+        let deviceUID = MainActor.assumeIsolated { self.selectedDevice?.uid }
+        guard let uid = deviceUID,
+              let deviceID = Self.coreAudioDeviceIDStatic(for: uid) else { return nil }
+        return Self.getHardwareInputFormat(deviceID: deviceID)
+    }
+
+    /// Gets the hardware format for the system default input device.
+    nonisolated static func getDefaultInputFormat() -> AVAudioFormat? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultInputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var deviceID: AudioDeviceID = 0
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        let status = AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject),
+            &address, 0, nil, &size, &deviceID
+        )
+        guard status == noErr else { return nil }
+        return getHardwareInputFormat(deviceID: deviceID)
     }
 
     func markRecordingStarted() {
@@ -169,6 +266,8 @@ final class AudioDeviceManager {
             if hasInputChannels(deviceID: deviceID),
                let uid = getDeviceUID(deviceID: deviceID),
                let name = getDeviceName(deviceID: deviceID) {
+                // Filter out internal macOS aggregate devices — not real microphones
+                if uid.hasPrefix("CADefaultDeviceAggregate") { continue }
                 inputDevices.append(AudioInputDevice(uid: uid, name: name))
             }
         }

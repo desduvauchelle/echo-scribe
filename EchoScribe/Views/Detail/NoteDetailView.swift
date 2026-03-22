@@ -19,44 +19,53 @@ struct NoteDetailView: View {
     @State private var editingTask: CDNoteTask?
     @State private var showDeleteConfirmation = false
 
+    private var isNoteDeleted: Bool {
+        note.managedObjectContext == nil || note.isDeleted
+    }
+
+    @ViewBuilder
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: Spacing.lg) {
-                header
-                Divider()
-                projectSection
-                Divider()
-                textSection
-                Divider()
-                summarySection
-                Divider()
-                tagsSection
-                Divider()
-                tasksSection
+        if isNoteDeleted {
+            Color.clear
+        } else {
+            ScrollView {
+                VStack(alignment: .leading, spacing: Spacing.lg) {
+                    header
+                    Divider()
+                    projectSection
+                    Divider()
+                    textSection
+                    Divider()
+                    summarySection
+                    Divider()
+                    tagsSection
+                    Divider()
+                    tasksSection
 
-                Divider()
-                    .padding(.top, Spacing.xl)
+                    Divider()
+                        .padding(.top, Spacing.xl)
 
-                Button {
-                    showDeleteConfirmation = true
-                } label: {
-                    Label("Delete Note", systemImage: "trash")
-                        .foregroundStyle(.red.opacity(0.7))
-                        .frame(maxWidth: .infinity)
+                    Button {
+                        showDeleteConfirmation = true
+                    } label: {
+                        Label("Delete Note", systemImage: "trash")
+                            .foregroundStyle(.red.opacity(0.7))
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.vertical, Spacing.sm)
+                    .help("Delete note")
                 }
-                .buttonStyle(.plain)
-                .padding(.vertical, Spacing.sm)
-                .help("Delete note")
+                .padding(Spacing.lg)
             }
-            .padding(Spacing.lg)
-        }
-        .frame(minWidth: 350, maxWidth: .infinity, maxHeight: .infinity)
-        .background(.background)
-        .onAppear {
-            editedText = note.displayText
-            editedSummary = note.summary ?? ""
-            selectedProject = note.project
-            tagNames = note.tagsArray.map(\.name)
+            .frame(minWidth: 350, maxWidth: .infinity, maxHeight: .infinity)
+            .background(.background)
+            .onAppear {
+                editedText = note.displayText
+                editedSummary = note.summary ?? ""
+                selectedProject = note.project
+                tagNames = note.tagsArray.map(\.name)
+            }
         }
     }
 
