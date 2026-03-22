@@ -1,0 +1,54 @@
+name: EchoScribe
+options:
+  bundleIdPrefix: com.echoscribe
+  deploymentTarget:
+    macOS: "15.0"
+  xcodeVersion: "16.0"
+  createIntermediateGroups: true
+
+packages:
+  GRDB:
+    url: https://github.com/groue/GRDB.swift.git
+    from: "7.0.0"
+  mlx-swift-lm:
+    url: https://github.com/ml-explore/mlx-swift-lm.git
+    from: "2.30.0"
+  WhisperKit:
+    url: https://github.com/argmaxinc/WhisperKit.git
+    from: "0.16.0"
+  KeyboardShortcuts:
+    url: https://github.com/sindresorhus/KeyboardShortcuts.git
+    from: "2.0.0"
+
+targets:
+  EchoScribe:
+    type: application
+    platform: macOS
+    sources:
+      - path: EchoScribe
+        excludes:
+          - Resources/Info.plist
+    info:
+      path: EchoScribe/Resources/Info.plist
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.echoscribe.app
+        PRODUCT_NAME: Echo Scribe
+        SWIFT_VERSION: "6.0"
+        GENERATE_INFOPLIST_FILE: false
+        INFOPLIST_FILE: EchoScribe/Resources/Info.plist
+        ENABLE_HARDENED_RUNTIME: true
+    dependencies:
+      - package: GRDB
+      - package: mlx-swift-lm
+        product: MLXLLM
+      - package: mlx-swift-lm
+        product: MLXLMCommon
+      - package: WhisperKit
+      - package: KeyboardShortcuts
+    entitlements:
+      path: EchoScribe/Resources/EchoScribe.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.device.audio-input: true
+        com.apple.security.network.client: true
