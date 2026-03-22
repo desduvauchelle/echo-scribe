@@ -1,25 +1,25 @@
 import SwiftUI
+import CoreData
 
 struct KanbanView: View {
     @Bindable var feedViewModel: FeedViewModel
     var projects: [ProjectWithCount]
-    let database: AppDatabase
 
-    private var columns: [(project: Project?, notes: [NoteWithDetails])] {
-        var grouped: [String?: [NoteWithDetails]] = [:]
+    @Environment(\.managedObjectContext) private var context
+
+    private var columns: [(project: CDProject?, notes: [NoteWithDetails])] {
+        var grouped: [UUID?: [NoteWithDetails]] = [:]
         for note in feedViewModel.notes {
-            let key = note.note.projectId
+            let key = note.note.project?.id
             grouped[key, default: []].append(note)
         }
 
-        var result: [(project: Project?, notes: [NoteWithDetails])] = []
+        var result: [(project: CDProject?, notes: [NoteWithDetails])] = []
 
-        // Unassigned column first
         if let unassigned = grouped[nil], !unassigned.isEmpty {
             result.append((project: nil, notes: unassigned))
         }
 
-        // Project columns
         for pwc in projects {
             let notes = grouped[pwc.project.id] ?? []
             if !notes.isEmpty {
@@ -35,87 +35,91 @@ struct KanbanView: View {
             emptyState
         } else {
             ScrollView(.horizontal, showsIndicators: true) {
-                HStack(alignment: .top, spacing: 16) {
+                HStack(alignment: .top, spacing: Spacing.md) {
                     ForEach(columns.indices, id: \.self) { index in
                         let column = columns[index]
                         kanbanColumn(project: column.project, notes: column.notes)
                     }
                 }
-                .padding()
+                .padding(Spacing.md)
             }
         }
     }
 
-    private func kanbanColumn(project: Project?, notes: [NoteWithDetails]) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            // Column header
+    private func kanbanColumn(project: CDProject?, notes: [NoteWithDetails]) -> some View {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
             HStack {
                 if let project {
                     Circle()
                         .fill(Color(hex: project.color) ?? .blue)
                         .frame(width: 8, height: 8)
                     Text(project.name)
-                        .font(.headline)
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
                 } else {
                     Text("Unassigned")
-                        .font(.headline)
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
                         .foregroundStyle(.secondary)
                 }
 
                 Spacer()
 
                 Text("\(notes.count)")
-                    .font(.caption)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .padding(.horizontal, Spacing.sm)
+                    .padding(.vertical, Spacing.xs)
                     .background(.quaternary, in: Capsule())
             }
-            .padding(.horizontal, 8)
+            .padding(.horizontal, Spacing.sm)
 
             Divider()
 
-            // Cards
             ScrollView(.vertical, showsIndicators: false) {
-                LazyVStack(spacing: 8) {
-                    ForEach(notes, id: \.note.id) { noteDetail in
+                LazyVStack(spacing: Spacing.sm) {
+                    ForEach(notes) { noteDetail in
                         NoteCardView(noteDetail: noteDetail)
-                            .draggable(noteDetail.note.id) {
+                            .draggable(noteDetail.note.id.uuidString) {
                                 Text(noteDetail.note.displayText)
                                     .font(.caption)
                                     .lineLimit(2)
-                                    .padding(8)
-                                    .background(.background, in: RoundedRectangle(cornerRadius: 8))
+                                    .padding(Spacing.sm)
+                                    .background(.background, in: RoundedRectangle(cornerRadius: Radius.sm))
                             }
                     }
                 }
             }
         }
         .frame(width: 280)
-        .padding()
-        .background(.background.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
-        .dropDestination(for: String.self) { noteIds, _ in
-            for noteId in noteIds {
-                reassignNote(noteId: noteId, toProjectId: project?.id)
+        .padding(Spacing.md)
+        .background(AppColors.surface, in: RoundedRectangle(cornerRadius: Radius.md))
+        .dropDestination(for: String.self) { noteIdStrings, _ in
+            for idString in noteIdStrings {
+                reassignNote(idString: idString, toProject: project)
             }
             return true
         }
     }
 
-    private func reassignNote(noteId: String, toProjectId: String?) {
-        do {
-            try database.reassignNoteProject(noteId: noteId, projectId: toProjectId)
-        } catch {
-            print("Failed to reassign note: \(error)")
-        }
+    private func reassignNote(idString: String, toProject project: CDProject?) {
+        guard let uuid = UUID(uuidString: idString) else { return }
+        let request: NSFetchRequest<CDNote> = CDNote.fetchRequest()
+        request.predicate = NSPredicate(format: "id == %@", uuid as CVarArg)
+        request.fetchLimit = 1
+        guard let note = try? context.fetch(request).first else { return }
+        note.project = project
+        note.updatedAt = Date()
+        try? context.save()
     }
 
     private var emptyState: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: Spacing.md) {
             Image(systemName: "rectangle.split.3x1")
-                .font(.system(size: 48))
-                .foregroundStyle(.secondary)
+                .font(.system(size: 36))
+                .foregroundStyle(.tertiary)
             Text("No notes to display")
-                .font(.title2)
+                .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

@@ -1,0 +1,140 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: macos-15
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install tools
+        run: brew install create-dmg xcodegen
+
+      - name: Import signing certificate
+        env:
+          P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          P12_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          # Create temporary keychain
+          KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -base64 32)"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # Import certificate
+          P12_PATH="$RUNNER_TEMP/certificate.p12"
+          echo "$P12_BASE64" | base64 --decode > "$P12_PATH"
+          security import "$P12_PATH" \
+            -k "$KEYCHAIN_PATH" \
+            -P "$P12_PASSWORD" \
+            -T /usr/bin/codesign \
+            -T /usr/bin/security
+
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain-db
+
+          rm "$P12_PATH"
+
+      - name: Store notarization credentials
+        run: |
+          xcrun notarytool store-credentials "EchoScribeNotary" \
+            --apple-id "${{ secrets.APPLE_ID }}" \
+            --team-id "${{ secrets.APPLE_TEAM_ID }}" \
+            --password "${{ secrets.APPLE_APP_PASSWORD }}"
+
+      - name: Build, sign, notarize, package
+        run: |
+          chmod +x Scripts/build-release.sh Scripts/create-dmg.sh
+          Scripts/build-release.sh "${{ github.ref_name }}"
+
+      - name: Sign update for Sparkle
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          DMG_PATH="build/EchoScribe-${VERSION}.dmg"
+
+          # Find Sparkle's sign_update tool in the build artifacts
+          SIGN_UPDATE=$(find build -name "sign_update" -type f 2>/dev/null | head -1)
+
+          if [ -z "$SIGN_UPDATE" ]; then
+            # Download Sparkle tools if not found in build
+            SPARKLE_VERSION="2.6.4"
+            curl -sL "https://github.com/sparkle-project/Sparkle/releases/download/${SPARKLE_VERSION}/Sparkle-${SPARKLE_VERSION}.tar.xz" | tar xJ -C /tmp
+            SIGN_UPDATE="/tmp/bin/sign_update"
+          fi
+
+          # Sign the DMG and capture output
+          SIGNATURE=$(echo "$SPARKLE_PRIVATE_KEY" | "$SIGN_UPDATE" "$DMG_PATH" --ed-key-file -)
+          echo "SPARKLE_SIGNATURE=${SIGNATURE}" >> "$GITHUB_ENV"
+
+          # Get file size
+          FILE_SIZE=$(stat -f%z "$DMG_PATH")
+          echo "DMG_SIZE=${FILE_SIZE}" >> "$GITHUB_ENV"
+          echo "DMG_VERSION=${VERSION}" >> "$GITHUB_ENV"
+
+      - name: Update appcast
+        run: |
+          VERSION="$DMG_VERSION"
+          DMG_URL="https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/EchoScribe-${VERSION}.dmg"
+          PUB_DATE=$(date -R)
+
+          # Build the new item XML
+          NEW_ITEM=$(cat <<XMLEOF
+        <item>
+          <title>Version ${VERSION}</title>
+          <sparkle:version>$(git rev-list --count HEAD)</sparkle:version>
+          <sparkle:shortVersionString>${VERSION}</sparkle:shortVersionString>
+          <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+          <pubDate>${PUB_DATE}</pubDate>
+          <enclosure
+            url="${DMG_URL}"
+            length="${DMG_SIZE}"
+            type="application/octet-stream"
+            sparkle:edSignature="${SPARKLE_SIGNATURE}"
+          />
+        </item>
+      XMLEOF
+          )
+
+          # Insert the new item before </channel>
+          sed -i '' "s|</channel>|${NEW_ITEM}\n  </channel>|" appcast.xml
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          gh release create "${{ github.ref_name }}" \
+            "build/EchoScribe-${VERSION}.dmg" \
+            --title "Echo Scribe ${VERSION}" \
+            --generate-notes
+
+      - name: Commit updated appcast
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add appcast.xml
+          git commit -m "Update appcast for ${{ github.ref_name }}"
+          git push origin HEAD:main
+
+      - name: Cleanup keychain
+        if: always()
+        run: |
+          KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain-db"
+          if [ -f "$KEYCHAIN_PATH" ]; then
+            security delete-keychain "$KEYCHAIN_PATH"
+          fi

@@ -2,12 +2,12 @@ import SwiftUI
 
 struct FeedView: View {
     @Bindable var feedViewModel: FeedViewModel
-    @Binding var selectedNoteId: String?
+    @Binding var selectedNoteId: UUID?
 
     var body: some View {
         Group {
             if feedViewModel.notes.isEmpty {
-                emptyState
+                emptyFilterState
             } else {
                 notesList
             }
@@ -30,33 +30,34 @@ struct FeedView: View {
 
     private var notesList: some View {
         ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(spacing: 12) {
-                    ForEach(feedViewModel.notes, id: \.note.id) { noteDetail in
-                        NoteCardView(
-                            noteDetail: noteDetail,
-                            isSelected: noteDetail.note.id == selectedNoteId
-                        )
-                        .id(noteDetail.note.id)
-                        .onTapGesture {
+            LazyVStack(spacing: Spacing.md) {
+                ForEach(feedViewModel.notes, id: \.note.id) { noteDetail in
+                    NoteCardView(
+                        noteDetail: noteDetail,
+                        isSelected: noteDetail.note.id == selectedNoteId
+                    )
+                    .id(noteDetail.note.id)
+                    .onTapGesture {
+                        withAnimation(AppAnimation.gentle) {
                             selectedNoteId = noteDetail.note.id
                         }
-                        .contextMenu {
-                            Button("Open") {
-                                selectedNoteId = noteDetail.note.id
-                            }
-                            Divider()
-                            Button("Delete", role: .destructive) {
-                                feedViewModel.deleteNote(noteDetail)
-                            }
+                    }
+                    .contextMenu {
+                        Button("Open") {
+                            selectedNoteId = noteDetail.note.id
+                        }
+                        Divider()
+                        Button("Delete", role: .destructive) {
+                            feedViewModel.deleteNote(noteDetail)
                         }
                     }
+                    .gentleAppear()
                 }
-                .padding()
             }
+            .padding(.bottom, Spacing.xl)
             .onChange(of: selectedNoteId) { _, newValue in
                 if let newValue {
-                    withAnimation {
+                    withAnimation(AppAnimation.gentle) {
                         proxy.scrollTo(newValue, anchor: .center)
                     }
                 }
@@ -64,19 +65,16 @@ struct FeedView: View {
         }
     }
 
-    private var emptyState: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "mic.badge.plus")
-                .font(.system(size: 48))
-                .foregroundStyle(.secondary)
-            Text("No notes yet")
-                .font(.title2)
-                .foregroundStyle(.secondary)
-            Text("Press Cmd+R or click the mic button to start recording")
-                .font(.body)
+    private var emptyFilterState: some View {
+        VStack(spacing: Spacing.md) {
+            Image(systemName: "doc.text.magnifyingglass")
+                .font(.system(size: 36))
                 .foregroundStyle(.tertiary)
+            Text("No matching notes")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity, minHeight: 200)
     }
 
     private func moveSelection(by offset: Int) {

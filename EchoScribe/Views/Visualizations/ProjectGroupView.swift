@@ -4,22 +4,20 @@ struct ProjectGroupView: View {
     @Bindable var feedViewModel: FeedViewModel
     var projects: [ProjectWithCount]
 
-    private var grouped: [(project: Project?, notes: [NoteWithDetails])] {
-        var byProject: [String?: [NoteWithDetails]] = [:]
+    private var grouped: [(project: CDProject?, notes: [NoteWithDetails])] {
+        var byProject: [UUID?: [NoteWithDetails]] = [:]
         for note in feedViewModel.notes {
-            byProject[note.note.projectId, default: []].append(note)
+            byProject[note.note.project?.id, default: []].append(note)
         }
 
-        var result: [(project: Project?, notes: [NoteWithDetails])] = []
+        var result: [(project: CDProject?, notes: [NoteWithDetails])] = []
 
-        // Named projects
         for pwc in projects {
             if let notes = byProject[pwc.project.id], !notes.isEmpty {
                 result.append((project: pwc.project, notes: notes))
             }
         }
 
-        // Unassigned
         if let unassigned = byProject[nil], !unassigned.isEmpty {
             result.append((project: nil, notes: unassigned))
         }
@@ -31,25 +29,23 @@ struct ProjectGroupView: View {
         if feedViewModel.notes.isEmpty {
             emptyState
         } else {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 16) {
-                    ForEach(grouped.indices, id: \.self) { index in
-                        let group = grouped[index]
-                        projectSection(project: group.project, notes: group.notes)
-                    }
+            LazyVStack(alignment: .leading, spacing: Spacing.lg) {
+                ForEach(grouped.indices, id: \.self) { index in
+                    let group = grouped[index]
+                    projectSection(project: group.project, notes: group.notes)
                 }
-                .padding()
             }
+            .padding(.bottom, Spacing.xl)
         }
     }
 
-    private func projectSection(project: Project?, notes: [NoteWithDetails]) -> some View {
+    private func projectSection(project: CDProject?, notes: [NoteWithDetails]) -> some View {
         DisclosureGroup {
-            ForEach(notes, id: \.note.id) { noteDetail in
+            ForEach(notes) { noteDetail in
                 NoteCardView(noteDetail: noteDetail)
             }
         } label: {
-            HStack(spacing: 8) {
+            HStack(spacing: Spacing.sm) {
                 if let project {
                     Circle()
                         .fill(Color(hex: project.color) ?? .blue)
@@ -68,21 +64,22 @@ struct ProjectGroupView: View {
                 }
 
                 Text("\(notes.count)")
-                    .font(.caption)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .padding(.horizontal, Spacing.sm)
+                    .padding(.vertical, Spacing.xs)
                     .background(.quaternary, in: Capsule())
             }
         }
     }
 
     private var emptyState: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: Spacing.md) {
             Image(systemName: "folder")
-                .font(.system(size: 48))
-                .foregroundStyle(.secondary)
+                .font(.system(size: 36))
+                .foregroundStyle(.tertiary)
             Text("No notes to display")
-                .font(.title2)
+                .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

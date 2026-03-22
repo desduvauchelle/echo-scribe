@@ -1,41 +1,104 @@
 import SwiftUI
 import KeyboardShortcuts
+import Sparkle
 
 @main
 struct EchoScribeApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
-    private let database = AppDatabase.shared
+    private let persistence = PersistenceController.shared
     @State private var feedViewModel: FeedViewModel
     @State private var recordingViewModel: RecordingViewModel
+    @State private var dictationViewModel: DictationViewModel
     @State private var projectsViewModel: ProjectsViewModel
     @State private var settingsViewModel: SettingsViewModel
-    @State private var menuBarManager = MenuBarManager()
     @State private var spotlightIndexer = SpotlightIndexer()
-    @State private var appState = AppState()
+    @State private var appState: AppState
+    @State private var audioDeviceManager: AudioDeviceManager
+    @State private var dictationIndicator = DictationIndicatorWindow()
+    private let updaterController: SPUStandardUpdaterController
 
     init() {
-        let db = AppDatabase.shared
+        #if DEBUG
+        self.updaterController = SPUStandardUpdaterController(
+            startingUpdater: false,
+            updaterDelegate: nil,
+            userDriverDelegate: nil
+        )
+        #else
+        self.updaterController = SPUStandardUpdaterController(
+            startingUpdater: true,
+            updaterDelegate: nil,
+            userDriverDelegate: nil
+        )
+        #endif
+        let persistence = PersistenceController.shared
+        let ctx = persistence.viewContext
         let mlx = MLXService()
-        let pipeline = NoteProcessingPipeline(database: db, mlxService: mlx)
+        let pipeline = NoteProcessingPipeline(persistence: persistence, mlxService: mlx)
+        let deviceManager = AudioDeviceManager()
         let appleSpeechService = AppleSpeechService()
+        appleSpeechService.audioDeviceManager = deviceManager
         let whisperService = WhisperSpeechService()
+        whisperService.audioDeviceManager = deviceManager
+        let coordinator = RecordingCoordinator()
 
         let recordingVM = RecordingViewModel(
             speechService: appleSpeechService,
-            pipeline: pipeline
+            pipeline: pipeline,
+            coordinator: coordinator
         )
 
-        _feedViewModel = State(initialValue: FeedViewModel(database: db))
+        let dictationVM = DictationViewModel(
+            speechService: appleSpeechService,
+            coordinator: coordinator
+        )
+
+        _feedViewModel = State(initialValue: FeedViewModel(context: ctx))
         _recordingViewModel = State(initialValue: recordingVM)
-        _projectsViewModel = State(initialValue: ProjectsViewModel(database: db))
+        _dictationViewModel = State(initialValue: dictationVM)
+        _projectsViewModel = State(initialValue: ProjectsViewModel(context: ctx))
         _settingsViewModel = State(initialValue: SettingsViewModel(
             mlxService: mlx,
             whisperService: whisperService,
             appleSpeechService: appleSpeechService,
             recordingViewModel: recordingVM,
-            database: db
+            dictationViewModel: dictationVM,
+            context: ctx,
+            updater: updaterController.updater
         ))
+
+        // Configure the singleton menu bar manager
+        MenuBarManager.shared.configure(recordingViewModel: recordingVM, dictationViewModel: dictationVM)
+
+        // Wire menu bar action handlers
+        AppDelegate.toggleRecordingHandler = {
+            recordingVM.toggleRecording()
+        }
+        AppDelegate.toggleDictationHandler = {
+            Task { @MainActor in
+                if dictationVM.isRecording {
+                    await dictationVM.stopDictationAndPaste()
+                } else {
+                    await dictationVM.startDictation()
+                }
+            }
+        }
+        AppDelegate.showWindowHandler = {
+            // Activation and focus handled by AppDelegate.showMainWindow()
+        }
+        let state = AppState()
+        _appState = State(initialValue: state)
+        _audioDeviceManager = State(initialValue: deviceManager)
+        AppDelegate.openSettingsHandler = {
+            // Activation and focus handled by AppDelegate.openSettings()
+            state.currentViewMode = .settings
+        }
+
+        let updater = updaterController
+        AppDelegate.checkForUpdatesHandler = {
+            updater.checkForUpdates(nil)
+        }
     }
 
     var body: some Scene {
@@ -44,35 +107,46 @@ struct EchoScribeApp: App {
                 feedViewModel: feedViewModel,
                 recordingViewModel: recordingViewModel,
                 projectsViewModel: projectsViewModel,
-                appState: appState
+                settingsViewModel: settingsViewModel,
+                appState: appState,
+                audioDeviceManager: audioDeviceManager
             )
+            .environment(\.managedObjectContext, persistence.viewContext)
             .onAppear {
+                // Brain Mode: toggle on key up
                 KeyboardShortcuts.onKeyUp(for: .toggleRecording) { [self] in
                     recordingViewModel.toggleRecording()
                 }
-                menuBarManager.configure(recordingViewModel: recordingViewModel)
-                AppDelegate.toggleRecordingHandler = { [self] in
-                    recordingViewModel.toggleRecording()
-                }
-                AppDelegate.showWindowHandler = {
-                    NSApplication.shared.activate(ignoringOtherApps: true)
-                    if let window = NSApplication.shared.windows.first {
-                        window.makeKeyAndOrderFront(nil)
+
+                // Dictation Mode: hold to record, release to paste
+                KeyboardShortcuts.onKeyDown(for: .dictationMode) { [self] in
+                    Task { @MainActor in
+                        await dictationViewModel.startDictation()
                     }
                 }
+                KeyboardShortcuts.onKeyUp(for: .dictationMode) { [self] in
+                    Task { @MainActor in
+                        await dictationViewModel.stopDictationAndPaste()
+                    }
+                }
+
                 spotlightIndexer.indexNotes(feedViewModel.notes)
             }
             .onChange(of: recordingViewModel.isRecording) { _, isRecording in
-                menuBarManager.updateRecordingState(isRecording: isRecording)
+                MenuBarManager.shared.updateRecordingState(isRecording: isRecording)
+            }
+            .onChange(of: dictationViewModel.isRecording) { _, isDictating in
+                if isDictating {
+                    dictationIndicator.show()
+                } else {
+                    dictationIndicator.dismiss()
+                }
+                MenuBarManager.shared.updateDictationState(isDictating: isDictating)
             }
             .onChange(of: feedViewModel.notes) { _, newNotes in
                 spotlightIndexer.indexNotes(newNotes)
             }
         }
         .defaultSize(width: 900, height: 650)
-
-        Settings {
-            SettingsView(viewModel: settingsViewModel, menuBarManager: menuBarManager)
-        }
     }
 }

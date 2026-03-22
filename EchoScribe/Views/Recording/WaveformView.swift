@@ -8,7 +8,7 @@ struct WaveformView: View {
         HStack(spacing: 3) {
             ForEach(0..<bars.count, id: \.self) { index in
                 RoundedRectangle(cornerRadius: 2)
-                    .fill(.blue.gradient)
+                    .fill(Color.accentColor.gradient)
                     .frame(width: 4, height: max(4, bars[index] * 60))
             }
         }

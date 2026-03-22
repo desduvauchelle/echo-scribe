@@ -4,6 +4,7 @@ final class AudioCaptureManager {
     private let audioEngine = AVAudioEngine()
     private var audioLevelCallback: ((Float) -> Void)?
     private var audioBufferCallback: ((AVAudioPCMBuffer) -> Void)?
+    var audioDeviceManager: AudioDeviceManager?
 
     var inputNode: AVAudioInputNode {
         audioEngine.inputNode
@@ -28,6 +29,7 @@ final class AudioCaptureManager {
             self?.audioBufferCallback?(buffer)
         }
 
+        audioDeviceManager?.applyDevice(to: audioEngine)
         audioEngine.prepare()
         try audioEngine.start()
     }

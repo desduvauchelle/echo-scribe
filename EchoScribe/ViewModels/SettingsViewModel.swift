@@ -1,6 +1,10 @@
 import Foundation
 import AppKit
+import CoreData
+import CoreSpotlight
+import ServiceManagement
 import UniformTypeIdentifiers
+import Sparkle
 
 enum RecordingMode: String, CaseIterable, Identifiable {
     case pushToTalk = "Push to Talk"
@@ -15,13 +19,37 @@ final class SettingsViewModel {
     let whisperService: WhisperSpeechService
     private let appleSpeechService: AppleSpeechService
     private let recordingViewModel: RecordingViewModel
-    private let database: AppDatabase
+    private let dictationViewModel: DictationViewModel
+    private let context: NSManagedObjectContext
+    let updater: SPUUpdater
 
     var selectedEngine: SpeechEngine = .apple {
         didSet { switchEngine() }
     }
 
+    var selectedWhisperVariant: WhisperModelVariant = .largeTurbo
+    var variantToDelete: WhisperModelVariant?
+
+    var selectedAIVariant: AIModelVariant = .qwen3B {
+        didSet { switchAIVariant() }
+    }
+
     var recordingMode: RecordingMode = .pushToTalk
+
+    var launchAtLogin: Bool {
+        get { SMAppService.mainApp.status == .enabled }
+        set {
+            do {
+                if newValue {
+                    try SMAppService.mainApp.register()
+                } else {
+                    try SMAppService.mainApp.unregister()
+                }
+            } catch {
+                print("Launch at login failed: \(error)")
+            }
+        }
+    }
 
     // MARK: - MLX Computed Properties
 
@@ -72,13 +100,19 @@ final class SettingsViewModel {
         whisperService: WhisperSpeechService,
         appleSpeechService: AppleSpeechService,
         recordingViewModel: RecordingViewModel,
-        database: AppDatabase
+        dictationViewModel: DictationViewModel,
+        context: NSManagedObjectContext,
+        updater: SPUUpdater
     ) {
         self.mlxService = mlxService
         self.whisperService = whisperService
         self.appleSpeechService = appleSpeechService
         self.recordingViewModel = recordingViewModel
-        self.database = database
+        self.dictationViewModel = dictationViewModel
+        self.context = context
+        self.updater = updater
+        self.selectedWhisperVariant = WhisperModelVariant(rawValue: whisperService.selectedModel) ?? .largeTurbo
+        self.selectedAIVariant = mlxService.selectedVariant
     }
 
     // MARK: - Actions
@@ -103,36 +137,76 @@ final class SettingsViewModel {
         }
     }
 
+    func downloadWhisperVariant(_ variant: WhisperModelVariant) {
+        Task { @MainActor in
+            do {
+                try await whisperService.downloadVariant(variant)
+            } catch {
+                print("Whisper variant download failed: \(error)")
+            }
+        }
+    }
+
+    func deleteWhisperVariant(_ variant: WhisperModelVariant) {
+        whisperService.deleteVariant(variant)
+    }
+
+    func activateWhisperVariant(_ variant: WhisperModelVariant) {
+        selectedWhisperVariant = variant
+        Task { @MainActor in
+            do {
+                try await whisperService.activateVariant(variant)
+            } catch {
+                print("Whisper variant activation failed: \(error)")
+            }
+        }
+    }
+
+    func stateForVariant(_ variant: WhisperModelVariant) -> WhisperVariantDownloadState {
+        whisperService.variantStates[variant] ?? .notDownloaded
+    }
+
+    private func switchAIVariant() {
+        mlxService.switchModel(to: selectedAIVariant)
+    }
+
+    func isActiveVariant(_ variant: WhisperModelVariant) -> Bool {
+        variant.rawValue == whisperService.selectedModel
+    }
+
     private func switchEngine() {
+        let service: SpeechServiceProtocol
         switch selectedEngine {
         case .apple:
-            recordingViewModel.updateSpeechService(appleSpeechService)
+            service = appleSpeechService
         case .whisper:
-            recordingViewModel.updateSpeechService(whisperService)
+            service = whisperService
         }
+        recordingViewModel.updateSpeechService(service)
+        dictationViewModel.updateSpeechService(service)
     }
 
     func exportNotesAsJSON() {
         Task { @MainActor in
+            let notes = fetchAllNoteDetails()
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            encoder.dateEncodingStrategy = .iso8601
+
+            let exportData = notes.map { detail in
+                ExportNote(
+                    id: detail.note.id.uuidString,
+                    rawTranscript: detail.note.rawTranscript,
+                    processedText: detail.note.processedText,
+                    summary: detail.note.summary,
+                    project: detail.project?.name,
+                    tags: detail.tags.map(\.name),
+                    tasks: detail.tasks.map { ExportTask(title: $0.title, dueDate: $0.dueDate, isCompleted: $0.isCompleted) },
+                    createdAt: detail.note.createdAt
+                )
+            }
+
             do {
-                let notes = try database.fetchAllNotesWithDetails()
-                let encoder = JSONEncoder()
-                encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-                encoder.dateEncodingStrategy = .iso8601
-
-                let exportData = notes.map { detail in
-                    ExportNote(
-                        id: detail.note.id,
-                        rawTranscript: detail.note.rawTranscript,
-                        processedText: detail.note.processedText,
-                        summary: detail.note.summary,
-                        project: detail.project?.name,
-                        tags: detail.tags.map(\.name),
-                        tasks: detail.tasks.map { ExportTask(title: $0.title, dueDate: $0.dueDate, isCompleted: $0.isCompleted) },
-                        createdAt: detail.note.createdAt
-                    )
-                }
-
                 let data = try encoder.encode(exportData)
                 saveExportFile(data: data, defaultName: "echo-scribe-export.json", contentType: .json)
             } catch {
@@ -143,49 +217,53 @@ final class SettingsViewModel {
 
     func exportNotesAsMarkdown() {
         Task { @MainActor in
-            do {
-                let notes = try database.fetchAllNotesWithDetails()
-                var markdown = "# Echo Scribe Notes\n\n"
-                let dateFormatter = DateFormatter()
-                dateFormatter.dateStyle = .medium
-                dateFormatter.timeStyle = .short
+            let notes = fetchAllNoteDetails()
+            var markdown = "# Echo Scribe Notes\n\n"
+            let dateFormatter = DateFormatter()
+            dateFormatter.dateStyle = .medium
+            dateFormatter.timeStyle = .short
 
-                for detail in notes {
-                    markdown += "## \(detail.note.summary ?? "Untitled Note")\n"
-                    markdown += "*\(dateFormatter.string(from: detail.note.createdAt))*"
-                    if let project = detail.project {
-                        markdown += " | Project: **\(project.name)**"
-                    }
-                    markdown += "\n\n"
-                    markdown += detail.note.displayText + "\n\n"
+            for detail in notes {
+                markdown += "## \(detail.note.summary ?? "Untitled Note")\n"
+                markdown += "*\(dateFormatter.string(from: detail.note.createdAt))*"
+                if let project = detail.project {
+                    markdown += " | Project: **\(project.name)**"
+                }
+                markdown += "\n\n"
+                markdown += detail.note.displayText + "\n\n"
 
-                    if !detail.tags.isEmpty {
-                        markdown += "Tags: " + detail.tags.map { "`\($0.name)`" }.joined(separator: ", ") + "\n\n"
-                    }
+                if !detail.tags.isEmpty {
+                    markdown += "Tags: " + detail.tags.map { "`\($0.name)`" }.joined(separator: ", ") + "\n\n"
+                }
 
-                    if !detail.tasks.isEmpty {
-                        markdown += "### Tasks\n"
-                        for task in detail.tasks {
-                            let check = task.isCompleted ? "x" : " "
-                            var line = "- [\(check)] \(task.title)"
-                            if let dueDate = task.dueDate {
-                                line += " (due: \(dateFormatter.string(from: dueDate)))"
-                            }
-                            markdown += line + "\n"
+                if !detail.tasks.isEmpty {
+                    markdown += "### Tasks\n"
+                    for task in detail.tasks {
+                        let check = task.isCompleted ? "x" : " "
+                        var line = "- [\(check)] \(task.title)"
+                        if let dueDate = task.dueDate {
+                            line += " (due: \(dateFormatter.string(from: dueDate)))"
                         }
-                        markdown += "\n"
+                        markdown += line + "\n"
                     }
-
-                    markdown += "---\n\n"
+                    markdown += "\n"
                 }
 
-                if let data = markdown.data(using: .utf8) {
-                    saveExportFile(data: data, defaultName: "echo-scribe-export.md", contentType: .plainText)
-                }
-            } catch {
-                print("Markdown export failed: \(error)")
+                markdown += "---\n\n"
+            }
+
+            if let data = markdown.data(using: .utf8) {
+                saveExportFile(data: data, defaultName: "echo-scribe-export.md", contentType: .plainText)
             }
         }
+    }
+
+    private func fetchAllNoteDetails() -> [NoteWithDetails] {
+        let request: NSFetchRequest<CDNote> = CDNote.fetchRequest()
+        request.sortDescriptors = [NSSortDescriptor(key: "createdAt", ascending: false)]
+        request.relationshipKeyPathsForPrefetching = ["project", "tags", "tasks"]
+        let notes = (try? context.fetch(request)) ?? []
+        return notes.map(NoteWithDetails.from)
     }
 
     private func saveExportFile(data: Data, defaultName: String, contentType: UTType) {
@@ -195,6 +273,49 @@ final class SettingsViewModel {
 
         if panel.runModal() == .OK, let url = panel.url {
             try? data.write(to: url)
+        }
+    }
+
+    // MARK: - Uninstall
+
+    func performUninstall() {
+        let fm = FileManager.default
+
+        // 1. Remove Spotlight index
+        Task {
+            try? await CSSearchableIndex.default().deleteSearchableItems(withDomainIdentifiers: ["com.echoscribe.notes"])
+        }
+
+        // 2. Disable Launch at Login
+        try? SMAppService.mainApp.unregister()
+
+        // 3. Delete WhisperKit models
+        if let documentsDir = fm.urls(for: .documentDirectory, in: .userDomainMask).first {
+            let whisperDir = documentsDir.appendingPathComponent("huggingface/models/argmaxinc/whisperkit-coreml")
+            try? fm.removeItem(at: whisperDir)
+        }
+
+        // 4. Delete Core Data database
+        if let appSupportDir = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+            let dbDir = appSupportDir.appendingPathComponent("EchoScribe")
+            try? fm.removeItem(at: dbDir)
+        }
+
+        // 5. Delete MLX / HuggingFace model cache
+        let homeDir = fm.homeDirectoryForCurrentUser
+        let hfCacheDir = homeDir.appendingPathComponent(".cache/huggingface")
+        if fm.fileExists(atPath: hfCacheDir.path) {
+            try? fm.removeItem(at: hfCacheDir)
+        }
+
+        // 6. Delete app preferences
+        if let bundleId = Bundle.main.bundleIdentifier {
+            UserDefaults.standard.removePersistentDomain(forName: bundleId)
+        }
+
+        // 7. Quit
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            NSApplication.shared.terminate(nil)
         }
     }
 }

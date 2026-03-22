@@ -21,6 +21,12 @@ struct CalendarView: View {
         return (calendar.component(.weekday, from: firstDay) - calendar.firstWeekday + 7) % 7
     }
 
+    private var reorderedWeekdays: [String] {
+        let weekdays = calendar.shortWeekdaySymbols
+        let startIndex = calendar.firstWeekday - 1
+        return Array(weekdays[startIndex...]) + Array(weekdays[..<startIndex])
+    }
+
     private var notesByDay: [String: (noteCount: Int, taskCount: Int)] {
         var result: [String: (noteCount: Int, taskCount: Int)] = [:]
         let formatter = DateFormatter()
@@ -35,20 +41,20 @@ struct CalendarView: View {
     }
 
     var body: some View {
-        VStack(spacing: 12) {
-            // Month navigation
+        VStack(spacing: Spacing.md) {
             HStack {
                 Button {
                     displayedMonth = calendar.date(byAdding: .month, value: -1, to: displayedMonth) ?? displayedMonth
                 } label: {
                     Image(systemName: "chevron.left")
+                        .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
 
                 Spacer()
 
                 Text(displayedMonth.formatted(.dateTime.month(.wide).year()))
-                    .font(.title2)
+                    .font(.title3)
                     .fontWeight(.semibold)
 
                 Spacer()
@@ -57,39 +63,32 @@ struct CalendarView: View {
                     displayedMonth = calendar.date(byAdding: .month, value: 1, to: displayedMonth) ?? displayedMonth
                 } label: {
                     Image(systemName: "chevron.right")
+                        .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
             }
-            .padding(.horizontal)
 
-            // Weekday headers
-            let weekdays = calendar.shortWeekdaySymbols
-            let reordered = Array(weekdays[calendar.firstWeekday - 1...]) + Array(weekdays[..<calendar.firstWeekday - 1])
-
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 7), spacing: 4) {
-                ForEach(reordered, id: \.self) { day in
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 7), spacing: Spacing.xs) {
+                ForEach(reorderedWeekdays, id: \.self) { day in
                     Text(day)
                         .font(.caption)
                         .fontWeight(.medium)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.tertiary)
                         .frame(maxWidth: .infinity)
                 }
 
-                // Empty cells before first day
                 ForEach(0..<firstWeekday, id: \.self) { _ in
                     Color.clear.frame(height: 60)
                 }
 
-                // Day cells
                 ForEach(daysInMonth, id: \.self) { date in
                     dayCell(date: date)
                 }
             }
-            .padding(.horizontal)
 
             Spacer()
         }
-        .padding(.top)
+        .padding(.top, Spacing.md)
     }
 
     private func dayCell(date: Date) -> some View {
@@ -108,14 +107,14 @@ struct CalendarView: View {
             VStack(spacing: 2) {
                 Text("\(calendar.component(.day, from: date))")
                     .font(.body)
-                    .fontWeight(isToday ? .bold : .regular)
-                    .foregroundStyle(isToday ? .accentColor : .primary)
+                    .fontWeight(isToday ? .semibold : .regular)
+                    .foregroundStyle(isToday ? Color.accentColor : Color.primary)
 
                 if let counts {
                     HStack(spacing: 2) {
                         if counts.noteCount > 0 {
                             Circle()
-                                .fill(.blue)
+                                .fill(Color.accentColor)
                                 .frame(width: 5, height: 5)
                         }
                         if counts.taskCount > 0 {
@@ -127,7 +126,7 @@ struct CalendarView: View {
 
                     Text("\(counts.noteCount)")
                         .font(.caption2)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.tertiary)
                 } else {
                     Spacer().frame(height: 12)
                 }
@@ -136,7 +135,7 @@ struct CalendarView: View {
             .frame(height: 60)
             .background(
                 isToday ? Color.accentColor.opacity(0.08) : Color.clear,
-                in: RoundedRectangle(cornerRadius: 6)
+                in: RoundedRectangle(cornerRadius: Radius.sm)
             )
         }
         .buttonStyle(.plain)

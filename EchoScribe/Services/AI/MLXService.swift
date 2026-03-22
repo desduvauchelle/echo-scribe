@@ -1,6 +1,98 @@
 import Foundation
-import MLXLLM
-import MLXLMCommon
+import SwiftUI
+@preconcurrency import MLXLLM
+@preconcurrency import MLXLMCommon
+
+enum AIModelVariant: String, CaseIterable, Identifiable {
+    case qwen05B  = "mlx-community/Qwen2.5-0.5B-Instruct-4bit"
+    case qwen15B  = "mlx-community/Qwen2.5-1.5B-Instruct-4bit"
+    case qwen3B   = "mlx-community/Qwen2.5-3B-Instruct-4bit"
+    case qwen7B   = "mlx-community/Qwen2.5-7B-Instruct-4bit"
+    case llama1B  = "mlx-community/Llama-3.2-1B-Instruct-4bit"
+    case llama3B  = "mlx-community/Llama-3.2-3B-Instruct-4bit"
+    case mistral7B = "mlx-community/Mistral-7B-Instruct-v0.3-4bit"
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .qwen05B: return "Qwen 2.5 0.5B"
+        case .qwen15B: return "Qwen 2.5 1.5B"
+        case .qwen3B: return "Qwen 2.5 3B"
+        case .qwen7B: return "Qwen 2.5 7B"
+        case .llama1B: return "Llama 3.2 1B"
+        case .llama3B: return "Llama 3.2 3B"
+        case .mistral7B: return "Mistral 7B"
+        }
+    }
+
+    var familyName: String {
+        switch self {
+        case .qwen05B, .qwen15B, .qwen3B, .qwen7B: return "Qwen 2.5"
+        case .llama1B, .llama3B: return "Llama 3.2"
+        case .mistral7B: return "Mistral"
+        }
+    }
+
+    var storageSize: String {
+        switch self {
+        case .qwen05B: return "~350 MB"
+        case .qwen15B: return "~900 MB"
+        case .qwen3B: return "~1.8 GB"
+        case .qwen7B: return "~4.5 GB"
+        case .llama1B: return "~700 MB"
+        case .llama3B: return "~1.8 GB"
+        case .mistral7B: return "~4.5 GB"
+        }
+    }
+
+    var ramRequired: String {
+        switch self {
+        case .qwen05B: return "~512 MB"
+        case .qwen15B: return "~1.2 GB"
+        case .qwen3B: return "~2.5 GB"
+        case .qwen7B: return "~5 GB"
+        case .llama1B: return "~1 GB"
+        case .llama3B: return "~2.5 GB"
+        case .mistral7B: return "~5 GB"
+        }
+    }
+
+    var qualityStars: Int {
+        switch self {
+        case .qwen05B: return 1
+        case .qwen15B, .llama1B: return 2
+        case .qwen3B, .llama3B: return 3
+        case .qwen7B, .mistral7B: return 4
+        }
+    }
+
+    var sizeDescription: String {
+        switch self {
+        case .qwen05B: return "Fastest, basic quality (\(storageSize))"
+        case .qwen15B: return "Fast, good for simple tasks (\(storageSize))"
+        case .qwen3B: return "Balanced speed and quality (\(storageSize))"
+        case .qwen7B: return "Best Qwen quality, needs more RAM (\(storageSize))"
+        case .llama1B: return "Fast, strong English support (\(storageSize))"
+        case .llama3B: return "Balanced, great for English (\(storageSize))"
+        case .mistral7B: return "Strong reasoning, needs more RAM (\(storageSize))"
+        }
+    }
+
+    var detailedDescription: String {
+        switch self {
+        case .qwen05B: return "Best for quick processing on any Mac. May miss nuance in complex notes."
+        case .qwen15B: return "Good balance for everyday notes. Works well on 8 GB Macs."
+        case .qwen3B: return "Recommended for most users. Reliable extraction of tasks and summaries."
+        case .qwen7B: return "Highest quality analysis. Best with 16 GB+ RAM."
+        case .llama1B: return "Lightweight Meta model. Excellent English comprehension."
+        case .llama3B: return "Strong all-around model from Meta. Good task extraction."
+        case .mistral7B: return "Excellent reasoning and structure. Best with 16 GB+ RAM."
+        }
+    }
+
+    var isDefault: Bool { self == .qwen3B }
+}
 
 enum MLXModelState: Equatable {
     case notDownloaded
@@ -23,10 +115,30 @@ enum MLXModelState: Equatable {
 @Observable
 final class MLXService {
     var modelState: MLXModelState = .notDownloaded
-    var modelName = "mlx-community/Qwen2.5-3B-Instruct-4bit"
+    var selectedVariant: AIModelVariant
+    var modelName: String { selectedVariant.rawValue }
 
     private var modelContainer: ModelContainer?
     private var chatSession: ChatSession?
+
+    init() {
+        if let saved = UserDefaults.standard.string(forKey: Constants.selectedAIModelKey),
+           let variant = AIModelVariant(rawValue: saved) {
+            self.selectedVariant = variant
+        } else {
+            self.selectedVariant = .qwen3B
+        }
+    }
+
+    func switchModel(to variant: AIModelVariant) {
+        guard variant != selectedVariant else { return }
+        if case .downloading = modelState { return }
+        selectedVariant = variant
+        modelContainer = nil
+        chatSession = nil
+        modelState = .notDownloaded
+        UserDefaults.standard.set(variant.rawValue, forKey: Constants.selectedAIModelKey)
+    }
 
     func loadModel() async throws {
         guard modelContainer == nil else { return }

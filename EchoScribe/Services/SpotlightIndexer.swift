@@ -4,23 +4,36 @@ import UniformTypeIdentifiers
 @MainActor
 @Observable
 final class SpotlightIndexer {
-    private let index = CSSearchableIndex.default()
 
     func indexNotes(_ notes: [NoteWithDetails]) {
-        Task.detached { [notes] in
-            let items = notes.map { detail -> CSSearchableItem in
+        // Extract value types before crossing thread boundary —
+        // NSManagedObject is not thread-safe.
+        let snapshots = notes.map { detail in
+            SpotlightSnapshot(
+                uniqueId: "note-\(detail.note.id.uuidString)",
+                title: detail.note.summary ?? String(detail.note.displayText.prefix(80)),
+                content: detail.note.displayText,
+                keywords: detail.tags.map(\.name),
+                projectName: detail.project?.name,
+                createdAt: detail.note.createdAt,
+                updatedAt: detail.note.updatedAt
+            )
+        }
+
+        Task.detached {
+            let items = snapshots.map { snapshot -> CSSearchableItem in
                 let attrs = CSSearchableItemAttributeSet(contentType: .text)
-                attrs.title = detail.note.summary ?? String(detail.note.displayText.prefix(80))
-                attrs.contentDescription = detail.note.displayText
-                attrs.keywords = detail.tags.map(\.name)
-                if let project = detail.project {
-                    attrs.authorNames = [project.name]
+                attrs.title = snapshot.title
+                attrs.contentDescription = snapshot.content
+                attrs.keywords = snapshot.keywords
+                if let projectName = snapshot.projectName {
+                    attrs.authorNames = [projectName]
                 }
-                attrs.contentCreationDate = detail.note.createdAt
-                attrs.contentModificationDate = detail.note.updatedAt
+                attrs.contentCreationDate = snapshot.createdAt
+                attrs.contentModificationDate = snapshot.updatedAt
 
                 return CSSearchableItem(
-                    uniqueIdentifier: "note-\(detail.note.id)",
+                    uniqueIdentifier: snapshot.uniqueId,
                     domainIdentifier: "com.echoscribe.notes",
                     attributeSet: attrs
                 )
@@ -40,4 +53,14 @@ final class SpotlightIndexer {
             try? await CSSearchableIndex.default().deleteSearchableItems(withDomainIdentifiers: ["com.echoscribe.notes"])
         }
     }
+}
+
+private struct SpotlightSnapshot: Sendable {
+    let uniqueId: String
+    let title: String
+    let content: String
+    let keywords: [String]
+    let projectName: String?
+    let createdAt: Date
+    let updatedAt: Date
 }

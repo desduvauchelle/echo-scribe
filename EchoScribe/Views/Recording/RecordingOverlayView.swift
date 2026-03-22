@@ -5,8 +5,7 @@ struct RecordingOverlayView: View {
     var onDismiss: () -> Void
 
     var body: some View {
-        VStack(spacing: 20) {
-            // Title
+        VStack(spacing: Spacing.lg) {
             HStack {
                 Circle()
                     .fill(.red)
@@ -21,25 +20,22 @@ struct RecordingOverlayView: View {
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .font(.title3)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.tertiary)
                 }
                 .buttonStyle(.plain)
             }
 
-            // Waveform
             WaveformView(level: viewModel.audioLevel)
                 .frame(height: 60)
 
-            // Live transcript
             ScrollView {
                 Text(viewModel.liveTranscript.isEmpty ? "Listening..." : viewModel.liveTranscript)
                     .font(.body)
-                    .foregroundStyle(viewModel.liveTranscript.isEmpty ? .secondary : .primary)
+                    .foregroundStyle(viewModel.liveTranscript.isEmpty ? .tertiary : .primary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxHeight: 200)
 
-            // Stop button
             Button {
                 Task { await viewModel.stopRecording() }
                 onDismiss()
@@ -57,7 +53,7 @@ struct RecordingOverlayView: View {
                     .foregroundStyle(.red)
             }
         }
-        .padding(24)
+        .padding(Spacing.lg)
         .frame(width: 400, height: 350)
     }
 

@@ -1,23 +1,27 @@
 import SwiftUI
+import CoreData
 
 struct NoteDetailView: View {
-    let noteDetail: NoteWithDetails
-    let projects: [Project]
-    let database: AppDatabase
+    @ObservedObject var note: CDNote
+    let projects: [CDProject]
     let onDismiss: () -> Void
+    var onDelete: (() -> Void)?
+
+    @Environment(\.managedObjectContext) private var context
 
     @State private var editedText: String = ""
     @State private var editedSummary: String = ""
-    @State private var selectedProjectId: String?
+    @State private var selectedProject: CDProject?
     @State private var tagText: String = ""
-    @State private var tags: [String] = []
+    @State private var tagNames: [String] = []
     @State private var isEditingText = false
     @State private var isEditingSummary = false
-    @State private var editingTask: NoteTask?
+    @State private var editingTask: CDNoteTask?
+    @State private var showDeleteConfirmation = false
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: Spacing.lg) {
                 header
                 Divider()
                 projectSection
@@ -29,16 +33,30 @@ struct NoteDetailView: View {
                 tagsSection
                 Divider()
                 tasksSection
+
+                Divider()
+                    .padding(.top, Spacing.xl)
+
+                Button {
+                    showDeleteConfirmation = true
+                } label: {
+                    Label("Delete Note", systemImage: "trash")
+                        .foregroundStyle(.red.opacity(0.7))
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.plain)
+                .padding(.vertical, Spacing.sm)
+                .help("Delete note")
             }
-            .padding(20)
+            .padding(Spacing.lg)
         }
         .frame(minWidth: 350, maxWidth: .infinity, maxHeight: .infinity)
         .background(.background)
         .onAppear {
-            editedText = noteDetail.note.displayText
-            editedSummary = noteDetail.note.summary ?? ""
-            selectedProjectId = noteDetail.note.projectId
-            tags = noteDetail.tags.map(\.name)
+            editedText = note.displayText
+            editedSummary = note.summary ?? ""
+            selectedProject = note.project
+            tagNames = note.tagsArray.map(\.name)
         }
     }
 
@@ -46,16 +64,16 @@ struct NoteDetailView: View {
 
     private var header: some View {
         HStack {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(noteDetail.note.createdAt.formatted(date: .long, time: .shortened))
+            VStack(alignment: .leading, spacing: Spacing.xs) {
+                Text(note.createdAt.formatted(date: .long, time: .shortened))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                if !noteDetail.note.isProcessed {
-                    HStack(spacing: 6) {
+                if !note.isProcessed {
+                    HStack(spacing: Spacing.sm) {
                         ProgressView().controlSize(.small)
-                        Text("Processing with AI...")
+                        Text("Processing...")
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(.tertiary)
                     }
                 }
             }
@@ -63,25 +81,37 @@ struct NoteDetailView: View {
             Button { onDismiss() } label: {
                 Image(systemName: "xmark.circle.fill")
                     .font(.title2)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.tertiary)
             }
             .buttonStyle(.plain)
             .keyboardShortcut(.escape, modifiers: [])
+        }
+        .alert("Delete Note", isPresented: $showDeleteConfirmation) {
+            Button("Delete", role: .destructive) {
+                if let onDelete {
+                    onDelete()
+                } else {
+                    context.delete(note)
+                    try? context.save()
+                    onDismiss()
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Are you sure you want to delete this note? This cannot be undone.")
         }
     }
 
     // MARK: - Project
 
     private var projectSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
             Text("Project")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .textCase(.uppercase)
+                .sectionLabel()
 
             HStack {
-                Picker("", selection: $selectedProjectId) {
-                    Text("None").tag(String?.none)
+                Picker("", selection: $selectedProject) {
+                    Text("None").tag(CDProject?.none)
                     ForEach(projects) { project in
                         HStack {
                             Circle()
@@ -89,18 +119,22 @@ struct NoteDetailView: View {
                                 .frame(width: 8, height: 8)
                             Text(project.name)
                         }
-                        .tag(Optional(project.id))
+                        .tag(CDProject?.some(project))
                     }
                 }
                 .labelsHidden()
-                .onChange(of: selectedProjectId) { _, newValue in
-                    try? database.reassignNoteProject(noteId: noteDetail.note.id, projectId: newValue)
+                .onChange(of: selectedProject) { _, newProject in
+                    note.project = newProject
+                    note.updatedAt = Date()
+                    try? context.save()
                 }
 
-                if noteDetail.note.isProcessed && selectedProjectId != nil {
+                if note.isProcessed && selectedProject != nil {
                     Button("Reset AI Assignment") {
-                        selectedProjectId = nil
-                        try? database.reassignNoteProject(noteId: noteDetail.note.id, projectId: nil)
+                        selectedProject = nil
+                        note.project = nil
+                        note.updatedAt = Date()
+                        try? context.save()
                     }
                     .font(.caption)
                     .foregroundStyle(.orange)
@@ -112,16 +146,16 @@ struct NoteDetailView: View {
     // MARK: - Text
 
     private var textSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
             HStack {
                 Text("Note")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .textCase(.uppercase)
+                    .sectionLabel()
                 Spacer()
                 Button(isEditingText ? "Done" : "Edit") {
                     if isEditingText {
-                        try? database.updateNoteText(noteId: noteDetail.note.id, processedText: editedText)
+                        note.processedText = editedText
+                        note.updatedAt = Date()
+                        try? context.save()
                     }
                     isEditingText.toggle()
                 }
@@ -133,17 +167,17 @@ struct NoteDetailView: View {
                     .font(.body)
                     .frame(minHeight: 120)
                     .scrollContentBackground(.hidden)
-                    .padding(8)
-                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+                    .padding(Spacing.sm)
+                    .background(AppColors.surface, in: RoundedRectangle(cornerRadius: Radius.sm))
             } else {
-                Text(noteDetail.note.displayText)
+                Text(note.displayText)
                     .font(.body)
                     .textSelection(.enabled)
             }
 
-            if noteDetail.note.processedText != nil {
+            if note.processedText != nil {
                 DisclosureGroup("Raw Transcript") {
-                    Text(noteDetail.note.rawTranscript)
+                    Text(note.rawTranscript)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
@@ -157,17 +191,17 @@ struct NoteDetailView: View {
     // MARK: - Summary
 
     private var summarySection: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
             HStack {
                 Text("Summary")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .textCase(.uppercase)
+                    .sectionLabel()
                 Spacer()
-                if noteDetail.note.summary != nil {
+                if note.summary != nil {
                     Button(isEditingSummary ? "Done" : "Edit") {
                         if isEditingSummary {
-                            try? database.updateNoteSummary(noteId: noteDetail.note.id, summary: editedSummary)
+                            note.summary = editedSummary
+                            note.updatedAt = Date()
+                            try? context.save()
                         }
                         isEditingSummary.toggle()
                     }
@@ -178,7 +212,7 @@ struct NoteDetailView: View {
             if isEditingSummary {
                 TextField("Summary", text: $editedSummary)
                     .textFieldStyle(.roundedBorder)
-            } else if let summary = noteDetail.note.summary {
+            } else if let summary = note.summary {
                 Text(summary)
                     .font(.subheadline)
                     .italic()
@@ -194,54 +228,45 @@ struct NoteDetailView: View {
     // MARK: - Tags
 
     private var tagsSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
             HStack {
                 Text("Tags")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .textCase(.uppercase)
+                    .sectionLabel()
                 Spacer()
-                if noteDetail.note.isProcessed && !tags.isEmpty {
+                if note.isProcessed && !tagNames.isEmpty {
                     Button("Reset AI Tags") {
-                        tags = []
-                        try? database.setNoteTags(noteId: noteDetail.note.id, tagNames: [])
+                        tagNames = []
+                        setTags([])
                     }
                     .font(.caption)
                     .foregroundStyle(.orange)
                 }
             }
 
-            FlowLayout(spacing: 6) {
-                ForEach(tags, id: \.self) { tag in
-                    HStack(spacing: 4) {
+            FlowLayout(spacing: Spacing.sm) {
+                ForEach(tagNames, id: \.self) { tag in
+                    HStack(spacing: Spacing.xs) {
                         Text("#\(tag)")
                             .font(.caption)
                         Button {
-                            tags.removeAll { $0 == tag }
-                            try? database.setNoteTags(noteId: noteDetail.note.id, tagNames: tags)
+                            tagNames.removeAll { $0 == tag }
+                            setTags(tagNames)
                         } label: {
                             Image(systemName: "xmark")
                                 .font(.system(size: 8, weight: .bold))
                         }
                         .buttonStyle(.plain)
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(.blue.opacity(0.1), in: Capsule())
-                    .foregroundStyle(.blue)
+                    .pillStyle()
                 }
             }
 
             HStack {
                 TextField("Add tag...", text: $tagText)
                     .textFieldStyle(.roundedBorder)
-                    .onSubmit {
-                        addTag()
-                    }
-                Button("Add") {
-                    addTag()
-                }
-                .disabled(tagText.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .onSubmit { addTag() }
+                Button("Add") { addTag() }
+                    .disabled(tagText.trimmingCharacters(in: .whitespaces).isEmpty)
             }
         }
     }
@@ -249,21 +274,20 @@ struct NoteDetailView: View {
     // MARK: - Tasks
 
     private var tasksSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
             Text("Tasks")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .textCase(.uppercase)
+                .sectionLabel()
 
-            if noteDetail.tasks.isEmpty {
+            if note.tasksArray.isEmpty {
                 Text("No tasks")
                     .font(.subheadline)
                     .foregroundStyle(.tertiary)
             } else {
-                ForEach(noteDetail.tasks) { task in
-                    HStack(spacing: 8) {
+                ForEach(note.tasksArray) { task in
+                    HStack(spacing: Spacing.sm) {
                         Button {
-                            try? database.toggleTaskCompletion(id: task.id)
+                            task.isCompleted.toggle()
+                            try? context.save()
                         } label: {
                             Image(systemName: task.isCompleted ? "checkmark.circle.fill" : "circle")
                                 .foregroundStyle(task.isCompleted ? .green : .secondary)
@@ -287,20 +311,16 @@ struct NoteDetailView: View {
                         } label: {
                             Image(systemName: "pencil")
                                 .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(.tertiary)
                         }
                         .buttonStyle(.plain)
                     }
-                    .padding(.vertical, 4)
+                    .padding(.vertical, Spacing.xs)
                 }
             }
         }
         .sheet(item: $editingTask) { task in
-            TaskDetailView(
-                task: task,
-                projects: projects,
-                database: database
-            )
+            TaskDetailView(task: task, projects: projects)
         }
     }
 
@@ -308,9 +328,19 @@ struct NoteDetailView: View {
 
     private func addTag() {
         let name = tagText.trimmingCharacters(in: .whitespaces).lowercased()
-        guard !name.isEmpty, !tags.contains(name) else { return }
-        tags.append(name)
+        guard !name.isEmpty, !tagNames.contains(name) else { return }
+        tagNames.append(name)
         tagText = ""
-        try? database.setNoteTags(noteId: noteDetail.note.id, tagNames: tags)
+        setTags(tagNames)
+    }
+
+    private func setTags(_ names: [String]) {
+        note.removeFromTags(note.tags)
+        for name in names {
+            let tag = CDTag.findOrCreate(name: name, in: context)
+            note.addToTags(tag)
+        }
+        note.updatedAt = Date()
+        try? context.save()
     }
 }

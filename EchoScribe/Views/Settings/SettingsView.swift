@@ -1,188 +1,792 @@
 import SwiftUI
 import KeyboardShortcuts
+import Sparkle
+
+enum SettingsTab: String, CaseIterable, Identifiable {
+    case general = "General"
+    case shortcuts = "Shortcuts"
+    case voice = "Voice"
+    case ai = "AI"
+
+    var id: String { rawValue }
+
+    var icon: String {
+        switch self {
+        case .general: return "gear"
+        case .shortcuts: return "keyboard"
+        case .voice: return "waveform"
+        case .ai: return "brain"
+        }
+    }
+}
 
 struct SettingsView: View {
     @Bindable var viewModel: SettingsViewModel
-    @Bindable var menuBarManager: MenuBarManager
+    @Bindable var audioDeviceManager: AudioDeviceManager
+    var onDismiss: (() -> Void)? = nil
+    @Environment(\.colorScheme) private var colorScheme
+
+    @State private var selectedTab: SettingsTab = .general
+    @State private var toggleRecordingConflicts: [ShortcutConflict] = []
+    @State private var dictationModeConflicts: [ShortcutConflict] = []
+    @State private var showDisableConfirmation = false
+    @State private var pendingDisableID: Int?
+    @State private var pendingDisableName = ""
+    @State private var showUninstallAlert = false
+    @State private var showFinalUninstallConfirmation = false
+    private let conflictDetector = ShortcutConflictDetector()
 
     var body: some View {
-        TabView {
-            speechTab
-                .tabItem {
-                    Label("Speech", systemImage: "waveform")
+        VStack(spacing: Spacing.lg) {
+            HStack {
+                Button {
+                    onDismiss?()
+                } label: {
+                    Label("Back", systemImage: "chevron.left")
                 }
-
-            aiModelTab
-                .tabItem {
-                    Label("AI Model", systemImage: "cpu")
-                }
-
-            recordingTab
-                .tabItem {
-                    Label("Recording", systemImage: "mic")
-                }
-
-            dataTab
-                .tabItem {
-                    Label("Data", systemImage: "externaldrive")
-                }
-        }
-        .frame(width: 500, height: 350)
-    }
-
-    // MARK: - Speech Tab
-
-    private var speechTab: some View {
-        Form {
-            Section {
-                Picker("Engine", selection: $viewModel.selectedEngine) {
-                    ForEach(SpeechEngine.allCases) { engine in
-                        Text(engine.rawValue).tag(engine)
-                    }
-                }
+                .buttonStyle(.plain)
+                Spacer()
             }
 
-            if viewModel.selectedEngine == .whisper {
-                Section("Whisper Model") {
-                    LabeledContent("Model") {
-                        Text(viewModel.whisperService.selectedModel)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .textSelection(.enabled)
-                    }
+            Text("Settings")
+                .font(.title2)
+                .fontWeight(.semibold)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
-                    LabeledContent("Status") {
-                        HStack(spacing: 6) {
-                            whisperStatusIndicator
-                            Text(viewModel.whisperStatusText)
-                                .font(.caption)
-                        }
-                    }
-
-                    if viewModel.isWhisperDownloading {
-                        ProgressView(value: viewModel.whisperDownloadProgress)
-                    }
-
-                    if case .notDownloaded = viewModel.whisperService.modelState {
-                        Button("Download Model") {
-                            viewModel.downloadWhisperModel()
-                        }
-                        .buttonStyle(.borderedProminent)
-                    }
-
-                    if case .error = viewModel.whisperService.modelState {
-                        Button("Retry Download") {
-                            viewModel.downloadWhisperModel()
-                        }
-                        .buttonStyle(.borderedProminent)
-                    }
+            Picker("", selection: $selectedTab) {
+                ForEach(SettingsTab.allCases) { tab in
+                    Label(tab.rawValue, systemImage: tab.icon).tag(tab)
                 }
             }
+            .pickerStyle(.segmented)
+
+            ScrollView {
+                VStack(spacing: Spacing.lg) {
+                    switch selectedTab {
+                    case .general:
+                        generalSection
+                        updatesSection
+                        dataSection
+                        uninstallSection
+                    case .shortcuts:
+                        keyboardShortcutsSection
+                    case .voice:
+                        microphoneSection
+                        voiceToTextSection
+                    case .ai:
+                        aiModelSection
+                    }
+                }
+                .animation(AppAnimation.gentle, value: selectedTab)
+            }
+
+            Spacer(minLength: 0)
         }
-        .formStyle(.grouped)
-        .padding()
+        .padding(.top, Spacing.md)
+        .alert("Uninstall Echo Scribe", isPresented: $showUninstallAlert) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete All & Quit", role: .destructive) {
+                showFinalUninstallConfirmation = true
+            }
+        } message: {
+            Text("This will permanently delete:\n\n\u{2022} All notes, projects, and tags\n\u{2022} Downloaded Whisper speech models\n\u{2022} Downloaded AI processing model\n\u{2022} Spotlight index entries\n\u{2022} App preferences\n\nYou will need to move Echo Scribe to the Trash yourself.\n\nThis cannot be undone.")
+        }
+        .alert("Are you sure?", isPresented: $showFinalUninstallConfirmation) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete Everything & Quit", role: .destructive) {
+                viewModel.performUninstall()
+            }
+        } message: {
+            Text("All your data will be permanently deleted. This action cannot be undone.")
+        }
     }
 
-    // MARK: - AI Model Tab
+    // MARK: - General
 
-    private var aiModelTab: some View {
-        Form {
-            Section {
-                LabeledContent("Model") {
-                    Text(viewModel.mlxService.modelName)
+    private var generalSection: some View {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+            Text("GENERAL")
+                .sectionLabel()
+
+            VStack(spacing: Spacing.md) {
+                Toggle("Launch at Login", isOn: $viewModel.launchAtLogin)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(Spacing.md)
+            .background(
+                RoundedRectangle(cornerRadius: Radius.md)
+                    .fill(AppColors.surface)
+            )
+            .modifier(Elevation.card(colorScheme))
+        }
+    }
+
+    // MARK: - Updates
+
+    private var updatesSection: some View {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+            Text("UPDATES")
+                .sectionLabel()
+
+            VStack(spacing: Spacing.md) {
+                HStack {
+                    Text("Current Version")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Unknown")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
                 }
 
-                LabeledContent("Status") {
-                    HStack(spacing: 6) {
-                        mlxStatusIndicator
-                        Text(viewModel.statusText)
-                            .font(.caption)
+                Divider()
+
+                HStack {
+                    Toggle("Check Automatically", isOn: Binding(
+                        get: { viewModel.updater.automaticallyChecksForUpdates },
+                        set: { viewModel.updater.automaticallyChecksForUpdates = $0 }
+                    ))
+                    .foregroundStyle(.secondary)
+                }
+
+                Divider()
+
+                HStack {
+                    Spacer()
+                    Button("Check for Updates") {
+                        viewModel.updater.checkForUpdates()
+                    }
+                    .controlSize(.small)
+                }
+            }
+            .padding(Spacing.md)
+            .background(
+                RoundedRectangle(cornerRadius: Radius.md)
+                    .fill(AppColors.surface)
+            )
+            .modifier(Elevation.card(colorScheme))
+        }
+    }
+
+    // MARK: - Microphone
+
+    @State private var microphoneOrder: [AudioInputDevice] = []
+
+    private var microphoneSection: some View {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+            Text("MICROPHONE")
+                .sectionLabel()
+
+            VStack(spacing: 0) {
+                if microphoneOrder.isEmpty {
+                    Text("No input devices found")
+                        .foregroundStyle(.tertiary)
+                        .padding(Spacing.md)
+                } else {
+                    ForEach(Array(microphoneOrder.enumerated()), id: \.element.uid) { index, device in
+                        VStack(spacing: 0) {
+                            if index > 0 {
+                                Divider()
+                            }
+                            HStack(spacing: Spacing.sm) {
+                                Circle()
+                                    .fill(audioDeviceManager.availableDevices.contains(where: { $0.uid == device.uid }) ? Color.green : Color.gray)
+                                    .frame(width: 8, height: 8)
+
+                                Text(device.name)
+                                    .foregroundStyle(audioDeviceManager.availableDevices.contains(where: { $0.uid == device.uid }) ? .primary : .tertiary)
+
+                                if !audioDeviceManager.availableDevices.contains(where: { $0.uid == device.uid }) {
+                                    Text("(Disconnected)")
+                                        .font(.caption)
+                                        .foregroundStyle(.tertiary)
+                                }
+
+                                Spacer()
+
+                                if index == 0 {
+                                    Text("Priority")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .padding(.horizontal, Spacing.xs)
+                                        .padding(.vertical, 2)
+                                        .background(
+                                            RoundedRectangle(cornerRadius: Radius.sm)
+                                                .fill(Color.accentColor.opacity(0.15))
+                                        )
+                                }
+
+                                Button {
+                                    moveMicrophoneUp(index: index)
+                                } label: {
+                                    Image(systemName: "chevron.up")
+                                        .font(.caption)
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(index == 0)
+                                .opacity(index == 0 ? 0.3 : 1)
+
+                                Button {
+                                    moveMicrophoneDown(index: index)
+                                } label: {
+                                    Image(systemName: "chevron.down")
+                                        .font(.caption)
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(index == microphoneOrder.count - 1)
+                                .opacity(index == microphoneOrder.count - 1 ? 0.3 : 1)
+                            }
+                            .padding(Spacing.md)
+                        }
                     }
                 }
 
-                if viewModel.isDownloading {
-                    ProgressView(value: viewModel.downloadProgress)
+                Divider()
+
+                HStack {
+                    Text("When a preferred microphone disconnects, the next available one is used automatically.")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                    Spacer()
+                    Button("Reset") {
+                        audioDeviceManager.resetPreferences()
+                        microphoneOrder = audioDeviceManager.getPreferenceOrder()
+                    }
+                    .controlSize(.small)
+                }
+                .padding(Spacing.md)
+            }
+            .background(
+                RoundedRectangle(cornerRadius: Radius.md)
+                    .fill(AppColors.surface)
+            )
+            .modifier(Elevation.card(colorScheme))
+        }
+        .onAppear {
+            microphoneOrder = audioDeviceManager.getPreferenceOrder()
+        }
+    }
+
+    private func moveMicrophoneUp(index: Int) {
+        guard index > 0 else { return }
+        microphoneOrder.swapAt(index, index - 1)
+        audioDeviceManager.savePreferenceOrder(microphoneOrder)
+    }
+
+    private func moveMicrophoneDown(index: Int) {
+        guard index < microphoneOrder.count - 1 else { return }
+        microphoneOrder.swapAt(index, index + 1)
+        audioDeviceManager.savePreferenceOrder(microphoneOrder)
+    }
+
+    // MARK: - Voice to Text
+
+    private var voiceToTextSection: some View {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+            Text("VOICE TO TEXT")
+                .sectionLabel()
+
+            VStack(spacing: Spacing.md) {
+                HStack {
+                    Text("Engine")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Picker("", selection: $viewModel.selectedEngine) {
+                        ForEach(SpeechEngine.allCases) { engine in
+                            Text(engine.rawValue).tag(engine)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .frame(width: 200)
+                }
+            }
+            .padding(Spacing.md)
+            .background(
+                RoundedRectangle(cornerRadius: Radius.md)
+                    .fill(AppColors.surface)
+            )
+            .modifier(Elevation.card(colorScheme))
+
+            if viewModel.selectedEngine == .whisper {
+                Text("MODELS")
+                    .sectionLabel()
+                    .padding(.top, Spacing.xs)
+
+                VStack(spacing: Spacing.sm) {
+                    ForEach(WhisperModelVariant.allCases) { variant in
+                        whisperModelCard(for: variant)
+                    }
+                }
+                .alert(
+                    "Delete Model",
+                    isPresented: Binding(
+                        get: { viewModel.variantToDelete != nil },
+                        set: { if !$0 { viewModel.variantToDelete = nil } }
+                    )
+                ) {
+                    Button("Delete", role: .destructive) {
+                        if let variant = viewModel.variantToDelete {
+                            viewModel.deleteWhisperVariant(variant)
+                        }
+                        viewModel.variantToDelete = nil
+                    }
+                    Button("Cancel", role: .cancel) {
+                        viewModel.variantToDelete = nil
+                    }
+                } message: {
+                    if let variant = viewModel.variantToDelete {
+                        Text("Remove the \(variant.displayName) model (\(variant.formattedSize)) from disk?")
+                    }
+                }
+            }
+        }
+    }
+
+    private func whisperModelCard(for variant: WhisperModelVariant) -> some View {
+        let state = viewModel.stateForVariant(variant)
+        let isActive = viewModel.isActiveVariant(variant)
+
+        return HStack(spacing: Spacing.md) {
+            VStack(alignment: .leading, spacing: Spacing.sm) {
+                HStack(spacing: Spacing.sm) {
+                    Text(variant.displayName)
+                        .font(.headline)
+                        .fontWeight(.medium)
+
+                    if isActive {
+                        Text("Active")
+                            .pillStyle()
+                    }
+
+                    if case .downloaded = state, !isActive {
+                        Circle()
+                            .fill(.green)
+                            .frame(width: 6, height: 6)
+                    }
                 }
 
-                if case .notDownloaded = viewModel.mlxService.modelState {
+                VStack(spacing: 3) {
+                    ComparisonBar(label: "Accuracy", value: variant.accuracyScore, color: .green)
+                    ComparisonBar(label: "Speed", value: variant.speedScore, color: .blue)
+                    ComparisonBar(label: "Size", value: variant.normalizedSize, color: .orange, suffix: variant.formattedSize)
+                }
+
+                if case .downloading(let progress) = state {
+                    ProgressView(value: progress)
+                        .tint(.accentColor)
+                }
+            }
+
+            Spacer(minLength: 0)
+
+            switch state {
+            case .notDownloaded:
+                Button {
+                    viewModel.activateWhisperVariant(variant)
+                } label: {
+                    Image(systemName: "arrow.down.circle")
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Download and activate")
+
+            case .downloading:
+                ProgressView()
+                    .controlSize(.small)
+
+            case .downloaded:
+                if !isActive {
+                    Button {
+                        viewModel.variantToDelete = variant
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.title3)
+                            .foregroundStyle(.tertiary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Delete model")
+                }
+
+            case .error:
+                Button {
+                    viewModel.downloadWhisperVariant(variant)
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.title3)
+                        .foregroundStyle(.red)
+                }
+                .buttonStyle(.plain)
+                .help("Retry download")
+            }
+        }
+        .cardStyle(isSelected: isActive)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if case .downloaded = state, !isActive {
+                viewModel.activateWhisperVariant(variant)
+            }
+        }
+    }
+
+    // MARK: - Keyboard Shortcuts
+
+    private var keyboardShortcutsSection: some View {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+            Text("KEYBOARD SHORTCUTS")
+                .sectionLabel()
+
+            VStack(spacing: Spacing.md) {
+                VStack(alignment: .leading, spacing: Spacing.xs) {
+                    KeyboardShortcuts.Recorder("Voice to Note", name: .toggleRecording)
+                    Text("Press to start/stop. Transcription is processed by AI and stored as a note.")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                    ShortcutConflictView(
+                        conflicts: toggleRecordingConflicts,
+                        onDisableSystemShortcut: { id in
+                            pendingDisableID = id
+                            pendingDisableName = SystemShortcutNames.name(forID: id)
+                            showDisableConfirmation = true
+                        }
+                    )
+                }
+
+                Divider()
+
+                VStack(alignment: .leading, spacing: Spacing.xs) {
+                    KeyboardShortcuts.Recorder("Transcribe", name: .dictationMode)
+                    Text("Hold to dictate. On release, text is pasted at your cursor. No AI processing.")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                    ShortcutConflictView(
+                        conflicts: dictationModeConflicts,
+                        onDisableSystemShortcut: { id in
+                            pendingDisableID = id
+                            pendingDisableName = SystemShortcutNames.name(forID: id)
+                            showDisableConfirmation = true
+                        }
+                    )
+                }
+
+                Divider()
+
+                HStack {
+                    Text("Accessibility")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(ClipboardPasteService.isAccessibilityTrusted ? .green : .orange)
+                            .frame(width: 8, height: 8)
+                        Text(ClipboardPasteService.isAccessibilityTrusted ? "Granted" : "Required for Transcribe")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                if !ClipboardPasteService.isAccessibilityTrusted {
+                    HStack {
+                        Spacer()
+                        Button("Grant Accessibility Permission") {
+                            ClipboardPasteService.requestAccessibilityPermission()
+                        }
+                        .controlSize(.small)
+                    }
+                }
+            }
+            .padding(Spacing.md)
+            .background(
+                RoundedRectangle(cornerRadius: Radius.md)
+                    .fill(AppColors.surface)
+            )
+            .modifier(Elevation.card(colorScheme))
+            .onAppear { checkAllConflicts() }
+            .onReceive(NotificationCenter.default.publisher(for: Notification.Name("KeyboardShortcuts_shortcutByNameDidChange"))) { _ in
+                checkAllConflicts()
+            }
+            .alert("Disable System Shortcut?", isPresented: $showDisableConfirmation) {
+                Button("Cancel", role: .cancel) {}
+                Button("Disable", role: .destructive) {
+                    if let id = pendingDisableID {
+                        _ = conflictDetector.disableSystemShortcut(id: id)
+                        checkAllConflicts()
+                    }
+                }
+            } message: {
+                Text("This will disable \"\(pendingDisableName)\" in macOS system settings. You may need to log out and back in for the change to take full effect.")
+            }
+        }
+    }
+
+    private func checkAllConflicts() {
+        if let shortcut = KeyboardShortcuts.getShortcut(for: .toggleRecording) {
+            toggleRecordingConflicts = conflictDetector.detectConflicts(for: shortcut, excludingName: .toggleRecording)
+        } else {
+            toggleRecordingConflicts = []
+        }
+        if let shortcut = KeyboardShortcuts.getShortcut(for: .dictationMode) {
+            dictationModeConflicts = conflictDetector.detectConflicts(for: shortcut, excludingName: .dictationMode)
+        } else {
+            dictationModeConflicts = []
+        }
+    }
+
+    // MARK: - AI Model
+
+    @State private var showModelComparison = false
+
+    private var aiModelSection: some View {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+            Text("AI MODEL")
+                .sectionLabel()
+
+            VStack(spacing: Spacing.md) {
+                modelPickerRow
+                Divider()
+                modelComparisonSection
+                Divider()
+                modelStatusSection
+                Text("This model handles text analysis. Speech recognition uses the Whisper model above.")
+                    .font(.caption2)
+                    .foregroundStyle(.quaternary)
+            }
+            .padding(Spacing.md)
+            .background(
+                RoundedRectangle(cornerRadius: Radius.md)
+                    .fill(AppColors.surface)
+            )
+            .modifier(Elevation.card(colorScheme))
+        }
+    }
+
+    private var modelPickerRow: some View {
+        VStack(spacing: Spacing.md) {
+            HStack {
+                Text("Model")
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Picker("", selection: $viewModel.selectedAIVariant) {
+                    ForEach(AIModelVariant.allCases) { variant in
+                        Text(variant.displayName).tag(variant)
+                    }
+                }
+                .pickerStyle(.menu)
+                .frame(width: 200)
+            }
+
+            HStack {
+                Spacer()
+                Text(viewModel.selectedAIVariant.sizeDescription)
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+    }
+
+    private var modelComparisonSection: some View {
+        VStack(spacing: Spacing.md) {
+            DisclosureGroup("Compare Models", isExpanded: $showModelComparison) {
+                VStack(spacing: 0) {
+                    HStack(spacing: 0) {
+                        Text("Model")
+                            .frame(width: 120, alignment: .leading)
+                        Text("Storage")
+                            .frame(width: 70, alignment: .trailing)
+                        Text("RAM")
+                            .frame(width: 70, alignment: .trailing)
+                        Text("Quality")
+                            .frame(width: 70, alignment: .trailing)
+                    }
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .padding(.vertical, Spacing.xs)
+
+                    Divider()
+
+                    ForEach(AIModelVariant.allCases) { variant in
+                        modelComparisonRow(variant: variant)
+                        if variant != AIModelVariant.allCases.last {
+                            Divider()
+                        }
+                    }
+                }
+                .padding(.top, Spacing.xs)
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+
+            if showModelComparison {
+                Text(viewModel.selectedAIVariant.detailedDescription)
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func modelComparisonRow(variant: AIModelVariant) -> some View {
+        let isSelected = variant == viewModel.selectedAIVariant
+        HStack(spacing: 0) {
+            HStack(spacing: 4) {
+                Text(variant.displayName)
+                    .fontWeight(isSelected ? .semibold : .regular)
+                if variant.isDefault {
+                    Text("Default")
+                        .font(.system(size: 9))
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(Color.accentColor.opacity(0.15))
+                        .clipShape(Capsule())
+                }
+            }
+            .frame(width: 120, alignment: .leading)
+            Text(variant.storageSize)
+                .frame(width: 70, alignment: .trailing)
+            Text(variant.ramRequired)
+                .frame(width: 70, alignment: .trailing)
+            HStack(spacing: 1) {
+                ForEach(0..<4) { i in
+                    Image(systemName: i < variant.qualityStars ? "star.fill" : "star")
+                        .font(.system(size: 8))
+                        .foregroundStyle(i < variant.qualityStars ? Color.yellow : Color.gray.opacity(0.3))
+                }
+            }
+            .frame(width: 70, alignment: .trailing)
+        }
+        .font(.caption)
+        .foregroundStyle(isSelected ? .primary : .secondary)
+        .padding(.vertical, Spacing.xs)
+        .padding(.horizontal, Spacing.xs)
+        .background(
+            RoundedRectangle(cornerRadius: Radius.sm)
+                .fill(isSelected ? Color.accentColor.opacity(0.08) : .clear)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            viewModel.selectedAIVariant = variant
+        }
+    }
+
+    private var modelStatusSection: some View {
+        VStack(spacing: Spacing.md) {
+            HStack {
+                Text("Status")
+                    .foregroundStyle(.secondary)
+                Spacer()
+                HStack(spacing: 6) {
+                    mlxStatusIndicator
+                    Text(viewModel.statusText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            if viewModel.isDownloading {
+                ProgressView(value: viewModel.downloadProgress)
+            }
+
+            if case .notDownloaded = viewModel.mlxService.modelState {
+                HStack {
+                    Spacer()
                     Button("Download Model") {
                         viewModel.downloadModel()
                     }
                     .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
                 }
+            }
 
-                if case .error = viewModel.mlxService.modelState {
+            if case .error = viewModel.mlxService.modelState {
+                HStack {
+                    Spacer()
                     Button("Retry Download") {
                         viewModel.downloadModel()
                     }
                     .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
                 }
             }
         }
-        .formStyle(.grouped)
-        .padding()
     }
 
-    // MARK: - Recording Tab
+    // MARK: - Data
 
-    private var recordingTab: some View {
-        Form {
-            Section {
-                Picker("Mode", selection: $viewModel.recordingMode) {
-                    ForEach(RecordingMode.allCases) { mode in
-                        Text(mode.rawValue).tag(mode)
-                    }
-                }
-            }
+    private var dataSection: some View {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+            Text("DATA")
+                .sectionLabel()
 
-            Section("Global Hotkey") {
-                KeyboardShortcuts.Recorder("Toggle Recording", name: .toggleRecording)
-
-                Text("Works system-wide when the app is running. May require Accessibility permission.")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-            }
-
-            Section("Menu Bar") {
-                Toggle("Show in menu bar", isOn: $menuBarManager.isMenuBarEnabled)
-
-                Text("Quick access to recording from the menu bar icon.")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-            }
-        }
-        .formStyle(.grouped)
-        .padding()
-    }
-
-    // MARK: - Data Tab
-
-    private var dataTab: some View {
-        Form {
-            Section {
-                LabeledContent("Database") {
+            VStack(spacing: Spacing.md) {
+                HStack {
+                    Text("Database")
+                        .foregroundStyle(.secondary)
+                    Spacer()
                     Text("~/Library/Application Support/EchoScribe/db.sqlite")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.tertiary)
                         .textSelection(.enabled)
                 }
-            }
 
-            Section("Export") {
-                Button("Export as JSON") {
-                    viewModel.exportNotesAsJSON()
-                }
+                Divider()
 
-                Button("Export as Markdown") {
-                    viewModel.exportNotesAsMarkdown()
+                HStack(spacing: Spacing.sm) {
+                    Spacer()
+                    Button("Export as JSON") {
+                        viewModel.exportNotesAsJSON()
+                    }
+                    .controlSize(.small)
+
+                    Button("Export as Markdown") {
+                        viewModel.exportNotesAsMarkdown()
+                    }
+                    .controlSize(.small)
                 }
             }
+            .padding(Spacing.md)
+            .background(
+                RoundedRectangle(cornerRadius: Radius.md)
+                    .fill(AppColors.surface)
+            )
+            .modifier(Elevation.card(colorScheme))
         }
-        .formStyle(.grouped)
-        .padding()
+    }
+
+    // MARK: - Uninstall
+
+    private var uninstallSection: some View {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+            Text("DANGER ZONE")
+                .sectionLabel()
+
+            VStack(spacing: Spacing.md) {
+                HStack {
+                    VStack(alignment: .leading, spacing: Spacing.xs) {
+                        Text("Uninstall Echo Scribe")
+                            .foregroundStyle(.primary)
+                        Text("Remove all data, downloaded models, and preferences.")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+                    Spacer()
+                    Button("Uninstall...") {
+                        showUninstallAlert = true
+                    }
+                    .controlSize(.small)
+                    .foregroundStyle(.red)
+                }
+            }
+            .padding(Spacing.md)
+            .background(
+                RoundedRectangle(cornerRadius: Radius.md)
+                    .strokeBorder(.red.opacity(0.3), lineWidth: 1)
+                    .background(
+                        RoundedRectangle(cornerRadius: Radius.md)
+                            .fill(AppColors.surface)
+                    )
+            )
+            .modifier(Elevation.card(colorScheme))
+        }
     }
 
     // MARK: - Status Indicators
@@ -201,17 +805,40 @@ struct SettingsView: View {
         }
     }
 
-    @ViewBuilder
-    private var whisperStatusIndicator: some View {
-        switch viewModel.whisperService.modelState {
-        case .notDownloaded:
-            Circle().fill(.gray).frame(width: 8, height: 8)
-        case .downloading:
-            Circle().fill(.orange).frame(width: 8, height: 8)
-        case .ready:
-            Circle().fill(.green).frame(width: 8, height: 8)
-        case .error:
-            Circle().fill(.red).frame(width: 8, height: 8)
+}
+
+// MARK: - Comparison Bar
+
+private struct ComparisonBar: View {
+    let label: String
+    let value: Double
+    let color: Color
+    var suffix: String? = nil
+
+    var body: some View {
+        HStack(spacing: Spacing.xs) {
+            Text(label)
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .frame(width: 55, alignment: .leading)
+
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(color.opacity(0.12))
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(color)
+                        .frame(width: geo.size.width * min(value, 1.0))
+                }
+            }
+            .frame(height: 5)
+
+            if let suffix {
+                Text(suffix)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .frame(width: 50, alignment: .trailing)
+            }
         }
     }
 }

@@ -11,11 +11,14 @@ final class RecordingViewModel {
 
     private var speechService: SpeechServiceProtocol
     private let pipeline: NoteProcessingPipeline
+    private let coordinator: RecordingCoordinator
     private var transcriptionTask: Task<Void, Never>?
+    private var audioLevelTask: Task<Void, Never>?
 
-    init(speechService: SpeechServiceProtocol, pipeline: NoteProcessingPipeline) {
+    init(speechService: SpeechServiceProtocol, pipeline: NoteProcessingPipeline, coordinator: RecordingCoordinator) {
         self.speechService = speechService
         self.pipeline = pipeline
+        self.coordinator = coordinator
     }
 
     func toggleRecording() {
@@ -27,8 +30,11 @@ final class RecordingViewModel {
     }
 
     func startRecording() async {
+        guard coordinator.canStart(.brain) else { return }
+
         errorMessage = nil
         liveTranscript = ""
+        coordinator.claim(.brain)
 
         do {
             try await speechService.startRecording()
@@ -42,7 +48,17 @@ final class RecordingViewModel {
                     }
                 }
             }
+
+            // Listen for audio level updates
+            audioLevelTask = Task {
+                for await level in speechService.audioLevelUpdates() {
+                    await MainActor.run {
+                        self.audioLevel = level
+                    }
+                }
+            }
         } catch {
+            coordinator.release()
             errorMessage = error.localizedDescription
         }
     }
@@ -50,9 +66,19 @@ final class RecordingViewModel {
     func stopRecording() async {
         transcriptionTask?.cancel()
         transcriptionTask = nil
+        audioLevelTask?.cancel()
+        audioLevelTask = nil
+        audioLevel = 0
 
-        let finalText = await speechService.stopRecording()
+        var finalText = await speechService.stopRecording()
         isRecording = false
+        coordinator.release()
+
+        // Fallback: if the speech service returned empty but we have live transcript, use that
+        if finalText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !liveTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            finalText = liveTranscript
+        }
 
         guard !finalText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             liveTranscript = ""

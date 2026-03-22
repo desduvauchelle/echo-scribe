@@ -1,52 +1,75 @@
-import Foundation
-import GRDB
+import CoreData
 import SwiftUI
 
 @MainActor
 @Observable
-final class ProjectsViewModel {
+final class ProjectsViewModel: NSObject, NSFetchedResultsControllerDelegate {
     var projects: [ProjectWithCount] = []
     var errorMessage: String?
 
-    private let database: AppDatabase
-    private var observation: AnyDatabaseCancellable?
+    private let context: NSManagedObjectContext
+    private var frc: NSFetchedResultsController<CDProject>?
 
-    init(database: AppDatabase) {
-        self.database = database
-        startObservation()
+    init(context: NSManagedObjectContext) {
+        self.context = context
+        super.init()
+        setupFRC()
     }
 
-    func startObservation() {
-        let observation = ValueObservation.tracking { db -> [ProjectWithCount] in
-            let projects = try Project.order(Column("name")).fetchAll(db)
-            return try projects.map { project in
-                let count = try project.notes.fetchCount(db)
-                return ProjectWithCount(project: project, noteCount: count)
-            }
-        }
+    private func setupFRC() {
+        let request: NSFetchRequest<CDProject> = CDProject.fetchRequest()
+        request.sortDescriptors = [NSSortDescriptor(key: "name", ascending: true)]
 
-        self.observation = observation.start(in: database.dbQueue, onError: { [weak self] error in
-            self?.errorMessage = error.localizedDescription
-        }, onChange: { [weak self] projects in
-            self?.projects = projects
-        })
-    }
+        let controller = NSFetchedResultsController(
+            fetchRequest: request,
+            managedObjectContext: context,
+            sectionNameKeyPath: nil,
+            cacheName: nil
+        )
+        controller.delegate = self
+        frc = controller
 
-    func createProject(name: String, color: String = "#007AFF") {
         do {
-            var project = Project(name: name, color: color)
-            try database.saveProject(&project)
+            try controller.performFetch()
+            refreshProjects()
         } catch {
             errorMessage = error.localizedDescription
         }
     }
 
-    func deleteProject(_ project: Project) {
-        do {
-            try database.deleteProject(id: project.id)
-        } catch {
-            errorMessage = error.localizedDescription
+    private func refreshProjects() {
+        projects = (frc?.fetchedObjects ?? []).map { project in
+            let noteCount = (project.notes as? Set<CDNote>)?.count ?? 0
+            return ProjectWithCount(project: project, noteCount: noteCount)
         }
+    }
+
+    // MARK: - NSFetchedResultsControllerDelegate
+
+    nonisolated func controllerDidChangeContent(
+        _ controller: NSFetchedResultsController<NSFetchRequestResult>
+    ) {
+        Task { @MainActor [weak self] in
+            self?.refreshProjects()
+        }
+    }
+
+    // MARK: - Actions
+
+    func createProject(name: String, color: String = "#007AFF", description: String? = nil) {
+        _ = CDProject.insert(in: context, name: name, color: color, projectDescription: description)
+        PersistenceController.shared.save(context: context)
+    }
+
+    func updateProjectDescription(_ project: CDProject, description: String?) {
+        project.projectDescription = description
+        project.updatedAt = Date()
+        PersistenceController.shared.save(context: context)
+    }
+
+    func deleteProject(_ project: CDProject) {
+        context.delete(project)
+        PersistenceController.shared.save(context: context)
     }
 
     var totalNoteCount: Int {

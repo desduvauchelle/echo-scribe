@@ -79,17 +79,58 @@ These are not current priorities. The goal right now is to make the core loop fa
 
 ---
 
+## Requirements
+
+- macOS 15.0 or later
+- Xcode Command Line Tools (install with `xcode-select --install`)
+
 ## Getting Started
 
+### Build and install
+
 ```bash
-# Generate the Xcode project
+# Clone the repo
+git clone <repo-url>
+cd echo-scribe
+
+# Generate the Xcode project (requires xcodegen: brew install xcodegen)
 xcodegen generate
 
-# Open in Xcode
-open EchoScribe.xcodeproj
+# Build the app
+xcodebuild -project EchoScribe.xcodeproj \
+  -scheme EchoScribe \
+  -configuration Release \
+  -derivedDataPath ./build \
+  CODE_SIGN_IDENTITY="-" \
+  CODE_SIGNING_ALLOWED=YES
+
+# Install to Applications
+cp -R ./build/Build/Products/Release/Echo\ Scribe.app /Applications/
 ```
 
-Build and run on macOS 15+. Grant microphone and speech recognition permissions when prompted.
+### First launch
+
+1. Open **Echo Scribe** from your Applications folder or Spotlight
+2. macOS may block the app since it's not from the App Store — go to **System Settings > Privacy & Security** and click **Open Anyway**
+3. Grant **Microphone** and **Speech Recognition** permissions when prompted
+
+### Updating
+
+Pull the latest changes and re-run the build:
+
+```bash
+git pull
+xcodegen generate
+xcodebuild -project EchoScribe.xcodeproj \
+  -scheme EchoScribe \
+  -configuration Release \
+  -derivedDataPath ./build \
+  CODE_SIGN_IDENTITY="-" \
+  CODE_SIGNING_ALLOWED=YES
+cp -R ./build/Build/Products/Release/Echo\ Scribe.app /Applications/
+```
+
+> **Note:** The first build takes a while as Swift Package Manager downloads and compiles dependencies (WhisperKit, MLX, etc.). Subsequent builds are faster.
 
 ---
 

@@ -1,89 +1,121 @@
-import Foundation
-import GRDB
+import CoreData
 import SwiftUI
 
 @MainActor
 @Observable
-final class FeedViewModel {
+final class FeedViewModel: NSObject, NSFetchedResultsControllerDelegate {
     var notes: [NoteWithDetails] = []
     var isLoading = false
     var errorMessage: String?
 
-    // Filters
-    var selectedProjectId: String?
-    var selectedTags: Set<String> = []
-    var searchText = ""
-    var dateRange: ClosedRange<Date>?
+    // Filters — any change automatically rebuilds the fetch (via didSet)
+    var selectedProjectId: String? { didSet { if !isClearingFilters { rebuildFRC() } } }
+    var selectedTags: Set<String> = [] { didSet { if !isClearingFilters { rebuildFRC() } } }
+    var searchText = "" { didSet { if !isClearingFilters { rebuildFRC() } } }
+    var dateRange: ClosedRange<Date>? { didSet { if !isClearingFilters { rebuildFRC() } } }
 
-    private let database: AppDatabase
-    private var observation: AnyDatabaseCancellable?
+    private let context: NSManagedObjectContext
+    private var frc: NSFetchedResultsController<CDNote>?
+    private var isClearingFilters = false
 
-    init(database: AppDatabase) {
-        self.database = database
-        startObservation()
+    init(context: NSManagedObjectContext) {
+        self.context = context
+        super.init()
+        rebuildFRC()
     }
 
-    func startObservation() {
-        let observation = ValueObservation.tracking { db -> [NoteWithDetails] in
-            let notes = try Note.order(Column("createdAt").desc).fetchAll(db)
-            return try notes.map { note in
-                let project = try note.project.fetchOne(db)
-                let tasks = try note.tasks.fetchAll(db)
-                let tags = try note.tags.fetchAll(db)
-                return NoteWithDetails(note: note, project: project, tasks: tasks, tags: tags)
-            }
-        }
+    // MARK: - FRC Management
 
-        self.observation = observation.start(in: database.dbQueue, onError: { [weak self] error in
-            self?.errorMessage = error.localizedDescription
-        }, onChange: { [weak self] noteDetails in
-            guard let self else { return }
-            self.notes = self.applyFilters(to: noteDetails)
-        })
-    }
+    private func rebuildFRC() {
+        let request: NSFetchRequest<CDNote> = CDNote.fetchRequest()
+        request.sortDescriptors = [NSSortDescriptor(key: "createdAt", ascending: false)]
+        request.predicate = buildPredicate()
+        request.relationshipKeyPathsForPrefetching = ["project", "tags", "tasks"]
 
-    private func applyFilters(to notes: [NoteWithDetails]) -> [NoteWithDetails] {
-        var filtered = notes
+        let controller = NSFetchedResultsController(
+            fetchRequest: request,
+            managedObjectContext: context,
+            sectionNameKeyPath: nil,
+            cacheName: nil
+        )
+        controller.delegate = self
+        frc = controller
 
-        if let projectId = selectedProjectId {
-            filtered = filtered.filter { $0.note.projectId == projectId }
-        }
-
-        if !selectedTags.isEmpty {
-            filtered = filtered.filter { noteDetail in
-                let tagIds = Set(noteDetail.tags.map(\.id))
-                return !selectedTags.isDisjoint(with: tagIds)
-            }
-        }
-
-        if !searchText.isEmpty {
-            let search = searchText.lowercased()
-            filtered = filtered.filter { noteDetail in
-                noteDetail.note.displayText.lowercased().contains(search) ||
-                (noteDetail.note.summary?.lowercased().contains(search) ?? false)
-            }
-        }
-
-        if let dateRange {
-            filtered = filtered.filter { dateRange.contains($0.note.createdAt) }
-        }
-
-        return filtered
-    }
-
-    func deleteNote(_ noteDetail: NoteWithDetails) {
         do {
-            try database.deleteNote(id: noteDetail.note.id)
+            try controller.performFetch()
+            refreshNotes()
         } catch {
             errorMessage = error.localizedDescription
         }
     }
 
+    private func buildPredicate() -> NSPredicate? {
+        var predicates: [NSPredicate] = []
+
+        if let projectIdString = selectedProjectId,
+           let uuid = UUID(uuidString: projectIdString) {
+            predicates.append(NSPredicate(format: "project.id == %@", uuid as CVarArg))
+        }
+
+        if !selectedTags.isEmpty {
+            let uuids = selectedTags.compactMap { UUID(uuidString: $0) }
+            if !uuids.isEmpty {
+                predicates.append(NSPredicate(format: "ANY tags.id IN %@", uuids as CVarArg))
+            }
+        }
+
+        if !searchText.isEmpty {
+            predicates.append(NSPredicate(
+                format: "rawTranscript CONTAINS[cd] %@ OR processedText CONTAINS[cd] %@",
+                searchText, searchText
+            ))
+        }
+
+        if let range = dateRange {
+            predicates.append(NSPredicate(
+                format: "createdAt >= %@ AND createdAt <= %@",
+                range.lowerBound as NSDate,
+                range.upperBound as NSDate
+            ))
+        }
+
+        guard !predicates.isEmpty else { return nil }
+        return NSCompoundPredicate(andPredicateWithSubpredicates: predicates)
+    }
+
+    private func refreshNotes() {
+        notes = (frc?.fetchedObjects ?? []).map(NoteWithDetails.from)
+    }
+
+    // MARK: - NSFetchedResultsControllerDelegate
+
+    nonisolated func controllerDidChangeContent(
+        _ controller: NSFetchedResultsController<NSFetchRequestResult>
+    ) {
+        Task { @MainActor [weak self] in
+            self?.refreshNotes()
+        }
+    }
+
+    // MARK: - Actions
+
+    func deleteNote(_ noteDetail: NoteWithDetails) {
+        context.delete(noteDetail.note)
+        PersistenceController.shared.save(context: context)
+    }
+
     func clearFilters() {
+        isClearingFilters = true
         selectedProjectId = nil
         selectedTags = []
         searchText = ""
         dateRange = nil
-        startObservation()
+        isClearingFilters = false
+        rebuildFRC()
+    }
+
+    /// Kept for call-site compatibility — now a no-op alias for rebuildFRC.
+    func startObservation() {
+        rebuildFRC()
     }
 }

@@ -2,116 +2,134 @@ import SwiftUI
 
 struct NoteCardView: View {
     let noteDetail: NoteWithDetails
-    var database: AppDatabase = .shared
     var isSelected = false
+    var isExpanded = false
+
+    @Environment(\.managedObjectContext) private var context
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            // Header: project badge + timestamp
+        VStack(alignment: .leading, spacing: Spacing.sm) {
             HStack {
                 if let project = noteDetail.project {
-                    HStack(spacing: 4) {
+                    HStack(spacing: Spacing.xs) {
                         Circle()
                             .fill(Color(hex: project.color) ?? .blue)
                             .frame(width: 6, height: 6)
                         Text(project.name)
-                            .font(.caption)
+                            .font(.caption2)
                             .fontWeight(.medium)
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(.quaternary, in: Capsule())
+                    .pillStyle()
                 }
 
                 Spacer()
 
                 Text(noteDetail.note.createdAt.formatted(.relative(presentation: .named)))
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.tertiary)
             }
 
-            // Note text
             Text(noteDetail.note.displayText)
                 .font(.body)
-                .lineLimit(4)
+                .lineLimit(isExpanded ? nil : 2)
+                .foregroundStyle(.primary)
 
-            // Summary (if processed)
-            if let summary = noteDetail.note.summary, noteDetail.note.isProcessed {
-                Text(summary)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .italic()
-            }
-
-            // Processing indicator
             if !noteDetail.note.isProcessed {
-                HStack(spacing: 6) {
+                HStack(spacing: Spacing.sm) {
                     ProgressView()
                         .controlSize(.small)
-                    Text("Processing with AI...")
+                    Text("Processing...")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.tertiary)
                 }
             }
 
-            // Tags
+            if isExpanded || isSelected {
+                expandedContent
+            } else {
+                collapsedMeta
+            }
+        }
+        .cardStyle(isSelected: isSelected)
+    }
+
+    @ViewBuilder
+    private var collapsedMeta: some View {
+        HStack(spacing: Spacing.sm) {
             if !noteDetail.tags.isEmpty {
-                FlowLayout(spacing: 4) {
-                    ForEach(noteDetail.tags) { tag in
-                        Text("#\(tag.name)")
-                            .font(.caption2)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(.blue.opacity(0.1), in: Capsule())
-                            .foregroundStyle(.blue)
-                    }
+                HStack(spacing: Spacing.xs) {
+                    Image(systemName: "tag")
+                        .font(.caption2)
+                    Text("\(noteDetail.tags.count)")
+                        .font(.caption2)
                 }
+                .foregroundStyle(.tertiary)
             }
 
-            // Tasks
             if !noteDetail.tasks.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
-                    ForEach(noteDetail.tasks) { task in
-                        HStack(spacing: 6) {
-                            Button {
-                                try? database.toggleTaskCompletion(id: task.id)
-                            } label: {
-                                Image(systemName: task.isCompleted ? "checkmark.circle.fill" : "circle")
-                                    .font(.caption)
-                                    .foregroundStyle(task.isCompleted ? .green : .secondary)
-                            }
-                            .buttonStyle(.plain)
-                            Text(task.title)
+                let completed = noteDetail.tasks.filter(\.isCompleted).count
+                HStack(spacing: Spacing.xs) {
+                    Image(systemName: "checkmark.circle")
+                        .font(.caption2)
+                    Text("\(completed)/\(noteDetail.tasks.count)")
+                        .font(.caption2)
+                }
+                .foregroundStyle(.tertiary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var expandedContent: some View {
+        if let summary = noteDetail.note.summary, noteDetail.note.isProcessed {
+            Text(summary)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .italic()
+        }
+
+        if !noteDetail.tags.isEmpty {
+            FlowLayout(spacing: Spacing.xs) {
+                ForEach(noteDetail.tags) { tag in
+                    Text("#\(tag.name)")
+                        .pillStyle()
+                }
+            }
+        }
+
+        if !noteDetail.tasks.isEmpty {
+            VStack(alignment: .leading, spacing: Spacing.xs) {
+                ForEach(noteDetail.tasks) { task in
+                    HStack(spacing: Spacing.sm) {
+                        Button {
+                            task.isCompleted.toggle()
+                            try? context.save()
+                        } label: {
+                            Image(systemName: task.isCompleted ? "checkmark.circle.fill" : "circle")
                                 .font(.caption)
-                                .strikethrough(task.isCompleted)
-                                .foregroundStyle(task.isCompleted ? .secondary : .primary)
-                            if let dueDate = task.dueDate {
-                                Spacer()
-                                Text(dueDate.formatted(date: .abbreviated, time: .omitted))
-                                    .font(.caption2)
-                                    .foregroundStyle(.orange)
-                            }
+                                .foregroundStyle(task.isCompleted ? .green : .secondary)
+                        }
+                        .buttonStyle(.plain)
+                        Text(task.title)
+                            .font(.caption)
+                            .strikethrough(task.isCompleted)
+                            .foregroundStyle(task.isCompleted ? .secondary : .primary)
+                        if let dueDate = task.dueDate {
+                            Spacer()
+                            Text(dueDate.formatted(date: .abbreviated, time: .omitted))
+                                .font(.caption2)
+                                .foregroundStyle(.orange)
                         }
                     }
                 }
             }
         }
-        .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(.background)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10)
-                        .strokeBorder(isSelected ? Color.accentColor : .clear, lineWidth: 2)
-                )
-        )
-        .shadow(color: .black.opacity(0.05), radius: 2, y: 1)
     }
 }
 
 /// Simple flow layout for tags
 struct FlowLayout: Layout {
-    var spacing: CGFloat = 4
+    var spacing: CGFloat = Spacing.xs
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let sizes = subviews.map { $0.sizeThatFits(.unspecified) }

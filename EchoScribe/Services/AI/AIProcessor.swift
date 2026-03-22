@@ -1,17 +1,17 @@
-import Foundation
+import CoreData
 
 @MainActor
 final class AIProcessor {
-    private let database: AppDatabase
+    private let persistence: PersistenceController
     private let mlxService: MLXService
 
-    init(database: AppDatabase, mlxService: MLXService) {
-        self.database = database
+    init(persistence: PersistenceController, mlxService: MLXService) {
+        self.persistence = persistence
         self.mlxService = mlxService
     }
 
     func analyze(rawTranscript: String) async throws -> NoteAnalysis {
-        // If model isn't loaded yet, use fallback
+        // If model isn't loaded yet, try to load it
         if !mlxService.isModelLoaded {
             do {
                 try await mlxService.loadModel()
@@ -21,10 +21,12 @@ final class AIProcessor {
             }
         }
 
-        let projects = try database.fetchAllProjects().map(\.name)
+        let projects = fetchProjectInfo()
+        let tags = fetchTagNames()
         let prompt = PromptTemplates.noteAnalysisPrompt(
             transcript: rawTranscript,
-            existingProjects: projects
+            existingProjects: projects,
+            existingTags: tags
         )
 
         do {
@@ -34,6 +36,18 @@ final class AIProcessor {
             print("AI analysis failed, using fallback: \(error)")
             return fallbackAnalysis(rawTranscript: rawTranscript)
         }
+    }
+
+    private func fetchProjectInfo() -> [(name: String, description: String?)] {
+        let request: NSFetchRequest<CDProject> = CDProject.fetchRequest()
+        request.sortDescriptors = [NSSortDescriptor(key: "name", ascending: true)]
+        return (try? persistence.viewContext.fetch(request).map { ($0.name, $0.projectDescription) }) ?? []
+    }
+
+    private func fetchTagNames() -> [String] {
+        let request: NSFetchRequest<CDTag> = CDTag.fetchRequest()
+        request.sortDescriptors = [NSSortDescriptor(key: "name", ascending: true)]
+        return (try? persistence.viewContext.fetch(request).map(\.name)) ?? []
     }
 
     private func parseAnalysis(from response: String) throws -> NoteAnalysis {
@@ -69,7 +83,7 @@ final class AIProcessor {
             processedText: rawTranscript,
             summary: String(rawTranscript.prefix(100)),
             tasks: [],
-            project: "General",
+            projectName: "General",
             tags: []
         )
     }

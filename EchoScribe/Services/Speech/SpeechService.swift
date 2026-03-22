@@ -19,6 +19,7 @@ protocol SpeechServiceProtocol: AnyObject {
     func startRecording() async throws
     func stopRecording() async -> String
     func transcriptionUpdates() -> AsyncStream<TranscriptionUpdate>
+    func audioLevelUpdates() -> AsyncStream<Float>
 }
 
 enum SpeechError: LocalizedError {
