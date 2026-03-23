@@ -59,6 +59,23 @@ struct ProjectsSidebarView: View {
             .padding(.vertical, Spacing.sm)
             .padding(.horizontal, Spacing.sm)
         }
+        .popover(item: $editingProject) { project in
+            ProjectEditPopover(
+                project: project,
+                onSave: { name, color, description in
+                    projectsViewModel.updateProject(project, name: name, color: color, description: description)
+                    editingProject = nil
+                },
+                onDelete: {
+                    if appState.selectedProjectId == project.id.uuidString {
+                        feedViewModel.selectedProjectId = nil
+                        appState.selectedProjectId = nil
+                    }
+                    projectsViewModel.deleteProject(project)
+                    editingProject = nil
+                }
+            )
+        }
     }
 
     // MARK: - All Notes Row
@@ -107,10 +124,10 @@ struct ProjectsSidebarView: View {
         } label: {
             HStack(spacing: Spacing.sm) {
                 Circle()
-                    .fill(Color(hex: project.color) ?? .blue)
+                    .fill(Color(hex: pwc.color) ?? .blue)
                     .frame(width: 10, height: 10)
 
-                Text(project.name)
+                Text(pwc.name)
                     .font(.subheadline)
                     .lineLimit(1)
 
@@ -135,22 +152,5 @@ struct ProjectsSidebarView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .popover(item: $editingProject) { project in
-            ProjectEditPopover(
-                project: project,
-                onSave: { name, color, description in
-                    projectsViewModel.updateProject(project, name: name, color: color, description: description)
-                    editingProject = nil
-                },
-                onDelete: {
-                    if appState.selectedProjectId == project.id.uuidString {
-                        feedViewModel.selectedProjectId = nil
-                        appState.selectedProjectId = nil
-                    }
-                    projectsViewModel.deleteProject(project)
-                    editingProject = nil
-                }
-            )
-        }
     }
 }

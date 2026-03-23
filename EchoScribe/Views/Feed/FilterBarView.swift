@@ -93,9 +93,9 @@ struct FilterBarView: View {
                 } label: {
                     HStack {
                         Circle()
-                            .fill(Color(hex: projectWithCount.project.color) ?? .blue)
+                            .fill(Color(hex: projectWithCount.color) ?? .blue)
                             .frame(width: 8, height: 8)
-                        Text(projectWithCount.project.name)
+                        Text(projectWithCount.name)
                         Spacer()
                         Text("\(projectWithCount.noteCount)")
                             .foregroundStyle(.secondary)
@@ -189,7 +189,7 @@ struct FilterBarView: View {
             HStack(spacing: Spacing.sm) {
                 if let projectId = feedViewModel.selectedProjectId,
                    let project = projects.first(where: { $0.project.id.uuidString == projectId }) {
-                    filterChip(label: project.project.name, icon: "folder") {
+                    filterChip(label: project.name, icon: "folder") {
                         feedViewModel.selectedProjectId = nil
                         feedViewModel.startObservation()
                     }

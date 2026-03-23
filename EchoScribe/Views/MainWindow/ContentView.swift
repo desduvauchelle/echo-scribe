@@ -75,7 +75,12 @@ struct ContentView: View {
         }
         .onChange(of: recordingViewModel.isPreparing) { _, isPreparing in
             withAnimation(AppAnimation.gentle) {
-                appState.isRecordingInline = isPreparing || recordingViewModel.isRecording
+                appState.isRecordingInline = isPreparing || recordingViewModel.isRecording || recordingViewModel.isTranscribing
+            }
+        }
+        .onChange(of: recordingViewModel.isTranscribing) { _, isTranscribing in
+            withAnimation(AppAnimation.gentle) {
+                appState.isRecordingInline = isTranscribing || recordingViewModel.isRecording || recordingViewModel.isPreparing
             }
         }
         .task {
@@ -145,9 +150,16 @@ struct ContentView: View {
             .disabled(recordingViewModel.isPreparing)
             .keyboardShortcut("r", modifiers: [.command])
 
-            if recordingViewModel.isRecording || recordingViewModel.isPreparing {
-                // Recording state: waveform + transcript
-                if recordingViewModel.isPreparing {
+            if recordingViewModel.isRecording || recordingViewModel.isPreparing || recordingViewModel.isTranscribing {
+                // Recording/transcribing state
+                if recordingViewModel.isTranscribing {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Transcribing...")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else if recordingViewModel.isPreparing {
                     Text("Preparing...")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
@@ -187,6 +199,7 @@ struct ContentView: View {
         )
         .animation(AppAnimation.gentle, value: recordingViewModel.isRecording)
         .animation(AppAnimation.gentle, value: recordingViewModel.isPreparing)
+        .animation(AppAnimation.gentle, value: recordingViewModel.isTranscribing)
     }
 
     private var microphoneMenu: some View {

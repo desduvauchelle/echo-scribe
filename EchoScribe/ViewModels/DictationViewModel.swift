@@ -1,11 +1,15 @@
+import AppKit
 import Foundation
 
 @MainActor
 @Observable
 final class DictationViewModel {
     var isRecording = false
+    var isTranscribing = false
     var liveTranscript = ""
     var errorMessage: String?
+    /// Set after stop — the UI layer reads this to show a toast.
+    var lastPasteResult: PasteResult?
 
     private var speechService: SpeechServiceProtocol
     private let coordinator: RecordingCoordinator
@@ -21,6 +25,7 @@ final class DictationViewModel {
         guard !isRecording else { return }
 
         errorMessage = nil
+        lastPasteResult = nil
         liveTranscript = ""
         coordinator.claim(.dictation)
 
@@ -44,12 +49,24 @@ final class DictationViewModel {
     func stopDictationAndPaste() async {
         guard isRecording else { return }
 
+        isRecording = false
+        isTranscribing = true
+
+        // Get final text BEFORE cancelling the transcription task
+        // so the speech service can flush any remaining audio
+        var finalText = await speechService.stopRecording()
+        isTranscribing = false
+        coordinator.release()
+
+        // Cancel transcription task AFTER getting final text
         transcriptionTask?.cancel()
         transcriptionTask = nil
 
-        let finalText = await speechService.stopRecording()
-        isRecording = false
-        coordinator.release()
+        // Fallback: if speech service returned empty but live transcript has content, use it
+        if finalText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !liveTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            finalText = liveTranscript
+        }
 
         let trimmed = finalText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
@@ -57,10 +74,8 @@ final class DictationViewModel {
             return
         }
 
-        let success = await ClipboardPasteService.pasteText(trimmed)
-        if !success {
-            errorMessage = "Accessibility permission needed. If already enabled, toggle it off and back on in System Settings > Privacy & Security > Accessibility."
-        }
+        let result = await ClipboardPasteService.deliverText(trimmed)
+        lastPasteResult = result
         liveTranscript = ""
     }
 

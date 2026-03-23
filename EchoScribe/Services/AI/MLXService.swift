@@ -1,4 +1,5 @@
 import Foundation
+import MLX
 import SwiftUI
 @preconcurrency import MLXLLM
 @preconcurrency import MLXLMCommon
@@ -152,6 +153,8 @@ final class MLXService {
 
     private var modelContainer: ModelContainer?
     private var chatSession: ChatSession?
+    private var idleUnloadTask: Task<Void, Never>?
+    private static let idleTimeout: Duration = .seconds(60)
 
     init() {
         if let saved = UserDefaults.standard.string(forKey: Constants.selectedAIModelKey),
@@ -160,55 +163,99 @@ final class MLXService {
         } else {
             self.selectedVariant = .qwen3B
         }
+
+        // Install a global MLX error handler to prevent fatalError crashes.
+        // Without this, any MLX C++ error triggers fatalError in ErrorHandler.dispatch().
+        setErrorHandler({ message, _ in
+            let msg = message.map { String(cString: $0) } ?? "Unknown MLX error"
+            print("[MLX] Error intercepted: \(msg)")
+        })
     }
 
     func switchModel(to variant: AIModelVariant) {
         guard variant != selectedVariant else { return }
         if case .downloading = modelState { return }
         selectedVariant = variant
-        modelContainer = nil
-        chatSession = nil
-        modelState = .notDownloaded
+        unloadModel()
         UserDefaults.standard.set(variant.rawValue, forKey: Constants.selectedAIModelKey)
     }
 
+    func unloadModel() {
+        idleUnloadTask?.cancel()
+        idleUnloadTask = nil
+        modelContainer = nil
+        chatSession = nil
+        modelState = .notDownloaded
+        print("[MLX] unloadModel() — model released from memory")
+    }
+
+    private func scheduleIdleUnload() {
+        idleUnloadTask?.cancel()
+        idleUnloadTask = Task { [weak self] in
+            try? await Task.sleep(for: Self.idleTimeout)
+            guard !Task.isCancelled else { return }
+            self?.unloadModel()
+        }
+    }
+
     func loadModel() async throws {
-        guard modelContainer == nil else { return }
+        print("[MLX] loadModel() — entry, modelContainer==nil: \(modelContainer == nil), modelName=\(modelName)")
+        idleUnloadTask?.cancel()
+        idleUnloadTask = nil
+        guard modelContainer == nil else {
+            print("[MLX] loadModel() — already loaded, skipping")
+            return
+        }
 
         modelState = .downloading(progress: 0)
+        print("[MLX] loadModel() — starting download/load for \(modelName)")
 
         do {
             let container = try await loadModelContainer(id: modelName) { [weak self] progress in
                 Task { @MainActor in
-                    self?.modelState = .downloading(progress: progress.fractionCompleted)
+                    let fraction = progress.fractionCompleted
+                    self?.modelState = .downloading(progress: fraction)
+                    // Log at 25% intervals to avoid spam
+                    if fraction < 0.01 || (fraction * 100).truncatingRemainder(dividingBy: 25) < 1 {
+                        print("[MLX] loadModel() — download progress: \(Int(fraction * 100))%")
+                    }
                 }
             }
+            print("[MLX] loadModel() — container loaded, creating ChatSession")
             self.modelContainer = container
             self.chatSession = ChatSession(
                 container,
                 instructions: "You are a precise JSON-outputting assistant. Respond ONLY with valid JSON, no markdown fences or extra text.",
-                generateParameters: .init(temperature: 0.1, topP: 0.9)
+                generateParameters: .init(maxTokens: 1024, temperature: 0.1, topP: 0.9)
             )
             modelState = .ready
+            print("[MLX] loadModel() — ready")
         } catch {
+            print("[MLX] loadModel() — FAILED: \(error)")
             modelState = .error(error.localizedDescription)
             throw error
         }
     }
 
     func generate(prompt: String) async throws -> String {
+        print("[MLX] generate() — entry, prompt length=\(prompt.count), modelContainer==nil: \(modelContainer == nil)")
         if modelContainer == nil {
+            print("[MLX] generate() — model not loaded, calling loadModel()")
             try await loadModel()
         }
 
         guard let chatSession else {
+            print("[MLX] generate() — chatSession is nil after load, throwing")
             throw MLXServiceError.modelNotLoaded
         }
 
-        // Clear previous conversation so each analysis is independent
+        print("[MLX] generate() — clearing chat session")
         await chatSession.clear()
 
+        print("[MLX] generate() — calling chatSession.respond()...")
         let response = try await chatSession.respond(to: prompt)
+        print("[MLX] generate() — respond() returned, response length=\(response.count)")
+        scheduleIdleUnload()
         return response
     }
 

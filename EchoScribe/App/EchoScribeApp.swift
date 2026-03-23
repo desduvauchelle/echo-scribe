@@ -19,6 +19,10 @@ struct EchoScribeApp: App {
     private let updaterController: SPUStandardUpdaterController
 
     init() {
+        UserDefaults.standard.register(defaults: [
+            Constants.removeSilenceKey: true
+        ])
+
         #if DEBUG
         self.updaterController = SPUStandardUpdaterController(
             startingUpdater: false,
@@ -105,9 +109,19 @@ struct EchoScribeApp: App {
     }
 
     @AppStorage("capsLockMode") private var capsLockModeRaw: String = CapsLockMode.off.rawValue
+    @AppStorage("doublePressAction") private var doublePressActionRaw: String = DoublePressAction.off.rawValue
+    @AppStorage("doublePressKey") private var doublePressKeyRaw: String = DoublePressKey.option.rawValue
 
     private var capsLockMode: CapsLockMode {
         CapsLockMode(rawValue: capsLockModeRaw) ?? .off
+    }
+
+    private var doublePressAction: DoublePressAction {
+        DoublePressAction(rawValue: doublePressActionRaw) ?? .off
+    }
+
+    private var doublePressKey: DoublePressKey {
+        DoublePressKey(rawValue: doublePressKeyRaw) ?? .option
     }
 
     var body: some Scene {
@@ -124,8 +138,16 @@ struct EchoScribeApp: App {
             .onAppear {
                 setupShortcuts()
                 spotlightIndexer.indexNotes(feedViewModel.notes)
+                // Request accessibility once at launch (shows system prompt if needed)
+                ClipboardPasteService.requestAccessibilityIfNeeded()
             }
             .onChange(of: capsLockModeRaw) { _, _ in
+                setupShortcuts()
+            }
+            .onChange(of: doublePressActionRaw) { _, _ in
+                setupShortcuts()
+            }
+            .onChange(of: doublePressKeyRaw) { _, _ in
                 setupShortcuts()
             }
             .onChange(of: recordingViewModel.isRecording) { _, isRecording in
@@ -134,10 +156,24 @@ struct EchoScribeApp: App {
             .onChange(of: dictationViewModel.isRecording) { _, isDictating in
                 if isDictating {
                     dictationIndicator.show()
-                } else {
+                } else if !dictationViewModel.isTranscribing {
                     dictationIndicator.dismiss()
+                    // Show toast if text was copied to clipboard (no auto-paste)
+                    if dictationViewModel.lastPasteResult == .copiedToClipboard {
+                        dictationIndicator.showToast("Copied to clipboard \u{2014} Cmd+V to paste")
+                    }
                 }
                 MenuBarManager.shared.updateDictationState(isDictating: isDictating)
+            }
+            .onChange(of: dictationViewModel.isTranscribing) { _, isTranscribing in
+                if isTranscribing {
+                    dictationIndicator.showTranscribing()
+                } else {
+                    dictationIndicator.dismiss()
+                    if dictationViewModel.lastPasteResult == .copiedToClipboard {
+                        dictationIndicator.showToast("Copied to clipboard \u{2014} Cmd+V to paste")
+                    }
+                }
             }
             .onChange(of: feedViewModel.notes) { _, newNotes in
                 spotlightIndexer.indexNotes(newNotes)
@@ -148,6 +184,7 @@ struct EchoScribeApp: App {
 
     private func setupShortcuts() {
         let capsLockService = CapsLockShortcutService.shared
+        let doublePressService = DoublePressShortcutService.shared
 
         // Reset all caps lock callbacks
         capsLockService.stop()
@@ -155,27 +192,25 @@ struct EchoScribeApp: App {
         capsLockService.onCapsLockDown = nil
         capsLockService.onCapsLockUp = nil
 
+        // Reset double-press service
+        doublePressService.stop()
+        doublePressService.onDoublePress = nil
+
+        // Track which actions are handled by special triggers
+        let voiceToNoteCapsLock = capsLockMode == .voiceToNote
+        let transcribeCapsLock = capsLockMode == .transcribe
+        let voiceToNoteDoublePress = doublePressAction == .voiceToNote && !voiceToNoteCapsLock
+        let transcribeDoublePress = doublePressAction == .transcribe && !transcribeCapsLock
+
+        // --- Caps Lock setup ---
         switch capsLockMode {
         case .voiceToNote:
-            // Caps Lock for Voice to Note (toggle mode)
-            KeyboardShortcuts.onKeyUp(for: .toggleRecording) { }
             capsLockService.onCapsLockToggled = { [self] in
                 recordingViewModel.toggleRecording()
             }
             capsLockService.start()
 
-            // Normal keyboard shortcut for Dictation
-            KeyboardShortcuts.onKeyDown(for: .dictationMode) { [self] in
-                Task { @MainActor in await dictationViewModel.startDictation() }
-            }
-            KeyboardShortcuts.onKeyUp(for: .dictationMode) { [self] in
-                Task { @MainActor in await dictationViewModel.stopDictationAndPaste() }
-            }
-
         case .transcribe:
-            // Caps Lock for Transcribe (hold mode — press to start, press again to stop)
-            KeyboardShortcuts.onKeyDown(for: .dictationMode) { }
-            KeyboardShortcuts.onKeyUp(for: .dictationMode) { }
             capsLockService.onCapsLockDown = { [self] in
                 Task { @MainActor in await dictationViewModel.startDictation() }
             }
@@ -184,16 +219,46 @@ struct EchoScribeApp: App {
             }
             capsLockService.start()
 
-            // Normal keyboard shortcut for Voice to Note
-            KeyboardShortcuts.onKeyUp(for: .toggleRecording) { [self] in
-                recordingViewModel.toggleRecording()
-            }
-
         case .off:
-            // Normal keyboard shortcuts for both
+            break
+        }
+
+        // --- Double-press setup ---
+        if voiceToNoteDoublePress {
+            doublePressService.monitoredKey = doublePressKey
+            doublePressService.onDoublePress = { [self] in
+                recordingViewModel.toggleRecording()
+            }
+            doublePressService.start()
+        } else if transcribeDoublePress {
+            doublePressService.monitoredKey = doublePressKey
+            doublePressService.onDoublePress = { [self] in
+                Task { @MainActor in
+                    if dictationViewModel.isRecording {
+                        await dictationViewModel.stopDictationAndPaste()
+                    } else {
+                        await dictationViewModel.startDictation()
+                    }
+                }
+            }
+            doublePressService.start()
+        }
+
+        // --- Keyboard shortcuts ---
+        // Voice to Note: use keyboard shortcut unless handled by caps lock or double-press
+        if voiceToNoteCapsLock || voiceToNoteDoublePress {
+            KeyboardShortcuts.onKeyUp(for: .toggleRecording) { }
+        } else {
             KeyboardShortcuts.onKeyUp(for: .toggleRecording) { [self] in
                 recordingViewModel.toggleRecording()
             }
+        }
+
+        // Transcribe: use keyboard shortcut unless handled by caps lock or double-press
+        if transcribeCapsLock || transcribeDoublePress {
+            KeyboardShortcuts.onKeyDown(for: .dictationMode) { }
+            KeyboardShortcuts.onKeyUp(for: .dictationMode) { }
+        } else {
             KeyboardShortcuts.onKeyDown(for: .dictationMode) { [self] in
                 Task { @MainActor in await dictationViewModel.startDictation() }
             }

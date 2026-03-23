@@ -25,12 +25,18 @@ final class CapsLockShortcutService {
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     private var isRunning = false
+    /// True when the CGEvent tap could not be created (accessibility permission missing).
+    var eventTapFailed = false
 
     private init() {}
 
-    func start() {
-        guard !isRunning else { return }
+    /// Starts monitoring Caps Lock. Returns `true` if the event tap was installed
+    /// successfully, `false` if accessibility permission is missing.
+    @discardableResult
+    func start() -> Bool {
+        guard !isRunning else { return !eventTapFailed }
         isRunning = true
+        eventTapFailed = false
 
         // Global monitor for when app is not focused
         globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
@@ -44,6 +50,7 @@ final class CapsLockShortcutService {
         }
 
         installEventTap()
+        return !eventTapFailed
     }
 
     func stop() {
@@ -97,6 +104,7 @@ final class CapsLockShortcutService {
             userInfo: nil
         ) else {
             print("CapsLockShortcutService: Could not create event tap. Accessibility permission may be required.")
+            eventTapFailed = true
             return
         }
 

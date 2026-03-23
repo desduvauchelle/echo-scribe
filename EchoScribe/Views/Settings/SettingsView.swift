@@ -35,8 +35,12 @@ struct SettingsView: View {
     @State private var showUninstallAlert = false
     @State private var showFinalUninstallConfirmation = false
     @AppStorage("capsLockMode") private var capsLockModeRaw: String = CapsLockMode.off.rawValue
+    @AppStorage("doublePressAction") private var doublePressActionRaw: String = DoublePressAction.off.rawValue
+    @AppStorage("doublePressKey") private var doublePressKeyRaw: String = DoublePressKey.option.rawValue
     @State private var isAccessibilityGranted = false
     @AppStorage("useAIImprovements") private var useAIImprovements = false
+    // Key must match Constants.removeSilenceKey
+    @AppStorage("removeSilence") private var removeSilence = true
     private let conflictDetector = ShortcutConflictDetector()
 
     var body: some View {
@@ -76,6 +80,7 @@ struct SettingsView: View {
                     case .voice:
                         microphoneSection
                         voiceToTextSection
+                        silenceRemovalSection
                         aiImprovementsSection
                     case .ai:
                         aiModelSection
@@ -527,6 +532,30 @@ struct SettingsView: View {
         }
     }
 
+    // MARK: - Silence Removal
+
+    private var silenceRemovalSection: some View {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+            Text("AUDIO PROCESSING")
+                .sectionLabel()
+
+            VStack(spacing: Spacing.md) {
+                Toggle("Remove silence", isOn: $removeSilence)
+                    .foregroundStyle(.secondary)
+
+                Text("Strips long pauses from audio before transcription. Reduces hallucinated text during silence. Only affects Whisper and Parakeet engines.")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(Spacing.md)
+            .background(
+                RoundedRectangle(cornerRadius: Radius.md)
+                    .fill(AppColors.surface)
+            )
+            .modifier(Elevation.card(colorScheme))
+        }
+    }
+
     // MARK: - AI Improvements
 
     private var aiImprovementsSection: some View {
@@ -555,6 +584,14 @@ struct SettingsView: View {
 
     private var capsLockMode: CapsLockMode {
         CapsLockMode(rawValue: capsLockModeRaw) ?? .off
+    }
+
+    private var doublePressAction: DoublePressAction {
+        DoublePressAction(rawValue: doublePressActionRaw) ?? .off
+    }
+
+    private var doublePressKey: DoublePressKey {
+        DoublePressKey(rawValue: doublePressKeyRaw) ?? .option
     }
 
     private var capsLockBadge: some View {
@@ -588,6 +625,19 @@ struct SettingsView: View {
         )
     }
 
+    private var doublePressKeyPicker: some View {
+        Picker("Modifier key:", selection: Binding(
+            get: { doublePressKeyRaw },
+            set: { doublePressKeyRaw = $0 }
+        )) {
+            ForEach(DoublePressKey.allCases, id: \.rawValue) { key in
+                Text(key.displayName).tag(key.rawValue)
+            }
+        }
+        .pickerStyle(.menu)
+        .controlSize(.small)
+    }
+
     private var keyboardShortcutsSection: some View {
         VStack(alignment: .leading, spacing: Spacing.sm) {
             Text("KEYBOARD SHORTCUTS")
@@ -619,6 +669,18 @@ struct SettingsView: View {
 
                     if capsLockMode == .voiceToNote {
                         capsLockInfoBox
+                    }
+
+                    Toggle("Use double-press modifier key", isOn: Binding(
+                        get: { doublePressAction == .voiceToNote },
+                        set: { doublePressActionRaw = $0 ? DoublePressAction.voiceToNote.rawValue : DoublePressAction.off.rawValue }
+                    ))
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                    .disabled(capsLockMode == .voiceToNote)
+
+                    if doublePressAction == .voiceToNote {
+                        doublePressKeyPicker
                     }
 
                     if capsLockMode != .voiceToNote {
@@ -662,6 +724,21 @@ struct SettingsView: View {
                         capsLockInfoBox
                     }
 
+                    Toggle("Use double-press modifier key", isOn: Binding(
+                        get: { doublePressAction == .transcribe },
+                        set: { doublePressActionRaw = $0 ? DoublePressAction.transcribe.rawValue : DoublePressAction.off.rawValue }
+                    ))
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                    .disabled(capsLockMode == .transcribe)
+
+                    if doublePressAction == .transcribe {
+                        doublePressKeyPicker
+                        Text("Double-press to start, double-press again to stop and paste.")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+
                     if capsLockMode != .transcribe {
                         ShortcutConflictView(
                             conflicts: dictationModeConflicts,
@@ -692,7 +769,9 @@ struct SettingsView: View {
                         }
                     }
 
-                    Text("Required for Transcribe (paste at cursor) and Caps Lock shortcut (intercept key events). Without this, these features cannot function.")
+                    Text(isAccessibilityGranted
+                         ? "Transcribe will paste directly at your cursor."
+                         : "Without Accessibility, Transcribe copies text to your clipboard instead of pasting at the cursor. Caps Lock shortcut also requires it.")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
 
@@ -700,10 +779,16 @@ struct SettingsView: View {
                         HStack {
                             Spacer()
                             Button("Grant Accessibility Permission") {
-                                ClipboardPasteService.requestAccessibilityPermission()
-                                // Re-check after a short delay to allow the system dialog
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                                    isAccessibilityGranted = AXIsProcessTrusted()
+                                ClipboardPasteService.requestAccessibilityIfNeeded()
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                                    isAccessibilityGranted = ClipboardPasteService.isAccessibilityTrusted
+                                }
+                            }
+                            .controlSize(.small)
+                            Button("Open Settings") {
+                                ClipboardPasteService.openAccessibilitySettings()
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                                    isAccessibilityGranted = ClipboardPasteService.isAccessibilityTrusted
                                 }
                             }
                             .controlSize(.small)
@@ -719,10 +804,10 @@ struct SettingsView: View {
             .modifier(Elevation.card(colorScheme))
             .onAppear {
                 checkAllConflicts()
-                isAccessibilityGranted = AXIsProcessTrusted()
+                isAccessibilityGranted = ClipboardPasteService.isAccessibilityTrusted
             }
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-                isAccessibilityGranted = AXIsProcessTrusted()
+                isAccessibilityGranted = ClipboardPasteService.isAccessibilityTrusted
             }
             .onReceive(NotificationCenter.default.publisher(for: Notification.Name("KeyboardShortcuts_shortcutByNameDidChange"))) { _ in
                 checkAllConflicts()

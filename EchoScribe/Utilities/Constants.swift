@@ -12,6 +12,7 @@ enum Constants {
     static let recordingModeKey = "recordingMode"
     static let selectedMicrophoneUID = "selectedMicrophoneUID"
     static let microphonePreferenceOrder = "microphonePreferenceOrder"
+    static let removeSilenceKey = "removeSilence"
 }
 
 extension KeyboardShortcuts.Name {

@@ -87,7 +87,15 @@ final class ParakeetSpeechService: SpeechServiceProtocol {
     private var continuation: AsyncStream<TranscriptionUpdate>.Continuation?
     private var audioLevelContinuation: AsyncStream<Float>.Continuation?
     private var finalTranscript = ""
+    private var accumulatedTranscript = ""
+    private var chunkStartIndex = 0
     private var transcriptionTimer: Task<Void, Never>?
+    private var modelUnloadTask: Task<Void, Never>?
+    private var modelLoadTask: Task<Void, Error>?
+    private static let modelIdleTimeout: Duration = .seconds(30)
+
+    /// Maximum chunk duration in seconds, staying within model context window (~30s)
+    private let maxChunkDurationSeconds: Double = 25.0
 
     var isModelLoaded: Bool {
         asrManager != nil
@@ -127,18 +135,18 @@ final class ParakeetSpeechService: SpeechServiceProtocol {
     // MARK: - SpeechServiceProtocol
 
     func startRecording() async throws {
+        modelUnloadTask?.cancel()
+        modelUnloadTask = nil
+        modelLoadTask?.cancel()
+        modelLoadTask = nil
         guard !isRecording else { return }
 
-        if asrManager == nil {
-            do {
-                try await loadModel()
-            } catch {
-                throw SpeechError.parakeetModelNotLoaded
-            }
+        bufferLock.withLock {
+            audioSamples.removeAll()
         }
-
-        bufferLock.withLock { audioSamples.removeAll() }
         finalTranscript = ""
+        accumulatedTranscript = ""
+        chunkStartIndex = 0
 
         do {
             try audioCaptureManager.startCapture(
@@ -157,7 +165,19 @@ final class ParakeetSpeechService: SpeechServiceProtocol {
         }
 
         isRecording = true
-        startPeriodicTranscription()
+
+        if asrManager == nil {
+            print("[ParakeetService] startRecording() — model not loaded, loading in background...")
+            modelLoadTask = Task { [weak self] in
+                guard let self else { return }
+                try await self.loadModel()
+                guard self.isRecording else { return }
+                print("[ParakeetService] model loaded while recording — starting periodic transcription")
+                self.startPeriodicTranscription()
+            }
+        } else {
+            startPeriodicTranscription()
+        }
     }
 
     func stopRecording() async -> String {
@@ -167,17 +187,48 @@ final class ParakeetSpeechService: SpeechServiceProtocol {
         audioCaptureManager.stopCapture()
         isRecording = false
 
-        // Final transcription pass on all accumulated audio
-        let audioArray: [Float] = bufferLock.withLock {
-            let samples = audioSamples
-            audioSamples.removeAll()
-            return samples
+        // Wait for model to finish loading if it's still in progress
+        if let loadTask = modelLoadTask {
+            print("[ParakeetService] stopRecording() — waiting for model to finish loading...")
+            do {
+                try await loadTask.value
+            } catch {
+                print("[ParakeetService] stopRecording() — model load failed: \(error)")
+                modelLoadTask = nil
+                bufferLock.withLock { audioSamples.removeAll() }
+                continuation?.yield(TranscriptionUpdate(partialText: "", isFinal: true, confidence: 0))
+                continuation?.finish()
+                continuation = nil
+                audioLevelContinuation?.finish()
+                audioLevelContinuation = nil
+                scheduleModelUnload()
+                return accumulatedTranscript
+            }
+            modelLoadTask = nil
+            print("[ParakeetService] stopRecording() — model loaded, proceeding with transcription")
         }
 
-        if !audioArray.isEmpty {
-            if let text = await transcribeAudio(audioArray) {
-                finalTranscript = text
+        // Final transcription of only the current chunk
+        let currentChunkAudio: [Float] = bufferLock.withLock {
+            guard chunkStartIndex < audioSamples.count else {
+                audioSamples.removeAll()
+                return []
             }
+            let chunk = Array(audioSamples[chunkStartIndex...])
+            audioSamples.removeAll()
+            return chunk
+        }
+
+        if !currentChunkAudio.isEmpty {
+            if let text = await transcribeAudio(currentChunkAudio) {
+                finalTranscript = accumulatedTranscript.isEmpty
+                    ? text
+                    : accumulatedTranscript + " " + text
+            } else {
+                finalTranscript = accumulatedTranscript
+            }
+        } else {
+            finalTranscript = accumulatedTranscript
         }
 
         continuation?.yield(TranscriptionUpdate(
@@ -191,7 +242,21 @@ final class ParakeetSpeechService: SpeechServiceProtocol {
         audioLevelContinuation?.finish()
         audioLevelContinuation = nil
 
+        scheduleModelUnload()
         return finalTranscript
+    }
+
+    private func scheduleModelUnload() {
+        modelUnloadTask?.cancel()
+        modelUnloadTask = Task { [weak self] in
+            try? await Task.sleep(for: Self.modelIdleTimeout)
+            guard !Task.isCancelled else { return }
+            guard let self, !self.isRecording else { return }
+            self.asrManager = nil
+            self.asrModels = nil
+            self.modelState = .notDownloaded
+            print("[ParakeetService] model unloaded after idle timeout")
+        }
     }
 
     func transcriptionUpdates() -> AsyncStream<TranscriptionUpdate> {
@@ -214,18 +279,60 @@ final class ParakeetSpeechService: SpeechServiceProtocol {
                 try? await Task.sleep(for: .seconds(2))
                 guard let self, !Task.isCancelled else { break }
 
-                let audioArray: [Float] = self.bufferLock.withLock {
-                    return self.audioSamples
-                }
-                guard !audioArray.isEmpty else { continue }
+                let sampleRate = self.audioCaptureManager.inputFormat?.sampleRate ?? 16000
+                let maxChunkSamples = Int(self.maxChunkDurationSeconds * sampleRate)
 
-                if let text = await self.transcribeAudio(audioArray), !text.isEmpty {
-                    self.finalTranscript = text
+                // Snapshot current chunk under lock
+                let (chunkAudio, currentChunkStart): ([Float], Int) = self.bufferLock.withLock {
+                    let start = self.chunkStartIndex
+                    guard start < self.audioSamples.count else { return ([], start) }
+                    let chunk = Array(self.audioSamples[start...])
+                    return (chunk, start)
+                }
+
+                guard !chunkAudio.isEmpty else { continue }
+
+                // Check if we need to finalize the current chunk (exceeded max duration)
+                if chunkAudio.count >= maxChunkSamples {
+                    // Finalize: transcribe the full chunk
+                    let finalChunkAudio = Array(chunkAudio.prefix(maxChunkSamples))
+                    if let text = await self.transcribeAudio(finalChunkAudio), !text.isEmpty {
+                        self.accumulatedTranscript = self.accumulatedTranscript.isEmpty
+                            ? text
+                            : self.accumulatedTranscript + " " + text
+                        print("[ParakeetService] chunk finalized — accumulated: \"\(self.accumulatedTranscript.prefix(80))\"")
+                    }
+                    // Advance chunk start
+                    self.bufferLock.withLock {
+                        self.chunkStartIndex = currentChunkStart + maxChunkSamples
+                    }
+
+                    // Transcribe remainder as live partial
+                    let remainderAudio: [Float] = self.bufferLock.withLock {
+                        guard self.chunkStartIndex < self.audioSamples.count else { return [] }
+                        return Array(self.audioSamples[self.chunkStartIndex...])
+                    }
+                    var liveText = ""
+                    if !remainderAudio.isEmpty {
+                        liveText = await self.transcribeAudio(remainderAudio) ?? ""
+                    }
+
+                    let fullText = self.accumulatedTranscript + (liveText.isEmpty ? "" : " " + liveText)
+                    self.finalTranscript = fullText
                     self.continuation?.yield(TranscriptionUpdate(
-                        partialText: text,
-                        isFinal: false,
-                        confidence: 0.95
+                        partialText: fullText, isFinal: false, confidence: 0.95
                     ))
+                } else {
+                    // Normal case: transcribe current chunk only
+                    if let text = await self.transcribeAudio(chunkAudio), !text.isEmpty {
+                        let fullText = self.accumulatedTranscript.isEmpty
+                            ? text
+                            : self.accumulatedTranscript + " " + text
+                        self.finalTranscript = fullText
+                        self.continuation?.yield(TranscriptionUpdate(
+                            partialText: fullText, isFinal: false, confidence: 0.95
+                        ))
+                    }
                 }
             }
         }
@@ -236,15 +343,27 @@ final class ParakeetSpeechService: SpeechServiceProtocol {
             let manager = await MainActor.run { self.asrManager }
             guard let manager else { return nil }
 
-            // Parakeet expects 16kHz mono audio — resample if needed
             let sampleRate = await MainActor.run {
                 self.audioCaptureManager.inputFormat?.sampleRate ?? 16000
             }
+
+            // Apply silence removal if enabled (before resampling for accuracy)
+            var processedAudio = audioArray
+            if UserDefaults.standard.bool(forKey: Constants.removeSilenceKey) {
+                processedAudio = SilenceRemover.removeSilence(from: audioArray, sampleRate: sampleRate)
+                print("[ParakeetService] silence removal: \(audioArray.count) → \(processedAudio.count) samples")
+                guard !processedAudio.isEmpty else {
+                    print("[ParakeetService] all silence removed, skipping transcription")
+                    return nil
+                }
+            }
+
+            // Parakeet expects 16kHz mono audio — resample if needed
             let samples: [Float]
             if sampleRate != 16000 {
-                samples = resampleAudio(audioArray, fromRate: sampleRate, toRate: 16000)
+                samples = resampleAudio(processedAudio, fromRate: sampleRate, toRate: 16000)
             } else {
-                samples = audioArray
+                samples = processedAudio
             }
 
             let result = try await manager.transcribe(samples)

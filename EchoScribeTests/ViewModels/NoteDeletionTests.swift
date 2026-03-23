@@ -354,4 +354,47 @@ struct NoteDeletionTests {
         let guardTriggered = note.managedObjectContext == nil || note.isDeleted
         #expect(guardTriggered, "Guard should trigger after note is deleted and saved")
     }
+
+    // MARK: - UUID Integrity (Crash Regression)
+
+    @Test("delete after re-fetch does not crash on UUID access")
+    func deleteAfterReFetchNoCrash() throws {
+        let ctx = makeContext()
+        let note = TestHelpers.makeNote(in: ctx, rawTranscript: "Re-fetch then delete")
+        try TestHelpers.saveAndWait(ctx)
+
+        // Reset context to force re-fetch from store (simulates app relaunch)
+        ctx.reset()
+        let request: NSFetchRequest<CDNote> = CDNote.fetchRequest()
+        let fetched = try ctx.fetch(request)
+        #expect(fetched.count == 1)
+
+        let vm = FeedViewModel(context: ctx)
+        #expect(vm.notes.count == 1)
+
+        // Delete the re-fetched note — should not crash
+        vm.deleteNote(vm.notes.first!)
+        try TestHelpers.saveAndWait(ctx)
+
+        #expect(vm.notes.isEmpty)
+        let remaining = try ctx.fetch(request)
+        #expect(remaining.isEmpty)
+    }
+
+    @Test("NoteWithDetails.from preserves all UUIDs correctly")
+    func noteWithDetailsPreservesUUIDs() throws {
+        let ctx = makeContext()
+        let project = TestHelpers.makeProject(in: ctx, name: "Detail UUID")
+        let note = TestHelpers.makeNote(in: ctx, rawTranscript: "Detail check", project: project)
+        let tag = TestHelpers.makeTag(in: ctx, name: "detail-tag")
+        note.addToTags(tag)
+        let task = TestHelpers.makeTask(in: ctx, title: "Detail task", note: note)
+        try TestHelpers.saveAndWait(ctx)
+
+        let detail = NoteWithDetails.from(note)
+        #expect(detail.note.id == note.id)
+        #expect(detail.project?.id == project.id)
+        #expect(detail.tags.first?.id == tag.id)
+        #expect(detail.tasks.first?.id == task.id)
+    }
 }

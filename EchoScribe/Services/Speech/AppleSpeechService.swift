@@ -1,16 +1,15 @@
 import Foundation
 @preconcurrency import Speech
 import AVFoundation
+import Accelerate
 
-/// Thread-safe counter for tap callback logging
+/// Lock-free counter for tap callback logging (race on count is harmless for log gating)
 private final class TapCounter: @unchecked Sendable {
-    private var _count = 0
-    private let lock = NSLock()
+    private let _count = UnsafeMutablePointer<Int32>.allocate(capacity: 1)
+    init() { _count.initialize(to: 0) }
+    deinit { _count.deallocate() }
     func increment() -> Int {
-        lock.withLock {
-            _count += 1
-            return _count
-        }
+        Int(OSAtomicIncrement32(_count))
     }
 }
 
@@ -28,6 +27,7 @@ final class AppleSpeechService: SpeechServiceProtocol {
     private var accumulatedTranscript = ""
     private var isStoppingManually = false
     private var tapInstalled = false
+    private var storedRecordingFormat: AVAudioFormat?
 
     private(set) var isRecording = false
     var audioDeviceManager: AudioDeviceManager?
@@ -85,19 +85,24 @@ final class AppleSpeechService: SpeechServiceProtocol {
             request.append(buffer)
             let count = tapCounter.increment()
             if count <= 3 || count % 100 == 0 {
-                print("[AppleSpeech] tap callback #\(count) — frames=\(buffer.frameLength), format=\(buffer.format.sampleRate)Hz/\(buffer.format.channelCount)ch")
+                let frames = buffer.frameLength
+                let rate = buffer.format.sampleRate
+                let ch = buffer.format.channelCount
+                DispatchQueue.global(qos: .utility).async {
+                    print("[AppleSpeech] tap callback #\(count) — frames=\(frames), format=\(rate)Hz/\(ch)ch")
+                }
             }
-            // Calculate audio level for waveform
+            // Offload level calculation from the realtime audio thread
             guard let channelData = buffer.floatChannelData?[0] else { return }
-            let frames = buffer.frameLength
-            var sum: Float = 0
-            for i in 0..<Int(frames) {
-                sum += channelData[i] * channelData[i]
+            let frameCount = Int(buffer.frameLength)
+            DispatchQueue.global(qos: .userInteractive).async {
+                var meanSquare: Float = 0
+                vDSP_measqv(channelData, 1, &meanSquare, vDSP_Length(frameCount))
+                let rms = sqrtf(meanSquare)
+                let db = 20 * log10f(max(rms, 0.000001))
+                let normalizedLevel = max(0, min(1, (db + 50) / 50))
+                levelContinuation?.yield(normalizedLevel)
             }
-            let rms = sqrtf(sum / Float(frames))
-            let db = 20 * log10f(max(rms, 0.000001))
-            let normalizedLevel = max(0, min(1, (db + 50) / 50))
-            levelContinuation?.yield(normalizedLevel)
         }
 
         if !isRestart {
@@ -131,6 +136,8 @@ final class AppleSpeechService: SpeechServiceProtocol {
                     print("[AppleSpeech] WARNING — falling back to outputFormat: \(recordingFormat.sampleRate)Hz/\(recordingFormat.channelCount)ch")
                 }
             }
+
+            self.storedRecordingFormat = recordingFormat
 
             guard recordingFormat.sampleRate > 0 && recordingFormat.channelCount > 0 else {
                 print("[AppleSpeech] ERROR — invalid format, cannot start")
@@ -166,8 +173,11 @@ final class AppleSpeechService: SpeechServiceProtocol {
                 inputNode.removeTap(onBus: 0)
                 tapInstalled = false
             }
-            let recordingFormat = inputNode.outputFormat(forBus: 0)
-            print("[AppleSpeech] restart — reinstalling tap with format: \(recordingFormat.sampleRate)Hz/\(recordingFormat.channelCount)ch")
+            guard let recordingFormat = self.storedRecordingFormat else {
+                print("[AppleSpeech] restart but no stored format — cannot continue")
+                return
+            }
+            print("[AppleSpeech] restart — reinstalling tap with stored format: \(recordingFormat.sampleRate)Hz/\(recordingFormat.channelCount)ch")
             inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat, block: tapHandler)
             tapInstalled = true
         }
@@ -186,22 +196,30 @@ final class AppleSpeechService: SpeechServiceProtocol {
 
                     print("[AppleSpeech] recognition result — isFinal=\(isFinal), confidence=\(confidence), text=\"\(text.prefix(80))\"")
 
-                    self.lastPartialText = text
+                    if !text.isEmpty {
+                        self.lastPartialText = text
+                    }
 
                     if isFinal {
-                        self.finalTranscript = text
+                        self.finalTranscript = text.isEmpty ? self.lastPartialText : text
                     }
+
+                    // Use preserved text when raw text is empty (Apple sometimes sends empty final results)
+                    let effectiveText = text.isEmpty ? self.lastPartialText : text
 
                     // Prepend accumulated text from previous recognition sessions
                     let fullText = self.accumulatedTranscript.isEmpty
-                        ? text
-                        : self.accumulatedTranscript + " " + text
+                        ? effectiveText
+                        : self.accumulatedTranscript + " " + effectiveText
 
-                    self.continuation?.yield(TranscriptionUpdate(
-                        partialText: fullText,
-                        isFinal: isFinal,
-                        confidence: confidence
-                    ))
+                    // Don't yield empty updates — they would wipe the ViewModel's liveTranscript fallback
+                    if !fullText.isEmpty {
+                        self.continuation?.yield(TranscriptionUpdate(
+                            partialText: fullText,
+                            isFinal: isFinal,
+                            confidence: confidence
+                        ))
+                    }
                 }
 
                 if let error, !self.isStoppingManually {
@@ -240,6 +258,9 @@ final class AppleSpeechService: SpeechServiceProtocol {
         print("[AppleSpeech] stopRecording() called — isRecording=\(isRecording)")
         isStoppingManually = true
 
+        // Snapshot text BEFORE endAudio() can trigger callbacks that might clear state
+        let preStopText = lastPartialText
+
         // Signal end of audio — this lets the recognizer produce a final result
         recognitionRequest?.endAudio()
         print("[AppleSpeech] stopRecording() — endAudio() called, waiting for final result...")
@@ -252,6 +273,7 @@ final class AppleSpeechService: SpeechServiceProtocol {
         recognitionTask?.cancel()
         recognitionRequest = nil
         recognitionTask = nil
+        storedRecordingFormat = nil
         isRecording = false
 
         continuation?.finish()
@@ -260,7 +282,10 @@ final class AppleSpeechService: SpeechServiceProtocol {
         audioLevelContinuation = nil
 
         // Return the best available text: accumulated + current session
-        let currentSessionText = !finalTranscript.isEmpty ? finalTranscript : lastPartialText
+        // Use preStopText as ultimate fallback if callbacks cleared everything
+        let currentSessionText = !finalTranscript.isEmpty ? finalTranscript
+            : !lastPartialText.isEmpty ? lastPartialText
+            : preStopText
         let result: String
         if accumulatedTranscript.isEmpty {
             result = currentSessionText

@@ -116,7 +116,15 @@ final class WhisperSpeechService: SpeechServiceProtocol {
     private var continuation: AsyncStream<TranscriptionUpdate>.Continuation?
     private var audioLevelContinuation: AsyncStream<Float>.Continuation?
     private var finalTranscript = ""
+    private var accumulatedTranscript = ""
+    private var chunkStartIndex = 0
     private var transcriptionTimer: Task<Void, Never>?
+    private var modelUnloadTask: Task<Void, Never>?
+    private var modelLoadTask: Task<Void, Error>?
+    private static let modelIdleTimeout: Duration = .seconds(30)
+
+    /// Maximum chunk duration in seconds, staying within model context window (~30s)
+    private let maxChunkDurationSeconds: Double = 25.0
 
     var isModelLoaded: Bool {
         whisperKit != nil
@@ -232,27 +240,23 @@ final class WhisperSpeechService: SpeechServiceProtocol {
     // MARK: - SpeechServiceProtocol
 
     func startRecording() async throws {
+        modelUnloadTask?.cancel()
+        modelUnloadTask = nil
+        modelLoadTask?.cancel()
+        modelLoadTask = nil
         print("[WhisperService] startRecording() — isRecording=\(isRecording), whisperKitLoaded=\(whisperKit != nil)")
         guard !isRecording else {
             print("[WhisperService] startRecording() blocked — already recording")
             return
         }
 
-        if whisperKit == nil {
-            print("[WhisperService] startRecording() — whisperKit is nil, loading model...")
-            do {
-                try await downloadModel()
-            } catch {
-                print("[WhisperService] startRecording() — model load failed: \(error)")
-                throw SpeechError.whisperModelNotLoaded
-            }
-        } else {
-            print("[WhisperService] startRecording() — whisperKit already loaded, skipping download")
+        bufferLock.withLock {
+            audioSamples.removeAll()
         }
-
-        bufferLock.withLock { audioSamples.removeAll() }
         finalTranscript = ""
-        print("[WhisperService] startRecording() — starting audio capture")
+        accumulatedTranscript = ""
+        chunkStartIndex = 0
+        print("[WhisperService] startRecording() — starting audio capture immediately")
 
         do {
             try audioCaptureManager.startCapture(
@@ -273,7 +277,20 @@ final class WhisperSpeechService: SpeechServiceProtocol {
 
         isRecording = true
         print("[WhisperService] startRecording() — audio capture started, isRecording=true")
-        startPeriodicTranscription()
+
+        if whisperKit == nil {
+            print("[WhisperService] startRecording() — whisperKit is nil, loading model in background...")
+            modelLoadTask = Task { [weak self] in
+                guard let self else { return }
+                try await self.downloadModel()
+                guard self.isRecording else { return }
+                print("[WhisperService] model loaded while recording — starting periodic transcription")
+                self.startPeriodicTranscription()
+            }
+        } else {
+            print("[WhisperService] startRecording() — whisperKit already loaded, starting transcription")
+            startPeriodicTranscription()
+        }
     }
 
     func stopRecording() async -> String {
@@ -284,22 +301,53 @@ final class WhisperSpeechService: SpeechServiceProtocol {
         audioCaptureManager.stopCapture()
         isRecording = false
 
-        // Final transcription pass on all accumulated audio
-        let audioArray: [Float] = bufferLock.withLock {
-            let samples = audioSamples
-            audioSamples.removeAll()
-            return samples
+        // Wait for model to finish loading if it's still in progress
+        if let loadTask = modelLoadTask {
+            print("[WhisperService] stopRecording() — waiting for model to finish loading...")
+            do {
+                try await loadTask.value
+            } catch {
+                print("[WhisperService] stopRecording() — model load failed: \(error)")
+                modelLoadTask = nil
+                bufferLock.withLock { audioSamples.removeAll() }
+                continuation?.yield(TranscriptionUpdate(partialText: "", isFinal: true, confidence: 0))
+                continuation?.finish()
+                continuation = nil
+                audioLevelContinuation?.finish()
+                audioLevelContinuation = nil
+                scheduleModelUnload()
+                return accumulatedTranscript
+            }
+            modelLoadTask = nil
+            print("[WhisperService] stopRecording() — model loaded, proceeding with transcription")
         }
-        print("[WhisperService] stopRecording() — accumulated sampleCount=\(audioArray.count)")
-        if !audioArray.isEmpty {
-            if let text = await transcribeAudio(audioArray) {
-                finalTranscript = text
-                print("[WhisperService] stopRecording() — final transcription: \"\(text.prefix(80))\"")
+
+        // Final transcription of only the current chunk
+        let currentChunkAudio: [Float] = bufferLock.withLock {
+            guard chunkStartIndex < audioSamples.count else {
+                audioSamples.removeAll()
+                return []
+            }
+            let chunk = Array(audioSamples[chunkStartIndex...])
+            audioSamples.removeAll()
+            return chunk
+        }
+
+        print("[WhisperService] stopRecording() — currentChunk sampleCount=\(currentChunkAudio.count), accumulated=\"\(accumulatedTranscript.prefix(60))\"")
+
+        if !currentChunkAudio.isEmpty {
+            if let text = await transcribeAudio(currentChunkAudio) {
+                finalTranscript = accumulatedTranscript.isEmpty
+                    ? text
+                    : accumulatedTranscript + " " + text
+                print("[WhisperService] stopRecording() — final transcription: \"\(finalTranscript.prefix(80))\"")
             } else {
-                print("[WhisperService] stopRecording() — final transcription returned nil")
+                finalTranscript = accumulatedTranscript
+                print("[WhisperService] stopRecording() — final transcription returned nil, using accumulated")
             }
         } else {
-            print("[WhisperService] stopRecording() — no audio samples collected")
+            finalTranscript = accumulatedTranscript
+            print("[WhisperService] stopRecording() — no current chunk samples, using accumulated")
         }
 
         continuation?.yield(TranscriptionUpdate(
@@ -314,7 +362,20 @@ final class WhisperSpeechService: SpeechServiceProtocol {
         audioLevelContinuation = nil
 
         print("[WhisperService] stopRecording() — returning finalTranscript length=\(finalTranscript.count)")
+        scheduleModelUnload()
         return finalTranscript
+    }
+
+    private func scheduleModelUnload() {
+        modelUnloadTask?.cancel()
+        modelUnloadTask = Task { [weak self] in
+            try? await Task.sleep(for: Self.modelIdleTimeout)
+            guard !Task.isCancelled else { return }
+            guard let self, !self.isRecording else { return }
+            self.whisperKit = nil
+            self.modelState = .notDownloaded
+            print("[WhisperService] model unloaded after idle timeout")
+        }
     }
 
     func transcriptionUpdates() -> AsyncStream<TranscriptionUpdate> {
@@ -338,23 +399,64 @@ final class WhisperSpeechService: SpeechServiceProtocol {
                 try? await Task.sleep(for: .seconds(2))
                 guard let self, !Task.isCancelled else { break }
 
-                // Take a snapshot of all current samples for transcription
-                let audioArray: [Float] = self.bufferLock.withLock {
-                    return self.audioSamples
-                }
-                print("[WhisperService] periodicTranscription tick — sampleCount=\(audioArray.count)")
-                guard !audioArray.isEmpty else { continue }
+                let sampleRate = self.audioCaptureManager.inputFormat?.sampleRate ?? 16000
+                let maxChunkSamples = Int(self.maxChunkDurationSeconds * sampleRate)
 
-                if let text = await self.transcribeAudio(audioArray), !text.isEmpty {
-                    print("[WhisperService] periodicTranscription — result: \"\(text.prefix(80))\"")
-                    self.finalTranscript = text
+                // Snapshot current chunk under lock
+                let (chunkAudio, currentChunkStart): ([Float], Int) = self.bufferLock.withLock {
+                    let start = self.chunkStartIndex
+                    guard start < self.audioSamples.count else { return ([], start) }
+                    let chunk = Array(self.audioSamples[start...])
+                    return (chunk, start)
+                }
+
+                print("[WhisperService] periodicTranscription tick — chunkSamples=\(chunkAudio.count), accumulated=\"\(self.accumulatedTranscript.prefix(40))\"")
+                guard !chunkAudio.isEmpty else { continue }
+
+                // Check if we need to finalize the current chunk (exceeded max duration)
+                if chunkAudio.count >= maxChunkSamples {
+                    // Finalize: transcribe the full chunk
+                    let finalChunkAudio = Array(chunkAudio.prefix(maxChunkSamples))
+                    if let text = await self.transcribeAudio(finalChunkAudio), !text.isEmpty {
+                        self.accumulatedTranscript = self.accumulatedTranscript.isEmpty
+                            ? text
+                            : self.accumulatedTranscript + " " + text
+                        print("[WhisperService] chunk finalized — accumulated: \"\(self.accumulatedTranscript.prefix(80))\"")
+                    }
+                    // Advance chunk start
+                    self.bufferLock.withLock {
+                        self.chunkStartIndex = currentChunkStart + maxChunkSamples
+                    }
+
+                    // Transcribe remainder as live partial
+                    let remainderAudio: [Float] = self.bufferLock.withLock {
+                        guard self.chunkStartIndex < self.audioSamples.count else { return [] }
+                        return Array(self.audioSamples[self.chunkStartIndex...])
+                    }
+                    var liveText = ""
+                    if !remainderAudio.isEmpty {
+                        liveText = await self.transcribeAudio(remainderAudio) ?? ""
+                    }
+
+                    let fullText = self.accumulatedTranscript + (liveText.isEmpty ? "" : " " + liveText)
+                    self.finalTranscript = fullText
                     self.continuation?.yield(TranscriptionUpdate(
-                        partialText: text,
-                        isFinal: false,
-                        confidence: 0.9
+                        partialText: fullText, isFinal: false, confidence: 0.9
                     ))
                 } else {
-                    print("[WhisperService] periodicTranscription — transcription empty or nil")
+                    // Normal case: transcribe current chunk only
+                    if let text = await self.transcribeAudio(chunkAudio), !text.isEmpty {
+                        let fullText = self.accumulatedTranscript.isEmpty
+                            ? text
+                            : self.accumulatedTranscript + " " + text
+                        print("[WhisperService] periodicTranscription — result: \"\(fullText.prefix(80))\"")
+                        self.finalTranscript = fullText
+                        self.continuation?.yield(TranscriptionUpdate(
+                            partialText: fullText, isFinal: false, confidence: 0.9
+                        ))
+                    } else {
+                        print("[WhisperService] periodicTranscription — transcription empty or nil")
+                    }
                 }
             }
         }
@@ -362,8 +464,24 @@ final class WhisperSpeechService: SpeechServiceProtocol {
 
     nonisolated private func transcribeAudio(_ audioArray: [Float]) async -> String? {
         print("[WhisperService] transcribeAudio() — sampleCount=\(audioArray.count)")
+
+        let samplesToTranscribe: [Float]
+        if UserDefaults.standard.bool(forKey: Constants.removeSilenceKey) {
+            let sampleRate = await MainActor.run {
+                self.audioCaptureManager.inputFormat?.sampleRate ?? 16000
+            }
+            samplesToTranscribe = SilenceRemover.removeSilence(from: audioArray, sampleRate: sampleRate)
+            print("[WhisperService] silence removal: \(audioArray.count) → \(samplesToTranscribe.count) samples")
+            guard !samplesToTranscribe.isEmpty else {
+                print("[WhisperService] all silence removed, skipping transcription")
+                return nil
+            }
+        } else {
+            samplesToTranscribe = audioArray
+        }
+
         do {
-            let results = try await MainActor.run { self.whisperKit }?.transcribe(audioArray: audioArray)
+            let results = try await MainActor.run { self.whisperKit }?.transcribe(audioArray: samplesToTranscribe)
             let text = results?.first?.text.trimmingCharacters(in: .whitespacesAndNewlines)
             print("[WhisperService] transcribeAudio() — result: \(text.map { "\"\($0.prefix(80))\"" } ?? "nil")")
             return text

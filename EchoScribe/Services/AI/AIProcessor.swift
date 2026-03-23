@@ -11,29 +11,41 @@ final class AIProcessor {
     }
 
     func analyze(rawTranscript: String) async throws -> NoteAnalysis {
+        print("[AIProcessor] analyze() — entry, isModelLoaded=\(mlxService.isModelLoaded), modelState=\(mlxService.modelState)")
+
         // If model isn't loaded yet, try to load it
         if !mlxService.isModelLoaded {
+            print("[AIProcessor] analyze() — model not loaded, calling loadModel()")
             do {
                 try await mlxService.loadModel()
+                print("[AIProcessor] analyze() — loadModel() succeeded")
             } catch {
-                print("Model load failed, using fallback: \(error)")
+                print("[AIProcessor] analyze() — loadModel() FAILED: \(error), using fallback")
                 return fallbackAnalysis(rawTranscript: rawTranscript)
             }
         }
 
         let projects = fetchProjectInfo()
         let tags = fetchTagNames()
+        print("[AIProcessor] analyze() — fetched \(projects.count) projects, \(tags.count) tags")
+
         let prompt = PromptTemplates.noteAnalysisPrompt(
             transcript: rawTranscript,
             existingProjects: projects,
             existingTags: tags
         )
+        print("[AIProcessor] analyze() — prompt length=\(prompt.count), calling generate()")
 
         do {
             let response = try await mlxService.generate(prompt: prompt)
-            return try parseAnalysis(from: response)
+            print("[AIProcessor] analyze() — generate() returned, response length=\(response.count)")
+            print("[AIProcessor] analyze() — response preview: \"\(response.prefix(300))\"")
+
+            let analysis = try parseAnalysis(from: response)
+            print("[AIProcessor] analyze() — parseAnalysis succeeded: summary=\"\(analysis.summary.prefix(80))\"")
+            return analysis
         } catch {
-            print("AI analysis failed, using fallback: \(error)")
+            print("[AIProcessor] analyze() — FAILED: \(error), using fallback")
             return fallbackAnalysis(rawTranscript: rawTranscript)
         }
     }

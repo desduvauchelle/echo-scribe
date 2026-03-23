@@ -6,6 +6,7 @@ import SwiftUI
 final class RecordingViewModel {
     var isRecording = false
     var isPreparing = false
+    var isTranscribing = false
     var liveTranscript = ""
     var audioLevel: Float = 0
     var errorMessage: String?
@@ -90,8 +91,11 @@ final class RecordingViewModel {
         audioLevelTask = nil
         audioLevel = 0
 
-        var finalText = await speechService.stopRecording()
         isRecording = false
+        isTranscribing = true
+
+        var finalText = await speechService.stopRecording()
+        isTranscribing = false
         coordinator.release()
 
         // Cancel transcription task after getting final text (so we don't miss late yields)
