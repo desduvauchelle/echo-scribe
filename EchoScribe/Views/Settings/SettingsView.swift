@@ -34,6 +34,9 @@ struct SettingsView: View {
     @State private var pendingDisableName = ""
     @State private var showUninstallAlert = false
     @State private var showFinalUninstallConfirmation = false
+    @AppStorage("capsLockMode") private var capsLockModeRaw: String = CapsLockMode.off.rawValue
+    @State private var isAccessibilityGranted = false
+    @AppStorage("useAIImprovements") private var useAIImprovements = false
     private let conflictDetector = ShortcutConflictDetector()
 
     var body: some View {
@@ -73,6 +76,7 @@ struct SettingsView: View {
                     case .voice:
                         microphoneSection
                         voiceToTextSection
+                        aiImprovementsSection
                     case .ai:
                         aiModelSection
                     }
@@ -338,6 +342,22 @@ struct SettingsView: View {
                     }
                 }
             }
+
+            if viewModel.selectedEngine == .parakeet {
+                Text("MODELS")
+                    .sectionLabel()
+                    .padding(.top, Spacing.xs)
+
+                VStack(spacing: Spacing.sm) {
+                    ForEach(ParakeetModelVariant.allCases) { variant in
+                        parakeetModelCard(for: variant)
+                    }
+                }
+
+                Text("NVIDIA Parakeet TDT 0.6B — runs locally on Apple Neural Engine. Licensed under CC-BY-4.0.")
+                    .font(.caption2)
+                    .foregroundStyle(.quaternary)
+            }
         }
     }
 
@@ -428,7 +448,145 @@ struct SettingsView: View {
         }
     }
 
+    private func parakeetModelCard(for variant: ParakeetModelVariant) -> some View {
+        let isActive = variant == viewModel.selectedParakeetVariant
+        let modelState = isActive ? viewModel.parakeetService.modelState : .notDownloaded
+
+        return HStack(spacing: Spacing.md) {
+            VStack(alignment: .leading, spacing: Spacing.sm) {
+                HStack(spacing: Spacing.sm) {
+                    Text(variant.displayName)
+                        .font(.headline)
+                        .fontWeight(.medium)
+
+                    if isActive {
+                        Text("Active")
+                            .pillStyle()
+                    }
+
+                    if isActive, case .ready = modelState {
+                        Circle()
+                            .fill(.green)
+                            .frame(width: 6, height: 6)
+                    }
+                }
+
+                VStack(spacing: 3) {
+                    ComparisonBar(label: "Accuracy", value: variant.accuracyScore, color: .green)
+                    ComparisonBar(label: "Speed", value: variant.speedScore, color: .blue)
+                    ComparisonBar(label: "Size", value: variant.normalizedSize, color: .orange, suffix: variant.formattedSize)
+                }
+
+                if isActive, case .downloading(let progress) = modelState {
+                    ProgressView(value: progress)
+                        .tint(.accentColor)
+                }
+            }
+
+            Spacer(minLength: 0)
+
+            if isActive {
+                switch modelState {
+                case .notDownloaded:
+                    Button {
+                        viewModel.downloadParakeetModel()
+                    } label: {
+                        Image(systemName: "arrow.down.circle")
+                            .font(.title3)
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Download model")
+
+                case .downloading:
+                    ProgressView()
+                        .controlSize(.small)
+
+                case .ready:
+                    EmptyView()
+
+                case .error:
+                    Button {
+                        viewModel.downloadParakeetModel()
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.title3)
+                            .foregroundStyle(.red)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Retry download")
+                }
+            }
+        }
+        .cardStyle(isSelected: isActive)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if !isActive {
+                viewModel.selectedParakeetVariant = variant
+            }
+        }
+    }
+
+    // MARK: - AI Improvements
+
+    private var aiImprovementsSection: some View {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+            Text("AI POLISHING")
+                .sectionLabel()
+
+            VStack(spacing: Spacing.md) {
+                Toggle("Use AI improvements", isOn: $useAIImprovements)
+                    .foregroundStyle(.secondary)
+
+                Text("When enabled, transcriptions are lightly polished by the AI model — fixing grammar, filler words, and punctuation.")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(Spacing.md)
+            .background(
+                RoundedRectangle(cornerRadius: Radius.md)
+                    .fill(AppColors.surface)
+            )
+            .modifier(Elevation.card(colorScheme))
+        }
+    }
+
     // MARK: - Keyboard Shortcuts
+
+    private var capsLockMode: CapsLockMode {
+        CapsLockMode(rawValue: capsLockModeRaw) ?? .off
+    }
+
+    private var capsLockBadge: some View {
+        Text("Caps Lock")
+            .font(.system(.body, design: .rounded).weight(.medium))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(
+                RoundedRectangle(cornerRadius: Radius.sm)
+                    .fill(AppColors.surface)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Radius.sm)
+                            .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
+                    )
+            )
+    }
+
+    private var capsLockInfoBox: some View {
+        HStack(alignment: .top, spacing: 6) {
+            Image(systemName: "info.circle.fill")
+                .foregroundStyle(.blue)
+                .font(.caption)
+            Text("Caps Lock is a toggle key — press once to start, press again to stop. While enabled, Caps Lock will not change letter casing. Requires Accessibility permission.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(8)
+        .background(
+            RoundedRectangle(cornerRadius: Radius.sm)
+                .fill(Color.blue.opacity(0.08))
+        )
+    }
 
     private var keyboardShortcutsSection: some View {
         VStack(alignment: .leading, spacing: Spacing.sm) {
@@ -436,61 +594,120 @@ struct SettingsView: View {
                 .sectionLabel()
 
             VStack(spacing: Spacing.md) {
+                // MARK: Voice to Note
                 VStack(alignment: .leading, spacing: Spacing.xs) {
-                    KeyboardShortcuts.Recorder("Voice to Note", name: .toggleRecording)
+                    if capsLockMode == .voiceToNote {
+                        HStack {
+                            Text("Voice to Note")
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            capsLockBadge
+                        }
+                    } else {
+                        KeyboardShortcuts.Recorder("Voice to Note", name: .toggleRecording)
+                    }
                     Text("Press to start/stop. Transcription is processed by AI and stored as a note.")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
-                    ShortcutConflictView(
-                        conflicts: toggleRecordingConflicts,
-                        onDisableSystemShortcut: { id in
-                            pendingDisableID = id
-                            pendingDisableName = SystemShortcutNames.name(forID: id)
-                            showDisableConfirmation = true
-                        }
-                    )
-                }
 
-                Divider()
+                    Toggle("Use Caps Lock key", isOn: Binding(
+                        get: { capsLockMode == .voiceToNote },
+                        set: { capsLockModeRaw = $0 ? CapsLockMode.voiceToNote.rawValue : CapsLockMode.off.rawValue }
+                    ))
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
 
-                VStack(alignment: .leading, spacing: Spacing.xs) {
-                    KeyboardShortcuts.Recorder("Transcribe", name: .dictationMode)
-                    Text("Hold to dictate. On release, text is pasted at your cursor. No AI processing.")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                    ShortcutConflictView(
-                        conflicts: dictationModeConflicts,
-                        onDisableSystemShortcut: { id in
-                            pendingDisableID = id
-                            pendingDisableName = SystemShortcutNames.name(forID: id)
-                            showDisableConfirmation = true
-                        }
-                    )
-                }
+                    if capsLockMode == .voiceToNote {
+                        capsLockInfoBox
+                    }
 
-                Divider()
-
-                HStack {
-                    Text("Accessibility")
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    HStack(spacing: 6) {
-                        Circle()
-                            .fill(ClipboardPasteService.isAccessibilityTrusted ? .green : .orange)
-                            .frame(width: 8, height: 8)
-                        Text(ClipboardPasteService.isAccessibilityTrusted ? "Granted" : "Required for Transcribe")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                    if capsLockMode != .voiceToNote {
+                        ShortcutConflictView(
+                            conflicts: toggleRecordingConflicts,
+                            onDisableSystemShortcut: { id in
+                                pendingDisableID = id
+                                pendingDisableName = SystemShortcutNames.name(forID: id)
+                                showDisableConfirmation = true
+                            }
+                        )
                     }
                 }
 
-                if !ClipboardPasteService.isAccessibilityTrusted {
-                    HStack {
-                        Spacer()
-                        Button("Grant Accessibility Permission") {
-                            ClipboardPasteService.requestAccessibilityPermission()
+                Divider()
+
+                // MARK: Transcribe
+                VStack(alignment: .leading, spacing: Spacing.xs) {
+                    if capsLockMode == .transcribe {
+                        HStack {
+                            Text("Transcribe")
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            capsLockBadge
                         }
-                        .controlSize(.small)
+                    } else {
+                        KeyboardShortcuts.Recorder("Transcribe", name: .dictationMode)
+                    }
+                    Text("Hold to dictate. On release, text is pasted at your cursor. No AI processing.")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+
+                    Toggle("Use Caps Lock key", isOn: Binding(
+                        get: { capsLockMode == .transcribe },
+                        set: { capsLockModeRaw = $0 ? CapsLockMode.transcribe.rawValue : CapsLockMode.off.rawValue }
+                    ))
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+
+                    if capsLockMode == .transcribe {
+                        capsLockInfoBox
+                    }
+
+                    if capsLockMode != .transcribe {
+                        ShortcutConflictView(
+                            conflicts: dictationModeConflicts,
+                            onDisableSystemShortcut: { id in
+                                pendingDisableID = id
+                                pendingDisableName = SystemShortcutNames.name(forID: id)
+                                showDisableConfirmation = true
+                            }
+                        )
+                    }
+                }
+
+                Divider()
+
+                // MARK: Accessibility
+                VStack(alignment: .leading, spacing: Spacing.xs) {
+                    HStack {
+                        Text("Accessibility")
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        HStack(spacing: 6) {
+                            Circle()
+                                .fill(isAccessibilityGranted ? .green : .orange)
+                                .frame(width: 8, height: 8)
+                            Text(isAccessibilityGranted ? "Granted" : "Not Granted")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    Text("Required for Transcribe (paste at cursor) and Caps Lock shortcut (intercept key events). Without this, these features cannot function.")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+
+                    if !isAccessibilityGranted {
+                        HStack {
+                            Spacer()
+                            Button("Grant Accessibility Permission") {
+                                ClipboardPasteService.requestAccessibilityPermission()
+                                // Re-check after a short delay to allow the system dialog
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                                    isAccessibilityGranted = AXIsProcessTrusted()
+                                }
+                            }
+                            .controlSize(.small)
+                        }
                     }
                 }
             }
@@ -500,7 +717,13 @@ struct SettingsView: View {
                     .fill(AppColors.surface)
             )
             .modifier(Elevation.card(colorScheme))
-            .onAppear { checkAllConflicts() }
+            .onAppear {
+                checkAllConflicts()
+                isAccessibilityGranted = AXIsProcessTrusted()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                isAccessibilityGranted = AXIsProcessTrusted()
+            }
             .onReceive(NotificationCenter.default.publisher(for: Notification.Name("KeyboardShortcuts_shortcutByNameDidChange"))) { _ in
                 checkAllConflicts()
             }
@@ -533,179 +756,107 @@ struct SettingsView: View {
 
     // MARK: - AI Model
 
-    @State private var showModelComparison = false
-
     private var aiModelSection: some View {
         VStack(alignment: .leading, spacing: Spacing.sm) {
             Text("AI MODEL")
                 .sectionLabel()
 
-            VStack(spacing: Spacing.md) {
-                modelPickerRow
-                Divider()
-                modelComparisonSection
-                Divider()
-                modelStatusSection
-                Text("This model handles text analysis. Speech recognition uses the Whisper model above.")
-                    .font(.caption2)
-                    .foregroundStyle(.quaternary)
+            VStack(spacing: Spacing.sm) {
+                ForEach(AIModelVariant.allCases) { variant in
+                    aiModelCard(for: variant)
+                }
             }
-            .padding(Spacing.md)
-            .background(
-                RoundedRectangle(cornerRadius: Radius.md)
-                    .fill(AppColors.surface)
-            )
-            .modifier(Elevation.card(colorScheme))
+
+            Text("This model handles text analysis. Speech recognition uses the Whisper model above.")
+                .font(.caption2)
+                .foregroundStyle(.quaternary)
         }
     }
 
-    private var modelPickerRow: some View {
-        VStack(spacing: Spacing.md) {
-            HStack {
-                Text("Model")
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Picker("", selection: $viewModel.selectedAIVariant) {
-                    ForEach(AIModelVariant.allCases) { variant in
-                        Text(variant.displayName).tag(variant)
+    private func aiModelCard(for variant: AIModelVariant) -> some View {
+        let isActive = variant == viewModel.selectedAIVariant
+        let modelState = isActive ? viewModel.mlxService.modelState : .notDownloaded
+
+        return HStack(spacing: Spacing.md) {
+            VStack(alignment: .leading, spacing: Spacing.sm) {
+                HStack(spacing: Spacing.sm) {
+                    Text(variant.displayName)
+                        .font(.headline)
+                        .fontWeight(.medium)
+
+                    if isActive {
+                        Text("Active")
+                            .pillStyle()
+                    }
+
+                    if variant.isDefault && !isActive {
+                        Text("Default")
+                            .font(.system(size: 9))
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(Color.accentColor.opacity(0.15))
+                            .clipShape(Capsule())
+                    }
+
+                    if isActive, case .ready = modelState {
+                        Circle()
+                            .fill(.green)
+                            .frame(width: 6, height: 6)
                     }
                 }
-                .pickerStyle(.menu)
-                .frame(width: 200)
+
+                VStack(spacing: 3) {
+                    ComparisonBar(label: "Quality", value: variant.qualityScore, color: .green)
+                    ComparisonBar(label: "Speed", value: variant.speedScore, color: .blue)
+                    ComparisonBar(label: "Size", value: variant.normalizedSize, color: .orange, suffix: variant.storageSize)
+                }
+
+                if isActive, case .downloading(let progress) = modelState {
+                    ProgressView(value: progress)
+                        .tint(.accentColor)
+                }
             }
 
-            HStack {
-                Spacer()
-                Text(viewModel.selectedAIVariant.sizeDescription)
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-            }
-        }
-    }
+            Spacer(minLength: 0)
 
-    private var modelComparisonSection: some View {
-        VStack(spacing: Spacing.md) {
-            DisclosureGroup("Compare Models", isExpanded: $showModelComparison) {
-                VStack(spacing: 0) {
-                    HStack(spacing: 0) {
-                        Text("Model")
-                            .frame(width: 120, alignment: .leading)
-                        Text("Storage")
-                            .frame(width: 70, alignment: .trailing)
-                        Text("RAM")
-                            .frame(width: 70, alignment: .trailing)
-                        Text("Quality")
-                            .frame(width: 70, alignment: .trailing)
+            if isActive {
+                switch modelState {
+                case .notDownloaded:
+                    Button {
+                        viewModel.downloadModel()
+                    } label: {
+                        Image(systemName: "arrow.down.circle")
+                            .font(.title3)
+                            .foregroundStyle(.secondary)
                     }
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                    .padding(.vertical, Spacing.xs)
+                    .buttonStyle(.plain)
+                    .help("Download model")
 
-                    Divider()
+                case .downloading:
+                    ProgressView()
+                        .controlSize(.small)
 
-                    ForEach(AIModelVariant.allCases) { variant in
-                        modelComparisonRow(variant: variant)
-                        if variant != AIModelVariant.allCases.last {
-                            Divider()
-                        }
+                case .ready:
+                    EmptyView()
+
+                case .error:
+                    Button {
+                        viewModel.downloadModel()
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.title3)
+                            .foregroundStyle(.red)
                     }
+                    .buttonStyle(.plain)
+                    .help("Retry download")
                 }
-                .padding(.top, Spacing.xs)
-            }
-            .font(.caption)
-            .foregroundStyle(.secondary)
-
-            if showModelComparison {
-                Text(viewModel.selectedAIVariant.detailedDescription)
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-    }
-
-    @ViewBuilder
-    private func modelComparisonRow(variant: AIModelVariant) -> some View {
-        let isSelected = variant == viewModel.selectedAIVariant
-        HStack(spacing: 0) {
-            HStack(spacing: 4) {
-                Text(variant.displayName)
-                    .fontWeight(isSelected ? .semibold : .regular)
-                if variant.isDefault {
-                    Text("Default")
-                        .font(.system(size: 9))
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 1)
-                        .background(Color.accentColor.opacity(0.15))
-                        .clipShape(Capsule())
-                }
-            }
-            .frame(width: 120, alignment: .leading)
-            Text(variant.storageSize)
-                .frame(width: 70, alignment: .trailing)
-            Text(variant.ramRequired)
-                .frame(width: 70, alignment: .trailing)
-            HStack(spacing: 1) {
-                ForEach(0..<4) { i in
-                    Image(systemName: i < variant.qualityStars ? "star.fill" : "star")
-                        .font(.system(size: 8))
-                        .foregroundStyle(i < variant.qualityStars ? Color.yellow : Color.gray.opacity(0.3))
-                }
-            }
-            .frame(width: 70, alignment: .trailing)
-        }
-        .font(.caption)
-        .foregroundStyle(isSelected ? .primary : .secondary)
-        .padding(.vertical, Spacing.xs)
-        .padding(.horizontal, Spacing.xs)
-        .background(
-            RoundedRectangle(cornerRadius: Radius.sm)
-                .fill(isSelected ? Color.accentColor.opacity(0.08) : .clear)
-        )
+        .cardStyle(isSelected: isActive)
         .contentShape(Rectangle())
         .onTapGesture {
-            viewModel.selectedAIVariant = variant
-        }
-    }
-
-    private var modelStatusSection: some View {
-        VStack(spacing: Spacing.md) {
-            HStack {
-                Text("Status")
-                    .foregroundStyle(.secondary)
-                Spacer()
-                HStack(spacing: 6) {
-                    mlxStatusIndicator
-                    Text(viewModel.statusText)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            if viewModel.isDownloading {
-                ProgressView(value: viewModel.downloadProgress)
-            }
-
-            if case .notDownloaded = viewModel.mlxService.modelState {
-                HStack {
-                    Spacer()
-                    Button("Download Model") {
-                        viewModel.downloadModel()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
-                }
-            }
-
-            if case .error = viewModel.mlxService.modelState {
-                HStack {
-                    Spacer()
-                    Button("Retry Download") {
-                        viewModel.downloadModel()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
-                }
+            if !isActive {
+                viewModel.selectedAIVariant = variant
             }
         }
     }
@@ -786,22 +937,6 @@ struct SettingsView: View {
                     )
             )
             .modifier(Elevation.card(colorScheme))
-        }
-    }
-
-    // MARK: - Status Indicators
-
-    @ViewBuilder
-    private var mlxStatusIndicator: some View {
-        switch viewModel.mlxService.modelState {
-        case .notDownloaded:
-            Circle().fill(.gray).frame(width: 8, height: 8)
-        case .downloading:
-            Circle().fill(.orange).frame(width: 8, height: 8)
-        case .ready:
-            Circle().fill(.green).frame(width: 8, height: 8)
-        case .error:
-            Circle().fill(.red).frame(width: 8, height: 8)
         }
     }
 

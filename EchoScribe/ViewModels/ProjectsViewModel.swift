@@ -67,6 +67,14 @@ final class ProjectsViewModel: NSObject, NSFetchedResultsControllerDelegate {
         PersistenceController.shared.save(context: context)
     }
 
+    func updateProject(_ project: CDProject, name: String, color: String, description: String?) {
+        project.name = name
+        project.color = color
+        project.projectDescription = description
+        project.updatedAt = Date()
+        PersistenceController.shared.save(context: context)
+    }
+
     func deleteProject(_ project: CDProject) {
         context.delete(project)
         PersistenceController.shared.save(context: context)

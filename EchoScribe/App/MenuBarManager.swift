@@ -219,25 +219,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    @objc static func toggleRecording() {
-        toggleRecordingHandler?()
+    @objc func toggleRecording() {
+        AppDelegate.toggleRecordingHandler?()
     }
 
-    @objc static func toggleDictation() {
-        toggleDictationHandler?()
+    @objc func toggleDictation() {
+        AppDelegate.toggleDictationHandler?()
     }
 
-    @objc static func showMainWindow() {
-        (NSApp.delegate as? AppDelegate)?.showMainWindowWithFocus()
-        showWindowHandler?()
+    @objc func showMainWindow() {
+        showMainWindowWithFocus()
+        AppDelegate.showWindowHandler?()
     }
 
-    @objc static func openSettings() {
-        (NSApp.delegate as? AppDelegate)?.showMainWindowWithFocus()
-        openSettingsHandler?()
+    @objc func openSettings() {
+        showMainWindowWithFocus()
+        AppDelegate.openSettingsHandler?()
     }
 
-    @objc static func checkForUpdates() {
-        checkForUpdatesHandler?()
+    @objc func checkForUpdates() {
+        AppDelegate.checkForUpdatesHandler?()
     }
 }

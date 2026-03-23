@@ -97,6 +97,10 @@ final class NoteProcessingPipeline {
                 try bgContext.save()
                 print("[Pipeline] process() — background context saved")
             }
+
+            // Force viewContext to pick up background changes and trigger FRC
+            persistence.viewContext.refreshAllObjects()
+            print("[Pipeline] process() — viewContext refreshed after background save")
         } catch {
             print("[Pipeline] process() AI ERROR — note \(noteObjectID): \(error)")
         }

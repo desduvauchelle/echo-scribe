@@ -22,9 +22,9 @@ enum Radius {
 // MARK: - Colors
 
 enum AppColors {
-    static let surface = Color(nsColor: .controlBackgroundColor)
-    static let surfaceHover = Color(nsColor: .unemphasizedSelectedContentBackgroundColor)
-    static let surfaceAlt = Color(nsColor: .textBackgroundColor)
+    static let surface = Color(nsColor: .controlBackgroundColor).opacity(0.6)
+    static let surfaceHover = Color(nsColor: .unemphasizedSelectedContentBackgroundColor).opacity(0.6)
+    static let surfaceAlt = Color(nsColor: .textBackgroundColor).opacity(0.5)
     static let border = Color(nsColor: .separatorColor)
 }
 

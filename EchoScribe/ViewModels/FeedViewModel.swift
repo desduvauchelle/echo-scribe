@@ -83,10 +83,11 @@ final class FeedViewModel: NSObject, NSFetchedResultsControllerDelegate {
         return NSCompoundPredicate(andPredicateWithSubpredicates: predicates)
     }
 
-    private func refreshNotes() {
-        notes = (frc?.fetchedObjects ?? [])
+    func refreshNotes() {
+        let fetched = (frc?.fetchedObjects ?? [])
             .filter { $0.managedObjectContext != nil && !$0.isDeleted }
-            .map(NoteWithDetails.from)
+        print("[FeedVM] refreshNotes() — \(fetched.count) notes, isProcessed flags: \(fetched.map(\.isProcessed))")
+        notes = fetched.map(NoteWithDetails.from)
     }
 
     // MARK: - NSFetchedResultsControllerDelegate
@@ -94,6 +95,7 @@ final class FeedViewModel: NSObject, NSFetchedResultsControllerDelegate {
     nonisolated func controllerDidChangeContent(
         _ controller: NSFetchedResultsController<NSFetchRequestResult>
     ) {
+        print("[FeedVM] controllerDidChangeContent fired")
         Task { @MainActor [weak self] in
             self?.refreshNotes()
         }

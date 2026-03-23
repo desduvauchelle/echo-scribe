@@ -9,6 +9,7 @@ struct TranscriptionUpdate: Sendable {
 enum SpeechEngine: String, CaseIterable, Identifiable {
     case apple = "Apple Speech"
     case whisper = "Whisper (Local)"
+    case parakeet = "Parakeet (Local)"
 
     var id: String { rawValue }
 }
@@ -26,6 +27,7 @@ enum SpeechError: LocalizedError {
     case notAuthorized
     case recognizerUnavailable
     case whisperModelNotLoaded
+    case parakeetModelNotLoaded
 
     var errorDescription: String? {
         switch self {
@@ -35,6 +37,8 @@ enum SpeechError: LocalizedError {
             return "Speech recognizer is not available for the current locale."
         case .whisperModelNotLoaded:
             return "Whisper model is not downloaded. Please download it in Settings."
+        case .parakeetModelNotLoaded:
+            return "Parakeet model is not downloaded. Please download it in Settings."
         }
     }
 }

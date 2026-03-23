@@ -2,11 +2,10 @@ import SwiftUI
 import CoreData
 
 struct ContentView: View {
-    @State private var selectedProjectId: String?
-    @State private var selectedSmartFilter: SmartFilter = .all
     @State private var allTags: [CDTag] = []
     @State private var selectedNoteId: UUID?
     @State private var searchText = ""
+    @State private var showProjectsSidebar = false
 
     @Bindable var feedViewModel: FeedViewModel
     @Bindable var recordingViewModel: RecordingViewModel
@@ -21,41 +20,36 @@ struct ContentView: View {
     }
 
     var body: some View {
-        ZStack(alignment: .leading) {
-            mainContent
+        HStack(spacing: 0) {
+            if showProjectsSidebar {
+                ProjectsSidebarView(
+                    projectsViewModel: projectsViewModel,
+                    feedViewModel: feedViewModel,
+                    appState: appState
+                )
+                .frame(width: 220)
+                .transition(.move(edge: .leading).combined(with: .opacity))
 
-            if appState.isSidebarVisible {
-                sidebarOverlay
+                Divider()
             }
 
-            if let noteDetail = selectedNoteDetail {
-                detailOverlay(noteDetail)
+            ZStack(alignment: .leading) {
+                mainContent
+
+                if let noteDetail = selectedNoteDetail {
+                    detailOverlay(noteDetail)
+                }
             }
         }
+        .animation(AppAnimation.gentle, value: showProjectsSidebar)
         .onExitCommand {
             if selectedNoteId != nil {
                 withAnimation(AppAnimation.gentle) {
                     selectedNoteId = nil
                 }
-            } else if appState.isSidebarVisible {
-                withAnimation(AppAnimation.gentle) {
-                    appState.isSidebarVisible = false
-                }
             }
         }
         .toolbar {
-            ToolbarItemGroup(placement: .navigation) {
-                Button {
-                    withAnimation(AppAnimation.gentle) {
-                        appState.isSidebarVisible.toggle()
-                    }
-                } label: {
-                    Image(systemName: "sidebar.left")
-                        .foregroundStyle(.secondary)
-                }
-                .help("Toggle sidebar")
-            }
-
             ToolbarItemGroup(placement: .primaryAction) {
                 Button {
                     if appState.currentViewMode == .settings {
@@ -69,13 +63,6 @@ struct ContentView: View {
                 }
                 .help(appState.currentViewMode == .settings ? "Close Settings" : "Settings")
             }
-        }
-        .onChange(of: selectedProjectId) { _, newValue in
-            feedViewModel.selectedProjectId = newValue
-            feedViewModel.startObservation()
-        }
-        .onChange(of: selectedSmartFilter) { _, newFilter in
-            applySmartFilter(newFilter)
         }
         .onChange(of: searchText) { _, newText in
             feedViewModel.searchText = newText
@@ -113,7 +100,7 @@ struct ContentView: View {
                 }
             }
         }
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(.ultraThinMaterial)
     }
 
     // MARK: - Populated State
@@ -257,10 +244,8 @@ struct ContentView: View {
 
             // Projects pill
             Button {
-                if appState.currentViewMode == .projectGroups {
-                    appState.currentViewMode = .feed
-                } else {
-                    appState.currentViewMode = .projectGroups
+                withAnimation(AppAnimation.gentle) {
+                    showProjectsSidebar.toggle()
                 }
             } label: {
                 Text("Projects")
@@ -270,9 +255,9 @@ struct ContentView: View {
                     .padding(.vertical, Spacing.xs + 1)
                     .background(
                         Capsule()
-                            .fill(appState.currentViewMode == .projectGroups ? Color.accentColor.opacity(0.15) : Color.clear)
+                            .fill(showProjectsSidebar ? Color.accentColor.opacity(0.15) : Color.clear)
                     )
-                    .foregroundStyle(appState.currentViewMode == .projectGroups ? Color.accentColor : .secondary)
+                    .foregroundStyle(showProjectsSidebar ? Color.accentColor : .secondary)
             }
             .buttonStyle(.plain)
 
@@ -319,37 +304,9 @@ struct ContentView: View {
         case .calendar:
             CalendarView(feedViewModel: feedViewModel)
         case .projectGroups:
-            ProjectGroupView(
-                feedViewModel: feedViewModel,
-                projects: projectsViewModel.projects
-            )
+            FeedView(feedViewModel: feedViewModel, selectedNoteId: $selectedNoteId)
         case .settings:
             EmptyView()
-        }
-    }
-
-    // MARK: - Sidebar Overlay
-
-    private var sidebarOverlay: some View {
-        HStack(spacing: 0) {
-            SidebarView(
-                projectsViewModel: projectsViewModel,
-                selectedProjectId: $selectedProjectId,
-                selectedSmartFilter: $selectedSmartFilter
-            )
-            .frame(width: 240)
-            .background(.regularMaterial)
-            .clipShape(RoundedRectangle(cornerRadius: Radius.lg))
-            .modifier(FloatElevation(colorScheme: colorScheme))
-            .padding(Spacing.sm)
-            .transition(.move(edge: .leading).combined(with: .opacity))
-
-            Color.black.opacity(0.001)
-                .onTapGesture {
-                    withAnimation(AppAnimation.gentle) {
-                        appState.isSidebarVisible = false
-                    }
-                }
         }
     }
 
@@ -382,25 +339,6 @@ struct ContentView: View {
     }
 
     // MARK: - Helpers
-
-    private func applySmartFilter(_ filter: SmartFilter) {
-        feedViewModel.clearFilters()
-        switch filter {
-        case .all:
-            break
-        case .todaysTasks:
-            let today = Calendar.current.startOfDay(for: Date())
-            let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: today)!
-            feedViewModel.dateRange = today...tomorrow
-            feedViewModel.startObservation()
-        case .recent:
-            let weekAgo = Calendar.current.date(byAdding: .day, value: -7, to: Date())!
-            feedViewModel.dateRange = weekAgo...Date()
-            feedViewModel.startObservation()
-        case .unprocessed:
-            feedViewModel.startObservation()
-        }
-    }
 
     @Environment(\.managedObjectContext) private var context
 

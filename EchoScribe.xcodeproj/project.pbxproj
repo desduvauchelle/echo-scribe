@@ -31,6 +31,7 @@
 		570B8C04A1014240C98B2D38 /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = A0EB82991BD29C2EDA22947B /* WhisperKit */; };
 		58784503AACD1F1721561BD3 /* WaveformView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B84BAE19341CDE8D7FE54AD /* WaveformView.swift */; };
 		651502442D782161F98810B6 /* WhisperSpeechService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 944940D338304F3E48B46900 /* WhisperSpeechService.swift */; };
+		D7A1B3C5E8F24A6789012345 /* ParakeetSpeechService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7A1B3C5E8F24A6789012346 /* ParakeetSpeechService.swift */; };
 		651C2281D0EFEFFB004E124F /* KanbanView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0118BF51B8CCEC3636F3F5D /* KanbanView.swift */; };
 		65569E5B5037360F89131F30 /* ClipboardPasteService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA861F3EBD22AEFC653C4DF8 /* ClipboardPasteService.swift */; };
 		67A501488FC77F97CB1107CE /* FeedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9708212DA25956D2D8561055 /* FeedView.swift */; };
@@ -46,6 +47,8 @@
 		8E826815E4B2F39663C423A7 /* NoteCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82FD225F37997AB33DE34951 /* NoteCardView.swift */; };
 		8F7089E2A1B93198E123C624 /* NoteDeletionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4228438A686C75212453B109 /* NoteDeletionTests.swift */; };
 		968F3B090A9112F1ACCCA069 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4056CE6BA2B3687B66F0B88E /* ContentView.swift */; };
+		A1B2C3D4E5F60718AABB0003 /* ProjectsSidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718AABB0001 /* ProjectsSidebarView.swift */; };
+		A1B2C3D4E5F60718AABB0004 /* ProjectEditPopover.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718AABB0002 /* ProjectEditPopover.swift */; };
 		9ACCC351FEB8104B0C96BB6C /* MenuBarManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E0FA39AD10441CD3EC9A9E6 /* MenuBarManager.swift */; };
 		A64033C56D3B5DDBCFB60D42 /* SettingsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3A8FCD1A61B09605EE15A51 /* SettingsViewModel.swift */; };
 		AC552B938776DFAF2F91D0B1 /* ViewModifiers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BD97AD38686B95F5E383AC6 /* ViewModifiers.swift */; };
@@ -57,7 +60,7 @@
 		BE8186C6AED54FC4B6096CEE /* Constants.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDF951E518ABE56CEC245B0E /* Constants.swift */; };
 		CB588909B079BDFBA406405A /* RecordingOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A77F9B3B2388342F0AAAD21B /* RecordingOverlayView.swift */; };
 		CC46CBC1BFA1C4E6DFDBF1E8 /* PromptTemplates.swift in Sources */ = {isa = PBXBuildFile; fileRef = 209C36D9A5D7B2AFC5D1DB4F /* PromptTemplates.swift */; };
-		CD4953B4C46B05D32B9B6E1E /* SidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14187B94F9BA3F44B23CFD13 /* SidebarView.swift */; };
+		CC5E40A7AAED51748E5BB128 /* CapsLockShortcutService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D5BB3B02DF942DDB23175BB /* CapsLockShortcutService.swift */; };
 		D30E2741923084B7BC95B35C /* ShortcutConflictView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18DC95C889344C2C09D95C07 /* ShortcutConflictView.swift */; };
 		D886FF83BE9D0F3A62A1D584 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4EA13384832A7AC686AC292 /* AppState.swift */; };
 		DB159368F7287645745105F6 /* SystemShortcutNames.swift in Sources */ = {isa = PBXBuildFile; fileRef = 749ED7B0E26DAA94D4EDC766 /* SystemShortcutNames.swift */; };
@@ -93,7 +96,6 @@
 
 /* Begin PBXFileReference section */
 		07A96AF583D33F25CE79BB2D /* TaskDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskDetailView.swift; sourceTree = "<group>"; };
-		14187B94F9BA3F44B23CFD13 /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
 		157938CDD1CAD310EC8B888D /* CDTag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CDTag.swift; sourceTree = "<group>"; };
 		18DC95C889344C2C09D95C07 /* ShortcutConflictView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutConflictView.swift; sourceTree = "<group>"; };
 		1B273E37C3A8CD197AAC3555 /* TestHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestHelpers.swift; sourceTree = "<group>"; };
@@ -114,6 +116,8 @@
 		3A7B4A78B89979C41D972250 /* FeedViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedViewModelTests.swift; sourceTree = "<group>"; };
 		3D04742837B648BBE748F2B4 /* DesignTokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignTokens.swift; sourceTree = "<group>"; };
 		4056CE6BA2B3687B66F0B88E /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F60718AABB0001 /* ProjectsSidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectsSidebarView.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F60718AABB0002 /* ProjectEditPopover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectEditPopover.swift; sourceTree = "<group>"; };
 		4228438A686C75212453B109 /* NoteDeletionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteDeletionTests.swift; sourceTree = "<group>"; };
 		42666A42CEBBCFDDA22C9331 /* ProjectWithCount.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectWithCount.swift; sourceTree = "<group>"; };
 		4E666A5F0C22A7B529EF165C /* PersistenceIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistenceIntegrationTests.swift; sourceTree = "<group>"; };
@@ -130,8 +134,10 @@
 		7BD97AD38686B95F5E383AC6 /* ViewModifiers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewModifiers.swift; sourceTree = "<group>"; };
 		7F781688DC6703E784FD7175 /* FeedViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedViewModel.swift; sourceTree = "<group>"; };
 		82FD225F37997AB33DE34951 /* NoteCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteCardView.swift; sourceTree = "<group>"; };
+		8D5BB3B02DF942DDB23175BB /* CapsLockShortcutService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CapsLockShortcutService.swift; sourceTree = "<group>"; };
 		8D833218C950AD21BE60E8E1 /* CalendarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarView.swift; sourceTree = "<group>"; };
 		944940D338304F3E48B46900 /* WhisperSpeechService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhisperSpeechService.swift; sourceTree = "<group>"; };
+		D7A1B3C5E8F24A6789012346 /* ParakeetSpeechService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParakeetSpeechService.swift; sourceTree = "<group>"; };
 		9708212DA25956D2D8561055 /* FeedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedView.swift; sourceTree = "<group>"; };
 		99D70AAB1B4402C3EF4230CE /* MLXService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MLXService.swift; sourceTree = "<group>"; };
 		9B84BAE19341CDE8D7FE54AD /* WaveformView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaveformView.swift; sourceTree = "<group>"; };
@@ -208,6 +214,7 @@
 			children = (
 				E2066D2BD405B68D5D898133 /* AppleSpeechService.swift */,
 				9CEA46F2D732F3DBFF394F65 /* AudioCaptureManager.swift */,
+				D7A1B3C5E8F24A6789012346 /* ParakeetSpeechService.swift */,
 				1FC405AD44FEC864EA3BB392 /* SpeechService.swift */,
 				944940D338304F3E48B46900 /* WhisperSpeechService.swift */,
 			);
@@ -387,6 +394,7 @@
 			isa = PBXGroup;
 			children = (
 				B741DE37FC5347C9A865E9F5 /* AudioDeviceManager.swift */,
+				8D5BB3B02DF942DDB23175BB /* CapsLockShortcutService.swift */,
 				AA861F3EBD22AEFC653C4DF8 /* ClipboardPasteService.swift */,
 				1F78F000AFE371AB9F1CBF03 /* RecordingCoordinator.swift */,
 				B999D77D0091C55DF6A79B2A /* ShortcutConflictDetector.swift */,
@@ -455,7 +463,8 @@
 			children = (
 				4056CE6BA2B3687B66F0B88E /* ContentView.swift */,
 				B3539ADDE283F3346A3A115C /* ContextSummaryView.swift */,
-				14187B94F9BA3F44B23CFD13 /* SidebarView.swift */,
+				A1B2C3D4E5F60718AABB0001 /* ProjectsSidebarView.swift */,
+				A1B2C3D4E5F60718AABB0002 /* ProjectEditPopover.swift */,
 			);
 			path = MainWindow;
 			sourceTree = "<group>";
@@ -500,6 +509,7 @@
 				A0EB82991BD29C2EDA22947B /* WhisperKit */,
 				EA251577C7F48601B8DB262D /* KeyboardShortcuts */,
 				FB3AA12BFACF9E901B72AA54 /* Sparkle */,
+				C5A3B92E4F8D6B16E2345678 /* FluidAudio */,
 			);
 			productName = EchoScribe;
 			productReference = 29A150D0FDBCB7D87A5B4DB7 /* EchoScribe.app */;
@@ -551,6 +561,7 @@
 				97613173121469241999D11C /* XCRemoteSwiftPackageReference "Sparkle" */,
 				E682A04DB8279705C4240499 /* XCRemoteSwiftPackageReference "WhisperKit" */,
 				EF6592583ECEA0C3A957AE7A /* XCRemoteSwiftPackageReference "mlx-swift-lm" */,
+				B4F2A81D3E9C7A05D1234567 /* XCRemoteSwiftPackageReference "FluidAudio" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 0E8C3E1548A8812CC06074AD /* Products */;
@@ -590,11 +601,14 @@
 				73385FF435A910AB4BA594F6 /* CDProject.swift in Sources */,
 				FB0FC60CFE7B591BE987D079 /* CDTag.swift in Sources */,
 				2AA663C0567C9B3013AE6840 /* CalendarView.swift in Sources */,
+				CC5E40A7AAED51748E5BB128 /* CapsLockShortcutService.swift in Sources */,
 				65569E5B5037360F89131F30 /* ClipboardPasteService.swift in Sources */,
 				6D880BA63CBD833061E65070 /* ColorExtension.swift in Sources */,
 				BE8186C6AED54FC4B6096CEE /* Constants.swift in Sources */,
 				968F3B090A9112F1ACCCA069 /* ContentView.swift in Sources */,
 				8B0668C715D3AD7BB2705519 /* ContextSummaryView.swift in Sources */,
+				A1B2C3D4E5F60718AABB0003 /* ProjectsSidebarView.swift in Sources */,
+				A1B2C3D4E5F60718AABB0004 /* ProjectEditPopover.swift in Sources */,
 				486073C9E982D946E8BB5ADC /* DesignTokens.swift in Sources */,
 				19C668F32B8037B81544B605 /* DictationIndicatorWindow.swift in Sources */,
 				6FCE61F14592EC42E72866BB /* DictationViewModel.swift in Sources */,
@@ -623,7 +637,6 @@
 				A64033C56D3B5DDBCFB60D42 /* SettingsViewModel.swift in Sources */,
 				4D7C7C57CE7F85BDF1843564 /* ShortcutConflictDetector.swift in Sources */,
 				D30E2741923084B7BC95B35C /* ShortcutConflictView.swift in Sources */,
-				CD4953B4C46B05D32B9B6E1E /* SidebarView.swift in Sources */,
 				0C5F565B5AFDF750B659E29D /* SpeechService.swift in Sources */,
 				4E48EAFD1D06E176715769D1 /* SpotlightIndexer.swift in Sources */,
 				DB159368F7287645745105F6 /* SystemShortcutNames.swift in Sources */,
@@ -631,6 +644,7 @@
 				AC552B938776DFAF2F91D0B1 /* ViewModifiers.swift in Sources */,
 				58784503AACD1F1721561BD3 /* WaveformView.swift in Sources */,
 				651502442D782161F98810B6 /* WhisperSpeechService.swift in Sources */,
+				D7A1B3C5E8F24A6789012345 /* ParakeetSpeechService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -977,6 +991,14 @@
 				minimumVersion = 2.30.0;
 			};
 		};
+		B4F2A81D3E9C7A05D1234567 /* XCRemoteSwiftPackageReference "FluidAudio" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/FluidInference/FluidAudio.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.12.4;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -1004,6 +1026,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 97613173121469241999D11C /* XCRemoteSwiftPackageReference "Sparkle" */;
 			productName = Sparkle;
+		};
+		C5A3B92E4F8D6B16E2345678 /* FluidAudio */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B4F2A81D3E9C7A05D1234567 /* XCRemoteSwiftPackageReference "FluidAudio" */;
+			productName = FluidAudio;
 		};
 /* End XCSwiftPackageProductDependency section */
 

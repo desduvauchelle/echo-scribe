@@ -17,6 +17,7 @@ enum RecordingMode: String, CaseIterable, Identifiable {
 final class SettingsViewModel {
     let mlxService: MLXService
     let whisperService: WhisperSpeechService
+    let parakeetService: ParakeetSpeechService
     private let appleSpeechService: AppleSpeechService
     private let recordingViewModel: RecordingViewModel
     private let dictationViewModel: DictationViewModel
@@ -24,17 +25,35 @@ final class SettingsViewModel {
     let updater: SPUUpdater
 
     var selectedEngine: SpeechEngine = .apple {
-        didSet { switchEngine() }
+        didSet {
+            switchEngine()
+            UserDefaults.standard.set(selectedEngine.rawValue, forKey: Constants.selectedSpeechEngineKey)
+        }
     }
 
-    var selectedWhisperVariant: WhisperModelVariant = .largeTurbo
+    var selectedWhisperVariant: WhisperModelVariant = .largeTurbo {
+        didSet {
+            UserDefaults.standard.set(selectedWhisperVariant.rawValue, forKey: Constants.selectedWhisperVariantKey)
+        }
+    }
     var variantToDelete: WhisperModelVariant?
+
+    var selectedParakeetVariant: ParakeetModelVariant = .v3 {
+        didSet {
+            parakeetService.switchModel(to: selectedParakeetVariant)
+            UserDefaults.standard.set(selectedParakeetVariant.rawValue, forKey: Constants.selectedParakeetVariantKey)
+        }
+    }
 
     var selectedAIVariant: AIModelVariant = .qwen3B {
         didSet { switchAIVariant() }
     }
 
-    var recordingMode: RecordingMode = .pushToTalk
+    var recordingMode: RecordingMode = .pushToTalk {
+        didSet {
+            UserDefaults.standard.set(recordingMode.rawValue, forKey: Constants.recordingModeKey)
+        }
+    }
 
     var launchAtLogin: Bool {
         get { SMAppService.mainApp.status == .enabled }
@@ -98,6 +117,7 @@ final class SettingsViewModel {
     init(
         mlxService: MLXService,
         whisperService: WhisperSpeechService,
+        parakeetService: ParakeetSpeechService,
         appleSpeechService: AppleSpeechService,
         recordingViewModel: RecordingViewModel,
         dictationViewModel: DictationViewModel,
@@ -106,13 +126,43 @@ final class SettingsViewModel {
     ) {
         self.mlxService = mlxService
         self.whisperService = whisperService
+        self.parakeetService = parakeetService
         self.appleSpeechService = appleSpeechService
         self.recordingViewModel = recordingViewModel
         self.dictationViewModel = dictationViewModel
         self.context = context
         self.updater = updater
-        self.selectedWhisperVariant = WhisperModelVariant(rawValue: whisperService.selectedModel) ?? .largeTurbo
         self.selectedAIVariant = mlxService.selectedVariant
+
+        // Restore persisted settings
+        if let savedEngine = UserDefaults.standard.string(forKey: Constants.selectedSpeechEngineKey),
+           let engine = SpeechEngine(rawValue: savedEngine) {
+            self.selectedEngine = engine
+        }
+        if let savedWhisper = UserDefaults.standard.string(forKey: Constants.selectedWhisperVariantKey),
+           let variant = WhisperModelVariant(rawValue: savedWhisper) {
+            self.selectedWhisperVariant = variant
+        } else {
+            self.selectedWhisperVariant = WhisperModelVariant(rawValue: whisperService.selectedModel) ?? .largeTurbo
+        }
+        if let savedParakeet = UserDefaults.standard.string(forKey: Constants.selectedParakeetVariantKey),
+           let variant = ParakeetModelVariant(rawValue: savedParakeet) {
+            self.selectedParakeetVariant = variant
+        } else {
+            self.selectedParakeetVariant = parakeetService.selectedVariant
+        }
+        if let savedMode = UserDefaults.standard.string(forKey: Constants.recordingModeKey),
+           let mode = RecordingMode(rawValue: savedMode) {
+            self.recordingMode = mode
+        }
+
+        // didSet doesn't fire during init, so apply side effects manually
+        if selectedEngine != .apple {
+            switchEngine()
+        }
+        if selectedParakeetVariant != parakeetService.selectedVariant {
+            parakeetService.switchModel(to: selectedParakeetVariant)
+        }
     }
 
     // MARK: - Actions
@@ -166,6 +216,18 @@ final class SettingsViewModel {
         whisperService.variantStates[variant] ?? .notDownloaded
     }
 
+    // MARK: - Parakeet Actions
+
+    func downloadParakeetModel() {
+        Task { @MainActor in
+            do {
+                try await parakeetService.loadModel()
+            } catch {
+                print("Parakeet model download failed: \(error)")
+            }
+        }
+    }
+
     private func switchAIVariant() {
         mlxService.switchModel(to: selectedAIVariant)
     }
@@ -181,6 +243,8 @@ final class SettingsViewModel {
             service = appleSpeechService
         case .whisper:
             service = whisperService
+        case .parakeet:
+            service = parakeetService
         }
         recordingViewModel.updateSpeechService(service)
         dictationViewModel.updateSpeechService(service)

@@ -6,6 +6,12 @@ struct NoteWithDetails: Identifiable, Equatable {
     var tasks: [CDNoteTask]
     var tags: [CDTag]
 
+    // Snapshot values from the managed object at creation time so Equatable
+    // can detect changes even when both sides reference the same CDNote
+    // (whose properties were updated in-place by a Core Data merge).
+    private let snapshotUpdatedAt: Date
+    private let snapshotIsProcessed: Bool
+
     var id: UUID { note.id }
 
     static func == (lhs: NoteWithDetails, rhs: NoteWithDetails) -> Bool {
@@ -18,7 +24,8 @@ struct NoteWithDetails: Identifiable, Equatable {
               !lhs.note.isDeleted,
               !rhs.note.isDeleted else { return false }
         return lhs.note.objectID == rhs.note.objectID &&
-            lhs.note.updatedAt == rhs.note.updatedAt &&
+            lhs.snapshotUpdatedAt == rhs.snapshotUpdatedAt &&
+            lhs.snapshotIsProcessed == rhs.snapshotIsProcessed &&
             lhs.tasks.map(\.objectID) == rhs.tasks.map(\.objectID) &&
             lhs.tags.map(\.objectID) == rhs.tags.map(\.objectID)
     }
@@ -28,7 +35,9 @@ struct NoteWithDetails: Identifiable, Equatable {
             note: note,
             project: note.project,
             tasks: note.tasksArray,
-            tags: note.tagsArray
+            tags: note.tagsArray,
+            snapshotUpdatedAt: note.updatedAt,
+            snapshotIsProcessed: note.isProcessed
         )
     }
 }

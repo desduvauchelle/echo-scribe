@@ -92,6 +92,38 @@ enum AIModelVariant: String, CaseIterable, Identifiable {
     }
 
     var isDefault: Bool { self == .qwen3B }
+
+    /// Normalized quality score (0.0–1.0) for comparison bars
+    var qualityScore: Double {
+        switch self {
+        case .qwen05B: return 0.15
+        case .qwen15B, .llama1B: return 0.40
+        case .qwen3B, .llama3B: return 0.65
+        case .qwen7B, .mistral7B: return 0.90
+        }
+    }
+
+    /// Normalized speed score (0.0–1.0) for comparison bars
+    var speedScore: Double {
+        switch self {
+        case .qwen05B: return 0.95
+        case .qwen15B: return 0.80
+        case .llama1B: return 0.75
+        case .qwen3B, .llama3B: return 0.55
+        case .qwen7B, .mistral7B: return 0.25
+        }
+    }
+
+    /// Normalized storage size (0.0–1.0) for comparison bars
+    var normalizedSize: Double {
+        switch self {
+        case .qwen05B: return 0.08
+        case .llama1B: return 0.16
+        case .qwen15B: return 0.20
+        case .qwen3B, .llama3B: return 0.40
+        case .qwen7B, .mistral7B: return 1.0
+        }
+    }
 }
 
 enum MLXModelState: Equatable {

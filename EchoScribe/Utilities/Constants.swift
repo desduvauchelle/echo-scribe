@@ -6,6 +6,10 @@ enum Constants {
     static let defaultProjectName = "General"
     static let maxTranscriptPreviewLength = 200
     static let selectedAIModelKey = "selectedAIModel"
+    static let selectedSpeechEngineKey = "selectedSpeechEngine"
+    static let selectedWhisperVariantKey = "selectedWhisperVariant"
+    static let selectedParakeetVariantKey = "selectedParakeetVariant"
+    static let recordingModeKey = "recordingMode"
     static let selectedMicrophoneUID = "selectedMicrophoneUID"
     static let microphonePreferenceOrder = "microphonePreferenceOrder"
 }

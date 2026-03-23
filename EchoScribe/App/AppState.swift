@@ -22,7 +22,7 @@ enum ViewMode: String, CaseIterable, Identifiable {
 
     /// View modes shown in the main navigation picker (excludes settings)
     static var navigationModes: [ViewMode] {
-        [.feed, .kanban, .calendar, .projectGroups]
+        [.feed, .kanban, .calendar]
     }
 }
 
@@ -30,6 +30,5 @@ enum ViewMode: String, CaseIterable, Identifiable {
 final class AppState {
     var currentViewMode: ViewMode = .feed
     var selectedProjectId: String?
-    var isSidebarVisible = false
     var isRecordingInline = false
 }

@@ -7,16 +7,30 @@ enum ClipboardPasteService {
         AXIsProcessTrusted()
     }
 
+    /// Prompts for accessibility permission only if the app has never been added.
+    /// If the app is already in the list (but stale from a rebuild), the system
+    /// dialog cannot help — the user must toggle it off/on manually.
     static func requestAccessibilityPermission() {
         let promptKey = "AXTrustedCheckOptionPrompt" as CFString
         let options = [promptKey: true] as CFDictionary
         AXIsProcessTrustedWithOptions(options)
     }
 
+    /// Opens System Settings directly to the Accessibility pane so the user
+    /// can toggle the permission off and back on after a rebuild.
+    static func openAccessibilitySettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
     @MainActor
     static func pasteText(_ text: String) async -> Bool {
         guard AXIsProcessTrusted() else {
-            requestAccessibilityPermission()
+            // Open settings directly instead of showing the system prompt repeatedly.
+            // The system prompt only helps on first-time setup; after rebuilds the user
+            // needs to toggle the existing entry off/on in System Settings.
+            openAccessibilitySettings()
             return false
         }
 

@@ -41,6 +41,8 @@ struct EchoScribeApp: App {
         appleSpeechService.audioDeviceManager = deviceManager
         let whisperService = WhisperSpeechService()
         whisperService.audioDeviceManager = deviceManager
+        let parakeetService = ParakeetSpeechService()
+        parakeetService.audioDeviceManager = deviceManager
         let coordinator = RecordingCoordinator()
 
         let recordingVM = RecordingViewModel(
@@ -61,6 +63,7 @@ struct EchoScribeApp: App {
         _settingsViewModel = State(initialValue: SettingsViewModel(
             mlxService: mlx,
             whisperService: whisperService,
+            parakeetService: parakeetService,
             appleSpeechService: appleSpeechService,
             recordingViewModel: recordingVM,
             dictationViewModel: dictationVM,
@@ -101,6 +104,12 @@ struct EchoScribeApp: App {
         }
     }
 
+    @AppStorage("capsLockMode") private var capsLockModeRaw: String = CapsLockMode.off.rawValue
+
+    private var capsLockMode: CapsLockMode {
+        CapsLockMode(rawValue: capsLockModeRaw) ?? .off
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView(
@@ -113,24 +122,11 @@ struct EchoScribeApp: App {
             )
             .environment(\.managedObjectContext, persistence.viewContext)
             .onAppear {
-                // Brain Mode: toggle on key up
-                KeyboardShortcuts.onKeyUp(for: .toggleRecording) { [self] in
-                    recordingViewModel.toggleRecording()
-                }
-
-                // Dictation Mode: hold to record, release to paste
-                KeyboardShortcuts.onKeyDown(for: .dictationMode) { [self] in
-                    Task { @MainActor in
-                        await dictationViewModel.startDictation()
-                    }
-                }
-                KeyboardShortcuts.onKeyUp(for: .dictationMode) { [self] in
-                    Task { @MainActor in
-                        await dictationViewModel.stopDictationAndPaste()
-                    }
-                }
-
+                setupShortcuts()
                 spotlightIndexer.indexNotes(feedViewModel.notes)
+            }
+            .onChange(of: capsLockModeRaw) { _, _ in
+                setupShortcuts()
             }
             .onChange(of: recordingViewModel.isRecording) { _, isRecording in
                 MenuBarManager.shared.updateRecordingState(isRecording: isRecording)
@@ -148,5 +144,62 @@ struct EchoScribeApp: App {
             }
         }
         .defaultSize(width: 900, height: 650)
+    }
+
+    private func setupShortcuts() {
+        let capsLockService = CapsLockShortcutService.shared
+
+        // Reset all caps lock callbacks
+        capsLockService.stop()
+        capsLockService.onCapsLockToggled = nil
+        capsLockService.onCapsLockDown = nil
+        capsLockService.onCapsLockUp = nil
+
+        switch capsLockMode {
+        case .voiceToNote:
+            // Caps Lock for Voice to Note (toggle mode)
+            KeyboardShortcuts.onKeyUp(for: .toggleRecording) { }
+            capsLockService.onCapsLockToggled = { [self] in
+                recordingViewModel.toggleRecording()
+            }
+            capsLockService.start()
+
+            // Normal keyboard shortcut for Dictation
+            KeyboardShortcuts.onKeyDown(for: .dictationMode) { [self] in
+                Task { @MainActor in await dictationViewModel.startDictation() }
+            }
+            KeyboardShortcuts.onKeyUp(for: .dictationMode) { [self] in
+                Task { @MainActor in await dictationViewModel.stopDictationAndPaste() }
+            }
+
+        case .transcribe:
+            // Caps Lock for Transcribe (hold mode — press to start, press again to stop)
+            KeyboardShortcuts.onKeyDown(for: .dictationMode) { }
+            KeyboardShortcuts.onKeyUp(for: .dictationMode) { }
+            capsLockService.onCapsLockDown = { [self] in
+                Task { @MainActor in await dictationViewModel.startDictation() }
+            }
+            capsLockService.onCapsLockUp = { [self] in
+                Task { @MainActor in await dictationViewModel.stopDictationAndPaste() }
+            }
+            capsLockService.start()
+
+            // Normal keyboard shortcut for Voice to Note
+            KeyboardShortcuts.onKeyUp(for: .toggleRecording) { [self] in
+                recordingViewModel.toggleRecording()
+            }
+
+        case .off:
+            // Normal keyboard shortcuts for both
+            KeyboardShortcuts.onKeyUp(for: .toggleRecording) { [self] in
+                recordingViewModel.toggleRecording()
+            }
+            KeyboardShortcuts.onKeyDown(for: .dictationMode) { [self] in
+                Task { @MainActor in await dictationViewModel.startDictation() }
+            }
+            KeyboardShortcuts.onKeyUp(for: .dictationMode) { [self] in
+                Task { @MainActor in await dictationViewModel.stopDictationAndPaste() }
+            }
+        }
     }
 }

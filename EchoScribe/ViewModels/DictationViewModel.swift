@@ -59,7 +59,7 @@ final class DictationViewModel {
 
         let success = await ClipboardPasteService.pasteText(trimmed)
         if !success {
-            errorMessage = "Accessibility permission required for paste-at-cursor"
+            errorMessage = "Accessibility permission needed. If already enabled, toggle it off and back on in System Settings > Privacy & Security > Accessibility."
         }
         liveTranscript = ""
     }
