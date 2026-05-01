@@ -4,6 +4,7 @@
   "type": "module",
   "private": true,
   "dependencies": {
-    "@echo-scribe/protocol": "workspace:*"
+    "@echo-scribe/protocol": "workspace:*",
+    "zod": "^3"
   }
 }

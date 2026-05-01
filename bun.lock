@@ -21,6 +21,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@echo-scribe/protocol": "workspace:*",
+        "zod": "^3",
       },
     },
     "packages/protocol": {

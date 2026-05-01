@@ -95,10 +95,11 @@ final class CoreSupervisor: ObservableObject {
     private func handleUnexpectedExit() {
         port = nil
         process = nil
-        logger.warning("Sidecar exited unexpectedly. Restarting in \(backoffDelay)s")
+        let delay = backoffDelay
+        logger.warning("Sidecar exited unexpectedly. Restarting in \(delay)s")
         restartTask = Task {
-            try? await Task.sleep(nanoseconds: UInt64(backoffDelay * 1_000_000_000))
-            await start()
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            await self.start()
         }
         backoffDelay = min(backoffDelay * 2, 30.0)
     }
