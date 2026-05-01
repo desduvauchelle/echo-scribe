@@ -50,3 +50,6 @@ Pods/
 apps/mac/EchoScribe/Resources/core-runtime
 
 # bun.lockb IS committed — do not add it here
+
+# Old SwiftUI implementation (kept locally for reference, not part of new architecture)
+_old/
