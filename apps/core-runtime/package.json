@@ -1,0 +1,9 @@
+{
+  "name": "@echo-scribe/core-runtime",
+  "version": "0.0.0",
+  "type": "module",
+  "private": true,
+  "dependencies": {
+    "@echo-scribe/core": "workspace:*"
+  }
+}
