@@ -1,7 +1,22 @@
+# Dependencies
+node_modules/
+
 # Build artifacts
+dist/
 .build/
 build/
 DerivedData/
+
+# Logs
+*.log
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
 
 # Xcode
 *.xcuserdata/
@@ -17,22 +32,21 @@ xcuserdata/
 !default.mode2v3
 *.perspectivev3
 !default.perspectivev3
+*.hmap
+*.ipa
+
+# Xcode generated
+apps/mac/build/
+apps/mac/DerivedData/
 
 # Swift Package Manager
 # Package.resolved is intentionally tracked
 .swiftpm/
 
-# macOS
-.DS_Store
-.AppleDouble
-.LSOverride
-._*
-.Spotlight-V100
-.Trashes
-
-# Xcode generated
-*.hmap
-*.ipa
-
 # CocoaPods (not used, but just in case)
 Pods/
+
+# Compiled sidecar binary (built by scripts/build.ts)
+apps/mac/EchoScribe/Resources/core-runtime
+
+# bun.lockb IS committed — do not add it here
