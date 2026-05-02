@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 import HotKey
 import os
 

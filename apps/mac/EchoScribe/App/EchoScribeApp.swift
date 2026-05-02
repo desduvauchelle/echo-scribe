@@ -1,8 +1,19 @@
 import SwiftUI
+import UserNotifications
 
 @main
 struct EchoScribeApp: App {
-    @StateObject private var supervisor = CoreSupervisor()
+    @StateObject private var supervisor: CoreSupervisor
+    @StateObject private var appState: AppState
+
+    init() {
+        let supervisor = CoreSupervisor()
+        _supervisor = StateObject(wrappedValue: supervisor)
+        _appState = StateObject(wrappedValue: AppState(supervisor: supervisor))
+
+        // Request notification permission for error alerts
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+    }
 
     var body: some Scene {
         WindowGroup("Echo Scribe") {
@@ -13,19 +24,22 @@ struct EchoScribeApp: App {
         MenuBarExtra {
             MenuBarView(supervisor: supervisor)
         } label: {
-            StatusDotView(healthy: supervisor.coreStatus?.healthy ?? false)
+            StatusDotView(
+                healthy: supervisor.coreStatus?.healthy ?? false,
+                recording: appState.pipeline.isRecording
+            )
         }
         .menuBarExtraStyle(.menu)
     }
 }
 
-// Simple status dot view for the menubar label
 struct StatusDotView: View {
     let healthy: Bool
+    let recording: Bool
 
     var body: some View {
         Image(systemName: "circle.fill")
-            .foregroundStyle(healthy ? .green : .gray)
+            .foregroundStyle(recording ? .red : (healthy ? .green : .gray))
             .imageScale(.small)
     }
 }
