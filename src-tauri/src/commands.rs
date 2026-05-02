@@ -22,7 +22,7 @@ use tracing::{error, info};
 use crate::coordinator::{self, new_state_handle, PipelineState};
 use crate::input::binding::{Binding, ModifierKind, ModifierSide, SerKey};
 use crate::input::hotkeys::{spawn_listener, HotkeyEvent};
-use crate::permissions::{self, PermissionsStatus, SettingsPane};
+use crate::permissions::{self, MicAccessOutcome, PermissionsStatus, SettingsPane};
 use crate::settings::SettingsStore;
 use crate::ui::tray::TrayHandle;
 
@@ -312,6 +312,25 @@ pub fn open_microphone_settings() -> Result<(), String> {
 #[tauri::command]
 pub fn open_accessibility_settings() -> Result<(), String> {
     permissions::open_settings(SettingsPane::Accessibility).map_err(|e| e.to_string())
+}
+
+/// Trigger the macOS in-process microphone prompt (or return the cached
+/// decision). Returns `true` if access is granted (now or already), `false`
+/// if denied or undetermined.
+#[tauri::command]
+pub async fn request_microphone_access() -> Result<bool, String> {
+    Ok(matches!(
+        permissions::request_microphone().await,
+        MicAccessOutcome::Granted
+    ))
+}
+
+/// Trigger the macOS Accessibility prompt. The dialog is a side effect; the
+/// returned bool is the current trust state (typically `false` on first
+/// call — the user still has to flip the toggle in System Settings).
+#[tauri::command]
+pub fn prompt_accessibility_access() -> Result<bool, String> {
+    Ok(permissions::prompt_accessibility())
 }
 
 #[tauri::command]

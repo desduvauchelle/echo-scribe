@@ -15,7 +15,8 @@ use tracing_subscriber::EnvFilter;
 
 use crate::commands::{
     ensure_pipeline_started_from_handle, get_voice_at_cursor_binding, is_pipeline_running,
-    open_accessibility_settings, open_microphone_settings, permissions_status, start_pipeline,
+    open_accessibility_settings, open_microphone_settings, permissions_status,
+    prompt_accessibility_access, request_microphone_access, start_pipeline,
     update_voice_at_cursor_binding, AppState,
 };
 use crate::settings::SettingsStore;
@@ -36,6 +37,8 @@ pub fn run() {
             permissions_status,
             open_microphone_settings,
             open_accessibility_settings,
+            request_microphone_access,
+            prompt_accessibility_access,
             get_voice_at_cursor_binding,
             update_voice_at_cursor_binding,
             start_pipeline,
