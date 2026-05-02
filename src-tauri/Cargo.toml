@@ -29,4 +29,5 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 rdev = { version = "0.5", features = ["serialize"] }
 cpal = "0.15"
 enigo = "0.2"
+arboard = "3"
 
