@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import HotkeyRebinder from "../components/HotkeyRebinder";
 import {
   openAccessibilitySettings,
   openMicrophoneSettings,
@@ -151,6 +152,21 @@ export default function Onboarding({ initialStatus, onStarted }: Props) {
             }}
             recheckBusy={checking}
           />
+
+          <div className="h-px bg-neutral-800" />
+
+          <div>
+            <div className="font-semibold tracking-tight">
+              Dictation shortcut
+            </div>
+            <p className="mt-1 text-sm text-neutral-300">
+              Press and hold to record. Default is Right Control — change it
+              here if that conflicts with another app.
+            </p>
+            <div className="mt-3">
+              <HotkeyRebinder />
+            </div>
+          </div>
         </div>
 
         <button
