@@ -12,9 +12,10 @@ use super::DbError;
 
 /// All migrations, in order. Version numbers are monotonically increasing.
 /// Adding a new migration: append a new tuple — never edit existing entries.
-const MIGRATIONS: &[(u32, &str)] = &[(
-    1,
-    r#"
+const MIGRATIONS: &[(u32, &str)] = &[
+    (
+        1,
+        r#"
 CREATE TABLE IF NOT EXISTS projects (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL UNIQUE,
@@ -65,7 +66,31 @@ CREATE TRIGGER IF NOT EXISTS items_au AFTER UPDATE ON items BEGIN
   INSERT INTO items_fts(rowid, content) VALUES (new.rowid, new.content);
 END;
 "#,
-)];
+    ),
+    (
+        2,
+        r#"
+CREATE TABLE IF NOT EXISTS chat_sessions (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  project_id TEXT REFERENCES projects(id),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS chat_messages (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
+  role TEXT NOT NULL,
+  content TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_chat_sessions_updated ON chat_sessions(updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id, created_at);
+"#,
+    ),
+];
 
 const META_TABLE_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS schema_meta (
@@ -126,7 +151,7 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(v, "1");
+        assert_eq!(v, "2");
     }
 
     #[test]

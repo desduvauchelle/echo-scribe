@@ -290,7 +290,7 @@ pub fn chrono_now_iso() -> String {
     format_iso_utc(secs)
 }
 
-fn format_iso_utc(secs: i64) -> String {
+pub(crate) fn format_iso_utc(secs: i64) -> String {
     // Civil-from-days. Algorithm via Howard Hinnant.
     let days = secs.div_euclid(86_400);
     let time_of_day = secs.rem_euclid(86_400);
