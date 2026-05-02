@@ -274,6 +274,15 @@ export const deleteLlmModel = (id: string): Promise<void> =>
 export const testLlmInference = (prompt: string): Promise<string> =>
   invoke("test_llm_inference", { prompt });
 
+// ----- Memory chat -----
+
+export type ChatTurn = { role: "user" | "assistant"; content: string };
+
+export const chatWithMemory = (
+  message: string,
+  history: ChatTurn[],
+): Promise<string> => invoke("chat_with_memory", { message, history });
+
 export const resetOnboardingAndQuit = (): Promise<void> =>
   invoke("reset_onboarding_and_quit");
 
