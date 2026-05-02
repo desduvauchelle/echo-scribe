@@ -1,8 +1,10 @@
 use std::sync::{Arc, Mutex};
 
+use tauri::{AppHandle, Emitter, Wry};
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
+use crate::asr::pipeline::AsrPipeline;
 use crate::audio::recorder::Recorder;
 use crate::input::hotkeys::HotkeyEvent;
 use crate::input::paste::paste_at_cursor;
@@ -29,12 +31,14 @@ pub fn new_state_handle() -> StateHandle {
 pub fn spawn(
     mut hotkey_rx: mpsc::UnboundedReceiver<HotkeyEvent>,
     state: StateHandle,
+    asr: Arc<AsrPipeline>,
+    app: AppHandle<Wry>,
     on_state_change: impl Fn(PipelineState) + 'static,
 ) {
     // NOTE: `Recorder` owns a `cpal::Stream`, which is `!Send`. We therefore
     // use `tokio::task::spawn_local`, which requires a `LocalSet` to be active
-    // on the runtime. Task 12 (lib.rs wiring) is responsible for setting up
-    // that `LocalSet`.
+    // on the runtime. `commands::ensure_pipeline_started` sets up that
+    // `LocalSet` on a dedicated thread.
     tokio::task::spawn_local(async move {
         let mut recorder = Recorder::new();
 
@@ -58,17 +62,38 @@ pub fn spawn(
                         continue;
                     }
                     on_state_change(PipelineState::Processing);
+                    let channels = recorder.channels();
                     let stop_result = recorder.stop();
                     match stop_result {
                         Ok((samples, sr)) => {
-                            info!(samples = samples.len(), sample_rate = sr, "transcribing (stub)");
-                            // Phase 0: hardcoded transcription.
-                            let text = "hello world";
-                            if let Err(e) = paste_at_cursor(text) {
-                                error!(?e, "paste failed");
+                            info!(samples = samples.len(), sample_rate = sr, channels, "transcribing");
+                            match asr.transcribe(samples, sr, channels.max(1)).await {
+                                Ok(text) if text.is_empty() => {
+                                    warn!("transcription produced empty text; nothing to paste");
+                                }
+                                Ok(text) => {
+                                    info!(chars = text.len(), "pasting transcription");
+                                    if let Err(e) = paste_at_cursor(&text) {
+                                        error!(?e, "paste failed");
+                                        let _ = app.emit(
+                                            "asr:error",
+                                            format!("Paste failed: {e}"),
+                                        );
+                                    }
+                                }
+                                Err(e) => {
+                                    error!(?e, "transcription failed");
+                                    let _ = app.emit(
+                                        "asr:error",
+                                        format!("Transcription failed: {e}"),
+                                    );
+                                }
                             }
                         }
-                        Err(e) => error!(?e, "recorder.stop failed"),
+                        Err(e) => {
+                            error!(?e, "recorder.stop failed");
+                            let _ = app.emit("asr:error", format!("Recorder error: {e}"));
+                        }
                     }
                     force_state(&state, PipelineState::Idle);
                     on_state_change(PipelineState::Idle);

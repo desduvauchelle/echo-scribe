@@ -10,6 +10,7 @@ use crate::input::binding::Binding;
 
 const STORE_FILENAME: &str = "settings.json";
 const KEY_VOICE_AT_CURSOR_BINDING: &str = "voice_at_cursor_binding";
+const KEY_SPEECH_MODEL_ID: &str = "speech_model_id";
 
 /// Errors raised by [`SettingsStore`].
 #[derive(Debug, Error)]
@@ -57,6 +58,26 @@ impl SettingsStore {
     pub fn set_voice_at_cursor_binding(&self, b: Binding) -> Result<(), SettingsError> {
         let value = serde_json::to_value(&b)?;
         self.store.set(KEY_VOICE_AT_CURSOR_BINDING, value);
+        self.store
+            .save()
+            .map_err(|e| SettingsError::Store(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Returns the persisted active speech model id, or `None` if no model has
+    /// been chosen yet (first run).
+    pub fn speech_model_id(&self) -> Option<String> {
+        self.store.get(KEY_SPEECH_MODEL_ID).and_then(|v| {
+            v.as_str().map(|s| s.to_string()).or_else(|| {
+                serde_json::from_value::<String>(v).ok()
+            })
+        })
+    }
+
+    /// Persist the active speech model id.
+    pub fn set_speech_model_id(&self, id: &str) -> Result<(), SettingsError> {
+        self.store
+            .set(KEY_SPEECH_MODEL_ID, serde_json::Value::String(id.to_string()));
         self.store
             .save()
             .map_err(|e| SettingsError::Store(e.to_string()))?;

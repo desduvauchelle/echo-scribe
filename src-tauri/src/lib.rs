@@ -14,11 +14,14 @@ use tauri::Manager;
 use tracing::{info, warn};
 use tracing_subscriber::EnvFilter;
 
+use crate::asr::pipeline::AsrPipeline;
+use crate::asr::registry;
 use crate::commands::{
-    ensure_pipeline_started_from_handle, get_voice_at_cursor_binding, is_pipeline_running,
-    open_accessibility_settings, open_microphone_settings, permissions_status,
-    prompt_accessibility_access, request_microphone_access, start_pipeline,
-    update_voice_at_cursor_binding, AppState,
+    delete_speech_model, download_speech_model, ensure_pipeline_started_from_handle,
+    get_active_speech_model_id, get_voice_at_cursor_binding, is_pipeline_running,
+    list_speech_models, open_accessibility_settings, open_microphone_settings,
+    permissions_status, prompt_accessibility_access, request_microphone_access,
+    set_active_speech_model, start_pipeline, update_voice_at_cursor_binding, AppState,
 };
 use crate::settings::SettingsStore;
 use crate::ui::tray::TrayHandle;
@@ -44,6 +47,11 @@ pub fn run() {
             update_voice_at_cursor_binding,
             start_pipeline,
             is_pipeline_running,
+            list_speech_models,
+            download_speech_model,
+            get_active_speech_model_id,
+            set_active_speech_model,
+            delete_speech_model,
         ])
         .setup(|app| {
             // Tray.
@@ -55,33 +63,55 @@ pub fn run() {
             let initial_binding = settings.voice_at_cursor_binding();
             let binding = Arc::new(RwLock::new(initial_binding));
 
-            // Build the shared state. The rdev listener and coordinator are
-            // NOT spawned here — that happens via `start_pipeline` (called
-            // explicitly from onboarding once permissions are green) or via
-            // `ensure_pipeline_started_from_handle` below if permissions are
-            // already green at startup.
+            // ASR pipeline. Restore the saved active model if it exists AND
+            // is fully downloaded; otherwise leave the pipeline inactive
+            // until the user picks (and downloads) a model in onboarding.
+            let asr = Arc::new(AsrPipeline::new());
+            let saved_id = settings
+                .speech_model_id()
+                .unwrap_or_else(|| registry::default_id().to_string());
+            if let Some(entry) = registry::lookup(&saved_id) {
+                if crate::asr::downloader::is_downloaded(entry) {
+                    info!(model = %entry.id, "restoring active speech model");
+                    asr.set_active_model(entry.clone());
+                } else {
+                    warn!(
+                        model = %entry.id,
+                        "saved speech model is not downloaded; pipeline will gate on download"
+                    );
+                }
+            }
+
+            // Build the shared state. The CGEventTap listener and coordinator
+            // are NOT spawned here — that happens via `start_pipeline` (called
+            // explicitly from onboarding once permissions are green AND a
+            // model is downloaded) or via `ensure_pipeline_started_from_handle`
+            // below if everything is already green at startup.
             let app_state = AppState {
                 tray,
                 settings,
                 binding,
                 hotkey_started: AtomicBool::new(false),
                 hotkey_tx: Mutex::new(None),
+                asr: Arc::clone(&asr),
             };
             app.manage(app_state);
 
-            // If permissions are already green at startup, auto-start the
-            // pipeline so returning users don't need to click anything.
-            // Otherwise, wait for the user to grant access and explicitly
-            // hit "Start Echo Scribe" in onboarding.
+            // If permissions are already green at startup AND a model is
+            // ready, auto-start the pipeline so returning users don't need to
+            // click anything. Otherwise, wait for the user to grant access /
+            // download a model and explicitly hit "Start Echo Scribe" in
+            // onboarding.
             let perms = permissions::status();
-            if perms.microphone && perms.accessibility {
-                info!("permissions already green; auto-starting pipeline");
+            if perms.microphone && perms.accessibility && asr.ready() {
+                info!("permissions + model ready; auto-starting pipeline");
                 ensure_pipeline_started_from_handle(&app.handle().clone());
             } else {
                 warn!(
                     microphone = perms.microphone,
                     accessibility = perms.accessibility,
-                    "permissions not yet granted; pipeline will start after onboarding"
+                    model_ready = asr.ready(),
+                    "pipeline preconditions not yet met; will start after onboarding"
                 );
             }
 

@@ -13,11 +13,14 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager, State, Wry};
+use tauri::{AppHandle, Emitter, Manager, State, Wry};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{error, info};
 
+use crate::asr::downloader::{self, DownloadProgress};
+use crate::asr::pipeline::AsrPipeline;
+use crate::asr::registry::{self, ModelEntry};
 use crate::coordinator::{self, new_state_handle, PipelineState};
 use crate::input::binding::{code_from_key, key_from_code, Binding, ModifierKind, ModifierSide, SerKey};
 use crate::input::hotkeys::{spawn_listener, HotkeyEvent};
@@ -37,6 +40,7 @@ pub struct AppState {
     pub binding: Arc<RwLock<Binding>>,
     pub hotkey_started: AtomicBool,
     pub hotkey_tx: Mutex<Option<UnboundedSender<HotkeyEvent>>>,
+    pub asr: Arc<AsrPipeline>,
 }
 
 /// JSON-friendly mirror of [`Binding`].
@@ -193,7 +197,108 @@ pub fn update_voice_at_cursor_binding(
 
 #[tauri::command]
 pub fn start_pipeline(state: State<'_, AppState>, app: AppHandle) -> Result<(), String> {
+    if !state.asr.ready() {
+        return Err("speech model not ready".to_string());
+    }
     ensure_pipeline_started(&state, &app);
+    Ok(())
+}
+
+// ----- Speech model commands -----
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SpeechModelStatus {
+    pub id: String,
+    pub display_name: String,
+    pub size_label: String,
+    pub size_bytes: u64,
+    pub downloaded: bool,
+    pub active: bool,
+    pub supported: bool,
+}
+
+fn model_status_for(entry: &ModelEntry, active_id: Option<&str>) -> SpeechModelStatus {
+    SpeechModelStatus {
+        id: entry.id.clone(),
+        display_name: entry.display_name.clone(),
+        size_label: entry.size_label.clone(),
+        size_bytes: entry.size_bytes,
+        downloaded: downloader::is_downloaded(entry),
+        active: active_id.map(|a| a == entry.id).unwrap_or(false),
+        supported: registry::is_supported(entry),
+    }
+}
+
+#[tauri::command]
+pub fn list_speech_models(state: State<'_, AppState>) -> Vec<SpeechModelStatus> {
+    let active = state.asr.active_model_id();
+    registry::registry()
+        .iter()
+        .map(|m| model_status_for(m, active.as_deref()))
+        .collect()
+}
+
+#[tauri::command]
+pub fn get_active_speech_model_id(state: State<'_, AppState>) -> String {
+    state
+        .asr
+        .active_model_id()
+        .unwrap_or_else(|| state.settings.speech_model_id().unwrap_or_default())
+}
+
+#[tauri::command]
+pub fn set_active_speech_model(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<(), String> {
+    let entry = registry::lookup(&id)
+        .ok_or_else(|| format!("unknown speech model id: {id}"))?
+        .clone();
+    state
+        .settings
+        .set_speech_model_id(&entry.id)
+        .map_err(|e| e.to_string())?;
+    state.asr.set_active_model(entry);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn download_speech_model(
+    state: State<'_, AppState>,
+    app: AppHandle,
+    id: String,
+) -> Result<(), String> {
+    let entry = registry::lookup(&id)
+        .ok_or_else(|| format!("unknown speech model id: {id}"))?
+        .clone();
+    let target = downloader::model_dir(&entry);
+    let app_for_progress = app.clone();
+    let res = downloader::download_model(&entry, &target, move |p: DownloadProgress| {
+        let _ = app_for_progress.emit("speech_model:progress", &p);
+    })
+    .await;
+    match res {
+        Ok(_) => {
+            // If this is the currently-active model id (or no model is active),
+            // refresh the engine's active-model entry so it picks up the new
+            // on-disk state without a restart.
+            if state.asr.active_model_id().as_deref() == Some(entry.id.as_str()) {
+                state.asr.set_active_model(entry);
+            }
+            Ok(())
+        }
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+#[tauri::command]
+pub fn delete_speech_model(id: String) -> Result<(), String> {
+    let entry = registry::lookup(&id)
+        .ok_or_else(|| format!("unknown speech model id: {id}"))?;
+    let dir = downloader::model_dir(entry);
+    if dir.is_dir() {
+        std::fs::remove_dir_all(&dir).map_err(|e| e.to_string())?;
+    }
     Ok(())
 }
 
@@ -210,7 +315,7 @@ pub fn is_pipeline_running(state: State<'_, AppState>) -> bool {
 ///
 /// On subsequent calls, returns early. Callers can also poll
 /// [`is_pipeline_running`] / `state.hotkey_started`.
-pub fn ensure_pipeline_started(state: &AppState, _app: &AppHandle) {
+pub fn ensure_pipeline_started(state: &AppState, app: &AppHandle) {
     if state.hotkey_started.swap(true, Ordering::SeqCst) {
         // Already started.
         return;
@@ -230,6 +335,8 @@ pub fn ensure_pipeline_started(state: &AppState, _app: &AppHandle) {
 
     let pipeline_state = new_state_handle();
     let tray_for_state = Arc::clone(&state.tray);
+    let asr = Arc::clone(&state.asr);
+    let app = app.clone();
 
     thread::spawn(move || {
         let rt = match tokio::runtime::Builder::new_current_thread()
@@ -244,7 +351,7 @@ pub fn ensure_pipeline_started(state: &AppState, _app: &AppHandle) {
         };
         let local = tokio::task::LocalSet::new();
         local.spawn_local(async move {
-            coordinator::spawn(hotkey_rx, pipeline_state, move |new_state: PipelineState| {
+            coordinator::spawn(hotkey_rx, pipeline_state, asr, app, move |new_state: PipelineState| {
                 if let Ok(t) = tray_for_state.lock() {
                     t.set_state(new_state);
                 }
