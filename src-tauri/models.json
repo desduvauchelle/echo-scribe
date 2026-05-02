@@ -1,0 +1,72 @@
+{
+  "version": 1,
+  "_comment": "Parakeet ONNX model registry. transcribe-rs 0.3 expects a directory containing encoder-int8.onnx, encoder-int8.onnx.data, decoder_joint-int8.onnx, and vocab.txt. The Medium (0.6b v3 int8) variant is the only one currently shipping a confirmed-compatible ONNX layout — Small (110m) and Large (1.1b) NeMo checkpoints exist on HF but require additional conversion work outside transcribe-rs's supported surface, so they're shipped as PLACEHOLDERS. The downloader skips SHA256 verification when sha256 == \"PLACEHOLDER\" and logs a warning.",
+  "models": [
+    {
+      "id": "parakeet-small",
+      "display_name": "Parakeet Small",
+      "size_label": "Small",
+      "size_bytes": 0,
+      "is_default": false,
+      "files": [
+        {
+          "name": "PLACEHOLDER",
+          "url": "PLACEHOLDER",
+          "sha256": "PLACEHOLDER",
+          "size_bytes": 0
+        }
+      ],
+      "notes": "PLACEHOLDER — currently unsupported by transcribe-rs. The 110m parakeet-tdt_ctc checkpoint is upstream at nvidia/parakeet-tdt_ctc-110m but the ONNX layout transcribe-rs requires is not published yet."
+    },
+    {
+      "id": "parakeet-medium",
+      "display_name": "Parakeet Medium",
+      "size_label": "Medium",
+      "size_bytes": 933025820,
+      "is_default": true,
+      "files": [
+        {
+          "name": "encoder-int8.onnx",
+          "url": "https://huggingface.co/nasedkinpv/parakeet-tdt-0.6b-v3-onnx-int8/resolve/main/encoder-int8.onnx",
+          "sha256": "PLACEHOLDER",
+          "size_bytes": 1443183
+        },
+        {
+          "name": "encoder-int8.onnx.data",
+          "url": "https://huggingface.co/nasedkinpv/parakeet-tdt-0.6b-v3-onnx-int8/resolve/main/encoder-int8.onnx.data",
+          "sha256": "PLACEHOLDER",
+          "size_bytes": 878346240
+        },
+        {
+          "name": "decoder_joint-int8.onnx",
+          "url": "https://huggingface.co/nasedkinpv/parakeet-tdt-0.6b-v3-onnx-int8/resolve/main/decoder_joint-int8.onnx",
+          "sha256": "PLACEHOLDER",
+          "size_bytes": 53592358
+        },
+        {
+          "name": "vocab.txt",
+          "url": "https://huggingface.co/nasedkinpv/parakeet-tdt-0.6b-v3-onnx-int8/resolve/main/vocab.txt",
+          "sha256": "PLACEHOLDER",
+          "size_bytes": 93939
+        }
+      ],
+      "notes": "Parakeet TDT 0.6B v3 (int8). Source: nasedkinpv/parakeet-tdt-0.6b-v3-onnx-int8 on Hugging Face."
+    },
+    {
+      "id": "parakeet-large",
+      "display_name": "Parakeet Large",
+      "size_label": "Large",
+      "size_bytes": 0,
+      "is_default": false,
+      "files": [
+        {
+          "name": "PLACEHOLDER",
+          "url": "PLACEHOLDER",
+          "sha256": "PLACEHOLDER",
+          "size_bytes": 0
+        }
+      ],
+      "notes": "PLACEHOLDER — currently unsupported by transcribe-rs. The 1.1b parakeet-tdt_ctc checkpoint exists at nvidia/parakeet-tdt_ctc-1.1b but no compatible ONNX export is published."
+    }
+  ]
+}
