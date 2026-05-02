@@ -48,33 +48,54 @@ export default function App() {
     };
   }, []);
 
+  const dragBar = (
+    <div
+      data-tauri-drag-region
+      className="fixed inset-x-0 top-0 z-50 h-8"
+    />
+  );
+
   if (view === "checking") {
     return (
-      <div className="flex h-full items-center justify-center bg-neutral-950 text-sm text-neutral-400">
-        Checking…
-      </div>
+      <>
+        {dragBar}
+        <div className="flex h-full items-center justify-center bg-neutral-950 text-sm text-neutral-400">
+          Checking…
+        </div>
+      </>
     );
   }
 
   if (view === "onboarding") {
     return (
-      <Onboarding
-        initialStatus={initialStatus}
-        onStarted={() => setView("main")}
-      />
+      <>
+        {dragBar}
+        <Onboarding
+          initialStatus={initialStatus}
+          onStarted={() => setView("main")}
+        />
+      </>
     );
   }
 
   if (view === "settings") {
     return (
-      <Settings
-        onBack={() => {
-          setMainKey((k) => k + 1);
-          setView("main");
-        }}
-      />
+      <>
+        {dragBar}
+        <Settings
+          onBack={() => {
+            setMainKey((k) => k + 1);
+            setView("main");
+          }}
+        />
+      </>
     );
   }
 
-  return <Main key={mainKey} onOpenSettings={() => setView("settings")} />;
+  return (
+    <>
+      {dragBar}
+      <Main key={mainKey} onOpenSettings={() => setView("settings")} />
+    </>
+  );
 }
