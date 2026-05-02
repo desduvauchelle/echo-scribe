@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use tauri::{AppHandle, Emitter, Wry};
@@ -6,6 +7,7 @@ use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
 use crate::asr::pipeline::AsrPipeline;
+use crate::audio::feedback::{self, Sfx};
 use crate::audio::recorder::Recorder;
 use crate::classifier::{self, Classification};
 use crate::db::items::{chrono_now_iso, Item, ItemSource, Visibility};
@@ -108,6 +110,7 @@ pub fn spawn(
     app: AppHandle<Wry>,
     db: Option<Db>,
     event_log_root: Option<PathBuf>,
+    paused: Arc<AtomicBool>,
     on_state_change: impl Fn(TrayPipelineState) + 'static,
 ) {
     // NOTE: `Recorder` owns a `cpal::Stream`, which is `!Send`. We therefore
@@ -122,11 +125,16 @@ pub fn spawn(
         while let Some(msg) = rx.recv().await {
             match msg {
                 CoordinatorMsg::Hotkey(action, HotkeyEvent::Pressed) => {
+                    if paused.load(Ordering::SeqCst) {
+                        info!(?action, "hotkey Pressed dropped: paused via tray");
+                        continue;
+                    }
                     if !transition_from_idle_to_recording(&state, action) {
                         warn!(?action, "ignored Pressed: not in Idle state");
                         continue;
                     }
                     on_state_change(TrayPipelineState::Recording);
+                    feedback::play(Sfx::Start);
                     if matches!(action, Action::LogCapture) {
                         let _ = app.emit("log_capture:recording_started", ());
                     }
@@ -140,11 +148,17 @@ pub fn spawn(
                     }
                 }
                 CoordinatorMsg::Hotkey(action, HotkeyEvent::Released) => {
+                    if paused.load(Ordering::SeqCst) {
+                        // Drop the released event too — keep state consistent.
+                        info!(?action, "hotkey Released dropped: paused via tray");
+                        continue;
+                    }
                     if !transition_from_recording_to_processing(&state, action) {
                         warn!(?action, "ignored Released: not Recording for this action");
                         continue;
                     }
                     on_state_change(TrayPipelineState::Processing);
+                    feedback::play(Sfx::Stop);
                     let channels = recorder.channels();
                     let stop_result = recorder.stop();
                     match stop_result {
@@ -208,6 +222,7 @@ pub fn spawn(
                                                 })
                                             }
                                         };
+                                        feedback::play(Sfx::Ready);
                                         let _ =
                                             app.emit("log_capture:classification_ready", payload);
                                         let _ = text;

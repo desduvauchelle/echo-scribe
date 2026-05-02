@@ -16,6 +16,8 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use tauri::Manager;
 use tracing::{info, warn};
+use tracing_appender::non_blocking::WorkerGuard;
+use tracing_subscriber::fmt::writer::MakeWriterExt;
 use tracing_subscriber::EnvFilter;
 
 use crate::asr::pipeline::AsrPipeline;
@@ -23,13 +25,15 @@ use crate::asr::registry;
 use crate::commands::{
     archive_project, cancel_log_capture, complete_task, confirm_log_capture, count_items,
     count_items_for_project, create_project, delete_item, delete_llm_model, delete_speech_model,
-    download_llm_model, download_speech_model, ensure_pipeline_started_from_handle,
-    get_active_llm_model_id, get_active_speech_model_id, get_log_capture_binding,
+    diagnostics_log_dir, diagnostics_recent_log, download_llm_model, download_speech_model,
+    ensure_pipeline_started_from_handle, get_active_llm_model_id, get_active_speech_model_id,
+    get_audio_feedback_enabled, get_log_capture_binding, get_onboarding_completed,
     get_voice_at_cursor_binding, is_pipeline_running, list_items, list_llm_models, list_projects,
     list_speech_models, list_tags_for_item, list_tasks, open_accessibility_settings,
     open_microphone_settings, permissions_status, prompt_accessibility_access, rename_project,
     request_microphone_access, reset_onboarding_and_quit, restore_item, search_items,
-    set_active_llm_model, set_active_speech_model, set_task_deadline, start_pipeline,
+    set_active_llm_model, set_active_speech_model, set_audio_feedback_enabled,
+    set_onboarding_completed, set_task_deadline, show_main_window, start_pipeline,
     test_llm_inference, unarchive_project, uncomplete_task, update_item, update_log_capture_binding,
     update_voice_at_cursor_binding, AppState,
 };
@@ -38,13 +42,63 @@ use crate::db::Db;
 use crate::settings::SettingsStore;
 use crate::ui::tray::TrayHandle;
 
+/// Resolve the directory crash logs are rotated into. Public so that the
+/// `diagnostics_log_dir` Tauri command (Settings → Diagnostics) can return
+/// the same path the appender writes to.
+pub fn log_dir() -> std::path::PathBuf {
+    dirs::home_dir()
+        .map(|h| h.join("Library/Logs/EchoScribe"))
+        .unwrap_or_else(std::env::temp_dir)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn log_dir_resolves_under_library_logs_when_home_present() {
+        // We can't easily mock `dirs::home_dir()`, but on the host where
+        // this test runs there *is* a home dir, so the path must end with
+        // "Library/Logs/EchoScribe" and contain the user's home prefix.
+        let p = log_dir();
+        let s = p.to_string_lossy();
+        if let Some(home) = dirs::home_dir() {
+            assert!(
+                s.starts_with(home.to_string_lossy().as_ref()),
+                "log dir {s} should sit under home {}",
+                home.display()
+            );
+            assert!(s.ends_with("Library/Logs/EchoScribe"), "got {s}");
+        } else {
+            // No home dir on this host: we fall back to the temp dir.
+            assert_eq!(p, std::env::temp_dir());
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let dir = log_dir();
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        eprintln!("warning: failed to create log dir {}: {e}", dir.display());
+    }
+    let file_appender = tracing_appender::rolling::daily(&dir, "echo-scribe.log");
+    let (file_writer, guard) = tracing_appender::non_blocking(file_appender);
+
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+        )
+        .with_writer(file_writer.and(std::io::stdout))
         .init();
 
-    info!("starting Echo Scribe Phase 0");
+    // The non-blocking appender's worker thread shuts down when its guard is
+    // dropped — which would silently swallow log lines on graceful exit.
+    // Stash the guard in `AppState` so it lives for the full process; if we
+    // miss attaching it (early panic during setup) we leak it as a fallback.
+    let mut guard_slot: Option<WorkerGuard> = Some(guard);
+
+    info!(log_dir = %dir.display(), "starting Echo Scribe Phase 6");
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -92,8 +146,15 @@ pub fn run() {
             restore_item,
             list_tags_for_item,
             reset_onboarding_and_quit,
+            get_audio_feedback_enabled,
+            set_audio_feedback_enabled,
+            get_onboarding_completed,
+            set_onboarding_completed,
+            show_main_window,
+            diagnostics_log_dir,
+            diagnostics_recent_log,
         ])
-        .setup(|app| {
+        .setup(move |app| {
             // Tray.
             let tray = TrayHandle::install(&app.handle().clone())?;
             let tray = Arc::new(Mutex::new(tray));
@@ -174,19 +235,36 @@ pub fn run() {
                 }
             };
 
+            // Sync the persisted audio-feedback flag into the in-process
+            // atomic so coordinator playback reflects user preferences from
+            // launch (defaults true on a fresh install).
+            crate::audio::feedback::set_enabled(settings.audio_feedback_enabled());
+
+            let paused_hotkeys = Arc::new(AtomicBool::new(false));
+
             let app_state = AppState {
-                tray,
+                tray: Arc::clone(&tray),
                 settings,
                 binding,
                 log_capture_binding,
                 hotkey_started: AtomicBool::new(false),
+                paused_hotkeys: Arc::clone(&paused_hotkeys),
                 coord_tx: Mutex::new(None),
                 asr: Arc::clone(&asr),
                 llm: Arc::clone(&llm),
                 db,
                 event_log_root,
+                _log_guard: Mutex::new(guard_slot.take()),
             };
             app.manage(app_state);
+
+            // Wire tray menu events that need access to the managed state
+            // (e.g. Pause/Resume toggling). The TrayHandle exposes a
+            // `bind_menu` hook called from setup so it can capture the
+            // AppHandle and the paused atomic together.
+            if let Ok(t) = tray.lock() {
+                t.bind_menu(&app.handle().clone(), Arc::clone(&paused_hotkeys));
+            }
 
             // If permissions are already green at startup AND a model is
             // ready, auto-start the pipeline so returning users don't need to

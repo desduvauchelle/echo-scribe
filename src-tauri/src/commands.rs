@@ -45,6 +45,10 @@ pub struct AppState {
     pub binding: Arc<RwLock<Binding>>,
     pub log_capture_binding: Arc<RwLock<Binding>>,
     pub hotkey_started: AtomicBool,
+    /// When `true`, the coordinator drops Pressed/Released events. Toggled
+    /// from the tray menu (Pause/Resume hotkeys). The hotkey listeners stay
+    /// running so the toggle is instant — only the coordinator filters.
+    pub paused_hotkeys: Arc<AtomicBool>,
     /// Multiplexed channel into the coordinator. Wraps both
     /// hotkey-derived events (with their `Action` tag) and frontend
     /// confirmation messages for LogCapture. Populated on first
@@ -58,6 +62,9 @@ pub struct AppState {
     pub db: Option<Db>,
     /// Root for the user-facing event archive (defaults to `~/EchoScribe/`).
     pub event_log_root: Option<std::path::PathBuf>,
+    /// The non-blocking log appender's worker guard. Held for the lifetime
+    /// of `AppState` so logs flush on graceful exit — see `lib.rs::run`.
+    pub _log_guard: Mutex<Option<tracing_appender::non_blocking::WorkerGuard>>,
 }
 
 /// JSON-friendly mirror of [`Binding`].
@@ -470,6 +477,7 @@ pub fn ensure_pipeline_started(state: &AppState, app: &AppHandle) {
     let llm = Arc::clone(&state.llm);
     let db = state.db.clone();
     let event_log_root = state.event_log_root.clone();
+    let paused = Arc::clone(&state.paused_hotkeys);
     let app = app.clone();
 
     thread::spawn(move || {
@@ -493,6 +501,7 @@ pub fn ensure_pipeline_started(state: &AppState, app: &AppHandle) {
                 app,
                 db,
                 event_log_root,
+                paused,
                 move |new_state: TrayPipelineState| {
                     if let Ok(t) = tray_for_state.lock() {
                         t.set_state(new_state);
@@ -896,6 +905,115 @@ pub fn delete_llm_model(id: String) -> Result<(), String> {
         std::fs::remove_dir_all(&dir).map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+// ----- Settings flags: audio feedback + onboarding completion -----
+
+#[tauri::command]
+pub fn get_audio_feedback_enabled(state: State<'_, AppState>) -> bool {
+    state.settings.audio_feedback_enabled()
+}
+
+#[tauri::command]
+pub fn set_audio_feedback_enabled(
+    state: State<'_, AppState>,
+    enabled: bool,
+) -> Result<(), String> {
+    state
+        .settings
+        .set_audio_feedback_enabled(enabled)
+        .map_err(|e| e.to_string())?;
+    crate::audio::feedback::set_enabled(enabled);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_onboarding_completed(state: State<'_, AppState>) -> bool {
+    state.settings.onboarding_completed()
+}
+
+#[tauri::command]
+pub fn set_onboarding_completed(
+    state: State<'_, AppState>,
+    completed: bool,
+) -> Result<(), String> {
+    state
+        .settings
+        .set_onboarding_completed(completed)
+        .map_err(|e| e.to_string())
+}
+
+// ----- Tray-driven UI events -----
+
+#[tauri::command]
+pub fn show_main_window(app: AppHandle) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window("main") {
+        w.show().map_err(|e| e.to_string())?;
+        let _ = w.unminimize();
+        w.set_focus().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+// ----- Diagnostics -----
+
+#[tauri::command]
+pub fn diagnostics_log_dir() -> String {
+    crate::log_dir().to_string_lossy().to_string()
+}
+
+/// Read the last `max_lines` lines of today's log file. Returns an empty
+/// string if no log file exists yet.
+#[tauri::command]
+pub fn diagnostics_recent_log(max_lines: Option<usize>) -> Result<String, String> {
+    let max = max_lines.unwrap_or(200).min(2000);
+    let dir = crate::log_dir();
+    let today = chrono_today_for_filename();
+    let path = dir.join(format!("echo-scribe.log.{today}"));
+    if !path.exists() {
+        // Daily appender uses .{YYYY-MM-DD}; if today's hasn't rolled yet the
+        // file may also exist as "echo-scribe.log". Try both.
+        let alt = dir.join("echo-scribe.log");
+        if !alt.exists() {
+            return Ok(String::new());
+        }
+        return tail_file(&alt, max);
+    }
+    tail_file(&path, max)
+}
+
+/// Locale-independent UTC date for tracing-appender's file suffix.
+fn chrono_today_for_filename() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    // tracing-appender uses local time for daily rotation; we approximate by
+    // formatting the UTC date — close enough for filename guessing, and we
+    // also fall back to the un-suffixed file. Use the chrono-style format
+    // manually to avoid pulling in a chrono dep.
+    let days = now / 86_400;
+    // Days since Unix epoch -> calendar date via the civil-from-days
+    // algorithm (Howard Hinnant). Returns YYYY-MM-DD.
+    let z = days as i64 + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = (z - era * 146_097) as u64;
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    format!("{:04}-{:02}-{:02}", y, m, d)
+}
+
+fn tail_file(path: &std::path::Path, max_lines: usize) -> Result<String, String> {
+    let content = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+    let lines: Vec<&str> = content.lines().collect();
+    let start = lines.len().saturating_sub(max_lines);
+    Ok(lines[start..].join("\n"))
 }
 
 #[tauri::command]

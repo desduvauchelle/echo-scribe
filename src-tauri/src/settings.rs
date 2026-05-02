@@ -13,6 +13,8 @@ const KEY_VOICE_AT_CURSOR_BINDING: &str = "voice_at_cursor_binding";
 const KEY_LOG_CAPTURE_BINDING: &str = "log_capture_binding";
 const KEY_SPEECH_MODEL_ID: &str = "speech_model_id";
 const KEY_LLM_MODEL_ID: &str = "llm_model_id";
+const KEY_AUDIO_FEEDBACK_ENABLED: &str = "audio_feedback_enabled";
+const KEY_ONBOARDING_COMPLETED: &str = "onboarding_completed";
 
 /// Errors raised by [`SettingsStore`].
 #[derive(Debug, Error)]
@@ -125,6 +127,51 @@ impl SettingsStore {
     pub fn set_log_capture_binding(&self, b: Binding) -> Result<(), SettingsError> {
         let value = serde_json::to_value(&b)?;
         self.store.set(KEY_LOG_CAPTURE_BINDING, value);
+        self.store
+            .save()
+            .map_err(|e| SettingsError::Store(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Whether audio feedback (start/stop/ready blips) is enabled. Defaults
+    /// to `true` for new installs, and is preserved across restarts via the
+    /// settings store.
+    pub fn audio_feedback_enabled(&self) -> bool {
+        self.store
+            .get(KEY_AUDIO_FEEDBACK_ENABLED)
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true)
+    }
+
+    /// Persist the audio-feedback toggle.
+    pub fn set_audio_feedback_enabled(&self, on: bool) -> Result<(), SettingsError> {
+        self.store
+            .set(KEY_AUDIO_FEEDBACK_ENABLED, serde_json::Value::Bool(on));
+        self.store
+            .save()
+            .map_err(|e| SettingsError::Store(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Whether the user has completed the onboarding flow at least once.
+    /// Defaults to `false` — the App.tsx routing layer uses this flag (not a
+    /// permissions inference) to decide whether to show Onboarding vs Main.
+    ///
+    /// Note: existing pre-Phase-6 users will see Onboarding once on upgrade
+    /// since this flag will be missing from their settings store. That's a
+    /// deliberate choice — it lets them pick an LLM model now that the step
+    /// exists, and re-confirms permissions cheaply.
+    pub fn onboarding_completed(&self) -> bool {
+        self.store
+            .get(KEY_ONBOARDING_COMPLETED)
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+    }
+
+    /// Mark onboarding as complete (called when the user taps Start).
+    pub fn set_onboarding_completed(&self, on: bool) -> Result<(), SettingsError> {
+        self.store
+            .set(KEY_ONBOARDING_COMPLETED, serde_json::Value::Bool(on));
         self.store
             .save()
             .map_err(|e| SettingsError::Store(e.to_string()))?;
