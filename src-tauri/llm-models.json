@@ -1,0 +1,60 @@
+{
+  "version": 1,
+  "_comment": "Local LLM (llama.cpp) model registry. All three Gemma 3 instruction-tuned variants are shipped in Q4_K_M quantization from the canonical ggml-org GGUF repos on Hugging Face. The 4B variant is the default — small enough to load quickly on Apple Silicon while still producing high-quality structured output for the Phase 4 classifier. SHA-256 hashes are PLACEHOLDER (the downloader will skip verification and log a warning); content-length-derived size_bytes were measured via curl -sIL on 2026-05-01 and represent the file as currently served by the HF CDN.",
+  "models": [
+    {
+      "id": "gemma-3-1b-it-q4_k_m",
+      "display_name": "Gemma 3 1B (Q4_K_M)",
+      "family": "gemma-3",
+      "size_label": "Small",
+      "size_bytes": 806058240,
+      "context_length": 32768,
+      "is_default": false,
+      "supported": true,
+      "files": [
+        {
+          "name": "model.gguf",
+          "url": "https://huggingface.co/ggml-org/gemma-3-1b-it-GGUF/resolve/main/gemma-3-1b-it-Q4_K_M.gguf",
+          "sha256": "PLACEHOLDER",
+          "size_bytes": 806058240
+        }
+      ]
+    },
+    {
+      "id": "gemma-3-4b-it-q4_k_m",
+      "display_name": "Gemma 3 4B (Q4_K_M)",
+      "family": "gemma-3",
+      "size_label": "Medium",
+      "size_bytes": 2489757856,
+      "context_length": 32768,
+      "is_default": true,
+      "supported": true,
+      "files": [
+        {
+          "name": "model.gguf",
+          "url": "https://huggingface.co/ggml-org/gemma-3-4b-it-GGUF/resolve/main/gemma-3-4b-it-Q4_K_M.gguf",
+          "sha256": "PLACEHOLDER",
+          "size_bytes": 2489757856
+        }
+      ]
+    },
+    {
+      "id": "gemma-3-12b-it-q4_k_m",
+      "display_name": "Gemma 3 12B (Q4_K_M)",
+      "family": "gemma-3",
+      "size_label": "Large",
+      "size_bytes": 7300574976,
+      "context_length": 32768,
+      "is_default": false,
+      "supported": true,
+      "files": [
+        {
+          "name": "model.gguf",
+          "url": "https://huggingface.co/ggml-org/gemma-3-12b-it-GGUF/resolve/main/gemma-3-12b-it-Q4_K_M.gguf",
+          "sha256": "PLACEHOLDER",
+          "size_bytes": 7300574976
+        }
+      ]
+    }
+  ]
+}
