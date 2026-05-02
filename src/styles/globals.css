@@ -27,3 +27,13 @@ html, body, #root {
 ::-webkit-scrollbar-corner {
   background: transparent;
 }
+
+.drag-bar {
+  -webkit-app-region: drag;
+  background: transparent;
+  transition: background 600ms ease;
+}
+
+.drag-bar:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
