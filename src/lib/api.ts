@@ -22,6 +22,12 @@ export const openMicrophoneSettings = (): Promise<void> =>
 export const openAccessibilitySettings = (): Promise<void> =>
   invoke("open_accessibility_settings");
 
+export const requestMicrophoneAccess = (): Promise<boolean> =>
+  invoke("request_microphone_access");
+
+export const promptAccessibilityAccess = (): Promise<boolean> =>
+  invoke("prompt_accessibility_access");
+
 export const getVoiceAtCursorBinding = (): Promise<JsBinding> =>
   invoke("get_voice_at_cursor_binding");
 

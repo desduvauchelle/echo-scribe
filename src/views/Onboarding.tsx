@@ -4,6 +4,8 @@ import {
   openAccessibilitySettings,
   openMicrophoneSettings,
   permissionsStatus,
+  promptAccessibilityAccess,
+  requestMicrophoneAccess,
   startPipeline,
   type PermissionsStatus,
 } from "../lib/api";
@@ -102,6 +104,42 @@ export default function Onboarding({ initialStatus, onStarted }: Props) {
 
   const bothGranted = status.microphone && status.accessibility;
 
+  const handleGrantMicrophone = async () => {
+    try {
+      // First call triggers the in-process TCC prompt; subsequent calls
+      // return the cached decision instantly. If the answer is "no" we
+      // also need to send the user to System Settings, because the
+      // prompt won't appear a second time.
+      const granted = await requestMicrophoneAccess();
+      if (granted) {
+        await refresh();
+      } else {
+        await openMicrophoneSettings();
+      }
+    } catch {
+      // Best effort: fall back to opening Settings.
+      await openMicrophoneSettings().catch(() => {});
+    }
+  };
+
+  const handleGrantAccessibility = async () => {
+    try {
+      // The AX prompt only nudges; the user still has to flip the toggle
+      // in System Settings, so open the pane immediately afterward.
+      await promptAccessibilityAccess();
+    } catch {
+      /* ignore — we still try to open Settings below */
+    }
+    try {
+      await openAccessibilitySettings();
+    } catch {
+      /* ignore */
+    }
+    await refresh().catch(() => {
+      /* ignore */
+    });
+  };
+
   const handleStart = async () => {
     setStarting(true);
     setError(null);
@@ -130,7 +168,7 @@ export default function Onboarding({ initialStatus, onStarted }: Props) {
             subtitle="Echo Scribe needs your microphone to capture what you say."
             granted={status.microphone}
             onGrant={() => {
-              void openMicrophoneSettings();
+              void handleGrantMicrophone();
             }}
             onRecheck={() => {
               void refresh();
@@ -145,7 +183,7 @@ export default function Onboarding({ initialStatus, onStarted }: Props) {
             subtitle="Required to paste transcribed text at the cursor in any app."
             granted={status.accessibility}
             onGrant={() => {
-              void openAccessibilitySettings();
+              void handleGrantAccessibility();
             }}
             onRecheck={() => {
               void refresh();
