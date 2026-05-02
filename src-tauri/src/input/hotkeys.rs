@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 
 use rdev::{listen, Event, EventType, Key};
@@ -19,17 +19,22 @@ pub enum HotkeyEvent {
 /// emits HotkeyEvent::Pressed / Released on the given channel whenever the
 /// given binding's satisfaction state changes.
 ///
-/// `rdev::listen` blocks the calling thread, so this must run on a dedicated thread.
-pub fn spawn_listener(binding: Binding, tx: mpsc::UnboundedSender<HotkeyEvent>) {
+/// The binding lives behind an `Arc<RwLock<_>>` so callers (e.g. the settings
+/// UI) can swap it at runtime without restarting the rdev listener — rdev has
+/// no cancel API, so once `listen()` is running we can't tear it down. The
+/// callback re-locks-and-clones the binding on every event, which is cheap.
+///
+/// `rdev::listen` blocks the calling thread, so this runs on a dedicated thread.
+pub fn spawn_listener(binding: Arc<RwLock<Binding>>, tx: mpsc::UnboundedSender<HotkeyEvent>) {
     thread::spawn(move || {
         let pressed: Arc<Mutex<Vec<Key>>> = Arc::new(Mutex::new(Vec::new()));
         let satisfied = Arc::new(Mutex::new(false));
 
         let pressed_for_cb = Arc::clone(&pressed);
         let satisfied_for_cb = Arc::clone(&satisfied);
-        let binding = binding.clone();
+        let binding_for_cb = Arc::clone(&binding);
 
-        info!(?binding, "starting hotkey listener");
+        info!("starting hotkey listener");
 
         let result = listen(move |event: Event| {
             let mut pressed = match pressed_for_cb.lock() {
@@ -47,7 +52,12 @@ pub fn spawn_listener(binding: Binding, tx: mpsc::UnboundedSender<HotkeyEvent>) 
                 }
                 _ => return,
             }
-            let now_satisfied = binding.is_satisfied_by(&pressed);
+            // Re-read the (possibly-updated) binding on every event.
+            let current_binding = match binding_for_cb.read() {
+                Ok(b) => b.clone(),
+                Err(_) => return,
+            };
+            let now_satisfied = current_binding.is_satisfied_by(&pressed);
             let mut sat = match satisfied_for_cb.lock() {
                 Ok(s) => s,
                 Err(_) => return,
