@@ -33,9 +33,10 @@ A voice-first personal "second brain" for macOS. Two global hotkeys: one inserts
 | VAD | `vad-rs` | Smart end-of-speech detection |
 | Audio capture | `cpal` | Cross-platform mic I/O |
 | Audio resample | `rubato` | 48kHz → 16kHz for ASR |
-| Hotkeys | `rdev` | Global keyboard shortcuts |
+| Hotkeys | `rdev` (left/right modifier aware) | Global keyboard shortcuts; distinguishes left vs right Ctrl/Shift/Alt/Meta |
 | Paste at cursor | `enigo` | Synthetic Cmd+V |
 | Local LLM | `llama-cpp-2` (GGUF models) | Self-contained, Metal accel on macOS |
+| LLM (Mac, optional) | Apple Intelligence (future) | Future provider option, macOS-only, gracefully unavailable elsewhere |
 | Database | `rusqlite` + FTS5 | Embedded, fast, full-text search |
 | Migrations | `refinery` | Compile-time-checked migrations |
 | ULID | `ulid` crate | Sortable IDs |
@@ -107,10 +108,12 @@ src-tauri/src/
 │   └── model_manager.rs          # ASR model download/load lifecycle
 │
 ├── llm/
+│   ├── mod.rs                    # LlmProvider trait
 │   ├── engine.rs                 # llama-cpp-2 wrapper, lazy load, unload timer
 │   ├── registry.rs               # Bundled models.json + remote update fetch
 │   ├── downloader.rs             # Streamed GGUF download + sha256 verify
 │   ├── grammar.rs                # GBNF grammars for structured output
+│   ├── apple_intelligence.rs     # macOS-only, behind cfg(target_os="macos") feature flag (future)
 │   └── classifier.rs             # Prompt assembly, JSON parse, classification
 │
 ├── db/
@@ -122,7 +125,8 @@ src-tauri/src/
 │   └── events.rs                 # Event log writer (file + DB index)
 │
 ├── input/
-│   ├── hotkeys.rs                # rdev wrapper, binding registration
+│   ├── hotkeys.rs                # rdev wrapper, binding registration; supports single keys and combos with left/right modifier specificity
+│   ├── binding.rs                # Hotkey binding type (keys + sides) + serialization
 │   └── paste.rs                  # enigo wrapper for synthetic Cmd+V
 │
 ├── ui/
@@ -165,6 +169,39 @@ src/
 └── styles/
     └── globals.css               # Tailwind v4 config
 ```
+
+---
+
+## Hotkey bindings
+
+Bindings are first-class objects, not strings. A `Binding` is either:
+- A **single key** (e.g. `RightControl`)
+- A **modifier-aware combo** (e.g. `RightCommand + RightShift + Period`)
+
+Each modifier slot tracks whether the user wants the **left** key, the **right** key, or **either side**. Internally, `rdev` exposes `ControlLeft`/`ControlRight`, `ShiftLeft`/`ShiftRight`, `AltLeft`/`AltRight`, `MetaLeft`/`MetaRight` as distinct keys, so left/right specificity is preserved end-to-end.
+
+```rust
+enum ModifierSide { Left, Right, Either }
+
+struct Binding {
+    primary: rdev::Key,                            // The "main" key (Right Control, Period, F5, etc.)
+    modifiers: Vec<(ModifierKind, ModifierSide)>,  // Empty for single-key bindings
+}
+
+enum ModifierKind { Control, Shift, Alt, Meta }
+```
+
+The settings UI's "Record new shortcut..." button captures the actual physical keys pressed (left vs right) and stores them verbatim. If the user wants "either side", they pick that explicitly in the editor.
+
+Default bindings (overridable in settings):
+
+| Action | Default binding |
+|---|---|
+| `VoiceAtCursor` | `RightControl` (single key, hold to talk) |
+| `LogCapture` | `RightOption` / `RightAlt` (single key, hold to talk) |
+| `Cancel` | `Escape` (only active while overlay is visible) |
+
+Single-key bindings are valid because most users have a free modifier key (right Ctrl, right Option) that no other app maps. The user can always switch to a combo if they want.
 
 ---
 
@@ -278,8 +315,8 @@ A `models.json` shipped in the binary lists supported models:
       "display_name": "Gemma 4 4B (Q4_K_M)",
       "family": "gemma-4",
       "size_bytes": 2700000000,
-      "download_url": "https://huggingface.co/.../gemma-4-4b-it.Q4_K_M.gguf",
-      "sha256": "<TBD>",
+      "download_url": "PLACEHOLDER_REPLACE_BEFORE_RELEASE",
+      "sha256": "PLACEHOLDER_REPLACE_BEFORE_RELEASE",
       "context_length": 8192,
       "recommended_for": ["classification"],
       "is_default": true
@@ -399,39 +436,40 @@ Each phase produces a working, testable artifact. Each phase ends with a tagged 
 
 ## Migration of existing work
 
-The current `main` branch contains the Swift+Bun-sidecar Phase 0 + Phase 1 work. Plan:
+The current `main` branch contains Swift+Bun-sidecar work that is being thrown away wholesale and rebuilt on Tauri+Rust in the same repo.
 
-1. Tag the current `main` head as `swift-archive` for reference.
-2. Create a fresh branch `tauri-rebuild` from a clean tree (or fresh repo — see open question).
-3. Build phases 0–6 on `tauri-rebuild`.
-4. When phase 6 is acceptance-tested, `tauri-rebuild` becomes the new `main`. Old Swift code stays in git history but does not carry forward.
+1. Tag the current `main` head as `swift-archive` so the prior implementation stays accessible in git history.
+2. Delete from `main`: `apps/`, `packages/`, `scripts/`, `bun.lock`, `biome.json`, top-level `package.json`, `tsconfig.json`, `_old/`, and any Swift/Xcode artifacts. Keep: `README.md`, `BUILD_PLAN.md` (mark as superseded), `CLAUDE.md`, `decisions/`, `docs/`.
+3. Update `BUILD_PLAN.md` to reference this spec as the authoritative build plan.
+4. Initialize the new Tauri project at the repo root.
+5. Phase 0 starts from the deleted-and-reinitialized `main`.
 
-The `_old/` directory (pre-existing) is unaffected by this plan — it can be kept or deleted independently.
+No branching gymnastics. Git history preserves the old work; the working tree is clean.
 
 ---
 
-## Defaults proposed (please confirm)
+## Confirmed defaults
 
-| Decision | Default | Rationale |
+| Decision | Default | Notes |
 |---|---|---|
-| Voice-at-cursor hotkey | `⌘⇧Space` | Existing default in Phase 1 plan |
-| Log-capture hotkey | `⌘⇧L` | "L" mnemonic for "log"; rarely conflicts |
-| Cancel hotkey | `Esc` (only while overlay visible) | Standard cancel idiom |
+| Voice-at-cursor hotkey | `RightControl` (single key, hold) | User-rebindable to single key or combo |
+| Log-capture hotkey | `RightOption` / `RightAlt` (single key, hold) | User-rebindable |
+| Cancel hotkey | `Escape` (overlay-scoped) | Not a global hotkey |
 | Default ASR model | Parakeet V3 | Per user direction |
-| Default LLM model | Gemma 4 4B (Q4_K_M) | Per user direction; exact GGUF URL TBD |
+| Default LLM model | Gemma 4 4B (Q4_K_M) | Placeholder GGUF URL in registry until user supplies real one |
 | LLM model unload timeout | 5 minutes idle | Balance memory vs. latency |
 | Push-to-talk vs. toggle | Push-to-talk default, toggle as setting | Mirrors Handy |
-| Classification auto-accept | If confidence ≥ 0.85, auto-accept after 2s | Reduce friction; user can always edit later |
-| Repo strategy | New branch `tauri-rebuild` in current repo | Preserve history; user may override to fresh repo |
+| Classification auto-accept | If confidence ≥ 0.85, auto-accept after 2s | Tunable after Phase 4 lands |
+| Repo strategy | Wipe current `main` working tree, rebuild in place | `swift-archive` tag preserves prior work |
+| Apple Intelligence | Future provider, macOS-only | Feature-flagged at compile time; non-Mac builds skip the option entirely without breaking |
 
 ---
 
 ## Open items for the user
 
-1. **Exact GGUF URL for Gemma 4 4B** — needed to populate the model registry.
-2. **Repo strategy** — confirm `tauri-rebuild` branch in this repo, or fresh repo.
-3. **Apple Intelligence** — keep as a future LLM provider option, or skip entirely?
-4. **Classification confidence threshold** — 0.85 is a guess. Tune after Phase 4 lands.
+The above defaults are decided. The only remaining open item:
+
+1. **Real GGUF URL for the default Gemma 4 model** — registry will ship with a placeholder URL that fails-fast with a clear error ("default model URL not configured") until the user fills it in. Settings UI will let users add custom GGUF URLs in the meantime.
 
 ---
 
