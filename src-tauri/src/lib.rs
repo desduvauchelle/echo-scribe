@@ -23,7 +23,7 @@ use tracing_subscriber::EnvFilter;
 use crate::asr::pipeline::AsrPipeline;
 use crate::asr::registry;
 use crate::commands::{
-    archive_project, cancel_log_capture, complete_task, confirm_log_capture, count_items,
+    archive_project, cancel_log_capture, chat_with_memory, ChatTurnInput, complete_task, confirm_log_capture, count_items,
     count_items_for_project, create_project, delete_item, delete_llm_model, delete_speech_model,
     diagnostics_log_dir, diagnostics_open_log_folder, diagnostics_recent_log, download_llm_model, download_speech_model,
     ensure_pipeline_started_from_handle, get_active_llm_model_id, get_active_speech_model_id,
@@ -132,6 +132,7 @@ pub fn run() {
             set_active_llm_model,
             delete_llm_model,
             test_llm_inference,
+            chat_with_memory,
             list_projects,
             create_project,
             rename_project,
