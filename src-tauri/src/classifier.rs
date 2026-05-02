@@ -90,6 +90,12 @@ pub async fn classify<L: LlmGenerator + ?Sized>(
     now_dow: &str,
 ) -> Result<Classification, ClassifierError> {
     let system = build_system_prompt(existing_projects, recent_items, now_iso, now_dow);
+    // We deliberately do NOT use grammar-constrained generation here. The
+    // GBNF sampler in llama-cpp-2 0.1.146 has a path where every candidate
+    // token gets rejected and the C++ side calls `ggml_abort`, killing the
+    // whole process. Since we can't catch a C++ abort from Rust, the only
+    // safe option is to ask the model to produce JSON in the prompt and
+    // parse it ourselves — with one retry on parse failure.
     let req = GenerateRequest {
         system: Some(system),
         user: transcript.to_string(),
@@ -97,7 +103,7 @@ pub async fn classify<L: LlmGenerator + ?Sized>(
         max_tokens: 256,
         temperature: 0.2,
         stop_strings: Vec::new(),
-        grammar_gbnf: Some(CLASSIFICATION_GBNF.to_string()),
+        grammar_gbnf: None,
     };
 
     let raw = llm.generate(req.clone()).await?;
@@ -106,12 +112,16 @@ pub async fn classify<L: LlmGenerator + ?Sized>(
     let parsed = match parse_raw(&raw) {
         Ok(p) => p,
         Err(e) => {
-            warn!(?e, "classifier first-pass parse failed; retrying without grammar");
-            // Fall back to JSON-mode prompting (no grammar) once. Some
-            // tokenizers occasionally produce token sequences the GBNF
-            // sampler refuses, leaving an empty output.
+            warn!(?e, "classifier first-pass parse failed; retrying with stricter prompt");
+            // Re-prompt with the parser's complaint appended. Same model,
+            // same temperature — usually the model recovers and produces
+            // valid JSON on the second attempt.
             let mut req2 = req;
-            req2.grammar_gbnf = None;
+            req2.user = format!(
+                "{transcript}\n\n(Your previous response failed to parse: {e}. \
+                 Respond ONLY with a single JSON object matching the schema. \
+                 No prose, no code fences.)"
+            );
             let raw2 = llm.generate(req2).await?;
             parse_raw(&raw2).map_err(|e2| {
                 ClassifierError::Parse(format!("primary: {e}; retry: {e2}"))

@@ -70,6 +70,9 @@ rodio = { version = "0.20", default-features = false, features = ["wav"] }
 tracing-appender = "0.2"
 # Edit-distance for fuzzy custom-word correction in transcript postprocessing.
 strsim = "0.11"
+# `_exit` to bypass C++ static destructors on quit (llama.cpp Metal cleanup
+# crashes when an inference is still in flight at shutdown).
+libc = "0.2"
 
 [dev-dependencies]
 tempfile = "3"
@@ -77,7 +80,7 @@ tempfile = "3"
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 objc2-foundation = "0.3"
-objc2-app-kit = "0.3"
+objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSRunningApplication"] }
 objc2-av-foundation = { version = "0.3", features = ["AVCaptureDevice", "AVMediaFormat", "block2"] }
 objc2-application-services = { version = "0.3", features = ["AXUIElement"] }
 objc2-core-foundation = { version = "0.3", features = ["CFBase", "CFDictionary", "CFNumber", "CFString"] }

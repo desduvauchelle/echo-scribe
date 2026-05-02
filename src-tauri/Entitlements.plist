@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTD/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Required to capture audio under Hardened Runtime. Without this,
+         macOS silently refuses AVCaptureDevice.requestAccess(for:.audio)
+         and never shows the system prompt. -->
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
+
+    <!-- Allows the JIT-compiled regions used by llama.cpp's Metal backend.
+         Without this, llm inference may crash with EXC_BAD_ACCESS. -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+
+    <!-- Allow loading unsigned dylibs — transcribe-rs bundles ONNX Runtime
+         shared libraries that aren't signed with our identity. -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+
+    <!-- Allow writable + executable memory. llama-cpp-2 + ORT both need
+         this for tensor buffers and runtime codegen. -->
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+</dict>
+</plist>

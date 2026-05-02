@@ -44,8 +44,12 @@
   background: #ffe5ee;
   max-height: 20px;
   border-radius: 2px;
-  transition: height 80ms linear;
+  transition: height 80ms linear, background 200ms ease-out;
   min-height: 4px;
+}
+
+.log-mode .bar {
+  background: #d4eeff;
 }
 
 .recording-overlay.fade-in {

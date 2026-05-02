@@ -1,3 +1,4 @@
+import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useState } from "react";
 import {
   completeTask,
@@ -68,6 +69,31 @@ export default function TasksView({ projects }: Props) {
   useEffect(() => {
     if (showDone) void fetchDone();
   }, [showDone, fetchDone]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const unlisteners: Array<() => void> = [];
+    const subscribe = async () => {
+      const handler = () => {
+        if (cancelled) return;
+        void fetchOpen();
+        if (showDone) void fetchDone();
+      };
+      const u1 = await listen("item:created", handler);
+      const u2 = await listen("app:refresh", handler);
+      if (cancelled) {
+        u1();
+        u2();
+      } else {
+        unlisteners.push(u1, u2);
+      }
+    };
+    void subscribe();
+    return () => {
+      cancelled = true;
+      unlisteners.forEach((u) => u());
+    };
+  }, [fetchOpen, fetchDone, showDone]);
 
   const onComplete = async (t: TaskWithItem) => {
     setOpen((prev) => prev.filter((x) => x.item.id !== t.item.id));

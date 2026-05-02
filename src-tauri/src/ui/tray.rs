@@ -3,8 +3,9 @@ use std::sync::{Arc, Mutex};
 
 use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+use tauri::path::BaseDirectory;
 use tauri::tray::{TrayIcon, TrayIconBuilder};
-use tauri::{AppHandle, Emitter, Manager, Runtime};
+use tauri::{AppHandle, Emitter, Manager, Runtime, Theme};
 use tracing::{info, warn};
 
 use crate::coordinator::TrayPipelineState;
@@ -39,7 +40,8 @@ impl<R: Runtime> TrayHandle<R> {
         let pause_for_handle = pause.clone();
         let icon = TrayIconBuilder::new()
             .menu(&menu)
-            .icon(idle_icon())
+            .icon(load_icon(app, TrayPipelineState::Idle, false))
+            .icon_as_template(true)
             .build(app)?;
 
         Ok(TrayHandle {
@@ -94,13 +96,11 @@ impl<R: Runtime> TrayHandle<R> {
                             warn!(?e, "failed to relabel pause menu item");
                         }
                     }
-                    // Re-apply the icon: when paused we tint everything to
-                    // the "muted" gray so the menu bar reflects the state.
                     let state = last_state_for_handler
                         .lock()
                         .map(|g| *g)
                         .unwrap_or(TrayPipelineState::Idle);
-                    let img = icon_for(state, now_paused);
+                    let img = load_icon(&app_for_handler, state, now_paused);
                     if let Err(e) = icon.set_icon(Some(img)) {
                         warn!(?e, "failed to update tray icon after pause toggle");
                     }
@@ -121,7 +121,8 @@ impl<R: Runtime> TrayHandle<R> {
             .ok()
             .map(|g| g.load(Ordering::SeqCst))
             .unwrap_or(false);
-        let img = icon_for(state, paused);
+        let app = self.icon.app_handle();
+        let img = load_icon(app, state, paused);
         if let Err(e) = self.icon.set_icon(Some(img)) {
             warn!(?e, "failed to update tray icon");
         }
@@ -132,6 +133,7 @@ impl<R: Runtime> TrayHandle<R> {
 /// frontend listens for the `open_settings` event and routes itself when
 /// triggered from the tray menu.
 fn show_main_window<R: Runtime>(app: &AppHandle<R>) {
+    crate::ui::dock::set_dock_visible(true);
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.show();
         let _ = w.unminimize();
@@ -141,44 +143,57 @@ fn show_main_window<R: Runtime>(app: &AppHandle<R>) {
     }
 }
 
-/// Map a (state, paused) pair to the right tray icon. When paused, every
-/// state collapses to a darker-gray "muted" tint so the menu bar reflects
-/// that hotkeys are off — independent of whether the coordinator is mid-run.
-fn icon_for(state: TrayPipelineState, paused: bool) -> Image<'static> {
-    if paused {
-        return paused_icon();
-    }
-    match state {
-        TrayPipelineState::Idle => idle_icon(),
-        TrayPipelineState::Recording => recording_icon(),
-        TrayPipelineState::Processing => processing_icon(),
+/// Resolve the bundled PNG for the current state + system theme. Paused
+/// reuses the idle glyph — template mode lets the OS handle visual muting,
+/// and the menu label flip to "Resume hotkeys" already signals state.
+fn load_icon<R: Runtime>(
+    app: &AppHandle<R>,
+    state: TrayPipelineState,
+    paused: bool,
+) -> Image<'static> {
+    let dark_menu_bar = matches!(
+        app.get_webview_window("main").and_then(|w| w.theme().ok()),
+        Some(Theme::Dark)
+    ) || app.get_webview_window("main").is_none();
+
+    let effective_state = if paused {
+        TrayPipelineState::Idle
+    } else {
+        state
+    };
+
+    let path = match (effective_state, dark_menu_bar) {
+        (TrayPipelineState::Idle, true) => "resources/tray_idle.png",
+        (TrayPipelineState::Idle, false) => "resources/tray_idle_dark.png",
+        (TrayPipelineState::Recording, true) => "resources/tray_recording.png",
+        (TrayPipelineState::Recording, false) => "resources/tray_recording_dark.png",
+        (TrayPipelineState::Processing, true) => "resources/tray_transcribing.png",
+        (TrayPipelineState::Processing, false) => "resources/tray_transcribing_dark.png",
+    };
+
+    match app.path().resolve(path, BaseDirectory::Resource) {
+        Ok(resolved) => match Image::from_path(&resolved) {
+            Ok(img) => img,
+            Err(e) => {
+                warn!(?e, ?resolved, "failed to load tray icon, falling back to solid");
+                fallback_icon()
+            }
+        },
+        Err(e) => {
+            warn!(?e, "failed to resolve tray icon path, falling back to solid");
+            fallback_icon()
+        }
     }
 }
 
-/// Solid-color 16x16 RGBA icon. Phase 0 uses flat colors as placeholders;
-/// Phase 6 swaps these for designed assets. The buffer is leaked into
-/// 'static memory because tray icons live for the full app lifetime — there
-/// are exactly four of these (one per state + paused) and no need to free
-/// them.
-fn solid_color_icon(r: u8, g: u8, b: u8) -> Image<'static> {
+/// Last-resort placeholder if a bundled PNG can't be loaded — keeps the
+/// tray icon visible instead of vanishing.
+fn fallback_icon() -> Image<'static> {
     let size = 16u32;
     let mut buf = Vec::with_capacity((size * size * 4) as usize);
     for _ in 0..(size * size) {
-        buf.extend_from_slice(&[r, g, b, 255]);
+        buf.extend_from_slice(&[120, 120, 120, 255]);
     }
     let leaked: &'static [u8] = Box::leak(buf.into_boxed_slice());
     Image::new(leaked, size, size)
-}
-
-fn idle_icon() -> Image<'static> {
-    solid_color_icon(120, 120, 120)
-}
-fn recording_icon() -> Image<'static> {
-    solid_color_icon(220, 50, 50)
-}
-fn processing_icon() -> Image<'static> {
-    solid_color_icon(220, 180, 50)
-}
-fn paused_icon() -> Image<'static> {
-    solid_color_icon(60, 60, 60)
 }

@@ -1122,6 +1122,7 @@ dependencies = [
  "encoding_rs",
  "enigo",
  "futures-util",
+ "libc",
  "llama-cpp-2",
  "objc2 0.6.4",
  "objc2-app-kit",

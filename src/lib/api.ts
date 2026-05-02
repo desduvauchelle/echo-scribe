@@ -281,7 +281,9 @@ export type ChatTurn = { role: "user" | "assistant"; content: string };
 export const chatWithMemory = (
   message: string,
   history: ChatTurn[],
-): Promise<string> => invoke("chat_with_memory", { message, history });
+  projectId?: string | null,
+): Promise<string> =>
+  invoke("chat_with_memory", { message, history, projectId: projectId ?? null });
 
 export const resetOnboardingAndQuit = (): Promise<void> =>
   invoke("reset_onboarding_and_quit");
@@ -349,6 +351,12 @@ export const getLlmUnloadSecs = (): Promise<number> =>
 
 export const setLlmUnloadSecs = (secs: number): Promise<void> =>
   invoke("set_llm_unload_secs", { secs });
+
+export const getAsrUnloadSecs = (): Promise<number> =>
+  invoke("get_asr_unload_secs");
+
+export const setAsrUnloadSecs = (secs: number): Promise<void> =>
+  invoke("set_asr_unload_secs", { secs });
 
 export const applyUpdateAndRestart = (): Promise<void> =>
   invoke("apply_update_and_restart");

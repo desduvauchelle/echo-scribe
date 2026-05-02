@@ -30,7 +30,7 @@ use crate::commands::{
     delete_llm_model, delete_speech_model, diagnostics_log_dir, diagnostics_open_log_folder,
     diagnostics_recent_log, dismiss_update, download_llm_model, download_speech_model,
     ensure_pipeline_started_from_handle, get_active_llm_model_id, get_active_speech_model_id,
-    get_audio_feedback_enabled, get_custom_words, get_default_filler_words,
+    get_asr_unload_secs, get_audio_feedback_enabled, get_custom_words, get_default_filler_words,
     get_filler_removal_enabled, get_filler_words, get_llm_unload_secs, get_log_capture_binding,
     get_mute_while_recording, get_onboarding_completed, get_voice_at_cursor_binding,
     is_pipeline_running, list_items, list_llm_models, list_projects, list_speech_models,
@@ -38,8 +38,8 @@ use crate::commands::{
     permissions_status, prompt_accessibility_access, rename_project, request_microphone_access,
     reset_onboarding_and_quit, reset_tcc_and_quit, restore_item, search_items, set_active_llm_model,
     set_active_speech_model, set_audio_feedback_enabled, set_custom_words,
-    set_filler_removal_enabled, set_filler_words, set_llm_unload_secs, set_mute_while_recording,
-    set_onboarding_completed, set_task_deadline, show_main_window, start_pipeline,
+    set_asr_unload_secs, set_filler_removal_enabled, set_filler_words, set_llm_unload_secs, set_mute_while_recording,
+    set_onboarding_completed, set_rebinding, set_task_deadline, show_main_window, start_pipeline,
     test_llm_inference, unarchive_project, uncomplete_task, update_item, update_log_capture_binding,
     update_voice_at_cursor_binding, AppState,
 };
@@ -107,6 +107,17 @@ pub fn run() {
     info!(log_dir = %dir.display(), "starting Echo Scribe Phase 6");
 
     tauri::Builder::default()
+        .on_window_event(|window, event| {
+            if window.label() == "main" {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    // Intercept the close button: hide the window instead of
+                    // destroying it so the app keeps running in the menu bar.
+                    api.prevent_close();
+                    let _ = window.hide();
+                    crate::ui::dock::set_dock_visible(false);
+                }
+            }
+        })
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_autostart::init(
@@ -173,12 +184,15 @@ pub fn run() {
             set_onboarding_completed,
             get_llm_unload_secs,
             set_llm_unload_secs,
+            get_asr_unload_secs,
+            set_asr_unload_secs,
             show_main_window,
             diagnostics_log_dir,
             diagnostics_open_log_folder,
             diagnostics_recent_log,
             apply_update_and_restart,
             dismiss_update,
+            set_rebinding,
         ])
         .setup(move |app| {
             // Tray.
@@ -200,7 +214,7 @@ pub fn run() {
             // fully downloaded. If the saved id is missing from the registry
             // (e.g. a model was renamed between releases), fall back to any
             // downloaded model so the user doesn't have to re-download.
-            let asr = Arc::new(AsrPipeline::new());
+            let asr = Arc::new(AsrPipeline::new(std::time::Duration::from_secs(settings.asr_unload_secs())));
             {
                 let saved_id = settings
                     .speech_model_id()
@@ -242,11 +256,17 @@ pub fn run() {
                     warn!("no downloaded llm model found; inference will gate on download");
                 }
             }
-            // Spawn the idle-unload background task on Tauri's async runtime.
+            // Spawn idle-unload background tasks on Tauri's async runtime.
             {
                 let llm = Arc::clone(&llm);
                 tauri::async_runtime::spawn(async move {
                     llm.spawn_unloader();
+                });
+            }
+            {
+                let asr = Arc::clone(&asr);
+                tauri::async_runtime::spawn(async move {
+                    asr.spawn_unloader();
                 });
             }
 
@@ -280,6 +300,7 @@ pub fn run() {
             crate::audio::mute::set_enabled(settings.mute_while_recording());
 
             let paused_hotkeys = Arc::new(AtomicBool::new(false));
+            let rebinding = Arc::new(AtomicBool::new(false));
 
             let app_state = AppState {
                 tray: Arc::clone(&tray),
@@ -288,6 +309,7 @@ pub fn run() {
                 log_capture_binding,
                 hotkey_started: AtomicBool::new(false),
                 paused_hotkeys: Arc::clone(&paused_hotkeys),
+                rebinding,
                 coord_tx: Mutex::new(None),
                 asr: Arc::clone(&asr),
                 llm: Arc::clone(&llm),
@@ -303,6 +325,10 @@ pub fn run() {
             // AppHandle and the paused atomic together.
             if let Ok(t) = tray.lock() {
                 t.bind_menu(&app.handle().clone(), Arc::clone(&paused_hotkeys));
+            }
+
+            if let Err(e) = crate::ui::menu::install(&app.handle().clone()) {
+                warn!(error = %e, "failed to install application menu");
             }
 
             // Create the floating recording overlay (hidden until a hotkey
@@ -335,6 +361,20 @@ pub fn run() {
 
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_app, event| {
+            // llama.cpp's Metal backend has a destructor-ordering bug: when the
+            // app is quit while LLM inference is running, exit() runs C++ static
+            // destructors that try to free Metal devices while a command buffer
+            // is still in flight, hitting an assert in `ggml_metal_rsets_free`
+            // and aborting. We bypass the destructors with `_exit` — the OS
+            // reclaims memory on process exit anyway.
+            if let tauri::RunEvent::Exit = event {
+                #[cfg(unix)]
+                unsafe {
+                    libc::_exit(0);
+                }
+            }
+        });
 }

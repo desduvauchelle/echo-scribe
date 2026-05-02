@@ -1,4 +1,3 @@
-use enigo::{Direction, Enigo, Key, Keyboard, Settings};
 use std::thread;
 use std::time::Duration;
 use thiserror::Error;
@@ -41,36 +40,7 @@ pub fn paste_at_cursor(text: &str) -> Result<(), PasteError> {
     info!(len = text.len(), "set clipboard text");
 
     // ── Synthesize paste keystroke ────────────────────────────────
-    let mut enigo = Enigo::new(&Settings::default()).map_err(|e| PasteError::Init(e.to_string()))?;
-
-    let modifier = if cfg!(target_os = "macos") {
-        Key::Meta
-    } else {
-        Key::Control
-    };
-
-    // V key. On macOS we use the raw hardware keycode (9 on ANSI/QWERTY) to
-    // bypass enigo's TSMGetInputSourceProperty lookup, which crashes when called
-    // from a background thread on macOS 14+. On other platforms Key::Unicode is fine.
-    // TODO: route this through the main thread so non-QWERTY macOS layouts work.
-    #[cfg(target_os = "macos")]
-    let v_key = Key::Other(9);
-    #[cfg(not(target_os = "macos"))]
-    let v_key = Key::Unicode('v');
-
-    enigo
-        .key(modifier, Direction::Press)
-        .map_err(|e| PasteError::Keystroke(e.to_string()))?;
-    enigo
-        .key(v_key, Direction::Click)
-        .map_err(|e| PasteError::Keystroke(e.to_string()))?;
-    enigo
-        .key(modifier, Direction::Release)
-        .map_err(|e| PasteError::Keystroke(e.to_string()))?;
-
-    if let Err(e) = enigo.key(v_key, Direction::Release) {
-        warn!(?e, "could not release v key (likely already released)");
-    }
+    synthesize_cmd_v()?;
 
     // ── Restore original clipboard ───────────────────────────────
     // Wait for the target app to process the paste event, then put
@@ -84,6 +54,58 @@ pub fn paste_at_cursor(text: &str) -> Result<(), PasteError> {
         }
     }
 
+    Ok(())
+}
+
+/// Synthesizes Cmd+V (macOS) or Ctrl+V (other platforms).
+///
+/// On macOS we use CoreGraphics directly and set CGEventFlagCommand on the V
+/// keydown event itself rather than relying on a separate modifier press.
+/// The two-step enigo approach (press Meta, click V, release Meta) is
+/// racy: CGEventPost is asynchronous, so the V keydown can be dispatched
+/// before the global CombinedSessionState has registered the Command flag,
+/// causing the target app to receive plain "v" instead of a paste.
+/// Setting the flag directly on the event is deterministic.
+///
+/// We post at CGEventTapLocation::Session so the events bypass our own
+/// HID-level CGEventTap and go straight to the focused application.
+#[cfg(target_os = "macos")]
+fn synthesize_cmd_v() -> Result<(), PasteError> {
+    use core_graphics::event::{CGEvent, CGEventFlags, CGEventTapLocation};
+    use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
+
+    let source = CGEventSource::new(CGEventSourceStateID::Private)
+        .map_err(|_| PasteError::Keystroke("failed to create CGEventSource".into()))?;
+
+    // kVK_ANSI_V = 9
+    let v_down = CGEvent::new_keyboard_event(source.clone(), 9, true)
+        .map_err(|_| PasteError::Keystroke("failed to create V keydown event".into()))?;
+    v_down.set_flags(CGEventFlags::CGEventFlagCommand);
+    v_down.post(CGEventTapLocation::Session);
+
+    thread::sleep(Duration::from_millis(20));
+
+    let v_up = CGEvent::new_keyboard_event(source, 9, false)
+        .map_err(|_| PasteError::Keystroke("failed to create V keyup event".into()))?;
+    v_up.post(CGEventTapLocation::Session);
+
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn synthesize_cmd_v() -> Result<(), PasteError> {
+    use enigo::{Direction, Enigo, Key, Keyboard, Settings};
+    let mut enigo =
+        Enigo::new(&Settings::default()).map_err(|e| PasteError::Init(e.to_string()))?;
+    enigo
+        .key(Key::Control, Direction::Press)
+        .map_err(|e| PasteError::Keystroke(e.to_string()))?;
+    enigo
+        .key(Key::Unicode('v'), Direction::Click)
+        .map_err(|e| PasteError::Keystroke(e.to_string()))?;
+    enigo
+        .key(Key::Control, Direction::Release)
+        .map_err(|e| PasteError::Keystroke(e.to_string()))?;
     Ok(())
 }
 
@@ -101,6 +123,12 @@ mod tests {
 
         let e = PasteError::Init("test".into());
         assert!(e.to_string().contains("enigo"));
+    }
+
+    #[test]
+    fn paste_error_init_display() {
+        let e = PasteError::Init("bad driver".into());
+        assert_eq!(e.to_string(), "failed to initialize enigo: bad driver");
     }
 
     #[test]

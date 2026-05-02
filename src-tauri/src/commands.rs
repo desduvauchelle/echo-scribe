@@ -49,6 +49,10 @@ pub struct AppState {
     /// from the tray menu (Pause/Resume hotkeys). The hotkey listeners stay
     /// running so the toggle is instant — only the coordinator filters.
     pub paused_hotkeys: Arc<AtomicBool>,
+    /// When `true`, the CGEventTap passes all events through without swallowing
+    /// or emitting. Set while the settings UI is in hotkey-capture mode so the
+    /// web view's DOM receives raw key events for the rebinder.
+    pub rebinding: Arc<AtomicBool>,
     /// Multiplexed channel into the coordinator. Wraps both
     /// hotkey-derived events (with their `Action` tag) and frontend
     /// confirmation messages for LogCapture. Populated on first
@@ -247,6 +251,14 @@ pub fn update_log_capture_binding(
         .map_err(|_| "binding lock poisoned".to_string())?;
     *guard = parsed;
     Ok(())
+}
+
+/// Suspend or resume the CGEventTap listeners. Set to `true` while the
+/// settings UI is in hotkey-capture mode so the web view can receive raw key
+/// events without them being swallowed by the tap.
+#[tauri::command]
+pub fn set_rebinding(state: State<'_, AppState>, active: bool) {
+    state.rebinding.store(active, Ordering::SeqCst);
 }
 
 #[tauri::command]
@@ -450,8 +462,8 @@ pub fn ensure_pipeline_started(state: &AppState, app: &AppHandle) {
     let (vac_tx, mut vac_rx) = mpsc::unbounded_channel::<HotkeyEvent>();
     let (lc_tx, mut lc_rx) = mpsc::unbounded_channel::<HotkeyEvent>();
 
-    spawn_listener(Arc::clone(&state.binding), vac_tx);
-    spawn_listener(Arc::clone(&state.log_capture_binding), lc_tx);
+    spawn_listener(Arc::clone(&state.binding), vac_tx, Arc::clone(&state.rebinding));
+    spawn_listener(Arc::clone(&state.log_capture_binding), lc_tx, Arc::clone(&state.rebinding));
 
     // Adapter tasks: tag + forward into the coordinator channel. We use
     // `tokio::spawn` rather than a dedicated thread because these are pure
@@ -1075,6 +1087,7 @@ pub fn set_onboarding_completed(
 
 #[tauri::command]
 pub fn show_main_window(app: AppHandle) -> Result<(), String> {
+    crate::ui::dock::set_dock_visible(true);
     if let Some(w) = app.get_webview_window("main") {
         w.show().map_err(|e| e.to_string())?;
         let _ = w.unminimize();
@@ -1235,6 +1248,7 @@ pub async fn chat_with_memory(
     state: State<'_, AppState>,
     message: String,
     history: Vec<ChatTurnInput>,
+    project_id: Option<String>,
 ) -> Result<String, String> {
     if !state.llm.ready() {
         return Ok(
@@ -1248,7 +1262,9 @@ pub async fn chat_with_memory(
         if rag_query.is_empty() {
             Vec::new()
         } else {
-            db.with_conn(|c| db::search::search_items(c, &rag_query, 6))
+            db.with_conn(|c| {
+                db::search::search_items_for_project(c, &rag_query, project_id.as_deref(), 6)
+            })
                 .unwrap_or_default()
                 .into_iter()
                 .map(|item| {
@@ -1310,6 +1326,26 @@ pub fn set_llm_unload_secs(
         .map_err(|e| e.to_string())?;
     state
         .llm
+        .set_unload_timeout(std::time::Duration::from_secs(secs));
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_asr_unload_secs(state: State<'_, AppState>) -> u64 {
+    state.settings.asr_unload_secs()
+}
+
+#[tauri::command]
+pub fn set_asr_unload_secs(
+    state: State<'_, AppState>,
+    secs: u64,
+) -> Result<(), String> {
+    state
+        .settings
+        .set_asr_unload_secs(secs)
+        .map_err(|e| e.to_string())?;
+    state
+        .asr
         .set_unload_timeout(std::time::Duration::from_secs(secs));
     Ok(())
 }

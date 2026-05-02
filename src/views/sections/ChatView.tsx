@@ -1,12 +1,21 @@
 import { useEffect, useRef, useState } from "react";
-import { chatWithMemory, type ChatTurn } from "../../lib/api";
+import { chatWithMemory, type ChatTurn, type Project } from "../../lib/api";
 
-export default function ChatView() {
+type Props = {
+  projects: Project[];
+};
+
+export default function ChatView({ projects }: Props) {
   const [history, setHistory] = useState<ChatTurn[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [projectFilter, setProjectFilter] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    setHistory([]);
+  }, [projectFilter]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -21,7 +30,7 @@ export default function ChatView() {
     setHistory(nextHistory);
     setLoading(true);
     try {
-      const reply = await chatWithMemory(text, history);
+      const reply = await chatWithMemory(text, history, projectFilter);
       setHistory([...nextHistory, { role: "assistant", content: reply }]);
     } catch (e) {
       setHistory([
@@ -46,11 +55,29 @@ export default function ChatView() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="border-b border-neutral-800 bg-neutral-950/40 px-6 py-4">
-        <h1 className="text-lg font-semibold tracking-tight">Chat</h1>
-        <p className="mt-0.5 text-xs text-neutral-500">
-          Ask questions about your notes and captures
-        </p>
+      <div className="flex items-center justify-between border-b border-neutral-800 bg-neutral-950/40 px-6 py-4">
+        <div>
+          <h1 className="text-lg font-semibold tracking-tight">Chat</h1>
+          <p className="mt-0.5 text-xs text-neutral-500">
+            Ask questions about your notes and captures
+          </p>
+        </div>
+        {projects.length > 0 && (
+          <select
+            value={projectFilter ?? ""}
+            onChange={(e) =>
+              setProjectFilter(e.target.value === "" ? null : e.target.value)
+            }
+            className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1 text-xs text-neutral-300 focus:border-neutral-500 focus:outline-none"
+          >
+            <option value="">All projects</option>
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto px-6 py-4">

@@ -52,10 +52,10 @@ pub fn resample_to_16k_mono(samples: &[f32], from_rate: u32, channels: u16) -> V
     }
 
     let params = SincInterpolationParameters {
-        sinc_len: 256,
+        sinc_len: 64,
         f_cutoff: 0.95,
         interpolation: SincInterpolationType::Linear,
-        oversampling_factor: 256,
+        oversampling_factor: 128,
         window: WindowFunction::BlackmanHarris2,
     };
 

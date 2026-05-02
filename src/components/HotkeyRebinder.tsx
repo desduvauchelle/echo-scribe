@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import {
   getVoiceAtCursorBinding,
   updateVoiceAtCursorBinding,
@@ -98,6 +99,7 @@ export default function HotkeyRebinder({ onChange, load, save }: Props) {
     const onKeyDown = (e: KeyboardEvent) => {
       e.preventDefault();
       if (e.code === "Escape") {
+        void invoke("set_rebinding", { active: false });
         setCapture({ kind: "idle" });
         return;
       }
@@ -113,6 +115,7 @@ export default function HotkeyRebinder({ onChange, load, save }: Props) {
     const onKeyUp = (e: KeyboardEvent) => {
       e.preventDefault();
       if (e.code === "Escape") {
+        void invoke("set_rebinding", { active: false });
         setCapture({ kind: "idle" });
         return;
       }
@@ -127,6 +130,7 @@ export default function HotkeyRebinder({ onChange, load, save }: Props) {
         primary = e.code;
       }
 
+      void invoke("set_rebinding", { active: false });
       const binding = buildBinding(primary, pressedRef.current);
       setCapture({ kind: "captured", binding });
     };
@@ -175,6 +179,7 @@ export default function HotkeyRebinder({ onChange, load, save }: Props) {
               type="button"
               onClick={() => {
                 setSaveError(null);
+                void invoke("set_rebinding", { active: true });
                 setCapture({ kind: "capturing" });
               }}
               className="rounded border border-neutral-700 px-3 py-1 text-xs hover:bg-neutral-800"
@@ -211,6 +216,7 @@ export default function HotkeyRebinder({ onChange, load, save }: Props) {
               <button
                 type="button"
                 onClick={() => {
+                  void invoke("set_rebinding", { active: false });
                   setCapture({ kind: "idle" });
                   setSaveError(null);
                 }}

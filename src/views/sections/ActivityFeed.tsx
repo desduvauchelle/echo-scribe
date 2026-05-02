@@ -1,3 +1,4 @@
+import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   archiveProject,
@@ -86,6 +87,30 @@ export default function ActivityFeed({
     setHasMore(true);
     void fetchPage("reset");
     // Intentionally re-run only when filters/project change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visibility, projectId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const unlisteners: Array<() => void> = [];
+    const subscribe = async () => {
+      const handler = () => {
+        if (!cancelled) void fetchPage("reset");
+      };
+      const u1 = await listen("item:created", handler);
+      const u2 = await listen("app:refresh", handler);
+      if (cancelled) {
+        u1();
+        u2();
+      } else {
+        unlisteners.push(u1, u2);
+      }
+    };
+    void subscribe();
+    return () => {
+      cancelled = true;
+      unlisteners.forEach((u) => u());
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visibility, projectId]);
 
@@ -292,13 +317,6 @@ export default function ActivityFeed({
           ]}
           onChange={setKindFilter}
         />
-        <button
-          type="button"
-          onClick={() => void fetchPage("reset")}
-          className="ml-auto rounded border border-neutral-700 px-2 py-0.5 text-xs hover:bg-neutral-800"
-        >
-          Refresh
-        </button>
       </div>
 
       <div className="flex-1 overflow-y-auto px-6 py-4">

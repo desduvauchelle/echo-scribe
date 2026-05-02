@@ -33,7 +33,7 @@ use std::thread;
 use rdev::Key;
 use tokio::sync::mpsc;
 
-use super::binding::{Binding, ModifierKind};
+use super::binding::Binding;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HotkeyEvent {
@@ -50,15 +50,26 @@ pub enum HotkeyEvent {
 ///
 /// The binding lives behind an `Arc<RwLock<_>>` so the settings UI can swap it
 /// at runtime without restarting the listener.
+///
+/// `suspended` — when `true` the tap passes all events through without
+/// swallowing or emitting, so the UI can capture raw key events for rebinding.
 #[cfg(target_os = "macos")]
-pub fn spawn_listener(binding: Arc<RwLock<Binding>>, tx: mpsc::UnboundedSender<HotkeyEvent>) {
+pub fn spawn_listener(
+    binding: Arc<RwLock<Binding>>,
+    tx: mpsc::UnboundedSender<HotkeyEvent>,
+    suspended: Arc<std::sync::atomic::AtomicBool>,
+) {
     thread::spawn(move || {
-        macos::run(binding, tx);
+        macos::run(binding, tx, suspended);
     });
 }
 
 #[cfg(not(target_os = "macos"))]
-pub fn spawn_listener(_binding: Arc<RwLock<Binding>>, _tx: mpsc::UnboundedSender<HotkeyEvent>) {
+pub fn spawn_listener(
+    _binding: Arc<RwLock<Binding>>,
+    _tx: mpsc::UnboundedSender<HotkeyEvent>,
+    _suspended: Arc<std::sync::atomic::AtomicBool>,
+) {
     tracing::warn!("hotkey listener is macOS-only; running as no-op on this platform");
 }
 
@@ -159,172 +170,228 @@ pub fn cg_keycode_to_rdev_key(code: u16) -> Option<Key> {
     })
 }
 
-/// True iff `key` appears in `binding` (as primary or any modifier slot, on
-/// either side as configured). Used to decide whether to swallow the event.
-fn binding_uses_key(binding: &Binding, key: Key) -> bool {
-    if binding.primary.0 == key {
-        return true;
-    }
-    for (kind, side) in &binding.modifiers {
-        let (left, right) = match kind {
-            ModifierKind::Control => (Key::ControlLeft, Key::ControlRight),
-            ModifierKind::Shift => (Key::ShiftLeft, Key::ShiftRight),
-            ModifierKind::Alt => (Key::Alt, Key::AltGr),
-            ModifierKind::Meta => (Key::MetaLeft, Key::MetaRight),
-        };
-        let matches = match side {
-            super::binding::ModifierSide::Left => key == left,
-            super::binding::ModifierSide::Right => key == right,
-            super::binding::ModifierSide::Either => key == left || key == right,
-        };
-        if matches {
-            return true;
-        }
-    }
-    false
-}
 
 #[cfg(target_os = "macos")]
 mod macos {
-    use std::cell::RefCell;
+    use std::ffi::c_void;
+    use std::ptr;
     use std::sync::{Arc, RwLock};
+    use std::sync::atomic::{AtomicBool, Ordering};
 
-    use core_foundation::runloop::{kCFRunLoopCommonModes, CFRunLoop};
-    use core_graphics::event::{
-        CGEventFlags, CGEventTap, CGEventTapLocation, CGEventTapOptions, CGEventTapPlacement,
-        CGEventType, EventField,
-    };
+    use core_foundation::runloop::kCFRunLoopCommonModes;
     use rdev::Key;
     use tokio::sync::mpsc;
     use tracing::{error, info};
 
     use super::super::binding::Binding;
-    use super::{binding_uses_key, cg_keycode_to_rdev_key, HotkeyEvent};
+    use super::{cg_keycode_to_rdev_key, HotkeyEvent};
 
-    pub fn run(binding: Arc<RwLock<Binding>>, tx: mpsc::UnboundedSender<HotkeyEvent>) {
-        info!("starting CGEventTap hotkey listener");
+    // ── Raw CoreGraphics / CoreFoundation FFI ──────────────────────────────────
+    //
+    // The core-graphics 0.24 Rust wrapper's CGEventTap callback bridge always
+    // returns the original (non-null) CGEventRef from the C callback — even when
+    // the Rust closure returns `None`. Apple documents that returning NULL from a
+    // CGEventTap callback *deletes* the event and prevents delivery to any
+    // downstream tap or application. Because the wrapper never returns NULL, using
+    // `set_type(CGEventType::Null)` + `Some(event)` does NOT suppress character
+    // delivery — the OS still dispatches the character data embedded in the event.
+    //
+    // Solution: bypass the wrapper and call CGEventTapCreate directly via raw FFI
+    // so our `extern "C"` callback can return `ptr::null_mut()` to truly delete
+    // events we want to swallow.
 
-        // The callback is `Fn` (not `FnMut`), so anything mutated across calls
-        // lives in `RefCell`s captured by reference. Single-threaded — the tap
-        // callback runs only on this run-loop thread.
-        let pressed: RefCell<Vec<Key>> = RefCell::new(Vec::new());
-        let satisfied: RefCell<bool> = RefCell::new(false);
+    type CGEventRef = *mut c_void;
+    type CGEventTapProxy = *mut c_void;
+    type CFMachPortRef = *mut c_void;
+    type CFRunLoopSourceRef = *mut c_void;
+    type CFRunLoopRef = *mut c_void;
 
-        let tap = CGEventTap::new(
-            CGEventTapLocation::HID,
-            CGEventTapPlacement::HeadInsertEventTap,
-            CGEventTapOptions::Default,
-            vec![
-                CGEventType::KeyDown,
-                CGEventType::KeyUp,
-                CGEventType::FlagsChanged,
-            ],
-            |_proxy, etype, event| {
-                let keycode =
-                    event.get_integer_value_field(EventField::KEYBOARD_EVENT_KEYCODE) as u16;
-                let key = match cg_keycode_to_rdev_key(keycode) {
-                    Some(k) => k,
-                    None => return Some(event.clone()),
-                };
+    const CG_HID_EVENT_TAP: u32 = 0;
+    const KCG_HEAD_INSERT_EVENT_TAP: u32 = 0;
+    const KCG_EVENT_TAP_OPTION_DEFAULT: u32 = 0;
 
-                // Determine whether this event is a press or a release.
-                // For KeyDown/KeyUp it's obvious. For FlagsChanged we infer
-                // from the relevant CGEventFlags bit + which modifier keycode
-                // fired.
-                let is_press = match etype {
-                    CGEventType::KeyDown => true,
-                    CGEventType::KeyUp => false,
-                    CGEventType::FlagsChanged => modifier_is_pressed(key, event.get_flags()),
-                    _ => return Some(event.clone()),
-                };
+    const CG_EVENT_KEY_DOWN: u32 = 10;
+    const CG_EVENT_KEY_UP: u32 = 11;
+    const CG_EVENT_FLAGS_CHANGED: u32 = 12;
 
-                let mut p = pressed.borrow_mut();
-                if is_press {
-                    if !p.contains(&key) {
-                        p.push(key);
-                    }
-                } else {
-                    p.retain(|k| *k != key);
-                }
+    const EVENT_MASK: u64 = (1u64 << CG_EVENT_KEY_DOWN)
+        | (1u64 << CG_EVENT_KEY_UP)
+        | (1u64 << CG_EVENT_FLAGS_CHANGED);
 
-                let current_binding = match binding.read() {
-                    Ok(b) => b.clone(),
-                    Err(_) => return Some(event.clone()),
-                };
+    const KEYBOARD_EVENT_KEYCODE_FIELD: i32 = 9; // kCGKeyboardEventKeycode
 
-                let now_satisfied = current_binding.is_satisfied_by(&p);
-                let mut sat = satisfied.borrow_mut();
-                if now_satisfied && !*sat {
-                    *sat = true;
-                    let _ = tx.send(HotkeyEvent::Pressed);
-                } else if !now_satisfied && *sat {
-                    *sat = false;
-                    let _ = tx.send(HotkeyEvent::Released);
-                }
+    const CG_FLAG_SHIFT: u64     = 0x0002_0000;
+    const CG_FLAG_CONTROL: u64   = 0x0004_0000;
+    const CG_FLAG_ALTERNATE: u64 = 0x0008_0000;
+    const CG_FLAG_COMMAND: u64   = 0x0010_0000;
 
-                // Swallow the event if the key is part of the current binding.
-                // Otherwise let it through.
-                if binding_uses_key(&current_binding, key) {
-                    // Swallow: mutate the event to kCGEventNull so the OS drops it.
-                    // (core_graphics 0.24 ignores callback `None` returns — its
-                    // bridge falls back to passing the original event through.
-                    // See ~/.cargo/registry/src/.../core-graphics-0.24.0/src/event.rs.)
-                    // `CGEvent::set_type` wraps the underlying CGEventSetType FFI.
-                    event.set_type(CGEventType::Null);
-                }
-                Some(event.clone())
-            },
-        );
+    extern "C" {
+        fn CGEventTapCreate(
+            tap: u32,
+            place: u32,
+            options: u32,
+            events_of_interest: u64,
+            callback: unsafe extern "C" fn(
+                CGEventTapProxy,
+                u32,
+                CGEventRef,
+                *mut c_void,
+            ) -> CGEventRef,
+            user_info: *mut c_void,
+        ) -> CFMachPortRef;
 
-        let tap = match tap {
-            Ok(t) => t,
-            Err(_) => {
-                error!(
-                    "failed to create CGEventTap. Accessibility permission probably missing."
-                );
-                return;
-            }
+        fn CGEventGetIntegerValueField(event: CGEventRef, field: i32) -> i64;
+        fn CGEventGetFlags(event: CGEventRef) -> u64;
+        fn CGEventTapEnable(tap: CFMachPortRef, enable: bool);
+
+        fn CFMachPortCreateRunLoopSource(
+            allocator: *const c_void,
+            port: CFMachPortRef,
+            order: isize,
+        ) -> CFRunLoopSourceRef;
+
+        fn CFRunLoopGetCurrent() -> CFRunLoopRef;
+        fn CFRunLoopAddSource(rl: CFRunLoopRef, source: CFRunLoopSourceRef, mode: *const c_void);
+        fn CFRunLoopRun();
+        fn CFRelease(cf: *const c_void);
+    }
+
+    // ── Tap state ──────────────────────────────────────────────────────────────
+    // Each listener thread has exactly one tap. We box the state and pass it as
+    // the user_info pointer. The box is intentionally leaked — the tap runs for
+    // the application's lifetime and is never torn down.
+
+    struct TapState {
+        binding: Arc<RwLock<Binding>>,
+        tx: mpsc::UnboundedSender<HotkeyEvent>,
+        suspended: Arc<AtomicBool>,
+        pressed: Vec<Key>,
+        satisfied: bool,
+    }
+
+    unsafe extern "C" fn tap_callback(
+        _proxy: CGEventTapProxy,
+        event_type: u32,
+        event: CGEventRef,
+        user_info: *mut c_void,
+    ) -> CGEventRef {
+        if event.is_null() {
+            return event;
+        }
+
+        let state = &mut *(user_info as *mut TapState);
+
+        if state.suspended.load(Ordering::SeqCst) {
+            return event;
+        }
+
+        let keycode = CGEventGetIntegerValueField(event, KEYBOARD_EVENT_KEYCODE_FIELD) as u16;
+        let key = match cg_keycode_to_rdev_key(keycode) {
+            Some(k) => k,
+            None => return event,
         };
 
-        // Wire the tap into this thread's runloop and run forever.
-        unsafe {
-            let source = match tap.mach_port.create_runloop_source(0) {
-                Ok(s) => s,
-                Err(_) => {
-                    error!("failed to create runloop source for CGEventTap");
-                    return;
-                }
-            };
-            CFRunLoop::get_current().add_source(&source, kCFRunLoopCommonModes);
-            tap.enable();
-            CFRunLoop::run_current();
+        let flags = CGEventGetFlags(event);
+
+        let is_press = match event_type {
+            CG_EVENT_KEY_DOWN => true,
+            CG_EVENT_KEY_UP => false,
+            CG_EVENT_FLAGS_CHANGED => modifier_is_pressed(key, flags),
+            _ => return event,
+        };
+
+        if is_press {
+            if !state.pressed.contains(&key) {
+                state.pressed.push(key);
+            }
+        } else {
+            state.pressed.retain(|k| *k != key);
+        }
+
+        let binding = match state.binding.read() {
+            Ok(b) => b.clone(),
+            Err(_) => return event,
+        };
+
+        let now_satisfied = binding.is_satisfied_by(&state.pressed);
+        let was_satisfied = state.satisfied;
+
+        if now_satisfied && !was_satisfied {
+            state.satisfied = true;
+            let _ = state.tx.send(HotkeyEvent::Pressed);
+        } else if !now_satisfied && was_satisfied {
+            state.satisfied = false;
+            let _ = state.tx.send(HotkeyEvent::Released);
+        }
+
+        // Swallow the PRIMARY key (never modifiers) when the binding is/was satisfied.
+        // Returning NULL from a CGEventTap callback deletes the event — the only
+        // reliable way to prevent character delivery for non-modifier keys.
+        // We never swallow modifier keys so that shared modifiers (e.g. AltGr used
+        // alone for voice-at-cursor AND as part of Option+/ for log-capture) still
+        // reach the other tap, letting it observe the release and reset its state.
+        if key == binding.primary.0 && (was_satisfied || now_satisfied) {
+            return ptr::null_mut();
+        }
+
+        event
+    }
+
+    fn modifier_is_pressed(key: Key, flags: u64) -> bool {
+        match key {
+            Key::ShiftLeft | Key::ShiftRight     => flags & CG_FLAG_SHIFT != 0,
+            Key::ControlLeft | Key::ControlRight => flags & CG_FLAG_CONTROL != 0,
+            Key::Alt | Key::AltGr                => flags & CG_FLAG_ALTERNATE != 0,
+            Key::MetaLeft | Key::MetaRight        => flags & CG_FLAG_COMMAND != 0,
+            _ => false,
         }
     }
 
-    /// For a `FlagsChanged` event, return whether the given modifier key
-    /// (which we already mapped to an `rdev::Key`) is now pressed. We check
-    /// the appropriate `CGEventFlags` bit. Note: macOS doesn't distinguish
-    /// left/right at the flags level (both ShiftLeft and ShiftRight set the
-    /// `Shift` flag), so we additionally consult the keycode's identity to
-    /// decide whether THIS event is a press or a release of THIS specific
-    /// side.
-    ///
-    /// Strategy: if the flags-bit for this modifier kind is currently set
-    /// AND the corresponding side wasn't already pressed, treat as press.
-    /// Otherwise treat as release. We approximate this with: "the flag is
-    /// set" → press, "the flag is clear" → release. The settled semantics
-    /// are good enough for satisfying-binding detection because the
-    /// `pressed` Vec is dedup'd (re-pressing an already-pressed key is a
-    /// no-op).
-    fn modifier_is_pressed(key: Key, flags: CGEventFlags) -> bool {
-        match key {
-            Key::ShiftLeft | Key::ShiftRight => flags.contains(CGEventFlags::CGEventFlagShift),
-            Key::ControlLeft | Key::ControlRight => {
-                flags.contains(CGEventFlags::CGEventFlagControl)
+    pub fn run(
+        binding: Arc<RwLock<Binding>>,
+        tx: mpsc::UnboundedSender<HotkeyEvent>,
+        suspended: Arc<AtomicBool>,
+    ) {
+        info!("starting CGEventTap hotkey listener");
+
+        let state = Box::into_raw(Box::new(TapState {
+            binding,
+            tx,
+            suspended,
+            pressed: Vec::new(),
+            satisfied: false,
+        }));
+
+        unsafe {
+            let tap = CGEventTapCreate(
+                CG_HID_EVENT_TAP,
+                KCG_HEAD_INSERT_EVENT_TAP,
+                KCG_EVENT_TAP_OPTION_DEFAULT,
+                EVENT_MASK,
+                tap_callback,
+                state as *mut c_void,
+            );
+
+            if tap.is_null() {
+                error!("failed to create CGEventTap — Accessibility permission probably missing.");
+                drop(Box::from_raw(state));
+                return;
             }
-            Key::Alt | Key::AltGr => flags.contains(CGEventFlags::CGEventFlagAlternate),
-            Key::MetaLeft | Key::MetaRight => flags.contains(CGEventFlags::CGEventFlagCommand),
-            _ => false,
+
+            let source = CFMachPortCreateRunLoopSource(ptr::null(), tap, 0);
+            if source.is_null() {
+                error!("failed to create runloop source for CGEventTap");
+                CFRelease(tap as *const c_void);
+                drop(Box::from_raw(state));
+                return;
+            }
+
+            let rl = CFRunLoopGetCurrent();
+            CFRunLoopAddSource(rl, source, kCFRunLoopCommonModes as *const c_void);
+            CGEventTapEnable(tap, true);
+            CFRelease(source as *const c_void); // run loop holds its own retain
+
+            CFRunLoopRun(); // blocks until the process exits
         }
     }
 }
@@ -360,17 +427,5 @@ mod tests {
         assert_eq!(cg_keycode_to_rdev_key(0x39), None);
     }
 
-    #[test]
-    fn binding_uses_key_detects_primary_and_modifier() {
-        use crate::input::binding::{ModifierKind, ModifierSide, SerKey};
-        let b = Binding {
-            primary: SerKey(Key::KeyL),
-            modifiers: vec![(ModifierKind::Meta, ModifierSide::Right)],
-        };
-        assert!(binding_uses_key(&b, Key::KeyL));
-        assert!(binding_uses_key(&b, Key::MetaRight));
-        assert!(!binding_uses_key(&b, Key::MetaLeft));
-        assert!(!binding_uses_key(&b, Key::KeyA));
-    }
 }
 

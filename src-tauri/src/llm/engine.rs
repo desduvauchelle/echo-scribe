@@ -26,13 +26,13 @@ use llama_cpp_2::context::params::LlamaContextParams;
 use llama_cpp_2::llama_backend::LlamaBackend;
 use llama_cpp_2::llama_batch::LlamaBatch;
 use llama_cpp_2::model::params::LlamaModelParams;
-use llama_cpp_2::model::{AddBos, LlamaModel, LlamaChatTemplate};
+use llama_cpp_2::model::{AddBos, LlamaModel};
 use llama_cpp_2::sampling::LlamaSampler;
 use llama_cpp_2::token::LlamaToken;
 use thiserror::Error;
 use tracing::{debug, info, warn};
 
-use super::prompt::{build_chat_messages, strip_trailing_stops};
+use super::prompt::{build_gemma4_prompt, strip_trailing_stops};
 
 #[derive(Debug, Error)]
 pub enum EngineError {
@@ -75,7 +75,11 @@ impl Default for GenerateRequest {
             history: Vec::new(),
             max_tokens: 256,
             temperature: 0.7,
-            stop_strings: Vec::new(),
+            stop_strings: vec![
+                "<turn|>".to_string(),
+                "<|turn>".to_string(),
+                "<end_of_turn>".to_string(),
+            ],
             grammar_gbnf: None,
         }
     }
@@ -132,59 +136,39 @@ impl LlmEngine {
             return Err(EngineError::Request("max_tokens must be > 0".into()));
         }
 
-        // Build messages and apply a chat template.
-        //
-        // llama.cpp's apply_chat_template only handles a fixed list of
-        // known template names. Gemma 4's GGUF embeds a complex Jinja2
-        // template that llama.cpp cannot parse and returns ffi error -1.
-        // Strategy: try the embedded template first; if apply fails, fall
-        // back to llama.cpp's built-in "gemma3" template (covers Gemma 3/4),
-        // then "gemma" (Gemma 1/2 format, same <start_of_turn> shape).
-        let messages = build_chat_messages(req.system.as_deref(), &req.history, &req.user)
-            .map_err(|e| EngineError::Request(format!("nul byte in prompt: {e}")))?;
-
-        let prompt = {
-            // Attempt 1: model's embedded template.
-            let embedded = self.model.chat_template(None).ok();
-            let result = embedded.as_ref().and_then(|t| {
-                self.model.apply_chat_template(t, &messages, true).ok()
-            });
-
-            if let Some(p) = result {
-                p
-            } else {
-                // Attempt 2: llama.cpp built-in Gemma 3/4 template.
-                // Attempt 3: llama.cpp built-in Gemma 1/2 template.
-                let fallbacks = ["gemma3", "gemma"];
-                let mut out = None;
-                let mut last_err = String::new();
-                for name in &fallbacks {
-                    match LlamaChatTemplate::new(name)
-                        .map_err(|e| e.to_string())
-                        .and_then(|t| {
-                            self.model
-                                .apply_chat_template(&t, &messages, true)
-                                .map_err(|e| e.to_string())
-                        }) {
-                        Ok(p) => {
-                            debug!(template = name, "using fallback chat template");
-                            out = Some(p);
-                            break;
-                        }
-                        Err(e) => last_err = e,
-                    }
-                }
-                out.ok_or_else(|| EngineError::ChatTemplate(last_err))?
+        // Gemma 4 uses <|turn> to open a turn and <turn|> to close it.
+        // <turn|> is also registered as an EOG token so is_eog_token() catches
+        // it mid-loop, but we also add both as stop strings as a text-level
+        // safety net and to catch multi-turn hallucination (<|turn> starting
+        // a new role-play turn before the EOG token is emitted).
+        // <end_of_turn> / <start_of_turn> (Gemma 1-3 tokens) are kept as
+        // fallbacks in case the model emits them anyway.
+        let mut req = req;
+        for token in ["<turn|>", "<|turn>", "<end_of_turn>", "<start_of_turn>"] {
+            if !req.stop_strings.iter().any(|s| s == token) {
+                req.stop_strings.push(token.to_string());
             }
-        };
+        }
 
-        debug!(prompt_len = prompt.len(), "applied chat template");
+        // Build the prompt in Gemma 4's native <|turn>/<turn|> format directly.
+        // llama.cpp's apply_chat_template cannot parse the Jinja2 template
+        // embedded in Gemma 4 GGUFs (returns ffi error -1), and its built-in
+        // "gemma" named template uses the Gemma 1–3 <start_of_turn> format
+        // which produces garbled output on Gemma 4. Building manually is the
+        // reliable path.
+        let prompt = build_gemma4_prompt(
+            req.system.as_deref(),
+            &req.history,
+            &req.user,
+        );
 
-        // Tokenize. The chat template already includes BOS markers via the
-        // model's template, so we pass AddBos::Never to avoid duplication.
+        debug!(prompt_len = prompt.len(), "built gemma4 prompt");
+
+        // Tokenize. BOS is NOT included in the prompt string above, so we
+        // ask the tokenizer to prepend it here.
         let tokens = self
             .model
-            .str_to_token(&prompt, AddBos::Never)
+            .str_to_token(&prompt, AddBos::Always)
             .map_err(|e| EngineError::Tokenize(e.to_string()))?;
 
         if tokens.is_empty() {
@@ -295,4 +279,89 @@ fn rand_seed() -> u32 {
         .map(|d| d.subsec_nanos())
         .unwrap_or(0);
     nanos.wrapping_mul(2_654_435_761)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── GenerateRequest::default ──────────────────────────────────────────
+
+    #[test]
+    fn default_stop_strings_include_gemma4_turn_tokens() {
+        let req = GenerateRequest::default();
+        assert!(
+            req.stop_strings.iter().any(|s| s == "<turn|>"),
+            "default stop_strings must include Gemma 4 EOT token <turn|>"
+        );
+        assert!(
+            req.stop_strings.iter().any(|s| s == "<|turn>"),
+            "default stop_strings must include Gemma 4 turn-start token <|turn> \
+             to prevent multi-turn hallucination"
+        );
+    }
+
+    // ── generate() stop-string injection ─────────────────────────────────
+    // The engine merges Gemma 4 turn tokens into req.stop_strings.
+
+    #[test]
+    fn hit_stop_string_catches_gemma4_turn_tokens() {
+        let stops = vec!["<turn|>".to_string(), "<|turn>".to_string()];
+        assert!(hit_stop_string("hello<turn|>", &stops));
+        assert!(hit_stop_string("hello<|turn>user", &stops));
+        assert!(hit_stop_string("<turn|>", &stops));
+        assert!(!hit_stop_string("hello", &stops));
+        assert!(!hit_stop_string("", &stops));
+    }
+
+    #[test]
+    fn hit_stop_string_empty_stops_never_matches() {
+        assert!(!hit_stop_string("hello<turn|>", &[]));
+    }
+
+    #[test]
+    fn strip_trailing_stops_removes_gemma4_eot() {
+        let stops = vec!["<turn|>".to_string(), "<|turn>".to_string()];
+        assert_eq!(strip_trailing_stops("hello<turn|>", &stops), "hello");
+        assert_eq!(strip_trailing_stops("hello<turn|>  \n", &stops), "hello");
+        // Mid-string occurrence should NOT be stripped (only trailing).
+        assert_eq!(
+            strip_trailing_stops("foo<turn|>bar", &stops),
+            "foo<turn|>bar"
+        );
+    }
+
+    // ── History poisoning regression ──────────────────────────────────────
+    // Root cause: if generate() returns text with bare template tokens, the
+    // frontend stores them in history. The next call embeds them verbatim in
+    // the prompt, causing double-encoded turn markers that confuse the model.
+    //
+    // generate() injects Gemma 4 turn tokens as stops and
+    // strip_trailing_stops removes them, so history content is always clean.
+
+    #[test]
+    fn strip_trailing_stops_prevents_eot_poisoning() {
+        let stops = vec!["<turn|>".to_string(), "<|turn>".to_string()];
+        let raw = "Sure, here is a summary<turn|>";
+        let cleaned = strip_trailing_stops(raw, &stops);
+        assert!(!cleaned.contains("<turn|>"));
+        assert_eq!(cleaned, "Sure, here is a summary");
+    }
+
+    #[test]
+    fn strip_trailing_stops_prevents_new_turn_poisoning() {
+        let stops = vec!["<turn|>".to_string(), "<|turn>".to_string()];
+        let raw = "Here is what I found<|turn>";
+        let cleaned = strip_trailing_stops(raw, &stops);
+        assert!(!cleaned.contains("<|turn>"));
+        assert_eq!(cleaned, "Here is what I found");
+    }
+
+    #[test]
+    fn strip_trailing_stops_handles_double_eot() {
+        let stops = vec!["<turn|>".to_string()];
+        let raw = "hello<turn|><turn|>";
+        let cleaned = strip_trailing_stops(raw, &stops);
+        assert_eq!(cleaned, "hello");
+    }
 }

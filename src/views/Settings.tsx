@@ -10,11 +10,13 @@ import {
   diagnosticsLogDir,
   diagnosticsOpenLogFolder,
   diagnosticsRecentLog,
+  getAsrUnloadSecs,
   getAudioFeedbackEnabled,
   getLlmUnloadSecs,
   getLogCaptureBinding,
   getMuteWhileRecording,
   resetOnboardingAndQuit,
+  setAsrUnloadSecs,
   setAudioFeedbackEnabled,
   setLlmUnloadSecs,
   setMuteWhileRecording,
@@ -108,6 +110,13 @@ function VoiceTab() {
         subtitle="Clean up speech-to-text output before it's pasted or saved."
       >
         <TranscriptionSettings />
+      </Section>
+
+      <Section
+        title="Keep speech model in memory"
+        subtitle="How long the speech-to-text model stays loaded after its last use. Longer = faster next transcription, but uses more RAM."
+      >
+        <AsrUnloadTimeoutSelect />
       </Section>
     </div>
   );
@@ -524,6 +533,76 @@ function LlmUnloadTimeoutSelect() {
         className="rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-xs text-neutral-100 focus:border-neutral-500 focus:outline-none disabled:opacity-50"
       >
         {LLM_UNLOAD_OPTIONS.map(({ label, secs: s }) => (
+          <option key={s} value={s}>
+            {label}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+const ASR_UNLOAD_OPTIONS: { label: string; secs: number }[] = [
+  { label: "30 seconds", secs: 30 },
+  { label: "1 minute", secs: 60 },
+  { label: "2 minutes", secs: 120 },
+  { label: "5 minutes", secs: 300 },
+  { label: "15 minutes", secs: 900 },
+  { label: "Keep loaded", secs: 0 },
+];
+
+function AsrUnloadTimeoutSelect() {
+  const [secs, setSecs] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
+  const toasts = useToasts();
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const v = await getAsrUnloadSecs();
+        if (!cancelled) setSecs(v);
+      } catch {
+        if (!cancelled) setSecs(120);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const onChange = async (next: number) => {
+    setBusy(true);
+    try {
+      await setAsrUnloadSecs(next);
+      setSecs(next);
+    } catch (e) {
+      toasts.push({
+        tone: "error",
+        message: `Couldn't update speech model memory setting: ${e instanceof Error ? e.message : String(e)}`,
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="flex items-center justify-between rounded-lg border border-neutral-800 bg-neutral-950 p-3">
+      <div>
+        <div className="text-sm font-semibold text-neutral-100">
+          Unload after idle
+        </div>
+        <p className="text-xs text-neutral-400">
+          Frees RAM when you haven't dictated for a while. The model reloads automatically on next use.
+        </p>
+      </div>
+      <select
+        disabled={busy || secs === null}
+        value={secs ?? 120}
+        onChange={(e) => void onChange(Number(e.target.value))}
+        className="rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-xs text-neutral-100 focus:border-neutral-500 focus:outline-none disabled:opacity-50"
+      >
+        {ASR_UNLOAD_OPTIONS.map(({ label, secs: s }) => (
           <option key={s} value={s}>
             {label}
           </option>

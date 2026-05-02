@@ -20,11 +20,15 @@ const KEY_FILLER_REMOVAL_ENABLED: &str = "filler_removal_enabled";
 const KEY_FILLER_WORDS: &str = "filler_words";
 const KEY_CUSTOM_WORDS: &str = "custom_words";
 const KEY_LLM_UNLOAD_SECS: &str = "llm_unload_secs";
+const KEY_ASR_UNLOAD_SECS: &str = "asr_unload_secs";
 const KEY_LAST_UPDATE_CHECK: &str = "last_update_check";
 const KEY_DISMISSED_UPDATE_VERSION: &str = "dismissed_update_version";
 
 /// Default: unload the LLM engine after 2 minutes of idle. `0` means never unload.
 pub const DEFAULT_LLM_UNLOAD_SECS: u64 = 120;
+
+/// Default: unload the ASR engine after 2 minutes of idle. `0` means never unload.
+pub const DEFAULT_ASR_UNLOAD_SECS: u64 = 120;
 
 /// Errors raised by [`SettingsStore`].
 #[derive(Debug, Error)]
@@ -276,6 +280,27 @@ impl SettingsStore {
     pub fn set_llm_unload_secs(&self, secs: u64) -> Result<(), SettingsError> {
         self.store.set(
             KEY_LLM_UNLOAD_SECS,
+            serde_json::Value::Number(secs.into()),
+        );
+        self.store
+            .save()
+            .map_err(|e| SettingsError::Store(e.to_string()))?;
+        Ok(())
+    }
+
+    /// How many seconds the ASR (speech-to-text) engine stays loaded after its
+    /// last use before being automatically evicted from RAM. `0` means never
+    /// evict. Defaults to [`DEFAULT_ASR_UNLOAD_SECS`] (2 minutes).
+    pub fn asr_unload_secs(&self) -> u64 {
+        self.store
+            .get(KEY_ASR_UNLOAD_SECS)
+            .and_then(|v| v.as_u64())
+            .unwrap_or(DEFAULT_ASR_UNLOAD_SECS)
+    }
+
+    pub fn set_asr_unload_secs(&self, secs: u64) -> Result<(), SettingsError> {
+        self.store.set(
+            KEY_ASR_UNLOAD_SECS,
             serde_json::Value::Number(secs.into()),
         );
         self.store

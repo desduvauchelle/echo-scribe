@@ -77,9 +77,16 @@ fn show_overlay_state(app_handle: &AppHandle<Wry>, state: &str) {
     }
 }
 
-/// Shows the overlay in "recording" state (with waveform bars).
+/// Shows the overlay in "recording" state (microphone + waveform bars).
 pub fn show_recording_overlay(app_handle: &AppHandle<Wry>) {
     show_overlay_state(app_handle, "recording");
+}
+
+/// Switches the overlay to "log-recording" state (pencil icon + waveform).
+/// Called when a voice-at-cursor recording is upgraded to a log capture
+/// mid-flight (user pressed the log-capture modifier while already recording).
+pub fn show_log_recording_overlay(app_handle: &AppHandle<Wry>) {
+    show_overlay_state(app_handle, "log-recording");
 }
 
 /// Shows the overlay in "transcribing" state (pulsing text).

@@ -135,6 +135,30 @@ pub fn spawn(
                         info!(?action, "hotkey Pressed dropped: paused via tray");
                         continue;
                     }
+
+                    // Mid-recording upgrade: if LogCapture fires while
+                    // VoiceAtCursor is already recording, promote the
+                    // in-progress recording to LogCapture without restarting
+                    // the recorder. The user pressed Option to start talking,
+                    // then pressed / to signal "this should be a log entry".
+                    if action == Action::LogCapture {
+                        let upgraded = {
+                            let mut s = state.lock().unwrap();
+                            if *s == PipelineState::Recording(Action::VoiceAtCursor) {
+                                *s = PipelineState::Recording(Action::LogCapture);
+                                true
+                            } else {
+                                false
+                            }
+                        };
+                        if upgraded {
+                            info!("upgraded in-progress VoiceAtCursor recording to LogCapture");
+                            let _ = app.emit("log_capture:recording_started", ());
+                            crate::overlay::show_log_recording_overlay(&app);
+                            continue;
+                        }
+                    }
+
                     if !transition_from_idle_to_recording(&state, action) {
                         warn!(?action, "ignored Pressed: not in Idle state");
                         continue;
@@ -312,7 +336,10 @@ pub fn spawn(
                         event_log_root.as_deref(),
                     );
                     match &res {
-                        Ok(id) => info!(item_id = %id, "log capture persisted"),
+                        Ok(id) => {
+                            info!(item_id = %id, "log capture persisted");
+                            let _ = app.emit("item:created", ());
+                        }
                         Err(e) => error!(?e, "log capture persistence failed"),
                     }
                     let _ = reply.send(res);
@@ -386,9 +413,14 @@ fn persist_capture(
             deleted_at: None,
         };
         let res = db.with_conn(|c| crate::db::items::insert_item(c, &item));
-        if let Err(e) = res {
-            error!(?e, "failed to persist item");
-            let _ = app.emit("asr:error", format!("Persist failed: {e}"));
+        match res {
+            Ok(_) => {
+                let _ = app.emit("item:created", ());
+            }
+            Err(e) => {
+                error!(?e, "failed to persist item");
+                let _ = app.emit("asr:error", format!("Persist failed: {e}"));
+            }
         }
     }
 

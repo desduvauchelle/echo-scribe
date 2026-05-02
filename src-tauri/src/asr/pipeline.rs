@@ -5,9 +5,14 @@
 //! setup hook, after reading saved settings, or from the
 //! `set_active_speech_model` Tauri command). The engine itself is loaded on
 //! the first `transcribe()` call to keep app startup fast.
+//!
+//! An optional idle-unload background task (see [`AsrPipeline::spawn_unloader`])
+//! evicts the engine from memory after a configurable idle duration, mirroring
+//! the LLM engine's lifecycle. Default: 120 s. `Duration::ZERO` = never unload.
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, RwLock};
+use std::time::{Duration, Instant};
 
 use thiserror::Error;
 use tracing::{info, warn};
@@ -32,19 +37,77 @@ pub enum AsrError {
 pub struct AsrPipeline {
     engine: Arc<Mutex<Option<ParakeetEngine>>>,
     active_model: Arc<RwLock<Option<ModelEntry>>>,
+    last_used: Arc<Mutex<Instant>>,
+    unload_after: Arc<Mutex<Duration>>,
 }
 
 impl Default for AsrPipeline {
     fn default() -> Self {
-        Self::new()
+        Self::new(Duration::from_secs(120))
     }
 }
 
 impl AsrPipeline {
-    pub fn new() -> Self {
+    pub fn new(unload_after: Duration) -> Self {
         Self {
             engine: Arc::new(Mutex::new(None)),
             active_model: Arc::new(RwLock::new(None)),
+            last_used: Arc::new(Mutex::new(Instant::now())),
+            unload_after: Arc::new(Mutex::new(unload_after)),
+        }
+    }
+
+    /// Update the idle-unload timeout at runtime. `Duration::ZERO` disables
+    /// automatic unloading ("keep loaded").
+    pub fn set_unload_timeout(&self, d: Duration) {
+        if let Ok(mut g) = self.unload_after.lock() {
+            *g = d;
+        }
+    }
+
+    /// Spawn the periodic idle-unload checker. Must be called from inside a
+    /// running tokio runtime. Calling it twice is harmless but wasteful.
+    pub fn spawn_unloader(self: &Arc<Self>) {
+        let weak = Arc::downgrade(self);
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(30));
+            interval.tick().await;
+            loop {
+                interval.tick().await;
+                let Some(this) = weak.upgrade() else {
+                    return;
+                };
+                this.maybe_unload();
+            }
+        });
+    }
+
+    fn maybe_unload(&self) {
+        let (idle_for, unload_after) = {
+            let idle = match self.last_used.lock() {
+                Ok(g) => g.elapsed(),
+                Err(_) => return,
+            };
+            let ua = match self.unload_after.lock() {
+                Ok(g) => *g,
+                Err(_) => return,
+            };
+            (idle, ua)
+        };
+        if unload_after.is_zero() || idle_for < unload_after {
+            return;
+        }
+        if let Ok(mut guard) = self.engine.lock() {
+            if guard.is_some() {
+                info!(idle_secs = idle_for.as_secs(), "unloading idle ASR engine to free memory");
+                *guard = None;
+            }
+        }
+    }
+
+    fn touch(&self) {
+        if let Ok(mut g) = self.last_used.lock() {
+            *g = Instant::now();
         }
     }
 
@@ -120,6 +183,8 @@ impl AsrPipeline {
         from_rate: u32,
         channels: u16,
     ) -> Result<String, AsrError> {
+        let t0 = Instant::now();
+
         // Resolve the active model + path before spawning blocking work.
         let model_path: PathBuf = {
             let guard = self
@@ -134,6 +199,7 @@ impl AsrPipeline {
         };
 
         let engine_slot = Arc::clone(&self.engine);
+        let input_samples = samples.len();
 
         // Resample on a blocking thread so we don't hog the runtime.
         let resampled = tokio::task::spawn_blocking(move || {
@@ -142,14 +208,22 @@ impl AsrPipeline {
         .await
         .map_err(|_| AsrError::Join)?;
 
+        let resample_ms = t0.elapsed().as_millis();
+
         if resampled.is_empty() {
             warn!("resampled buffer is empty; skipping inference");
             return Ok(String::new());
         }
 
+        // Strip silent frames so Parakeet only sees speech audio.
+        // filter_silence returns the original buffer if the whole recording
+        // is below the energy threshold, so this is always safe.
+        let resampled = crate::audio::vad::filter_silence(&resampled);
+
         // Run inference. The engine itself is `Send` and we hold it through a
         // blocking task to keep the ONNX session pinned to one thread for the
         // duration of the call.
+        let t1 = Instant::now();
         let text = tokio::task::spawn_blocking(move || -> Result<String, AsrError> {
             let mut guard = engine_slot.lock().map_err(|_| AsrError::Join)?;
             if guard.is_none() {
@@ -164,6 +238,18 @@ impl AsrPipeline {
         .await
         .map_err(|_| AsrError::Join)??;
 
+        let inference_ms = t1.elapsed().as_millis();
+        let total_ms = t0.elapsed().as_millis();
+        info!(
+            input_samples,
+            resample_ms,
+            inference_ms,
+            total_ms,
+            text_len = text.len(),
+            "transcription complete"
+        );
+
+        self.touch();
         Ok(text)
     }
 }

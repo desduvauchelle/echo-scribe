@@ -33,6 +33,14 @@
     "active": true,
     "targets": "all",
     "category": "Productivity",
+    "resources": [
+      "resources/tray_idle.png",
+      "resources/tray_idle_dark.png",
+      "resources/tray_recording.png",
+      "resources/tray_recording_dark.png",
+      "resources/tray_transcribing.png",
+      "resources/tray_transcribing_dark.png"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -42,7 +50,9 @@
     ],
     "macOS": {
       "minimumSystemVersion": "14.0",
-      "infoPlist": "Info.plist"
+      "infoPlist": "Info.plist",
+      "signingIdentity": "C985C7ED86CE02D998B394A554991B78D4687B2A",
+      "entitlements": "Entitlements.plist"
     }
   },
   "plugins": {}

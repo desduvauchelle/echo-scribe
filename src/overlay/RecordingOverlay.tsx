@@ -2,7 +2,7 @@ import { listen } from "@tauri-apps/api/event";
 import React, { useEffect, useRef, useState } from "react";
 import "./RecordingOverlay.css";
 
-type OverlayState = "recording" | "transcribing";
+type OverlayState = "recording" | "log-recording" | "transcribing";
 
 const MicrophoneIcon: React.FC = () => (
   <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
@@ -13,6 +13,15 @@ const MicrophoneIcon: React.FC = () => (
     <path
       d="M4 6.5a.5.5 0 0 0-1 0v1a5 5 0 0 0 4.5 4.975V14H6a.5.5 0 0 0 0 1h4a.5.5 0 0 0 0-1H8.5v-1.525A5 5 0 0 0 13 7.5v-1a.5.5 0 0 0-1 0v1a4 4 0 0 1-8 0v-1Z"
       fill="#ffe5ee"
+    />
+  </svg>
+);
+
+const PencilIcon: React.FC = () => (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+    <path
+      d="M11.013 1.427a1.75 1.75 0 0 1 2.474 0l1.086 1.086a1.75 1.75 0 0 1 0 2.474l-8.61 8.61a.75.75 0 0 1-.37.21l-3.25.75a.75.75 0 0 1-.906-.906l.75-3.25a.75.75 0 0 1 .21-.37l8.616-8.604Zm1.414 1.06a.25.25 0 0 0-.354 0L10.811 3.75l1.439 1.44 1.263-1.263a.25.25 0 0 0 0-.354l-1.086-1.086ZM11.19 6.25 9.75 4.81 3.428 11.13l-.571 2.474 2.473-.571L11.19 6.25Z"
+      fill="#d4eeff"
     />
   </svg>
 );
@@ -75,19 +84,20 @@ const RecordingOverlay: React.FC = () => {
     setupEventListeners();
   }, []);
 
+  const isRecording = state === "recording" || state === "log-recording";
+
   const getIcon = () => {
-    if (state === "recording") {
-      return <MicrophoneIcon />;
-    }
+    if (state === "log-recording") return <PencilIcon />;
+    if (state === "recording") return <MicrophoneIcon />;
     return <TranscriptionIcon />;
   };
 
   return (
-    <div className={`recording-overlay ${isVisible ? "fade-in" : ""}`}>
+    <div className={`recording-overlay ${isVisible ? "fade-in" : ""} ${state === "log-recording" ? "log-mode" : ""}`}>
       <div className="overlay-left">{getIcon()}</div>
 
       <div className="overlay-middle">
-        {state === "recording" && (
+        {isRecording && (
           <div className="bars-container">
             {levels.map((v, i) => (
               <div
@@ -108,11 +118,10 @@ const RecordingOverlay: React.FC = () => {
       </div>
 
       <div className="overlay-right">
-        {state === "recording" && (
+        {isRecording && (
           <button
             className="cancel-button"
             onClick={() => {
-              // Emit cancel event back to Rust
               import("@tauri-apps/api/event").then(({ emit }) =>
                 emit("overlay-cancel"),
               );

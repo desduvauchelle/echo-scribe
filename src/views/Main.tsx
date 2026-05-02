@@ -89,7 +89,7 @@ export default function Main({ onOpenSettings }: Props) {
       case "search":
         return <SearchView projects={projectMap} />;
       case "chat":
-        return <ChatView />;
+        return <ChatView projects={projects} />;
     }
   };
 
