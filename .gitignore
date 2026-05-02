@@ -62,6 +62,9 @@ src-tauri/gen/
 dist-ssr/
 *.local
 
+# Worktrees
+.worktrees/
+
 # Editor (allow .vscode/extensions.json so it can be tracked)
 .vscode/*
 !.vscode/extensions.json
