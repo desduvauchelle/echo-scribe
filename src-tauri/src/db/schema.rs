@@ -12,9 +12,10 @@ use super::DbError;
 
 /// All migrations, in order. Version numbers are monotonically increasing.
 /// Adding a new migration: append a new tuple — never edit existing entries.
-const MIGRATIONS: &[(u32, &str)] = &[(
-    1,
-    r#"
+const MIGRATIONS: &[(u32, &str)] = &[
+    (
+        1,
+        r#"
 CREATE TABLE IF NOT EXISTS projects (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL UNIQUE,
@@ -65,7 +66,15 @@ CREATE TRIGGER IF NOT EXISTS items_au AFTER UPDATE ON items BEGIN
   INSERT INTO items_fts(rowid, content) VALUES (new.rowid, new.content);
 END;
 "#,
-)];
+    ),
+    (
+        2,
+        r#"
+ALTER TABLE items ADD COLUMN confidence REAL;
+ALTER TABLE items ADD COLUMN classified_by TEXT;
+"#,
+    ),
+];
 
 const META_TABLE_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS schema_meta (
@@ -126,7 +135,26 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(v, "1");
+        assert_eq!(v, "2");
+    }
+
+    #[test]
+    fn migration_v2_adds_confidence_and_classified_by() {
+        use rusqlite::Connection;
+        let mut conn = Connection::open_in_memory().unwrap();
+        run_migrations(&mut conn).unwrap();
+        // Running again must be a no-op.
+        run_migrations(&mut conn).unwrap();
+
+        let cols: Vec<String> = conn
+            .prepare("PRAGMA table_info(items)")
+            .unwrap()
+            .query_map([], |r| r.get::<_, String>(1))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        assert!(cols.iter().any(|c| c == "confidence"), "missing confidence column; got {:?}", cols);
+        assert!(cols.iter().any(|c| c == "classified_by"), "missing classified_by column; got {:?}", cols);
     }
 
     #[test]

@@ -339,6 +339,8 @@ mod tests {
             captured_at: "2026-05-01T00:00:00Z".into(),
             created_at: "2026-05-01T00:00:00Z".into(),
             deleted_at: None,
+            confidence: None,
+            classified_by: None,
         }
     }
 
