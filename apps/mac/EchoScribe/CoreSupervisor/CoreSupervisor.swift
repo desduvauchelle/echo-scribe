@@ -65,16 +65,22 @@ final class CoreSupervisor: ObservableObject {
             self.process = proc
             self.backoffDelay = 1.0
 
-            // Read the port from first line of stdout.
-            // Contract: the sidecar must write exactly one JSON line `{"port":<n>}` to stdout
-            // before any other output. This is the port-discovery protocol between supervisor and sidecar.
-            if let line = readFirstLine(from: stdoutPipe),
-               let data = line.data(using: .utf8),
-               let payload = try? JSONDecoder().decode(PortPayload.self, from: data) {
-                self.port = payload.port
-                logger.info("Core sidecar started on port \(payload.port)")
-            } else {
-                logger.error("Failed to read port from sidecar stdout")
+            // Read port on a background thread — readFirstLine blocks and must not run on MainActor.
+            // Contract: sidecar writes `{"port":<n>}\n` as its first stdout line.
+            Task.detached { [weak self] in
+                guard let self else { return }
+                let line = self.readFirstLine(from: stdoutPipe)
+                await MainActor.run { [weak self] in
+                    guard let self else { return }
+                    if let line,
+                       let data = line.data(using: .utf8),
+                       let payload = try? JSONDecoder().decode(PortPayload.self, from: data) {
+                        self.port = payload.port
+                        self.logger.info("Core sidecar started on port \(payload.port)")
+                    } else {
+                        self.logger.error("Failed to read port from sidecar stdout")
+                    }
+                }
             }
         } catch {
             logger.error("Failed to launch sidecar: \(error.localizedDescription)")
@@ -104,18 +110,20 @@ final class CoreSupervisor: ObservableObject {
         backoffDelay = min(backoffDelay * 2, 30.0)
     }
 
-    // Blocking read of the pipe until the first newline is found.
-    // Acceptable in Phase 0 since this runs inside a Task off the main thread.
-    private func readFirstLine(from pipe: Pipe) -> String? {
-        var result = ""
+    // Read from the pipe until a newline is found.
+    // nonisolated so it can be called from Task.detached without crossing the MainActor boundary.
+    // Uses readData(ofLength:) which blocks until data is available — no spin-wait.
+    nonisolated private func readFirstLine(from pipe: Pipe) -> String? {
         let handle = pipe.fileHandleForReading
+        var accumulated = Data()
         while true {
-            let data = handle.availableData
-            if data.isEmpty { continue }
-            guard let str = String(data: data, encoding: .utf8) else { return nil }
-            result += str
-            if let newlineRange = result.range(of: "\n") {
-                return String(result[..<newlineRange.lowerBound])
+            // readData(ofLength:) blocks until data arrives or EOF
+            let chunk = handle.readData(ofLength: 512)
+            if chunk.isEmpty { return nil } // EOF before newline
+            accumulated.append(chunk)
+            if let str = String(data: accumulated, encoding: .utf8),
+               let newlineRange = str.range(of: "\n") {
+                return String(str[..<newlineRange.lowerBound])
             }
         }
     }
@@ -129,15 +137,28 @@ final class CoreSupervisor: ObservableObject {
         return candidates.first { FileManager.default.fileExists(atPath: $0) }
     }
 
-    private func findRepoRoot() -> String? {
-        // Walk up from the app bundle until BUILD_PLAN.md is found (marks the repo root)
+    nonisolated private func findRepoRoot() -> String? {
+        let fm = FileManager.default
+        let marker = "BUILD_PLAN.md"
+
+        // Strategy 1: walk up from app bundle (works when running from repo DerivedData)
         var url = Bundle.main.bundleURL
-        for _ in 0..<10 {
+        for _ in 0..<15 {
             url = url.deletingLastPathComponent()
-            if FileManager.default.fileExists(atPath: url.appendingPathComponent("BUILD_PLAN.md").path) {
+            if fm.fileExists(atPath: url.appendingPathComponent(marker).path) {
                 return url.path
             }
         }
-        return nil
+
+        // Strategy 2: check common dev locations under the user home directory
+        let home = NSHomeDirectory()
+        let candidates = [
+            "\(home)/Documents/code/echo-scribe",
+            "\(home)/code/echo-scribe",
+            "\(home)/dev/echo-scribe",
+            "\(home)/projects/echo-scribe",
+            "\(home)/src/echo-scribe",
+        ]
+        return candidates.first { fm.fileExists(atPath: "\($0)/\(marker)") }
     }
 }
