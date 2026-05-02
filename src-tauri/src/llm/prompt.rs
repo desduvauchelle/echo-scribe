@@ -7,6 +7,28 @@
 use llama_cpp_2::model::LlamaChatMessage;
 use llama_cpp_2::NewLlamaChatMessageError;
 
+/// Build a multi-turn chat message vector.
+///
+/// `history` is `(role, content)` pairs — alternating "user" / "assistant"
+/// from oldest to most recent, NOT including the current turn.
+pub fn build_chat_messages(
+    system: Option<&str>,
+    history: &[(String, String)],
+    user: &str,
+) -> Result<Vec<LlamaChatMessage>, NewLlamaChatMessageError> {
+    let mut msgs = Vec::new();
+    if let Some(sys) = system {
+        if !sys.is_empty() {
+            msgs.push(LlamaChatMessage::new("system".to_string(), sys.to_string())?);
+        }
+    }
+    for (role, content) in history {
+        msgs.push(LlamaChatMessage::new(role.clone(), content.clone())?);
+    }
+    msgs.push(LlamaChatMessage::new("user".to_string(), user.to_string())?);
+    Ok(msgs)
+}
+
 /// Build the chat-message vector for a prompt with optional system message.
 ///
 /// Note: [`LlamaChatMessage::new`] only fails if the role/content contains a
@@ -16,17 +38,7 @@ pub fn build_messages(
     system: Option<&str>,
     user: &str,
 ) -> Result<Vec<LlamaChatMessage>, NewLlamaChatMessageError> {
-    let mut msgs = Vec::with_capacity(2);
-    if let Some(sys) = system {
-        if !sys.is_empty() {
-            msgs.push(LlamaChatMessage::new(
-                "system".to_string(),
-                sys.to_string(),
-            )?);
-        }
-    }
-    msgs.push(LlamaChatMessage::new("user".to_string(), user.to_string())?);
-    Ok(msgs)
+    build_chat_messages(system, &[], user)
 }
 
 /// Strip any of `stops` from the trailing edge of `text`, then trim
@@ -90,5 +102,23 @@ mod tests {
     #[test]
     fn strip_trailing_stops_handles_empty_stops() {
         assert_eq!(strip_trailing_stops("hi  ", &[]), "hi");
+    }
+
+    #[test]
+    fn build_chat_messages_includes_history() {
+        let history = vec![
+            ("user".to_string(), "hello".to_string()),
+            ("assistant".to_string(), "hi there".to_string()),
+        ];
+        let msgs = build_chat_messages(Some("be helpful"), &history, "follow up").unwrap();
+        // system + 2 history turns + user = 4
+        assert_eq!(msgs.len(), 4);
+    }
+
+    #[test]
+    fn build_chat_messages_empty_history_matches_build_messages() {
+        let a = build_messages(Some("sys"), "user msg").unwrap();
+        let b = build_chat_messages(Some("sys"), &[], "user msg").unwrap();
+        assert_eq!(a.len(), b.len());
     }
 }
