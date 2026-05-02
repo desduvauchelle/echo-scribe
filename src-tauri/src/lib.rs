@@ -1,19 +1,24 @@
 pub mod audio;
+pub mod commands;
 pub mod coordinator;
 pub mod input;
+pub mod permissions;
+pub mod settings;
 pub mod ui;
 
-use std::sync::{Arc, Mutex};
-use std::thread;
+use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, Mutex, RwLock};
 
-use rdev::Key;
-use tokio::sync::mpsc;
-use tracing::{error, info};
+use tauri::Manager;
+use tracing::{info, warn};
 use tracing_subscriber::EnvFilter;
 
-use crate::coordinator::{new_state_handle, PipelineState};
-use crate::input::binding::Binding;
-use crate::input::hotkeys::{spawn_listener, HotkeyEvent};
+use crate::commands::{
+    ensure_pipeline_started_from_handle, get_voice_at_cursor_binding, is_pipeline_running,
+    open_accessibility_settings, open_microphone_settings, permissions_status, start_pipeline,
+    update_voice_at_cursor_binding, AppState,
+};
+use crate::settings::SettingsStore;
 use crate::ui::tray::TrayHandle;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -26,46 +31,55 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_store::Builder::default().build())
+        .invoke_handler(tauri::generate_handler![
+            permissions_status,
+            open_microphone_settings,
+            open_accessibility_settings,
+            get_voice_at_cursor_binding,
+            update_voice_at_cursor_binding,
+            start_pipeline,
+            is_pipeline_running,
+        ])
         .setup(|app| {
-            // Install the tray and share it across threads via Arc<Mutex>.
+            // Tray.
             let tray = TrayHandle::install(&app.handle().clone())?;
             let tray = Arc::new(Mutex::new(tray));
 
-            // Channel from rdev listener thread to coordinator thread.
-            let (hotkey_tx, hotkey_rx) = mpsc::unbounded_channel::<HotkeyEvent>();
+            // Persisted settings.
+            let settings = SettingsStore::load(&app.handle().clone())?;
+            let initial_binding = settings.voice_at_cursor_binding();
+            let binding = Arc::new(RwLock::new(initial_binding));
 
-            // Default voice-at-cursor binding: Right Control as a single key.
-            let default_binding = Binding::single(Key::ControlRight);
-            spawn_listener(default_binding, hotkey_tx);
+            // Build the shared state. The rdev listener and coordinator are
+            // NOT spawned here — that happens via `start_pipeline` (called
+            // explicitly from onboarding once permissions are green) or via
+            // `ensure_pipeline_started_from_handle` below if permissions are
+            // already green at startup.
+            let app_state = AppState {
+                tray,
+                settings,
+                binding,
+                hotkey_started: AtomicBool::new(false),
+                hotkey_tx: Mutex::new(None),
+            };
+            app.manage(app_state);
 
-            // Coordinator state.
-            let state = new_state_handle();
-            let tray_for_state = Arc::clone(&tray);
-
-            // The coordinator owns a Recorder which holds a !Send cpal::Stream,
-            // so we cannot use tokio::spawn from Tauri's main runtime. Instead,
-            // dedicate a thread with its own current-thread runtime + LocalSet.
-            thread::spawn(move || {
-                let rt = match tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                {
-                    Ok(rt) => rt,
-                    Err(e) => {
-                        error!(?e, "failed to build coordinator runtime");
-                        return;
-                    }
-                };
-                let local = tokio::task::LocalSet::new();
-                local.spawn_local(async move {
-                    coordinator::spawn(hotkey_rx, state, move |new_state: PipelineState| {
-                        if let Ok(t) = tray_for_state.lock() {
-                            t.set_state(new_state);
-                        }
-                    });
-                });
-                rt.block_on(local);
-            });
+            // If permissions are already green at startup, auto-start the
+            // pipeline so returning users don't need to click anything.
+            // Otherwise, wait for the user to grant access and explicitly
+            // hit "Start Echo Scribe" in onboarding.
+            let perms = permissions::status();
+            if perms.microphone && perms.accessibility {
+                info!("permissions already green; auto-starting pipeline");
+                ensure_pipeline_started_from_handle(&app.handle().clone());
+            } else {
+                warn!(
+                    microphone = perms.microphone,
+                    accessibility = perms.accessibility,
+                    "permissions not yet granted; pipeline will start after onboarding"
+                );
+            }
 
             Ok(())
         })
