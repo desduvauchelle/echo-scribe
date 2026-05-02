@@ -38,3 +38,34 @@ export const startPipeline = (): Promise<void> => invoke("start_pipeline");
 
 export const isPipelineRunning = (): Promise<boolean> =>
   invoke("is_pipeline_running");
+
+export type SpeechModelStatus = {
+  id: string;
+  display_name: string;
+  size_label: string;
+  size_bytes: number;
+  downloaded: boolean;
+  active: boolean;
+  supported: boolean;
+};
+
+export type DownloadProgress = {
+  id: string;
+  bytes_downloaded: number;
+  bytes_total: number;
+};
+
+export const listSpeechModels = (): Promise<SpeechModelStatus[]> =>
+  invoke("list_speech_models");
+
+export const downloadSpeechModel = (id: string): Promise<void> =>
+  invoke("download_speech_model", { id });
+
+export const getActiveSpeechModelId = (): Promise<string> =>
+  invoke("get_active_speech_model_id");
+
+export const setActiveSpeechModel = (id: string): Promise<void> =>
+  invoke("set_active_speech_model", { id });
+
+export const deleteSpeechModel = (id: string): Promise<void> =>
+  invoke("delete_speech_model", { id });
