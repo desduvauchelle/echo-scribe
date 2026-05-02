@@ -1,6 +1,7 @@
 pub mod audio;
 pub mod coordinator;
 pub mod input;
+pub mod ui;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
