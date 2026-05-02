@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use tauri::{AppHandle, Emitter, Wry};
@@ -6,6 +7,9 @@ use tracing::{error, info, warn};
 
 use crate::asr::pipeline::AsrPipeline;
 use crate::audio::recorder::Recorder;
+use crate::db::items::{chrono_now_iso, Item, ItemSource, Visibility};
+use crate::db::Db;
+use crate::event_log::{self, EventEnvelope};
 use crate::input::hotkeys::HotkeyEvent;
 use crate::input::paste::paste_at_cursor;
 
@@ -33,6 +37,8 @@ pub fn spawn(
     state: StateHandle,
     asr: Arc<AsrPipeline>,
     app: AppHandle<Wry>,
+    db: Option<Db>,
+    event_log_root: Option<PathBuf>,
     on_state_change: impl Fn(PipelineState) + 'static,
 ) {
     // NOTE: `Recorder` owns a `cpal::Stream`, which is `!Send`. We therefore
@@ -72,6 +78,16 @@ pub fn spawn(
                                     warn!("transcription produced empty text; nothing to paste");
                                 }
                                 Ok(text) => {
+                                    // Persist BEFORE pasting, but never let
+                                    // a persistence failure block the paste —
+                                    // user-visible behavior must match Phase 1.
+                                    persist_capture(
+                                        &text,
+                                        db.as_ref(),
+                                        event_log_root.as_deref(),
+                                        &app,
+                                    );
+
                                     info!(chars = text.len(), "pasting transcription");
                                     if let Err(e) = paste_at_cursor(&text) {
                                         error!(?e, "paste failed");
@@ -113,6 +129,66 @@ fn transition(state: &StateHandle, from: PipelineState, to: PipelineState) -> bo
         true
     } else {
         false
+    }
+}
+
+/// Insert an item row + append a `voice.captured` event to the disk log.
+/// Both steps are best-effort: any failure is logged + emitted to the
+/// frontend as an `asr:error` toast, but never propagates to the caller.
+/// Pasting the transcription is the user's primary expectation; persistence
+/// is additive.
+fn persist_capture(
+    text: &str,
+    db: Option<&Db>,
+    event_log_root: Option<&std::path::Path>,
+    app: &AppHandle<Wry>,
+) {
+    let id = ulid::Ulid::new().to_string();
+    let now = chrono_now_iso();
+
+    if let Some(db) = db {
+        let item = Item {
+            id: id.clone(),
+            content: text.to_string(),
+            source: ItemSource::VoiceAtCursor,
+            visibility: Visibility::Hidden,
+            kind: None,
+            project_id: None,
+            captured_at: now.clone(),
+            created_at: now.clone(),
+            deleted_at: None,
+        };
+        let res = db.with_conn(|c| crate::db::items::insert_item(c, &item));
+        if let Err(e) = res {
+            error!(?e, "failed to persist item");
+            let _ = app.emit("asr:error", format!("Persist failed: {e}"));
+        }
+    }
+
+    if let Some(root) = event_log_root {
+        // Truncate to first 200 chars on character boundaries (avoid panic
+        // from slicing inside a multi-byte codepoint).
+        let mut preview = String::with_capacity(text.len().min(200));
+        for c in text.chars() {
+            if preview.len() + c.len_utf8() > 200 {
+                break;
+            }
+            preview.push(c);
+        }
+        let envelope = EventEnvelope {
+            id: id.clone(),
+            event_type: "voice.captured".to_string(),
+            created_at: now,
+            payload: serde_json::json!({
+                "item_id": id,
+                "preview": preview,
+                "char_count": text.chars().count(),
+            }),
+        };
+        if let Err(e) = event_log::append_event(root, &envelope) {
+            error!(?e, "failed to append event log entry");
+            let _ = app.emit("asr:error", format!("Persist failed: {e}"));
+        }
     }
 }
 

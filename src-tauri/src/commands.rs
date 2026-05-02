@@ -22,6 +22,7 @@ use crate::asr::downloader::{self, DownloadProgress};
 use crate::asr::pipeline::AsrPipeline;
 use crate::asr::registry::{self, ModelEntry};
 use crate::coordinator::{self, new_state_handle, PipelineState};
+use crate::db::{self, Db, Item, Visibility};
 use crate::input::binding::{code_from_key, key_from_code, Binding, ModifierKind, ModifierSide, SerKey};
 use crate::input::hotkeys::{spawn_listener, HotkeyEvent};
 use crate::permissions::{self, MicAccessOutcome, PermissionsStatus, SettingsPane};
@@ -41,6 +42,12 @@ pub struct AppState {
     pub hotkey_started: AtomicBool,
     pub hotkey_tx: Mutex<Option<UnboundedSender<HotkeyEvent>>>,
     pub asr: Arc<AsrPipeline>,
+    /// On-disk SQLite handle. `None` only if DB initialization failed at
+    /// startup (in which case persistence is disabled but Phase 1 behavior
+    /// still works — paste-at-cursor must never be blocked by DB issues).
+    pub db: Option<Db>,
+    /// Root for the user-facing event archive (defaults to `~/EchoScribe/`).
+    pub event_log_root: Option<std::path::PathBuf>,
 }
 
 /// JSON-friendly mirror of [`Binding`].
@@ -336,6 +343,8 @@ pub fn ensure_pipeline_started(state: &AppState, app: &AppHandle) {
     let pipeline_state = new_state_handle();
     let tray_for_state = Arc::clone(&state.tray);
     let asr = Arc::clone(&state.asr);
+    let db = state.db.clone();
+    let event_log_root = state.event_log_root.clone();
     let app = app.clone();
 
     thread::spawn(move || {
@@ -351,11 +360,19 @@ pub fn ensure_pipeline_started(state: &AppState, app: &AppHandle) {
         };
         let local = tokio::task::LocalSet::new();
         local.spawn_local(async move {
-            coordinator::spawn(hotkey_rx, pipeline_state, asr, app, move |new_state: PipelineState| {
-                if let Ok(t) = tray_for_state.lock() {
-                    t.set_state(new_state);
-                }
-            });
+            coordinator::spawn(
+                hotkey_rx,
+                pipeline_state,
+                asr,
+                app,
+                db,
+                event_log_root,
+                move |new_state: PipelineState| {
+                    if let Ok(t) = tray_for_state.lock() {
+                        t.set_state(new_state);
+                    }
+                },
+            );
         });
         rt.block_on(local);
     });
@@ -366,6 +383,79 @@ pub fn ensure_pipeline_started(state: &AppState, app: &AppHandle) {
 pub fn ensure_pipeline_started_from_handle(app: &AppHandle) {
     let state: State<'_, AppState> = app.state();
     ensure_pipeline_started(&state, app);
+}
+
+// ----- Item store commands -----
+
+const DEFAULT_ITEM_LIMIT: u32 = 50;
+const MAX_ITEM_LIMIT: u32 = 500;
+
+fn require_db(state: &AppState) -> Result<&Db, String> {
+    state
+        .db
+        .as_ref()
+        .ok_or_else(|| "database not available".to_string())
+}
+
+fn parse_visibility(s: Option<String>) -> Result<Option<Visibility>, String> {
+    match s.as_deref() {
+        None | Some("") => Ok(None),
+        Some(v) => Visibility::parse(v)
+            .map(Some)
+            .ok_or_else(|| format!("invalid visibility: {v}")),
+    }
+}
+
+fn clamp_limit(limit: Option<u32>) -> u32 {
+    limit
+        .unwrap_or(DEFAULT_ITEM_LIMIT)
+        .clamp(1, MAX_ITEM_LIMIT)
+}
+
+#[tauri::command]
+pub fn list_items(
+    state: State<'_, AppState>,
+    visibility: Option<String>,
+    project_id: Option<String>,
+    limit: Option<u32>,
+    offset: Option<u32>,
+) -> Result<Vec<Item>, String> {
+    let db = require_db(&state)?;
+    let vis = parse_visibility(visibility)?;
+    let limit = clamp_limit(limit);
+    let offset = offset.unwrap_or(0);
+    db.with_conn(|c| db::items::list_items(c, vis, project_id.as_deref(), limit, offset))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn search_items(
+    state: State<'_, AppState>,
+    query: String,
+    limit: Option<u32>,
+) -> Result<Vec<Item>, String> {
+    let db = require_db(&state)?;
+    let limit = clamp_limit(limit);
+    db.with_conn(|c| db::search::search_items(c, &query, limit))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn delete_item(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    let db = require_db(&state)?;
+    db.with_conn(|c| db::items::soft_delete_item(c, &id))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn count_items(
+    state: State<'_, AppState>,
+    visibility: Option<String>,
+) -> Result<u32, String> {
+    let db = require_db(&state)?;
+    let vis = parse_visibility(visibility)?;
+    db.with_conn(|c| db::items::count_items(c, vis))
+        .map_err(|e| e.to_string())
 }
 
 #[cfg(test)]

@@ -19,12 +19,14 @@ use tracing_subscriber::EnvFilter;
 use crate::asr::pipeline::AsrPipeline;
 use crate::asr::registry;
 use crate::commands::{
-    delete_speech_model, download_speech_model, ensure_pipeline_started_from_handle,
-    get_active_speech_model_id, get_voice_at_cursor_binding, is_pipeline_running,
-    list_speech_models, open_accessibility_settings, open_microphone_settings,
-    permissions_status, prompt_accessibility_access, request_microphone_access,
-    set_active_speech_model, start_pipeline, update_voice_at_cursor_binding, AppState,
+    count_items, delete_item, delete_speech_model, download_speech_model,
+    ensure_pipeline_started_from_handle, get_active_speech_model_id, get_voice_at_cursor_binding,
+    is_pipeline_running, list_items, list_speech_models, open_accessibility_settings,
+    open_microphone_settings, permissions_status, prompt_accessibility_access,
+    request_microphone_access, search_items, set_active_speech_model, start_pipeline,
+    update_voice_at_cursor_binding, AppState,
 };
+use crate::db::Db;
 use crate::settings::SettingsStore;
 use crate::ui::tray::TrayHandle;
 
@@ -54,6 +56,10 @@ pub fn run() {
             get_active_speech_model_id,
             set_active_speech_model,
             delete_speech_model,
+            list_items,
+            search_items,
+            delete_item,
+            count_items,
         ])
         .setup(|app| {
             // Tray.
@@ -89,6 +95,24 @@ pub fn run() {
             // explicitly from onboarding once permissions are green AND a
             // model is downloaded) or via `ensure_pipeline_started_from_handle`
             // below if everything is already green at startup.
+            // Persistent storage. If opening fails (disk full, permissions,
+            // etc.) we log and continue without persistence — the app's
+            // primary job (paste-at-cursor) must keep working.
+            let db = match Db::open_default() {
+                Ok(db) => Some(db),
+                Err(e) => {
+                    warn!(error = %e, "failed to open SQLite database; persistence disabled");
+                    None
+                }
+            };
+            let event_log_root = match crate::event_log::default_root() {
+                Ok(root) => Some(root),
+                Err(e) => {
+                    warn!(error = %e, "failed to resolve event log root; event log disabled");
+                    None
+                }
+            };
+
             let app_state = AppState {
                 tray,
                 settings,
@@ -96,6 +120,8 @@ pub fn run() {
                 hotkey_started: AtomicBool::new(false),
                 hotkey_tx: Mutex::new(None),
                 asr: Arc::clone(&asr),
+                db,
+                event_log_root,
             };
             app.manage(app_state);
 

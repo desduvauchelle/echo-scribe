@@ -219,7 +219,7 @@ pub fn count_items(conn: &Connection, visibility: Option<Visibility>) -> Result<
 
 /// Tiny ISO-8601-ish UTC timestamp helper. We avoid a `chrono` dep — `SystemTime`
 /// → seconds-since-epoch → format manually. Stable, sortable, good enough.
-pub(crate) fn chrono_now_iso() -> String {
+pub fn chrono_now_iso() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
     let secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
