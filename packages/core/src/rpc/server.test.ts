@@ -1,5 +1,12 @@
 import { describe, test, expect, afterEach } from 'bun:test';
+import { rm } from 'fs/promises';
+import { join } from 'path';
+import { homedir } from 'os';
 import { RpcServer } from './server.ts';
+import { ulid } from '../ulid.ts';
+import { db } from '../db.ts';
+
+const ULID_REGEX = /^[0-9A-HJKMNP-TV-Z]{26}$/;
 
 describe('RpcServer', () => {
   let server: RpcServer;
@@ -114,5 +121,96 @@ describe('RpcServer', () => {
 
     expect(msg1).toMatchObject({ jsonrpc: '2.0', method: 'core.status', params: { healthy: true, uptimeSec: 42 } });
     expect(msg2).toMatchObject({ jsonrpc: '2.0', method: 'core.status', params: { healthy: true, uptimeSec: 42 } });
+  });
+
+  test('voice.captured returns an itemId matching ULID regex', async () => {
+    const { appendEvent } = await import('../event-log.ts');
+    const { insertItem } = await import('../db.ts');
+
+    server = new RpcServer();
+    server.register('voice.captured', async (params) => {
+      const itemId = ulid();
+      const now = new Date().toISOString();
+
+      await appendEvent('voice.captured', {
+        itemId,
+        text: params.text,
+        source: params.source,
+        visibility: params.visibility,
+        capturedAt: params.capturedAt,
+      });
+
+      insertItem({
+        id: itemId,
+        content: params.text,
+        source: params.source,
+        visibility: params.visibility,
+        captured_at: params.capturedAt,
+        created_at: now,
+      });
+
+      return { itemId: itemId as import('@echo-scribe/protocol').ItemId };
+    });
+    const { actualPort } = server.start(0);
+
+    const capturedAt = new Date().toISOString();
+    const ws = new WebSocket(`ws://127.0.0.1:${actualPort}`);
+
+    const response = await new Promise<unknown>((resolve, reject) => {
+      ws.addEventListener('open', () => {
+        ws.send(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            id: 10,
+            method: 'voice.captured',
+            params: {
+              text: 'hello world test capture',
+              source: 'voice_at_cursor',
+              visibility: 'hidden',
+              capturedAt,
+            },
+          })
+        );
+      });
+      ws.addEventListener('message', (event) => {
+        resolve(JSON.parse(event.data as string));
+      });
+      ws.addEventListener('error', reject);
+      setTimeout(() => reject(new Error('timeout')), 3000);
+    });
+
+    ws.close();
+
+    expect(response).toMatchObject({ jsonrpc: '2.0', id: 10 });
+
+    const result = (response as { result: { itemId: string } }).result;
+    const itemId = result.itemId;
+
+    // Verify ULID format
+    expect(typeof itemId).toBe('string');
+    expect(ULID_REGEX.test(itemId)).toBe(true);
+
+    // Cleanup: remove the event file
+    const now = new Date();
+    const year = now.getFullYear().toString();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const eventPath = join(homedir(), 'EchoScribe', 'events', year, month, `${itemId}.json`);
+    await rm(eventPath, { force: true });
+
+    // Cleanup: remove the SQLite row
+    db.query('DELETE FROM items WHERE id = ?').run(itemId);
+  });
+});
+
+describe('ulid', () => {
+  test('returns a 26-character string matching ULID regex', () => {
+    const id = ulid();
+    expect(id).toHaveLength(26);
+    expect(ULID_REGEX.test(id)).toBe(true);
+  });
+
+  test('generates unique values for successive calls', () => {
+    const ids = new Set(Array.from({ length: 100 }, () => ulid()));
+    expect(ids.size).toBe(100);
   });
 });
