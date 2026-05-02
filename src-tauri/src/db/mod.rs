@@ -16,9 +16,11 @@ use thiserror::Error;
 pub mod items;
 pub mod projects;
 pub mod schema;
+pub mod chat;
 pub mod search;
 pub mod tasks;
 
+pub use chat::{ChatMessage, ChatSession};
 pub use items::{Item, ItemKind, ItemSource, Visibility};
 
 #[derive(Debug, Error)]
