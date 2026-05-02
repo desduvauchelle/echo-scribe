@@ -9,11 +9,13 @@ import { formatBinding } from "../lib/binding";
 import ActivityFeed from "./sections/ActivityFeed";
 import TasksView from "./sections/TasksView";
 import SearchView from "./sections/SearchView";
+import ChatView from "./sections/ChatView";
 
 export type MainSection =
   | { kind: "activity" }
   | { kind: "tasks" }
   | { kind: "search" }
+  | { kind: "chat" }
   | { kind: "project"; id: string };
 
 type Props = {
@@ -86,6 +88,8 @@ export default function Main({ onOpenSettings }: Props) {
         return <TasksView projects={projectMap} />;
       case "search":
         return <SearchView projects={projectMap} />;
+      case "chat":
+        return <ChatView />;
     }
   };
 
@@ -118,6 +122,11 @@ export default function Main({ onOpenSettings }: Props) {
             label="Search"
             active={section.kind === "search"}
             onClick={() => setSection({ kind: "search" })}
+          />
+          <NavItem
+            label="Chat"
+            active={section.kind === "chat"}
+            onClick={() => setSection({ kind: "chat" })}
           />
         </nav>
 
