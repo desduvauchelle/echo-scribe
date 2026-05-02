@@ -20,6 +20,8 @@ const KEY_FILLER_REMOVAL_ENABLED: &str = "filler_removal_enabled";
 const KEY_FILLER_WORDS: &str = "filler_words";
 const KEY_CUSTOM_WORDS: &str = "custom_words";
 const KEY_LLM_UNLOAD_SECS: &str = "llm_unload_secs";
+const KEY_LAST_UPDATE_CHECK: &str = "last_update_check";
+const KEY_DISMISSED_UPDATE_VERSION: &str = "dismissed_update_version";
 
 /// Default: unload the LLM engine after 2 minutes of idle. `0` means never unload.
 pub const DEFAULT_LLM_UNLOAD_SECS: u64 = 120;
@@ -281,6 +283,41 @@ impl SettingsStore {
             .map_err(|e| SettingsError::Store(e.to_string()))?;
         Ok(())
     }
+
+    /// Unix timestamp (seconds) of the last update check. Defaults to 0 (never checked).
+    pub fn last_update_check(&self) -> i64 {
+        self.store
+            .get(KEY_LAST_UPDATE_CHECK)
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0)
+    }
+
+    pub fn set_last_update_check(&self, ts: i64) -> Result<(), SettingsError> {
+        self.store
+            .set(KEY_LAST_UPDATE_CHECK, serde_json::Value::Number(ts.into()));
+        self.store
+            .save()
+            .map_err(|e| SettingsError::Store(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Version string the user last dismissed (e.g. `"0.2.0"`). `None` if never dismissed.
+    pub fn dismissed_update_version(&self) -> Option<String> {
+        self.store
+            .get(KEY_DISMISSED_UPDATE_VERSION)
+            .and_then(|v| v.as_str().map(|s| s.to_string()))
+    }
+
+    pub fn set_dismissed_update_version(&self, version: &str) -> Result<(), SettingsError> {
+        self.store.set(
+            KEY_DISMISSED_UPDATE_VERSION,
+            serde_json::Value::String(version.to_string()),
+        );
+        self.store
+            .save()
+            .map_err(|e| SettingsError::Store(e.to_string()))?;
+        Ok(())
+    }
 }
 
 /// The default voice-at-cursor binding used when nothing is stored.
@@ -292,4 +329,19 @@ pub fn default_binding() -> Binding {
 /// Per the Phase 0 design: right Option (AltGr).
 pub fn default_log_capture_binding() -> Binding {
     Binding::single(Key::AltGr)
+}
+
+#[cfg(test)]
+mod updater_tests {
+    use super::*;
+
+    #[test]
+    fn last_update_check_constant_is_correct() {
+        assert_eq!(KEY_LAST_UPDATE_CHECK, "last_update_check");
+    }
+
+    #[test]
+    fn dismissed_update_version_constant_is_correct() {
+        assert_eq!(KEY_DISMISSED_UPDATE_VERSION, "dismissed_update_version");
+    }
 }

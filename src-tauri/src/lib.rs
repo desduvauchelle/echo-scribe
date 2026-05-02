@@ -10,6 +10,7 @@ pub mod llm;
 pub mod permissions;
 pub mod settings;
 pub mod ui;
+pub mod updater;
 
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, RwLock};
@@ -23,9 +24,10 @@ use tracing_subscriber::EnvFilter;
 use crate::asr::pipeline::AsrPipeline;
 use crate::asr::registry;
 use crate::commands::{
-    archive_project, cancel_log_capture, chat_with_memory, complete_task, confirm_log_capture, count_items,
-    count_items_for_project, create_project, delete_item, delete_llm_model, delete_speech_model,
-    diagnostics_log_dir, diagnostics_open_log_folder, diagnostics_recent_log, download_llm_model, download_speech_model,
+    apply_update_and_restart, archive_project, cancel_log_capture, chat_with_memory, complete_task,
+    confirm_log_capture, count_items, count_items_for_project, create_project, delete_item,
+    delete_llm_model, delete_speech_model, diagnostics_log_dir, diagnostics_open_log_folder,
+    diagnostics_recent_log, dismiss_update, download_llm_model, download_speech_model,
     ensure_pipeline_started_from_handle, get_active_llm_model_id, get_active_speech_model_id,
     get_audio_feedback_enabled, get_custom_words, get_default_filler_words,
     get_filler_removal_enabled, get_filler_words, get_llm_unload_secs, get_log_capture_binding,
@@ -173,6 +175,8 @@ pub fn run() {
             diagnostics_log_dir,
             diagnostics_open_log_folder,
             diagnostics_recent_log,
+            apply_update_and_restart,
+            dismiss_update,
         ])
         .setup(move |app| {
             // Tray.
@@ -315,6 +319,12 @@ pub fn run() {
                     model_ready = asr.ready(),
                     "pipeline preconditions not yet met; will start after onboarding"
                 );
+            }
+
+            // Spawn background update checker (polls GitHub every 24 h).
+            {
+                let handle = app.handle().clone();
+                crate::updater::spawn_updater(handle);
             }
 
             Ok(())

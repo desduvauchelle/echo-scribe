@@ -347,3 +347,9 @@ export const getLlmUnloadSecs = (): Promise<number> =>
 
 export const setLlmUnloadSecs = (secs: number): Promise<void> =>
   invoke("set_llm_unload_secs", { secs });
+
+export const applyUpdateAndRestart = (): Promise<void> =>
+  invoke("apply_update_and_restart");
+
+export const dismissUpdate = (version: string): Promise<void> =>
+  invoke("dismiss_update", { version });

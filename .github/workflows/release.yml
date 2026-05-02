@@ -36,6 +36,19 @@ jobs:
       - name: Install Node dependencies
         run: bun install
 
+      - name: Bake version from tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          python3 -c "
+          import json, sys
+          with open('src-tauri/tauri.conf.json') as f:
+              d = json.load(f)
+          d['version'] = sys.argv[1]
+          with open('src-tauri/tauri.conf.json', 'w') as f:
+              json.dump(d, f, indent=2)
+          " "$VERSION"
+          sed -i "" "s/^version = .*/version = \"$VERSION\"/" src-tauri/Cargo.toml
+
       - name: Build app bundle
         run: bun tauri build --bundles app
 

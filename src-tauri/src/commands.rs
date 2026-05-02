@@ -1111,6 +1111,22 @@ fn chrono_today_for_filename() -> String {
     format!("{:04}-{:02}-{:02}", y, m, d)
 }
 
+/// Applies the staged update by writing a helper shell script, launching it
+/// detached, then exiting the process. The helper swaps the .app bundle while
+/// the process is gone, strips quarantine, and relaunches the app.
+#[tauri::command]
+pub fn apply_update_and_restart() {
+    crate::updater::launch_update_helper();
+}
+
+/// Persists the dismissed version so the update banner doesn't reappear for it.
+#[tauri::command]
+pub fn dismiss_update(state: State<'_, AppState>, version: String) {
+    if let Err(e) = state.settings.set_dismissed_update_version(&version) {
+        tracing::error!(error = %e, "failed to persist dismissed update version");
+    }
+}
+
 fn tail_file(path: &std::path::Path, max_lines: usize) -> Result<String, String> {
     let content = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
     let lines: Vec<&str> = content.lines().collect();
