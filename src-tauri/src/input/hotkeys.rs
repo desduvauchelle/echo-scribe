@@ -265,10 +265,14 @@ mod macos {
                 // Swallow the event if the key is part of the current binding.
                 // Otherwise let it through.
                 if binding_uses_key(&current_binding, key) {
-                    None
-                } else {
-                    Some(event.clone())
+                    // Swallow: mutate the event to kCGEventNull so the OS drops it.
+                    // (core_graphics 0.24 ignores callback `None` returns — its
+                    // bridge falls back to passing the original event through.
+                    // See ~/.cargo/registry/src/.../core-graphics-0.24.0/src/event.rs.)
+                    // `CGEvent::set_type` wraps the underlying CGEventSetType FFI.
+                    event.set_type(CGEventType::Null);
                 }
+                Some(event.clone())
             },
         );
 
