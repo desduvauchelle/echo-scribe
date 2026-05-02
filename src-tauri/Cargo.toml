@@ -30,4 +30,12 @@ rdev = { version = "0.5", features = ["serialize"] }
 cpal = "0.15"
 enigo = "0.2"
 arboard = "3"
+tauri-plugin-store = "2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = "0.3"
+objc2-app-kit = "0.3"
+objc2-av-foundation = { version = "0.3", features = ["AVCaptureDevice", "AVMediaFormat"] }
+objc2-application-services = { version = "0.3", features = ["AXUIElement"] }
 
