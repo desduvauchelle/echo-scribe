@@ -32,7 +32,7 @@ use llama_cpp_2::token::LlamaToken;
 use thiserror::Error;
 use tracing::{debug, info, warn};
 
-use super::prompt::{build_messages, strip_trailing_stops};
+use super::prompt::{build_chat_messages, strip_trailing_stops};
 
 #[derive(Debug, Error)]
 pub enum EngineError {
@@ -58,6 +58,9 @@ pub enum EngineError {
 pub struct GenerateRequest {
     pub system: Option<String>,
     pub user: String,
+    /// Previous conversation turns as (role, content) pairs,
+    /// oldest first. Role is "user" or "assistant".
+    pub history: Vec<(String, String)>,
     pub max_tokens: usize,
     pub temperature: f32,
     pub stop_strings: Vec<String>,
@@ -69,6 +72,7 @@ impl Default for GenerateRequest {
         Self {
             system: None,
             user: String::new(),
+            history: Vec::new(),
             max_tokens: 256,
             temperature: 0.7,
             stop_strings: Vec::new(),
@@ -135,7 +139,7 @@ impl LlmEngine {
             .model
             .chat_template(None)
             .map_err(|e| EngineError::ChatTemplate(e.to_string()))?;
-        let messages = build_messages(req.system.as_deref(), &req.user)
+        let messages = build_chat_messages(req.system.as_deref(), &req.history, &req.user)
             .map_err(|e| EngineError::Request(format!("nul byte in prompt: {e}")))?;
         let prompt = self
             .model

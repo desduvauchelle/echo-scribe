@@ -1061,6 +1061,7 @@ pub async fn test_llm_inference(
     let req = GenerateRequest {
         system: Some("You are a concise assistant. Reply briefly.".into()),
         user: prompt,
+        history: Vec::new(),
         max_tokens: 128,
         temperature: 0.7,
         stop_strings: Vec::new(),
