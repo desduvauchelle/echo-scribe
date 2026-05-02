@@ -21,6 +21,7 @@ pub struct Recorder {
     stream: Option<Stream>,
     samples: Arc<Mutex<Vec<f32>>>,
     sample_rate: u32,
+    channels: u16,
 }
 
 impl Recorder {
@@ -29,6 +30,7 @@ impl Recorder {
             stream: None,
             samples: Arc::new(Mutex::new(Vec::new())),
             sample_rate: 0,
+            channels: 0,
         }
     }
 
@@ -39,7 +41,8 @@ impl Recorder {
             .default_input_config()
             .map_err(|e| RecorderError::BuildStream(e.to_string()))?;
         self.sample_rate = config.sample_rate().0;
-        info!(sample_rate = self.sample_rate, format = ?config.sample_format(), "starting recorder");
+        self.channels = config.channels();
+        info!(sample_rate = self.sample_rate, channels = self.channels, format = ?config.sample_format(), "starting recorder");
 
         // Reset buffer
         if let Ok(mut s) = self.samples.lock() {
@@ -88,6 +91,12 @@ impl Recorder {
         let samples = self.samples.lock().map(|s| s.clone()).unwrap_or_default();
         info!(sample_count = samples.len(), "stopped recorder");
         Ok((samples, self.sample_rate))
+    }
+
+    /// Channel count of the most recently started capture stream. Returns 0
+    /// if the recorder has never been started.
+    pub fn channels(&self) -> u16 {
+        self.channels
     }
 }
 
