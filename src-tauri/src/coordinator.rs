@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use tauri::{AppHandle, Emitter, Wry};
+use tauri::{AppHandle, Emitter, Manager, Wry};
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
@@ -134,6 +134,7 @@ pub fn spawn(
                         continue;
                     }
                     on_state_change(TrayPipelineState::Recording);
+                    crate::audio::mute::on_recording_start();
                     feedback::play(Sfx::Start);
                     if matches!(action, Action::LogCapture) {
                         let _ = app.emit("log_capture:recording_started", ());
@@ -145,6 +146,10 @@ pub fn spawn(
                         if matches!(action, Action::LogCapture) {
                             let _ = app.emit("log_capture:cancelled", ());
                         }
+                    } else {
+                        // Recording started — pre-load the ASR engine in the
+                        // background so it's warm by the time the user releases.
+                        asr.warm_up();
                     }
                 }
                 CoordinatorMsg::Hotkey(action, HotkeyEvent::Released) => {
@@ -158,6 +163,7 @@ pub fn spawn(
                         continue;
                     }
                     on_state_change(TrayPipelineState::Processing);
+                    crate::audio::mute::on_recording_stop();
                     feedback::play(Sfx::Stop);
                     let channels = recorder.channels();
                     let stop_result = recorder.stop();
@@ -186,7 +192,9 @@ pub fn spawn(
                                     force_state(&state, PipelineState::Idle);
                                     on_state_change(TrayPipelineState::Idle);
                                 }
-                                Ok(text) => match action {
+                                Ok(text) => {
+                                    let text = postprocess_with_settings(&app, text);
+                                    match action {
                                     Action::VoiceAtCursor => {
                                         // Phase 1 behavior: persist hidden + paste.
                                         persist_capture(
@@ -235,7 +243,8 @@ pub fn spawn(
                                         force_state(&state, PipelineState::Idle);
                                         on_state_change(TrayPipelineState::Idle);
                                     }
-                                },
+                                    }
+                                }
                                 Err(e) => {
                                     error!(?e, "transcription failed");
                                     let _ = app.emit(
@@ -396,6 +405,26 @@ fn preview_first_chars(text: &str, max_bytes: usize) -> String {
         out.push(c);
     }
     out
+}
+
+/// Apply the user-configured filler-removal + custom-word passes. Looks up
+/// the latest settings via the managed `AppState` so toggles take effect on
+/// the next transcription without restarting the pipeline.
+fn postprocess_with_settings(app: &AppHandle<Wry>, text: String) -> String {
+    let state = match app.try_state::<crate::commands::AppState>() {
+        Some(s) => s,
+        None => return text,
+    };
+    let fillers = if state.settings.filler_removal_enabled() {
+        state.settings.filler_words()
+    } else {
+        Vec::new()
+    };
+    let custom = state.settings.custom_words();
+    if fillers.is_empty() && custom.is_empty() {
+        return text;
+    }
+    crate::asr::postprocess::postprocess(&text, &fillers, &custom)
 }
 
 /// Run the classifier with light context (existing projects + last 5 items).

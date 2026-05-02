@@ -79,6 +79,38 @@ impl AsrPipeline {
         }
     }
 
+    /// Fire-and-forget background load of the Parakeet engine. Call this as
+    /// soon as recording starts so the engine is warm by the time the user
+    /// releases the hotkey. If the engine is already loaded this is a no-op.
+    pub fn warm_up(&self) {
+        let model_path: Option<PathBuf> = {
+            let guard = match self.active_model.read() {
+                Ok(g) => g,
+                Err(_) => return,
+            };
+            guard
+                .as_ref()
+                .filter(|e| is_downloaded(e))
+                .map(|e| model_dir(e))
+        };
+        let Some(model_path) = model_path else { return };
+        let engine_slot = Arc::clone(&self.engine);
+        // Drop the handle — fire and forget.
+        let _ = tokio::task::spawn_blocking(move || {
+            let mut guard = match engine_slot.lock() {
+                Ok(g) => g,
+                Err(_) => return,
+            };
+            if guard.is_none() {
+                info!(path = %model_path.display(), "pre-loading Parakeet engine (optimistic warm-up)");
+                match ParakeetEngine::load(&model_path) {
+                    Ok(eng) => *guard = Some(eng),
+                    Err(e) => warn!(error = ?e, "warm-up load failed; will retry on transcribe"),
+                }
+            }
+        });
+    }
+
     /// Resample to 16 kHz mono and run Parakeet inference. Both steps run on
     /// `tokio::task::spawn_blocking` because they're CPU-bound and the engine
     /// holds an ONNX session that's expensive to share across runtimes.

@@ -27,12 +27,15 @@ use crate::commands::{
     count_items_for_project, create_project, delete_item, delete_llm_model, delete_speech_model,
     diagnostics_log_dir, diagnostics_open_log_folder, diagnostics_recent_log, download_llm_model, download_speech_model,
     ensure_pipeline_started_from_handle, get_active_llm_model_id, get_active_speech_model_id,
-    get_audio_feedback_enabled, get_log_capture_binding, get_onboarding_completed,
-    get_voice_at_cursor_binding, is_pipeline_running, list_items, list_llm_models, list_projects,
-    list_speech_models, list_tags_for_item, list_tasks, open_accessibility_settings,
-    open_microphone_settings, permissions_status, prompt_accessibility_access, rename_project,
-    request_microphone_access, reset_onboarding_and_quit, restore_item, search_items,
-    set_active_llm_model, set_active_speech_model, set_audio_feedback_enabled,
+    get_audio_feedback_enabled, get_custom_words, get_default_filler_words,
+    get_filler_removal_enabled, get_filler_words, get_llm_unload_secs, get_log_capture_binding,
+    get_mute_while_recording, get_onboarding_completed, get_voice_at_cursor_binding,
+    is_pipeline_running, list_items, list_llm_models, list_projects, list_speech_models,
+    list_tags_for_item, list_tasks, open_accessibility_settings, open_microphone_settings,
+    permissions_status, prompt_accessibility_access, rename_project, request_microphone_access,
+    reset_onboarding_and_quit, restore_item, search_items, set_active_llm_model,
+    set_active_speech_model, set_audio_feedback_enabled, set_custom_words,
+    set_filler_removal_enabled, set_filler_words, set_llm_unload_secs, set_mute_while_recording,
     set_onboarding_completed, set_task_deadline, show_main_window, start_pipeline,
     test_llm_inference, unarchive_project, uncomplete_task, update_item, update_log_capture_binding,
     update_voice_at_cursor_binding, AppState,
@@ -103,6 +106,10 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_store::Builder::default().build())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         .invoke_handler(tauri::generate_handler![
             permissions_status,
             open_microphone_settings,
@@ -149,8 +156,19 @@ pub fn run() {
             reset_onboarding_and_quit,
             get_audio_feedback_enabled,
             set_audio_feedback_enabled,
+            get_mute_while_recording,
+            set_mute_while_recording,
+            get_filler_removal_enabled,
+            set_filler_removal_enabled,
+            get_filler_words,
+            set_filler_words,
+            get_custom_words,
+            set_custom_words,
+            get_default_filler_words,
             get_onboarding_completed,
             set_onboarding_completed,
+            get_llm_unload_secs,
+            set_llm_unload_secs,
             show_main_window,
             diagnostics_log_dir,
             diagnostics_open_log_folder,
@@ -168,42 +186,54 @@ pub fn run() {
             let initial_log_binding = settings.log_capture_binding();
             let log_capture_binding = Arc::new(RwLock::new(initial_log_binding));
 
-            // ASR pipeline. Restore the saved active model if it exists AND
-            // is fully downloaded; otherwise leave the pipeline inactive
-            // until the user picks (and downloads) a model in onboarding.
+            // Migrate any legacy model dirs (renames between releases) before
+            // we ask the registry which models are downloaded.
+            crate::asr::downloader::migrate_legacy_model_dirs();
+
+            // ASR pipeline. Restore the saved active model if it exists AND is
+            // fully downloaded. If the saved id is missing from the registry
+            // (e.g. a model was renamed between releases), fall back to any
+            // downloaded model so the user doesn't have to re-download.
             let asr = Arc::new(AsrPipeline::new());
-            let saved_id = settings
-                .speech_model_id()
-                .unwrap_or_else(|| registry::default_id().to_string());
-            if let Some(entry) = registry::lookup(&saved_id) {
-                if crate::asr::downloader::is_downloaded(entry) {
+            {
+                let saved_id = settings
+                    .speech_model_id()
+                    .unwrap_or_else(|| registry::default_id().to_string());
+                let to_restore = registry::lookup(&saved_id)
+                    .filter(|e| crate::asr::downloader::is_downloaded(e))
+                    .or_else(|| {
+                        registry::registry()
+                            .iter()
+                            .find(|e| crate::asr::downloader::is_downloaded(e))
+                    });
+                if let Some(entry) = to_restore {
                     info!(model = %entry.id, "restoring active speech model");
                     asr.set_active_model(entry.clone());
                 } else {
-                    warn!(
-                        model = %entry.id,
-                        "saved speech model is not downloaded; pipeline will gate on download"
-                    );
+                    warn!("no downloaded speech model found; pipeline will gate on download");
                 }
             }
 
-            // LLM orchestrator. Same restore-active-model dance as the ASR
-            // pipeline: load the saved id (or the registry default), and if
-            // its weights are on disk, activate it. Otherwise leave it idle
-            // until the user picks/downloads a model.
-            let llm = Llm::new(std::time::Duration::from_secs(5 * 60));
-            let saved_llm_id = settings
-                .llm_model_id()
-                .unwrap_or_else(|| crate::llm::registry::default_id().to_string());
-            if let Some(entry) = crate::llm::registry::lookup(&saved_llm_id) {
-                if crate::llm::is_downloaded(entry) {
+            // LLM orchestrator. Same restore-active-model dance as ASR: prefer
+            // the saved id but fall back to any downloaded model if the saved
+            // id is no longer in the registry (e.g. after a registry update).
+            let llm = Llm::new(std::time::Duration::from_secs(settings.llm_unload_secs()));
+            {
+                let saved_llm_id = settings
+                    .llm_model_id()
+                    .unwrap_or_else(|| crate::llm::registry::default_id().to_string());
+                let llm_to_restore = crate::llm::registry::lookup(&saved_llm_id)
+                    .filter(|e| crate::llm::is_downloaded(e))
+                    .or_else(|| {
+                        crate::llm::registry::registry()
+                            .iter()
+                            .find(|e| crate::llm::is_downloaded(e))
+                    });
+                if let Some(entry) = llm_to_restore {
                     info!(model = %entry.id, "restoring active llm model");
                     llm.set_active_model(entry.clone());
                 } else {
-                    warn!(
-                        model = %entry.id,
-                        "saved llm model is not downloaded; inference will gate on download"
-                    );
+                    warn!("no downloaded llm model found; inference will gate on download");
                 }
             }
             // Spawn the idle-unload background task on Tauri's async runtime.
@@ -237,10 +267,11 @@ pub fn run() {
                 }
             };
 
-            // Sync the persisted audio-feedback flag into the in-process
-            // atomic so coordinator playback reflects user preferences from
-            // launch (defaults true on a fresh install).
+            // Sync persisted flags into the in-process atomics consumed by the
+            // coordinator. Audio feedback defaults to true; mute-while-recording
+            // defaults to false.
             crate::audio::feedback::set_enabled(settings.audio_feedback_enabled());
+            crate::audio::mute::set_enabled(settings.mute_while_recording());
 
             let paused_hotkeys = Arc::new(AtomicBool::new(false));
 

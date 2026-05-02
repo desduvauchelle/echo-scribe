@@ -294,6 +294,33 @@ export const getAudioFeedbackEnabled = (): Promise<boolean> =>
 export const setAudioFeedbackEnabled = (enabled: boolean): Promise<void> =>
   invoke("set_audio_feedback_enabled", { enabled });
 
+export const getMuteWhileRecording = (): Promise<boolean> =>
+  invoke("get_mute_while_recording");
+
+export const setMuteWhileRecording = (enabled: boolean): Promise<void> =>
+  invoke("set_mute_while_recording", { enabled });
+
+// ----- Transcription post-processing -----
+
+export const getFillerRemovalEnabled = (): Promise<boolean> =>
+  invoke("get_filler_removal_enabled");
+
+export const setFillerRemovalEnabled = (enabled: boolean): Promise<void> =>
+  invoke("set_filler_removal_enabled", { enabled });
+
+export const getFillerWords = (): Promise<string[]> => invoke("get_filler_words");
+
+export const setFillerWords = (words: string[]): Promise<void> =>
+  invoke("set_filler_words", { words });
+
+export const getCustomWords = (): Promise<string[]> => invoke("get_custom_words");
+
+export const setCustomWords = (words: string[]): Promise<void> =>
+  invoke("set_custom_words", { words });
+
+export const getDefaultFillerWords = (): Promise<string[]> =>
+  invoke("get_default_filler_words");
+
 export const getOnboardingCompleted = (): Promise<boolean> =>
   invoke("get_onboarding_completed");
 
@@ -314,3 +341,9 @@ export const diagnosticsRecentLog = (maxLines = 200): Promise<string> =>
 
 export const diagnosticsOpenLogFolder = (): Promise<void> =>
   invoke("diagnostics_open_log_folder");
+
+export const getLlmUnloadSecs = (): Promise<number> =>
+  invoke("get_llm_unload_secs");
+
+export const setLlmUnloadSecs = (secs: number): Promise<void> =>
+  invoke("set_llm_unload_secs", { secs });

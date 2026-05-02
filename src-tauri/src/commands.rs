@@ -940,6 +940,74 @@ pub fn set_audio_feedback_enabled(
 }
 
 #[tauri::command]
+pub fn get_mute_while_recording(state: State<'_, AppState>) -> bool {
+    state.settings.mute_while_recording()
+}
+
+#[tauri::command]
+pub fn set_mute_while_recording(
+    state: State<'_, AppState>,
+    enabled: bool,
+) -> Result<(), String> {
+    state
+        .settings
+        .set_mute_while_recording(enabled)
+        .map_err(|e| e.to_string())?;
+    crate::audio::mute::set_enabled(enabled);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_filler_removal_enabled(state: State<'_, AppState>) -> bool {
+    state.settings.filler_removal_enabled()
+}
+
+#[tauri::command]
+pub fn set_filler_removal_enabled(
+    state: State<'_, AppState>,
+    enabled: bool,
+) -> Result<(), String> {
+    state
+        .settings
+        .set_filler_removal_enabled(enabled)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_filler_words(state: State<'_, AppState>) -> Vec<String> {
+    state.settings.filler_words()
+}
+
+#[tauri::command]
+pub fn set_filler_words(state: State<'_, AppState>, words: Vec<String>) -> Result<(), String> {
+    state
+        .settings
+        .set_filler_words(words)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_custom_words(state: State<'_, AppState>) -> Vec<String> {
+    state.settings.custom_words()
+}
+
+#[tauri::command]
+pub fn set_custom_words(state: State<'_, AppState>, words: Vec<String>) -> Result<(), String> {
+    state
+        .settings
+        .set_custom_words(words)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_default_filler_words() -> Vec<String> {
+    crate::asr::postprocess::DEFAULT_FILLERS
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
+}
+
+#[tauri::command]
 pub fn get_onboarding_completed(state: State<'_, AppState>) -> bool {
     state.settings.onboarding_completed()
 }
@@ -1160,6 +1228,26 @@ pub async fn chat_with_memory(
     };
 
     state.llm.generate(req).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_llm_unload_secs(state: State<'_, AppState>) -> u64 {
+    state.settings.llm_unload_secs()
+}
+
+#[tauri::command]
+pub fn set_llm_unload_secs(
+    state: State<'_, AppState>,
+    secs: u64,
+) -> Result<(), String> {
+    state
+        .settings
+        .set_llm_unload_secs(secs)
+        .map_err(|e| e.to_string())?;
+    state
+        .llm
+        .set_unload_timeout(std::time::Duration::from_secs(secs));
+    Ok(())
 }
 
 #[cfg(test)]

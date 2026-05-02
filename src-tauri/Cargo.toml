@@ -42,6 +42,7 @@ cpal = "0.15"
 enigo = "0.2"
 arboard = "3"
 tauri-plugin-store = "2"
+tauri-plugin-autostart = "2"
 # ASR / Parakeet via ONNX Runtime. We pull only the `onnx` feature; CoreML
 # acceleration is wired up at runtime via `set_ort_accelerator(Auto)`.
 transcribe-rs = { version = "0.3", default-features = false, features = ["onnx", "ort-coreml"] }
@@ -67,6 +68,8 @@ encoding_rs = "0.8"
 rodio = { version = "0.20", default-features = false, features = ["wav"] }
 # Rolling daily log file appender for crash diagnostics.
 tracing-appender = "0.2"
+# Edit-distance for fuzzy custom-word correction in transcript postprocessing.
+strsim = "0.11"
 
 [dev-dependencies]
 tempfile = "3"

@@ -5,4 +5,5 @@
 pub mod downloader;
 pub mod parakeet;
 pub mod pipeline;
+pub mod postprocess;
 pub mod registry;

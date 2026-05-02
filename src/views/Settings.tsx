@@ -3,24 +3,41 @@ import HotkeyRebinder from "../components/HotkeyRebinder";
 import SpeechModelPicker from "../components/SpeechModelPicker";
 import LlmModelPicker from "../components/LlmModelPicker";
 import ProjectManager from "../components/ProjectManager";
+import StartAtLoginToggle from "../components/StartAtLoginToggle";
+import TranscriptionSettings from "../components/TranscriptionSettings";
 import {
   diagnosticsLogDir,
   diagnosticsOpenLogFolder,
   diagnosticsRecentLog,
   getAudioFeedbackEnabled,
+  getLlmUnloadSecs,
   getLogCaptureBinding,
+  getMuteWhileRecording,
   resetOnboardingAndQuit,
   setAudioFeedbackEnabled,
+  setLlmUnloadSecs,
+  setMuteWhileRecording,
   testLlmInference,
   updateLogCaptureBinding,
 } from "../lib/api";
 import { useToasts } from "../components/ToastProvider";
+
+type Tab = "voice" | "ai" | "general" | "advanced";
+
+const TABS: { id: Tab; label: string }[] = [
+  { id: "voice", label: "Voice" },
+  { id: "ai", label: "AI" },
+  { id: "general", label: "General" },
+  { id: "advanced", label: "Advanced" },
+];
 
 type Props = {
   onBack: () => void;
 };
 
 export default function Settings({ onBack }: Props) {
+  const [tab, setTab] = useState<Tab>("voice");
+
   return (
     <div className="flex min-h-full items-start justify-center bg-neutral-950 px-6 py-12 text-neutral-100">
       <div className="relative w-full max-w-[640px] rounded-xl border border-neutral-800 bg-neutral-900 p-6 shadow-xl">
@@ -32,59 +49,134 @@ export default function Settings({ onBack }: Props) {
           ← Back
         </button>
 
-        <h1 className="text-xl font-semibold tracking-tight">Settings</h1>
-
-        <div className="mt-6">
-          <SpeechModelPicker />
+        {/* Tab bar */}
+        <div className="flex gap-1 rounded-lg border border-neutral-800 bg-neutral-950 p-1">
+          {TABS.map(({ id, label }) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setTab(id)}
+              className={[
+                "flex-1 rounded-md py-1.5 text-xs font-semibold transition-colors",
+                tab === id
+                  ? "bg-neutral-800 text-neutral-100"
+                  : "text-neutral-500 hover:text-neutral-300",
+              ].join(" ")}
+            >
+              {label}
+            </button>
+          ))}
         </div>
 
-        <Section
-          title="LLM model"
-          subtitle="Local Gemma model used for log-capture classification."
-        >
-          <LlmModelPicker />
-          <div className="mt-4">
-            <TestInference />
-          </div>
-        </Section>
-
-        <Section
-          title="Voice-at-cursor hotkey"
-          subtitle="Hold this key combination anywhere in macOS to dictate at the cursor."
-        >
-          <HotkeyRebinder />
-        </Section>
-
-        <Section
-          title="Log capture hotkey"
-          subtitle="Hold this key combination to capture a thought, idea, or task — classified locally and saved to your log."
-        >
-          <HotkeyRebinder
-            load={getLogCaptureBinding}
-            save={updateLogCaptureBinding}
-          />
-        </Section>
-
-        <Section
-          title="Audio feedback"
-          subtitle="Subtle blips when recording starts, stops, and a log capture is ready for review."
-        >
-          <AudioFeedbackToggle />
-        </Section>
-
-        <Section title="Projects" subtitle="Rename, archive, or unarchive projects.">
-          <ProjectManager />
-        </Section>
-
-        <Section
-          title="Diagnostics"
-          subtitle="Inspect the rolling crash log Echo Scribe writes to your home folder."
-        >
-          <DiagnosticsPane />
-        </Section>
-
-        <ResetSection />
+        {/* Tab panels */}
+        <div className="mt-6">
+          {tab === "voice" && <VoiceTab />}
+          {tab === "ai" && <AiTab />}
+          {tab === "general" && <GeneralTab />}
+          {tab === "advanced" && <AdvancedTab />}
+        </div>
       </div>
+    </div>
+  );
+}
+
+function VoiceTab() {
+  return (
+    <div className="flex flex-col gap-8">
+      <SpeechModelPicker />
+
+      <Section
+        title="Voice-at-cursor hotkey"
+        subtitle="Hold this key combination anywhere in macOS to dictate at the cursor."
+      >
+        <HotkeyRebinder />
+      </Section>
+
+      <Section
+        title="Log capture hotkey"
+        subtitle="Hold this key combination to capture a thought, idea, or task — classified locally and saved to your log."
+      >
+        <HotkeyRebinder
+          load={getLogCaptureBinding}
+          save={updateLogCaptureBinding}
+        />
+      </Section>
+
+      <Section
+        title="Transcription"
+        subtitle="Clean up speech-to-text output before it's pasted or saved."
+      >
+        <TranscriptionSettings />
+      </Section>
+    </div>
+  );
+}
+
+function AiTab() {
+  return (
+    <div className="flex flex-col gap-8">
+      <Section
+        title="Language model"
+        subtitle="Local Gemma model used for log-capture classification."
+      >
+        <LlmModelPicker />
+        <div className="mt-4">
+          <TestInference />
+        </div>
+      </Section>
+
+      <Section
+        title="Keep model in memory"
+        subtitle="How long the AI model stays loaded after its last use. Longer = faster next use, but more RAM."
+      >
+        <LlmUnloadTimeoutSelect />
+      </Section>
+    </div>
+  );
+}
+
+function GeneralTab() {
+  return (
+    <div className="flex flex-col gap-8">
+      <Section
+        title="Audio feedback"
+        subtitle="Subtle blips when recording starts, stops, and a log capture is ready for review."
+      >
+        <AudioFeedbackToggle />
+      </Section>
+
+      <Section
+        title="Mute while recording"
+        subtitle="Pause music and system audio while the hotkey is held, then restore it when you release."
+      >
+        <MuteWhileRecordingToggle />
+      </Section>
+
+      <Section
+        title="Startup"
+        subtitle="Launch Echo Scribe automatically when you log in."
+      >
+        <StartAtLoginToggle />
+      </Section>
+    </div>
+  );
+}
+
+function AdvancedTab() {
+  return (
+    <div className="flex flex-col gap-8">
+      <Section title="Projects" subtitle="Rename, archive, or unarchive projects.">
+        <ProjectManager />
+      </Section>
+
+      <Section
+        title="Diagnostics"
+        subtitle="Inspect the rolling crash log Echo Scribe writes to your home folder."
+      >
+        <DiagnosticsPane />
+      </Section>
+
+      <ResetSection />
     </div>
   );
 }
@@ -99,11 +191,11 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section className="mt-8">
+    <section>
       <h2 className="text-sm font-semibold tracking-tight text-neutral-200">
         {title}
       </h2>
-      <p className="mt-1 text-sm text-neutral-300">{subtitle}</p>
+      <p className="mt-1 text-sm text-neutral-400">{subtitle}</p>
       <div className="mt-4">{children}</div>
     </section>
   );
@@ -165,6 +257,62 @@ function AudioFeedbackToggle() {
   );
 }
 
+function MuteWhileRecordingToggle() {
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [busy, setBusy] = useState(false);
+  const toasts = useToasts();
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const v = await getMuteWhileRecording();
+        if (!cancelled) setEnabled(v);
+      } catch {
+        if (!cancelled) setEnabled(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const onToggle = async (next: boolean) => {
+    setBusy(true);
+    try {
+      await setMuteWhileRecording(next);
+      setEnabled(next);
+    } catch (e) {
+      toasts.push({
+        tone: "error",
+        message: `Couldn't update mute setting: ${e instanceof Error ? e.message : String(e)}`,
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <label className="flex items-center justify-between rounded-lg border border-neutral-800 bg-neutral-950 p-3">
+      <div>
+        <div className="text-sm font-semibold text-neutral-100">
+          Mute system audio while recording
+        </div>
+        <p className="text-xs text-neutral-400">
+          Silences music and video playback for the duration of the recording.
+        </p>
+      </div>
+      <input
+        type="checkbox"
+        disabled={busy || enabled === null}
+        checked={enabled ?? false}
+        onChange={(e) => void onToggle(e.target.checked)}
+        className="h-4 w-4 cursor-pointer accent-neutral-100"
+      />
+    </label>
+  );
+}
+
 function DiagnosticsPane() {
   const [logDir, setLogDir] = useState<string>("");
   const [recent, setRecent] = useState<string>("");
@@ -203,9 +351,6 @@ function DiagnosticsPane() {
 
   const onOpenFolder = async () => {
     try {
-      // Backend command shells out to macOS `open(1)` — same approach as
-      // the existing System Settings deep links. This avoids needing extra
-      // shell-plugin permissions in the Tauri capability file.
       await diagnosticsOpenLogFolder();
     } catch (e) {
       toasts.push({
@@ -311,6 +456,75 @@ function TestInference() {
   );
 }
 
+const LLM_UNLOAD_OPTIONS: { label: string; secs: number }[] = [
+  { label: "1 minute", secs: 60 },
+  { label: "2 minutes", secs: 120 },
+  { label: "5 minutes", secs: 300 },
+  { label: "15 minutes", secs: 900 },
+  { label: "Keep loaded", secs: 0 },
+];
+
+function LlmUnloadTimeoutSelect() {
+  const [secs, setSecs] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
+  const toasts = useToasts();
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const v = await getLlmUnloadSecs();
+        if (!cancelled) setSecs(v);
+      } catch {
+        if (!cancelled) setSecs(120);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const onChange = async (next: number) => {
+    setBusy(true);
+    try {
+      await setLlmUnloadSecs(next);
+      setSecs(next);
+    } catch (e) {
+      toasts.push({
+        tone: "error",
+        message: `Couldn't update AI memory setting: ${e instanceof Error ? e.message : String(e)}`,
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="flex items-center justify-between rounded-lg border border-neutral-800 bg-neutral-950 p-3">
+      <div>
+        <div className="text-sm font-semibold text-neutral-100">
+          Unload after idle
+        </div>
+        <p className="text-xs text-neutral-400">
+          Frees RAM when you haven't used log-capture for a while.
+        </p>
+      </div>
+      <select
+        disabled={busy || secs === null}
+        value={secs ?? 120}
+        onChange={(e) => void onChange(Number(e.target.value))}
+        className="rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-xs text-neutral-100 focus:border-neutral-500 focus:outline-none disabled:opacity-50"
+      >
+        {LLM_UNLOAD_OPTIONS.map(({ label, secs: s }) => (
+          <option key={s} value={s}>
+            {label}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 function ResetSection() {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -337,11 +551,11 @@ function ResetSection() {
   };
 
   return (
-    <section className="mt-8">
+    <section>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="text-xs text-neutral-400 underline-offset-2 hover:text-neutral-200 hover:underline"
+        className="text-xs text-neutral-500 underline-offset-2 hover:text-neutral-300 hover:underline"
       >
         {open ? "Hide reset options" : "Show reset options"}
       </button>

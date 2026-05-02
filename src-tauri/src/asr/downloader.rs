@@ -61,6 +61,44 @@ pub fn model_dir(entry: &ModelEntry) -> PathBuf {
     model_storage_dir().join(&entry.id)
 }
 
+/// Hardcoded map of historical model-id renames. If a directory under
+/// [`model_storage_dir`] exists with the old name and the new one is missing
+/// (or empty), the old dir is renamed to the new one on startup so users
+/// don't have to re-download identical files.
+///
+/// Format: `(old_id, new_id)`. Add a new entry whenever a model id changes
+/// in `models.json`.
+const LEGACY_MODEL_RENAMES: &[(&str, &str)] = &[("parakeet-medium", "parakeet-v3")];
+
+/// Run once at startup. Idempotent: skips entries where the new dir already
+/// has files, and silently ignores missing old dirs.
+pub fn migrate_legacy_model_dirs() {
+    let root = model_storage_dir();
+    for (old_id, new_id) in LEGACY_MODEL_RENAMES {
+        let old_dir = root.join(old_id);
+        let new_dir = root.join(new_id);
+        if !old_dir.is_dir() {
+            continue;
+        }
+        let new_has_files = std::fs::read_dir(&new_dir)
+            .map(|mut it| it.any(|e| e.is_ok()))
+            .unwrap_or(false);
+        if new_has_files {
+            continue;
+        }
+        if let Err(e) = std::fs::create_dir_all(root.as_path()) {
+            warn!(error = %e, "failed to ensure model storage root");
+            continue;
+        }
+        // If new_dir exists but is empty, remove it before rename.
+        let _ = std::fs::remove_dir(&new_dir);
+        match std::fs::rename(&old_dir, &new_dir) {
+            Ok(()) => info!(from = %old_dir.display(), to = %new_dir.display(), "migrated legacy model dir"),
+            Err(e) => warn!(error = %e, from = %old_dir.display(), to = %new_dir.display(), "legacy model dir migration failed"),
+        }
+    }
+}
+
 /// True if every file listed in `entry` is already present on disk. Does not
 /// verify hashes (intentionally cheap — we hash on download, not on every
 /// startup poll).
@@ -212,9 +250,9 @@ mod tests {
     }
 
     #[test]
-    fn is_downloaded_returns_false_when_files_absent() {
-        // Real entry, but the downloaded files won't exist on a fresh test box.
+    fn model_dir_uses_model_id() {
         let m = super::super::registry::lookup("parakeet-v3").unwrap();
-        assert!(!is_downloaded(m));
+        let d = model_dir(m);
+        assert!(d.ends_with("EchoScribe/models/parakeet-v3"));
     }
 }

@@ -40,6 +40,26 @@ cd src-tauri && cargo test --lib && cd ..
 
 Don't run `bun tauri dev` from a subagent — it spawns a window that won't terminate cleanly.
 
+## Release workflow (distribution)
+
+Echo Scribe is distributed unsigned via a curl install script + GitHub Releases. Full design at `docs/superpowers/specs/2026-05-02-distribution-design.md`.
+
+**To cut a release:**
+1. Bump `version` in `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml`
+2. Commit the version bump
+3. Tag and push:
+```bash
+git tag v0.x.y
+git push origin v0.x.y
+```
+GitHub Actions (`release.yml`) builds Apple Silicon + Intel `.app` bundles and attaches them to the GitHub Release automatically. `GITHUB_TOKEN` is provided by GitHub Actions — no secrets to configure.
+
+**User install command:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/denisduvauchelle/echo-scribe/main/install.sh | bash
+```
+The script detects arch, fetches the latest release from the GitHub API, downloads the matching `.tar.gz`, installs to `/Applications/`, and strips the quarantine attribute so Gatekeeper never blocks it.
+
 ## Plans + specs
 
 Phase plans live under `docs/superpowers/plans/`. The Phase 0 plan and Phase 1 plan are the source of truth for what we've built so far. Future phases get their own plan files.

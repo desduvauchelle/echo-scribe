@@ -214,8 +214,8 @@ mod tests {
 
     #[test]
     fn model_file_path_uses_first_file_name() {
-        let m = super::super::registry::lookup("gemma-3-4b-it-q4_k_m").unwrap();
+        let m = super::super::registry::lookup("gemma-4-e2b-it-q4_k_m").unwrap();
         let p = model_file_path(m).unwrap();
-        assert!(p.ends_with("gemma-3-4b-it-q4_k_m/model.gguf"));
+        assert!(p.ends_with("gemma-4-e2b-it-q4_k_m/google_gemma-4-E2B-it-Q4_K_M.gguf"));
     }
 }

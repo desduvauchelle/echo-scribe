@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import HotkeyRebinder from "../components/HotkeyRebinder";
 import LlmModelPicker from "../components/LlmModelPicker";
 import SpeechModelPicker from "../components/SpeechModelPicker";
+import StartAtLoginToggle from "../components/StartAtLoginToggle";
 import {
   getLogCaptureBinding,
   listLlmModels,
@@ -9,7 +10,6 @@ import {
   openAccessibilitySettings,
   openMicrophoneSettings,
   permissionsStatus,
-  promptAccessibilityAccess,
   requestMicrophoneAccess,
   setOnboardingCompleted,
   startPipeline,
@@ -160,11 +160,9 @@ export default function Onboarding({ initialStatus, onStarted, resumeNotice }: P
   };
 
   const handleGrantAccessibility = async () => {
-    try {
-      await promptAccessibilityAccess();
-    } catch {
-      /* ignore */
-    }
+    // Just open the System Settings pane. We deliberately skip
+    // promptAccessibilityAccess() because it raises a separate modal that
+    // overlaps the Settings window — confusing and redundant.
     try {
       await openAccessibilitySettings();
     } catch {
@@ -304,6 +302,10 @@ export default function Onboarding({ initialStatus, onStarted, resumeNotice }: P
             <div className="mt-3">
               <HotkeyRebinder />
             </div>
+          </div>
+
+          <div>
+            <StartAtLoginToggle variant="row" />
           </div>
 
           <div>

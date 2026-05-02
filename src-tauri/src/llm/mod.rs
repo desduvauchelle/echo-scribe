@@ -74,7 +74,9 @@ pub struct Llm {
     engine: Arc<Mutex<Option<LlmEngine>>>,
     active_model: Arc<RwLock<Option<LlmModelEntry>>>,
     last_used: Arc<std::sync::Mutex<Instant>>,
-    unload_after: Duration,
+    /// Wrapped so `set_unload_timeout` can update it without rebuilding Llm.
+    /// `Duration::ZERO` means "never unload".
+    unload_after: Arc<std::sync::Mutex<Duration>>,
 }
 
 impl Llm {
@@ -87,8 +89,16 @@ impl Llm {
             engine: Arc::new(Mutex::new(None)),
             active_model: Arc::new(RwLock::new(None)),
             last_used: Arc::new(std::sync::Mutex::new(Instant::now())),
-            unload_after,
+            unload_after: Arc::new(std::sync::Mutex::new(unload_after)),
         })
+    }
+
+    /// Update the idle-unload timeout at runtime. `Duration::ZERO` disables
+    /// automatic unloading ("keep loaded").
+    pub fn set_unload_timeout(&self, d: Duration) {
+        if let Ok(mut g) = self.unload_after.lock() {
+            *g = d;
+        }
     }
 
     /// Spawn the periodic idle-unload checker. Must be called from inside a
@@ -112,14 +122,16 @@ impl Llm {
     }
 
     async fn maybe_unload(&self) -> Result<(), LlmError> {
-        let idle_for = {
-            let g = self
+        let (idle_for, unload_after) = {
+            let idle = self
                 .last_used
                 .lock()
-                .map_err(|_| LlmError::Join)?;
-            g.elapsed()
+                .map_err(|_| LlmError::Join)?
+                .elapsed();
+            let ua = *self.unload_after.lock().map_err(|_| LlmError::Join)?;
+            (idle, ua)
         };
-        if idle_for < self.unload_after {
+        if unload_after.is_zero() || idle_for < unload_after {
             return Ok(());
         }
         let mut guard = self.engine.lock().await;

@@ -82,25 +82,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn registry_has_three_models() {
-        assert_eq!(registry().len(), 3);
+    fn registry_has_one_model() {
+        assert_eq!(registry().len(), 1);
     }
 
     #[test]
-    fn lookup_finds_known_models() {
-        assert!(lookup("gemma-3-1b-it-q4_k_m").is_some());
-        assert!(lookup("gemma-3-4b-it-q4_k_m").is_some());
-        assert!(lookup("gemma-3-12b-it-q4_k_m").is_some());
+    fn lookup_finds_known_model() {
+        assert!(lookup("gemma-4-e2b-it-q4_k_m").is_some());
         assert!(lookup("gemma-bogus").is_none());
     }
 
     #[test]
-    fn default_is_4b() {
-        assert_eq!(default_id(), "gemma-3-4b-it-q4_k_m");
+    fn default_is_gemma4_e2b() {
+        assert_eq!(default_id(), "gemma-4-e2b-it-q4_k_m");
     }
 
     #[test]
-    fn all_three_variants_supported() {
+    fn model_is_supported() {
         for m in registry() {
             assert!(is_supported(m), "{} should be supported", m.id);
         }
