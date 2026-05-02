@@ -4,7 +4,7 @@ use tauri::tray::{TrayIcon, TrayIconBuilder};
 use tauri::{AppHandle, Runtime};
 use tracing::warn;
 
-use crate::coordinator::PipelineState;
+use crate::coordinator::TrayPipelineState;
 
 pub struct TrayHandle<R: Runtime> {
     icon: TrayIcon<R>,
@@ -28,11 +28,11 @@ impl<R: Runtime> TrayHandle<R> {
         Ok(TrayHandle { icon })
     }
 
-    pub fn set_state(&self, state: PipelineState) {
+    pub fn set_state(&self, state: TrayPipelineState) {
         let img = match state {
-            PipelineState::Idle => idle_icon(),
-            PipelineState::Recording => recording_icon(),
-            PipelineState::Processing => processing_icon(),
+            TrayPipelineState::Idle => idle_icon(),
+            TrayPipelineState::Recording => recording_icon(),
+            TrayPipelineState::Processing => processing_icon(),
         };
         if let Err(e) = self.icon.set_icon(Some(img)) {
             warn!(?e, "failed to update tray icon");

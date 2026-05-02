@@ -24,7 +24,6 @@ fn row_to_project(row: &Row<'_>) -> rusqlite::Result<Project> {
     })
 }
 
-#[allow(dead_code)]
 pub fn insert_project(conn: &Connection, p: &Project) -> Result<(), DbError> {
     conn.execute(
         "INSERT INTO projects(id, name, created_at, archived_at) VALUES(?1, ?2, ?3, ?4)",
@@ -33,7 +32,6 @@ pub fn insert_project(conn: &Connection, p: &Project) -> Result<(), DbError> {
     Ok(())
 }
 
-#[allow(dead_code)]
 pub fn list_projects(conn: &Connection, include_archived: bool) -> Result<Vec<Project>, DbError> {
     let sql = if include_archived {
         "SELECT id, name, created_at, archived_at FROM projects ORDER BY created_at ASC"

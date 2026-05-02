@@ -22,7 +22,8 @@ use crate::asr::downloader::{self, DownloadProgress};
 use crate::asr::pipeline::AsrPipeline;
 use crate::asr::registry::{self, ModelEntry};
 use crate::llm::{self, GenerateRequest, Llm, LlmDownloadProgress, LlmModelEntry};
-use crate::coordinator::{self, new_state_handle, PipelineState};
+use crate::coordinator::{self, new_state_handle, Action, CoordinatorMsg, TrayPipelineState};
+use crate::db::items::ItemKind;
 use crate::db::{self, Db, Item, Visibility};
 use crate::input::binding::{code_from_key, key_from_code, Binding, ModifierKind, ModifierSide, SerKey};
 use crate::input::hotkeys::{spawn_listener, HotkeyEvent};
@@ -40,8 +41,13 @@ pub struct AppState {
     pub tray: Arc<Mutex<TrayHandle<Wry>>>,
     pub settings: SettingsStore,
     pub binding: Arc<RwLock<Binding>>,
+    pub log_capture_binding: Arc<RwLock<Binding>>,
     pub hotkey_started: AtomicBool,
-    pub hotkey_tx: Mutex<Option<UnboundedSender<HotkeyEvent>>>,
+    /// Multiplexed channel into the coordinator. Wraps both
+    /// hotkey-derived events (with their `Action` tag) and frontend
+    /// confirmation messages for LogCapture. Populated on first
+    /// `start_pipeline`.
+    pub coord_tx: Mutex<Option<UnboundedSender<CoordinatorMsg>>>,
     pub asr: Arc<AsrPipeline>,
     pub llm: Arc<Llm>,
     /// On-disk SQLite handle. `None` only if DB initialization failed at
@@ -205,6 +211,85 @@ pub fn update_voice_at_cursor_binding(
 }
 
 #[tauri::command]
+pub fn get_log_capture_binding(state: State<'_, AppState>) -> JsBinding {
+    let b = state
+        .log_capture_binding
+        .read()
+        .map(|g| g.clone())
+        .unwrap_or_else(|_| crate::settings::default_log_capture_binding());
+    b.into()
+}
+
+#[tauri::command]
+pub fn update_log_capture_binding(
+    state: State<'_, AppState>,
+    binding: JsBinding,
+) -> Result<(), String> {
+    let parsed: Binding = binding
+        .try_into()
+        .map_err(|e: BindingConversionError| e.to_string())?;
+    state
+        .settings
+        .set_log_capture_binding(parsed.clone())
+        .map_err(|e| e.to_string())?;
+    let mut guard = state
+        .log_capture_binding
+        .write()
+        .map_err(|_| "binding lock poisoned".to_string())?;
+    *guard = parsed;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn confirm_log_capture(
+    state: State<'_, AppState>,
+    content: String,
+    kind: String,
+    project_id: Option<String>,
+    new_project_name: Option<String>,
+    tags: Vec<String>,
+    deadline_iso: Option<String>,
+) -> Result<String, String> {
+    let kind_parsed = ItemKind::parse(&kind).ok_or_else(|| format!("invalid kind: {kind}"))?;
+    let tx_clone = {
+        let slot = state
+            .coord_tx
+            .lock()
+            .map_err(|_| "coord_tx lock poisoned".to_string())?;
+        slot.clone()
+            .ok_or_else(|| "pipeline not started".to_string())?
+    };
+    let (reply_tx, mut reply_rx) = mpsc::unbounded_channel::<Result<String, String>>();
+    tx_clone
+        .send(CoordinatorMsg::ConfirmLogCapture {
+            content,
+            kind: kind_parsed,
+            project_id,
+            new_project_name,
+            tags,
+            deadline_iso,
+            reply: reply_tx,
+        })
+        .map_err(|e| e.to_string())?;
+    match reply_rx.recv().await {
+        Some(res) => res,
+        None => Err("coordinator dropped reply channel".into()),
+    }
+}
+
+#[tauri::command]
+pub fn cancel_log_capture(state: State<'_, AppState>) -> Result<(), String> {
+    let slot = state
+        .coord_tx
+        .lock()
+        .map_err(|_| "coord_tx lock poisoned".to_string())?;
+    let tx = slot.as_ref().ok_or_else(|| "pipeline not started".to_string())?;
+    tx.send(CoordinatorMsg::CancelLogCapture)
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
 pub fn start_pipeline(state: State<'_, AppState>, app: AppHandle) -> Result<(), String> {
     if !state.asr.ready() {
         return Err("speech model not ready".to_string());
@@ -330,21 +415,57 @@ pub fn ensure_pipeline_started(state: &AppState, app: &AppHandle) {
         return;
     }
 
-    info!("starting voice-at-cursor pipeline");
+    info!("starting voice-at-cursor + log-capture pipelines");
 
-    let (hotkey_tx, hotkey_rx) = mpsc::unbounded_channel::<HotkeyEvent>();
+    // The coordinator listens on a single multiplexed channel. Each hotkey
+    // listener gets its own raw HotkeyEvent channel; we spawn small adapter
+    // tasks that tag the events with the right Action and forward them.
+    let (coord_tx, coord_rx) = mpsc::unbounded_channel::<CoordinatorMsg>();
 
-    // Stash the tx so the rest of the app could conceivably push events
-    // synthetically (e.g. a "test transcription" button later).
-    if let Ok(mut slot) = state.hotkey_tx.lock() {
-        *slot = Some(hotkey_tx.clone());
+    if let Ok(mut slot) = state.coord_tx.lock() {
+        *slot = Some(coord_tx.clone());
     }
 
-    spawn_listener(Arc::clone(&state.binding), hotkey_tx);
+    let (vac_tx, mut vac_rx) = mpsc::unbounded_channel::<HotkeyEvent>();
+    let (lc_tx, mut lc_rx) = mpsc::unbounded_channel::<HotkeyEvent>();
+
+    spawn_listener(Arc::clone(&state.binding), vac_tx);
+    spawn_listener(Arc::clone(&state.log_capture_binding), lc_tx);
+
+    // Adapter tasks: tag + forward into the coordinator channel. We use
+    // `tokio::spawn` rather than a dedicated thread because these are pure
+    // async pumps with no `!Send` state.
+    {
+        let coord_tx = coord_tx.clone();
+        tauri::async_runtime::spawn(async move {
+            while let Some(ev) = vac_rx.recv().await {
+                if coord_tx
+                    .send(CoordinatorMsg::Hotkey(Action::VoiceAtCursor, ev))
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        });
+    }
+    {
+        let coord_tx = coord_tx.clone();
+        tauri::async_runtime::spawn(async move {
+            while let Some(ev) = lc_rx.recv().await {
+                if coord_tx
+                    .send(CoordinatorMsg::Hotkey(Action::LogCapture, ev))
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        });
+    }
 
     let pipeline_state = new_state_handle();
     let tray_for_state = Arc::clone(&state.tray);
     let asr = Arc::clone(&state.asr);
+    let llm = Arc::clone(&state.llm);
     let db = state.db.clone();
     let event_log_root = state.event_log_root.clone();
     let app = app.clone();
@@ -363,13 +484,14 @@ pub fn ensure_pipeline_started(state: &AppState, app: &AppHandle) {
         let local = tokio::task::LocalSet::new();
         local.spawn_local(async move {
             coordinator::spawn(
-                hotkey_rx,
+                coord_rx,
                 pipeline_state,
                 asr,
+                llm,
                 app,
                 db,
                 event_log_root,
-                move |new_state: PipelineState| {
+                move |new_state: TrayPipelineState| {
                     if let Ok(t) = tray_for_state.lock() {
                         t.set_state(new_state);
                     }

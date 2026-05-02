@@ -13,7 +13,6 @@ pub struct Task {
     pub completed_at: Option<String>,
 }
 
-#[allow(dead_code)]
 pub fn upsert_task(conn: &Connection, t: &Task) -> Result<(), DbError> {
     conn.execute(
         "INSERT INTO tasks(item_id, deadline, completed_at) VALUES(?1, ?2, ?3)

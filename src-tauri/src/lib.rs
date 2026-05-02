@@ -1,5 +1,6 @@
 pub mod asr;
 pub mod audio;
+pub mod classifier;
 pub mod commands;
 pub mod coordinator;
 pub mod db;
@@ -20,13 +21,14 @@ use tracing_subscriber::EnvFilter;
 use crate::asr::pipeline::AsrPipeline;
 use crate::asr::registry;
 use crate::commands::{
-    count_items, delete_item, delete_llm_model, delete_speech_model, download_llm_model,
-    download_speech_model, ensure_pipeline_started_from_handle, get_active_llm_model_id,
-    get_active_speech_model_id, get_voice_at_cursor_binding, is_pipeline_running, list_items,
+    cancel_log_capture, confirm_log_capture, count_items, delete_item, delete_llm_model,
+    delete_speech_model, download_llm_model, download_speech_model,
+    ensure_pipeline_started_from_handle, get_active_llm_model_id, get_active_speech_model_id,
+    get_log_capture_binding, get_voice_at_cursor_binding, is_pipeline_running, list_items,
     list_llm_models, list_speech_models, open_accessibility_settings, open_microphone_settings,
     permissions_status, prompt_accessibility_access, request_microphone_access, search_items,
     set_active_llm_model, set_active_speech_model, start_pipeline, test_llm_inference,
-    update_voice_at_cursor_binding, AppState,
+    update_log_capture_binding, update_voice_at_cursor_binding, AppState,
 };
 use crate::llm::Llm;
 use crate::db::Db;
@@ -52,6 +54,10 @@ pub fn run() {
             prompt_accessibility_access,
             get_voice_at_cursor_binding,
             update_voice_at_cursor_binding,
+            get_log_capture_binding,
+            update_log_capture_binding,
+            confirm_log_capture,
+            cancel_log_capture,
             start_pipeline,
             is_pipeline_running,
             list_speech_models,
@@ -79,6 +85,8 @@ pub fn run() {
             let settings = SettingsStore::load(&app.handle().clone())?;
             let initial_binding = settings.voice_at_cursor_binding();
             let binding = Arc::new(RwLock::new(initial_binding));
+            let initial_log_binding = settings.log_capture_binding();
+            let log_capture_binding = Arc::new(RwLock::new(initial_log_binding));
 
             // ASR pipeline. Restore the saved active model if it exists AND
             // is fully downloaded; otherwise leave the pipeline inactive
@@ -153,8 +161,9 @@ pub fn run() {
                 tray,
                 settings,
                 binding,
+                log_capture_binding,
                 hotkey_started: AtomicBool::new(false),
-                hotkey_tx: Mutex::new(None),
+                coord_tx: Mutex::new(None),
                 asr: Arc::clone(&asr),
                 llm: Arc::clone(&llm),
                 db,

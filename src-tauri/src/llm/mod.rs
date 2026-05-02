@@ -33,6 +33,26 @@ pub use downloader::{
 pub use engine::{EngineError, GenerateRequest, LlmEngine};
 pub use registry::{LlmModelEntry, LlmModelFile};
 
+/// Abstraction for one-shot LLM generation. Implemented by [`Llm`] for the
+/// production path; mocked in classifier tests so we don't need a real model
+/// loaded to exercise validation/parsing.
+///
+/// We avoid `async_trait` (not in our dep tree) by returning a boxed future
+/// directly. Trait methods cannot be `async fn` while remaining
+/// object-safe, so this is the lowest-friction path.
+pub type GenerateFuture<'a> =
+    std::pin::Pin<Box<dyn std::future::Future<Output = Result<String, LlmError>> + Send + 'a>>;
+
+pub trait LlmGenerator: Send + Sync {
+    fn generate<'a>(&'a self, req: GenerateRequest) -> GenerateFuture<'a>;
+}
+
+impl LlmGenerator for Llm {
+    fn generate<'a>(&'a self, req: GenerateRequest) -> GenerateFuture<'a> {
+        Box::pin(Llm::generate(self, req))
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum LlmError {
     #[error("no llm model is active")]
