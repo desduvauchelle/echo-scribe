@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import HotkeyRebinder from "../components/HotkeyRebinder";
+import LlmModelPicker from "../components/LlmModelPicker";
 import SpeechModelPicker from "../components/SpeechModelPicker";
 import {
   getLogCaptureBinding,
+  listLlmModels,
   listSpeechModels,
   openAccessibilitySettings,
   openMicrophoneSettings,
   permissionsStatus,
   promptAccessibilityAccess,
   requestMicrophoneAccess,
+  setOnboardingCompleted,
   startPipeline,
   updateLogCaptureBinding,
   type PermissionsStatus,
@@ -17,6 +20,10 @@ import {
 type Props = {
   initialStatus: PermissionsStatus;
   onStarted: () => void;
+  /** Shown when the routing layer kicks the user back to onboarding because
+   * a precondition (permission, speech model) regressed after they had
+   * previously completed setup. */
+  resumeNotice?: string | null;
 };
 
 function StatusPill({ granted }: { granted: boolean }) {
@@ -69,18 +76,29 @@ function Row(props: {
   );
 }
 
-export default function Onboarding({ initialStatus, onStarted }: Props) {
+export default function Onboarding({ initialStatus, onStarted, resumeNotice }: Props) {
   const [status, setStatus] = useState<PermissionsStatus>(initialStatus);
   const [checking, setChecking] = useState(false);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [modelReady, setModelReady] = useState(false);
+  const [llmReady, setLlmReady] = useState(false);
+  // Once the user clicks "Skip for now" we hide the LLM step's gating banner
+  // so the page reads as "you chose to skip" rather than "you still need to
+  // do something". The flag is local to this onboarding session.
+  const [llmSkipped, setLlmSkipped] = useState(false);
   const intervalRef = useRef<number | null>(null);
 
   const refetchStartGate = useCallback(async () => {
     try {
       const ms = await listSpeechModels();
       setModelReady(ms.some((m) => m.active && m.downloaded));
+    } catch {
+      /* leave gate as-is */
+    }
+    try {
+      const ls = await listLlmModels();
+      setLlmReady(ls.some((m) => m.active && m.downloaded));
     } catch {
       /* leave gate as-is */
     }
@@ -101,7 +119,8 @@ export default function Onboarding({ initialStatus, onStarted }: Props) {
     }
   };
 
-  // Poll every 1.5s so the UI catches up if the user grants in System Settings.
+  // Poll every 1.5s so the UI catches up if the user grants in System Settings
+  // or finishes a model download in another tab.
   useEffect(() => {
     const tick = async () => {
       try {
@@ -110,6 +129,7 @@ export default function Onboarding({ initialStatus, onStarted }: Props) {
       } catch {
         /* ignore */
       }
+      void refetchStartGate();
     };
     intervalRef.current = window.setInterval(tick, 1500);
     return () => {
@@ -118,17 +138,16 @@ export default function Onboarding({ initialStatus, onStarted }: Props) {
         intervalRef.current = null;
       }
     };
-  }, []);
+  }, [refetchStartGate]);
 
   const bothGranted = status.microphone && status.accessibility;
+  // Start is gated on: both perms green AND speech model ready. The LLM
+  // is intentionally NOT gated here — voice-at-cursor must be reachable
+  // even without an LLM. The user can come back to Settings later.
   const canStart = bothGranted && modelReady;
 
   const handleGrantMicrophone = async () => {
     try {
-      // First call triggers the in-process TCC prompt; subsequent calls
-      // return the cached decision instantly. If the answer is "no" we
-      // also need to send the user to System Settings, because the
-      // prompt won't appear a second time.
       const granted = await requestMicrophoneAccess();
       if (granted) {
         await refresh();
@@ -136,18 +155,15 @@ export default function Onboarding({ initialStatus, onStarted }: Props) {
         await openMicrophoneSettings();
       }
     } catch {
-      // Best effort: fall back to opening Settings.
       await openMicrophoneSettings().catch(() => {});
     }
   };
 
   const handleGrantAccessibility = async () => {
     try {
-      // The AX prompt only nudges; the user still has to flip the toggle
-      // in System Settings, so open the pane immediately afterward.
       await promptAccessibilityAccess();
     } catch {
-      /* ignore — we still try to open Settings below */
+      /* ignore */
     }
     try {
       await openAccessibilitySettings();
@@ -164,6 +180,14 @@ export default function Onboarding({ initialStatus, onStarted }: Props) {
     setError(null);
     try {
       await startPipeline();
+      // Mark onboarding as complete *only after* startPipeline succeeds —
+      // we don't want to flip the flag if the pipeline rejects (e.g. model
+      // not actually ready) and bounce the user out of onboarding.
+      try {
+        await setOnboardingCompleted(true);
+      } catch {
+        /* ignore — App.tsx will retry on next launch */
+      }
       onStarted();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -178,27 +202,17 @@ export default function Onboarding({ initialStatus, onStarted }: Props) {
           Welcome to Echo Scribe
         </h1>
         <p className="mt-1 text-sm text-neutral-400">
-          Grant the two permissions below, then start dictating anywhere.
+          Grant the two permissions below, pick a speech model, then start
+          dictating anywhere.
         </p>
 
-        <div className="mt-6 flex flex-col gap-6">
-          <div>
-            <div className="font-semibold tracking-tight">Speech model</div>
-            <p className="mt-1 text-sm text-neutral-300">
-              Echo Scribe transcribes your voice on-device using Parakeet.
-              Choose a model to download.
-            </p>
-            <div className="mt-3">
-              <SpeechModelPicker
-                onChange={() => {
-                  void refetchStartGate();
-                }}
-              />
-            </div>
+        {resumeNotice ? (
+          <div className="mt-4 rounded-md border border-amber-900/60 bg-amber-950/30 px-3 py-2 text-xs text-amber-200">
+            {resumeNotice}
           </div>
+        ) : null}
 
-          <div className="h-px bg-neutral-800" />
-
+        <div className="mt-6 flex flex-col gap-6">
           <Row
             title="Microphone"
             subtitle="Echo Scribe needs your microphone to capture what you say."
@@ -226,6 +240,63 @@ export default function Onboarding({ initialStatus, onStarted }: Props) {
             }}
             recheckBusy={checking}
           />
+
+          <div className="h-px bg-neutral-800" />
+
+          <div>
+            <div className="font-semibold tracking-tight">Speech model</div>
+            <p className="mt-1 text-sm text-neutral-300">
+              Echo Scribe transcribes your voice on-device using Parakeet.
+              Choose a model to download.
+            </p>
+            <div className="mt-3">
+              <SpeechModelPicker
+                onChange={() => {
+                  void refetchStartGate();
+                }}
+              />
+            </div>
+          </div>
+
+          <div className="h-px bg-neutral-800" />
+
+          <div>
+            <div className="flex items-center justify-between gap-3">
+              <div className="font-semibold tracking-tight">
+                Local AI model{" "}
+                <span className="text-xs font-normal text-neutral-400">
+                  (optional)
+                </span>
+              </div>
+              {llmReady ? (
+                <span className="inline-flex items-center rounded-full bg-emerald-900 px-2 py-0.5 text-xs text-emerald-200">
+                  Ready
+                </span>
+              ) : null}
+            </div>
+            <p className="mt-1 text-sm text-neutral-300">
+              Powers the log-capture flow (auto-classifying notes, tasks,
+              tags). Voice-at-cursor works without it — skip to come back later.
+            </p>
+            <div className="mt-3">
+              <LlmModelPicker />
+            </div>
+            {!llmReady && !llmSkipped ? (
+              <button
+                type="button"
+                onClick={() => setLlmSkipped(true)}
+                className="mt-3 text-xs text-neutral-400 underline-offset-2 hover:text-neutral-200 hover:underline"
+              >
+                Skip for now
+              </button>
+            ) : null}
+            {llmSkipped && !llmReady ? (
+              <p className="mt-3 text-xs text-neutral-400">
+                Skipped. Log-capture will show a friendly notice until you
+                pick a model in Settings.
+              </p>
+            ) : null}
+          </div>
 
           <div className="h-px bg-neutral-800" />
 

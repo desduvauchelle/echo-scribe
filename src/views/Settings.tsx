@@ -1,15 +1,20 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import HotkeyRebinder from "../components/HotkeyRebinder";
 import SpeechModelPicker from "../components/SpeechModelPicker";
 import LlmModelPicker from "../components/LlmModelPicker";
 import ProjectManager from "../components/ProjectManager";
 import {
+  diagnosticsLogDir,
+  diagnosticsRecentLog,
+  getAudioFeedbackEnabled,
   getLogCaptureBinding,
   resetOnboardingAndQuit,
+  setAudioFeedbackEnabled,
   testLlmInference,
   updateLogCaptureBinding,
 } from "../lib/api";
 import { useToasts } from "../components/ToastProvider";
+import { invoke } from "@tauri-apps/api/core";
 
 type Props = {
   onBack: () => void;
@@ -60,8 +65,22 @@ export default function Settings({ onBack }: Props) {
           />
         </Section>
 
+        <Section
+          title="Audio feedback"
+          subtitle="Subtle blips when recording starts, stops, and a log capture is ready for review."
+        >
+          <AudioFeedbackToggle />
+        </Section>
+
         <Section title="Projects" subtitle="Rename, archive, or unarchive projects.">
           <ProjectManager />
+        </Section>
+
+        <Section
+          title="Diagnostics"
+          subtitle="Inspect the rolling crash log Echo Scribe writes to your home folder."
+        >
+          <DiagnosticsPane />
         </Section>
 
         <ResetSection />
@@ -87,6 +106,158 @@ function Section({
       <p className="mt-1 text-sm text-neutral-300">{subtitle}</p>
       <div className="mt-4">{children}</div>
     </section>
+  );
+}
+
+function AudioFeedbackToggle() {
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [busy, setBusy] = useState(false);
+  const toasts = useToasts();
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const v = await getAudioFeedbackEnabled();
+        if (!cancelled) setEnabled(v);
+      } catch {
+        if (!cancelled) setEnabled(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const onToggle = async (next: boolean) => {
+    setBusy(true);
+    try {
+      await setAudioFeedbackEnabled(next);
+      setEnabled(next);
+    } catch (e) {
+      toasts.push({
+        tone: "error",
+        message: `Couldn't update audio feedback: ${e instanceof Error ? e.message : String(e)}`,
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <label className="flex items-center justify-between rounded-lg border border-neutral-800 bg-neutral-950 p-3">
+      <div>
+        <div className="text-sm font-semibold text-neutral-100">
+          Play recording sounds
+        </div>
+        <p className="text-xs text-neutral-400">
+          Three short tones tied to start, stop, and classification ready.
+        </p>
+      </div>
+      <input
+        type="checkbox"
+        disabled={busy || enabled === null}
+        checked={enabled ?? true}
+        onChange={(e) => void onToggle(e.target.checked)}
+        className="h-4 w-4 cursor-pointer accent-neutral-100"
+      />
+    </label>
+  );
+}
+
+function DiagnosticsPane() {
+  const [logDir, setLogDir] = useState<string>("");
+  const [recent, setRecent] = useState<string>("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const toasts = useToasts();
+
+  const loadRecent = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const txt = await diagnosticsRecentLog(200);
+      setRecent(txt);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const dir = await diagnosticsLogDir();
+        if (!cancelled) setLogDir(dir);
+      } catch {
+        /* ignore */
+      }
+    })();
+    void loadRecent();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const onOpenFolder = async () => {
+    if (!logDir) return;
+    try {
+      // tauri-plugin-shell exposes `plugin:shell|open` over invoke. We pass
+      // the directory path; the shell plugin will Reveal-in-Finder it.
+      await invoke("plugin:shell|open", { path: logDir });
+    } catch (e) {
+      toasts.push({
+        tone: "error",
+        message: `Couldn't open folder: ${e instanceof Error ? e.message : String(e)}`,
+      });
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center justify-between gap-3 rounded-lg border border-neutral-800 bg-neutral-950 p-3">
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-semibold text-neutral-100">
+            Log folder
+          </div>
+          <p className="truncate text-xs text-neutral-400" title={logDir}>
+            {logDir || "—"}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => void onOpenFolder()}
+          disabled={!logDir}
+          className="rounded border border-neutral-700 px-3 py-1 text-xs hover:bg-neutral-800 disabled:opacity-50"
+        >
+          Open
+        </button>
+      </div>
+
+      <div className="rounded-lg border border-neutral-800 bg-neutral-950 p-3">
+        <div className="flex items-center justify-between">
+          <div className="text-sm font-semibold text-neutral-100">
+            Recent log (last 200 lines)
+          </div>
+          <button
+            type="button"
+            onClick={() => void loadRecent()}
+            disabled={busy}
+            className="rounded border border-neutral-700 px-2 py-0.5 text-xs hover:bg-neutral-800 disabled:opacity-50"
+          >
+            {busy ? "…" : "Refresh"}
+          </button>
+        </div>
+        {error ? (
+          <p className="mt-2 text-xs text-amber-300">{error}</p>
+        ) : null}
+        <pre className="mt-2 max-h-64 overflow-auto rounded-md border border-neutral-800 bg-neutral-950 p-2 font-mono text-[11px] leading-snug text-neutral-300">
+          {recent || "(no log content yet)"}
+        </pre>
+      </div>
+    </div>
   );
 }
 

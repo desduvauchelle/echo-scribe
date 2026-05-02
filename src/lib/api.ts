@@ -270,3 +270,29 @@ export const testLlmInference = (prompt: string): Promise<string> =>
 
 export const resetOnboardingAndQuit = (): Promise<void> =>
   invoke("reset_onboarding_and_quit");
+
+// ----- Audio feedback + onboarding flag -----
+
+export const getAudioFeedbackEnabled = (): Promise<boolean> =>
+  invoke("get_audio_feedback_enabled");
+
+export const setAudioFeedbackEnabled = (enabled: boolean): Promise<void> =>
+  invoke("set_audio_feedback_enabled", { enabled });
+
+export const getOnboardingCompleted = (): Promise<boolean> =>
+  invoke("get_onboarding_completed");
+
+export const setOnboardingCompleted = (completed: boolean): Promise<void> =>
+  invoke("set_onboarding_completed", { completed });
+
+// ----- Tray-driven UI helpers -----
+
+export const showMainWindow = (): Promise<void> => invoke("show_main_window");
+
+// ----- Diagnostics -----
+
+export const diagnosticsLogDir = (): Promise<string> =>
+  invoke("diagnostics_log_dir");
+
+export const diagnosticsRecentLog = (maxLines = 200): Promise<string> =>
+  invoke("diagnostics_recent_log", { maxLines });
