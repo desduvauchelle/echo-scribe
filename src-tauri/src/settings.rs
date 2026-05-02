@@ -11,6 +11,7 @@ use crate::input::binding::Binding;
 const STORE_FILENAME: &str = "settings.json";
 const KEY_VOICE_AT_CURSOR_BINDING: &str = "voice_at_cursor_binding";
 const KEY_SPEECH_MODEL_ID: &str = "speech_model_id";
+const KEY_LLM_MODEL_ID: &str = "llm_model_id";
 
 /// Errors raised by [`SettingsStore`].
 #[derive(Debug, Error)]
@@ -78,6 +79,26 @@ impl SettingsStore {
     pub fn set_speech_model_id(&self, id: &str) -> Result<(), SettingsError> {
         self.store
             .set(KEY_SPEECH_MODEL_ID, serde_json::Value::String(id.to_string()));
+        self.store
+            .save()
+            .map_err(|e| SettingsError::Store(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Returns the persisted active LLM model id, or `None` if no model has
+    /// been chosen yet.
+    pub fn llm_model_id(&self) -> Option<String> {
+        self.store.get(KEY_LLM_MODEL_ID).and_then(|v| {
+            v.as_str()
+                .map(|s| s.to_string())
+                .or_else(|| serde_json::from_value::<String>(v).ok())
+        })
+    }
+
+    /// Persist the active LLM model id.
+    pub fn set_llm_model_id(&self, id: &str) -> Result<(), SettingsError> {
+        self.store
+            .set(KEY_LLM_MODEL_ID, serde_json::Value::String(id.to_string()));
         self.store
             .save()
             .map_err(|e| SettingsError::Store(e.to_string()))?;

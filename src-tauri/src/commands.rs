@@ -21,6 +21,7 @@ use tracing::{error, info};
 use crate::asr::downloader::{self, DownloadProgress};
 use crate::asr::pipeline::AsrPipeline;
 use crate::asr::registry::{self, ModelEntry};
+use crate::llm::{self, GenerateRequest, Llm, LlmDownloadProgress, LlmModelEntry};
 use crate::coordinator::{self, new_state_handle, PipelineState};
 use crate::db::{self, Db, Item, Visibility};
 use crate::input::binding::{code_from_key, key_from_code, Binding, ModifierKind, ModifierSide, SerKey};
@@ -42,6 +43,7 @@ pub struct AppState {
     pub hotkey_started: AtomicBool,
     pub hotkey_tx: Mutex<Option<UnboundedSender<HotkeyEvent>>>,
     pub asr: Arc<AsrPipeline>,
+    pub llm: Arc<Llm>,
     /// On-disk SQLite handle. `None` only if DB initialization failed at
     /// startup (in which case persistence is disabled but Phase 1 behavior
     /// still works — paste-at-cursor must never be blocked by DB issues).
@@ -456,6 +458,123 @@ pub fn count_items(
     let vis = parse_visibility(visibility)?;
     db.with_conn(|c| db::items::count_items(c, vis))
         .map_err(|e| e.to_string())
+}
+
+// ----- LLM model commands -----
+
+#[derive(Debug, Clone, Serialize)]
+pub struct LlmModelStatus {
+    pub id: String,
+    pub display_name: String,
+    pub family: String,
+    pub size_label: String,
+    pub size_bytes: u64,
+    pub context_length: u32,
+    pub downloaded: bool,
+    pub active: bool,
+    pub supported: bool,
+}
+
+fn llm_status_for(entry: &LlmModelEntry, active_id: Option<&str>) -> LlmModelStatus {
+    LlmModelStatus {
+        id: entry.id.clone(),
+        display_name: entry.display_name.clone(),
+        family: entry.family.clone(),
+        size_label: entry.size_label.clone(),
+        size_bytes: entry.size_bytes,
+        context_length: entry.context_length,
+        downloaded: llm::is_downloaded(entry),
+        active: active_id.map(|a| a == entry.id).unwrap_or(false),
+        supported: llm::registry::is_supported(entry),
+    }
+}
+
+#[tauri::command]
+pub fn list_llm_models(state: State<'_, AppState>) -> Vec<LlmModelStatus> {
+    let active = state.llm.active_model_id();
+    llm::registry::registry()
+        .iter()
+        .map(|m| llm_status_for(m, active.as_deref()))
+        .collect()
+}
+
+#[tauri::command]
+pub fn get_active_llm_model_id(state: State<'_, AppState>) -> String {
+    state
+        .llm
+        .active_model_id()
+        .unwrap_or_else(|| state.settings.llm_model_id().unwrap_or_default())
+}
+
+#[tauri::command]
+pub fn set_active_llm_model(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    let entry = llm::registry::lookup(&id)
+        .ok_or_else(|| format!("unknown llm model id: {id}"))?
+        .clone();
+    state
+        .settings
+        .set_llm_model_id(&entry.id)
+        .map_err(|e| e.to_string())?;
+    state.llm.set_active_model(entry);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn download_llm_model(
+    state: State<'_, AppState>,
+    app: AppHandle,
+    id: String,
+) -> Result<(), String> {
+    let entry = llm::registry::lookup(&id)
+        .ok_or_else(|| format!("unknown llm model id: {id}"))?
+        .clone();
+    let target = llm::model_dir(&entry);
+    let app_for_progress = app.clone();
+    let res = llm::downloader::download_model(&entry, &target, move |p: LlmDownloadProgress| {
+        let _ = app_for_progress.emit("llm_model:progress", &p);
+    })
+    .await;
+    match res {
+        Ok(_) => {
+            // Refresh active entry if this id is the active one, so the
+            // engine picks up the new on-disk state on the next generate.
+            if state.llm.active_model_id().as_deref() == Some(entry.id.as_str()) {
+                state.llm.set_active_model(entry);
+            }
+            Ok(())
+        }
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+#[tauri::command]
+pub fn delete_llm_model(id: String) -> Result<(), String> {
+    let entry = llm::registry::lookup(&id)
+        .ok_or_else(|| format!("unknown llm model id: {id}"))?;
+    let dir = llm::model_dir(entry);
+    if dir.is_dir() {
+        std::fs::remove_dir_all(&dir).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn test_llm_inference(
+    state: State<'_, AppState>,
+    prompt: String,
+) -> Result<String, String> {
+    if !state.llm.ready() {
+        return Err("llm not ready".to_string());
+    }
+    let req = GenerateRequest {
+        system: Some("You are a concise assistant. Reply briefly.".into()),
+        user: prompt,
+        max_tokens: 128,
+        temperature: 0.7,
+        stop_strings: Vec::new(),
+        grammar_gbnf: None,
+    };
+    state.llm.generate(req).await.map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
