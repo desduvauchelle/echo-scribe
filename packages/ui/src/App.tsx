@@ -1,57 +1,51 @@
-import { useEffect, useState } from 'react';
+import { useState, useEffect } from 'react';
 import { rpcClient } from './rpc-client.ts';
+import { SettingsPage } from './pages/Settings.tsx';
+
+type Page = 'main' | 'settings';
 
 export function App() {
-  const [pingMessage, setPingMessage] = useState<string | null>(null);
-  const [uptimeSec, setUptimeSec] = useState<number | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [page, setPage] = useState<Page>('main');
+  const [pingResult, setPingResult] = useState<string | null>(null);
+  const [uptime, setUptime] = useState<number | null>(null);
 
   useEffect(() => {
     rpcClient.connect();
-
     rpcClient
       .call('system.ping', {})
-      .then((res) => setPingMessage(res.message))
-      .catch((err: unknown) => {
-        const message = err instanceof Error ? err.message : String(err);
-        setError(`Ping failed: ${message}`);
-      });
+      .then((r) => setPingResult(r.message))
+      .catch(() => setPingResult('error'));
 
     const unsubscribe = rpcClient.subscribe('core.status', (payload) => {
-      setUptimeSec(payload.uptimeSec);
+      setUptime(payload.uptimeSec);
     });
-
-    return () => {
-      unsubscribe();
-      rpcClient.disconnect();
-    };
+    return unsubscribe;
   }, []);
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-10 max-w-sm w-full space-y-4">
-        <h1 className="text-xl font-semibold text-gray-900">Echo Scribe</h1>
+    <div className="min-h-screen bg-white">
+      <nav className="flex items-center justify-between px-6 py-3 border-b">
+        <span className="font-semibold">Echo Scribe</span>
+        <button
+          onClick={() => setPage(page === 'settings' ? 'main' : 'settings')}
+          className="text-sm text-gray-600 hover:text-gray-900"
+        >
+          {page === 'settings' ? '<- Back' : 'Settings'}
+        </button>
+      </nav>
 
-        {error && (
-          <p className="text-sm text-red-600">{error}</p>
+      <main className="p-6">
+        {page === 'settings' ? (
+          <SettingsPage />
+        ) : (
+          <div className="space-y-2">
+            <p className="text-lg">
+              Core says: <strong>{pingResult ?? '...'}</strong>
+            </p>
+            {uptime !== null && <p className="text-sm text-gray-500">Uptime: {uptime}s</p>}
+          </div>
         )}
-
-        <div className="space-y-2">
-          <p className="text-sm text-gray-500">
-            Core says:{' '}
-            <span className="font-medium text-gray-900">
-              {pingMessage ?? 'waiting…'}
-            </span>
-          </p>
-
-          <p className="text-sm text-gray-500">
-            Uptime:{' '}
-            <span className="font-medium text-gray-900">
-              {uptimeSec !== null ? `${uptimeSec}s` : 'waiting…'}
-            </span>
-          </p>
-        </div>
-      </div>
+      </main>
     </div>
   );
 }
