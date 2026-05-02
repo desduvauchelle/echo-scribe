@@ -26,7 +26,18 @@ thiserror = "1"
 tokio = { version = "1", features = ["sync", "rt-multi-thread", "macros", "time"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-rdev = { version = "0.5", features = ["serialize"] }
+# Use rustdesk's maintained fork of rdev. Upstream rdev 0.5.x calls
+# TSMGetInputSourceProperty from the event tap thread on macOS, which crashes
+# on macOS Sonoma+ (TSM enforces main-thread-only). The rustdesk fork wraps the
+# TIS lookup in a `dispatch::Queue::main().exec_sync(..)` call, so it's safe.
+# Pinned to a specific commit for reproducibility.
+#
+# We do NOT enable the `serialize` feature: this fork's `Event` struct gained a
+# `unicode: Option<UnicodeInfo>` field whose `UnicodeInfo` doesn't derive
+# `Deserialize`, breaking the feature. We don't (de)serialize rdev's `Event`
+# anyway — only `Key`, which we wrap in our own `SerKey` and (de)serialize via a
+# string mapping (see `src/input/binding.rs`).
+rdev = { git = "https://github.com/rustdesk-org/rdev", rev = "a90dbe1172f8832f54c97c62e823c5a34af5fdfe" }
 cpal = "0.15"
 enigo = "0.2"
 arboard = "3"
