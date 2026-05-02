@@ -12,6 +12,14 @@
 		AFF20A43335E742E752F8C5A /* CoreSupervisor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A0CD45DB1573D02FB67204B /* CoreSupervisor.swift */; };
 		B841C0F7F9F05C40A2B0644E /* EchoScribeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FECA86E006541C8B9367CCF /* EchoScribeApp.swift */; };
 		EE17D4F37B68B1129A7C2D95 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A5E8E3C837E50C2BF0ADDED2 /* Assets.xcassets */; };
+		AA11BB22CC33DD44EE55FF01 /* HotkeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA11BB22CC33DD44EE55FF00 /* HotkeyManager.swift */; };
+		AA11BB22CC33DD44EE55FF03 /* MicRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA11BB22CC33DD44EE55FF02 /* MicRecorder.swift */; };
+		AA11BB22CC33DD44EE55FF05 /* AppleTranscriber.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA11BB22CC33DD44EE55FF04 /* AppleTranscriber.swift */; };
+		AA11BB22CC33DD44EE55FF07 /* CursorInserter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA11BB22CC33DD44EE55FF06 /* CursorInserter.swift */; };
+		AA11BB22CC33DD44EE55FF09 /* SidecarRpcClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA11BB22CC33DD44EE55FF08 /* SidecarRpcClient.swift */; };
+		AA11BB22CC33DD44EE55FF0B /* VoiceToTextPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA11BB22CC33DD44EE55FF0A /* VoiceToTextPipeline.swift */; };
+		AA11BB22CC33DD44EE55FF0D /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA11BB22CC33DD44EE55FF0C /* AppState.swift */; };
+		AA11BB22CC33DD44EE55FF0F /* HotKey in Frameworks */ = {isa = PBXBuildFile; productRef = AA11BB22CC33DD44EE55FF0E /* HotKey */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -23,7 +31,25 @@
 		A5E8E3C837E50C2BF0ADDED2 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		E18250856B54F81D153852E4 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		FF0817AA602A7AECA8B08229 /* WebViewHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebViewHost.swift; sourceTree = "<group>"; };
+		AA11BB22CC33DD44EE55FF00 /* HotkeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyManager.swift; sourceTree = "<group>"; };
+		AA11BB22CC33DD44EE55FF02 /* MicRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MicRecorder.swift; sourceTree = "<group>"; };
+		AA11BB22CC33DD44EE55FF04 /* AppleTranscriber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleTranscriber.swift; sourceTree = "<group>"; };
+		AA11BB22CC33DD44EE55FF06 /* CursorInserter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CursorInserter.swift; sourceTree = "<group>"; };
+		AA11BB22CC33DD44EE55FF08 /* SidecarRpcClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidecarRpcClient.swift; sourceTree = "<group>"; };
+		AA11BB22CC33DD44EE55FF0A /* VoiceToTextPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceToTextPipeline.swift; sourceTree = "<group>"; };
+		AA11BB22CC33DD44EE55FF0C /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		AA11BB22CC33DD44EE55FF10 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AA11BB22CC33DD44EE55FF0F /* HotKey in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		0E8C3E1548A8812CC06074AD /* Products */ = {
@@ -72,9 +98,15 @@
 			isa = PBXGroup;
 			children = (
 				D1295038ECC2222363A6451A /* App */,
+				AA11BB22CC33DD44EE55FF11 /* AudioCapture */,
 				1DBB69BBA37298ACED951909 /* CoreSupervisor */,
+				AA11BB22CC33DD44EE55FF12 /* Cursor */,
+				AA11BB22CC33DD44EE55FF13 /* Hotkeys */,
 				35D03ADB32AF7BF9AC9ABD17 /* MenuBar */,
+				AA11BB22CC33DD44EE55FF14 /* Networking */,
+				AA11BB22CC33DD44EE55FF15 /* Pipeline */,
 				538EEECAC469A678E4519D90 /* Resources */,
+				AA11BB22CC33DD44EE55FF16 /* Transcription */,
 				FF35EEC95058815F4AC3246F /* WebView */,
 			);
 			path = EchoScribe;
@@ -83,6 +115,7 @@
 		D1295038ECC2222363A6451A /* App */ = {
 			isa = PBXGroup;
 			children = (
+				AA11BB22CC33DD44EE55FF0C /* AppState.swift */,
 				4FECA86E006541C8B9367CCF /* EchoScribeApp.swift */,
 			);
 			path = App;
@@ -96,6 +129,54 @@
 			path = WebView;
 			sourceTree = "<group>";
 		};
+		AA11BB22CC33DD44EE55FF11 /* AudioCapture */ = {
+			isa = PBXGroup;
+			children = (
+				AA11BB22CC33DD44EE55FF02 /* MicRecorder.swift */,
+			);
+			path = AudioCapture;
+			sourceTree = "<group>";
+		};
+		AA11BB22CC33DD44EE55FF12 /* Cursor */ = {
+			isa = PBXGroup;
+			children = (
+				AA11BB22CC33DD44EE55FF06 /* CursorInserter.swift */,
+			);
+			path = Cursor;
+			sourceTree = "<group>";
+		};
+		AA11BB22CC33DD44EE55FF13 /* Hotkeys */ = {
+			isa = PBXGroup;
+			children = (
+				AA11BB22CC33DD44EE55FF00 /* HotkeyManager.swift */,
+			);
+			path = Hotkeys;
+			sourceTree = "<group>";
+		};
+		AA11BB22CC33DD44EE55FF14 /* Networking */ = {
+			isa = PBXGroup;
+			children = (
+				AA11BB22CC33DD44EE55FF08 /* SidecarRpcClient.swift */,
+			);
+			path = Networking;
+			sourceTree = "<group>";
+		};
+		AA11BB22CC33DD44EE55FF15 /* Pipeline */ = {
+			isa = PBXGroup;
+			children = (
+				AA11BB22CC33DD44EE55FF0A /* VoiceToTextPipeline.swift */,
+			);
+			path = Pipeline;
+			sourceTree = "<group>";
+		};
+		AA11BB22CC33DD44EE55FF16 /* Transcription */ = {
+			isa = PBXGroup;
+			children = (
+				AA11BB22CC33DD44EE55FF04 /* AppleTranscriber.swift */,
+			);
+			path = Transcription;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -104,6 +185,7 @@
 			buildConfigurationList = 0A997DA066FFFDB32C81BD2B /* Build configuration list for PBXNativeTarget "EchoScribe" */;
 			buildPhases = (
 				0BC476FA463B273063904812 /* Sources */,
+				AA11BB22CC33DD44EE55FF10 /* Frameworks */,
 				7E55065BCB402B93C9DC0F5B /* Resources */,
 			);
 			buildRules = (
@@ -112,6 +194,7 @@
 			);
 			name = EchoScribe;
 			packageProductDependencies = (
+				AA11BB22CC33DD44EE55FF0E /* HotKey */,
 			);
 			productName = EchoScribe;
 			productReference = 29A150D0FDBCB7D87A5B4DB7 /* EchoScribe.app */;
@@ -170,6 +253,13 @@
 				B841C0F7F9F05C40A2B0644E /* EchoScribeApp.swift in Sources */,
 				8C2006442F68245110276CC2 /* MenuBarView.swift in Sources */,
 				8AE1C23CF3DF75EB078C44AB /* WebViewHost.swift in Sources */,
+				AA11BB22CC33DD44EE55FF01 /* HotkeyManager.swift in Sources */,
+				AA11BB22CC33DD44EE55FF03 /* MicRecorder.swift in Sources */,
+				AA11BB22CC33DD44EE55FF05 /* AppleTranscriber.swift in Sources */,
+				AA11BB22CC33DD44EE55FF07 /* CursorInserter.swift in Sources */,
+				AA11BB22CC33DD44EE55FF09 /* SidecarRpcClient.swift in Sources */,
+				AA11BB22CC33DD44EE55FF0B /* VoiceToTextPipeline.swift in Sources */,
+				AA11BB22CC33DD44EE55FF0D /* AppState.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -370,6 +460,14 @@
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		AA11BB22CC33DD44EE55FF0E /* HotKey */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 5F8CA2A0444159303A027805 /* XCRemoteSwiftPackageReference "HotKey" */;
+			productName = HotKey;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 72C4AE9834D4E9751A71359A /* Project object */;
 }
