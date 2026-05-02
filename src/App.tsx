@@ -9,34 +9,34 @@ import Onboarding from "./views/Onboarding";
 import Main from "./views/Main";
 import Settings from "./views/Settings";
 import LogCaptureOverlay from "./views/LogCaptureOverlay";
+import { ToastProvider, useToasts } from "./components/ToastProvider";
 
 type View = "checking" | "onboarding" | "main" | "settings";
 
-type Toast = { id: number; message: string };
-
 export default function App() {
+  return (
+    <ToastProvider>
+      <AppShell />
+    </ToastProvider>
+  );
+}
+
+function AppShell() {
   const [view, setView] = useState<View>("checking");
   const [initialStatus, setInitialStatus] = useState<PermissionsStatus>({
     microphone: false,
     accessibility: false,
   });
-  // Bumped each time the binding might have changed, so Main re-fetches.
   const [mainKey, setMainKey] = useState(0);
-  const [toasts, setToasts] = useState<Toast[]>([]);
+  const toasts = useToasts();
 
-  // Subscribe to backend ASR errors and surface them as ephemeral toasts so
-  // the user gets feedback when transcription fails (otherwise releasing the
-  // shortcut just appears to do nothing).
+  // Surface backend ASR errors as toasts.
   useEffect(() => {
     let unlisten: UnlistenFn | null = null;
     let cancelled = false;
     (async () => {
       const fn = await listen<string>("asr:error", (event) => {
-        const id = Date.now() + Math.random();
-        setToasts((prev) => [...prev, { id, message: event.payload }]);
-        window.setTimeout(() => {
-          setToasts((prev) => prev.filter((t) => t.id !== id));
-        }, 6000);
+        toasts.push({ tone: "error", message: event.payload });
       });
       if (cancelled) fn();
       else unlisten = fn;
@@ -45,34 +45,7 @@ export default function App() {
       cancelled = true;
       if (unlisten) unlisten();
     };
-  }, []);
-
-  const dismissToast = (id: number) =>
-    setToasts((prev) => prev.filter((t) => t.id !== id));
-
-  const toastStack = (
-    <div className="pointer-events-none fixed bottom-4 right-4 z-50 flex max-w-[400px] flex-col gap-2">
-      {toasts.map((t) => (
-        <div
-          key={t.id}
-          className="pointer-events-auto flex items-start gap-2 rounded-md border border-red-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 shadow-lg transition-opacity"
-        >
-          <span className="mt-0.5 text-red-400">!</span>
-          <span className="flex-1 whitespace-pre-wrap break-words">
-            {t.message}
-          </span>
-          <button
-            type="button"
-            onClick={() => dismissToast(t.id)}
-            className="ml-2 text-neutral-400 hover:text-neutral-100"
-            aria-label="Dismiss"
-          >
-            ×
-          </button>
-        </div>
-      ))}
-    </div>
-  );
+  }, [toasts]);
 
   useEffect(() => {
     let cancelled = false;
@@ -87,17 +60,11 @@ export default function App() {
             if (cancelled) return;
             setView("main");
           } catch (e) {
-            // If the speech model isn't ready yet, route to onboarding so the
-            // user can pick & download one. Other errors also fall through to
-            // onboarding rather than crashing — the user can re-check there.
             const msg = e instanceof Error ? e.message : String(e);
             if (cancelled) return;
             if (msg.includes("speech model not ready")) {
               setView("onboarding");
             } else {
-              // start_pipeline is otherwise idempotent; if it failed for an
-              // unknown reason, prefer to land in onboarding so the user has
-              // controls to recover.
               setView("onboarding");
             }
           }
@@ -105,8 +72,6 @@ export default function App() {
           setView("onboarding");
         }
       } catch {
-        // If the probe itself fails, fall through to onboarding so the user
-        // can at least see the permission rows and re-check.
         if (!cancelled) setView("onboarding");
       }
     })();
@@ -122,9 +87,6 @@ export default function App() {
     />
   );
 
-  // The LogCapture overlay is mounted at every view so it can pop up
-  // regardless of what's on screen — pressing the LogCapture hotkey from
-  // anywhere in macOS triggers it.
   const overlay = <LogCaptureOverlay />;
 
   if (view === "checking") {
@@ -135,7 +97,6 @@ export default function App() {
           Checking…
         </div>
         {overlay}
-        {toastStack}
       </>
     );
   }
@@ -149,7 +110,6 @@ export default function App() {
           onStarted={() => setView("main")}
         />
         {overlay}
-        {toastStack}
       </>
     );
   }
@@ -165,7 +125,6 @@ export default function App() {
           }}
         />
         {overlay}
-        {toastStack}
       </>
     );
   }
@@ -175,7 +134,6 @@ export default function App() {
       {dragBar}
       <Main key={mainKey} onOpenSettings={() => setView("settings")} />
       {overlay}
-      {toastStack}
     </>
   );
 }
