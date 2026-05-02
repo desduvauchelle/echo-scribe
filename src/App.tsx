@@ -29,11 +29,23 @@ export default function App() {
         if (status.microphone && status.accessibility) {
           try {
             await startPipeline();
-          } catch {
-            /* start_pipeline is idempotent; ignore failures here and let main render */
+            if (cancelled) return;
+            setView("main");
+          } catch (e) {
+            // If the speech model isn't ready yet, route to onboarding so the
+            // user can pick & download one. Other errors also fall through to
+            // onboarding rather than crashing — the user can re-check there.
+            const msg = e instanceof Error ? e.message : String(e);
+            if (cancelled) return;
+            if (msg.includes("speech model not ready")) {
+              setView("onboarding");
+            } else {
+              // start_pipeline is otherwise idempotent; if it failed for an
+              // unknown reason, prefer to land in onboarding so the user has
+              // controls to recover.
+              setView("onboarding");
+            }
           }
-          if (cancelled) return;
-          setView("main");
         } else {
           setView("onboarding");
         }

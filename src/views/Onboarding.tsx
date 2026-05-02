@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import HotkeyRebinder from "../components/HotkeyRebinder";
+import SpeechModelPicker from "../components/SpeechModelPicker";
 import {
+  listSpeechModels,
   openAccessibilitySettings,
   openMicrophoneSettings,
   permissionsStatus,
@@ -70,7 +72,21 @@ export default function Onboarding({ initialStatus, onStarted }: Props) {
   const [checking, setChecking] = useState(false);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [modelReady, setModelReady] = useState(false);
   const intervalRef = useRef<number | null>(null);
+
+  const refetchStartGate = useCallback(async () => {
+    try {
+      const ms = await listSpeechModels();
+      setModelReady(ms.some((m) => m.active && m.downloaded));
+    } catch {
+      /* leave gate as-is */
+    }
+  }, []);
+
+  useEffect(() => {
+    void refetchStartGate();
+  }, [refetchStartGate]);
 
   const refresh = async (): Promise<PermissionsStatus> => {
     setChecking(true);
@@ -103,6 +119,7 @@ export default function Onboarding({ initialStatus, onStarted }: Props) {
   }, []);
 
   const bothGranted = status.microphone && status.accessibility;
+  const canStart = bothGranted && modelReady;
 
   const handleGrantMicrophone = async () => {
     try {
@@ -163,6 +180,23 @@ export default function Onboarding({ initialStatus, onStarted }: Props) {
         </p>
 
         <div className="mt-6 flex flex-col gap-6">
+          <div>
+            <div className="font-semibold tracking-tight">Speech model</div>
+            <p className="mt-1 text-sm text-neutral-300">
+              Echo Scribe transcribes your voice on-device using Parakeet.
+              Choose a model to download.
+            </p>
+            <div className="mt-3">
+              <SpeechModelPicker
+                onChange={() => {
+                  void refetchStartGate();
+                }}
+              />
+            </div>
+          </div>
+
+          <div className="h-px bg-neutral-800" />
+
           <Row
             title="Microphone"
             subtitle="Echo Scribe needs your microphone to capture what you say."
@@ -209,7 +243,7 @@ export default function Onboarding({ initialStatus, onStarted }: Props) {
 
         <button
           type="button"
-          disabled={!bothGranted || starting}
+          disabled={!canStart || starting}
           onClick={() => {
             void handleStart();
           }}
