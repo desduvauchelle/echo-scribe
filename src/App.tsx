@@ -14,6 +14,7 @@ import Settings from "./views/Settings";
 import LogCaptureOverlay from "./views/LogCaptureOverlay";
 import PermissionWarningBanner from "./components/PermissionWarningBanner";
 import { ToastProvider, useToasts } from "./components/ToastProvider";
+import UpdateBanner from "./components/UpdateBanner";
 
 type View = "checking" | "onboarding" | "main" | "settings";
 
@@ -187,6 +188,7 @@ function AppShell() {
     return (
       <>
         {dragBar}
+        <UpdateBanner />
         <Onboarding
           initialStatus={initialStatus}
           resumeNotice={resumeNotice}
@@ -204,6 +206,7 @@ function AppShell() {
     return (
       <>
         {dragBar}
+        <UpdateBanner />
         <Settings
           onBack={() => {
             setMainKey((k) => k + 1);
@@ -219,6 +222,7 @@ function AppShell() {
     <>
       {dragBar}
       <PermissionWarningBanner onOpenSettings={() => setView("settings")} />
+      <UpdateBanner />
       <Main key={mainKey} onOpenSettings={() => setView("settings")} />
       {overlay}
     </>
