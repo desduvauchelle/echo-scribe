@@ -55,6 +55,13 @@ futures-util = "0.3"
 # Persistence: bundled SQLite (so we have FTS5 on every macOS) + ULID for IDs.
 rusqlite = { version = "0.32", features = ["bundled"] }
 ulid = "1"
+# Local LLM (llama.cpp) bindings. Default features (openmp,
+# android-shared-stdcxx) are off; we enable Metal explicitly for Apple Silicon
+# GPU offload. Pinned to 0.1.146 (current latest).
+llama-cpp-2 = { version = "0.1.146", default-features = false, features = ["metal"] }
+# encoding_rs is needed for `LlamaModel::token_to_piece` (it takes a
+# `&mut encoding_rs::Decoder` to handle streaming UTF-8 decoding).
+encoding_rs = "0.8"
 
 [dev-dependencies]
 tempfile = "3"
