@@ -5,6 +5,7 @@ pub mod coordinator;
 pub mod db;
 pub mod event_log;
 pub mod input;
+pub mod llm;
 pub mod permissions;
 pub mod settings;
 pub mod ui;
@@ -19,13 +20,15 @@ use tracing_subscriber::EnvFilter;
 use crate::asr::pipeline::AsrPipeline;
 use crate::asr::registry;
 use crate::commands::{
-    count_items, delete_item, delete_speech_model, download_speech_model,
-    ensure_pipeline_started_from_handle, get_active_speech_model_id, get_voice_at_cursor_binding,
-    is_pipeline_running, list_items, list_speech_models, open_accessibility_settings,
-    open_microphone_settings, permissions_status, prompt_accessibility_access,
-    request_microphone_access, search_items, set_active_speech_model, start_pipeline,
+    count_items, delete_item, delete_llm_model, delete_speech_model, download_llm_model,
+    download_speech_model, ensure_pipeline_started_from_handle, get_active_llm_model_id,
+    get_active_speech_model_id, get_voice_at_cursor_binding, is_pipeline_running, list_items,
+    list_llm_models, list_speech_models, open_accessibility_settings, open_microphone_settings,
+    permissions_status, prompt_accessibility_access, request_microphone_access, search_items,
+    set_active_llm_model, set_active_speech_model, start_pipeline, test_llm_inference,
     update_voice_at_cursor_binding, AppState,
 };
+use crate::llm::Llm;
 use crate::db::Db;
 use crate::settings::SettingsStore;
 use crate::ui::tray::TrayHandle;
@@ -60,6 +63,12 @@ pub fn run() {
             search_items,
             delete_item,
             count_items,
+            list_llm_models,
+            download_llm_model,
+            get_active_llm_model_id,
+            set_active_llm_model,
+            delete_llm_model,
+            test_llm_inference,
         ])
         .setup(|app| {
             // Tray.
@@ -88,6 +97,33 @@ pub fn run() {
                         "saved speech model is not downloaded; pipeline will gate on download"
                     );
                 }
+            }
+
+            // LLM orchestrator. Same restore-active-model dance as the ASR
+            // pipeline: load the saved id (or the registry default), and if
+            // its weights are on disk, activate it. Otherwise leave it idle
+            // until the user picks/downloads a model.
+            let llm = Llm::new(std::time::Duration::from_secs(5 * 60));
+            let saved_llm_id = settings
+                .llm_model_id()
+                .unwrap_or_else(|| crate::llm::registry::default_id().to_string());
+            if let Some(entry) = crate::llm::registry::lookup(&saved_llm_id) {
+                if crate::llm::is_downloaded(entry) {
+                    info!(model = %entry.id, "restoring active llm model");
+                    llm.set_active_model(entry.clone());
+                } else {
+                    warn!(
+                        model = %entry.id,
+                        "saved llm model is not downloaded; inference will gate on download"
+                    );
+                }
+            }
+            // Spawn the idle-unload background task on Tauri's async runtime.
+            {
+                let llm = Arc::clone(&llm);
+                tauri::async_runtime::spawn(async move {
+                    llm.spawn_unloader();
+                });
             }
 
             // Build the shared state. The CGEventTap listener and coordinator
@@ -120,6 +156,7 @@ pub fn run() {
                 hotkey_started: AtomicBool::new(false),
                 hotkey_tx: Mutex::new(None),
                 asr: Arc::clone(&asr),
+                llm: Arc::clone(&llm),
                 db,
                 event_log_root,
             };
