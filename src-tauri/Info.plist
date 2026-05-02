@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Echo Scribe transcribes what you say into text at your cursor. Audio is processed locally and never leaves your machine.</string>
+    <key>NSAccessibilityUsageDescription</key>
+    <string>Echo Scribe needs Accessibility access to listen for the global dictation hotkey and paste transcribed text at your cursor in any app.</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Echo Scribe synthesizes a paste keystroke to insert transcribed text at your cursor.</string>
+</dict>
+</plist>
