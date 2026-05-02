@@ -1,4 +1,5 @@
 import HotkeyRebinder from "../components/HotkeyRebinder";
+import SpeechModelPicker from "../components/SpeechModelPicker";
 
 type Props = {
   onBack: () => void;
@@ -19,6 +20,19 @@ export default function Settings({ onBack }: Props) {
         <h1 className="text-xl font-semibold tracking-tight">Settings</h1>
 
         <section className="mt-6">
+          <h2 className="text-sm font-semibold tracking-tight text-neutral-200">
+            Speech model
+          </h2>
+          <p className="mt-1 text-sm text-neutral-300">
+            Switch between downloaded models or download a new one.
+          </p>
+
+          <div className="mt-4">
+            <SpeechModelPicker />
+          </div>
+        </section>
+
+        <section className="mt-8">
           <h2 className="text-sm font-semibold tracking-tight text-neutral-200">
             Voice-at-cursor hotkey
           </h2>
