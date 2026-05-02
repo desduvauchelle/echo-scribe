@@ -1,0 +1,176 @@
+import { useEffect, useRef, useState } from "react";
+import {
+  openAccessibilitySettings,
+  openMicrophoneSettings,
+  permissionsStatus,
+  promptAccessibilityAccess,
+  requestMicrophoneAccess,
+  resetTccAndQuit,
+  type PermissionsStatus,
+} from "../lib/api";
+import PermissionRow from "./PermissionRow";
+import { useToasts } from "./ToastProvider";
+
+/// Manage Microphone + Accessibility from Settings. Mirrors the onboarding
+/// flow so users can re-grant after a reinstall or revoked permission without
+/// being kicked all the way back to onboarding. Also exposes a one-click
+/// "Reset permissions" button that runs `tccutil reset` for both services
+/// and quits the app — equivalent to the manual workflow in CLAUDE.md.
+export default function PermissionsSection() {
+  const [status, setStatus] = useState<PermissionsStatus>({
+    microphone: false,
+    accessibility: false,
+  });
+  const [checking, setChecking] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const intervalRef = useRef<number | null>(null);
+  const toasts = useToasts();
+
+  const refresh = async () => {
+    setChecking(true);
+    try {
+      const s = await permissionsStatus();
+      setStatus(s);
+    } catch {
+      /* ignore */
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  useEffect(() => {
+    void refresh();
+    intervalRef.current = window.setInterval(() => void refresh(), 1500);
+    return () => {
+      if (intervalRef.current !== null) {
+        window.clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    };
+  }, []);
+
+  const handleGrantMicrophone = async () => {
+    try {
+      const granted = await requestMicrophoneAccess();
+      if (granted) {
+        await refresh();
+      } else {
+        await openMicrophoneSettings();
+      }
+    } catch {
+      await openMicrophoneSettings().catch(() => {});
+    }
+  };
+
+  const handleGrantAccessibility = async () => {
+    // promptAccessibilityAccess() is what registers the app in macOS's
+    // Accessibility list. Without it the list is empty so there's nothing
+    // for the user to toggle. The system shows its own "Open System Settings"
+    // button as part of the prompt.
+    try {
+      const trusted = await promptAccessibilityAccess();
+      if (trusted) {
+        await refresh();
+        return;
+      }
+    } catch {
+      /* fall through */
+    }
+    try {
+      await openAccessibilitySettings();
+    } catch {
+      /* ignore */
+    }
+    await refresh().catch(() => {});
+  };
+
+  const [confirmReset, setConfirmReset] = useState(false);
+
+  const handleReset = async () => {
+    setResetting(true);
+    try {
+      await resetTccAndQuit();
+      setTimeout(() => {
+        toasts.push({
+          tone: "error",
+          message: "Reset returned but the app didn't quit. Try restarting Echo Scribe manually.",
+        });
+        setResetting(false);
+        setConfirmReset(false);
+      }, 1500);
+    } catch (e) {
+      toasts.push({
+        tone: "error",
+        message: `Couldn't reset permissions: ${e instanceof Error ? e.message : String(e)}`,
+      });
+      setResetting(false);
+      setConfirmReset(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-6">
+      <PermissionRow
+        title="Microphone"
+        subtitle="Echo Scribe needs your microphone to capture what you say."
+        granted={status.microphone}
+        onGrant={() => void handleGrantMicrophone()}
+        onRecheck={() => void refresh()}
+        recheckBusy={checking}
+      />
+
+      <div className="h-px bg-neutral-800" />
+
+      <PermissionRow
+        title="Accessibility"
+        subtitle="Required to paste transcribed text at the cursor in any app."
+        granted={status.accessibility}
+        onGrant={() => void handleGrantAccessibility()}
+        onRecheck={() => void refresh()}
+        recheckBusy={checking}
+      />
+
+      <div className="h-px bg-neutral-800" />
+
+      <div className="flex items-start justify-between gap-6">
+        <div className="min-w-0 flex-1">
+          <div className="font-semibold tracking-tight text-amber-200">
+            Reset permissions
+          </div>
+          <p className="mt-1 text-sm text-neutral-300">
+            Wipes Microphone + Accessibility grants and quits the app. Use if a
+            permission feels broken — relaunch will re-prompt from scratch.
+          </p>
+        </div>
+        {confirmReset ? (
+          <div className="flex shrink-0 gap-2">
+            <button
+              type="button"
+              onClick={() => void handleReset()}
+              disabled={resetting}
+              className="rounded-md border border-amber-700 bg-amber-900/50 px-3 py-1.5 text-xs font-semibold text-amber-100 hover:bg-amber-900/80 disabled:opacity-50"
+            >
+              {resetting ? "Resetting…" : "Yes, reset & quit"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirmReset(false)}
+              disabled={resetting}
+              className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs text-neutral-300 hover:bg-neutral-800"
+            >
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setConfirmReset(true)}
+            className="shrink-0 rounded-md border border-amber-700 bg-amber-900/30 px-3 py-1.5 text-xs font-semibold text-amber-100 hover:bg-amber-900/50"
+          >
+            Reset & quit
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}

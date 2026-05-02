@@ -321,6 +321,8 @@ export const setCustomWords = (words: string[]): Promise<void> =>
 export const getDefaultFillerWords = (): Promise<string[]> =>
   invoke("get_default_filler_words");
 
+export const resetTccAndQuit = (): Promise<void> => invoke("reset_tcc_and_quit");
+
 export const getOnboardingCompleted = (): Promise<boolean> =>
   invoke("get_onboarding_completed");
 

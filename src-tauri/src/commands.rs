@@ -821,6 +821,54 @@ pub async fn reset_onboarding_and_quit(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+// ----- Reset TCC permissions -----
+
+/// Run `tccutil reset` for Microphone + Accessibility against this app's
+/// bundle id, then quit the app. macOS keeps TCC grants attached to the
+/// running process, so the user must relaunch to be re-prompted.
+///
+/// Equivalent to the manual `tccutil reset Microphone com.echoscribe.app` +
+/// `tccutil reset Accessibility com.echoscribe.app` flow documented in
+/// CLAUDE.md, but exposed in the UI so the user doesn't need a terminal.
+#[tauri::command]
+pub async fn reset_tcc_and_quit(app: AppHandle) -> Result<(), String> {
+    use std::process::Command;
+    const BUNDLE_ID: &str = "com.echoscribe.app";
+    info!(bundle = BUNDLE_ID, "reset_tcc_and_quit invoked");
+    for service in ["Microphone", "Accessibility"] {
+        let output = Command::new("/usr/bin/tccutil")
+            .args(["reset", service, BUNDLE_ID])
+            .output()
+            .map_err(|e| {
+                error!(?e, service, "failed to spawn tccutil");
+                format!("failed to run tccutil for {service}: {e}")
+            })?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        info!(
+            service,
+            status = %output.status,
+            stdout = %stdout.trim(),
+            stderr = %stderr.trim(),
+            "tccutil reset result"
+        );
+        if !output.status.success() {
+            return Err(format!(
+                "tccutil reset {service} failed: {} (stderr: {})",
+                output.status,
+                stderr.trim()
+            ));
+        }
+    }
+    info!("tcc reset complete; scheduling app exit");
+    let handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        handle.exit(0);
+    });
+    Ok(())
+}
+
 // ----- LLM model commands -----
 
 #[derive(Debug, Clone, Serialize)]

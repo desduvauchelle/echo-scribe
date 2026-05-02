@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import HotkeyRebinder from "../components/HotkeyRebinder";
 import LlmModelPicker from "../components/LlmModelPicker";
+import PermissionRow from "../components/PermissionRow";
 import SpeechModelPicker from "../components/SpeechModelPicker";
 import StartAtLoginToggle from "../components/StartAtLoginToggle";
 import {
@@ -10,7 +11,9 @@ import {
   openAccessibilitySettings,
   openMicrophoneSettings,
   permissionsStatus,
+  promptAccessibilityAccess,
   requestMicrophoneAccess,
+  resetTccAndQuit,
   setOnboardingCompleted,
   startPipeline,
   updateLogCaptureBinding,
@@ -26,52 +29,68 @@ type Props = {
   resumeNotice?: string | null;
 };
 
-function StatusPill({ granted }: { granted: boolean }) {
-  return granted ? (
-    <span className="inline-flex items-center rounded-full bg-emerald-900 px-2 py-0.5 text-xs text-emerald-200">
-      Granted
-    </span>
-  ) : (
-    <span className="inline-flex items-center rounded-full bg-amber-900 px-2 py-0.5 text-xs text-amber-200">
-      Not granted
-    </span>
-  );
-}
+// Permission row UI now lives in components/PermissionRow.tsx so it can be
+// reused in Settings → Permissions.
 
-function Row(props: {
-  title: string;
-  subtitle: string;
-  granted: boolean;
-  onGrant: () => void;
-  onRecheck: () => void;
-  recheckBusy: boolean;
-}) {
+function ResetTccBlock() {
+  const [armed, setArmed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const onConfirm = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      await resetTccAndQuit();
+      // The backend exits the app ~200ms later. If we're still here after
+      // a beat, the call returned without quitting — show a hint.
+      setTimeout(() => setErr("Reset returned but the app didn't quit. Try restarting manually."), 1500);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+      setBusy(false);
+      setArmed(false);
+    }
+  };
+
+  if (!armed) {
+    return (
+      <div className="text-center">
+        <button
+          type="button"
+          onClick={() => setArmed(true)}
+          className="text-xs text-neutral-500 underline-offset-2 hover:text-amber-300 hover:underline"
+        >
+          Permission stuck? Reset & quit
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex items-start justify-between gap-6">
-      <div className="min-w-0 flex-1">
-        <div className="font-semibold tracking-tight">{props.title}</div>
-        <p className="mt-1 text-sm text-neutral-300">{props.subtitle}</p>
+    <div className="rounded-md border border-amber-900/60 bg-amber-950/30 p-3 text-xs text-amber-100">
+      <p>
+        This wipes Microphone + Accessibility grants and quits Echo Scribe.
+        You'll need to relaunch and re-grant access. Continue?
+      </p>
+      <div className="mt-2 flex gap-2">
+        <button
+          type="button"
+          onClick={() => void onConfirm()}
+          disabled={busy}
+          className="rounded-md border border-amber-700 bg-amber-900/50 px-3 py-1 font-semibold hover:bg-amber-900/80 disabled:opacity-50"
+        >
+          {busy ? "Resetting…" : "Yes, reset & quit"}
+        </button>
+        <button
+          type="button"
+          onClick={() => setArmed(false)}
+          disabled={busy}
+          className="rounded-md border border-neutral-700 px-3 py-1 text-neutral-300 hover:bg-neutral-800"
+        >
+          Cancel
+        </button>
       </div>
-      <div className="flex shrink-0 flex-col items-end gap-2">
-        <StatusPill granted={props.granted} />
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={props.onGrant}
-            className="rounded border border-neutral-700 px-3 py-1 text-xs hover:bg-neutral-800"
-          >
-            Grant access
-          </button>
-          <button
-            type="button"
-            onClick={props.onRecheck}
-            disabled={props.recheckBusy}
-            className="rounded border border-neutral-700 px-3 py-1 text-xs hover:bg-neutral-800 disabled:opacity-50"
-          >
-            {props.recheckBusy ? "…" : "Re-check"}
-          </button>
-        </div>
-      </div>
+      {err ? <p className="mt-2 text-amber-300">{err}</p> : null}
     </div>
   );
 }
@@ -160,17 +179,28 @@ export default function Onboarding({ initialStatus, onStarted, resumeNotice }: P
   };
 
   const handleGrantAccessibility = async () => {
-    // Just open the System Settings pane. We deliberately skip
-    // promptAccessibilityAccess() because it raises a separate modal that
-    // overlaps the Settings window — confusing and redundant.
+    // First call promptAccessibilityAccess() — this is the call that registers
+    // Echo Scribe in the macOS Accessibility list. Without it, the list shows
+    // up empty and the user has nothing to toggle. The system raises its own
+    // "Open System Settings" button as part of that prompt, so we don't need
+    // to open Settings ourselves (avoids the double-modal we had before).
+    try {
+      const trusted = await promptAccessibilityAccess();
+      if (trusted) {
+        await refresh();
+        return;
+      }
+    } catch {
+      /* fall through to the manual Settings open */
+    }
+    // Fallback: if the prompt didn't fire (e.g. the app is already in the
+    // list but toggled off), open the Settings pane directly.
     try {
       await openAccessibilitySettings();
     } catch {
       /* ignore */
     }
-    await refresh().catch(() => {
-      /* ignore */
-    });
+    await refresh().catch(() => {});
   };
 
   const handleStart = async () => {
@@ -211,7 +241,7 @@ export default function Onboarding({ initialStatus, onStarted, resumeNotice }: P
         ) : null}
 
         <div className="mt-6 flex flex-col gap-6">
-          <Row
+          <PermissionRow
             title="Microphone"
             subtitle="Echo Scribe needs your microphone to capture what you say."
             granted={status.microphone}
@@ -226,7 +256,7 @@ export default function Onboarding({ initialStatus, onStarted, resumeNotice }: P
 
           <div className="h-px bg-neutral-800" />
 
-          <Row
+          <PermissionRow
             title="Accessibility"
             subtitle="Required to paste transcribed text at the cursor in any app."
             granted={status.accessibility}
@@ -347,6 +377,10 @@ export default function Onboarding({ initialStatus, onStarted, resumeNotice }: P
         {error ? (
           <p className="mt-3 text-xs text-amber-300">{error}</p>
         ) : null}
+
+        <div className="mt-6 border-t border-neutral-800 pt-3">
+          <ResetTccBlock />
+        </div>
       </div>
     </div>
   );

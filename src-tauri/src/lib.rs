@@ -7,6 +7,7 @@ pub mod db;
 pub mod event_log;
 pub mod input;
 pub mod llm;
+pub mod overlay;
 pub mod permissions;
 pub mod settings;
 pub mod ui;
@@ -33,7 +34,7 @@ use crate::commands::{
     is_pipeline_running, list_items, list_llm_models, list_projects, list_speech_models,
     list_tags_for_item, list_tasks, open_accessibility_settings, open_microphone_settings,
     permissions_status, prompt_accessibility_access, rename_project, request_microphone_access,
-    reset_onboarding_and_quit, restore_item, search_items, set_active_llm_model,
+    reset_onboarding_and_quit, reset_tcc_and_quit, restore_item, search_items, set_active_llm_model,
     set_active_speech_model, set_audio_feedback_enabled, set_custom_words,
     set_filler_removal_enabled, set_filler_words, set_llm_unload_secs, set_mute_while_recording,
     set_onboarding_completed, set_task_deadline, show_main_window, start_pipeline,
@@ -154,6 +155,7 @@ pub fn run() {
             restore_item,
             list_tags_for_item,
             reset_onboarding_and_quit,
+            reset_tcc_and_quit,
             get_audio_feedback_enabled,
             set_audio_feedback_enabled,
             get_mute_while_recording,
@@ -298,6 +300,10 @@ pub fn run() {
             if let Ok(t) = tray.lock() {
                 t.bind_menu(&app.handle().clone(), Arc::clone(&paused_hotkeys));
             }
+
+            // Create the floating recording overlay (hidden until a hotkey
+            // triggers a recording).
+            crate::overlay::create_recording_overlay(&app.handle().clone());
 
             // If permissions are already green at startup AND a model is
             // ready, auto-start the pipeline so returning users don't need to

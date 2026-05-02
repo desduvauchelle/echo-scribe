@@ -12,6 +12,7 @@ import Onboarding from "./views/Onboarding";
 import Main from "./views/Main";
 import Settings from "./views/Settings";
 import LogCaptureOverlay from "./views/LogCaptureOverlay";
+import PermissionWarningBanner from "./components/PermissionWarningBanner";
 import { ToastProvider, useToasts } from "./components/ToastProvider";
 
 type View = "checking" | "onboarding" | "main" | "settings";
@@ -217,6 +218,7 @@ function AppShell() {
   return (
     <>
       {dragBar}
+      <PermissionWarningBanner onOpenSettings={() => setView("settings")} />
       <Main key={mainKey} onOpenSettings={() => setView("settings")} />
       {overlay}
     </>

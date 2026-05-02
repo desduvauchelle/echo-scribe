@@ -3,6 +3,7 @@ import HotkeyRebinder from "../components/HotkeyRebinder";
 import SpeechModelPicker from "../components/SpeechModelPicker";
 import LlmModelPicker from "../components/LlmModelPicker";
 import ProjectManager from "../components/ProjectManager";
+import PermissionsSection from "../components/PermissionsSection";
 import StartAtLoginToggle from "../components/StartAtLoginToggle";
 import TranscriptionSettings from "../components/TranscriptionSettings";
 import {
@@ -157,6 +158,13 @@ function GeneralTab() {
         subtitle="Launch Echo Scribe automatically when you log in."
       >
         <StartAtLoginToggle />
+      </Section>
+
+      <Section
+        title="Permissions"
+        subtitle="Re-grant microphone or accessibility access if something feels broken. Reset & quit clears macOS's TCC grants for both services so the next launch re-prompts cleanly."
+      >
+        <PermissionsSection />
       </Section>
     </div>
   );

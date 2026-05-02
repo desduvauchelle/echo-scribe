@@ -119,8 +119,14 @@ pub fn spawn(
     // `LocalSet` on a dedicated thread.
     tokio::task::spawn_local(async move {
         let mut recorder = Recorder::new();
-        // We don't buffer the transcript server-side: the frontend keeps it
-        // in the overlay and re-sends it (possibly edited) on confirm.
+
+        // Set up audio level callback to feed the overlay waveform.
+        {
+            let app_for_levels = app.clone();
+            recorder.set_level_callback(move |levels| {
+                crate::overlay::emit_levels(&app_for_levels, &levels);
+            });
+        }
 
         while let Some(msg) = rx.recv().await {
             match msg {
@@ -136,11 +142,13 @@ pub fn spawn(
                     on_state_change(TrayPipelineState::Recording);
                     crate::audio::mute::on_recording_start();
                     feedback::play(Sfx::Start);
+                    crate::overlay::show_recording_overlay(&app);
                     if matches!(action, Action::LogCapture) {
                         let _ = app.emit("log_capture:recording_started", ());
                     }
                     if let Err(e) = recorder.start() {
                         error!(?e, ?action, "failed to start recorder; returning to Idle");
+                        crate::overlay::hide_recording_overlay(&app);
                         force_state(&state, PipelineState::Idle);
                         on_state_change(TrayPipelineState::Idle);
                         if matches!(action, Action::LogCapture) {
@@ -165,6 +173,7 @@ pub fn spawn(
                     on_state_change(TrayPipelineState::Processing);
                     crate::audio::mute::on_recording_stop();
                     feedback::play(Sfx::Stop);
+                    crate::overlay::show_transcribing_overlay(&app);
                     let channels = recorder.channels();
                     let stop_result = recorder.stop();
                     match stop_result {
@@ -189,6 +198,7 @@ pub fn spawn(
                                             }),
                                         );
                                     }
+                                    crate::overlay::hide_recording_overlay(&app);
                                     force_state(&state, PipelineState::Idle);
                                     on_state_change(TrayPipelineState::Idle);
                                 }
@@ -209,6 +219,7 @@ pub fn spawn(
                                             let _ =
                                                 app.emit("asr:error", format!("Paste failed: {e}"));
                                         }
+                                        crate::overlay::hide_recording_overlay(&app);
                                         force_state(&state, PipelineState::Idle);
                                         on_state_change(TrayPipelineState::Idle);
                                     }
@@ -231,6 +242,7 @@ pub fn spawn(
                                             }
                                         };
                                         feedback::play(Sfx::Ready);
+                                        crate::overlay::hide_recording_overlay(&app);
                                         let _ =
                                             app.emit("log_capture:classification_ready", payload);
                                         let _ = text;
@@ -240,6 +252,7 @@ pub fn spawn(
                                         on_state_change(TrayPipelineState::Processing);
                                     }
                                     Action::Cancel => {
+                                        crate::overlay::hide_recording_overlay(&app);
                                         force_state(&state, PipelineState::Idle);
                                         on_state_change(TrayPipelineState::Idle);
                                     }
@@ -261,6 +274,7 @@ pub fn spawn(
                                             }),
                                         );
                                     }
+                                    crate::overlay::hide_recording_overlay(&app);
                                     force_state(&state, PipelineState::Idle);
                                     on_state_change(TrayPipelineState::Idle);
                                 }
@@ -272,6 +286,7 @@ pub fn spawn(
                             if matches!(action, Action::LogCapture) {
                                 let _ = app.emit("log_capture:cancelled", ());
                             }
+                            crate::overlay::hide_recording_overlay(&app);
                             force_state(&state, PipelineState::Idle);
                             on_state_change(TrayPipelineState::Idle);
                         }

@@ -26,7 +26,7 @@ use llama_cpp_2::context::params::LlamaContextParams;
 use llama_cpp_2::llama_backend::LlamaBackend;
 use llama_cpp_2::llama_batch::LlamaBatch;
 use llama_cpp_2::model::params::LlamaModelParams;
-use llama_cpp_2::model::{AddBos, LlamaModel};
+use llama_cpp_2::model::{AddBos, LlamaModel, LlamaChatTemplate};
 use llama_cpp_2::sampling::LlamaSampler;
 use llama_cpp_2::token::LlamaToken;
 use thiserror::Error;
@@ -132,19 +132,51 @@ impl LlmEngine {
             return Err(EngineError::Request("max_tokens must be > 0".into()));
         }
 
-        // Build messages and apply the model's baked-in chat template. Gemma
-        // 3 GGUFs ship with a template that adds the appropriate <start_of_turn>
-        // / <end_of_turn> markers, so we don't roll our own.
-        let template = self
-            .model
-            .chat_template(None)
-            .map_err(|e| EngineError::ChatTemplate(e.to_string()))?;
+        // Build messages and apply a chat template.
+        //
+        // llama.cpp's apply_chat_template only handles a fixed list of
+        // known template names. Gemma 4's GGUF embeds a complex Jinja2
+        // template that llama.cpp cannot parse and returns ffi error -1.
+        // Strategy: try the embedded template first; if apply fails, fall
+        // back to llama.cpp's built-in "gemma3" template (covers Gemma 3/4),
+        // then "gemma" (Gemma 1/2 format, same <start_of_turn> shape).
         let messages = build_chat_messages(req.system.as_deref(), &req.history, &req.user)
             .map_err(|e| EngineError::Request(format!("nul byte in prompt: {e}")))?;
-        let prompt = self
-            .model
-            .apply_chat_template(&template, &messages, /* add_ass = */ true)
-            .map_err(|e| EngineError::ChatTemplate(e.to_string()))?;
+
+        let prompt = {
+            // Attempt 1: model's embedded template.
+            let embedded = self.model.chat_template(None).ok();
+            let result = embedded.as_ref().and_then(|t| {
+                self.model.apply_chat_template(t, &messages, true).ok()
+            });
+
+            if let Some(p) = result {
+                p
+            } else {
+                // Attempt 2: llama.cpp built-in Gemma 3/4 template.
+                // Attempt 3: llama.cpp built-in Gemma 1/2 template.
+                let fallbacks = ["gemma3", "gemma"];
+                let mut out = None;
+                let mut last_err = String::new();
+                for name in &fallbacks {
+                    match LlamaChatTemplate::new(name)
+                        .map_err(|e| e.to_string())
+                        .and_then(|t| {
+                            self.model
+                                .apply_chat_template(&t, &messages, true)
+                                .map_err(|e| e.to_string())
+                        }) {
+                        Ok(p) => {
+                            debug!(template = name, "using fallback chat template");
+                            out = Some(p);
+                            break;
+                        }
+                        Err(e) => last_err = e,
+                    }
+                }
+                out.ok_or_else(|| EngineError::ChatTemplate(last_err))?
+            }
+        };
 
         debug!(prompt_len = prompt.len(), "applied chat template");
 
