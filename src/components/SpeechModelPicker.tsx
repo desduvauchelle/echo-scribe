@@ -111,6 +111,13 @@ export default function SpeechModelPicker({ onChange }: Props) {
       [model.id]: { bytes_downloaded: 0, bytes_total: model.size_bytes },
     }));
     const noActiveBefore = !models.some((m) => m.active && m.downloaded);
+
+    // Periodically poll the model list so the UI catches up even if the
+    // download promise chain stalls for any reason after the bytes finish.
+    const poll = window.setInterval(() => {
+      void refresh();
+    }, 2000);
+
     try {
       await downloadSpeechModel(model.id);
       setDownloads((prev) => {
@@ -136,7 +143,10 @@ export default function SpeechModelPicker({ onChange }: Props) {
         return next;
       });
     } finally {
+      window.clearInterval(poll);
       setBusyId((cur) => (cur === model.id ? null : cur));
+      // One last refresh in case the polling missed the final state.
+      void refresh();
     }
   };
 
@@ -168,7 +178,10 @@ export default function SpeechModelPicker({ onChange }: Props) {
     <div className="flex flex-col gap-3">
       {models.map((model) => {
         const dl = downloads[model.id];
-        const isDownloading = dl !== undefined;
+        // If the model has actually finished downloading (per the latest
+        // refresh), drop the per-card "Downloading..." state even if the
+        // local download promise chain hasn't unwound yet.
+        const isDownloading = dl !== undefined && !model.downloaded;
         const downloadErr = downloadErrors[model.id];
         const disabled = !model.supported;
 
