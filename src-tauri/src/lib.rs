@@ -2,6 +2,8 @@ pub mod asr;
 pub mod audio;
 pub mod commands;
 pub mod coordinator;
+pub mod db;
+pub mod event_log;
 pub mod input;
 pub mod permissions;
 pub mod settings;
