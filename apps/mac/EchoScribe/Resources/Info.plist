@@ -20,5 +20,11 @@
     <string>NSApplication</string>
     <key>LSUIElement</key>
     <false/>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Echo Scribe needs microphone access to transcribe what you say.</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>Echo Scribe transcribes your voice on-device using Apple's Speech framework.</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Echo Scribe needs Accessibility access to insert text at the cursor in other apps.</string>
 </dict>
 </plist>
