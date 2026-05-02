@@ -212,8 +212,9 @@ mod tests {
     }
 
     #[test]
-    fn is_downloaded_returns_false_for_placeholder_models() {
-        let small = super::super::registry::lookup("parakeet-small").unwrap();
-        assert!(!is_downloaded(small));
+    fn is_downloaded_returns_false_when_files_absent() {
+        // Real entry, but the downloaded files won't exist on a fresh test box.
+        let m = super::super::registry::lookup("parakeet-v3").unwrap();
+        assert!(!is_downloaded(m));
     }
 }

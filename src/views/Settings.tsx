@@ -34,9 +34,9 @@ export default function Settings({ onBack }: Props) {
 
         <h1 className="text-xl font-semibold tracking-tight">Settings</h1>
 
-        <Section title="Speech model" subtitle="Switch between downloaded models or download a new one.">
+        <div className="mt-6">
           <SpeechModelPicker />
-        </Section>
+        </div>
 
         <Section
           title="LLM model"

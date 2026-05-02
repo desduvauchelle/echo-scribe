@@ -244,18 +244,11 @@ export default function Onboarding({ initialStatus, onStarted, resumeNotice }: P
           <div className="h-px bg-neutral-800" />
 
           <div>
-            <div className="font-semibold tracking-tight">Speech model</div>
-            <p className="mt-1 text-sm text-neutral-300">
-              Echo Scribe transcribes your voice on-device using Parakeet.
-              Choose a model to download.
-            </p>
-            <div className="mt-3">
-              <SpeechModelPicker
-                onChange={() => {
-                  void refetchStartGate();
-                }}
-              />
-            </div>
+            <SpeechModelPicker
+              onChange={() => {
+                void refetchStartGate();
+              }}
+            />
           </div>
 
           <div className="h-px bg-neutral-800" />

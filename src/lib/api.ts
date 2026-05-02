@@ -83,6 +83,12 @@ export const isPipelineRunning = (): Promise<boolean> =>
 export type SpeechModelStatus = {
   id: string;
   display_name: string;
+  version_label: string;
+  description: string;
+  language_label: string;
+  english_only: boolean;
+  accuracy_bars: number;
+  speed_bars: number;
   size_label: string;
   size_bytes: number;
   downloaded: boolean;

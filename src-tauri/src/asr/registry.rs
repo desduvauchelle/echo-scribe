@@ -23,6 +23,26 @@ pub struct ModelFile {
 pub struct ModelEntry {
     pub id: String,
     pub display_name: String,
+    /// e.g. "V3" — short version badge shown next to the display name in the UI.
+    #[serde(default)]
+    pub version_label: String,
+    /// One-line subtitle shown under the model name (e.g. "Fast and accurate").
+    #[serde(default)]
+    pub description: String,
+    /// Human label for the language scope (e.g. "Multi-language", "English Only").
+    #[serde(default)]
+    pub language_label: String,
+    /// Drives icon variant: globe-with-check vs plain globe.
+    #[serde(default)]
+    pub english_only: bool,
+    /// Visual hint, 1..=5. Renders as a 5-segment bar in the picker.
+    #[serde(default)]
+    pub accuracy_bars: u8,
+    /// Visual hint, 1..=5.
+    #[serde(default)]
+    pub speed_bars: u8,
+    /// Historical Small/Medium/Large bucket. Kept for now; not surfaced in the
+    /// new card layout.
     pub size_label: String,
     pub size_bytes: u64,
     pub is_default: bool,
@@ -83,30 +103,34 @@ mod tests {
     use super::*;
 
     #[test]
-    fn registry_has_three_models() {
-        assert_eq!(registry().len(), 3);
+    fn registry_has_at_least_one_model() {
+        assert!(!registry().is_empty());
     }
 
     #[test]
     fn lookup_finds_known_models() {
-        assert!(lookup("parakeet-small").is_some());
-        assert!(lookup("parakeet-medium").is_some());
-        assert!(lookup("parakeet-large").is_some());
+        assert!(lookup("parakeet-v3").is_some());
         assert!(lookup("parakeet-bogus").is_none());
     }
 
     #[test]
-    fn default_is_medium() {
-        assert_eq!(default_id(), "parakeet-medium");
+    fn default_is_parakeet_v3() {
+        assert_eq!(default_id(), "parakeet-v3");
     }
 
     #[test]
-    fn medium_is_supported_others_are_placeholders() {
-        let medium = lookup("parakeet-medium").unwrap();
-        assert!(is_supported(medium));
-        let small = lookup("parakeet-small").unwrap();
-        let large = lookup("parakeet-large").unwrap();
-        assert!(!is_supported(small));
-        assert!(!is_supported(large));
+    fn parakeet_v3_is_supported() {
+        let m = lookup("parakeet-v3").unwrap();
+        assert!(is_supported(m));
+    }
+
+    #[test]
+    fn parakeet_v3_has_visual_metadata() {
+        let m = lookup("parakeet-v3").unwrap();
+        assert_eq!(m.version_label, "V3");
+        assert!(!m.description.is_empty());
+        assert!(!m.language_label.is_empty());
+        assert!(m.accuracy_bars >= 1 && m.accuracy_bars <= 5);
+        assert!(m.speed_bars >= 1 && m.speed_bars <= 5);
     }
 }
