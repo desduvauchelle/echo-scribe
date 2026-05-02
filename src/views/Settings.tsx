@@ -5,6 +5,7 @@ import LlmModelPicker from "../components/LlmModelPicker";
 import ProjectManager from "../components/ProjectManager";
 import {
   diagnosticsLogDir,
+  diagnosticsOpenLogFolder,
   diagnosticsRecentLog,
   getAudioFeedbackEnabled,
   getLogCaptureBinding,
@@ -14,7 +15,6 @@ import {
   updateLogCaptureBinding,
 } from "../lib/api";
 import { useToasts } from "../components/ToastProvider";
-import { invoke } from "@tauri-apps/api/core";
 
 type Props = {
   onBack: () => void;
@@ -202,11 +202,11 @@ function DiagnosticsPane() {
   }, []);
 
   const onOpenFolder = async () => {
-    if (!logDir) return;
     try {
-      // tauri-plugin-shell exposes `plugin:shell|open` over invoke. We pass
-      // the directory path; the shell plugin will Reveal-in-Finder it.
-      await invoke("plugin:shell|open", { path: logDir });
+      // Backend command shells out to macOS `open(1)` — same approach as
+      // the existing System Settings deep links. This avoids needing extra
+      // shell-plugin permissions in the Tauri capability file.
+      await diagnosticsOpenLogFolder();
     } catch (e) {
       toasts.push({
         tone: "error",

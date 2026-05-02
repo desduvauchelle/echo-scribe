@@ -962,6 +962,28 @@ pub fn diagnostics_log_dir() -> String {
     crate::log_dir().to_string_lossy().to_string()
 }
 
+/// Reveal the log folder in Finder (macOS) — uses the `open(1)` binary so we
+/// don't need the shell plugin's allow-list. On other platforms this is a
+/// best-effort no-op that returns Ok.
+#[tauri::command]
+pub fn diagnostics_open_log_folder() -> Result<(), String> {
+    let dir = crate::log_dir();
+    if !dir.exists() {
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let status = std::process::Command::new("open")
+            .arg(&dir)
+            .status()
+            .map_err(|e| e.to_string())?;
+        if !status.success() {
+            return Err(format!("open exited with {status}"));
+        }
+    }
+    Ok(())
+}
+
 /// Read the last `max_lines` lines of today's log file. Returns an empty
 /// string if no log file exists yet.
 #[tauri::command]

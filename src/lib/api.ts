@@ -296,3 +296,6 @@ export const diagnosticsLogDir = (): Promise<string> =>
 
 export const diagnosticsRecentLog = (maxLines = 200): Promise<string> =>
   invoke("diagnostics_recent_log", { maxLines });
+
+export const diagnosticsOpenLogFolder = (): Promise<void> =>
+  invoke("diagnostics_open_log_folder");
