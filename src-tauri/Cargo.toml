@@ -62,6 +62,11 @@ llama-cpp-2 = { version = "0.1.146", default-features = false, features = ["meta
 # encoding_rs is needed for `LlamaModel::token_to_piece` (it takes a
 # `&mut encoding_rs::Decoder` to handle streaming UTF-8 decoding).
 encoding_rs = "0.8"
+# Audio feedback playback. Lightweight, default features off (we don't need
+# symphonia's huge codec set — only the bundled WAV decoder).
+rodio = { version = "0.20", default-features = false, features = ["wav"] }
+# Rolling daily log file appender for crash diagnostics.
+tracing-appender = "0.2"
 
 [dev-dependencies]
 tempfile = "3"
