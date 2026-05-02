@@ -22,35 +22,35 @@
       "id": "parakeet-medium",
       "display_name": "Parakeet Medium",
       "size_label": "Medium",
-      "size_bytes": 933025820,
+      "size_bytes": 670572881,
       "is_default": true,
       "files": [
         {
-          "name": "encoder-int8.onnx",
-          "url": "https://huggingface.co/nasedkinpv/parakeet-tdt-0.6b-v3-onnx-int8/resolve/main/encoder-int8.onnx",
+          "name": "encoder-model.int8.onnx",
+          "url": "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/main/encoder-model.int8.onnx",
           "sha256": "PLACEHOLDER",
-          "size_bytes": 1443183
+          "size_bytes": 652183999
         },
         {
-          "name": "encoder-int8.onnx.data",
-          "url": "https://huggingface.co/nasedkinpv/parakeet-tdt-0.6b-v3-onnx-int8/resolve/main/encoder-int8.onnx.data",
+          "name": "decoder_joint-model.int8.onnx",
+          "url": "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/main/decoder_joint-model.int8.onnx",
           "sha256": "PLACEHOLDER",
-          "size_bytes": 878346240
+          "size_bytes": 18202004
         },
         {
-          "name": "decoder_joint-int8.onnx",
-          "url": "https://huggingface.co/nasedkinpv/parakeet-tdt-0.6b-v3-onnx-int8/resolve/main/decoder_joint-int8.onnx",
+          "name": "nemo128.onnx",
+          "url": "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/main/nemo128.onnx",
           "sha256": "PLACEHOLDER",
-          "size_bytes": 53592358
+          "size_bytes": 139764
         },
         {
           "name": "vocab.txt",
-          "url": "https://huggingface.co/nasedkinpv/parakeet-tdt-0.6b-v3-onnx-int8/resolve/main/vocab.txt",
+          "url": "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/main/vocab.txt",
           "sha256": "PLACEHOLDER",
           "size_bytes": 93939
         }
       ],
-      "notes": "Parakeet TDT 0.6B v3 (int8). Source: nasedkinpv/parakeet-tdt-0.6b-v3-onnx-int8 on Hugging Face."
+      "notes": "Parakeet TDT 0.6B v3 (int8). Source: istupakov/parakeet-tdt-0.6b-v3-onnx on Hugging Face — the canonical layout transcribe-rs expects (encoder-model.int8.onnx, decoder_joint-model.int8.onnx, nemo128.onnx, vocab.txt)."
     },
     {
       "id": "parakeet-large",
