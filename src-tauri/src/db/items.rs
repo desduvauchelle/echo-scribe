@@ -201,6 +201,68 @@ pub fn soft_delete_item(conn: &Connection, id: &str) -> Result<(), DbError> {
     Ok(())
 }
 
+/// Restore a soft-deleted item (clears `deleted_at`).
+pub fn restore_item(conn: &Connection, id: &str) -> Result<(), DbError> {
+    conn.execute(
+        "UPDATE items SET deleted_at = NULL WHERE id = ?1",
+        params![id],
+    )?;
+    Ok(())
+}
+
+/// In-place item update. Each field is optional; `None` means "leave alone".
+/// `project_id` uses double-Option semantics: outer `None` = leave alone,
+/// outer `Some(None)` = clear, outer `Some(Some(id))` = set.
+#[allow(clippy::too_many_arguments)]
+pub fn update_item(
+    conn: &Connection,
+    id: &str,
+    content: Option<&str>,
+    project_id: Option<Option<&str>>,
+    kind: Option<Option<ItemKind>>,
+) -> Result<(), DbError> {
+    if let Some(c) = content {
+        conn.execute(
+            "UPDATE items SET content = ?1 WHERE id = ?2",
+            params![c, id],
+        )?;
+    }
+    if let Some(pid) = project_id {
+        conn.execute(
+            "UPDATE items SET project_id = ?1 WHERE id = ?2",
+            params![pid, id],
+        )?;
+    }
+    if let Some(k) = kind {
+        conn.execute(
+            "UPDATE items SET kind = ?1 WHERE id = ?2",
+            params![k.map(|kk| kk.as_str()), id],
+        )?;
+    }
+    Ok(())
+}
+
+pub fn replace_tags(conn: &Connection, item_id: &str, tags: &[String]) -> Result<(), DbError> {
+    conn.execute("DELETE FROM item_tags WHERE item_id = ?1", params![item_id])?;
+    for t in tags {
+        conn.execute(
+            "INSERT OR IGNORE INTO item_tags(item_id, tag) VALUES(?1, ?2)",
+            params![item_id, t],
+        )?;
+    }
+    Ok(())
+}
+
+pub fn list_tags_for_item(conn: &Connection, item_id: &str) -> Result<Vec<String>, DbError> {
+    let mut stmt = conn.prepare("SELECT tag FROM item_tags WHERE item_id = ?1 ORDER BY tag ASC")?;
+    let rows = stmt.query_map(params![item_id], |r| r.get::<_, String>(0))?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r?);
+    }
+    Ok(out)
+}
+
 pub fn count_items(conn: &Connection, visibility: Option<Visibility>) -> Result<u32, DbError> {
     let count: i64 = match visibility {
         Some(v) => conn.query_row(
@@ -330,6 +392,77 @@ mod tests {
         // get_item still returns the deleted row (raw fetch).
         let got = get_item(&conn, "a").unwrap().unwrap();
         assert!(got.deleted_at.is_some());
+    }
+
+    #[test]
+    fn restore_item_clears_deleted_at() {
+        let conn = fresh_db();
+        insert_item(
+            &conn,
+            &make_item("a", "x", Visibility::Hidden, "2026-05-01T00:00:00Z"),
+        )
+        .unwrap();
+        soft_delete_item(&conn, "a").unwrap();
+        assert!(list_items(&conn, None, None, 50, 0).unwrap().is_empty());
+        restore_item(&conn, "a").unwrap();
+        assert_eq!(list_items(&conn, None, None, 50, 0).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn update_item_modifies_fields() {
+        let conn = fresh_db();
+        insert_item(
+            &conn,
+            &make_item("a", "x", Visibility::Hidden, "2026-05-01T00:00:00Z"),
+        )
+        .unwrap();
+        // Content + kind set.
+        update_item(&conn, "a", Some("hello"), None, Some(Some(ItemKind::Task))).unwrap();
+        let it = get_item(&conn, "a").unwrap().unwrap();
+        assert_eq!(it.content, "hello");
+        assert_eq!(it.kind, Some(ItemKind::Task));
+
+        // Clear kind via Some(None).
+        update_item(&conn, "a", None, None, Some(None)).unwrap();
+        let it = get_item(&conn, "a").unwrap().unwrap();
+        assert_eq!(it.kind, None);
+
+        // Project id set + clear.
+        // FK requires the project row exists first.
+        crate::db::projects::insert_project(
+            &conn,
+            &crate::db::projects::Project {
+                id: "proj-1".into(),
+                name: "p".into(),
+                created_at: "2026-05-01T00:00:00Z".into(),
+                archived_at: None,
+            },
+        )
+        .unwrap();
+        update_item(&conn, "a", None, Some(Some("proj-1")), None).unwrap();
+        assert_eq!(
+            get_item(&conn, "a").unwrap().unwrap().project_id.as_deref(),
+            Some("proj-1")
+        );
+        update_item(&conn, "a", None, Some(None), None).unwrap();
+        assert!(get_item(&conn, "a").unwrap().unwrap().project_id.is_none());
+    }
+
+    #[test]
+    fn replace_tags_overwrites() {
+        let conn = fresh_db();
+        insert_item(
+            &conn,
+            &make_item("a", "x", Visibility::Hidden, "2026-05-01T00:00:00Z"),
+        )
+        .unwrap();
+        replace_tags(&conn, "a", &["alpha".into(), "beta".into()]).unwrap();
+        assert_eq!(
+            list_tags_for_item(&conn, "a").unwrap(),
+            vec!["alpha".to_string(), "beta".into()]
+        );
+        replace_tags(&conn, "a", &["gamma".into()]).unwrap();
+        assert_eq!(list_tags_for_item(&conn, "a").unwrap(), vec!["gamma".to_string()]);
     }
 
     #[test]

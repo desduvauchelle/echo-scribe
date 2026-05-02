@@ -23,7 +23,9 @@ use crate::asr::pipeline::AsrPipeline;
 use crate::asr::registry::{self, ModelEntry};
 use crate::llm::{self, GenerateRequest, Llm, LlmDownloadProgress, LlmModelEntry};
 use crate::coordinator::{self, new_state_handle, Action, CoordinatorMsg, TrayPipelineState};
-use crate::db::items::ItemKind;
+use crate::db::items::{chrono_now_iso, ItemKind};
+use crate::db::projects::Project;
+use crate::db::tasks::TaskWithItem;
 use crate::db::{self, Db, Item, Visibility};
 use crate::input::binding::{code_from_key, key_from_code, Binding, ModifierKind, ModifierSide, SerKey};
 use crate::input::hotkeys::{spawn_listener, HotkeyEvent};
@@ -580,6 +582,222 @@ pub fn count_items(
     let vis = parse_visibility(visibility)?;
     db.with_conn(|c| db::items::count_items(c, vis))
         .map_err(|e| e.to_string())
+}
+
+// ----- Project commands -----
+
+#[tauri::command]
+pub fn list_projects(
+    state: State<'_, AppState>,
+    include_archived: bool,
+) -> Result<Vec<Project>, String> {
+    let db = require_db(&state)?;
+    db.with_conn(|c| db::projects::list_projects(c, include_archived))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn create_project(state: State<'_, AppState>, name: String) -> Result<Project, String> {
+    let trimmed = name.trim().to_string();
+    if trimmed.is_empty() {
+        return Err("project name cannot be empty".into());
+    }
+    let db = require_db(&state)?;
+    let now = chrono_now_iso();
+    let project = Project {
+        id: ulid::Ulid::new().to_string(),
+        name: trimmed,
+        created_at: now,
+        archived_at: None,
+    };
+    let p = project.clone();
+    db.with_conn(move |c| db::projects::insert_project(c, &p))
+        .map_err(|e| e.to_string())?;
+    Ok(project)
+}
+
+#[tauri::command]
+pub fn rename_project(
+    state: State<'_, AppState>,
+    id: String,
+    name: String,
+) -> Result<(), String> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return Err("project name cannot be empty".into());
+    }
+    let db = require_db(&state)?;
+    db.with_conn(|c| db::projects::rename_project(c, &id, trimmed))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn archive_project(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    let db = require_db(&state)?;
+    let now = chrono_now_iso();
+    db.with_conn(|c| db::projects::archive_project(c, &id, &now))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn unarchive_project(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    let db = require_db(&state)?;
+    db.with_conn(|c| db::projects::unarchive_project(c, &id))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn count_items_for_project(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<u32, String> {
+    let db = require_db(&state)?;
+    db.with_conn(|c| db::projects::count_items_for_project(c, &id))
+        .map_err(|e| e.to_string())
+}
+
+// ----- Task commands -----
+
+#[tauri::command]
+pub fn list_tasks(
+    state: State<'_, AppState>,
+    include_completed: bool,
+    project_id: Option<String>,
+) -> Result<Vec<TaskWithItem>, String> {
+    let db = require_db(&state)?;
+    db.with_conn(|c| db::tasks::list_tasks(c, include_completed, project_id.as_deref()))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn complete_task(state: State<'_, AppState>, item_id: String) -> Result<(), String> {
+    let db = require_db(&state)?;
+    let now = chrono_now_iso();
+    db.with_conn(|c| db::tasks::complete_task(c, &item_id, &now))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn uncomplete_task(state: State<'_, AppState>, item_id: String) -> Result<(), String> {
+    let db = require_db(&state)?;
+    db.with_conn(|c| db::tasks::uncomplete_task(c, &item_id))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn set_task_deadline(
+    state: State<'_, AppState>,
+    item_id: String,
+    deadline_iso: Option<String>,
+) -> Result<(), String> {
+    let db = require_db(&state)?;
+    db.with_conn(|c| db::tasks::set_deadline(c, &item_id, deadline_iso.as_deref()))
+        .map_err(|e| e.to_string())
+}
+
+// ----- Item update / restore -----
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateItemArgs {
+    pub id: String,
+    /// `Some(text)` → update content. `None` → leave alone.
+    pub content: Option<String>,
+    /// Outer `None` → leave alone. `Some(None)` → clear. `Some(Some(id))` → set.
+    #[serde(default, deserialize_with = "deserialize_double_option")]
+    pub project_id: Option<Option<String>>,
+    /// `Some("note")` | `Some("task")` | `Some("")` (clear). `None` → leave alone.
+    pub kind: Option<String>,
+    /// `Some(vec![...])` → replace tag set. `None` → leave alone.
+    pub tags: Option<Vec<String>>,
+}
+
+fn deserialize_double_option<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::Deserialize<'de>,
+{
+    // serde_json: a missing key → field default (Option::None). A present-but-null
+    // key → Some(None). A present value → Some(Some(value)).
+    Option::<T>::deserialize(deserializer).map(Some)
+}
+
+#[tauri::command]
+pub fn update_item(
+    state: State<'_, AppState>,
+    args: UpdateItemArgs,
+) -> Result<Item, String> {
+    let db = require_db(&state)?;
+    let kind_arg: Option<Option<ItemKind>> = match args.kind.as_deref() {
+        None => None,
+        Some("") => Some(None),
+        Some(k) => Some(Some(
+            ItemKind::parse(k).ok_or_else(|| format!("invalid kind: {k}"))?,
+        )),
+    };
+    let id_for_db = args.id.clone();
+    let content_owned = args.content.clone();
+    let project_arg = args.project_id.clone();
+    let tags_arg = args.tags.clone();
+
+    db.with_conn(move |c| {
+        let project_ref: Option<Option<&str>> =
+            project_arg.as_ref().map(|inner| inner.as_deref());
+        db::items::update_item(
+            c,
+            &id_for_db,
+            content_owned.as_deref(),
+            project_ref,
+            kind_arg,
+        )?;
+        if let Some(tags) = &tags_arg {
+            db::items::replace_tags(c, &id_for_db, tags)?;
+        }
+        Ok(())
+    })
+    .map_err(|e| e.to_string())?;
+
+    let id_for_get = args.id.clone();
+    let item = db
+        .with_conn(move |c| db::items::get_item(c, &id_for_get))
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "item not found after update".to_string())?;
+    Ok(item)
+}
+
+#[tauri::command]
+pub fn restore_item(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    let db = require_db(&state)?;
+    db.with_conn(|c| db::items::restore_item(c, &id))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn list_tags_for_item(
+    state: State<'_, AppState>,
+    item_id: String,
+) -> Result<Vec<String>, String> {
+    let db = require_db(&state)?;
+    db.with_conn(|c| db::items::list_tags_for_item(c, &item_id))
+        .map_err(|e| e.to_string())
+}
+
+// ----- Reset onboarding -----
+
+#[tauri::command]
+pub async fn reset_onboarding_and_quit(app: AppHandle) -> Result<(), String> {
+    use tauri_plugin_store::StoreExt;
+    let store = app
+        .store("settings.json")
+        .map_err(|e| e.to_string())?;
+    store.clear();
+    store.save().map_err(|e| e.to_string())?;
+    // Spawn a delayed exit so the command's reply has time to flush.
+    let handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        handle.exit(0);
+    });
+    Ok(())
 }
 
 // ----- LLM model commands -----

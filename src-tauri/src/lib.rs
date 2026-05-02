@@ -21,14 +21,17 @@ use tracing_subscriber::EnvFilter;
 use crate::asr::pipeline::AsrPipeline;
 use crate::asr::registry;
 use crate::commands::{
-    cancel_log_capture, confirm_log_capture, count_items, delete_item, delete_llm_model,
-    delete_speech_model, download_llm_model, download_speech_model,
-    ensure_pipeline_started_from_handle, get_active_llm_model_id, get_active_speech_model_id,
-    get_log_capture_binding, get_voice_at_cursor_binding, is_pipeline_running, list_items,
-    list_llm_models, list_speech_models, open_accessibility_settings, open_microphone_settings,
-    permissions_status, prompt_accessibility_access, request_microphone_access, search_items,
-    set_active_llm_model, set_active_speech_model, start_pipeline, test_llm_inference,
-    update_log_capture_binding, update_voice_at_cursor_binding, AppState,
+    archive_project, cancel_log_capture, complete_task, confirm_log_capture, count_items,
+    count_items_for_project, create_project, delete_item, delete_llm_model, delete_speech_model,
+    download_llm_model, download_speech_model, ensure_pipeline_started_from_handle,
+    get_active_llm_model_id, get_active_speech_model_id, get_log_capture_binding,
+    get_voice_at_cursor_binding, is_pipeline_running, list_items, list_llm_models, list_projects,
+    list_speech_models, list_tags_for_item, list_tasks, open_accessibility_settings,
+    open_microphone_settings, permissions_status, prompt_accessibility_access, rename_project,
+    request_microphone_access, reset_onboarding_and_quit, restore_item, search_items,
+    set_active_llm_model, set_active_speech_model, set_task_deadline, start_pipeline,
+    test_llm_inference, unarchive_project, uncomplete_task, update_item, update_log_capture_binding,
+    update_voice_at_cursor_binding, AppState,
 };
 use crate::llm::Llm;
 use crate::db::Db;
@@ -75,6 +78,20 @@ pub fn run() {
             set_active_llm_model,
             delete_llm_model,
             test_llm_inference,
+            list_projects,
+            create_project,
+            rename_project,
+            archive_project,
+            unarchive_project,
+            count_items_for_project,
+            list_tasks,
+            complete_task,
+            uncomplete_task,
+            set_task_deadline,
+            update_item,
+            restore_item,
+            list_tags_for_item,
+            reset_onboarding_and_quit,
         ])
         .setup(|app| {
             // Tray.
