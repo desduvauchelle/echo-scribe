@@ -1,3 +1,7 @@
+> **SUPERSEDED 2026-05-01.** This brief described the original Swift+Bun-sidecar architecture. The authoritative design is now `docs/superpowers/specs/2026-05-01-tauri-rebuild-design.md` and the current build plan is `docs/superpowers/plans/2026-05-01-phase-0-tauri-skeleton.md`. This file is preserved for historical context only — do not implement against it.
+
+---
+
 # Echo Scribe — Build Plan for Claude Code
 
 This document is the working brief for the agent that will scaffold and build Echo Scribe. It covers **Phase 0** (skeleton + hello-world end-to-end) and **Phase 1** (voice-to-text at cursor on Mac). Beyond Phase 1, stop and ask the user — we will iterate based on what the build actually feels like.
