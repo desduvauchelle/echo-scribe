@@ -93,6 +93,7 @@ pub async fn classify<L: LlmGenerator + ?Sized>(
     let req = GenerateRequest {
         system: Some(system),
         user: transcript.to_string(),
+        history: Vec::new(),
         max_tokens: 256,
         temperature: 0.2,
         stop_strings: Vec::new(),

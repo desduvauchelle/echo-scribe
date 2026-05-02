@@ -1061,11 +1061,104 @@ pub async fn test_llm_inference(
     let req = GenerateRequest {
         system: Some("You are a concise assistant. Reply briefly.".into()),
         user: prompt,
+        history: Vec::new(),
         max_tokens: 128,
         temperature: 0.7,
         stop_strings: Vec::new(),
         grammar_gbnf: None,
     };
+    state.llm.generate(req).await.map_err(|e| e.to_string())
+}
+
+// ----- Memory chat -----
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatTurnInput {
+    pub role: String,    // "user" | "assistant"
+    pub content: String,
+}
+
+/// Extract FTS5-safe keywords from a natural-language message.
+///
+/// Keeps words of 4+ chars, strips non-alphanumeric chars, quotes each word
+/// to prevent FTS5 syntax errors, and caps at 6 keywords joined with OR.
+/// Returns an empty string when no usable keywords remain.
+pub(crate) fn build_rag_query(message: &str) -> String {
+    let keywords: Vec<String> = message
+        .split_whitespace()
+        .filter(|w| w.len() >= 4)
+        .map(|w| {
+            let clean: String = w.chars().filter(|c| c.is_alphanumeric()).collect();
+            clean
+        })
+        .filter(|w| w.len() >= 4)
+        .map(|w| format!("\"{}\"", w))
+        .take(6)
+        .collect();
+    keywords.join(" OR ")
+}
+
+#[tauri::command]
+pub async fn chat_with_memory(
+    state: State<'_, AppState>,
+    message: String,
+    history: Vec<ChatTurnInput>,
+) -> Result<String, String> {
+    if !state.llm.ready() {
+        return Ok(
+            "No local AI model is loaded. Please download one in Settings → AI Model.".to_string(),
+        );
+    }
+
+    // FTS5 retrieval: find up to 6 items relevant to the user's message.
+    let context_items: Vec<String> = if let Some(db) = &state.db {
+        let rag_query = build_rag_query(&message);
+        if rag_query.is_empty() {
+            Vec::new()
+        } else {
+            db.with_conn(|c| db::search::search_items(c, &rag_query, 6))
+                .unwrap_or_default()
+                .into_iter()
+                .map(|item| {
+                    let kind = item.kind.as_ref().map(|k| k.as_str()).unwrap_or("note");
+                    let date = &item.captured_at[..10.min(item.captured_at.len())];
+                    format!("[{date}] ({kind}): {}", item.content)
+                })
+                .collect()
+        }
+    } else {
+        Vec::new()
+    };
+
+    let system = if context_items.is_empty() {
+        "You are a helpful assistant built into Echo Scribe, a voice note and task capture app. \
+         No relevant notes were found for this question. Answer helpfully."
+            .to_string()
+    } else {
+        format!(
+            "You are a helpful assistant built into Echo Scribe. \
+             Here are the user's relevant notes and captures:\n\n---\n{}\n---\n\n\
+             Answer based on these notes when relevant. \
+             If the notes don't address the question, say so and answer from general knowledge.",
+            context_items.join("\n")
+        )
+    };
+
+    let hist: Vec<(String, String)> = history
+        .into_iter()
+        .map(|t| (t.role, t.content))
+        .collect();
+
+    let req = GenerateRequest {
+        system: Some(system),
+        user: message,
+        history: hist,
+        max_tokens: 512,
+        temperature: 0.7,
+        stop_strings: Vec::new(),
+        grammar_gbnf: None,
+    };
+
     state.llm.generate(req).await.map_err(|e| e.to_string())
 }
 
@@ -1121,5 +1214,26 @@ mod tests {
         };
         let err = Binding::try_from(js).unwrap_err();
         assert!(matches!(err, BindingConversionError::UnknownKey(_)));
+    }
+
+    #[test]
+    fn build_rag_query_extracts_long_words() {
+        let q = build_rag_query("what did I say about the project meeting yesterday");
+        assert!(q.contains("\"about\"") || q.contains("\"project\"") || q.contains("\"meeting\"") || q.contains("\"yesterday\""));
+        assert!(!q.contains("\"did\""));
+        assert!(!q.contains("\"the\""));
+    }
+
+    #[test]
+    fn build_rag_query_returns_empty_for_short_message() {
+        assert_eq!(build_rag_query("hi"), "");
+        assert_eq!(build_rag_query("ok go"), "");
+    }
+
+    #[test]
+    fn build_rag_query_strips_punctuation() {
+        let q = build_rag_query("meeting! project?");
+        assert!(q.contains("\"meeting\""));
+        assert!(q.contains("\"project\""));
     }
 }
