@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import HotkeyRebinder from "../components/HotkeyRebinder";
 import SpeechModelPicker from "../components/SpeechModelPicker";
 import {
+  getLogCaptureBinding,
   listSpeechModels,
   openAccessibilitySettings,
   openMicrophoneSettings,
@@ -9,6 +10,7 @@ import {
   promptAccessibilityAccess,
   requestMicrophoneAccess,
   startPipeline,
+  updateLogCaptureBinding,
   type PermissionsStatus,
 } from "../lib/api";
 
@@ -237,6 +239,23 @@ export default function Onboarding({ initialStatus, onStarted }: Props) {
             </p>
             <div className="mt-3">
               <HotkeyRebinder />
+            </div>
+          </div>
+
+          <div>
+            <div className="font-semibold tracking-tight">
+              Log capture shortcut
+            </div>
+            <p className="mt-1 text-sm text-neutral-300">
+              Press and hold to capture a thought or task. Default is Right
+              Option — Echo Scribe will classify it locally and pop a review
+              overlay.
+            </p>
+            <div className="mt-3">
+              <HotkeyRebinder
+                load={getLogCaptureBinding}
+                save={updateLogCaptureBinding}
+              />
             </div>
           </div>
         </div>

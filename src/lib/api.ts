@@ -34,6 +34,47 @@ export const getVoiceAtCursorBinding = (): Promise<JsBinding> =>
 export const updateVoiceAtCursorBinding = (binding: JsBinding): Promise<void> =>
   invoke("update_voice_at_cursor_binding", { binding });
 
+export const getLogCaptureBinding = (): Promise<JsBinding> =>
+  invoke("get_log_capture_binding");
+
+export const updateLogCaptureBinding = (binding: JsBinding): Promise<void> =>
+  invoke("update_log_capture_binding", { binding });
+
+export type Classification = {
+  kind: "note" | "task";
+  project_id: string | null;
+  new_project_name: string | null;
+  tags: string[];
+  deadline_iso: string | null;
+  confidence: number;
+};
+
+export type LogCaptureClassificationReady = {
+  transcript: string;
+  classification: Classification | null;
+  error?: string;
+};
+
+export const confirmLogCapture = (args: {
+  content: string;
+  kind: "note" | "task";
+  project_id: string | null;
+  new_project_name: string | null;
+  tags: string[];
+  deadline_iso: string | null;
+}): Promise<string> =>
+  invoke("confirm_log_capture", {
+    content: args.content,
+    kind: args.kind,
+    projectId: args.project_id,
+    newProjectName: args.new_project_name,
+    tags: args.tags,
+    deadlineIso: args.deadline_iso,
+  });
+
+export const cancelLogCapture = (): Promise<void> =>
+  invoke("cancel_log_capture");
+
 export const startPipeline = (): Promise<void> => invoke("start_pipeline");
 
 export const isPipelineRunning = (): Promise<boolean> =>

@@ -20,6 +20,10 @@ type CaptureState =
 
 type Props = {
   onChange?: (binding: JsBinding) => void;
+  /// Override which command pair this rebinder talks to. Defaults to the
+  /// voice-at-cursor binding for backwards compatibility.
+  load?: () => Promise<JsBinding>;
+  save?: (b: JsBinding) => Promise<void>;
 };
 
 function buildBinding(
@@ -53,19 +57,22 @@ function buildBinding(
   return { primary: primaryCode, modifiers };
 }
 
-export default function HotkeyRebinder({ onChange }: Props) {
+export default function HotkeyRebinder({ onChange, load, save }: Props) {
   const [current, setCurrent] = useState<JsBinding | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [capture, setCapture] = useState<CaptureState>({ kind: "idle" });
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
+  const loader = load ?? getVoiceAtCursorBinding;
+  const saver = save ?? updateVoiceAtCursorBinding;
+
   // Load current binding on mount
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const b = await getVoiceAtCursorBinding();
+        const b = await loader();
         if (!cancelled) setCurrent(b);
       } catch (e) {
         if (!cancelled)
@@ -75,6 +82,7 @@ export default function HotkeyRebinder({ onChange }: Props) {
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Capture-mode key listeners
@@ -136,7 +144,7 @@ export default function HotkeyRebinder({ onChange }: Props) {
     setSaving(true);
     setSaveError(null);
     try {
-      await updateVoiceAtCursorBinding(capture.binding);
+      await saver(capture.binding);
       setCurrent(capture.binding);
       onChange?.(capture.binding);
       setCapture({ kind: "idle" });

@@ -1,5 +1,9 @@
 import HotkeyRebinder from "../components/HotkeyRebinder";
 import SpeechModelPicker from "../components/SpeechModelPicker";
+import {
+  getLogCaptureBinding,
+  updateLogCaptureBinding,
+} from "../lib/api";
 
 type Props = {
   onBack: () => void;
@@ -43,6 +47,23 @@ export default function Settings({ onBack }: Props) {
 
           <div className="mt-4">
             <HotkeyRebinder />
+          </div>
+        </section>
+
+        <section className="mt-8">
+          <h2 className="text-sm font-semibold tracking-tight text-neutral-200">
+            Log capture hotkey
+          </h2>
+          <p className="mt-1 text-sm text-neutral-300">
+            Hold this key combination to capture a thought, idea, or task —
+            classified locally and saved to your log.
+          </p>
+
+          <div className="mt-4">
+            <HotkeyRebinder
+              load={getLogCaptureBinding}
+              save={updateLogCaptureBinding}
+            />
           </div>
         </section>
       </div>

@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
   permissionsStatus,
@@ -9,6 +8,7 @@ import {
 import Onboarding from "./views/Onboarding";
 import Main from "./views/Main";
 import Settings from "./views/Settings";
+import LogCaptureOverlay from "./views/LogCaptureOverlay";
 
 type View = "checking" | "onboarding" | "main" | "settings";
 
@@ -117,10 +117,15 @@ export default function App() {
 
   const dragBar = (
     <div
-      onMouseDown={() => void getCurrentWindow().startDragging()}
-      className="fixed inset-x-0 top-0 z-50 h-8 cursor-move"
+      data-tauri-drag-region
+      className="drag-bar fixed inset-x-0 top-0 z-50 h-8"
     />
   );
+
+  // The LogCapture overlay is mounted at every view so it can pop up
+  // regardless of what's on screen — pressing the LogCapture hotkey from
+  // anywhere in macOS triggers it.
+  const overlay = <LogCaptureOverlay />;
 
   if (view === "checking") {
     return (
@@ -129,6 +134,7 @@ export default function App() {
         <div className="flex h-full items-center justify-center bg-neutral-950 text-sm text-neutral-400">
           Checking…
         </div>
+        {overlay}
         {toastStack}
       </>
     );
@@ -142,6 +148,7 @@ export default function App() {
           initialStatus={initialStatus}
           onStarted={() => setView("main")}
         />
+        {overlay}
         {toastStack}
       </>
     );
@@ -157,6 +164,7 @@ export default function App() {
             setView("main");
           }}
         />
+        {overlay}
         {toastStack}
       </>
     );
@@ -166,6 +174,7 @@ export default function App() {
     <>
       {dragBar}
       <Main key={mainKey} onOpenSettings={() => setView("settings")} />
+      {overlay}
       {toastStack}
     </>
   );
