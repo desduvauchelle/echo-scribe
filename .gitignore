@@ -53,3 +53,16 @@ apps/mac/EchoScribe/Resources/core-runtime
 
 # Old SwiftUI implementation (kept locally for reference, not part of new architecture)
 _old/
+
+# Tauri / Rust
+src-tauri/target/
+src-tauri/gen/
+
+# Vite extras
+dist-ssr/
+*.local
+
+# Editor (allow .vscode/extensions.json so it can be tracked)
+.vscode/*
+!.vscode/extensions.json
+.idea/
