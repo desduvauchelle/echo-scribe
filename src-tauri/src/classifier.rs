@@ -88,8 +88,9 @@ pub async fn classify<L: LlmGenerator + ?Sized>(
     recent_items: &[Item],
     now_iso: &str,
     now_dow: &str,
+    focus: Option<&crate::input::focus::FocusContext>,
 ) -> Result<Classification, ClassifierError> {
-    let system = build_system_prompt(existing_projects, recent_items, now_iso, now_dow);
+    let system = build_system_prompt(existing_projects, recent_items, now_iso, now_dow, focus);
     // We deliberately do NOT use grammar-constrained generation here. The
     // GBNF sampler in llama-cpp-2 0.1.146 has a path where every candidate
     // token gets rejected and the C++ side calls `ggml_abort`, killing the
@@ -215,6 +216,7 @@ fn build_system_prompt(
     recent_items: &[Item],
     now_iso: &str,
     now_dow: &str,
+    focus: Option<&crate::input::focus::FocusContext>,
 ) -> String {
     let mut s = String::with_capacity(1024);
     s.push_str(SYSTEM_PROMPT_BASE);
@@ -242,6 +244,24 @@ fn build_system_prompt(
             let preview: String = it.content.chars().take(140).collect();
             s.push_str("- ");
             s.push_str(&preview);
+            s.push('\n');
+        }
+    }
+    if let Some(ctx) = focus {
+        s.push_str("\nCapture context (where the user was when they started dictating):\n");
+        if let Some(ref name) = ctx.app_name {
+            s.push_str("- App: ");
+            s.push_str(name);
+            s.push('\n');
+        }
+        if let Some(ref title) = ctx.window_title {
+            s.push_str("- Window: ");
+            s.push_str(title);
+            s.push('\n');
+        }
+        if let Some(ref url) = ctx.browser_url {
+            s.push_str("- URL: ");
+            s.push_str(url);
             s.push('\n');
         }
     }
@@ -341,6 +361,7 @@ mod tests {
             deleted_at: None,
             confidence: None,
             classified_by: None,
+            capture_context: None,
         }
     }
 
@@ -350,7 +371,7 @@ mod tests {
             r#"{"kind":"task","project_id":"bogus","new_project_name":null,"tags":[],"deadline_iso":null,"confidence":0.8}"#,
         ]);
         let projects = vec![proj("p1", "Echo")];
-        let c = classify(&stub, "do the thing", &projects, &[], "2026-05-01T10:00:00Z", "Friday")
+        let c = classify(&stub, "do the thing", &projects, &[], "2026-05-01T10:00:00Z", "Friday", None)
             .await
             .unwrap();
         assert_eq!(c.project_id, None);
@@ -362,7 +383,7 @@ mod tests {
         let stub = StubLlm::new(vec![
             r#"{"kind":"task","project_id":null,"new_project_name":"   ","tags":[],"deadline_iso":null,"confidence":0.5}"#,
         ]);
-        let c = classify(&stub, "x", &[], &[], "2026-05-01T10:00:00Z", "Friday").await.unwrap();
+        let c = classify(&stub, "x", &[], &[], "2026-05-01T10:00:00Z", "Friday", None).await.unwrap();
         assert_eq!(c.new_project_name, None);
     }
 
@@ -371,7 +392,7 @@ mod tests {
         let stub = StubLlm::new(vec![
             r#"{"kind":"note","project_id":null,"new_project_name":null,"tags":["Bug","bug","  IDEA  ","idea"],"deadline_iso":null,"confidence":0.9}"#,
         ]);
-        let c = classify(&stub, "x", &[], &[], "2026-05-01T10:00:00Z", "Friday").await.unwrap();
+        let c = classify(&stub, "x", &[], &[], "2026-05-01T10:00:00Z", "Friday", None).await.unwrap();
         assert_eq!(c.tags, vec!["bug".to_string(), "idea".to_string()]);
     }
 
@@ -380,13 +401,13 @@ mod tests {
         let stub = StubLlm::new(vec![
             r#"{"kind":"note","project_id":null,"new_project_name":null,"tags":[],"deadline_iso":null,"confidence":2.5}"#,
         ]);
-        let c = classify(&stub, "x", &[], &[], "2026-05-01T10:00:00Z", "Friday").await.unwrap();
+        let c = classify(&stub, "x", &[], &[], "2026-05-01T10:00:00Z", "Friday", None).await.unwrap();
         assert!((c.confidence - 1.0).abs() < f32::EPSILON);
 
         let stub2 = StubLlm::new(vec![
             r#"{"kind":"note","project_id":null,"new_project_name":null,"tags":[],"deadline_iso":null,"confidence":-0.3}"#,
         ]);
-        let c2 = classify(&stub2, "x", &[], &[], "2026-05-01T10:00:00Z", "Friday").await.unwrap();
+        let c2 = classify(&stub2, "x", &[], &[], "2026-05-01T10:00:00Z", "Friday", None).await.unwrap();
         assert!(c2.confidence >= 0.0 && c2.confidence < f32::EPSILON);
     }
 
@@ -395,7 +416,7 @@ mod tests {
         let stub = StubLlm::new(vec![
             r#"{"kind":"note","project_id":null,"new_project_name":null,"tags":[],"deadline_iso":"2026-05-10T00:00:00Z","confidence":0.5}"#,
         ]);
-        let c = classify(&stub, "x", &[], &[], "2026-05-01T10:00:00Z", "Friday").await.unwrap();
+        let c = classify(&stub, "x", &[], &[], "2026-05-01T10:00:00Z", "Friday", None).await.unwrap();
         assert_eq!(c.deadline_iso, None);
     }
 
@@ -412,6 +433,7 @@ mod tests {
             &[item("earlier note")],
             "2026-05-01T10:00:00Z",
             "Friday",
+            None,
         )
         .await
         .unwrap();
@@ -424,5 +446,27 @@ mod tests {
         assert_eq!(dow_from_iso("2026-05-01T00:00:00Z"), "Friday");
         assert_eq!(dow_from_iso("2024-02-29T12:00:00Z"), "Thursday");
         assert_eq!(dow_from_iso("bad"), "?");
+    }
+
+    #[test]
+    fn build_system_prompt_includes_focus_context() {
+        use crate::input::focus::FocusContext;
+        let ctx = FocusContext {
+            pid: 1234,
+            bundle_id: Some("com.google.Chrome".into()),
+            app_name: Some("Google Chrome".into()),
+            window_title: Some("Inbox — Gmail".into()),
+            browser_url: Some("https://mail.google.com/".into()),
+        };
+        let prompt = build_system_prompt(&[], &[], "2026-05-03T10:00:00Z", "Sunday", Some(&ctx));
+        assert!(prompt.contains("Google Chrome"), "app_name missing from prompt");
+        assert!(prompt.contains("Inbox — Gmail"), "window_title missing from prompt");
+        assert!(prompt.contains("https://mail.google.com/"), "browser_url missing from prompt");
+    }
+
+    #[test]
+    fn build_system_prompt_handles_no_context() {
+        let prompt = build_system_prompt(&[], &[], "2026-05-03T10:00:00Z", "Sunday", None);
+        assert!(!prompt.is_empty());
     }
 }

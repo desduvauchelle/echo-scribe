@@ -90,6 +90,7 @@ pub struct Item {
     pub deleted_at: Option<String>,
     pub confidence: Option<f32>,
     pub classified_by: Option<String>,
+    pub capture_context: Option<String>,
 }
 
 pub(crate) fn row_to_item_for_search(row: &Row<'_>) -> rusqlite::Result<Item> {
@@ -128,15 +129,17 @@ fn row_to_item(row: &Row<'_>) -> rusqlite::Result<Item> {
         deleted_at: row.get("deleted_at")?,
         confidence: row.get::<_, Option<f64>>("confidence")?.map(|v| v as f32),
         classified_by: row.get("classified_by")?,
+        capture_context: row.get("capture_context")?,
     })
 }
 
 pub fn insert_item(conn: &Connection, item: &Item) -> Result<(), DbError> {
     conn.execute(
         "INSERT INTO items
-            (id, content, source, visibility, kind, project_id, captured_at, created_at, deleted_at, confidence, classified_by)
+            (id, content, source, visibility, kind, project_id, captured_at, created_at,
+             deleted_at, confidence, classified_by, capture_context)
          VALUES
-            (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
         params![
             item.id,
             item.content,
@@ -149,6 +152,7 @@ pub fn insert_item(conn: &Connection, item: &Item) -> Result<(), DbError> {
             item.deleted_at,
             item.confidence.map(|f| f as f64),
             item.classified_by,
+            item.capture_context,
         ],
     )?;
     Ok(())
@@ -156,7 +160,8 @@ pub fn insert_item(conn: &Connection, item: &Item) -> Result<(), DbError> {
 
 pub fn get_item(conn: &Connection, id: &str) -> Result<Option<Item>, DbError> {
     let mut stmt = conn.prepare(
-        "SELECT id, content, source, visibility, kind, project_id, captured_at, created_at, deleted_at, confidence, classified_by
+        "SELECT id, content, source, visibility, kind, project_id, captured_at, created_at,
+                deleted_at, confidence, classified_by, capture_context
          FROM items WHERE id = ?1",
     )?;
     let mut rows = stmt.query(params![id])?;
@@ -176,7 +181,8 @@ pub fn list_items(
     offset: u32,
 ) -> Result<Vec<Item>, DbError> {
     let mut sql = String::from(
-        "SELECT id, content, source, visibility, kind, project_id, captured_at, created_at, deleted_at, confidence, classified_by
+        "SELECT id, content, source, visibility, kind, project_id, captured_at, created_at,
+                deleted_at, confidence, classified_by, capture_context
          FROM items WHERE deleted_at IS NULL",
     );
     let mut args: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
@@ -348,6 +354,7 @@ mod tests {
             deleted_at: None,
             confidence: None,
             classified_by: None,
+            capture_context: None,
         }
     }
 

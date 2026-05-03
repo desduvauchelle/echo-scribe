@@ -95,7 +95,7 @@ pub fn list_tasks(
     let mut sql = String::from(
         "SELECT items.id, items.content, items.source, items.visibility, items.kind,
                 items.project_id, items.captured_at, items.created_at, items.deleted_at,
-                items.confidence, items.classified_by,
+                items.confidence, items.classified_by, items.capture_context,
                 tasks.deadline AS deadline, tasks.completed_at AS completed_at
          FROM items
          LEFT JOIN tasks ON tasks.item_id = items.id
@@ -158,6 +158,7 @@ mod tests {
             deleted_at: None,
             confidence: None,
             classified_by: None,
+            capture_context: None,
         }
     }
 
