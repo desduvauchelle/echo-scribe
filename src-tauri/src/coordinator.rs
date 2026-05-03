@@ -253,6 +253,7 @@ pub fn spawn(
                                             db.as_ref(),
                                             event_log_root.as_deref(),
                                             &app,
+                                            pending_context.as_ref().and_then(serialise_context),
                                         );
                                         // Hide the overlay first so it can't
                                         // be the key window when we paste.
@@ -325,6 +326,7 @@ pub fn spawn(
                                             deadline,
                                             confidence,
                                             classified_by,
+                                            pending_context.as_ref().and_then(serialise_context),
                                             db.as_ref(),
                                             event_log_root.as_deref(),
                                         );
@@ -408,6 +410,7 @@ pub fn spawn(
                         deadline_iso,
                         None,
                         Some("user"),
+                        None,  // no context for user-confirmed saves
                         db.as_ref(),
                         event_log_root.as_deref(),
                     );
@@ -465,6 +468,17 @@ fn force_state(state: &StateHandle, to: PipelineState) {
     }
 }
 
+/// Serialise a `FocusContext` to a compact JSON string for storage.
+fn serialise_context(ctx: &crate::input::focus::FocusContext) -> Option<String> {
+    serde_json::to_string(&serde_json::json!({
+        "app_name":     ctx.app_name,
+        "window_title": ctx.window_title,
+        "browser_url":  ctx.browser_url,
+        "bundle_id":    ctx.bundle_id,
+    }))
+    .ok()
+}
+
 /// Insert an item row + append a `voice.captured` event to the disk log.
 /// Best-effort, see Phase 1 docs.
 fn persist_capture(
@@ -472,6 +486,7 @@ fn persist_capture(
     db: Option<&Db>,
     event_log_root: Option<&std::path::Path>,
     app: &AppHandle<Wry>,
+    capture_context: Option<String>,
 ) {
     let id = ulid::Ulid::new().to_string();
     let now = chrono_now_iso();
@@ -489,7 +504,7 @@ fn persist_capture(
             deleted_at: None,
             confidence: None,
             classified_by: None,
-            capture_context: None,
+            capture_context,
         };
         let res = db.with_conn(|c| crate::db::items::insert_item(c, &item));
         match res {
@@ -672,6 +687,7 @@ fn persist_log_capture(
     deadline_iso: Option<String>,
     confidence: Option<f32>,
     classified_by: Option<&str>,
+    capture_context: Option<String>,
     db: Option<&Db>,
     event_log_root: Option<&std::path::Path>,
 ) -> Result<String, String> {
@@ -714,7 +730,7 @@ fn persist_log_capture(
         deleted_at: None,
         confidence,
         classified_by: classified_by.map(|s| s.to_string()),
-        capture_context: None,
+        capture_context,
     };
 
     db.with_conn(|c| crate::db::items::insert_item(c, &item))
