@@ -69,6 +69,59 @@ pub fn search_items_for_project(
     Ok(out)
 }
 
+/// FTS5 search with optional date window and optional project scope.
+/// `from` and `to` are ISO-8601 strings matched against `captured_at`.
+/// When either is `None`, that bound is not applied.
+pub fn search_items_with_date_window(
+    conn: &Connection,
+    query: &str,
+    from: Option<&str>,
+    to: Option<&str>,
+    project_id: Option<&str>,
+    limit: u32,
+) -> Result<Vec<Item>, DbError> {
+    if query.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut sql = String::from(
+        "SELECT items.id, items.content, items.source, items.visibility, items.kind,
+                items.project_id, items.captured_at, items.created_at, items.deleted_at
+         FROM items
+         JOIN items_fts ON items.rowid = items_fts.rowid
+         WHERE items_fts MATCH ?1 AND items.deleted_at IS NULL",
+    );
+    let mut args: Vec<Box<dyn rusqlite::ToSql>> = vec![
+        Box::new(query.to_string()),
+        Box::new(limit as i64),
+    ];
+    let mut next_idx = 3usize;
+
+    if let Some(f) = from {
+        sql.push_str(&format!(" AND items.captured_at >= ?{next_idx}"));
+        args.push(Box::new(f.to_string()));
+        next_idx += 1;
+    }
+    if let Some(t) = to {
+        sql.push_str(&format!(" AND items.captured_at <= ?{next_idx}"));
+        args.push(Box::new(t.to_string()));
+        next_idx += 1;
+    }
+    if let Some(pid) = project_id {
+        sql.push_str(&format!(" AND items.project_id = ?{next_idx}"));
+        args.push(Box::new(pid.to_string()));
+    }
+    sql.push_str(" ORDER BY rank LIMIT ?2");
+
+    let mut stmt = conn.prepare(&sql)?;
+    let params_refs: Vec<&dyn rusqlite::ToSql> = args.iter().map(|b| b.as_ref()).collect();
+    let rows = stmt.query_map(params_refs.as_slice(), row_to_item_for_search)?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r?);
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -168,5 +221,40 @@ mod tests {
         insert_item(&conn, &make_item("a", "hello")).unwrap();
         assert!(search_items(&conn, "", 50).unwrap().is_empty());
         assert!(search_items(&conn, "   ", 50).unwrap().is_empty());
+    }
+
+    #[test]
+    fn search_with_date_window_filters_by_date() {
+        let conn = fresh_db();
+        let mut old = make_item("a", "standup blocker meeting");
+        old.captured_at = "2026-04-01T10:00:00Z".to_string();
+        old.created_at = old.captured_at.clone();
+        insert_item(&conn, &old).unwrap();
+
+        let mut recent = make_item("b", "standup blocker review");
+        recent.captured_at = "2026-05-02T10:00:00Z".to_string();
+        recent.created_at = recent.captured_at.clone();
+        insert_item(&conn, &recent).unwrap();
+
+        let hits = search_items_with_date_window(
+            &conn,
+            "standup",
+            Some("2026-05-01T00:00:00Z"),
+            Some("2026-05-03T00:00:00Z"),
+            None,
+            50,
+        ).unwrap();
+        let ids: Vec<&str> = hits.iter().map(|i| i.id.as_str()).collect();
+        assert!(ids.contains(&"b"));
+        assert!(!ids.contains(&"a"));
+    }
+
+    #[test]
+    fn search_with_date_window_no_window_returns_all() {
+        let conn = fresh_db();
+        insert_item(&conn, &make_item("a", "project planning notes")).unwrap();
+        insert_item(&conn, &make_item("b", "project review session")).unwrap();
+        let hits = search_items_with_date_window(&conn, "project", None, None, None, 50).unwrap();
+        assert_eq!(hits.len(), 2);
     }
 }
