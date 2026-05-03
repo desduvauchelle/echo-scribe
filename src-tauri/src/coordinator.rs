@@ -285,7 +285,7 @@ pub fn spawn(
                                         on_state_change(TrayPipelineState::Idle);
                                     }
                                     Action::LogCapture => {
-                                        let cls = run_classifier(&llm, &text, db.as_ref()).await;
+                                        let cls = run_classifier(&llm, &text, db.as_ref(), pending_context.as_ref().map(|c| c as &_)).await;
                                         feedback::play(Sfx::Ready);
                                         crate::overlay::hide_recording_overlay(&app);
 
@@ -577,10 +577,9 @@ async fn run_classifier(
     llm: &Llm,
     transcript: &str,
     db: Option<&Db>,
+    focus: Option<&crate::input::focus::FocusContext>,
 ) -> Result<Classification, classifier::ClassifierError> {
     if !llm.ready() {
-        // No LLM available: surface a parse-style error so the overlay can
-        // still let the user fill in fields by hand.
         return Err(classifier::ClassifierError::Parse(
             "no llm model is active".into(),
         ));
@@ -598,9 +597,9 @@ async fn run_classifier(
             }),
         None => (Vec::new(), Vec::new()),
     };
-    let now = chrono_now_iso();
+    let now = crate::db::items::chrono_now_iso();
     let dow = classifier::dow_from_iso(&now);
-    classifier::classify(llm, transcript, &projects, &recents, &now, dow).await
+    classifier::classify(llm, transcript, &projects, &recents, &now, dow, focus).await
 }
 
 /// Returns true when the classification meets the user's auto-file criteria:
