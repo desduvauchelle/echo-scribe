@@ -97,6 +97,8 @@ pub fn new_state_handle() -> StateHandle {
 ///   → (LogCapture, Pressed) → Recording(LogCapture) [emit log_capture:recording_started]
 ///       → (LogCapture, Released) → Processing(LogCapture)
 ///           → transcribe + classify [emit log_capture:classification_ready]
+///               → (auto-file shortcut: high confidence + existing project → persist + emit
+///                  log_capture:auto_filed → Idle, skipping AwaitingConfirmation)
 ///               → AwaitingConfirmation
 ///                   → ConfirmLogCapture → persist visible → Idle
 ///                   → CancelLogCapture → discard → Idle
@@ -300,6 +302,12 @@ pub fn spawn(
                                                 );
                                                 match res {
                                                     Ok(item_id) => {
+                                                        info!(
+                                                            item_id = %item_id,
+                                                            project = project_name.as_deref().unwrap_or("(unknown)"),
+                                                            confidence = confidence,
+                                                            "auto-filed log capture"
+                                                        );
                                                         let _ = app.emit("item:created", ());
                                                         notify_auto_filed(&app, &item_id, project_name.as_deref(), kind, &text, confidence);
                                                         true

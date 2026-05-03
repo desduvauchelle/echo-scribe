@@ -133,6 +133,8 @@ export type Item = {
   captured_at: string;
   created_at: string;
   deleted_at: string | null;
+  confidence: number | null;
+  classified_by: string | null;
 };
 
 export type Project = {
