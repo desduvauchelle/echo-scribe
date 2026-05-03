@@ -64,6 +64,7 @@ dist-ssr/
 
 # Worktrees
 .worktrees/
+.claude/worktrees/
 
 # Editor (allow .vscode/extensions.json so it can be tracked)
 .vscode/*
