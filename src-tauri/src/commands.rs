@@ -26,7 +26,8 @@ use crate::coordinator::{self, new_state_handle, Action, CoordinatorMsg, TrayPip
 use crate::db::items::{chrono_now_iso, ItemKind};
 use crate::db::projects::Project;
 use crate::db::tasks::TaskWithItem;
-use crate::db::{self, Db, Item, Visibility};
+use crate::db::{self, ChatMessage, ChatSession, Db, Item, Visibility};
+use crate::db::chat;
 use crate::input::binding::{code_from_key, key_from_code, Binding, ModifierKind, ModifierSide, SerKey};
 use crate::input::hotkeys::{spawn_listener, HotkeyEvent};
 use crate::permissions::{self, MicAccessOutcome, PermissionsStatus, SettingsPane};
@@ -1213,6 +1214,60 @@ pub async fn test_llm_inference(
         grammar_gbnf: None,
     };
     state.llm.generate(req).await.map_err(|e| e.to_string())
+}
+
+// ----- Chat session management -----
+
+#[tauri::command]
+pub fn create_chat_session(
+    state: State<'_, AppState>,
+    project_id: Option<String>,
+) -> Result<ChatSession, String> {
+    let db = require_db(&state)?;
+    let id = ulid::Ulid::new().to_string();
+    db.with_conn(|c| chat::insert_session(c, &id, "New Chat", project_id.as_deref()))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn list_chat_sessions(
+    state: State<'_, AppState>,
+    project_id: Option<String>,
+) -> Result<Vec<ChatSession>, String> {
+    let db = require_db(&state)?;
+    db.with_conn(|c| chat::list_sessions(c, project_id.as_deref()))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn load_chat_messages(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<Vec<ChatMessage>, String> {
+    let db = require_db(&state)?;
+    db.with_conn(|c| chat::load_messages(c, &session_id, 20))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn delete_chat_session(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<(), String> {
+    let db = require_db(&state)?;
+    db.with_conn(|c| chat::delete_session(c, &session_id))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn rename_chat_session(
+    state: State<'_, AppState>,
+    session_id: String,
+    name: String,
+) -> Result<(), String> {
+    let db = require_db(&state)?;
+    db.with_conn(|c| chat::rename_session(c, &session_id, &name))
+        .map_err(|e| e.to_string())
 }
 
 // ----- Memory chat -----
