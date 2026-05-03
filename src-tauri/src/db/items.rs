@@ -77,7 +77,7 @@ impl ItemKind {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Item {
     pub id: String,
     pub content: String,
@@ -88,9 +88,15 @@ pub struct Item {
     pub captured_at: String,
     pub created_at: String,
     pub deleted_at: Option<String>,
+    pub confidence: Option<f32>,
+    pub classified_by: Option<String>,
 }
 
 pub(crate) fn row_to_item_for_search(row: &Row<'_>) -> rusqlite::Result<Item> {
+    row_to_item(row)
+}
+
+pub(crate) fn row_to_item_for_join(row: &Row<'_>) -> rusqlite::Result<Item> {
     row_to_item(row)
 }
 
@@ -120,15 +126,17 @@ fn row_to_item(row: &Row<'_>) -> rusqlite::Result<Item> {
         captured_at: row.get("captured_at")?,
         created_at: row.get("created_at")?,
         deleted_at: row.get("deleted_at")?,
+        confidence: row.get::<_, Option<f64>>("confidence")?.map(|v| v as f32),
+        classified_by: row.get("classified_by")?,
     })
 }
 
 pub fn insert_item(conn: &Connection, item: &Item) -> Result<(), DbError> {
     conn.execute(
         "INSERT INTO items
-            (id, content, source, visibility, kind, project_id, captured_at, created_at, deleted_at)
+            (id, content, source, visibility, kind, project_id, captured_at, created_at, deleted_at, confidence, classified_by)
          VALUES
-            (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
         params![
             item.id,
             item.content,
@@ -139,6 +147,8 @@ pub fn insert_item(conn: &Connection, item: &Item) -> Result<(), DbError> {
             item.captured_at,
             item.created_at,
             item.deleted_at,
+            item.confidence.map(|f| f as f64),
+            item.classified_by,
         ],
     )?;
     Ok(())
@@ -146,7 +156,7 @@ pub fn insert_item(conn: &Connection, item: &Item) -> Result<(), DbError> {
 
 pub fn get_item(conn: &Connection, id: &str) -> Result<Option<Item>, DbError> {
     let mut stmt = conn.prepare(
-        "SELECT id, content, source, visibility, kind, project_id, captured_at, created_at, deleted_at
+        "SELECT id, content, source, visibility, kind, project_id, captured_at, created_at, deleted_at, confidence, classified_by
          FROM items WHERE id = ?1",
     )?;
     let mut rows = stmt.query(params![id])?;
@@ -166,7 +176,7 @@ pub fn list_items(
     offset: u32,
 ) -> Result<Vec<Item>, DbError> {
     let mut sql = String::from(
-        "SELECT id, content, source, visibility, kind, project_id, captured_at, created_at, deleted_at
+        "SELECT id, content, source, visibility, kind, project_id, captured_at, created_at, deleted_at, confidence, classified_by
          FROM items WHERE deleted_at IS NULL",
     );
     let mut args: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
@@ -336,6 +346,8 @@ mod tests {
             captured_at: captured.to_string(),
             created_at: captured.to_string(),
             deleted_at: None,
+            confidence: None,
+            classified_by: None,
         }
     }
 
@@ -392,6 +404,25 @@ mod tests {
         // get_item still returns the deleted row (raw fetch).
         let got = get_item(&conn, "a").unwrap().unwrap();
         assert!(got.deleted_at.is_some());
+    }
+
+    #[test]
+    fn soft_delete_is_idempotent() {
+        // Second call must be a no-op: the WHERE clause excludes already-deleted rows
+        // so the original deleted_at timestamp is preserved.
+        let conn = fresh_db();
+        insert_item(
+            &conn,
+            &make_item("a", "x", Visibility::Hidden, "2026-05-01T00:00:00Z"),
+        )
+        .unwrap();
+        soft_delete_item(&conn, "a").unwrap();
+        let first = get_item(&conn, "a").unwrap().unwrap().deleted_at.unwrap();
+        // Sleep would be flaky; instead just verify the second call doesn't change
+        // the timestamp (the SQL WHERE clause guards against re-stamping).
+        soft_delete_item(&conn, "a").unwrap();
+        let second = get_item(&conn, "a").unwrap().unwrap().deleted_at.unwrap();
+        assert_eq!(first, second, "second soft-delete must not overwrite deleted_at");
     }
 
     #[test]

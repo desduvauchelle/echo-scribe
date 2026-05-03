@@ -90,6 +90,13 @@ CREATE INDEX IF NOT EXISTS idx_chat_sessions_updated ON chat_sessions(updated_at
 CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id, created_at);
 "#,
     ),
+    (
+        3,
+        r#"
+ALTER TABLE items ADD COLUMN confidence REAL;
+ALTER TABLE items ADD COLUMN classified_by TEXT;
+"#,
+    ),
 ];
 
 const META_TABLE_SQL: &str = r#"
@@ -151,7 +158,26 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(v, "2");
+        assert_eq!(v, "3");
+    }
+
+    #[test]
+    fn migration_v3_adds_confidence_and_classified_by() {
+        use rusqlite::Connection;
+        let mut conn = Connection::open_in_memory().unwrap();
+        run_migrations(&mut conn).unwrap();
+        // Running again must be a no-op.
+        run_migrations(&mut conn).unwrap();
+
+        let cols: Vec<String> = conn
+            .prepare("PRAGMA table_info(items)")
+            .unwrap()
+            .query_map([], |r| r.get::<_, String>(1))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        assert!(cols.iter().any(|c| c == "confidence"), "missing confidence column; got {:?}", cols);
+        assert!(cols.iter().any(|c| c == "classified_by"), "missing classified_by column; got {:?}", cols);
     }
 
     #[test]

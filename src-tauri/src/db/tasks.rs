@@ -1,9 +1,9 @@
 //! Task views over items.
 
-use rusqlite::{params, Connection, Row};
+use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 
-use super::items::{Item, ItemKind, ItemSource, Visibility};
+use super::items::{row_to_item_for_join, Item};
 use super::DbError;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -73,40 +73,11 @@ pub fn set_deadline(
     Ok(())
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TaskWithItem {
     pub item: Item,
     pub deadline: Option<String>,
     pub completed_at: Option<String>,
-}
-
-fn row_to_item_for_join(row: &Row<'_>) -> rusqlite::Result<Item> {
-    let source_s: String = row.get("source")?;
-    let visibility_s: String = row.get("visibility")?;
-    let kind_s: Option<String> = row.get("kind")?;
-    Ok(Item {
-        id: row.get("id")?,
-        content: row.get("content")?,
-        source: ItemSource::parse(&source_s).ok_or_else(|| {
-            rusqlite::Error::FromSqlConversionFailure(
-                0,
-                rusqlite::types::Type::Text,
-                format!("invalid source: {source_s}").into(),
-            )
-        })?,
-        visibility: Visibility::parse(&visibility_s).ok_or_else(|| {
-            rusqlite::Error::FromSqlConversionFailure(
-                0,
-                rusqlite::types::Type::Text,
-                format!("invalid visibility: {visibility_s}").into(),
-            )
-        })?,
-        kind: kind_s.and_then(|s| ItemKind::parse(&s)),
-        project_id: row.get("project_id")?,
-        captured_at: row.get("captured_at")?,
-        created_at: row.get("created_at")?,
-        deleted_at: row.get("deleted_at")?,
-    })
 }
 
 /// List tasks. Returns rows joined with their backing item.
@@ -124,6 +95,7 @@ pub fn list_tasks(
     let mut sql = String::from(
         "SELECT items.id, items.content, items.source, items.visibility, items.kind,
                 items.project_id, items.captured_at, items.created_at, items.deleted_at,
+                items.confidence, items.classified_by,
                 tasks.deadline AS deadline, tasks.completed_at AS completed_at
          FROM items
          LEFT JOIN tasks ON tasks.item_id = items.id
@@ -184,6 +156,8 @@ mod tests {
             captured_at: captured.into(),
             created_at: captured.into(),
             deleted_at: None,
+            confidence: None,
+            classified_by: None,
         }
     }
 

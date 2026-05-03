@@ -133,6 +133,8 @@ export type Item = {
   captured_at: string;
   created_at: string;
   deleted_at: string | null;
+  confidence: number | null;
+  classified_by: string | null;
 };
 
 export type Project = {
@@ -404,3 +406,28 @@ export const applyUpdateAndRestart = (): Promise<void> =>
 
 export const dismissUpdate = (version: string): Promise<void> =>
   invoke("dismiss_update", { version });
+
+// ----- Auto-file (confident captures) -----
+
+export type LogCaptureAutoFiled = {
+  item_id: string;
+  project_name: string;
+  kind: "note" | "task";
+  preview: string;
+  confidence: number;
+};
+
+export const undoLogCapture = (itemId: string): Promise<void> =>
+  invoke("undo_log_capture", { itemId });
+
+export const getAutoFileEnabled = (): Promise<boolean> =>
+  invoke("get_auto_file_enabled");
+
+export const setAutoFileEnabled = (enabled: boolean): Promise<void> =>
+  invoke("set_auto_file_enabled", { enabled });
+
+export const getAutoFileThreshold = (): Promise<number> =>
+  invoke("get_auto_file_threshold");
+
+export const setAutoFileThreshold = (threshold: number): Promise<void> =>
+  invoke("set_auto_file_threshold", { threshold });

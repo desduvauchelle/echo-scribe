@@ -5,6 +5,8 @@ import {
   listSpeechModels,
   permissionsStatus,
   startPipeline,
+  undoLogCapture,
+  type LogCaptureAutoFiled,
   type LogCaptureClassificationReady,
   type PermissionsStatus,
 } from "./lib/api";
@@ -71,6 +73,44 @@ function AppShell() {
                 "Local AI not configured — set one in Settings to auto-classify captures.",
             });
           }
+        },
+      );
+      if (cancelled) fn();
+      else unlisten = fn;
+    })();
+    return () => {
+      cancelled = true;
+      if (unlisten) unlisten();
+    };
+  }, [toasts]);
+
+  // Toast-with-undo for high-confidence auto-filed captures. Backend also
+  // fires an OS notification when this window isn't visible.
+  useEffect(() => {
+    let unlisten: UnlistenFn | null = null;
+    let cancelled = false;
+    (async () => {
+      const fn = await listen<LogCaptureAutoFiled>(
+        "log_capture:auto_filed",
+        (event) => {
+          const { item_id, project_name, kind, preview } = event.payload;
+          const kindLabel = kind === "task" ? "Task" : "Note";
+          toasts.push({
+            tone: "success",
+            message: `${kindLabel} filed to ${project_name}\n${preview}`,
+            durationMs: 6000,
+            action: {
+              label: "Undo",
+              onClick: () => {
+                void undoLogCapture(item_id).catch((e) => {
+                  toasts.push({
+                    tone: "error",
+                    message: `Undo failed: ${e instanceof Error ? e.message : String(e)}`,
+                  });
+                });
+              },
+            },
+          });
         },
       );
       if (cancelled) fn();

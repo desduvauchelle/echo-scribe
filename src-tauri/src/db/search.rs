@@ -13,7 +13,8 @@ pub fn search_items(conn: &Connection, query: &str, limit: u32) -> Result<Vec<It
     }
     let mut stmt = conn.prepare(
         "SELECT items.id, items.content, items.source, items.visibility, items.kind,
-                items.project_id, items.captured_at, items.created_at, items.deleted_at
+                items.project_id, items.captured_at, items.created_at, items.deleted_at,
+                items.confidence, items.classified_by
          FROM items
          JOIN items_fts ON items.rowid = items_fts.rowid
          WHERE items_fts MATCH ?1 AND items.deleted_at IS NULL
@@ -41,7 +42,8 @@ pub fn search_items_for_project(
     }
     let sql = if project_id.is_some() {
         "SELECT items.id, items.content, items.source, items.visibility, items.kind,
-                items.project_id, items.captured_at, items.created_at, items.deleted_at
+                items.project_id, items.captured_at, items.created_at, items.deleted_at,
+                items.confidence, items.classified_by
          FROM items
          JOIN items_fts ON items.rowid = items_fts.rowid
          WHERE items_fts MATCH ?1 AND items.deleted_at IS NULL AND items.project_id = ?3
@@ -49,7 +51,8 @@ pub fn search_items_for_project(
          LIMIT ?2"
     } else {
         "SELECT items.id, items.content, items.source, items.visibility, items.kind,
-                items.project_id, items.captured_at, items.created_at, items.deleted_at
+                items.project_id, items.captured_at, items.created_at, items.deleted_at,
+                items.confidence, items.classified_by
          FROM items
          JOIN items_fts ON items.rowid = items_fts.rowid
          WHERE items_fts MATCH ?1 AND items.deleted_at IS NULL
@@ -85,7 +88,8 @@ pub fn search_items_with_date_window(
     }
     let mut sql = String::from(
         "SELECT items.id, items.content, items.source, items.visibility, items.kind,
-                items.project_id, items.captured_at, items.created_at, items.deleted_at
+                items.project_id, items.captured_at, items.created_at, items.deleted_at,
+                items.confidence, items.classified_by
          FROM items
          JOIN items_fts ON items.rowid = items_fts.rowid
          WHERE items_fts MATCH ?1 AND items.deleted_at IS NULL",
@@ -146,6 +150,8 @@ mod tests {
             captured_at: "2026-05-01T00:00:00Z".to_string(),
             created_at: "2026-05-01T00:00:00Z".to_string(),
             deleted_at: None,
+            confidence: None,
+            classified_by: None,
         }
     }
 

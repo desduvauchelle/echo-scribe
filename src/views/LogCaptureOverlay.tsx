@@ -161,6 +161,15 @@ export default function LogCaptureOverlay() {
                 <p className="mt-1 text-xs text-amber-300">
                   Classifier hint unavailable: {stage.error}
                 </p>
+              ) : stage.classification && stage.classification.confidence < 0.75 ? (
+                <p className="mt-1 text-xs text-amber-300">
+                  Low confidence ({Math.round(stage.classification.confidence * 100)}%) —
+                  please double-check the project and kind below.
+                </p>
+              ) : stage.classification && stage.classification.new_project_name ? (
+                <p className="mt-1 text-xs text-amber-300">
+                  Suggesting a new project — confirm the name below before saving.
+                </p>
               ) : (
                 <p className="mt-1 text-xs text-neutral-400">
                   Classifier suggested fields below — adjust as needed.

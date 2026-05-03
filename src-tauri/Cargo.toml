@@ -43,6 +43,7 @@ enigo = "0.2"
 arboard = "3"
 tauri-plugin-store = "2"
 tauri-plugin-autostart = "2"
+tauri-plugin-notification = "2"
 # ASR / Parakeet via ONNX Runtime. We pull only the `onnx` feature; CoreML
 # acceleration is wired up at runtime via `set_ort_accelerator(Auto)`.
 transcribe-rs = { version = "0.3", default-features = false, features = ["onnx", "ort-coreml"] }

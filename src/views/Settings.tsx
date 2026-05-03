@@ -12,12 +12,16 @@ import {
   diagnosticsRecentLog,
   getAsrUnloadSecs,
   getAudioFeedbackEnabled,
+  getAutoFileEnabled,
+  getAutoFileThreshold,
   getLlmUnloadSecs,
   getLogCaptureBinding,
   getMuteWhileRecording,
   resetOnboardingAndQuit,
   setAsrUnloadSecs,
   setAudioFeedbackEnabled,
+  setAutoFileEnabled,
+  setAutoFileThreshold,
   setLlmUnloadSecs,
   setMuteWhileRecording,
   testLlmInference,
@@ -141,7 +145,94 @@ function AiTab() {
       >
         <LlmUnloadTimeoutSelect />
       </Section>
+
+      <AutoFileSettings />
     </div>
+  );
+}
+
+function AutoFileSettings() {
+  const [autoFileEnabled, setAutoFileEnabledLocal] = useState(true);
+  const [autoFileThreshold, setAutoFileThresholdLocal] = useState(0.75);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const [enabled, threshold] = await Promise.all([
+        getAutoFileEnabled().catch(() => true),
+        getAutoFileThreshold().catch(() => 0.75),
+      ]);
+      if (cancelled) return;
+      setAutoFileEnabledLocal(enabled);
+      setAutoFileThresholdLocal(threshold);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return (
+    <Section
+      title="Auto-file confident captures"
+      subtitle="File high-confidence captures silently. New-project proposals always show the review overlay."
+    >
+      <div className="flex flex-col gap-3">
+        <p className="text-xs text-neutral-400">
+          When the local AI is at least <span className="font-mono">
+          {Math.round(autoFileThreshold * 100)}%</span> sure about the project and
+          kind, file the capture silently with a toast (or system notification when
+          the window is closed).
+        </p>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={autoFileEnabled}
+            onChange={async (e) => {
+              const next = e.target.checked;
+              setAutoFileEnabledLocal(next);
+              try {
+                await setAutoFileEnabled(next);
+              } catch {
+                setAutoFileEnabledLocal(!next);
+              }
+            }}
+          />
+          Enable auto-file
+        </label>
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="text-neutral-300">
+            Threshold: {Math.round(autoFileThreshold * 100)}%
+          </span>
+          <input
+            type="range"
+            min={0.5}
+            max={0.95}
+            step={0.05}
+            disabled={!autoFileEnabled}
+            value={autoFileThreshold}
+            onChange={(e) => setAutoFileThresholdLocal(Number(e.target.value))}
+            onMouseUp={async (e) => {
+              const next = Number((e.target as HTMLInputElement).value);
+              try {
+                await setAutoFileThreshold(next);
+              } catch {
+                // Reload from backend on error.
+                getAutoFileThreshold().then(setAutoFileThresholdLocal).catch(() => {});
+              }
+            }}
+            onTouchEnd={async (e) => {
+              const next = Number((e.target as HTMLInputElement).value);
+              try {
+                await setAutoFileThreshold(next);
+              } catch {
+                getAutoFileThreshold().then(setAutoFileThresholdLocal).catch(() => {});
+              }
+            }}
+            className="w-full"
+          />
+        </label>
+      </div>
+    </Section>
   );
 }
 

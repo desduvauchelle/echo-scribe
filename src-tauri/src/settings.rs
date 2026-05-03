@@ -23,12 +23,18 @@ const KEY_LLM_UNLOAD_SECS: &str = "llm_unload_secs";
 const KEY_ASR_UNLOAD_SECS: &str = "asr_unload_secs";
 const KEY_LAST_UPDATE_CHECK: &str = "last_update_check";
 const KEY_DISMISSED_UPDATE_VERSION: &str = "dismissed_update_version";
+const KEY_AUTO_FILE_ENABLED: &str = "auto_file_enabled";
+const KEY_AUTO_FILE_THRESHOLD: &str = "auto_file_threshold";
 
 /// Default: unload the LLM engine after 2 minutes of idle. `0` means never unload.
 pub const DEFAULT_LLM_UNLOAD_SECS: u64 = 120;
 
 /// Default: unload the ASR engine after 2 minutes of idle. `0` means never unload.
 pub const DEFAULT_ASR_UNLOAD_SECS: u64 = 120;
+
+/// Default threshold above which a high-confidence classification is auto-filed
+/// without showing the review overlay.
+pub const DEFAULT_AUTO_FILE_THRESHOLD: f32 = 0.75;
 
 /// Errors raised by [`SettingsStore`].
 #[derive(Debug, Error)]
@@ -343,6 +349,50 @@ impl SettingsStore {
             .map_err(|e| SettingsError::Store(e.to_string()))?;
         Ok(())
     }
+
+    /// Whether log captures with `confidence >= threshold` are filed silently
+    /// (with a toast / notification) instead of opening the review overlay.
+    /// Defaults to `true`. New-project proposals always open the overlay
+    /// regardless of this flag.
+    pub fn auto_file_enabled(&self) -> bool {
+        self.store
+            .get(KEY_AUTO_FILE_ENABLED)
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true)
+    }
+
+    pub fn set_auto_file_enabled(&self, on: bool) -> Result<(), SettingsError> {
+        self.store
+            .set(KEY_AUTO_FILE_ENABLED, serde_json::Value::Bool(on));
+        self.store
+            .save()
+            .map_err(|e| SettingsError::Store(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Threshold (0.0–1.0) for auto-filing. Defaults to
+    /// [`DEFAULT_AUTO_FILE_THRESHOLD`]. Out-of-range stored values are clamped.
+    pub fn auto_file_threshold(&self) -> f32 {
+        let raw = self
+            .store
+            .get(KEY_AUTO_FILE_THRESHOLD)
+            .and_then(|v| v.as_f64())
+            .map(|f| f as f32)
+            .unwrap_or(DEFAULT_AUTO_FILE_THRESHOLD);
+        raw.clamp(0.0, 1.0)
+    }
+
+    pub fn set_auto_file_threshold(&self, t: f32) -> Result<(), SettingsError> {
+        let clamped = t.clamp(0.0, 1.0) as f64;
+        self.store.set(
+            KEY_AUTO_FILE_THRESHOLD,
+            serde_json::Value::from(clamped),
+        );
+        self.store
+            .save()
+            .map_err(|e| SettingsError::Store(e.to_string()))?;
+        Ok(())
+    }
 }
 
 /// The default voice-at-cursor binding used when nothing is stored.
@@ -368,5 +418,17 @@ mod updater_tests {
     #[test]
     fn dismissed_update_version_constant_is_correct() {
         assert_eq!(KEY_DISMISSED_UPDATE_VERSION, "dismissed_update_version");
+    }
+}
+
+#[cfg(test)]
+mod auto_file_tests {
+    use super::*;
+
+    #[test]
+    fn auto_file_constants_are_correct() {
+        assert_eq!(KEY_AUTO_FILE_ENABLED, "auto_file_enabled");
+        assert_eq!(KEY_AUTO_FILE_THRESHOLD, "auto_file_threshold");
+        assert!((DEFAULT_AUTO_FILE_THRESHOLD - 0.75).abs() < f32::EPSILON);
     }
 }
