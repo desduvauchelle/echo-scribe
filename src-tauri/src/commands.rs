@@ -28,6 +28,7 @@ use crate::db::projects::Project;
 use crate::db::tasks::TaskWithItem;
 use crate::db::{self, ChatMessage, ChatSession, Db, Item, Visibility};
 use crate::db::chat;
+use crate::temporal::extract_date_window;
 use crate::input::binding::{code_from_key, key_from_code, Binding, ModifierKind, ModifierSide, SerKey};
 use crate::input::hotkeys::{spawn_listener, HotkeyEvent};
 use crate::permissions::{self, MicAccessOutcome, PermissionsStatus, SettingsPane};
@@ -1272,12 +1273,6 @@ pub fn rename_chat_session(
 
 // ----- Memory chat -----
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ChatTurnInput {
-    pub role: String,    // "user" | "assistant"
-    pub content: String,
-}
-
 /// Extract FTS5-safe keywords from a natural-language message.
 ///
 /// Keeps words of 4+ chars, strips non-alphanumeric chars, quotes each word
@@ -1301,8 +1296,8 @@ pub(crate) fn build_rag_query(message: &str) -> String {
 #[tauri::command]
 pub async fn chat_with_memory(
     state: State<'_, AppState>,
+    session_id: String,
     message: String,
-    history: Vec<ChatTurnInput>,
     project_id: Option<String>,
 ) -> Result<String, String> {
     if !state.llm.ready() {
@@ -1311,35 +1306,72 @@ pub async fn chat_with_memory(
         );
     }
 
-    // FTS5 retrieval: find up to 6 items relevant to the user's message.
-    let context_items: Vec<String> = if let Some(db) = &state.db {
+    let db = require_db(&state)?;
+
+    // Persist the user message.
+    db.with_conn(|c| chat::insert_message(c, &session_id, "user", &message))
+        .map_err(|e| e.to_string())?;
+
+    // Check if this is the first message (session still has placeholder name).
+    let is_new = db
+        .with_conn(|c| chat::list_sessions(c, None))
+        .unwrap_or_default()
+        .iter()
+        .find(|s| s.id == session_id)
+        .map(|s| s.name == "New Chat")
+        .unwrap_or(false);
+
+    // Compute current time for temporal parsing and system prompt.
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let now_secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let now_iso = crate::db::items::chrono_now_iso();
+    let today_str = &now_iso[..10];
+
+    // FTS5 retrieval with optional temporal window.
+    let date_window = extract_date_window(&message, now_secs);
+    let context_items: Vec<String> = {
         let rag_query = build_rag_query(&message);
         if rag_query.is_empty() {
             Vec::new()
         } else {
+            let (from, to) = match &date_window {
+                Some((f, t)) => (Some(f.as_str()), Some(t.as_str())),
+                None => (None, None),
+            };
             db.with_conn(|c| {
-                db::search::search_items_for_project(c, &rag_query, project_id.as_deref(), 6)
+                db::search::search_items_with_date_window(
+                    c,
+                    &rag_query,
+                    from,
+                    to,
+                    project_id.as_deref(),
+                    6,
+                )
             })
-                .unwrap_or_default()
-                .into_iter()
-                .map(|item| {
-                    let kind = item.kind.as_ref().map(|k| k.as_str()).unwrap_or("note");
-                    let date = &item.captured_at[..10.min(item.captured_at.len())];
-                    format!("[{date}] ({kind}): {}", item.content)
-                })
-                .collect()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|item| {
+                let kind = item.kind.as_ref().map(|k| k.as_str()).unwrap_or("note");
+                let date = &item.captured_at[..10.min(item.captured_at.len())];
+                format!("[{date}] ({kind}): {}", item.content)
+            })
+            .collect()
         }
-    } else {
-        Vec::new()
     };
 
     let system = if context_items.is_empty() {
-        "You are a helpful assistant built into Echo Scribe, a voice note and task capture app. \
-         No relevant notes were found for this question. Answer helpfully."
-            .to_string()
+        format!(
+            "You are a helpful assistant built into Echo Scribe, a voice note and task capture app. \
+             Today is {today_str}. \
+             No relevant notes were found for this question. Answer helpfully."
+        )
     } else {
         format!(
             "You are a helpful assistant built into Echo Scribe. \
+             Today is {today_str}. \
              Here are the user's relevant notes and captures:\n\n---\n{}\n---\n\n\
              Answer based on these notes when relevant. \
              If the notes don't address the question, say so and answer from general knowledge.",
@@ -1347,14 +1379,21 @@ pub async fn chat_with_memory(
         )
     };
 
-    let hist: Vec<(String, String)> = history
+    // Load history from DB (last 20 messages), excluding the one just inserted.
+    let history_msgs = db
+        .with_conn(|c| chat::load_messages(c, &session_id, 20))
+        .unwrap_or_default();
+    let hist: Vec<(String, String)> = history_msgs
         .into_iter()
-        .map(|t| (t.role, t.content))
+        .rev()
+        .skip(1)
+        .rev()
+        .map(|m| (m.role, m.content))
         .collect();
 
     let req = GenerateRequest {
         system: Some(system),
-        user: message,
+        user: message.clone(),
         history: hist,
         max_tokens: 512,
         temperature: 0.7,
@@ -1362,7 +1401,21 @@ pub async fn chat_with_memory(
         grammar_gbnf: None,
     };
 
-    state.llm.generate(req).await.map_err(|e| e.to_string())
+    let reply = state.llm.generate(req).await.map_err(|e| e.to_string())?;
+
+    // Persist the assistant reply and touch the session.
+    db.with_conn(|c| chat::insert_message(c, &session_id, "assistant", &reply))
+        .map_err(|e| e.to_string())?;
+    db.with_conn(|c| chat::touch_session(c, &session_id))
+        .map_err(|e| e.to_string())?;
+
+    // Auto-rename on first message: truncate user message to 50 chars.
+    if is_new {
+        let auto_name: String = message.chars().take(50).collect();
+        let _ = db.with_conn(|c| chat::rename_session(c, &session_id, &auto_name));
+    }
+
+    Ok(reply)
 }
 
 #[tauri::command]
