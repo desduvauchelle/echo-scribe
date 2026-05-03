@@ -96,14 +96,15 @@ The existing coordinator handles the dictation lifecycle (push-to-talk, paste, o
 
 A single `ChunkedWavWriter` per stream. Each writer:
 
-- Starts a new `chunk-NNNN.wav` every **600 seconds** of *captured* audio.
-- On rotation, the just-finalized chunk filename is sent over an `mpsc::UnboundedSender<ChunkReady>` channel to the transcription pipeline.
+- Starts a new `chunk-NNNN.wav` every **60 seconds** of *captured* audio.
+- On rotation, the just-finalized chunk filename is sent over an `mpsc::UnboundedSender<ChunkReady>` channel to the transcription pipeline, along with the chunk's `wall_clock_start_ms` and `wall_clock_end_ms`.
 - WAV header is patched and the file is `fsync`'d before the channel send, so the consumer always sees a valid file.
 
-**Why 10-minute chunks:**
-- Crash safety: each finalized chunk is durable, so a crash loses ≤10 min of audio.
-- Pipelined transcription: chunk N transcribes while chunk N+1 records; by the time the user stops, most transcription is already done.
-- Rolling deletion: each WAV is deleted right after its transcription succeeds, so peak disk usage stays ~40 MB rather than ~230 MB for an hour-long meeting.
+**Why 60-second chunks:**
+- **Transcript granularity:** the existing Parakeet wrapper returns plain text per call — no segment-level timestamps. Chunk duration therefore *is* the transcript granularity. 60s gives one transcript entry per minute per speaker, which displays sensibly. (Going shorter increases file I/O without obvious payoff; going longer makes the transcript an unreadable wall.)
+- **Crash safety:** a crash loses ≤60s of audio.
+- **Pipelined transcription:** chunk N transcribes while chunk N+1 records; by stop time most chunks are already transcribed.
+- **Rolling deletion:** each WAV is deleted right after its transcription succeeds, so peak disk usage at any moment is just ~4 MB (a couple of in-flight chunks at ~1.9 MB each), regardless of meeting duration.
 
 ### Pipelined transcription
 
@@ -136,29 +137,28 @@ User stops via the overlay button, hotkey, or auto-stop trigger. `MeetingManager
 
 ### Transcript merge
 
-The two parallel transcription streams produce segments like:
+Each transcribed chunk produces a `Segment` of `{ speaker, start_ms, end_ms, text }`, where `start_ms`/`end_ms` are the chunk's wall-clock window from meeting start, `speaker` is `"you"` (mic) or `"them"` (system), and `text` is the chunk's full transcribed text (or empty if Parakeet's VAD trimmed everything as silence).
 
-```
-mic: [00:14.2 - 00:17.8] "Hey, can you hear me okay?"
-sys: [00:18.5 - 00:21.0] "Yeah, loud and clear."
-```
-
-Merge: collect all segments from both into one `Vec<Segment>`, sort by `start_ms`, tag each with `speaker`. Overlapping segments (interruptions) are kept as-is and rendered side-by-side in the UI; they are not merged into a single line.
+Merge: collect all segments from both streams into one `Vec<Segment>`, sort by `start_ms`. Empty-text segments are dropped. Same-speaker adjacent segments with no gap are *not* coalesced — the per-minute boundary stays useful as a scrubbing anchor in the UI.
 
 ### Stored transcript shape (JSON in `meetings.transcript_json`)
 
 ```json
 {
   "segments": [
-    { "speaker": "you",  "start_ms": 14200, "end_ms": 17800, "text": "Hey, can you hear me okay?" },
-    { "speaker": "them", "start_ms": 18500, "end_ms": 21000, "text": "Yeah, loud and clear." }
+    { "speaker": "you",  "start_ms": 0,     "end_ms": 60000,  "text": "Hey, can you hear me okay?" },
+    { "speaker": "them", "start_ms": 0,     "end_ms": 60000,  "text": "Yeah, loud and clear." },
+    { "speaker": "you",  "start_ms": 60000, "end_ms": 120000, "text": "Great. So about Tuesday's launch..." }
   ],
   "duration_ms": 1834000,
   "asr_model": "parakeet-tdt-0.6b-v2",
+  "chunk_seconds": 60,
   "failed_chunk_count": 0,
   "mic_only": false
 }
 ```
+
+Note: granularity is per-chunk (60s windows), not per-utterance — Parakeet does not return timestamps within a chunk. Both speakers' segments for the same window have the same `start_ms`/`end_ms`; the UI renders them as parallel rows ordered by stream rather than by who spoke first.
 
 Plain-text view of the transcript is also written to `items.body` so the existing FTS5 search picks it up for free.
 
@@ -202,32 +202,54 @@ If the LLM produces a `suggested_title`, it becomes the meeting's default title.
 
 The existing `items` table already has a `kind TEXT` column, so meetings slot in cleanly as `kind="meeting"`. We add a sibling `meetings` table for meeting-specific fields rather than overloading `items` with sparse columns.
 
-### New table: `meetings` (1:1 with `items` rows of `kind="meeting"`)
+### Conventions
+
+The existing `items` table uses **TEXT primary keys** (UUIDs as strings) and **ISO 8601** strings for timestamps. The new `meetings` table follows the same conventions for consistency.
+
+### New tables (migration v7)
 
 ```sql
+-- Meeting-specific fields (1:1 with items rows of kind="meeting")
 CREATE TABLE IF NOT EXISTS meetings (
-  item_id            INTEGER PRIMARY KEY,
-  started_at_ms      INTEGER NOT NULL,
-  ended_at_ms        INTEGER,
-  duration_ms        INTEGER,
-  detected_app       TEXT,
-  detected_app_name  TEXT,
+  item_id            TEXT PRIMARY KEY REFERENCES items(id),
+  started_at         TEXT NOT NULL,             -- ISO 8601, meeting start
+  ended_at           TEXT,                      -- ISO 8601, NULL while in-progress
+  duration_ms        INTEGER,                   -- denormalized for sort
+  detected_app       TEXT,                      -- bundle ID, e.g. "us.zoom.xos"
+  detected_app_name  TEXT,                      -- display name, e.g. "Zoom"
   status             TEXT NOT NULL,
     -- "recording" | "transcribing" | "summarizing" | "complete" | "failed" | "recovered"
   transcript_json    TEXT,
   summary_json       TEXT,
   user_notes         TEXT,
   failed_chunk_count INTEGER NOT NULL DEFAULT 0,
-  FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE
+  mic_only           INTEGER NOT NULL DEFAULT 0 -- 0/1 boolean
 );
 
-CREATE INDEX idx_meetings_started_at ON meetings(started_at_ms DESC);
+CREATE INDEX idx_meetings_started_at ON meetings(started_at DESC);
 CREATE INDEX idx_meetings_status ON meetings(status);
+
+-- Links action-item tasks to their source meeting.
+-- Separate from item_session_links (which is FK'd to chat_sessions with cascade
+-- delete and would break if generalized).
+CREATE TABLE IF NOT EXISTS meeting_action_links (
+  meeting_id TEXT NOT NULL REFERENCES meetings(item_id) ON DELETE CASCADE,
+  item_id    TEXT NOT NULL REFERENCES items(id),
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (meeting_id, item_id)
+);
+
+CREATE INDEX idx_meeting_action_links_item ON meeting_action_links(item_id);
 ```
 
 ### Action item linkage
 
-Action items are rows in the existing `tasks` table, linked to the meeting via the existing `item_session_links` table. No new foreign key columns on `tasks`. On meeting deletion, `item_session_links` rows cascade-clear; the `tasks` rows survive.
+Each LLM-extracted action item becomes:
+1. A new `items` row with `kind="task"`, `content` = the action text, `source="meeting"`.
+2. A new `tasks` row referencing that item id (no deadline by default).
+3. A `meeting_action_links` row tying the new task to the meeting.
+
+Checking off the task in `TasksView` updates `tasks.completed_at`. The link survives task completion. On meeting deletion, the link cascade-clears but the `items`/`tasks` rows survive — the user keeps any tasks they may have been tracking.
 
 ### Search integration
 
@@ -252,13 +274,7 @@ The existing FTS5 `search` index already indexes `items.body` — meetings show 
 
 ### Migration
 
-The project's migration system is "in-code `(version, sql)` list applied sequentially" (per `CODE_STRUCTURE.md`). We append:
-
-```rust
-(N, "CREATE TABLE meetings (...); CREATE INDEX idx_meetings_started_at ...; CREATE INDEX idx_meetings_status ...;")
-```
-
-where `N` is the next unused version. No data backfill needed.
+The project's migration system is the `MIGRATIONS: &[(u32, &str)]` list in `src-tauri/src/db/schema.rs`. The current highest version is **6**; we append a new tuple `(7, "...all CREATE statements above...")`. No data backfill needed.
 
 ### What lives on disk vs. in DB
 
