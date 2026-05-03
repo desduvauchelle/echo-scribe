@@ -3,9 +3,23 @@ use std::time::Duration;
 use thiserror::Error;
 use tracing::{info, warn};
 
-/// Milliseconds to wait after sending Cmd+V before restoring the clipboard.
-/// The target application needs time to read the clipboard contents.
-const RESTORE_DELAY_MS: u64 = 100;
+/// Base milliseconds to wait after sending Cmd+V before restoring the clipboard.
+/// The actual delay is scaled up for longer texts (see `restore_delay_ms`).
+const RESTORE_DELAY_BASE_MS: u64 = 300;
+/// Maximum restore delay cap.
+const RESTORE_DELAY_MAX_MS: u64 = 1500;
+
+/// Compute how long to wait after Cmd+V before restoring the original clipboard.
+///
+/// Short transcriptions: 300ms is plenty. Long ones (from extended recordings)
+/// mean the target app was in App Nap for longer, so its run loop has more
+/// activation backlog to drain before it can process the Cmd+V and read the
+/// clipboard. We scale by text length as a proxy for recording duration.
+fn restore_delay_ms(text_len: usize) -> u64 {
+    // +1ms per 3 chars beyond the first 100, capped at 1500ms total.
+    let extra = (text_len.saturating_sub(100) as u64) / 3;
+    (RESTORE_DELAY_BASE_MS + extra).min(RESTORE_DELAY_MAX_MS)
+}
 
 #[derive(Debug, Error)]
 pub enum PasteError {
@@ -44,9 +58,14 @@ pub fn paste_at_cursor(text: &str) -> Result<(), PasteError> {
 
     // ── Restore original clipboard ───────────────────────────────
     // Wait for the target app to process the paste event, then put
-    // the user's original content back.
+    // the user's original content back. The delay scales with text
+    // length because longer dictations mean the target app was in
+    // background (App Nap) longer and needs more time after activation
+    // to drain its event backlog before it reads the clipboard.
     if let Some(original_text) = original {
-        thread::sleep(Duration::from_millis(RESTORE_DELAY_MS));
+        let delay = restore_delay_ms(text.len());
+        info!(delay_ms = delay, text_len = text.len(), "waiting before clipboard restore");
+        thread::sleep(Duration::from_millis(delay));
         // Best-effort restore — don't fail the transcription if this errors.
         match clipboard.set_text(&original_text) {
             Ok(()) => info!("restored original clipboard content"),
@@ -133,10 +152,17 @@ mod tests {
 
     #[test]
     fn restore_delay_is_reasonable() {
-        // The post-paste delay before restoring clipboard must be
-        // long enough for the target app to read the clipboard (50ms+)
-        // but short enough to not noticeably delay the user (<500ms).
-        assert!(RESTORE_DELAY_MS >= 50);
-        assert!(RESTORE_DELAY_MS <= 500);
+        // Short text: base delay, well above the minimum for app responsiveness.
+        let short = restore_delay_ms(50);
+        assert!(short >= 200, "base delay too low: {short}");
+        assert!(short <= 500, "base delay too high: {short}");
+
+        // Long text: delay grows but stays capped.
+        let long = restore_delay_ms(5000);
+        assert!(long > short, "long text should have longer delay");
+        assert!(long <= RESTORE_DELAY_MAX_MS, "delay must not exceed cap: {long}");
+
+        // Cap is always enforced.
+        assert_eq!(restore_delay_ms(usize::MAX), RESTORE_DELAY_MAX_MS);
     }
 }

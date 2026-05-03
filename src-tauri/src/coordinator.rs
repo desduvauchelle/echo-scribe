@@ -272,7 +272,11 @@ pub fn spawn(
                                             // there. Harmless when paste targets
                                             // an external app.
                                             let _ = app.emit("voice:paste_pending", ());
-                                            std::thread::sleep(std::time::Duration::from_millis(50));
+                                            // 150ms: give the WindowServer time to re-route key
+                                            // focus to the restored app. Apps backgrounded during
+                                            // long recordings may need more than 50ms to complete
+                                            // activation before Cmd+V can be safely delivered.
+                                            std::thread::sleep(std::time::Duration::from_millis(150));
                                         }
                                         info!(chars = text.len(), "pasting transcription");
                                         if let Err(e) = paste_at_cursor(&text) {
@@ -288,66 +292,70 @@ pub fn spawn(
                                         feedback::play(Sfx::Ready);
                                         crate::overlay::hide_recording_overlay(&app);
 
-                                        // Always auto-save immediately; use classifier result when available.
-                                        let (kind, project_id, tags, deadline, confidence) = match &cls {
-                                            Ok(c) => (
+                                        let (enabled, threshold) = app
+                                            .try_state::<crate::commands::AppState>()
+                                            .map(|s| (s.settings.auto_file_enabled(), s.settings.auto_file_threshold()))
+                                            .unwrap_or((true, 0.75));
+
+                                        let auto_file = cls.as_ref().ok().is_some_and(|c| should_auto_file(c, enabled, threshold));
+
+                                        if auto_file {
+                                            let c = cls.as_ref().unwrap();
+                                            let project_name: Option<String> =
+                                                c.project_id.as_deref().and_then(|pid| {
+                                                    db.as_ref().and_then(|db| {
+                                                        db.with_conn(|conn| {
+                                                            crate::db::projects::get_project(conn, pid)
+                                                        })
+                                                        .ok()
+                                                        .flatten()
+                                                        .map(|p| p.name)
+                                                    })
+                                                });
+
+                                            let res = persist_log_capture(
+                                                &text,
                                                 c.kind,
                                                 c.project_id.clone(),
+                                                None,
                                                 c.tags.clone(),
                                                 c.deadline_iso.clone(),
                                                 Some(c.confidence),
-                                            ),
-                                            Err(e) => {
-                                                warn!(?e, "classifier unavailable; saving as note with no project");
-                                                (crate::db::items::ItemKind::Note, None, vec![], None, None)
+                                                Some("ai"),
+                                                db.as_ref(),
+                                                event_log_root.as_deref(),
+                                            );
+                                            match res {
+                                                Ok(item_id) => {
+                                                    info!(item_id = %item_id, "auto-saved log capture");
+                                                    let _ = app.emit("item:created", ());
+                                                    notify_auto_filed(
+                                                        &app,
+                                                        &item_id,
+                                                        project_name.as_deref(),
+                                                        c.kind,
+                                                        &text,
+                                                        c.confidence,
+                                                    );
+                                                }
+                                                Err(e) => {
+                                                    error!(?e, "log capture auto-save failed");
+                                                    let _ = app.emit("asr:error", format!("Save failed: {e}"));
+                                                }
                                             }
-                                        };
-                                        let classified_by = cls.as_ref().ok().map(|_| "ai");
-
-                                        let project_name: Option<String> =
-                                            project_id.as_deref().and_then(|pid| {
-                                                db.as_ref().and_then(|db| {
-                                                    db.with_conn(|conn| {
-                                                        crate::db::projects::get_project(conn, pid)
-                                                    })
-                                                    .ok()
-                                                    .flatten()
-                                                    .map(|p| p.name)
-                                                })
-                                            });
-
-                                        let res = persist_log_capture(
-                                            &text,
-                                            kind,
-                                            project_id,
-                                            None, // never auto-create new projects
-                                            tags,
-                                            deadline,
-                                            confidence,
-                                            classified_by,
-                                            db.as_ref(),
-                                            event_log_root.as_deref(),
-                                        );
-                                        match res {
-                                            Ok(item_id) => {
-                                                info!(item_id = %item_id, "auto-saved log capture");
-                                                let _ = app.emit("item:created", ());
-                                                notify_auto_filed(
-                                                    &app,
-                                                    &item_id,
-                                                    project_name.as_deref(),
-                                                    kind,
-                                                    &text,
-                                                    confidence.unwrap_or(0.0),
-                                                );
-                                            }
-                                            Err(e) => {
-                                                error!(?e, "log capture auto-save failed");
-                                                let _ = app.emit("asr:error", format!("Save failed: {e}"));
-                                            }
+                                            force_state(&state, PipelineState::Idle);
+                                            on_state_change(TrayPipelineState::Idle);
+                                        } else {
+                                            let _ = app.emit(
+                                                "log_capture:classification_ready",
+                                                serde_json::json!({
+                                                    "transcript": text,
+                                                    "classification": cls.as_ref().ok(),
+                                                }),
+                                            );
+                                            force_state(&state, PipelineState::AwaitingConfirmation);
+                                            on_state_change(TrayPipelineState::Processing);
                                         }
-                                        force_state(&state, PipelineState::Idle);
-                                        on_state_change(TrayPipelineState::Idle);
                                     }
                                     Action::Cancel => {
                                         crate::overlay::hide_recording_overlay(&app);

@@ -111,18 +111,14 @@ pub fn run() {
 
     info!(log_dir = %dir.display(), "starting Echo Scribe Phase 6");
 
-    // Explicitly select CoreML for ORT. Auto does the same thing on macOS, but
-    // setting it explicitly + logging makes the choice visible in the startup
-    // log so transcription perf issues can't be silently masked by a CPU
-    // fallback. To force CPU for A/B comparison, set ECHOSCRIBE_ORT_CPU=1.
+    // ORT runs CPU-only. We dropped `ort-coreml` after measuring that CoreML
+    // only accepted ~30% of model ops and added a ~50s first-run graph
+    // compilation cost — net regression. Pin CpuOnly explicitly so any
+    // accidental future re-enabling of `ort-coreml` doesn't silently change
+    // runtime behavior.
     use transcribe_rs::accel::{set_ort_accelerator, OrtAccelerator};
-    let accel = if std::env::var("ECHOSCRIBE_ORT_CPU").is_ok() {
-        OrtAccelerator::CpuOnly
-    } else {
-        OrtAccelerator::CoreMl
-    };
-    set_ort_accelerator(accel);
-    info!(accelerator = %accel, "ORT accelerator selected");
+    set_ort_accelerator(OrtAccelerator::CpuOnly);
+    info!(accelerator = %OrtAccelerator::CpuOnly, "ORT accelerator selected");
 
     tauri::Builder::default()
         .on_window_event(|window, event| {

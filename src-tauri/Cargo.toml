@@ -44,9 +44,11 @@ arboard = "3"
 tauri-plugin-store = "2"
 tauri-plugin-autostart = "2"
 tauri-plugin-notification = "2"
-# ASR / Parakeet via ONNX Runtime. We pull only the `onnx` feature; CoreML
-# acceleration is wired up at runtime via `set_ort_accelerator(Auto)`.
-transcribe-rs = { version = "0.3", default-features = false, features = ["onnx", "ort-coreml"] }
+# ASR / Parakeet via ONNX Runtime. CPU-only — `ort-coreml` was dropped after
+# logs showed CoreML accepted only 15/39 encoder ops and 4/35 decoder ops, and
+# spent ~50s on first-run graph compilation while still running most of the
+# model on CPU through partition boundaries. Handy makes the same choice.
+transcribe-rs = { version = "0.3", default-features = false, features = ["onnx"] }
 # Audio resampling to 16 kHz mono for Parakeet
 rubato = "0.16"
 # Model downloader: small, rustls-only HTTP client + streaming + hashing
