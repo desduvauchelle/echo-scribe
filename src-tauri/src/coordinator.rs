@@ -489,6 +489,7 @@ fn persist_capture(
             deleted_at: None,
             confidence: None,
             classified_by: None,
+            capture_context: None,
         };
         let res = db.with_conn(|c| crate::db::items::insert_item(c, &item));
         match res {
@@ -713,6 +714,7 @@ fn persist_log_capture(
         deleted_at: None,
         confidence,
         classified_by: classified_by.map(|s| s.to_string()),
+        capture_context: None,
     };
 
     db.with_conn(|c| crate::db::items::insert_item(c, &item))

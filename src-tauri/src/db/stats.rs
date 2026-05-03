@@ -238,6 +238,7 @@ mod tests {
             deleted_at: None,
             confidence: None,
             classified_by: None,
+            capture_context: None,
         }
     }
 

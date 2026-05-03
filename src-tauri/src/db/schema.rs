@@ -125,6 +125,12 @@ CREATE INDEX IF NOT EXISTS idx_item_session_links_item ON item_session_links(ite
 CREATE INDEX IF NOT EXISTS idx_item_session_links_session ON item_session_links(session_id);
 "#,
     ),
+    (
+        6,
+        r#"
+ALTER TABLE items ADD COLUMN capture_context TEXT;
+"#,
+    ),
 ];
 
 const META_TABLE_SQL: &str = r#"
@@ -186,7 +192,7 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(v, "5");
+        assert_eq!(v, "6");
     }
 
     #[test]
@@ -206,6 +212,15 @@ mod tests {
             .collect();
         assert!(cols.iter().any(|c| c == "confidence"), "missing confidence column; got {:?}", cols);
         assert!(cols.iter().any(|c| c == "classified_by"), "missing classified_by column; got {:?}", cols);
+    }
+
+    #[test]
+    fn migration_v6_adds_capture_context() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        run_migrations(&mut conn).unwrap();
+        conn.execute_batch(
+            "SELECT capture_context FROM items LIMIT 0"
+        ).expect("capture_context column should exist after migration v6");
     }
 
     #[test]
