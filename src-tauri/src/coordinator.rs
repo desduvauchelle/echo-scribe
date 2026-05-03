@@ -13,7 +13,7 @@ use crate::classifier::{self, Classification};
 use crate::db::items::{chrono_now_iso, Item, ItemSource, Visibility};
 use crate::db::Db;
 use crate::event_log::{self, EventEnvelope};
-use crate::input::focus::{self, FocusSnapshot};
+use crate::input::focus::{self, FocusContext};
 use crate::input::hotkeys::HotkeyEvent;
 use crate::input::paste::paste_at_cursor;
 use crate::llm::Llm;
@@ -128,7 +128,7 @@ pub fn spawn(
         // overlay (a sibling window in this same process) momentarily stole
         // key-window status. Without this, dictating into our own chat input
         // fails because opening the overlay drops first-responder.
-        let mut pending_focus: Option<FocusSnapshot> = None;
+        let mut pending_context: Option<FocusContext> = None;
 
         // Set up audio level callback to feed the overlay waveform.
         {
@@ -176,9 +176,9 @@ pub fn spawn(
                     // Snapshot the frontmost app *before* we touch any UI —
                     // showing the overlay can shift key-window status away
                     // from the user's text field.
-                    pending_focus = focus::capture_frontmost();
-                    if let Some(s) = &pending_focus {
-                        info!(pid = s.pid, bundle = ?s.bundle_id, "captured frontmost app");
+                    pending_context = focus::capture_context();
+                    if let Some(s) = &pending_context {
+                        info!(pid = s.pid, bundle = ?s.bundle_id, app = ?s.app_name, "captured frontmost app");
                     }
                     on_state_change(TrayPipelineState::Recording);
                     crate::audio::mute::on_recording_start();
@@ -261,7 +261,7 @@ pub fn spawn(
                                         // app, then give the WindowServer a
                                         // moment to re-route key focus before
                                         // we post the Cmd+V event.
-                                        if let Some(snap) = pending_focus.take() {
+                                        if let Some(snap) = pending_context.take() {
                                             let ok = focus::restore(&snap);
                                             info!(restored = ok, pid = snap.pid, "restored focus before paste");
                                             // Tell the frontend a paste is
