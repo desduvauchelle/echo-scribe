@@ -407,6 +407,25 @@ mod tests {
     }
 
     #[test]
+    fn soft_delete_is_idempotent() {
+        // Second call must be a no-op: the WHERE clause excludes already-deleted rows
+        // so the original deleted_at timestamp is preserved.
+        let conn = fresh_db();
+        insert_item(
+            &conn,
+            &make_item("a", "x", Visibility::Hidden, "2026-05-01T00:00:00Z"),
+        )
+        .unwrap();
+        soft_delete_item(&conn, "a").unwrap();
+        let first = get_item(&conn, "a").unwrap().unwrap().deleted_at.unwrap();
+        // Sleep would be flaky; instead just verify the second call doesn't change
+        // the timestamp (the SQL WHERE clause guards against re-stamping).
+        soft_delete_item(&conn, "a").unwrap();
+        let second = get_item(&conn, "a").unwrap().unwrap().deleted_at.unwrap();
+        assert_eq!(first, second, "second soft-delete must not overwrite deleted_at");
+    }
+
+    #[test]
     fn restore_item_clears_deleted_at() {
         let conn = fresh_db();
         insert_item(

@@ -40,8 +40,9 @@ use crate::commands::{
     set_active_speech_model, set_audio_feedback_enabled, set_custom_words,
     set_asr_unload_secs, set_filler_removal_enabled, set_filler_words, set_llm_unload_secs, set_mute_while_recording,
     set_onboarding_completed, set_rebinding, set_task_deadline, show_main_window, start_pipeline,
-    test_llm_inference, unarchive_project, uncomplete_task, update_item, update_log_capture_binding,
-    update_voice_at_cursor_binding, AppState,
+    test_llm_inference, unarchive_project, uncomplete_task, undo_log_capture, update_item,
+    update_log_capture_binding, update_voice_at_cursor_binding, get_auto_file_enabled,
+    set_auto_file_enabled, get_auto_file_threshold, set_auto_file_threshold, AppState,
 };
 use crate::llm::Llm;
 use crate::db::Db;
@@ -194,6 +195,11 @@ pub fn run() {
             apply_update_and_restart,
             dismiss_update,
             set_rebinding,
+            undo_log_capture,
+            get_auto_file_enabled,
+            set_auto_file_enabled,
+            get_auto_file_threshold,
+            set_auto_file_threshold,
         ])
         .setup(move |app| {
             // Tray.

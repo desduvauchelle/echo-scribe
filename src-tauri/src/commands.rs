@@ -804,6 +804,57 @@ pub fn restore_item(state: State<'_, AppState>, id: String) -> Result<(), String
         .map_err(|e| e.to_string())
 }
 
+/// Soft-delete an item that the auto-file flow created and emit `item:deleted`
+/// so the frontend can drop its toast / activity feed row. Used by the "Undo"
+/// button shown after a confident capture is auto-filed.
+#[tauri::command]
+pub fn undo_log_capture(
+    item_id: String,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<(), String> {
+    let db = require_db(&state)?;
+    let id_for_db = item_id.clone();
+    db.with_conn(move |c| db::items::soft_delete_item(c, &id_for_db))
+        .map_err(|e| e.to_string())?;
+    let _ = app.emit("item:deleted", item_id);
+    Ok(())
+}
+
+// ----- Auto-file (confident captures) settings -----
+
+#[tauri::command]
+pub fn get_auto_file_enabled(state: State<'_, AppState>) -> bool {
+    state.settings.auto_file_enabled()
+}
+
+#[tauri::command]
+pub fn set_auto_file_enabled(
+    enabled: bool,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    state
+        .settings
+        .set_auto_file_enabled(enabled)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_auto_file_threshold(state: State<'_, AppState>) -> f32 {
+    state.settings.auto_file_threshold()
+}
+
+#[tauri::command]
+pub fn set_auto_file_threshold(
+    threshold: f32,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    state
+        .settings
+        .set_auto_file_threshold(threshold)
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub fn list_tags_for_item(
     state: State<'_, AppState>,
