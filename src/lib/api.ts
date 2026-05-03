@@ -278,12 +278,53 @@ export const testLlmInference = (prompt: string): Promise<string> =>
 
 export type ChatTurn = { role: "user" | "assistant"; content: string };
 
+export type ChatSession = {
+  id: string;
+  name: string;
+  project_id: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ChatMessage = {
+  id: string;
+  session_id: string;
+  role: "user" | "assistant";
+  content: string;
+  created_at: string;
+};
+
+export const createChatSession = (
+  projectId: string | null,
+): Promise<ChatSession> =>
+  invoke("create_chat_session", { projectId });
+
+export const listChatSessions = (
+  projectId: string | null,
+): Promise<ChatSession[]> =>
+  invoke("list_chat_sessions", { projectId });
+
+export const loadChatMessages = (sessionId: string): Promise<ChatMessage[]> =>
+  invoke("load_chat_messages", { sessionId });
+
+export const deleteChatSession = (sessionId: string): Promise<void> =>
+  invoke("delete_chat_session", { sessionId });
+
+export const renameChatSession = (
+  sessionId: string,
+  name: string,
+): Promise<void> => invoke("rename_chat_session", { sessionId, name });
+
 export const chatWithMemory = (
+  sessionId: string,
   message: string,
-  history: ChatTurn[],
   projectId?: string | null,
 ): Promise<string> =>
-  invoke("chat_with_memory", { message, history, projectId: projectId ?? null });
+  invoke("chat_with_memory", {
+    sessionId,
+    message,
+    projectId: projectId ?? null,
+  });
 
 export const resetOnboardingAndQuit = (): Promise<void> =>
   invoke("reset_onboarding_and_quit");
