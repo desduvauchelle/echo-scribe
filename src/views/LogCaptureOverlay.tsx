@@ -76,12 +76,18 @@ export default function LogCaptureOverlay() {
         setStage({ kind: "hidden" });
         setEdit(null);
       });
+      const u4 = await listen("log_capture:auto_filed", () => {
+        if (cancelled) return;
+        setStage({ kind: "hidden" });
+        setEdit(null);
+      });
       if (cancelled) {
         u1();
         u2();
         u3();
+        u4();
       } else {
-        unlisteners.push(u1, u2, u3);
+        unlisteners.push(u1, u2, u3, u4);
       }
     })();
     return () => {

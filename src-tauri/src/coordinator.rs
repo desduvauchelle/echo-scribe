@@ -288,95 +288,66 @@ pub fn spawn(
                                         feedback::play(Sfx::Ready);
                                         crate::overlay::hide_recording_overlay(&app);
 
-                                        // Decide whether to auto-file or open the review overlay.
-                                        let auto_file_settings = match app.try_state::<crate::commands::AppState>() {
-                                            Some(s) => Some((
-                                                s.settings.auto_file_enabled(),
-                                                s.settings.auto_file_threshold(),
-                                            )),
-                                            None => None,
-                                        };
-
-                                        let auto_filed = match (&cls, auto_file_settings) {
-                                            (Ok(c), Some((enabled, threshold)))
-                                                if should_auto_file(c, enabled, threshold) =>
-                                            {
-                                                // Resolve the project name for the toast/notification before
-                                                // we move `c.tags` into persist. `None` means lookup failed
-                                                // (DB unavailable or project missing/deleted) — the OS
-                                                // notification is suppressed in that case.
-                                                let project_name: Option<String> =
-                                                    c.project_id.as_deref().and_then(|pid| {
-                                                        db.as_ref().and_then(|db| {
-                                                            db.with_conn(|conn| {
-                                                                crate::db::projects::get_project(conn, pid)
-                                                            })
-                                                            .ok()
-                                                            .flatten()
-                                                            .map(|p| p.name)
-                                                        })
-                                                    });
-
-                                                let kind = c.kind;
-                                                let project_id = c.project_id.clone();
-                                                let tags = c.tags.clone();
-                                                let deadline = c.deadline_iso.clone();
-                                                let confidence = c.confidence;
-                                                let res = persist_log_capture(
-                                                    &text,
-                                                    kind,
-                                                    project_id,
-                                                    None, // new_project_name — guaranteed None by should_auto_file
-                                                    tags,
-                                                    deadline,
-                                                    Some(confidence),
-                                                    Some("ai"),
-                                                    db.as_ref(),
-                                                    event_log_root.as_deref(),
-                                                );
-                                                match res {
-                                                    Ok(item_id) => {
-                                                        info!(
-                                                            item_id = %item_id,
-                                                            project = project_name.as_deref().unwrap_or("(unknown)"),
-                                                            confidence = confidence,
-                                                            "auto-filed log capture"
-                                                        );
-                                                        let _ = app.emit("item:created", ());
-                                                        notify_auto_filed(&app, &item_id, project_name.as_deref(), kind, &text, confidence);
-                                                        true
-                                                    }
-                                                    Err(e) => {
-                                                        error!(?e, "auto-file persistence failed; falling back to overlay");
-                                                        false
-                                                    }
-                                                }
+                                        // Always auto-save immediately; use classifier result when available.
+                                        let (kind, project_id, tags, deadline, confidence) = match &cls {
+                                            Ok(c) => (
+                                                c.kind,
+                                                c.project_id.clone(),
+                                                c.tags.clone(),
+                                                c.deadline_iso.clone(),
+                                                Some(c.confidence),
+                                            ),
+                                            Err(e) => {
+                                                warn!(?e, "classifier unavailable; saving as note with no project");
+                                                (crate::db::items::ItemKind::Note, None, vec![], None, None)
                                             }
-                                            _ => false,
                                         };
+                                        let classified_by = cls.as_ref().ok().map(|_| "ai");
 
-                                        if !auto_filed {
-                                            let payload = match &cls {
-                                                Ok(c) => serde_json::json!({
-                                                    "transcript": text,
-                                                    "classification": c,
-                                                }),
-                                                Err(e) => {
-                                                    warn!(?e, "classifier failed; emitting null classification");
-                                                    serde_json::json!({
-                                                        "transcript": text,
-                                                        "classification": null,
-                                                        "error": e.to_string(),
+                                        let project_name: Option<String> =
+                                            project_id.as_deref().and_then(|pid| {
+                                                db.as_ref().and_then(|db| {
+                                                    db.with_conn(|conn| {
+                                                        crate::db::projects::get_project(conn, pid)
                                                     })
-                                                }
-                                            };
-                                            let _ = app.emit("log_capture:classification_ready", payload);
-                                            force_state(&state, PipelineState::AwaitingConfirmation);
-                                            on_state_change(TrayPipelineState::Processing);
-                                        } else {
-                                            force_state(&state, PipelineState::Idle);
-                                            on_state_change(TrayPipelineState::Idle);
+                                                    .ok()
+                                                    .flatten()
+                                                    .map(|p| p.name)
+                                                })
+                                            });
+
+                                        let res = persist_log_capture(
+                                            &text,
+                                            kind,
+                                            project_id,
+                                            None, // never auto-create new projects
+                                            tags,
+                                            deadline,
+                                            confidence,
+                                            classified_by,
+                                            db.as_ref(),
+                                            event_log_root.as_deref(),
+                                        );
+                                        match res {
+                                            Ok(item_id) => {
+                                                info!(item_id = %item_id, "auto-saved log capture");
+                                                let _ = app.emit("item:created", ());
+                                                notify_auto_filed(
+                                                    &app,
+                                                    &item_id,
+                                                    project_name.as_deref(),
+                                                    kind,
+                                                    &text,
+                                                    confidence.unwrap_or(0.0),
+                                                );
+                                            }
+                                            Err(e) => {
+                                                error!(?e, "log capture auto-save failed");
+                                                let _ = app.emit("asr:error", format!("Save failed: {e}"));
+                                            }
                                         }
+                                        force_state(&state, PipelineState::Idle);
+                                        on_state_change(TrayPipelineState::Idle);
                                     }
                                     Action::Cancel => {
                                         crate::overlay::hide_recording_overlay(&app);
