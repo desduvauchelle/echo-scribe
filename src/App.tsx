@@ -17,6 +17,7 @@ import LogCaptureOverlay from "./views/LogCaptureOverlay";
 import PermissionWarningBanner from "./components/PermissionWarningBanner";
 import { ToastProvider, useToasts } from "./components/ToastProvider";
 import UpdateBanner from "./components/UpdateBanner";
+import { useVoicePasteFocus } from "./lib/voicePasteFocus";
 
 type View = "checking" | "onboarding" | "main" | "settings";
 
@@ -37,6 +38,11 @@ function AppShell() {
   const [resumeNotice, setResumeNotice] = useState<string | null>(null);
   const [mainKey, setMainKey] = useState(0);
   const toasts = useToasts();
+
+  // Re-focus the last-used text input before the backend pastes, so
+  // dictating into our own chat input works (the recording overlay
+  // momentarily steals first-responder).
+  useVoicePasteFocus();
 
   // Surface backend ASR errors as toasts.
   useEffect(() => {

@@ -13,6 +13,7 @@ use crate::classifier::{self, Classification};
 use crate::db::items::{chrono_now_iso, Item, ItemSource, Visibility};
 use crate::db::Db;
 use crate::event_log::{self, EventEnvelope};
+use crate::input::focus::{self, FocusSnapshot};
 use crate::input::hotkeys::HotkeyEvent;
 use crate::input::paste::paste_at_cursor;
 use crate::llm::Llm;
@@ -121,6 +122,13 @@ pub fn spawn(
     // `LocalSet` on a dedicated thread.
     tokio::task::spawn_local(async move {
         let mut recorder = Recorder::new();
+        // Frontmost-app snapshot taken at hotkey-press time. We restore it
+        // before synthesizing Cmd+V so the paste lands in whichever app the
+        // user was in when they started talking — even if our recording
+        // overlay (a sibling window in this same process) momentarily stole
+        // key-window status. Without this, dictating into our own chat input
+        // fails because opening the overlay drops first-responder.
+        let mut pending_focus: Option<FocusSnapshot> = None;
 
         // Set up audio level callback to feed the overlay waveform.
         {
@@ -164,6 +172,13 @@ pub fn spawn(
                     if !transition_from_idle_to_recording(&state, action) {
                         warn!(?action, "ignored Pressed: not in Idle state");
                         continue;
+                    }
+                    // Snapshot the frontmost app *before* we touch any UI —
+                    // showing the overlay can shift key-window status away
+                    // from the user's text field.
+                    pending_focus = focus::capture_frontmost();
+                    if let Some(s) = &pending_focus {
+                        info!(pid = s.pid, bundle = ?s.bundle_id, "captured frontmost app");
                     }
                     on_state_change(TrayPipelineState::Recording);
                     crate::audio::mute::on_recording_start();
@@ -239,13 +254,32 @@ pub fn spawn(
                                             event_log_root.as_deref(),
                                             &app,
                                         );
+                                        // Hide the overlay first so it can't
+                                        // be the key window when we paste.
+                                        crate::overlay::hide_recording_overlay(&app);
+                                        // Re-activate the originally-frontmost
+                                        // app, then give the WindowServer a
+                                        // moment to re-route key focus before
+                                        // we post the Cmd+V event.
+                                        if let Some(snap) = pending_focus.take() {
+                                            let ok = focus::restore(&snap);
+                                            info!(restored = ok, pid = snap.pid, "restored focus before paste");
+                                            // Tell the frontend a paste is
+                                            // imminent. If our own app was the
+                                            // target, a registered text field
+                                            // (e.g. the chat input) can re-focus
+                                            // itself so the keystroke lands
+                                            // there. Harmless when paste targets
+                                            // an external app.
+                                            let _ = app.emit("voice:paste_pending", ());
+                                            std::thread::sleep(std::time::Duration::from_millis(50));
+                                        }
                                         info!(chars = text.len(), "pasting transcription");
                                         if let Err(e) = paste_at_cursor(&text) {
                                             error!(?e, "paste failed");
                                             let _ =
                                                 app.emit("asr:error", format!("Paste failed: {e}"));
                                         }
-                                        crate::overlay::hide_recording_overlay(&app);
                                         force_state(&state, PipelineState::Idle);
                                         on_state_change(TrayPipelineState::Idle);
                                     }
@@ -488,6 +522,10 @@ fn persist_capture(
         let res = db.with_conn(|c| crate::db::items::insert_item(c, &item));
         match res {
             Ok(_) => {
+                let id_for_event = id.clone();
+                let _ = db.with_conn(|c| {
+                    crate::db::events::insert_event(c, &id_for_event, "created", Some("via voice_at_cursor"))
+                });
                 let _ = app.emit("item:created", ());
             }
             Err(e) => {
@@ -708,6 +746,27 @@ fn persist_log_capture(
 
     db.with_conn(|c| crate::db::items::insert_item(c, &item))
         .map_err(|e| format!("insert item: {e}"))?;
+
+    // Record lifecycle event.
+    {
+        let detail = format!("via log_capture as {}", kind.as_str());
+        let id_for_event = id.clone();
+        let _ = db.with_conn(move |c| {
+            crate::db::events::insert_event(c, &id_for_event, "created", Some(&detail))
+        });
+        if let Some(ref pid) = final_project_id {
+            let id_for_event = id.clone();
+            let pid_clone = pid.clone();
+            let _ = db.with_conn(move |c| {
+                crate::db::events::insert_event(
+                    c,
+                    &id_for_event,
+                    "project_assigned",
+                    Some(&pid_clone),
+                )
+            });
+        }
+    }
 
     // Tags.
     if !tags.is_empty() {

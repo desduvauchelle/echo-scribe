@@ -97,6 +97,34 @@ ALTER TABLE items ADD COLUMN confidence REAL;
 ALTER TABLE items ADD COLUMN classified_by TEXT;
 "#,
     ),
+    (
+        4,
+        r#"
+CREATE TABLE IF NOT EXISTS item_events (
+  id TEXT PRIMARY KEY,
+  item_id TEXT NOT NULL REFERENCES items(id),
+  event_type TEXT NOT NULL,
+  detail TEXT,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_item_events_item ON item_events(item_id, created_at);
+"#,
+    ),
+    (
+        5,
+        r#"
+CREATE TABLE IF NOT EXISTS item_session_links (
+  item_id TEXT NOT NULL REFERENCES items(id),
+  session_id TEXT NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (item_id, session_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_item_session_links_item ON item_session_links(item_id);
+CREATE INDEX IF NOT EXISTS idx_item_session_links_session ON item_session_links(session_id);
+"#,
+    ),
 ];
 
 const META_TABLE_SQL: &str = r#"
@@ -158,7 +186,7 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(v, "3");
+        assert_eq!(v, "5");
     }
 
     #[test]

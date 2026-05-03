@@ -605,7 +605,10 @@ pub fn search_items(
 pub fn delete_item(state: State<'_, AppState>, id: String) -> Result<(), String> {
     let db = require_db(&state)?;
     db.with_conn(|c| db::items::soft_delete_item(c, &id))
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    let id_for_event = id.clone();
+    let _ = db.with_conn(move |c| db::events::insert_event(c, &id_for_event, "deleted", None));
+    Ok(())
 }
 
 #[tauri::command]
@@ -709,14 +712,20 @@ pub fn complete_task(state: State<'_, AppState>, item_id: String) -> Result<(), 
     let db = require_db(&state)?;
     let now = chrono_now_iso();
     db.with_conn(|c| db::tasks::complete_task(c, &item_id, &now))
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    let id_ev = item_id.clone();
+    let _ = db.with_conn(move |c| db::events::insert_event(c, &id_ev, "completed", None));
+    Ok(())
 }
 
 #[tauri::command]
 pub fn uncomplete_task(state: State<'_, AppState>, item_id: String) -> Result<(), String> {
     let db = require_db(&state)?;
     db.with_conn(|c| db::tasks::uncomplete_task(c, &item_id))
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    let id_ev = item_id.clone();
+    let _ = db.with_conn(move |c| db::events::insert_event(c, &id_ev, "uncompleted", None));
+    Ok(())
 }
 
 #[tauri::command]
@@ -791,6 +800,33 @@ pub fn update_item(
     })
     .map_err(|e| e.to_string())?;
 
+    // Record lifecycle events for the changes.
+    if args.content.is_some() {
+        let id_ev = args.id.clone();
+        let _ = db.with_conn(move |c| db::events::insert_event(c, &id_ev, "content_edited", None));
+    }
+    if let Some(ref kind_val) = args.kind {
+        let id_ev = args.id.clone();
+        let detail = if kind_val.is_empty() {
+            "kind cleared".to_string()
+        } else {
+            format!("kind set to {kind_val}")
+        };
+        let _ = db.with_conn(move |c| db::events::insert_event(c, &id_ev, "kind_changed", Some(&detail)));
+    }
+    if let Some(ref proj) = args.project_id {
+        let id_ev = args.id.clone();
+        let detail = match proj {
+            Some(pid) => format!("assigned to project {pid}"),
+            None => "removed from project".to_string(),
+        };
+        let _ = db.with_conn(move |c| db::events::insert_event(c, &id_ev, "project_changed", Some(&detail)));
+    }
+    if args.tags.is_some() {
+        let id_ev = args.id.clone();
+        let _ = db.with_conn(move |c| db::events::insert_event(c, &id_ev, "tags_changed", None));
+    }
+
     let id_for_get = args.id.clone();
     let item = db
         .with_conn(move |c| db::items::get_item(c, &id_for_get))
@@ -803,7 +839,10 @@ pub fn update_item(
 pub fn restore_item(state: State<'_, AppState>, id: String) -> Result<(), String> {
     let db = require_db(&state)?;
     db.with_conn(|c| db::items::restore_item(c, &id))
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    let id_for_event = id.clone();
+    let _ = db.with_conn(move |c| db::events::insert_event(c, &id_for_event, "restored", None));
+    Ok(())
 }
 
 /// Soft-delete an item that the auto-file flow created and emit `item:deleted`
@@ -865,6 +904,197 @@ pub fn list_tags_for_item(
     let db = require_db(&state)?;
     db.with_conn(|c| db::items::list_tags_for_item(c, &item_id))
         .map_err(|e| e.to_string())
+}
+
+// ----- Claude Code session transcript -----
+
+/// List available Claude Code session summaries for this project.
+/// Reads from `~/.claude/projects/<project-path>/.sessions/` if it exists.
+#[tauri::command]
+pub fn list_claude_sessions() -> Result<Vec<ClaudeSessionSummary>, String> {
+    let sessions_dir = claude_sessions_dir().ok_or("Claude sessions directory not found")?;
+    if !sessions_dir.is_dir() {
+        return Ok(Vec::new());
+    }
+    let mut summaries = Vec::new();
+    let entries = std::fs::read_dir(&sessions_dir).map_err(|e| e.to_string())?;
+    for entry in entries {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+            continue;
+        }
+        let session_id = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_string();
+        if session_id.is_empty() {
+            continue;
+        }
+        // Read first and last line for timestamp/preview.
+        let content = match std::fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        let lines: Vec<&str> = content.lines().collect();
+        if lines.is_empty() {
+            continue;
+        }
+        let message_count = lines.len();
+        // Try to extract a preview from the first user message.
+        let mut preview = String::new();
+        let mut timestamp = String::new();
+        for line in &lines {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
+                if timestamp.is_empty() {
+                    if let Some(ts) = v.get("timestamp").and_then(|t| t.as_str()) {
+                        timestamp = ts.to_string();
+                    }
+                }
+                if preview.is_empty() {
+                    if let Some(role) = v.get("role").and_then(|r| r.as_str()) {
+                        if role == "human" || role == "user" {
+                            if let Some(msg) = v.get("content") {
+                                let text = if let Some(s) = msg.as_str() {
+                                    s.to_string()
+                                } else if let Some(arr) = msg.as_array() {
+                                    arr.iter()
+                                        .filter_map(|item| {
+                                            if item.get("type").and_then(|t| t.as_str()) == Some("text") {
+                                                item.get("text").and_then(|t| t.as_str()).map(|s| s.to_string())
+                                            } else {
+                                                None
+                                            }
+                                        })
+                                        .collect::<Vec<_>>()
+                                        .join(" ")
+                                } else {
+                                    String::new()
+                                };
+                                preview = text.chars().take(100).collect();
+                            }
+                        }
+                    }
+                }
+                if !preview.is_empty() && !timestamp.is_empty() {
+                    break;
+                }
+            }
+        }
+        summaries.push(ClaudeSessionSummary {
+            session_id,
+            preview,
+            message_count,
+            timestamp,
+        });
+    }
+    // Sort newest first by timestamp.
+    summaries.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    Ok(summaries)
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ClaudeSessionSummary {
+    pub session_id: String,
+    pub preview: String,
+    pub message_count: usize,
+    pub timestamp: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ClaudeSessionMessage {
+    pub role: String,
+    pub content: String,
+    pub timestamp: String,
+}
+
+/// Load the transcript for a specific Claude Code session.
+#[tauri::command]
+pub fn load_claude_session(session_id: String) -> Result<Vec<ClaudeSessionMessage>, String> {
+    let sessions_dir = claude_sessions_dir().ok_or("Claude sessions directory not found")?;
+    let path = sessions_dir.join(format!("{session_id}.jsonl"));
+    if !path.is_file() {
+        return Err(format!("session file not found: {session_id}"));
+    }
+    let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let mut messages = Vec::new();
+    for line in content.lines() {
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
+            let role = v
+                .get("role")
+                .and_then(|r| r.as_str())
+                .unwrap_or("unknown")
+                .to_string();
+            let timestamp = v
+                .get("timestamp")
+                .and_then(|t| t.as_str())
+                .unwrap_or("")
+                .to_string();
+            // Extract text content.
+            let text = if let Some(content) = v.get("content") {
+                if let Some(s) = content.as_str() {
+                    s.to_string()
+                } else if let Some(arr) = content.as_array() {
+                    arr.iter()
+                        .filter_map(|item| {
+                            if item.get("type").and_then(|t| t.as_str()) == Some("text") {
+                                item.get("text").and_then(|t| t.as_str()).map(|s| s.to_string())
+                            } else {
+                                None
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                } else {
+                    String::new()
+                }
+            } else {
+                String::new()
+            };
+            if !text.is_empty() {
+                messages.push(ClaudeSessionMessage {
+                    role,
+                    content: text,
+                    timestamp,
+                });
+            }
+        }
+    }
+    Ok(messages)
+}
+
+/// Locate the Claude Code sessions directory for this project.
+fn claude_sessions_dir() -> Option<std::path::PathBuf> {
+    let home = dirs::home_dir()?;
+    // Claude Code stores sessions at ~/.claude/projects/<encoded-path>/.sessions/
+    // The project path is the current working directory encoded with dashes.
+    let cwd = std::env::current_dir().ok()?;
+    let cwd_str = cwd.to_string_lossy();
+    // Claude encodes the path by replacing '/' with '-' and prepending '-'.
+    let encoded = cwd_str.replace('/', "-");
+    let sessions = home
+        .join(".claude")
+        .join("projects")
+        .join(&encoded)
+        .join(".sessions");
+    if sessions.is_dir() {
+        return Some(sessions);
+    }
+    // Fallback: scan all project dirs for one that matches our working directory.
+    let projects_dir = home.join(".claude").join("projects");
+    if let Ok(entries) = std::fs::read_dir(&projects_dir) {
+        for entry in entries.flatten() {
+            let sessions_path = entry.path().join(".sessions");
+            if sessions_path.is_dir() {
+                return Some(sessions_path);
+            }
+        }
+    }
+    None
 }
 
 // ----- Reset onboarding -----
@@ -1322,6 +1552,28 @@ pub fn rename_chat_session(
         .map_err(|e| e.to_string())
 }
 
+// ----- Item events & session links -----
+
+#[tauri::command]
+pub fn list_item_events(
+    state: State<'_, AppState>,
+    item_id: String,
+) -> Result<Vec<db::events::ItemEvent>, String> {
+    let db = require_db(&state)?;
+    db.with_conn(|c| db::events::list_events_for_item(c, &item_id))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn list_sessions_for_item(
+    state: State<'_, AppState>,
+    item_id: String,
+) -> Result<Vec<ChatSession>, String> {
+    let db = require_db(&state)?;
+    db.with_conn(|c| db::events::list_sessions_for_item(c, &item_id))
+        .map_err(|e| e.to_string())
+}
+
 // ----- Memory chat -----
 
 /// Extract FTS5-safe keywords from a natural-language message.
@@ -1329,6 +1581,19 @@ pub fn rename_chat_session(
 /// Keeps words of 4+ chars, strips non-alphanumeric chars, quotes each word
 /// to prevent FTS5 syntax errors, and caps at 6 keywords joined with OR.
 /// Returns an empty string when no usable keywords remain.
+#[derive(serde::Serialize, Clone)]
+pub struct ContextSource {
+    pub date: String,
+    pub kind: String,
+    pub content: String,
+}
+
+#[derive(serde::Serialize)]
+pub struct ChatReply {
+    pub reply: String,
+    pub sources: Vec<ContextSource>,
+}
+
 pub(crate) fn build_rag_query(message: &str) -> String {
     let keywords: Vec<String> = message
         .split_whitespace()
@@ -1350,11 +1615,12 @@ pub async fn chat_with_memory(
     session_id: String,
     message: String,
     project_id: Option<String>,
-) -> Result<String, String> {
+) -> Result<ChatReply, String> {
     if !state.llm.ready() {
-        return Ok(
-            "No local AI model is loaded. Please download one in Settings → AI Model.".to_string(),
-        );
+        return Ok(ChatReply {
+            reply: "No local AI model is loaded. Please download one in Settings → AI Model.".to_string(),
+            sources: Vec::new(),
+        });
     }
 
     let db = require_db(&state)?;
@@ -1383,7 +1649,7 @@ pub async fn chat_with_memory(
 
     // FTS5 retrieval with optional temporal window.
     let date_window = extract_date_window(&message, now_secs);
-    let context_items: Vec<String> = {
+    let sources: Vec<ContextSource> = {
         let rag_query = build_rag_query(&message);
         if rag_query.is_empty() {
             Vec::new()
@@ -1392,7 +1658,7 @@ pub async fn chat_with_memory(
                 Some((f, t)) => (Some(f.as_str()), Some(t.as_str())),
                 None => (None, None),
             };
-            db.with_conn(|c| {
+            let raw_items = db.with_conn(|c| {
                 db::search::search_items_with_date_window(
                     c,
                     &rag_query,
@@ -1402,31 +1668,48 @@ pub async fn chat_with_memory(
                     6,
                 )
             })
-            .unwrap_or_default()
-            .into_iter()
-            .map(|item| {
-                let kind = item.kind.as_ref().map(|k| k.as_str()).unwrap_or("note");
-                let date = &item.captured_at[..10.min(item.captured_at.len())];
-                format!("[{date}] ({kind}): {}", item.content)
-            })
-            .collect()
+            .unwrap_or_default();
+            let mut out = Vec::with_capacity(raw_items.len());
+            for item in raw_items {
+                // Record that this item was referenced in this session.
+                let iid = item.id.clone();
+                let sid = session_id.clone();
+                let _ = db.with_conn(move |c| db::events::link_item_to_session(c, &iid, &sid));
+                let kind = item.kind.as_ref().map(|k| k.as_str()).unwrap_or("note").to_string();
+                let date = item.captured_at[..10.min(item.captured_at.len())].to_string();
+                out.push(ContextSource { date, kind, content: item.content });
+            }
+            out
         }
     };
 
-    let system = if context_items.is_empty() {
+    let temporal_note = if date_window.is_some() && sources.is_empty() {
+        " No captures were found for the requested time period — do not guess or invent content."
+    } else {
+        ""
+    };
+
+    let system = if sources.is_empty() {
         format!(
             "You are a helpful assistant built into Echo Scribe, a voice note and task capture app. \
              Today is {today_str}. \
-             No relevant notes were found for this question. Answer helpfully."
+             No relevant notes were found for this question.{temporal_note} \
+             Do not invent or fabricate any captures or activities. \
+             If the user is asking what they did or said, tell them no matching captures were found."
         )
     } else {
+        let context_lines: Vec<String> = sources
+            .iter()
+            .map(|s| format!("[{}] ({}): {}", s.date, s.kind, s.content))
+            .collect();
         format!(
             "You are a helpful assistant built into Echo Scribe. \
              Today is {today_str}. \
              Here are the user's relevant notes and captures:\n\n---\n{}\n---\n\n\
-             Answer based on these notes when relevant. \
-             If the notes don't address the question, say so and answer from general knowledge.",
-            context_items.join("\n")
+             Answer based only on these notes. \
+             Do not invent or add content beyond what is shown above. \
+             If the notes don't address the question, say so explicitly.",
+            context_lines.join("\n")
         )
     };
 
@@ -1466,7 +1749,7 @@ pub async fn chat_with_memory(
         let _ = db.with_conn(|c| chat::rename_session(c, &session_id, &auto_name));
     }
 
-    Ok(reply)
+    Ok(ChatReply { reply, sources })
 }
 
 #[tauri::command]
@@ -1507,6 +1790,20 @@ pub fn set_asr_unload_secs(
         .asr
         .set_unload_timeout(std::time::Duration::from_secs(secs));
     Ok(())
+}
+
+// ----- Dashboard analytics -----
+
+#[tauri::command]
+pub fn get_dashboard_stats(state: State<'_, AppState>) -> Result<db::stats::DashboardStats, String> {
+    let db = require_db(&state)?;
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    db.with_conn(|c| db::stats::dashboard_stats(c, now))
+        .map_err(|e| e.to_string())
 }
 
 #[cfg(test)]

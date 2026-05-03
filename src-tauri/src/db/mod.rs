@@ -17,7 +17,9 @@ pub mod items;
 pub mod projects;
 pub mod schema;
 pub mod chat;
+pub mod events;
 pub mod search;
+pub mod stats;
 pub mod tasks;
 
 pub use chat::{ChatMessage, ChatSession};

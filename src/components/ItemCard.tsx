@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { Item, Project } from "../lib/api";
 import { listTagsForItem, updateItem } from "../lib/api";
 import { relativeTime } from "../lib/format";
+import ItemDetailPanel from "./ItemDetailPanel";
 
 type Props = {
   item: Item;
@@ -77,6 +78,7 @@ export default function ItemCard({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(item.content);
   const [expanded, setExpanded] = useState(false);
+  const [showDetail, setShowDetail] = useState(false);
   const [busy, setBusy] = useState(false);
   const [tags, setTags] = useState<string[]>([]);
 
@@ -197,7 +199,16 @@ export default function ItemCard({
               {expanded ? "Show less" : "Show more"}
             </button>
           ) : null}
+          <button
+            type="button"
+            onClick={() => setShowDetail((v) => !v)}
+            className="text-neutral-500 underline-offset-2 hover:text-neutral-300 hover:underline"
+          >
+            {showDetail ? "Hide details" : "Details"}
+          </button>
         </div>
+
+        {showDetail ? <ItemDetailPanel itemId={item.id} /> : null}
       </div>
 
       <div className="flex shrink-0 flex-col items-end gap-1">

@@ -215,10 +215,13 @@ impl AsrPipeline {
             return Ok(String::new());
         }
 
+        let resampled_samples = resampled.len();
+
         // Strip silent frames so Parakeet only sees speech audio.
         // filter_silence returns the original buffer if the whole recording
         // is below the energy threshold, so this is always safe.
         let resampled = crate::audio::vad::filter_silence(&resampled);
+        let post_vad_samples = resampled.len();
 
         // Run inference. The engine itself is `Send` and we hold it through a
         // blocking task to keep the ONNX session pinned to one thread for the
@@ -240,11 +243,25 @@ impl AsrPipeline {
 
         let inference_ms = t1.elapsed().as_millis();
         let total_ms = t0.elapsed().as_millis();
+        // Audio length in ms (16 kHz mono → ms = samples / 16).
+        let audio_ms = resampled_samples / 16;
+        let post_vad_ms = post_vad_samples / 16;
+        // Real-time factor: inference_ms / audio_ms. <1 = faster than realtime.
+        // On Apple Silicon w/ CoreML we expect ~0.1–0.3 for the 0.6B int8 model;
+        // RTF >= 1.0 strongly suggests CoreML isn't binding ops and we're on CPU.
+        let rtf = if audio_ms > 0 {
+            inference_ms as f64 / audio_ms as f64
+        } else {
+            0.0
+        };
         info!(
             input_samples,
+            audio_ms,
+            post_vad_ms,
             resample_ms,
             inference_ms,
             total_ms,
+            rtf = format!("{:.2}", rtf),
             text_len = text.len(),
             "transcription complete"
         );

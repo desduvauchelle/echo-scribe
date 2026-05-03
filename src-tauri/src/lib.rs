@@ -43,7 +43,10 @@ use crate::commands::{
     set_onboarding_completed, set_rebinding, set_task_deadline, show_main_window, start_pipeline,
     test_llm_inference, unarchive_project, uncomplete_task, undo_log_capture, update_item,
     update_log_capture_binding, update_voice_at_cursor_binding, get_auto_file_enabled,
-    set_auto_file_enabled, get_auto_file_threshold, set_auto_file_threshold, AppState,
+    set_auto_file_enabled, get_auto_file_threshold, set_auto_file_threshold,
+    list_item_events, list_sessions_for_item, list_claude_sessions, load_claude_session,
+    get_dashboard_stats,
+    AppState,
 };
 use crate::llm::Llm;
 use crate::db::Db;
@@ -107,6 +110,19 @@ pub fn run() {
     let mut guard_slot: Option<WorkerGuard> = Some(guard);
 
     info!(log_dir = %dir.display(), "starting Echo Scribe Phase 6");
+
+    // Explicitly select CoreML for ORT. Auto does the same thing on macOS, but
+    // setting it explicitly + logging makes the choice visible in the startup
+    // log so transcription perf issues can't be silently masked by a CPU
+    // fallback. To force CPU for A/B comparison, set ECHOSCRIBE_ORT_CPU=1.
+    use transcribe_rs::accel::{set_ort_accelerator, OrtAccelerator};
+    let accel = if std::env::var("ECHOSCRIBE_ORT_CPU").is_ok() {
+        OrtAccelerator::CpuOnly
+    } else {
+        OrtAccelerator::CoreMl
+    };
+    set_ort_accelerator(accel);
+    info!(accelerator = %accel, "ORT accelerator selected");
 
     tauri::Builder::default()
         .on_window_event(|window, event| {
@@ -206,6 +222,11 @@ pub fn run() {
             set_auto_file_enabled,
             get_auto_file_threshold,
             set_auto_file_threshold,
+            list_item_events,
+            list_sessions_for_item,
+            list_claude_sessions,
+            load_claude_session,
+            get_dashboard_stats,
         ])
         .setup(move |app| {
             // Tray.

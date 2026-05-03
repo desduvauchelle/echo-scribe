@@ -317,11 +317,22 @@ export const renameChatSession = (
   name: string,
 ): Promise<void> => invoke("rename_chat_session", { sessionId, name });
 
+export type ContextSource = {
+  date: string;
+  kind: string;
+  content: string;
+};
+
+export type ChatReply = {
+  reply: string;
+  sources: ContextSource[];
+};
+
 export const chatWithMemory = (
   sessionId: string,
   message: string,
   projectId?: string | null,
-): Promise<string> =>
+): Promise<ChatReply> =>
   invoke("chat_with_memory", {
     sessionId,
     message,
@@ -431,3 +442,68 @@ export const getAutoFileThreshold = (): Promise<number> =>
 
 export const setAutoFileThreshold = (threshold: number): Promise<void> =>
   invoke("set_auto_file_threshold", { threshold });
+
+// ----- Item events (lifecycle log) -----
+
+export type ItemEvent = {
+  id: string;
+  item_id: string;
+  event_type: string;
+  detail: string | null;
+  created_at: string;
+};
+
+export const listItemEvents = (itemId: string): Promise<ItemEvent[]> =>
+  invoke("list_item_events", { itemId });
+
+export const listSessionsForItem = (
+  itemId: string,
+): Promise<ChatSession[]> =>
+  invoke("list_sessions_for_item", { itemId });
+
+// ----- Claude Code session transcript -----
+
+export type ClaudeSessionSummary = {
+  session_id: string;
+  preview: string;
+  message_count: number;
+  timestamp: string;
+};
+
+export type ClaudeSessionMessage = {
+  role: string;
+  content: string;
+  timestamp: string;
+};
+
+export const listClaudeSessions = (): Promise<ClaudeSessionSummary[]> =>
+  invoke("list_claude_sessions");
+
+export const loadClaudeSession = (
+  sessionId: string,
+): Promise<ClaudeSessionMessage[]> =>
+  invoke("load_claude_session", { sessionId });
+
+// ----- Dashboard analytics -----
+
+export type PeriodStats = {
+  transcriptions: number;
+  words: number;
+};
+
+export type DashboardStats = {
+  today: PeriodStats;
+  week: PeriodStats;
+  month: PeriodStats;
+  all_time: PeriodStats;
+  /** [date_str, count] tuples for last 90 days, oldest first */
+  daily_counts: [string, number][];
+  current_streak: number;
+  longest_streak: number;
+  avg_words_per_capture: number;
+  /** Busiest hour 0-23, or null if no data */
+  busiest_hour: number | null;
+};
+
+export const getDashboardStats = (): Promise<DashboardStats> =>
+  invoke("get_dashboard_stats");

@@ -10,12 +10,14 @@ import ActivityFeed from "./sections/ActivityFeed";
 import TasksView from "./sections/TasksView";
 import SearchView from "./sections/SearchView";
 import ChatView from "./sections/ChatView";
+import DashboardView from "./sections/DashboardView";
 
 export type MainSection =
   | { kind: "activity" }
   | { kind: "tasks" }
   | { kind: "search" }
   | { kind: "chat" }
+  | { kind: "dashboard" }
   | { kind: "project"; id: string };
 
 type Props = {
@@ -90,6 +92,8 @@ export default function Main({ onOpenSettings }: Props) {
         return <SearchView projects={projectMap} />;
       case "chat":
         return <ChatView projects={projects} />;
+      case "dashboard":
+        return <DashboardView />;
     }
   };
 
@@ -127,6 +131,11 @@ export default function Main({ onOpenSettings }: Props) {
             label="Chat"
             active={section.kind === "chat"}
             onClick={() => setSection({ kind: "chat" })}
+          />
+          <NavItem
+            label="Dashboard"
+            active={section.kind === "dashboard"}
+            onClick={() => setSection({ kind: "dashboard" })}
           />
         </nav>
 

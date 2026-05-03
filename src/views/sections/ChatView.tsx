@@ -7,6 +7,7 @@ import {
   loadChatMessages,
   type ChatMessage,
   type ChatSession,
+  type ContextSource,
   type Project,
 } from "../../lib/api";
 
@@ -18,6 +19,7 @@ export default function ChatView({ projects }: Props) {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [sourcesMap, setSourcesMap] = useState<Record<string, ContextSource[]>>({});
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [projectFilter, setProjectFilter] = useState<string | null>(null);
@@ -95,15 +97,19 @@ export default function ChatView({ projects }: Props) {
     setMessages((prev) => [...prev, optimisticMsg]);
     setLoading(true);
     try {
-      const reply = await chatWithMemory(activeSessionId, text, projectFilter);
+      const { reply, sources } = await chatWithMemory(activeSessionId, text, projectFilter);
+      const assistantId = crypto.randomUUID();
       const assistantMsg: ChatMessage = {
-        id: crypto.randomUUID(),
+        id: assistantId,
         session_id: activeSessionId,
         role: "assistant",
         content: reply,
         created_at: new Date().toISOString(),
       };
       setMessages((prev) => [...prev, assistantMsg]);
+      if (sources.length > 0) {
+        setSourcesMap((prev) => ({ ...prev, [assistantId]: sources }));
+      }
       void loadSessions();
     } catch (e) {
       const errMsg: ChatMessage = {
@@ -211,7 +217,11 @@ export default function ChatView({ projects }: Props) {
           ) : (
             <div className="flex flex-col gap-3">
               {messages.map((msg) => (
-                <MessageBubble key={msg.id} message={msg} />
+                <MessageBubble
+                  key={msg.id}
+                  message={msg}
+                  sources={sourcesMap[msg.id]}
+                />
               ))}
               {loading ? <ThinkingBubble /> : null}
               <div ref={bottomRef} />
@@ -289,10 +299,16 @@ function SessionRow({
   );
 }
 
-function MessageBubble({ message }: { message: ChatMessage }) {
+function MessageBubble({
+  message,
+  sources,
+}: {
+  message: ChatMessage;
+  sources?: ContextSource[];
+}) {
   const isUser = message.role === "user";
   return (
-    <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
+    <div className={`flex flex-col ${isUser ? "items-end" : "items-start"}`}>
       <div
         className={`max-w-[85%] rounded-lg px-3 py-2 text-sm leading-relaxed ${
           isUser
@@ -307,6 +323,41 @@ function MessageBubble({ message }: { message: ChatMessage }) {
         ) : null}
         <p className="whitespace-pre-wrap">{message.content}</p>
       </div>
+      {!isUser && sources && sources.length > 0 && (
+        <SourcesPanel sources={sources} />
+      )}
+    </div>
+  );
+}
+
+function SourcesPanel({ sources }: { sources: ContextSource[] }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mt-1 max-w-[85%]">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-1 text-[10px] text-neutral-600 hover:text-neutral-400"
+      >
+        <span>{open ? "▾" : "▸"}</span>
+        <span>
+          {sources.length} source{sources.length !== 1 ? "s" : ""} used
+        </span>
+      </button>
+      {open && (
+        <div className="mt-1 space-y-1 rounded border border-neutral-800 bg-neutral-950/80 p-2">
+          {sources.map((s, i) => (
+            <div key={i} className="text-[11px] text-neutral-400">
+              <span className="font-medium text-neutral-500">
+                {s.date} · {s.kind}
+              </span>
+              <p className="mt-0.5 leading-snug text-neutral-300">
+                {s.content}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
