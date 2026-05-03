@@ -248,32 +248,93 @@ pub fn spawn(
                                         on_state_change(TrayPipelineState::Idle);
                                     }
                                     Action::LogCapture => {
-                                        // Run classifier, hold the transcript
-                                        // for confirmation, emit ready event.
                                         let cls = run_classifier(&llm, &text, db.as_ref()).await;
-                                        let payload = match &cls {
-                                            Ok(c) => serde_json::json!({
-                                                "transcript": text,
-                                                "classification": c,
-                                            }),
-                                            Err(e) => {
-                                                warn!(?e, "classifier failed; emitting null classification");
-                                                serde_json::json!({
-                                                    "transcript": text,
-                                                    "classification": null,
-                                                    "error": e.to_string(),
-                                                })
-                                            }
-                                        };
                                         feedback::play(Sfx::Ready);
                                         crate::overlay::hide_recording_overlay(&app);
-                                        let _ =
-                                            app.emit("log_capture:classification_ready", payload);
-                                        let _ = text;
-                                        force_state(&state, PipelineState::AwaitingConfirmation);
-                                        // Tray stays in Processing tint while
-                                        // we wait for the user.
-                                        on_state_change(TrayPipelineState::Processing);
+
+                                        // Decide whether to auto-file or open the review overlay.
+                                        let auto_file_settings = match app.try_state::<crate::commands::AppState>() {
+                                            Some(s) => Some((
+                                                s.settings.auto_file_enabled(),
+                                                s.settings.auto_file_threshold(),
+                                            )),
+                                            None => None,
+                                        };
+
+                                        let auto_filed = match (&cls, auto_file_settings) {
+                                            (Ok(c), Some((enabled, threshold)))
+                                                if should_auto_file(c, enabled, threshold) =>
+                                            {
+                                                // Resolve the project name for the toast/notification before
+                                                // we move `c.tags` into persist. `None` means lookup failed
+                                                // (DB unavailable or project missing/deleted) — the OS
+                                                // notification is suppressed in that case.
+                                                let project_name: Option<String> =
+                                                    c.project_id.as_deref().and_then(|pid| {
+                                                        db.as_ref().and_then(|db| {
+                                                            db.with_conn(|conn| {
+                                                                crate::db::projects::get_project(conn, pid)
+                                                            })
+                                                            .ok()
+                                                            .flatten()
+                                                            .map(|p| p.name)
+                                                        })
+                                                    });
+
+                                                let kind = c.kind;
+                                                let project_id = c.project_id.clone();
+                                                let tags = c.tags.clone();
+                                                let deadline = c.deadline_iso.clone();
+                                                let confidence = c.confidence;
+                                                let res = persist_log_capture(
+                                                    &text,
+                                                    kind,
+                                                    project_id,
+                                                    None, // new_project_name — guaranteed None by should_auto_file
+                                                    tags,
+                                                    deadline,
+                                                    Some(confidence),
+                                                    Some("ai"),
+                                                    db.as_ref(),
+                                                    event_log_root.as_deref(),
+                                                );
+                                                match res {
+                                                    Ok(item_id) => {
+                                                        let _ = app.emit("item:created", ());
+                                                        notify_auto_filed(&app, &item_id, project_name.as_deref(), kind, &text, confidence);
+                                                        true
+                                                    }
+                                                    Err(e) => {
+                                                        error!(?e, "auto-file persistence failed; falling back to overlay");
+                                                        false
+                                                    }
+                                                }
+                                            }
+                                            _ => false,
+                                        };
+
+                                        if !auto_filed {
+                                            let payload = match &cls {
+                                                Ok(c) => serde_json::json!({
+                                                    "transcript": text,
+                                                    "classification": c,
+                                                }),
+                                                Err(e) => {
+                                                    warn!(?e, "classifier failed; emitting null classification");
+                                                    serde_json::json!({
+                                                        "transcript": text,
+                                                        "classification": null,
+                                                        "error": e.to_string(),
+                                                    })
+                                                }
+                                            };
+                                            let _ = app.emit("log_capture:classification_ready", payload);
+                                            force_state(&state, PipelineState::AwaitingConfirmation);
+                                            on_state_change(TrayPipelineState::Processing);
+                                        } else {
+                                            force_state(&state, PipelineState::Idle);
+                                            on_state_change(TrayPipelineState::Idle);
+                                        }
                                     }
                                     Action::Cancel => {
                                         crate::overlay::hide_recording_overlay(&app);
@@ -332,6 +393,8 @@ pub fn spawn(
                         new_project_name,
                         tags,
                         deadline_iso,
+                        None,
+                        Some("user"),
                         db.as_ref(),
                         event_log_root.as_deref(),
                     );
@@ -507,6 +570,78 @@ async fn run_classifier(
     classifier::classify(llm, transcript, &projects, &recents, &now, dow).await
 }
 
+/// Returns true when the classification meets the user's auto-file criteria:
+/// auto-file enabled, confidence ≥ threshold, an existing project matched,
+/// and the LLM did NOT propose a new project. New-project proposals always
+/// require the review overlay, regardless of confidence.
+fn should_auto_file(
+    cls: &Classification,
+    enabled: bool,
+    threshold: f32,
+) -> bool {
+    enabled
+        && cls.project_id.is_some()
+        && cls.new_project_name.is_none()
+        && cls.confidence >= threshold
+}
+
+/// Emit the in-app toast event AND, when the main window is not visible,
+/// fire an OS notification so the user sees what was filed. When
+/// `project_name` is `None` (lookup failed because the DB is unavailable or
+/// the project was deleted), the in-app event still fires with `"Unknown"`
+/// in its payload but the OS notification is skipped.
+fn notify_auto_filed(
+    app: &AppHandle<Wry>,
+    item_id: &str,
+    project_name: Option<&str>,
+    kind: crate::db::items::ItemKind,
+    content: &str,
+    confidence: f32,
+) {
+    let preview = preview_first_chars(content, 120);
+    let display_name = project_name.unwrap_or("Unknown");
+    let payload = serde_json::json!({
+        "item_id": item_id,
+        "project_name": display_name,
+        "kind": kind.as_str(),
+        "preview": preview,
+        "confidence": confidence,
+    });
+    let _ = app.emit("log_capture:auto_filed", payload);
+
+    // If the main window isn't visible, the user won't see the in-app toast.
+    // Fall back to an OS notification (no Undo button — the user can open
+    // the app to find/edit/delete the item).
+    let main_visible = app
+        .get_webview_window("main")
+        .and_then(|w| w.is_visible().ok())
+        .unwrap_or(false);
+    if !main_visible {
+        let Some(name) = project_name else {
+            warn!(
+                "auto-filed item has no resolvable project name; skipping OS notification"
+            );
+            return;
+        };
+        use tauri_plugin_notification::NotificationExt;
+        let kind_label = match kind {
+            crate::db::items::ItemKind::Task => "Task",
+            crate::db::items::ItemKind::Note => "Note",
+        };
+        let title = format!("Filed to {name}");
+        let body = format!("{kind_label}: {preview}");
+        if let Err(e) = app
+            .notification()
+            .builder()
+            .title(title)
+            .body(body)
+            .show()
+        {
+            warn!(?e, "failed to show OS notification for auto-file");
+        }
+    }
+}
+
 /// Persist a confirmed LogCapture as a Visible item, plus tags/task row, plus
 /// a `log.captured` event-log envelope. Returns the new item id on success.
 #[allow(clippy::too_many_arguments)]
@@ -517,6 +652,8 @@ fn persist_log_capture(
     new_project_name: Option<String>,
     tags: Vec<String>,
     deadline_iso: Option<String>,
+    confidence: Option<f32>,
+    classified_by: Option<&str>,
     db: Option<&Db>,
     event_log_root: Option<&std::path::Path>,
 ) -> Result<String, String> {
@@ -557,8 +694,8 @@ fn persist_log_capture(
         captured_at: now.clone(),
         created_at: now.clone(),
         deleted_at: None,
-        confidence: None,
-        classified_by: None,
+        confidence,
+        classified_by: classified_by.map(|s| s.to_string()),
     };
 
     db.with_conn(|c| crate::db::items::insert_item(c, &item))
@@ -676,5 +813,56 @@ mod tests {
             PipelineState::AwaitingConfirmation.tray_state(),
             TrayPipelineState::Processing
         );
+    }
+}
+
+#[cfg(test)]
+mod auto_file_tests {
+    use super::*;
+    use crate::db::items::ItemKind;
+
+    fn cls(confidence: f32, project_id: Option<&str>, new_name: Option<&str>) -> Classification {
+        Classification {
+            kind: ItemKind::Note,
+            project_id: project_id.map(|s| s.to_string()),
+            new_project_name: new_name.map(|s| s.to_string()),
+            tags: vec![],
+            deadline_iso: None,
+            confidence,
+        }
+    }
+
+    #[test]
+    fn auto_files_when_confident_and_existing_project() {
+        assert!(should_auto_file(&cls(0.9, Some("p1"), None), true, 0.75));
+    }
+
+    #[test]
+    fn refuses_when_disabled() {
+        assert!(!should_auto_file(&cls(0.9, Some("p1"), None), false, 0.75));
+    }
+
+    #[test]
+    fn refuses_below_threshold() {
+        assert!(!should_auto_file(&cls(0.7, Some("p1"), None), true, 0.75));
+    }
+
+    #[test]
+    fn refuses_when_no_project() {
+        assert!(!should_auto_file(&cls(0.95, None, None), true, 0.75));
+    }
+
+    #[test]
+    fn refuses_when_new_project_proposed() {
+        assert!(!should_auto_file(
+            &cls(0.95, None, Some("New Project")),
+            true,
+            0.75
+        ));
+    }
+
+    #[test]
+    fn boundary_at_threshold_is_inclusive() {
+        assert!(should_auto_file(&cls(0.75, Some("p1"), None), true, 0.75));
     }
 }
