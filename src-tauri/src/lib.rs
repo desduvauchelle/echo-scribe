@@ -10,6 +10,7 @@ pub mod llm;
 pub mod overlay;
 pub mod permissions;
 pub mod settings;
+pub(crate) mod temporal;
 pub mod ui;
 pub mod updater;
 
