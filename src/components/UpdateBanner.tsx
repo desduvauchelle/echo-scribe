@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { ArrowDownToLine, X } from "lucide-react";
 import { applyUpdateAndRestart, dismissUpdate } from "../lib/api";
 
 type UpdateInfo = {
@@ -37,25 +38,26 @@ export default function UpdateBanner() {
   };
 
   return (
-    <div className="flex items-center justify-between gap-3 border-b border-blue-900/60 bg-blue-950/40 px-4 py-2 text-xs text-blue-100">
-      <span>
-        ↑ Echo Scribe {updateVersion} is ready
+    <div className="flex items-center justify-between gap-3 border-b border-accent/40 bg-accent-soft px-4 py-2 text-xs text-accent">
+      <span className="inline-flex items-center gap-1.5">
+        <ArrowDownToLine size={12} strokeWidth={2} />
+        Echo Scribe {updateVersion} is ready
       </span>
       <div className="flex items-center gap-2">
         <button
           type="button"
           onClick={handleRestart}
-          className="shrink-0 rounded border border-blue-700 bg-blue-900/50 px-2 py-0.5 font-semibold text-blue-100 hover:bg-blue-900/70"
+          className="shrink-0 cursor-pointer rounded-md border border-accent/50 bg-accent/15 px-2.5 py-0.5 font-semibold text-accent transition-colors hover:bg-accent/25"
         >
           Restart Now
         </button>
         <button
           type="button"
           onClick={handleDismiss}
-          className="shrink-0 text-blue-400 hover:text-blue-200"
+          className="shrink-0 cursor-pointer rounded p-0.5 text-accent/70 transition-colors hover:bg-accent/15 hover:text-accent"
           aria-label="Dismiss update"
         >
-          ×
+          <X size={12} strokeWidth={2} />
         </button>
       </div>
     </div>

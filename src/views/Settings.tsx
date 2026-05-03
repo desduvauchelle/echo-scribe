@@ -1,4 +1,12 @@
 import { useEffect, useState } from "react";
+import {
+  ArrowLeft,
+  Mic,
+  Settings as SettingsIcon,
+  Sparkles,
+  Wrench,
+  type LucideIcon,
+} from "lucide-react";
 import HotkeyRebinder from "../components/HotkeyRebinder";
 import SpeechModelPicker from "../components/SpeechModelPicker";
 import LlmModelPicker from "../components/LlmModelPicker";
@@ -31,11 +39,11 @@ import { useToasts } from "../components/ToastProvider";
 
 type Tab = "voice" | "ai" | "general" | "advanced";
 
-const TABS: { id: Tab; label: string }[] = [
-  { id: "voice", label: "Voice" },
-  { id: "ai", label: "AI" },
-  { id: "general", label: "General" },
-  { id: "advanced", label: "Advanced" },
+const TABS: { id: Tab; label: string; icon: LucideIcon }[] = [
+  { id: "voice", label: "Voice", icon: Mic },
+  { id: "ai", label: "AI", icon: Sparkles },
+  { id: "general", label: "General", icon: SettingsIcon },
+  { id: "advanced", label: "Advanced", icon: Wrench },
 ];
 
 type Props = {
@@ -46,33 +54,38 @@ export default function Settings({ onBack }: Props) {
   const [tab, setTab] = useState<Tab>("voice");
 
   return (
-    <div className="flex min-h-full items-start justify-center bg-neutral-950 px-6 py-12 text-neutral-100">
-      <div className="relative w-full max-w-[640px] rounded-xl border border-neutral-800 bg-neutral-900 p-6 shadow-xl">
+    <div className="flex min-h-full items-start justify-center bg-canvas px-6 py-12 text-fg">
+      <div className="relative w-full max-w-[640px] rounded-xl border border-line bg-surface p-6 shadow-xl shadow-black/40">
         <button
           type="button"
           onClick={onBack}
-          className="mb-4 rounded border border-neutral-700 px-2 py-1 text-xs hover:bg-neutral-800"
+          className="mb-4 inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-line px-2.5 py-1 text-xs text-muted transition-colors hover:bg-elevated hover:text-fg"
         >
-          ← Back
+          <ArrowLeft size={12} strokeWidth={2} />
+          Back
         </button>
 
         {/* Tab bar */}
-        <div className="flex gap-1 rounded-lg border border-neutral-800 bg-neutral-950 p-1">
-          {TABS.map(({ id, label }) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => setTab(id)}
-              className={[
-                "flex-1 rounded-md py-1.5 text-xs font-semibold transition-colors",
-                tab === id
-                  ? "bg-neutral-800 text-neutral-100"
-                  : "text-neutral-500 hover:text-neutral-300",
-              ].join(" ")}
-            >
-              {label}
-            </button>
-          ))}
+        <div className="flex gap-1 rounded-lg border border-line bg-canvas p-1">
+          {TABS.map(({ id, label, icon: Icon }) => {
+            const active = tab === id;
+            return (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setTab(id)}
+                className={[
+                  "flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-md py-1.5 text-xs font-semibold transition-colors",
+                  active
+                    ? "bg-accent-soft text-accent"
+                    : "text-faint hover:bg-elevated hover:text-muted",
+                ].join(" ")}
+              >
+                <Icon size={12} strokeWidth={2} />
+                {label}
+              </button>
+            );
+          })}
         </div>
 
         {/* Tab panels */}
@@ -177,7 +190,7 @@ function AutoFileSettings() {
       subtitle="File high-confidence captures silently. New-project proposals always show the review overlay."
     >
       <div className="flex flex-col gap-3">
-        <p className="text-xs text-neutral-400">
+        <p className="text-xs text-muted">
           When the local AI is at least <span className="font-mono">
           {Math.round(autoFileThreshold * 100)}%</span> sure about the project and
           kind, file the capture silently with a toast (or system notification when
@@ -200,7 +213,7 @@ function AutoFileSettings() {
           Enable auto-file
         </label>
         <label className="flex flex-col gap-1 text-sm">
-          <span className="text-neutral-300">
+          <span className="text-muted">
             Threshold: {Math.round(autoFileThreshold * 100)}%
           </span>
           <input
@@ -300,10 +313,10 @@ function Section({
 }) {
   return (
     <section>
-      <h2 className="text-sm font-semibold tracking-tight text-neutral-200">
+      <h2 className="text-[13px] font-semibold tracking-tight text-fg">
         {title}
       </h2>
-      <p className="mt-1 text-sm text-neutral-400">{subtitle}</p>
+      <p className="mt-1 text-[12px] leading-relaxed text-muted">{subtitle}</p>
       <div className="mt-4">{children}</div>
     </section>
   );
@@ -345,12 +358,12 @@ function AudioFeedbackToggle() {
   };
 
   return (
-    <label className="flex items-center justify-between rounded-lg border border-neutral-800 bg-neutral-950 p-3">
+    <label className="flex items-center justify-between rounded-lg border border-line bg-canvas p-3">
       <div>
-        <div className="text-sm font-semibold text-neutral-100">
+        <div className="text-sm font-semibold text-fg">
           Play recording sounds
         </div>
-        <p className="text-xs text-neutral-400">
+        <p className="text-xs text-muted">
           Three short tones tied to start, stop, and classification ready.
         </p>
       </div>
@@ -359,7 +372,7 @@ function AudioFeedbackToggle() {
         disabled={busy || enabled === null}
         checked={enabled ?? true}
         onChange={(e) => void onToggle(e.target.checked)}
-        className="h-4 w-4 cursor-pointer accent-neutral-100"
+        className="h-4 w-4 cursor-pointer accent-accent"
       />
     </label>
   );
@@ -401,12 +414,12 @@ function MuteWhileRecordingToggle() {
   };
 
   return (
-    <label className="flex items-center justify-between rounded-lg border border-neutral-800 bg-neutral-950 p-3">
+    <label className="flex items-center justify-between rounded-lg border border-line bg-canvas p-3">
       <div>
-        <div className="text-sm font-semibold text-neutral-100">
+        <div className="text-sm font-semibold text-fg">
           Mute system audio while recording
         </div>
-        <p className="text-xs text-neutral-400">
+        <p className="text-xs text-muted">
           Silences music and video playback for the duration of the recording.
         </p>
       </div>
@@ -415,7 +428,7 @@ function MuteWhileRecordingToggle() {
         disabled={busy || enabled === null}
         checked={enabled ?? false}
         onChange={(e) => void onToggle(e.target.checked)}
-        className="h-4 w-4 cursor-pointer accent-neutral-100"
+        className="h-4 w-4 cursor-pointer accent-accent"
       />
     </label>
   );
@@ -470,12 +483,12 @@ function DiagnosticsPane() {
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center justify-between gap-3 rounded-lg border border-neutral-800 bg-neutral-950 p-3">
+      <div className="flex items-center justify-between gap-3 rounded-lg border border-line bg-canvas p-3">
         <div className="min-w-0 flex-1">
-          <div className="text-sm font-semibold text-neutral-100">
+          <div className="text-sm font-semibold text-fg">
             Log folder
           </div>
-          <p className="truncate text-xs text-neutral-400" title={logDir}>
+          <p className="truncate text-xs text-muted" title={logDir}>
             {logDir || "—"}
           </p>
         </div>
@@ -483,30 +496,30 @@ function DiagnosticsPane() {
           type="button"
           onClick={() => void onOpenFolder()}
           disabled={!logDir}
-          className="rounded border border-neutral-700 px-3 py-1 text-xs hover:bg-neutral-800 disabled:opacity-50"
+          className="rounded border border-line px-3 py-1 text-xs hover:bg-elevated disabled:opacity-50"
         >
           Open
         </button>
       </div>
 
-      <div className="rounded-lg border border-neutral-800 bg-neutral-950 p-3">
+      <div className="rounded-lg border border-line bg-canvas p-3">
         <div className="flex items-center justify-between">
-          <div className="text-sm font-semibold text-neutral-100">
+          <div className="text-sm font-semibold text-fg">
             Recent log (last 200 lines)
           </div>
           <button
             type="button"
             onClick={() => void loadRecent()}
             disabled={busy}
-            className="rounded border border-neutral-700 px-2 py-0.5 text-xs hover:bg-neutral-800 disabled:opacity-50"
+            className="rounded border border-line px-2 py-0.5 text-xs hover:bg-elevated disabled:opacity-50"
           >
             {busy ? "…" : "Refresh"}
           </button>
         </div>
         {error ? (
-          <p className="mt-2 text-xs text-amber-300">{error}</p>
+          <p className="mt-2 text-xs text-warning">{error}</p>
         ) : null}
-        <pre className="mt-2 max-h-64 overflow-auto rounded-md border border-neutral-800 bg-neutral-950 p-2 font-mono text-[11px] leading-snug text-neutral-300">
+        <pre className="mt-2 max-h-64 overflow-auto rounded-md border border-line bg-canvas p-2 font-mono text-[11px] leading-snug text-muted">
           {recent || "(no log content yet)"}
         </pre>
       </div>
@@ -535,28 +548,28 @@ function TestInference() {
   };
 
   return (
-    <div className="rounded-lg border border-neutral-800 bg-neutral-950 p-3">
-      <p className="text-xs font-semibold tracking-tight text-neutral-300">
+    <div className="rounded-lg border border-line bg-canvas p-3">
+      <p className="text-xs font-semibold tracking-tight text-muted">
         Test inference
       </p>
       <div className="mt-2 flex gap-2">
         <input
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
-          className="flex-1 rounded-md border border-neutral-700 bg-neutral-900 px-3 py-1 text-sm focus:border-neutral-500 focus:outline-none"
+          className="flex-1 rounded-md border border-line bg-surface px-3 py-1 text-sm focus:border-accent focus:outline-none"
         />
         <button
           type="button"
           onClick={() => void onRun()}
           disabled={busy || !prompt.trim()}
-          className="rounded-md bg-neutral-100 px-3 py-1 text-xs font-semibold text-neutral-900 hover:bg-white disabled:opacity-50"
+          className="rounded-md bg-accent px-3 py-1 text-xs font-semibold text-canvas hover:bg-accent-hover disabled:opacity-50"
         >
           {busy ? "Running…" : "Run"}
         </button>
       </div>
-      {error ? <p className="mt-2 text-xs text-red-300">{error}</p> : null}
+      {error ? <p className="mt-2 text-xs text-danger">{error}</p> : null}
       {response ? (
-        <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-md border border-neutral-800 bg-neutral-950 p-2 text-xs text-neutral-200">
+        <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-md border border-line bg-canvas p-2 text-xs text-fg">
           {response}
         </pre>
       ) : null}
@@ -608,12 +621,12 @@ function LlmUnloadTimeoutSelect() {
   };
 
   return (
-    <div className="flex items-center justify-between rounded-lg border border-neutral-800 bg-neutral-950 p-3">
+    <div className="flex items-center justify-between rounded-lg border border-line bg-canvas p-3">
       <div>
-        <div className="text-sm font-semibold text-neutral-100">
+        <div className="text-sm font-semibold text-fg">
           Unload after idle
         </div>
-        <p className="text-xs text-neutral-400">
+        <p className="text-xs text-muted">
           Frees RAM when you haven't used log-capture for a while.
         </p>
       </div>
@@ -621,7 +634,7 @@ function LlmUnloadTimeoutSelect() {
         disabled={busy || secs === null}
         value={secs ?? 120}
         onChange={(e) => void onChange(Number(e.target.value))}
-        className="rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-xs text-neutral-100 focus:border-neutral-500 focus:outline-none disabled:opacity-50"
+        className="rounded border border-line bg-surface px-2 py-1 text-xs text-fg focus:border-accent focus:outline-none disabled:opacity-50"
       >
         {LLM_UNLOAD_OPTIONS.map(({ label, secs: s }) => (
           <option key={s} value={s}>
@@ -678,12 +691,12 @@ function AsrUnloadTimeoutSelect() {
   };
 
   return (
-    <div className="flex items-center justify-between rounded-lg border border-neutral-800 bg-neutral-950 p-3">
+    <div className="flex items-center justify-between rounded-lg border border-line bg-canvas p-3">
       <div>
-        <div className="text-sm font-semibold text-neutral-100">
+        <div className="text-sm font-semibold text-fg">
           Unload after idle
         </div>
-        <p className="text-xs text-neutral-400">
+        <p className="text-xs text-muted">
           Frees RAM when you haven't dictated for a while. The model reloads automatically on next use.
         </p>
       </div>
@@ -691,7 +704,7 @@ function AsrUnloadTimeoutSelect() {
         disabled={busy || secs === null}
         value={secs ?? 120}
         onChange={(e) => void onChange(Number(e.target.value))}
-        className="rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-xs text-neutral-100 focus:border-neutral-500 focus:outline-none disabled:opacity-50"
+        className="rounded border border-line bg-surface px-2 py-1 text-xs text-fg focus:border-accent focus:outline-none disabled:opacity-50"
       >
         {ASR_UNLOAD_OPTIONS.map(({ label, secs: s }) => (
           <option key={s} value={s}>
@@ -733,13 +746,13 @@ function ResetSection() {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="text-xs text-neutral-500 underline-offset-2 hover:text-neutral-300 hover:underline"
+        className="text-xs text-faint underline-offset-2 hover:text-muted hover:underline"
       >
         {open ? "Hide reset options" : "Show reset options"}
       </button>
       {open ? (
-        <div className="mt-3 rounded-lg border border-red-900/40 bg-red-950/20 p-3">
-          <p className="text-xs text-red-200">
+        <div className="mt-3 rounded-lg border border-danger/40 bg-danger/15 p-3">
+          <p className="text-xs text-danger">
             Wipes the settings store (hotkeys, active models, persisted
             preferences) and quits the app. Your captured items are
             preserved — they live in the SQLite database, not the settings store.
@@ -748,7 +761,7 @@ function ResetSection() {
             type="button"
             onClick={() => void onReset()}
             disabled={busy}
-            className="mt-3 rounded-md border border-red-700 bg-red-900/40 px-3 py-1 text-xs text-red-100 hover:bg-red-900/60 disabled:opacity-50"
+            className="mt-3 rounded-md border border-danger/40 bg-danger/15 px-3 py-1 text-xs text-danger hover:bg-danger/15 disabled:opacity-50"
           >
             {busy ? "Resetting…" : "Reset onboarding"}
           </button>

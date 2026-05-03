@@ -162,7 +162,7 @@ export default function HotkeyRebinder({ onChange, load, save }: Props) {
 
   return (
     <div>
-      <div className="rounded-md border border-neutral-800 bg-neutral-950 p-4">
+      <div className="rounded-md border border-line bg-canvas p-4">
         {capture.kind === "idle" ? (
           <div className="flex items-center justify-between gap-4">
             <div className="text-sm">
@@ -182,7 +182,7 @@ export default function HotkeyRebinder({ onChange, load, save }: Props) {
                 void invoke("set_rebinding", { active: true });
                 setCapture({ kind: "capturing" });
               }}
-              className="rounded border border-neutral-700 px-3 py-1 text-xs hover:bg-neutral-800"
+              className="rounded border border-line px-3 py-1 text-xs hover:bg-elevated"
             >
               Record new shortcut…
             </button>
@@ -190,7 +190,7 @@ export default function HotkeyRebinder({ onChange, load, save }: Props) {
         ) : capture.kind === "capturing" ? (
           <div className="text-sm">
             <div className="font-semibold">Listening…</div>
-            <p className="mt-1 text-neutral-300">
+            <p className="mt-1 text-muted">
               Press a key combination, then release. Press Esc to cancel.
             </p>
           </div>
@@ -209,7 +209,7 @@ export default function HotkeyRebinder({ onChange, load, save }: Props) {
                 onClick={() => {
                   void handleSave();
                 }}
-                className="rounded-md bg-neutral-100 px-3 py-1 text-xs font-semibold text-neutral-900 hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+                className="rounded-md bg-accent px-3 py-1 text-xs font-semibold text-canvas hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {saving ? "Saving…" : "Save"}
               </button>
@@ -220,7 +220,7 @@ export default function HotkeyRebinder({ onChange, load, save }: Props) {
                   setCapture({ kind: "idle" });
                   setSaveError(null);
                 }}
-                className="rounded border border-neutral-700 px-3 py-1 text-xs hover:bg-neutral-800"
+                className="rounded border border-line px-3 py-1 text-xs hover:bg-elevated"
               >
                 Cancel
               </button>
@@ -230,10 +230,10 @@ export default function HotkeyRebinder({ onChange, load, save }: Props) {
       </div>
 
       {saveError ? (
-        <p className="mt-2 text-xs text-amber-300">{saveError}</p>
+        <p className="mt-2 text-xs text-warning">{saveError}</p>
       ) : null}
       {loadError && capture.kind === "idle" ? (
-        <p className="mt-2 text-xs text-amber-300">
+        <p className="mt-2 text-xs text-warning">
           Couldn’t load current shortcut: {loadError}
         </p>
       ) : null}

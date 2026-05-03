@@ -1,5 +1,6 @@
 import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Inbox, Mic } from "lucide-react";
 import {
   archiveProject,
   countItemsForProject,
@@ -233,13 +234,13 @@ export default function ActivityFeed({
   return (
     <div className="flex h-full flex-col">
       {project ? (
-        <div className="border-b border-neutral-800 bg-neutral-950/40 px-6 py-4">
+        <div className="border-b border-line bg-canvas/40 px-6 py-4">
           {renaming ? (
             <div className="flex items-center gap-2">
               <input
                 value={renameValue}
                 onChange={(e) => setRenameValue(e.target.value)}
-                className="flex-1 rounded-md border border-neutral-700 bg-neutral-950 px-2 py-1 text-lg font-semibold focus:border-neutral-500 focus:outline-none"
+                className="flex-1 rounded-md border border-line bg-canvas px-2 py-1 text-lg font-semibold focus:border-accent focus:outline-none"
                 autoFocus
                 onKeyDown={(e) => {
                   if (e.key === "Enter") void handleRename();
@@ -252,7 +253,7 @@ export default function ActivityFeed({
               <button
                 type="button"
                 onClick={() => void handleRename()}
-                className="rounded-md bg-neutral-100 px-3 py-1 text-xs font-semibold text-neutral-900 hover:bg-white"
+                className="rounded-md bg-accent px-3 py-1 text-xs font-semibold text-canvas hover:bg-accent-hover"
               >
                 Save
               </button>
@@ -263,7 +264,7 @@ export default function ActivityFeed({
                 <h1 className="truncate text-lg font-semibold tracking-tight">
                   {project.name}
                 </h1>
-                <p className="text-xs text-neutral-400">
+                <p className="text-xs text-muted">
                   {projectCount === null
                     ? ""
                     : `${projectCount} capture${projectCount === 1 ? "" : "s"}`}
@@ -273,14 +274,14 @@ export default function ActivityFeed({
                 <button
                   type="button"
                   onClick={() => setRenaming(true)}
-                  className="rounded border border-neutral-700 px-2 py-1 text-xs hover:bg-neutral-800"
+                  className="rounded border border-line px-2 py-1 text-xs hover:bg-elevated"
                 >
                   Rename
                 </button>
                 <button
                   type="button"
                   onClick={() => void handleArchive()}
-                  className="rounded border border-neutral-700 px-2 py-1 text-xs hover:bg-red-950 hover:text-red-200"
+                  className="rounded border border-line px-2 py-1 text-xs hover:bg-danger/15 hover:text-danger"
                 >
                   Archive
                 </button>
@@ -289,13 +290,13 @@ export default function ActivityFeed({
           )}
         </div>
       ) : (
-        <div className="border-b border-neutral-800 bg-neutral-950/40 px-6 py-4">
+        <div className="border-b border-line bg-canvas/40 px-6 py-4">
           <h1 className="text-lg font-semibold tracking-tight">Activity</h1>
-          <p className="text-xs text-neutral-400">All your captures</p>
+          <p className="text-xs text-muted">All your captures</p>
         </div>
       )}
 
-      <div className="flex flex-wrap items-center gap-3 border-b border-neutral-800 bg-neutral-950/40 px-6 py-3 text-xs text-neutral-300">
+      <div className="flex flex-wrap items-center gap-3 border-b border-line bg-canvas/40 px-6 py-3 text-xs text-muted">
         <FilterGroup<VisibilityFilter>
           label="Visibility"
           value={visibility}
@@ -321,7 +322,7 @@ export default function ActivityFeed({
 
       <div className="flex-1 overflow-y-auto px-6 py-4">
         {error ? (
-          <div className="mb-3 rounded-md border border-red-700 bg-red-950/40 px-3 py-2 text-sm text-red-200">
+          <div className="mb-3 rounded-md border border-danger/40 bg-danger/15 px-3 py-2 text-sm text-danger">
             {error}{" "}
             <button
               type="button"
@@ -337,6 +338,13 @@ export default function ActivityFeed({
           <SkeletonList />
         ) : filteredItems.length === 0 ? (
           <EmptyState
+            icon={
+              project ? (
+                <Inbox size={20} strokeWidth={1.75} />
+              ) : (
+                <Mic size={20} strokeWidth={1.75} />
+              )
+            }
             title={
               project
                 ? `Nothing in “${project.name}” yet.`
@@ -366,7 +374,7 @@ export default function ActivityFeed({
                   type="button"
                   onClick={() => void fetchPage("append")}
                   disabled={loading}
-                  className="rounded border border-neutral-700 px-4 py-1 text-xs hover:bg-neutral-800 disabled:opacity-50"
+                  className="rounded border border-line px-4 py-1 text-xs hover:bg-elevated disabled:opacity-50"
                 >
                   {loading ? "Loading…" : "Load more"}
                 </button>
@@ -387,8 +395,8 @@ function FilterGroup<T extends string>(props: {
 }) {
   return (
     <div className="flex items-center gap-1">
-      <span className="text-neutral-500">{props.label}:</span>
-      <div className="flex overflow-hidden rounded-md border border-neutral-800">
+      <span className="text-faint">{props.label}:</span>
+      <div className="flex overflow-hidden rounded-md border border-line">
         {props.options.map((opt) => {
           const active = opt.value === props.value;
           return (
@@ -398,8 +406,8 @@ function FilterGroup<T extends string>(props: {
               onClick={() => props.onChange(opt.value)}
               className={`px-2 py-1 ${
                 active
-                  ? "bg-neutral-100 text-neutral-900"
-                  : "bg-neutral-900 text-neutral-300 hover:bg-neutral-800"
+                  ? "bg-fg text-canvas"
+                  : "bg-surface text-muted hover:bg-elevated"
               }`}
             >
               {opt.label}
@@ -417,7 +425,7 @@ export function SkeletonList() {
       {[0, 1, 2].map((i) => (
         <div
           key={i}
-          className="h-16 animate-pulse rounded-lg border border-neutral-800 bg-neutral-900"
+          className="h-16 animate-pulse rounded-lg border border-line bg-surface"
         />
       ))}
     </div>
@@ -427,16 +435,23 @@ export function SkeletonList() {
 export function EmptyState({
   title,
   subtitle,
+  icon,
 }: {
   title: string;
   subtitle: string;
+  icon?: React.ReactNode;
 }) {
   return (
-    <div className="mt-12 flex flex-col items-center text-center text-neutral-400">
-      <div className="rounded-full border border-dashed border-neutral-700 px-6 py-3 text-sm">
+    <div className="mt-12 flex flex-col items-center gap-3 text-center text-muted">
+      {icon ? (
+        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent-soft text-accent">
+          {icon}
+        </div>
+      ) : null}
+      <div className="rounded-full border border-dashed border-line px-5 py-2 text-[13px] font-medium text-fg">
         {title}
       </div>
-      <p className="mt-3 max-w-[320px] text-xs">{subtitle}</p>
+      <p className="max-w-[320px] text-xs leading-relaxed">{subtitle}</p>
     </div>
   );
 }

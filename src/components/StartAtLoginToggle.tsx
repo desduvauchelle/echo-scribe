@@ -46,16 +46,16 @@ export default function StartAtLoginToggle({ variant = "card" }: Props) {
 
   const wrapperClass =
     variant === "card"
-      ? "flex items-center justify-between rounded-lg border border-neutral-800 bg-neutral-950 p-3"
+      ? "flex items-center justify-between rounded-lg border border-line bg-canvas p-3"
       : "flex items-center justify-between";
 
   return (
     <label className={wrapperClass}>
       <div>
-        <div className="text-sm font-semibold text-neutral-100">
+        <div className="text-sm font-semibold text-fg">
           Start at login
         </div>
-        <p className="text-xs text-neutral-400">
+        <p className="text-xs text-muted">
           Launch Echo Scribe automatically when you log in to your Mac.
         </p>
       </div>
@@ -64,7 +64,7 @@ export default function StartAtLoginToggle({ variant = "card" }: Props) {
         disabled={busy || enabled === null}
         checked={enabled ?? false}
         onChange={(e) => void onToggle(e.target.checked)}
-        className="h-4 w-4 cursor-pointer accent-neutral-100"
+        className="h-4 w-4 cursor-pointer accent-accent"
       />
     </label>
   );

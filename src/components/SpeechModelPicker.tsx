@@ -31,8 +31,8 @@ type DownloadState = {
   bytes_total: number;
 };
 
-const ACCENT_FILL = "bg-rose-400";
-const ACCENT_TRACK = "bg-neutral-800";
+const ACCENT_FILL = "bg-danger";
+const ACCENT_TRACK = "bg-elevated";
 
 function SegmentBar({ value, max = 5 }: { value: number; max?: number }) {
   const v = Math.max(0, Math.min(max, Math.round(value)));
@@ -143,24 +143,24 @@ function ModelCard({
       className={[
         "rounded-xl border p-4 transition-colors",
         active
-          ? "border-rose-700/70 bg-neutral-900"
-          : "border-neutral-800 bg-neutral-900/70",
+          ? "border-danger/40 bg-surface"
+          : "border-line bg-surface/70",
         disabled ? "cursor-not-allowed opacity-50" : "",
       ].join(" ")}
     >
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="text-base font-semibold text-neutral-100">
+            <span className="text-base font-semibold text-fg">
               {model.display_name}
               {model.version_label ? (
-                <span className="ml-1.5 text-neutral-400">
+                <span className="ml-1.5 text-muted">
                   {model.version_label}
                 </span>
               ) : null}
             </span>
             {active ? (
-              <span className="inline-flex items-center gap-1 rounded-full bg-rose-900/60 px-2 py-0.5 text-[11px] font-medium text-rose-200">
+              <span className="inline-flex items-center gap-1 rounded-full bg-danger/15 px-2 py-0.5 text-[11px] font-medium text-danger">
                 <svg
                   width="10"
                   height="10"
@@ -179,20 +179,20 @@ function ModelCard({
             ) : null}
           </div>
           {model.description ? (
-            <p className="mt-1 text-sm text-neutral-400">{model.description}</p>
+            <p className="mt-1 text-sm text-muted">{model.description}</p>
           ) : null}
         </div>
 
         {(model.accuracy_bars > 0 || model.speed_bars > 0) && !isDownloading ? (
           <div className="shrink-0 space-y-1">
             {model.accuracy_bars > 0 ? (
-              <div className="flex items-center justify-end gap-2 text-[11px] text-neutral-400">
+              <div className="flex items-center justify-end gap-2 text-[11px] text-muted">
                 <span>accuracy</span>
                 <SegmentBar value={model.accuracy_bars} />
               </div>
             ) : null}
             {model.speed_bars > 0 ? (
-              <div className="flex items-center justify-end gap-2 text-[11px] text-neutral-400">
+              <div className="flex items-center justify-end gap-2 text-[11px] text-muted">
                 <span>speed</span>
                 <SegmentBar value={model.speed_bars} />
               </div>
@@ -203,9 +203,9 @@ function ModelCard({
 
       {isDownloading && downloading ? (
         <div className="mt-3">
-          <div className="h-1.5 w-full overflow-hidden rounded-full bg-neutral-800">
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-elevated">
             <div
-              className="h-full bg-rose-400 transition-all"
+              className="h-full bg-danger transition-all"
               style={{
                 width: `${
                   downloading.bytes_total > 0
@@ -222,7 +222,7 @@ function ModelCard({
               }}
             />
           </div>
-          <div className="mt-1 text-[11px] text-neutral-400">
+          <div className="mt-1 text-[11px] text-muted">
             {formatBytes(downloading.bytes_downloaded)} /{" "}
             {formatBytes(downloading.bytes_total)} (
             {downloading.bytes_total > 0
@@ -237,30 +237,30 @@ function ModelCard({
       ) : null}
 
       {downloadError && !isDownloading ? (
-        <p className="mt-2 text-xs text-rose-400">
+        <p className="mt-2 text-xs text-danger">
           Download failed: {downloadError}
         </p>
       ) : null}
 
-      <div className="mt-3 flex items-center justify-between border-t border-neutral-800/80 pt-3">
-        <div className="inline-flex items-center gap-1.5 text-[11px] text-neutral-400">
+      <div className="mt-3 flex items-center justify-between border-t border-line/80 pt-3">
+        <div className="inline-flex items-center gap-1.5 text-[11px] text-muted">
           <GlobeIcon english_only={model.english_only} />
           <span>{model.language_label || (model.english_only ? "English Only" : "Multi-language")}</span>
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
           {!model.supported ? (
-            <span className="inline-flex items-center rounded-full bg-neutral-800 px-2 py-0.5 text-xs text-neutral-400">
+            <span className="inline-flex items-center rounded-full bg-elevated px-2 py-0.5 text-xs text-muted">
               Unavailable
             </span>
           ) : isDownloading ? (
-            <span className="text-xs text-neutral-400">Downloading…</span>
+            <span className="text-xs text-muted">Downloading…</span>
           ) : model.downloaded && active ? (
             <button
               type="button"
               onClick={onDelete}
               disabled={busy}
-              className="inline-flex items-center gap-1 text-xs text-neutral-400 transition-colors hover:text-rose-300 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center gap-1 text-xs text-muted transition-colors hover:text-danger disabled:cursor-not-allowed disabled:opacity-50"
             >
               <TrashIcon />
               Delete
@@ -271,7 +271,7 @@ function ModelCard({
                 type="button"
                 onClick={onDelete}
                 disabled={busy}
-                className="inline-flex items-center gap-1 text-xs text-neutral-400 transition-colors hover:text-rose-300 disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex items-center gap-1 text-xs text-muted transition-colors hover:text-danger disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <TrashIcon />
                 Delete
@@ -280,7 +280,7 @@ function ModelCard({
                 type="button"
                 onClick={onActivate}
                 disabled={busy}
-                className="rounded-md border border-neutral-700 px-3 py-1 text-xs hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50"
+                className="rounded-md border border-line px-3 py-1 text-xs hover:bg-elevated disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Use this model
               </button>
@@ -288,7 +288,7 @@ function ModelCard({
           ) : (
             <>
               {model.size_bytes > 0 ? (
-                <span className="text-[11px] text-neutral-500">
+                <span className="text-[11px] text-faint">
                   {formatBytes(model.size_bytes)}
                 </span>
               ) : null}
@@ -296,7 +296,7 @@ function ModelCard({
                 type="button"
                 onClick={onDownload}
                 disabled={busy}
-                className="inline-flex items-center gap-1.5 rounded-md bg-neutral-100 px-3 py-1 text-xs font-semibold text-neutral-900 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1 text-xs font-semibold text-canvas transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <DownloadIcon />
                 Download
@@ -459,7 +459,7 @@ export default function SpeechModelPicker({ onChange }: Props) {
 
   if (loadError && models.length === 0) {
     return (
-      <p className="text-xs text-amber-300">
+      <p className="text-xs text-warning">
         Couldn’t load speech models: {loadError}
       </p>
     );
@@ -471,17 +471,17 @@ export default function SpeechModelPicker({ onChange }: Props) {
   return (
     <div className="flex flex-col gap-5">
       <div>
-        <h3 className="text-base font-semibold text-neutral-100">
+        <h3 className="text-base font-semibold text-fg">
           Transcription Models
         </h3>
-        <p className="mt-1 text-sm text-neutral-400">
+        <p className="mt-1 text-sm text-muted">
           Choose a model to transcribe what you say. Run on-device, no network.
         </p>
       </div>
 
       {downloaded.length > 0 ? (
         <section className="space-y-2">
-          <h4 className="text-xs font-medium uppercase tracking-wide text-neutral-500">
+          <h4 className="text-xs font-medium uppercase tracking-wide text-faint">
             Downloaded models
           </h4>
           <div className="flex flex-col gap-3">
@@ -504,7 +504,7 @@ export default function SpeechModelPicker({ onChange }: Props) {
 
       {available.length > 0 ? (
         <section className="space-y-2">
-          <h4 className="text-xs font-medium uppercase tracking-wide text-neutral-500">
+          <h4 className="text-xs font-medium uppercase tracking-wide text-faint">
             Available to download
           </h4>
           <div className="flex flex-col gap-3">

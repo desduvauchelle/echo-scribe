@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import {
   listItemEvents,
   listSessionsForItem,
@@ -34,7 +35,7 @@ export default function ItemDetailPanel({ itemId }: Props) {
   const [tab, setTab] = useState<Tab>("activity");
 
   return (
-    <div className="mt-3 border-t border-neutral-800 pt-3">
+    <div className="mt-3 border-t border-line pt-3">
       <div className="mb-2 flex gap-1">
         <TabButton
           active={tab === "activity"}
@@ -74,8 +75,8 @@ function TabButton({
       onClick={onClick}
       className={`rounded-md px-2.5 py-1 text-[11px] font-medium transition ${
         active
-          ? "bg-neutral-100 text-neutral-900"
-          : "text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200"
+          ? "bg-fg text-canvas"
+          : "text-muted hover:bg-elevated hover:text-fg"
       }`}
     >
       {children}
@@ -102,12 +103,12 @@ function ActivityTab({ itemId }: { itemId: string }) {
   }, [itemId]);
 
   if (loading) {
-    return <div className="text-[11px] text-neutral-500">Loading...</div>;
+    return <div className="text-[11px] text-faint">Loading...</div>;
   }
 
   if (events.length === 0) {
     return (
-      <div className="text-[11px] text-neutral-500">No activity recorded.</div>
+      <div className="text-[11px] text-faint">No activity recorded.</div>
     );
   }
 
@@ -115,15 +116,15 @@ function ActivityTab({ itemId }: { itemId: string }) {
     <div className="space-y-1.5">
       {events.map((ev) => (
         <div key={ev.id} className="flex items-start gap-2 text-[11px]">
-          <span className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-600" />
+          <span className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-line-strong" />
           <div className="min-w-0">
-            <span className="font-medium text-neutral-300">
+            <span className="font-medium text-muted">
               {EVENT_LABELS[ev.event_type] ?? ev.event_type}
             </span>
             {ev.detail ? (
-              <span className="ml-1 text-neutral-500">{ev.detail}</span>
+              <span className="ml-1 text-faint">{ev.detail}</span>
             ) : null}
-            <span className="ml-2 text-neutral-600">
+            <span className="ml-2 text-faint">
               {relativeTime(ev.created_at)}
             </span>
           </div>
@@ -189,7 +190,7 @@ function SessionsTab({ itemId }: { itemId: string }) {
   };
 
   if (loading) {
-    return <div className="text-[11px] text-neutral-500">Loading...</div>;
+    return <div className="text-[11px] text-faint">Loading...</div>;
   }
 
   const hasChatSessions = chatSessions.length > 0;
@@ -197,7 +198,7 @@ function SessionsTab({ itemId }: { itemId: string }) {
 
   if (!hasChatSessions && !hasClaudeSessions) {
     return (
-      <div className="text-[11px] text-neutral-500">
+      <div className="text-[11px] text-faint">
         No linked sessions found.
       </div>
     );
@@ -207,7 +208,7 @@ function SessionsTab({ itemId }: { itemId: string }) {
     <div className="space-y-2">
       {hasChatSessions && (
         <div>
-          <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-neutral-600">
+          <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-faint">
             Echo Scribe Chat
           </div>
           {chatSessions.map((s) => (
@@ -215,27 +216,31 @@ function SessionsTab({ itemId }: { itemId: string }) {
               <button
                 type="button"
                 onClick={() => void handleExpandChat(s.id)}
-                className="flex w-full items-center gap-2 rounded px-1.5 py-1 text-left text-[11px] hover:bg-neutral-800"
+                className="flex w-full items-center gap-2 rounded px-1.5 py-1 text-left text-[11px] hover:bg-elevated"
               >
-                <span className="text-neutral-500">
-                  {expandedChat === s.id ? "▾" : "▸"}
+                <span className="text-faint">
+                  {expandedChat === s.id ? (
+                    <ChevronDown size={11} strokeWidth={2.25} />
+                  ) : (
+                    <ChevronRight size={11} strokeWidth={2.25} />
+                  )}
                 </span>
-                <span className="truncate font-medium text-neutral-300">
+                <span className="truncate font-medium text-muted">
                   {s.name}
                 </span>
-                <span className="ml-auto shrink-0 text-neutral-600">
+                <span className="ml-auto shrink-0 text-faint">
                   {relativeTime(s.updated_at)}
                 </span>
               </button>
               {expandedChat === s.id && (
-                <div className="ml-4 mt-1 max-h-48 space-y-1 overflow-y-auto rounded border border-neutral-800 bg-neutral-950/80 p-2">
+                <div className="ml-4 mt-1 max-h-48 space-y-1 overflow-y-auto rounded border border-line bg-canvas/80 p-2">
                   {chatMessages.map((msg) => (
                     <div
                       key={msg.id}
                       className={`text-[11px] ${
                         msg.role === "user"
-                          ? "text-sky-300"
-                          : "text-neutral-400"
+                          ? "text-accent"
+                          : "text-muted"
                       }`}
                     >
                       <span className="font-medium">
@@ -249,7 +254,7 @@ function SessionsTab({ itemId }: { itemId: string }) {
                     </div>
                   ))}
                   {chatMessages.length === 0 && (
-                    <div className="text-[11px] text-neutral-600">
+                    <div className="text-[11px] text-faint">
                       No messages.
                     </div>
                   )}
@@ -262,7 +267,7 @@ function SessionsTab({ itemId }: { itemId: string }) {
 
       {hasClaudeSessions && (
         <div>
-          <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-neutral-600">
+          <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-faint">
             Claude Code Sessions
           </div>
           {claudeSessions.slice(0, 10).map((s) => (
@@ -270,27 +275,31 @@ function SessionsTab({ itemId }: { itemId: string }) {
               <button
                 type="button"
                 onClick={() => void handleExpandClaude(s.session_id)}
-                className="flex w-full items-center gap-2 rounded px-1.5 py-1 text-left text-[11px] hover:bg-neutral-800"
+                className="flex w-full items-center gap-2 rounded px-1.5 py-1 text-left text-[11px] hover:bg-elevated"
               >
-                <span className="text-neutral-500">
-                  {expandedClaude === s.session_id ? "▾" : "▸"}
+                <span className="text-faint">
+                  {expandedClaude === s.session_id ? (
+                    <ChevronDown size={11} strokeWidth={2.25} />
+                  ) : (
+                    <ChevronRight size={11} strokeWidth={2.25} />
+                  )}
                 </span>
-                <span className="truncate font-medium text-neutral-300">
+                <span className="truncate font-medium text-muted">
                   {s.preview || s.session_id.slice(0, 12)}
                 </span>
-                <span className="ml-auto shrink-0 text-neutral-600">
+                <span className="ml-auto shrink-0 text-faint">
                   {s.message_count} msgs
                 </span>
               </button>
               {expandedClaude === s.session_id && (
-                <div className="ml-4 mt-1 max-h-48 space-y-1 overflow-y-auto rounded border border-neutral-800 bg-neutral-950/80 p-2">
+                <div className="ml-4 mt-1 max-h-48 space-y-1 overflow-y-auto rounded border border-line bg-canvas/80 p-2">
                   {claudeMessages.map((msg, i) => (
                     <div
                       key={i}
                       className={`text-[11px] ${
                         msg.role === "human" || msg.role === "user"
-                          ? "text-sky-300"
-                          : "text-neutral-400"
+                          ? "text-accent"
+                          : "text-muted"
                       }`}
                     >
                       <span className="font-medium">
@@ -307,7 +316,7 @@ function SessionsTab({ itemId }: { itemId: string }) {
                     </div>
                   ))}
                   {claudeMessages.length === 0 && (
-                    <div className="text-[11px] text-neutral-600">
+                    <div className="text-[11px] text-faint">
                       No messages.
                     </div>
                   )}

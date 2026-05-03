@@ -222,7 +222,7 @@ function AppShell() {
     return (
       <>
         {dragBar}
-        <div className="flex h-full items-center justify-center bg-neutral-950 text-sm text-neutral-400">
+        <div className="flex h-full items-center justify-center bg-canvas text-sm text-muted">
           Checking…
         </div>
         {overlay}

@@ -137,17 +137,17 @@ export default function LogCaptureOverlay() {
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="w-full max-w-[520px] rounded-xl border border-neutral-800 bg-neutral-900 p-6 text-neutral-100 shadow-2xl">
+      <div className="w-full max-w-[520px] rounded-xl border border-line bg-surface p-6 text-fg shadow-2xl">
         {stage.kind === "recording" ? (
           <div>
             <h2 className="text-lg font-semibold tracking-tight">
               Log capture
             </h2>
-            <p className="mt-2 text-sm text-neutral-300">
+            <p className="mt-2 text-sm text-muted">
               Recording — release the shortcut to stop.
             </p>
-            <div className="mt-4 flex items-center gap-2 text-xs text-neutral-400">
-              <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-red-500" />
+            <div className="mt-4 flex items-center gap-2 text-xs text-muted">
+              <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-danger" />
               Listening…
             </div>
           </div>
@@ -158,40 +158,40 @@ export default function LogCaptureOverlay() {
                 Review capture
               </h2>
               {stage.error ? (
-                <p className="mt-1 text-xs text-amber-300">
+                <p className="mt-1 text-xs text-warning">
                   Classifier hint unavailable: {stage.error}
                 </p>
               ) : stage.classification && stage.classification.confidence < 0.75 ? (
-                <p className="mt-1 text-xs text-amber-300">
+                <p className="mt-1 text-xs text-warning">
                   Low confidence ({Math.round(stage.classification.confidence * 100)}%) —
                   please double-check the project and kind below.
                 </p>
               ) : stage.classification && stage.classification.new_project_name ? (
-                <p className="mt-1 text-xs text-amber-300">
+                <p className="mt-1 text-xs text-warning">
                   Suggesting a new project — confirm the name below before saving.
                 </p>
               ) : (
-                <p className="mt-1 text-xs text-neutral-400">
+                <p className="mt-1 text-xs text-muted">
                   Classifier suggested fields below — adjust as needed.
                 </p>
               )}
             </div>
 
             <label className="flex flex-col gap-1 text-sm">
-              <span className="text-neutral-300">Transcript</span>
+              <span className="text-muted">Transcript</span>
               <textarea
                 rows={4}
                 value={edit.content}
                 onChange={(e) =>
                   setEdit({ ...edit, content: e.target.value })
                 }
-                className="rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm focus:border-neutral-500 focus:outline-none"
+                className="rounded-md border border-line bg-canvas px-3 py-2 text-sm focus:border-accent focus:outline-none"
               />
             </label>
 
             <div className="grid grid-cols-2 gap-4">
               <label className="flex flex-col gap-1 text-sm">
-                <span className="text-neutral-300">Kind</span>
+                <span className="text-muted">Kind</span>
                 <select
                   value={edit.itemKind}
                   onChange={(e) =>
@@ -200,7 +200,7 @@ export default function LogCaptureOverlay() {
                       itemKind: e.target.value as "note" | "task",
                     })
                   }
-                  className="rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm focus:border-neutral-500 focus:outline-none"
+                  className="rounded-md border border-line bg-canvas px-3 py-2 text-sm focus:border-accent focus:outline-none"
                 >
                   <option value="note">Note</option>
                   <option value="task">Task</option>
@@ -208,7 +208,7 @@ export default function LogCaptureOverlay() {
               </label>
 
               <label className="flex flex-col gap-1 text-sm">
-                <span className="text-neutral-300">
+                <span className="text-muted">
                   Deadline {edit.itemKind === "note" ? "(tasks only)" : ""}
                 </span>
                 <input
@@ -219,13 +219,13 @@ export default function LogCaptureOverlay() {
                   onChange={(e) =>
                     setEdit({ ...edit, deadlineIso: e.target.value })
                   }
-                  className="rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm focus:border-neutral-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-40"
+                  className="rounded-md border border-line bg-canvas px-3 py-2 text-sm focus:border-accent focus:outline-none disabled:cursor-not-allowed disabled:opacity-40"
                 />
               </label>
             </div>
 
             <label className="flex flex-col gap-1 text-sm">
-              <span className="text-neutral-300">
+              <span className="text-muted">
                 New project (overrides existing)
               </span>
               <input
@@ -235,29 +235,29 @@ export default function LogCaptureOverlay() {
                 onChange={(e) =>
                   setEdit({ ...edit, newProjectName: e.target.value })
                 }
-                className="rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm focus:border-neutral-500 focus:outline-none"
+                className="rounded-md border border-line bg-canvas px-3 py-2 text-sm focus:border-accent focus:outline-none"
               />
               {edit.projectId && !edit.newProjectName ? (
-                <span className="mt-1 text-xs text-neutral-500">
+                <span className="mt-1 text-xs text-faint">
                   Existing project id: {edit.projectId}
                 </span>
               ) : null}
             </label>
 
             <label className="flex flex-col gap-1 text-sm">
-              <span className="text-neutral-300">Tags (comma separated)</span>
+              <span className="text-muted">Tags (comma separated)</span>
               <input
                 type="text"
                 value={edit.tagsInput}
                 onChange={(e) =>
                   setEdit({ ...edit, tagsInput: e.target.value })
                 }
-                className="rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm focus:border-neutral-500 focus:outline-none"
+                className="rounded-md border border-line bg-canvas px-3 py-2 text-sm focus:border-accent focus:outline-none"
               />
             </label>
 
             {error ? (
-              <p className="text-xs text-red-300">{error}</p>
+              <p className="text-xs text-danger">{error}</p>
             ) : null}
 
             <div className="mt-2 flex justify-end gap-2">
@@ -265,7 +265,7 @@ export default function LogCaptureOverlay() {
                 type="button"
                 disabled={busy}
                 onClick={() => void onDiscard()}
-                className="rounded border border-neutral-700 px-3 py-1 text-xs hover:bg-neutral-800 disabled:opacity-50"
+                className="rounded border border-line px-3 py-1 text-xs hover:bg-elevated disabled:opacity-50"
               >
                 Discard
               </button>
@@ -273,7 +273,7 @@ export default function LogCaptureOverlay() {
                 type="button"
                 disabled={busy || !edit.content.trim()}
                 onClick={() => void onSave()}
-                className="rounded-md bg-neutral-100 px-3 py-1 text-xs font-semibold text-neutral-900 hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+                className="rounded-md bg-accent px-3 py-1 text-xs font-semibold text-canvas hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {busy ? "Saving…" : "Save"}
               </button>

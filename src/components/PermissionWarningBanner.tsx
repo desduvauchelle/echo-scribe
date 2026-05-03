@@ -36,7 +36,7 @@ export default function PermissionWarningBanner({ onOpenSettings }: Props) {
   if (missing.length === 0) return null;
 
   return (
-    <div className="flex items-center justify-between gap-3 border-b border-amber-900/60 bg-amber-950/40 px-4 py-2 text-xs text-amber-100">
+    <div className="flex items-center justify-between gap-3 border-b border-warning/40 bg-warning/10 px-4 py-2 text-xs text-warning">
       <span>
         <strong>Permission missing:</strong> {missing.join(" + ")}. Echo Scribe
         can't dictate or paste until you re-grant.
@@ -44,7 +44,7 @@ export default function PermissionWarningBanner({ onOpenSettings }: Props) {
       <button
         type="button"
         onClick={onOpenSettings}
-        className="shrink-0 rounded border border-amber-700 bg-amber-900/50 px-2 py-0.5 font-semibold text-amber-100 hover:bg-amber-900/70"
+        className="shrink-0 rounded border border-warning/40 bg-warning/15 px-2 py-0.5 font-semibold text-warning hover:bg-warning/15"
       >
         Fix in Settings
       </button>

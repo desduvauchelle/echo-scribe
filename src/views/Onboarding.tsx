@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Mic } from "lucide-react";
 import HotkeyRebinder from "../components/HotkeyRebinder";
 import LlmModelPicker from "../components/LlmModelPicker";
 import PermissionRow from "../components/PermissionRow";
@@ -58,7 +59,7 @@ function ResetTccBlock() {
         <button
           type="button"
           onClick={() => setArmed(true)}
-          className="text-xs text-neutral-500 underline-offset-2 hover:text-amber-300 hover:underline"
+          className="text-xs text-faint underline-offset-2 hover:text-warning hover:underline"
         >
           Permission stuck? Reset & quit
         </button>
@@ -67,7 +68,7 @@ function ResetTccBlock() {
   }
 
   return (
-    <div className="rounded-md border border-amber-900/60 bg-amber-950/30 p-3 text-xs text-amber-100">
+    <div className="rounded-md border border-warning/40 bg-warning/10 p-3 text-xs text-warning">
       <p>
         This wipes Microphone + Accessibility grants and quits Echo Scribe.
         You'll need to relaunch and re-grant access. Continue?
@@ -77,7 +78,7 @@ function ResetTccBlock() {
           type="button"
           onClick={() => void onConfirm()}
           disabled={busy}
-          className="rounded-md border border-amber-700 bg-amber-900/50 px-3 py-1 font-semibold hover:bg-amber-900/80 disabled:opacity-50"
+          className="rounded-md border border-warning/40 bg-warning/15 px-3 py-1 font-semibold hover:bg-warning/15 disabled:opacity-50"
         >
           {busy ? "Resetting…" : "Yes, reset & quit"}
         </button>
@@ -85,12 +86,12 @@ function ResetTccBlock() {
           type="button"
           onClick={() => setArmed(false)}
           disabled={busy}
-          className="rounded-md border border-neutral-700 px-3 py-1 text-neutral-300 hover:bg-neutral-800"
+          className="rounded-md border border-line px-3 py-1 text-muted hover:bg-elevated"
         >
           Cancel
         </button>
       </div>
-      {err ? <p className="mt-2 text-amber-300">{err}</p> : null}
+      {err ? <p className="mt-2 text-warning">{err}</p> : null}
     </div>
   );
 }
@@ -224,18 +225,21 @@ export default function Onboarding({ initialStatus, onStarted, resumeNotice }: P
   };
 
   return (
-    <div className="flex min-h-full items-center justify-center bg-neutral-950 px-6 py-12 text-neutral-100">
-      <div className="w-full max-w-[480px] rounded-xl border border-neutral-800 bg-neutral-900 p-6 shadow-xl">
-        <h1 className="text-xl font-semibold tracking-tight">
+    <div className="flex min-h-full items-center justify-center bg-canvas px-6 py-12 text-fg">
+      <div className="w-full max-w-[480px] rounded-xl border border-line bg-surface p-6 shadow-xl shadow-black/40">
+        <div className="mb-3 inline-flex h-9 w-9 items-center justify-center rounded-lg bg-accent-soft text-accent">
+          <Mic size={18} strokeWidth={2} />
+        </div>
+        <h1 className="text-xl font-semibold tracking-tight text-fg">
           Welcome to Echo Scribe
         </h1>
-        <p className="mt-1 text-sm text-neutral-400">
+        <p className="mt-1.5 text-[13px] leading-relaxed text-muted">
           Grant the two permissions below, pick a speech model, then start
           dictating anywhere.
         </p>
 
         {resumeNotice ? (
-          <div className="mt-4 rounded-md border border-amber-900/60 bg-amber-950/30 px-3 py-2 text-xs text-amber-200">
+          <div className="mt-4 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
             {resumeNotice}
           </div>
         ) : null}
@@ -254,7 +258,7 @@ export default function Onboarding({ initialStatus, onStarted, resumeNotice }: P
             recheckBusy={checking}
           />
 
-          <div className="h-px bg-neutral-800" />
+          <div className="h-px bg-elevated" />
 
           <PermissionRow
             title="Accessibility"
@@ -269,7 +273,7 @@ export default function Onboarding({ initialStatus, onStarted, resumeNotice }: P
             recheckBusy={checking}
           />
 
-          <div className="h-px bg-neutral-800" />
+          <div className="h-px bg-elevated" />
 
           <div>
             <SpeechModelPicker
@@ -279,23 +283,23 @@ export default function Onboarding({ initialStatus, onStarted, resumeNotice }: P
             />
           </div>
 
-          <div className="h-px bg-neutral-800" />
+          <div className="h-px bg-elevated" />
 
           <div>
             <div className="flex items-center justify-between gap-3">
-              <div className="font-semibold tracking-tight">
+              <div className="text-[13px] font-semibold tracking-tight text-fg">
                 Local AI model{" "}
-                <span className="text-xs font-normal text-neutral-400">
+                <span className="text-xs font-normal text-muted">
                   (optional)
                 </span>
               </div>
               {llmReady ? (
-                <span className="inline-flex items-center rounded-full bg-emerald-900 px-2 py-0.5 text-xs text-emerald-200">
+                <span className="inline-flex items-center rounded-full bg-success/15 px-2 py-0.5 text-xs text-success">
                   Ready
                 </span>
               ) : null}
             </div>
-            <p className="mt-1 text-sm text-neutral-300">
+            <p className="mt-1 text-sm text-muted">
               Powers the log-capture flow (auto-classifying notes, tasks,
               tags). Voice-at-cursor works without it — skip to come back later.
             </p>
@@ -306,26 +310,26 @@ export default function Onboarding({ initialStatus, onStarted, resumeNotice }: P
               <button
                 type="button"
                 onClick={() => setLlmSkipped(true)}
-                className="mt-3 text-xs text-neutral-400 underline-offset-2 hover:text-neutral-200 hover:underline"
+                className="mt-3 text-xs text-muted underline-offset-2 hover:text-fg hover:underline"
               >
                 Skip for now
               </button>
             ) : null}
             {llmSkipped && !llmReady ? (
-              <p className="mt-3 text-xs text-neutral-400">
+              <p className="mt-3 text-xs text-muted">
                 Skipped. Log-capture will show a friendly notice until you
                 pick a model in Settings.
               </p>
             ) : null}
           </div>
 
-          <div className="h-px bg-neutral-800" />
+          <div className="h-px bg-elevated" />
 
           <div>
-            <div className="font-semibold tracking-tight">
+            <div className="text-[13px] font-semibold tracking-tight text-fg">
               Dictation shortcut
             </div>
-            <p className="mt-1 text-sm text-neutral-300">
+            <p className="mt-1 text-sm text-muted">
               Press and hold to record. Default is Right Control — change it
               here if that conflicts with another app.
             </p>
@@ -339,10 +343,10 @@ export default function Onboarding({ initialStatus, onStarted, resumeNotice }: P
           </div>
 
           <div>
-            <div className="font-semibold tracking-tight">
+            <div className="text-[13px] font-semibold tracking-tight text-fg">
               Log capture shortcut
             </div>
-            <p className="mt-1 text-sm text-neutral-300">
+            <p className="mt-1 text-sm text-muted">
               Press and hold to capture a thought or task. Default is Right
               Option — Echo Scribe will classify it locally and pop a review
               overlay.
@@ -362,11 +366,11 @@ export default function Onboarding({ initialStatus, onStarted, resumeNotice }: P
           onClick={() => {
             void handleStart();
           }}
-          className="mt-8 flex w-full items-center justify-center gap-2 rounded-md bg-neutral-100 px-4 py-2 text-sm font-semibold text-neutral-900 hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+          className="mt-8 flex w-full items-center justify-center gap-2 rounded-md bg-accent px-4 py-2 text-sm font-semibold text-canvas hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
         >
           {starting ? (
             <>
-              <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-neutral-900 border-t-transparent" />
+              <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-canvas border-t-transparent" />
               Starting…
             </>
           ) : (
@@ -375,10 +379,10 @@ export default function Onboarding({ initialStatus, onStarted, resumeNotice }: P
         </button>
 
         {error ? (
-          <p className="mt-3 text-xs text-amber-300">{error}</p>
+          <p className="mt-3 text-xs text-warning">{error}</p>
         ) : null}
 
-        <div className="mt-6 border-t border-neutral-800 pt-3">
+        <div className="mt-6 border-t border-line pt-3">
           <ResetTccBlock />
         </div>
       </div>

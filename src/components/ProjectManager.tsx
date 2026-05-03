@@ -112,22 +112,22 @@ export default function ProjectManager({ onChanged }: Props) {
           onKeyDown={(e) => {
             if (e.key === "Enter") void handleCreate();
           }}
-          className="flex-1 rounded-md border border-neutral-700 bg-neutral-950 px-3 py-1 text-sm focus:border-neutral-500 focus:outline-none"
+          className="flex-1 rounded-md border border-line bg-canvas px-3 py-1 text-sm focus:border-accent focus:outline-none"
         />
         <button
           type="button"
           onClick={() => void handleCreate()}
           disabled={!newName.trim()}
-          className="rounded-md bg-neutral-100 px-3 py-1 text-xs font-semibold text-neutral-900 hover:bg-white disabled:opacity-50"
+          className="rounded-md bg-accent px-3 py-1 text-xs font-semibold text-canvas hover:bg-accent-hover disabled:opacity-50"
         >
           Create
         </button>
       </div>
 
       {loading ? (
-        <p className="text-xs text-neutral-400">Loading projects…</p>
+        <p className="text-xs text-muted">Loading projects…</p>
       ) : projects.length === 0 ? (
-        <p className="text-xs text-neutral-400">
+        <p className="text-xs text-muted">
           No projects yet. Capture a thought referencing a new project, or
           create one above.
         </p>
@@ -136,7 +136,7 @@ export default function ProjectManager({ onChanged }: Props) {
           {projects.map((p) => (
             <li
               key={p.id}
-              className="flex items-center justify-between gap-2 rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2"
+              className="flex items-center justify-between gap-2 rounded-md border border-line bg-surface px-3 py-2"
             >
               {renamingId === p.id ? (
                 <input
@@ -146,13 +146,13 @@ export default function ProjectManager({ onChanged }: Props) {
                     if (e.key === "Enter") void handleRename(p);
                     if (e.key === "Escape") setRenamingId(null);
                   }}
-                  className="flex-1 rounded-md border border-neutral-700 bg-neutral-950 px-2 py-1 text-sm focus:border-neutral-500 focus:outline-none"
+                  className="flex-1 rounded-md border border-line bg-canvas px-2 py-1 text-sm focus:border-accent focus:outline-none"
                   autoFocus
                 />
               ) : (
                 <span
                   className={`flex-1 truncate text-sm ${
-                    p.archived_at ? "text-neutral-500 line-through" : "text-neutral-100"
+                    p.archived_at ? "text-faint line-through" : "text-fg"
                   }`}
                 >
                   {p.name}
@@ -164,14 +164,14 @@ export default function ProjectManager({ onChanged }: Props) {
                     <button
                       type="button"
                       onClick={() => void handleRename(p)}
-                      className="rounded border border-neutral-700 px-2 py-0.5 text-xs hover:bg-neutral-800"
+                      className="rounded border border-line px-2 py-0.5 text-xs hover:bg-elevated"
                     >
                       Save
                     </button>
                     <button
                       type="button"
                       onClick={() => setRenamingId(null)}
-                      className="rounded border border-neutral-700 px-2 py-0.5 text-xs hover:bg-neutral-800"
+                      className="rounded border border-line px-2 py-0.5 text-xs hover:bg-elevated"
                     >
                       Cancel
                     </button>
@@ -184,7 +184,7 @@ export default function ProjectManager({ onChanged }: Props) {
                         setRenameValue(p.name);
                         setRenamingId(p.id);
                       }}
-                      className="rounded border border-neutral-700 px-2 py-0.5 text-xs hover:bg-neutral-800"
+                      className="rounded border border-line px-2 py-0.5 text-xs hover:bg-elevated"
                     >
                       Rename
                     </button>
@@ -192,7 +192,7 @@ export default function ProjectManager({ onChanged }: Props) {
                       <button
                         type="button"
                         onClick={() => void handleUnarchive(p)}
-                        className="rounded border border-neutral-700 px-2 py-0.5 text-xs hover:bg-neutral-800"
+                        className="rounded border border-line px-2 py-0.5 text-xs hover:bg-elevated"
                       >
                         Unarchive
                       </button>
@@ -200,7 +200,7 @@ export default function ProjectManager({ onChanged }: Props) {
                       <button
                         type="button"
                         onClick={() => void handleArchive(p)}
-                        className="rounded border border-neutral-700 px-2 py-0.5 text-xs hover:bg-red-950 hover:text-red-200"
+                        className="rounded border border-line px-2 py-0.5 text-xs hover:bg-danger/15 hover:text-danger"
                       >
                         Archive
                       </button>

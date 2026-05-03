@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { CheckSquare, Mic, StickyNote, Trash2 } from "lucide-react";
 import type { Item, Project } from "../lib/api";
 import { listTagsForItem, updateItem } from "../lib/api";
 import { relativeTime } from "../lib/format";
@@ -22,24 +23,23 @@ type Props = {
 };
 
 function KindIcon({ kind, source }: { kind: Item["kind"]; source: Item["source"] }) {
-  // simple textual marker; visual style varies per category.
   if (kind === "task") {
     return (
-      <span className="inline-flex h-5 w-5 items-center justify-center rounded-md bg-amber-900/60 text-[11px] text-amber-200">
-        ✓
+      <span className="inline-flex h-5 w-5 items-center justify-center rounded-md bg-warning/15 text-warning">
+        <CheckSquare size={12} strokeWidth={2} />
       </span>
     );
   }
   if (source === "voice_at_cursor") {
     return (
-      <span className="inline-flex h-5 w-5 items-center justify-center rounded-md bg-sky-900/60 text-[11px] text-sky-200">
-        🎙
+      <span className="inline-flex h-5 w-5 items-center justify-center rounded-md bg-accent-soft text-accent">
+        <Mic size={12} strokeWidth={2} />
       </span>
     );
   }
   return (
-    <span className="inline-flex h-5 w-5 items-center justify-center rounded-md bg-neutral-800 text-[11px] text-neutral-300">
-      ·
+    <span className="inline-flex h-5 w-5 items-center justify-center rounded-md bg-elevated text-muted">
+      <StickyNote size={12} strokeWidth={2} />
     </span>
   );
 }
@@ -55,7 +55,7 @@ function highlightContent(content: string, terms: string[] | undefined): React.R
   const parts = content.split(re);
   return parts.map((p, i) =>
     re.test(p) ? (
-      <mark key={i} className="bg-amber-900/50 text-amber-100">
+      <mark key={i} className="bg-warning/15 text-warning">
         {p}
       </mark>
     ) : (
@@ -118,13 +118,20 @@ export default function ItemCard({
   const lineClamp = compact ? "line-clamp-2" : "line-clamp-3";
   const tooLong = item.content.split("\n").length > (compact ? 2 : 3) || item.content.length > 280;
 
+  const isVoice = item.source === "voice_at_cursor";
+  const contentClass = isVoice
+    ? "font-mono text-[12.5px] text-fg/95"
+    : "text-[13px] text-fg";
+
   return (
     <div
-      className={`group flex gap-3 rounded-lg border border-neutral-800 bg-neutral-900 ${
+      className={`group relative flex gap-3 rounded-md border border-line bg-surface ${
         compact ? "px-3 py-2" : "p-4"
-      } hover:border-neutral-700`}
+      } transition-colors hover:border-line-strong ${
+        isVoice ? "border-l-2 border-l-accent/70" : ""
+      }`}
     >
-      <div className="pt-1">
+      <div className="pt-0.5">
         <KindIcon kind={item.kind} source={item.source} />
       </div>
       <div className="min-w-0 flex-1">
@@ -134,7 +141,7 @@ export default function ItemCard({
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               rows={compact ? 3 : 5}
-              className="w-full rounded-md border border-neutral-700 bg-neutral-950 px-2 py-1 text-sm focus:border-neutral-500 focus:outline-none"
+              className="w-full rounded-md border border-line bg-canvas px-2 py-1.5 text-[13px] text-fg transition-colors focus:border-accent focus:outline-none"
               autoFocus
             />
             <div className="flex justify-end gap-2">
@@ -145,7 +152,7 @@ export default function ItemCard({
                   setDraft(item.content);
                 }}
                 disabled={busy}
-                className="rounded border border-neutral-700 px-2 py-1 text-xs hover:bg-neutral-800 disabled:opacity-50"
+                className="cursor-pointer rounded-md border border-line px-2.5 py-1 text-xs text-muted transition-colors hover:bg-elevated hover:text-fg disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Cancel
               </button>
@@ -153,7 +160,7 @@ export default function ItemCard({
                 type="button"
                 onClick={() => void onSave()}
                 disabled={busy || !draft.trim() || draft === item.content}
-                className="rounded-md bg-neutral-100 px-2 py-1 text-xs font-semibold text-neutral-900 hover:bg-white disabled:opacity-50"
+                className="cursor-pointer rounded-md bg-accent px-2.5 py-1 text-xs font-semibold text-canvas transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {busy ? "Saving…" : "Save"}
               </button>
@@ -164,7 +171,7 @@ export default function ItemCard({
             type="button"
             onClick={() => !readOnly && setEditing(true)}
             disabled={readOnly}
-            className={`block w-full text-left text-sm leading-relaxed text-neutral-100 ${
+            className={`block w-full text-left leading-relaxed ${contentClass} ${
               expanded ? "" : lineClamp
             } whitespace-pre-wrap break-words ${
               readOnly ? "cursor-default" : "cursor-text"
@@ -175,17 +182,17 @@ export default function ItemCard({
           </button>
         )}
 
-        <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-neutral-400">
+        <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-muted">
           <span>{relativeTime(item.captured_at)}</span>
           {project ? (
-            <span className="rounded-full bg-neutral-800 px-2 py-0.5 text-neutral-200">
+            <span className="rounded-full bg-elevated px-2 py-0.5 text-fg">
               {project.name}
             </span>
           ) : null}
           {tags.map((t) => (
             <span
               key={t}
-              className="rounded-full border border-neutral-700 px-2 py-0.5 text-neutral-300"
+              className="rounded-full border border-line px-2 py-0.5 text-muted"
             >
               #{t}
             </span>
@@ -194,7 +201,7 @@ export default function ItemCard({
             <button
               type="button"
               onClick={() => setExpanded((v) => !v)}
-              className="text-neutral-400 underline-offset-2 hover:text-neutral-200 hover:underline"
+              className="cursor-pointer text-muted underline-offset-2 transition-colors hover:text-fg hover:underline"
             >
               {expanded ? "Show less" : "Show more"}
             </button>
@@ -202,7 +209,7 @@ export default function ItemCard({
           <button
             type="button"
             onClick={() => setShowDetail((v) => !v)}
-            className="text-neutral-500 underline-offset-2 hover:text-neutral-300 hover:underline"
+            className="cursor-pointer text-faint underline-offset-2 transition-colors hover:text-muted hover:underline"
           >
             {showDetail ? "Hide details" : "Details"}
           </button>
@@ -214,23 +221,25 @@ export default function ItemCard({
       <div className="flex shrink-0 flex-col items-end gap-1">
         {rightSlot}
         {!readOnly && !editing ? (
-          <div className="flex gap-1 opacity-0 transition group-hover:opacity-100">
+          <div className="flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
             {onToggleKind ? (
               <button
                 type="button"
                 onClick={() => onToggleKind(item.kind === "task" ? "note" : "task")}
-                className="rounded border border-neutral-700 px-2 py-0.5 text-[11px] text-neutral-300 hover:bg-neutral-800"
+                className="cursor-pointer rounded-md border border-line px-2 py-0.5 text-[11px] text-muted transition-colors hover:border-line-strong hover:bg-elevated hover:text-fg"
                 title={item.kind === "task" ? "Demote to note" : "Open as task"}
               >
-                {item.kind === "task" ? "→ Note" : "→ Task"}
+                {item.kind === "task" ? "Note" : "Task"}
               </button>
             ) : null}
             {onDelete ? (
               <button
                 type="button"
                 onClick={onDelete}
-                className="rounded border border-neutral-700 px-2 py-0.5 text-[11px] text-neutral-300 hover:bg-red-950 hover:text-red-200"
+                className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-line px-2 py-0.5 text-[11px] text-muted transition-colors hover:border-danger/40 hover:bg-danger/10 hover:text-danger"
+                title="Delete"
               >
+                <Trash2 size={11} strokeWidth={2} />
                 Delete
               </button>
             ) : null}

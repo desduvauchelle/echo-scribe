@@ -19,6 +19,7 @@ import {
   parseIso,
   shortDate,
 } from "../../lib/format";
+import { CheckCircle2, ListTodo } from "lucide-react";
 import { EmptyState, SkeletonList } from "./ActivityFeed";
 
 type Props = {
@@ -173,16 +174,20 @@ export default function TasksView({ projects }: Props) {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="border-b border-neutral-800 bg-neutral-950/40 px-6 py-4">
-        <h1 className="text-lg font-semibold tracking-tight">Tasks</h1>
-        <p className="text-xs text-neutral-400">
-          {open.length} open · {done.length || (showDone ? 0 : "—")} done
+      <div className="border-b border-line bg-canvas/40 px-6 py-4">
+        <h1 className="text-lg font-semibold tracking-tight text-fg">Tasks</h1>
+        <p className="mt-0.5 text-xs text-muted">
+          <span className="font-medium text-fg">{open.length}</span> open ·{" "}
+          <span className="font-medium text-fg">
+            {done.length || (showDone ? 0 : "—")}
+          </span>{" "}
+          done
         </p>
       </div>
 
       <div className="flex-1 overflow-y-auto px-6 py-4">
         {error ? (
-          <div className="mb-3 rounded-md border border-red-700 bg-red-950/40 px-3 py-2 text-sm text-red-200">
+          <div className="mb-3 rounded-md border border-danger/40 bg-danger/15 px-3 py-2 text-sm text-danger">
             {error}{" "}
             <button type="button" onClick={() => void fetchOpen()} className="ml-2 underline">
               Retry
@@ -191,13 +196,14 @@ export default function TasksView({ projects }: Props) {
         ) : null}
 
         <section>
-          <h2 className="mb-2 text-xs uppercase tracking-wider text-neutral-500">
+          <h2 className="mb-2 text-xs uppercase tracking-wider text-faint">
             Open
           </h2>
           {loadingOpen ? (
             <SkeletonList />
           ) : open.length === 0 ? (
             <EmptyState
+              icon={<ListTodo size={20} strokeWidth={1.75} />}
               title="No open tasks."
               subtitle="When you capture a task with the log hotkey, it shows up here."
             />
@@ -220,13 +226,13 @@ export default function TasksView({ projects }: Props) {
 
         <section className="mt-8">
           <div className="mb-2 flex items-center justify-between">
-            <h2 className="text-xs uppercase tracking-wider text-neutral-500">
+            <h2 className="text-xs uppercase tracking-wider text-faint">
               Done
             </h2>
             <button
               type="button"
               onClick={() => setShowDone((v) => !v)}
-              className="rounded border border-neutral-700 px-2 py-0.5 text-xs hover:bg-neutral-800"
+              className="rounded border border-line px-2 py-0.5 text-xs hover:bg-elevated"
             >
               {showDone ? "Hide" : "Show"}
             </button>
@@ -236,6 +242,7 @@ export default function TasksView({ projects }: Props) {
               <SkeletonList />
             ) : done.length === 0 ? (
               <EmptyState
+                icon={<CheckCircle2 size={20} strokeWidth={1.75} />}
                 title="No completed tasks."
                 subtitle="Tasks you check off will appear here."
               />
@@ -282,7 +289,7 @@ function TaskRow({
         type="checkbox"
         checked={completed}
         onChange={onToggle}
-        className="mt-3 h-4 w-4 cursor-pointer accent-neutral-200"
+        className="mt-3 h-4 w-4 cursor-pointer accent-accent"
         aria-label={completed ? "Mark task as not done" : "Complete task"}
       />
       <div className="flex-1">
@@ -322,7 +329,7 @@ function DeadlineBadge({
 
   if (completedAtIso) {
     return (
-      <span className="rounded-full bg-emerald-900/40 px-2 py-0.5 text-[10px] text-emerald-200">
+      <span className="rounded-full bg-success/15 px-2 py-0.5 text-[10px] text-success">
         Done {shortDate(completedAtIso)}
       </span>
     );
@@ -330,17 +337,17 @@ function DeadlineBadge({
 
   const tMs = parseIso(deadlineIso);
   const now = Date.now();
-  let tone = "border-neutral-700 text-neutral-300";
+  let tone = "border-line text-muted";
   let label = "No deadline";
   if (tMs !== null) {
     if (tMs < now) {
-      tone = "border-red-700 text-red-300";
+      tone = "border-danger/40 text-danger";
       label = `Overdue · ${shortDate(deadlineIso!)}`;
     } else if (isSameLocalDay(tMs, now)) {
-      tone = "border-amber-700 text-amber-300";
+      tone = "border-warning/40 text-warning";
       label = `Today · ${shortDate(deadlineIso!)}`;
     } else {
-      tone = "border-neutral-700 text-neutral-300";
+      tone = "border-line text-muted";
       label = shortDate(deadlineIso!);
     }
   }
@@ -352,7 +359,7 @@ function DeadlineBadge({
           type="date"
           value={value}
           onChange={(e) => setValue(e.target.value)}
-          className="rounded border border-neutral-700 bg-neutral-950 px-1 py-0.5 text-[10px]"
+          className="rounded border border-line bg-canvas px-1 py-0.5 text-[10px]"
           autoFocus
         />
         <button
@@ -361,7 +368,7 @@ function DeadlineBadge({
             onChange(value);
             setEditing(false);
           }}
-          className="rounded border border-neutral-700 px-1 py-0.5 text-[10px] hover:bg-neutral-800"
+          className="rounded border border-line px-1 py-0.5 text-[10px] hover:bg-elevated"
         >
           OK
         </button>
@@ -371,7 +378,7 @@ function DeadlineBadge({
             onChange("");
             setEditing(false);
           }}
-          className="rounded border border-neutral-700 px-1 py-0.5 text-[10px] hover:bg-neutral-800"
+          className="rounded border border-line px-1 py-0.5 text-[10px] hover:bg-elevated"
         >
           Clear
         </button>
@@ -383,7 +390,7 @@ function DeadlineBadge({
     <button
       type="button"
       onClick={() => setEditing(true)}
-      className={`rounded-full border px-2 py-0.5 text-[10px] ${tone} hover:bg-neutral-900`}
+      className={`rounded-full border px-2 py-0.5 text-[10px] ${tone} hover:bg-surface`}
     >
       {label}
     </button>

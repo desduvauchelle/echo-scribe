@@ -7,6 +7,7 @@ import {
   type Project,
 } from "../../lib/api";
 import ItemCard from "../../components/ItemCard";
+import { Search as SearchIcon, SearchX } from "lucide-react";
 import { EmptyState, SkeletonList } from "./ActivityFeed";
 import { useToasts } from "../../components/ToastProvider";
 
@@ -98,27 +99,35 @@ export default function SearchView({ projects }: Props) {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="border-b border-neutral-800 bg-neutral-950/40 px-6 py-4">
-        <h1 className="text-lg font-semibold tracking-tight">Search</h1>
-        <input
-          type="text"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search your captures…"
-          className="mt-3 w-full rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm focus:border-neutral-500 focus:outline-none"
-          autoFocus
-        />
+      <div className="border-b border-line bg-canvas/40 px-6 py-4">
+        <h1 className="text-lg font-semibold tracking-tight text-fg">Search</h1>
+        <div className="relative mt-3">
+          <SearchIcon
+            size={14}
+            strokeWidth={2}
+            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-faint"
+          />
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search your captures…"
+            className="w-full rounded-md border border-line bg-canvas py-2 pl-9 pr-3 text-sm text-fg placeholder:text-faint transition-colors focus:border-accent focus:outline-none"
+            autoFocus
+          />
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto px-6 py-4">
         {error ? (
-          <div className="mb-3 rounded-md border border-red-700 bg-red-950/40 px-3 py-2 text-sm text-red-200">
+          <div className="mb-3 rounded-md border border-danger/40 bg-danger/15 px-3 py-2 text-sm text-danger">
             {error}
           </div>
         ) : null}
 
         {!query.trim() ? (
           <EmptyState
+            icon={<SearchIcon size={20} strokeWidth={1.75} />}
             title="Type to search your captures."
             subtitle="Full-text search powered by SQLite FTS5."
           />
@@ -126,6 +135,7 @@ export default function SearchView({ projects }: Props) {
           <SkeletonList />
         ) : results.length === 0 ? (
           <EmptyState
+            icon={<SearchX size={20} strokeWidth={1.75} />}
             title={`No results for "${query.trim()}"`}
             subtitle="Try a different keyword or simpler query."
           />

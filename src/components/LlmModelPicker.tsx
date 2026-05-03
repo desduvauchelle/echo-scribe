@@ -148,7 +148,7 @@ export default function LlmModelPicker() {
 
   if (loadError && models.length === 0) {
     return (
-      <p className="text-xs text-amber-300">
+      <p className="text-xs text-warning">
         Couldn’t load LLM models: {loadError}
       </p>
     );
@@ -165,23 +165,23 @@ export default function LlmModelPicker() {
           <div
             key={model.id}
             title={disabled ? "Not yet supported" : undefined}
-            className={`flex items-center justify-between gap-4 rounded-lg border border-neutral-800 bg-neutral-900 p-4 ${
+            className={`flex items-center justify-between gap-4 rounded-lg border border-line bg-surface p-4 ${
               disabled ? "cursor-not-allowed opacity-50" : ""
             }`}
           >
             <div className="min-w-0 flex-1">
               <div className="text-sm">
                 <span className="font-semibold">{model.size_label}</span>
-                <span className="text-neutral-400"> — {model.display_name}</span>
+                <span className="text-muted"> — {model.display_name}</span>
               </div>
-              <div className="mt-0.5 text-xs text-neutral-400">
+              <div className="mt-0.5 text-xs text-muted">
                 {model.family} · {formatBytes(model.size_bytes)} · {model.context_length} ctx
               </div>
               {isDownloading ? (
                 <div className="mt-2">
-                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-neutral-800">
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-elevated">
                     <div
-                      className="h-full bg-neutral-100 transition-all"
+                      className="h-full bg-fg transition-all"
                       style={{
                         width: `${
                           dl.bytes_total > 0
@@ -196,26 +196,26 @@ export default function LlmModelPicker() {
                       }}
                     />
                   </div>
-                  <div className="mt-1 text-[11px] text-neutral-400">
+                  <div className="mt-1 text-[11px] text-muted">
                     {formatBytes(dl.bytes_downloaded)} / {formatBytes(dl.bytes_total)}
                   </div>
                 </div>
               ) : null}
               {downloadErr && !isDownloading ? (
-                <p className="mt-2 text-xs text-red-400">
+                <p className="mt-2 text-xs text-danger">
                   Download failed: {downloadErr}
                 </p>
               ) : null}
             </div>
             <div className="flex shrink-0 items-center">
               {!model.supported ? (
-                <span className="inline-flex items-center rounded-full bg-neutral-800 px-2 py-0.5 text-xs text-neutral-400">
+                <span className="inline-flex items-center rounded-full bg-elevated px-2 py-0.5 text-xs text-muted">
                   Unavailable
                 </span>
               ) : isDownloading ? (
-                <span className="text-xs text-neutral-400">Downloading…</span>
+                <span className="text-xs text-muted">Downloading…</span>
               ) : model.downloaded && model.active ? (
-                <span className="inline-flex items-center rounded-full bg-emerald-900 px-2 py-0.5 text-xs text-emerald-200">
+                <span className="inline-flex items-center rounded-full bg-success/15 px-2 py-0.5 text-xs text-success">
                   Active
                 </span>
               ) : model.downloaded ? (
@@ -223,7 +223,7 @@ export default function LlmModelPicker() {
                   type="button"
                   disabled={busyId === model.id}
                   onClick={() => void handleActivate(model)}
-                  className="rounded border border-neutral-700 px-3 py-1 text-xs hover:bg-neutral-800 disabled:opacity-50"
+                  className="rounded border border-line px-3 py-1 text-xs hover:bg-elevated disabled:opacity-50"
                 >
                   Use this model
                 </button>
@@ -232,7 +232,7 @@ export default function LlmModelPicker() {
                   type="button"
                   disabled={busyId === model.id}
                   onClick={() => void handleDownload(model)}
-                  className="rounded-md bg-neutral-100 px-3 py-1 text-xs font-semibold text-neutral-900 hover:bg-white disabled:opacity-50"
+                  className="rounded-md bg-accent px-3 py-1 text-xs font-semibold text-canvas hover:bg-accent-hover disabled:opacity-50"
                 >
                   Download
                 </button>

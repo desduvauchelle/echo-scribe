@@ -59,7 +59,7 @@ pub fn restore(snapshot: &FocusSnapshot) -> bool {
     // the overlay just opened).
     #[allow(deprecated)]
     let opts = NSApplicationActivationOptions::ActivateIgnoringOtherApps;
-    unsafe { app.activateWithOptions(opts) }
+    app.activateWithOptions(opts)
 }
 
 #[cfg(not(target_os = "macos"))]

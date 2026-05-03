@@ -128,13 +128,13 @@ function FillerWordsCard() {
   };
 
   return (
-    <div className="flex flex-col gap-3 rounded-lg border border-neutral-800 bg-neutral-950 p-4">
+    <div className="flex flex-col gap-3 rounded-lg border border-line bg-canvas p-4">
       <label className="flex items-center justify-between">
         <div>
-          <div className="text-sm font-semibold text-neutral-100">
+          <div className="text-sm font-semibold text-fg">
             Remove filler words
           </div>
-          <p className="text-xs text-neutral-400">
+          <p className="text-xs text-muted">
             Strip "uh", "um", "you know", and similar from every transcript.
           </p>
         </div>
@@ -143,7 +143,7 @@ function FillerWordsCard() {
           disabled={enabled === null}
           checked={enabled ?? true}
           onChange={(e) => void persistEnabled(e.target.checked)}
-          className="h-4 w-4 cursor-pointer accent-neutral-100"
+          className="h-4 w-4 cursor-pointer accent-accent"
         />
       </label>
 
@@ -197,20 +197,20 @@ function ChipListCard(props: {
 
   const wrapperClass = inline
     ? "flex flex-col gap-3"
-    : "flex flex-col gap-3 rounded-lg border border-neutral-800 bg-neutral-950 p-4";
+    : "flex flex-col gap-3 rounded-lg border border-line bg-canvas p-4";
 
   return (
     <div className={wrapperClass}>
       <div className="flex items-start justify-between gap-3">
         <div>
-          <div className="text-sm font-semibold text-neutral-100">{title}</div>
-          <p className="text-xs text-neutral-400">{subtitle}</p>
+          <div className="text-sm font-semibold text-fg">{title}</div>
+          <p className="text-xs text-muted">{subtitle}</p>
         </div>
         {rightAction ? (
           <button
             type="button"
             onClick={rightAction.onClick}
-            className="shrink-0 rounded border border-neutral-700 px-2 py-1 text-xs text-neutral-300 hover:bg-neutral-800"
+            className="shrink-0 rounded border border-line px-2 py-1 text-xs text-muted hover:bg-elevated"
           >
             {rightAction.label}
           </button>
@@ -229,13 +229,13 @@ function ChipListCard(props: {
             }
           }}
           placeholder={placeholder}
-          className="flex-1 rounded-md border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-sm focus:border-rose-500 focus:outline-none"
+          className="flex-1 rounded-md border border-line bg-surface px-3 py-1.5 text-sm focus:border-accent focus:outline-none"
         />
         <button
           type="button"
           onClick={add}
           disabled={!input.trim()}
-          className="rounded-md bg-rose-900/60 px-3 py-1.5 text-xs font-semibold text-rose-100 hover:bg-rose-900/80 disabled:opacity-40"
+          className="rounded-md bg-danger/15 px-3 py-1.5 text-xs font-semibold text-danger hover:bg-danger/15 disabled:opacity-40"
         >
           Add
         </button>
@@ -243,20 +243,20 @@ function ChipListCard(props: {
 
       <div className="flex flex-wrap gap-1.5">
         {(words ?? []).length === 0 ? (
-          <p className="text-xs text-neutral-500">
+          <p className="text-xs text-faint">
             {words === null ? "Loading…" : "No entries yet."}
           </p>
         ) : (
           (words ?? []).map((w) => (
             <span
               key={w}
-              className="inline-flex items-center gap-1.5 rounded-full bg-neutral-800 px-2.5 py-0.5 text-xs text-neutral-200"
+              className="inline-flex items-center gap-1.5 rounded-full bg-elevated px-2.5 py-0.5 text-xs text-fg"
             >
               {w}
               <button
                 type="button"
                 onClick={() => remove(w)}
-                className="text-neutral-500 hover:text-neutral-100"
+                className="text-faint hover:text-fg"
                 aria-label={`Remove ${w}`}
               >
                 ×

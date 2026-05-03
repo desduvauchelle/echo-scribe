@@ -1,5 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  Activity,
+  CheckSquare,
+  Folder,
+  Hash,
+  LayoutDashboard,
+  MessageSquare,
+  Mic,
+  Search as SearchIcon,
+  Settings as SettingsIcon,
+  type LucideIcon,
+} from "lucide-react";
+import {
   getVoiceAtCursorBinding,
   listProjects,
   type JsBinding,
@@ -98,61 +110,77 @@ export default function Main({ onOpenSettings }: Props) {
   };
 
   return (
-    <div className="flex h-full bg-neutral-950 text-neutral-100">
-      <aside className="flex w-[210px] shrink-0 flex-col border-r border-neutral-800 bg-neutral-900/40">
+    <div className="flex h-full bg-canvas text-fg">
+      <aside className="flex w-[220px] shrink-0 flex-col border-r border-line bg-surface">
         <div className="px-4 pb-3 pt-10">
-          <div className="text-sm font-semibold tracking-tight">
+          <div className="text-[13px] font-semibold tracking-tight text-fg">
             Echo Scribe
           </div>
           {binding ? (
-            <p className="mt-0.5 truncate text-[10px] text-neutral-500">
-              Hold {formatBinding(binding)} to dictate
-            </p>
+            <div className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-line bg-elevated px-2 py-0.5 text-[10px] text-muted">
+              <span className="relative flex h-1.5 w-1.5">
+                <span className="absolute inline-flex h-full w-full rounded-full bg-accent opacity-60" />
+                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-accent" />
+              </span>
+              <Mic size={10} strokeWidth={2} className="text-accent" />
+              <span className="font-medium text-fg">
+                {formatBinding(binding)}
+              </span>
+              <span>to dictate</span>
+            </div>
           ) : null}
         </div>
 
         <nav className="flex flex-col gap-0.5 px-2">
           <NavItem
+            icon={Activity}
             label="Activity"
             active={section.kind === "activity"}
             onClick={() => setSection({ kind: "activity" })}
           />
           <NavItem
+            icon={CheckSquare}
             label="Tasks"
             active={section.kind === "tasks"}
             onClick={() => setSection({ kind: "tasks" })}
           />
           <NavItem
+            icon={SearchIcon}
             label="Search"
             active={section.kind === "search"}
             onClick={() => setSection({ kind: "search" })}
           />
           <NavItem
+            icon={MessageSquare}
             label="Chat"
             active={section.kind === "chat"}
             onClick={() => setSection({ kind: "chat" })}
           />
           <NavItem
+            icon={LayoutDashboard}
             label="Dashboard"
             active={section.kind === "dashboard"}
             onClick={() => setSection({ kind: "dashboard" })}
           />
         </nav>
 
-        <div className="mt-5 px-4 text-[10px] uppercase tracking-wider text-neutral-500">
-          Projects
+        <div className="mx-4 my-3 border-t border-line" />
+
+        <div className="flex items-center justify-between px-4 pb-1">
+          <span className="text-[10px] font-medium uppercase tracking-wider text-faint">
+            Projects
+          </span>
+          <Folder size={11} strokeWidth={2} className="text-faint" />
         </div>
-        <div className="flex flex-col gap-0.5 px-2 pt-1">
+        <div className="flex flex-col gap-0.5 px-2">
           {visibleProjects.length === 0 ? (
-            <div className="px-2 py-1 text-xs text-neutral-500">
-              No projects yet
-            </div>
+            <div className="px-3 py-1 text-xs text-faint">No projects yet</div>
           ) : (
             visibleProjects.map((p) => (
               <NavItem
                 key={p.id}
+                icon={Hash}
                 label={p.name}
-                indent
                 active={section.kind === "project" && section.id === p.id}
                 onClick={() => setSection({ kind: "project", id: p.id })}
               />
@@ -162,22 +190,22 @@ export default function Main({ onOpenSettings }: Props) {
             <button
               type="button"
               onClick={() => setShowAllProjects((v) => !v)}
-              className="mx-2 mt-1 text-left text-[11px] text-neutral-500 hover:text-neutral-300"
+              className="mx-2 mt-1 cursor-pointer text-left text-[11px] text-faint transition-colors hover:text-muted"
             >
               {showAllProjects ? "Show fewer" : `Show all (${projects.length})`}
             </button>
           ) : null}
         </div>
 
-        <div className="mt-auto border-t border-neutral-800 px-2 py-2">
+        <div className="mt-auto border-t border-line p-2">
           <button
             type="button"
             onClick={onOpenSettings}
-            className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-xs text-neutral-300 hover:bg-neutral-800"
+            className="flex w-full cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] text-muted transition-colors hover:bg-elevated hover:text-fg"
             title="Open settings"
           >
+            <SettingsIcon size={14} strokeWidth={1.75} />
             <span>Settings</span>
-            <span aria-hidden="true">⚙</span>
           </button>
         </div>
       </aside>
@@ -188,28 +216,43 @@ export default function Main({ onOpenSettings }: Props) {
 }
 
 function NavItem({
+  icon: Icon,
   label,
   active,
   onClick,
-  indent,
 }: {
+  icon: LucideIcon;
   label: string;
   active: boolean;
   onClick: () => void;
-  indent?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`truncate rounded-md ${indent ? "pl-4" : "pl-2"} pr-2 py-1.5 text-left text-sm ${
+      className={`group relative flex cursor-pointer items-center gap-2 truncate rounded-md py-1.5 pl-3 pr-2 text-left text-[13px] transition-colors ${
         active
-          ? "bg-neutral-800 text-neutral-100"
-          : "text-neutral-300 hover:bg-neutral-800/60"
+          ? "bg-accent-soft text-fg"
+          : "text-muted hover:bg-elevated hover:text-fg"
       }`}
       title={label}
     >
-      {label}
+      {active ? (
+        <span
+          aria-hidden="true"
+          className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-r-full bg-accent"
+        />
+      ) : null}
+      <Icon
+        size={14}
+        strokeWidth={1.75}
+        className={
+          active
+            ? "text-accent"
+            : "text-faint transition-colors group-hover:text-muted"
+        }
+      />
+      <span className="truncate">{label}</span>
     </button>
   );
 }

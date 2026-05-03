@@ -23,7 +23,7 @@ export default function DashboardView() {
 
   if (error) {
     return (
-      <div className="flex h-full items-center justify-center text-sm text-red-400">
+      <div className="flex h-full items-center justify-center text-sm text-danger">
         {error}
       </div>
     );
@@ -31,7 +31,7 @@ export default function DashboardView() {
 
   if (!stats) {
     return (
-      <div className="flex h-full items-center justify-center text-sm text-neutral-500">
+      <div className="flex h-full items-center justify-center text-sm text-faint">
         Loading...
       </div>
     );
@@ -47,8 +47,8 @@ export default function DashboardView() {
         <PeriodCard label="This Month" transcriptions={stats.month.transcriptions} words={stats.month.words} />
       </div>
 
-      <div className="mt-4 rounded-lg border border-emerald-800/40 bg-emerald-950/30 px-4 py-3">
-        <div className="text-xs text-emerald-400/70">Estimated time saved</div>
+      <div className="mt-4 rounded-lg border border-success/30 bg-success/15 px-4 py-3">
+        <div className="text-xs text-success">Estimated time saved</div>
         <div className="mt-0.5 flex items-baseline gap-4">
           <TimeSaved label="Today" count={stats.today.transcriptions} />
           <TimeSaved label="Week" count={stats.week.transcriptions} />
@@ -69,7 +69,7 @@ export default function DashboardView() {
       </div>
 
       <div className="mt-5">
-        <div className="mb-2 text-xs font-medium text-neutral-400">Activity — last 90 days</div>
+        <div className="mb-2 text-xs font-medium text-muted">Activity — last 90 days</div>
         <Heatmap data={stats.daily_counts} />
       </div>
 
@@ -80,10 +80,10 @@ export default function DashboardView() {
 
 function PeriodCard({ label, transcriptions, words }: { label: string; transcriptions: number; words: number }) {
   return (
-    <div className="rounded-lg border border-neutral-800 bg-neutral-900/60 px-4 py-3">
-      <div className="text-[10px] uppercase tracking-wider text-neutral-500">{label}</div>
+    <div className="rounded-lg border border-line bg-surface/60 px-4 py-3">
+      <div className="text-[10px] uppercase tracking-wider text-faint">{label}</div>
       <div className="mt-1 text-2xl font-bold tabular-nums">{transcriptions}</div>
-      <div className="mt-0.5 text-xs text-neutral-400">{words.toLocaleString()} words</div>
+      <div className="mt-0.5 text-xs text-muted">{words.toLocaleString()} words</div>
     </div>
   );
 }
@@ -98,18 +98,18 @@ function TimeSaved({ label, count }: { label: string; count: number }) {
         : `${(totalSecs / 3600).toFixed(1)}h`;
   return (
     <div>
-      <span className="text-lg font-semibold text-emerald-300 tabular-nums">{display}</span>
-      <span className="ml-1 text-xs text-emerald-400/50">{label}</span>
+      <span className="text-lg font-semibold text-success tabular-nums">{display}</span>
+      <span className="ml-1 text-xs text-success">{label}</span>
     </div>
   );
 }
 
 function InsightCard({ label, value, sub }: { label: string; value: string; sub: string }) {
   return (
-    <div className="rounded-lg border border-neutral-800 bg-neutral-900/60 px-3 py-2.5">
-      <div className="text-[10px] uppercase tracking-wider text-neutral-500">{label}</div>
+    <div className="rounded-lg border border-line bg-surface/60 px-3 py-2.5">
+      <div className="text-[10px] uppercase tracking-wider text-faint">{label}</div>
       <div className="mt-0.5 text-lg font-semibold tabular-nums">{value}</div>
-      <div className="text-[11px] text-neutral-500">{sub}</div>
+      <div className="text-[11px] text-faint">{sub}</div>
     </div>
   );
 }
@@ -143,12 +143,12 @@ function Heatmap({ data }: { data: [string, number][] }) {
   }
 
   const intensity = (count: number) => {
-    if (count === 0) return "bg-neutral-800/50";
+    if (count === 0) return "bg-elevated/50";
     const ratio = count / maxCount;
-    if (ratio <= 0.25) return "bg-emerald-900/60";
-    if (ratio <= 0.5) return "bg-emerald-700/60";
-    if (ratio <= 0.75) return "bg-emerald-500/60";
-    return "bg-emerald-400/80";
+    if (ratio <= 0.25) return "bg-success/20";
+    if (ratio <= 0.5) return "bg-success/40";
+    if (ratio <= 0.75) return "bg-success/65";
+    return "bg-success/90";
   };
 
   return (
@@ -200,11 +200,11 @@ function Tips({ stats }: { stats: DashboardStats }) {
   if (tips.length === 0) return null;
 
   return (
-    <div className="mt-5 rounded-lg border border-neutral-800 bg-neutral-900/40 px-4 py-3">
-      <div className="mb-1.5 text-[10px] uppercase tracking-wider text-neutral-500">Tips & Insights</div>
+    <div className="mt-5 rounded-lg border border-line bg-surface/40 px-4 py-3">
+      <div className="mb-1.5 text-[10px] uppercase tracking-wider text-faint">Tips & Insights</div>
       <ul className="space-y-1">
         {tips.map((tip, i) => (
-          <li key={i} className="text-xs text-neutral-300">{tip}</li>
+          <li key={i} className="text-xs text-muted">{tip}</li>
         ))}
       </ul>
     </div>
