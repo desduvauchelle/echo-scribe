@@ -238,6 +238,7 @@ impl MeetingManager {
                 "detected_app_name": detected_app_name,
             }),
         );
+        crate::overlay::show_meeting_overlay(&self.app_handle, detected_app_name.as_deref());
 
         *guard = Some(ActiveMeeting {
             item_id: id.clone(),
@@ -373,11 +374,12 @@ impl MeetingManager {
                 .map_err(|e| MeetingError::Db(e.to_string()))?;
         }
 
-        // Step 9: Emit "complete" event.
+        // Step 9: Emit "complete" event and hide the overlay.
         let _ = self.app_handle.emit(
             "meeting-complete",
             serde_json::json!({"id": id}),
         );
+        crate::overlay::hide_recording_overlay(&self.app_handle);
 
         // Step 10: Best-effort cleanup of empty meeting dir if no failed chunks.
         if failed.is_empty() {

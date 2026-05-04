@@ -2,7 +2,9 @@ import { listen } from "@tauri-apps/api/event";
 import React, { useEffect, useRef, useState } from "react";
 import "./RecordingOverlay.css";
 
-type OverlayState = "recording" | "log-recording" | "transcribing";
+type OverlayState = "recording" | "log-recording" | "transcribing" | "meeting";
+
+type MeetingOverlayPayload = { mode: "meeting"; app_name: string | null };
 
 const MicrophoneIcon: React.FC = () => (
   <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
@@ -47,14 +49,22 @@ const CancelIcon: React.FC = () => (
 const RecordingOverlay: React.FC = () => {
   const [isVisible, setIsVisible] = useState(false);
   const [state, setState] = useState<OverlayState>("recording");
+  const [meetingAppName, setMeetingAppName] = useState<string | null>(null);
   const [levels, setLevels] = useState<number[]>(Array(16).fill(0));
   const smoothedLevelsRef = useRef<number[]>(Array(16).fill(0));
 
   useEffect(() => {
     const setupEventListeners = async () => {
       const unlistenShow = await listen("show-overlay", (event) => {
-        const overlayState = event.payload as OverlayState;
-        setState(overlayState);
+        const payload = event.payload;
+        if (typeof payload === "string") {
+          setState(payload as OverlayState);
+          setMeetingAppName(null);
+        } else if (payload && typeof payload === "object" && "mode" in payload) {
+          const meeting = payload as MeetingOverlayPayload;
+          setState(meeting.mode);
+          setMeetingAppName(meeting.app_name);
+        }
         setIsVisible(true);
       });
 
@@ -85,15 +95,16 @@ const RecordingOverlay: React.FC = () => {
   }, []);
 
   const isRecording = state === "recording" || state === "log-recording";
+  const isMeeting = state === "meeting";
 
   const getIcon = () => {
     if (state === "log-recording") return <PencilIcon />;
-    if (state === "recording") return <MicrophoneIcon />;
+    if (state === "recording" || state === "meeting") return <MicrophoneIcon />;
     return <TranscriptionIcon />;
   };
 
   return (
-    <div className={`recording-overlay ${isVisible ? "fade-in" : ""} ${state === "log-recording" ? "log-mode" : ""}`}>
+    <div className={`recording-overlay ${isVisible ? "fade-in" : ""} ${state === "log-recording" ? "log-mode" : ""} ${isMeeting ? "meeting-mode" : ""}`}>
       <div className="overlay-left">{getIcon()}</div>
 
       <div className="overlay-middle">
@@ -115,6 +126,11 @@ const RecordingOverlay: React.FC = () => {
         {state === "transcribing" && (
           <div className="status-text">Transcribing…</div>
         )}
+        {isMeeting && (
+          <div className="status-text">
+            {meetingAppName ? `Recording · ${meetingAppName}` : "Recording meeting"}
+          </div>
+        )}
       </div>
 
       <div className="overlay-right">
@@ -126,6 +142,19 @@ const RecordingOverlay: React.FC = () => {
                 emit("overlay-cancel"),
               );
             }}
+          >
+            <CancelIcon />
+          </button>
+        )}
+        {isMeeting && (
+          <button
+            className="cancel-button"
+            onClick={() => {
+              import("@tauri-apps/api/core").then(({ invoke }) =>
+                invoke("stop_meeting").catch(() => {}),
+              );
+            }}
+            title="Stop meeting"
           >
             <CancelIcon />
           </button>

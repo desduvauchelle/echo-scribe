@@ -77,6 +77,25 @@ fn show_overlay_state(app_handle: &AppHandle<Wry>, state: &str) {
     }
 }
 
+/// Show the overlay in meeting mode with the detected app name.
+/// Emits a JSON object payload (vs. the plain-string payload for the other
+/// modes) so the frontend can pick up the contextual app name.
+pub fn show_meeting_overlay(app_handle: &AppHandle<Wry>, detected_app_name: Option<&str>) {
+    if let Some(overlay) = app_handle.get_webview_window("recording_overlay") {
+        if let Some((x, y)) = calculate_overlay_position(app_handle) {
+            let _ = overlay.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
+        }
+        let _ = overlay.show();
+        let _ = overlay.emit(
+            "show-overlay",
+            serde_json::json!({
+                "mode": "meeting",
+                "app_name": detected_app_name,
+            }),
+        );
+    }
+}
+
 /// Shows the overlay in "recording" state (microphone + waveform bars).
 pub fn show_recording_overlay(app_handle: &AppHandle<Wry>) {
     show_overlay_state(app_handle, "recording");
