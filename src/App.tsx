@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
 import {
   getOnboardingCompleted,
   listSpeechModels,
@@ -37,6 +38,10 @@ function AppShell() {
   });
   const [resumeNotice, setResumeNotice] = useState<string | null>(null);
   const [mainKey, setMainKey] = useState(0);
+  const [meetingPrompt, setMeetingPrompt] = useState<{
+    bundle_id: string;
+    app_name: string;
+  } | null>(null);
   const toasts = useToasts();
 
   // Re-focus the last-used text input before the backend pastes, so
@@ -128,6 +133,28 @@ function AppShell() {
     };
   }, [toasts]);
 
+  // Surface "meeting-detected" events from the backend detector with an
+  // in-app three-button prompt (Always / Just once / Never). The prompt
+  // dismisses on choice, calling the meeting_consent command.
+  useEffect(() => {
+    let unlisten: UnlistenFn | null = null;
+    let cancelled = false;
+    (async () => {
+      const fn = await listen<{ bundle_id: string; app_name: string }>(
+        "meeting-detected",
+        (event) => {
+          setMeetingPrompt(event.payload);
+        },
+      );
+      if (cancelled) fn();
+      else unlisten = fn;
+    })();
+    return () => {
+      cancelled = true;
+      if (unlisten) unlisten();
+    };
+  }, []);
+
   // Tray menu can request that we navigate to Settings via an `open_settings`
   // event. The `Open Echo Scribe` menu item already handles the window-show
   // side; this just routes the React tree.
@@ -216,7 +243,30 @@ function AppShell() {
     />
   );
 
-  const overlay = <LogCaptureOverlay />;
+  const overlay = (
+    <>
+      <LogCaptureOverlay />
+      {meetingPrompt ? (
+        <MeetingDetectedPrompt
+          bundleId={meetingPrompt.bundle_id}
+          appName={meetingPrompt.app_name}
+          onDecision={async (decision) => {
+            try {
+              await invoke("meeting_consent", {
+                bundleId: meetingPrompt.bundle_id,
+                appName: meetingPrompt.app_name,
+                decision,
+              });
+            } catch (e) {
+              const msg = e instanceof Error ? e.message : String(e);
+              toasts.push({ tone: "error", message: `Couldn't record consent: ${msg}` });
+            }
+            setMeetingPrompt(null);
+          }}
+        />
+      ) : null}
+    </>
+  );
 
   if (view === "checking") {
     return (
@@ -272,5 +322,44 @@ function AppShell() {
       <Main key={mainKey} onOpenSettings={() => setView("settings")} />
       {overlay}
     </>
+  );
+}
+
+function MeetingDetectedPrompt({
+  bundleId: _bundleId,
+  appName,
+  onDecision,
+}: {
+  bundleId: string;
+  appName: string;
+  onDecision: (d: "always" | "once" | "never") => void;
+}) {
+  return (
+    <div className="meeting-detected-prompt fixed bottom-6 right-6 z-50 max-w-sm rounded-lg bg-surface p-4 shadow-lg ring-1 ring-border">
+      <div className="text-sm font-medium">{appName} meeting detected</div>
+      <div className="mt-1 text-xs text-muted">
+        Record this meeting locally? Audio stays on your machine.
+      </div>
+      <div className="mt-3 flex gap-2">
+        <button
+          className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white"
+          onClick={() => onDecision("once")}
+        >
+          Just once
+        </button>
+        <button
+          className="rounded-md bg-surface-2 px-3 py-1.5 text-xs"
+          onClick={() => onDecision("always")}
+        >
+          Always for {appName}
+        </button>
+        <button
+          className="rounded-md bg-surface-2 px-3 py-1.5 text-xs text-muted"
+          onClick={() => onDecision("never")}
+        >
+          Never
+        </button>
+      </div>
+    </div>
   );
 }

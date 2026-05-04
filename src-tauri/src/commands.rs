@@ -1889,6 +1889,51 @@ pub fn rename_meeting(
 }
 
 #[tauri::command]
+pub async fn meeting_consent(
+    state: tauri::State<'_, AppState>,
+    bundle_id: String,
+    app_name: String,
+    decision: String, // "always" | "once" | "never"
+) -> Result<Option<String>, String> {
+    use crate::settings::MeetingAppPref;
+    let mut prefs = state.settings.meeting_app_prefs();
+    match decision.as_str() {
+        "always" => {
+            prefs.insert(bundle_id.clone(), MeetingAppPref::Always);
+            state
+                .settings
+                .set_meeting_app_prefs(&prefs)
+                .map_err(|e| e.to_string())?;
+            let id = state
+                .meeting_manager
+                .clone()
+                .start(Some(bundle_id), Some(app_name))
+                .await
+                .map_err(|e| e.to_string())?;
+            Ok(Some(id))
+        }
+        "once" => {
+            let id = state
+                .meeting_manager
+                .clone()
+                .start(Some(bundle_id), Some(app_name))
+                .await
+                .map_err(|e| e.to_string())?;
+            Ok(Some(id))
+        }
+        "never" => {
+            prefs.insert(bundle_id, MeetingAppPref::Never);
+            state
+                .settings
+                .set_meeting_app_prefs(&prefs)
+                .map_err(|e| e.to_string())?;
+            Ok(None)
+        }
+        _ => Err("invalid decision".into()),
+    }
+}
+
+#[tauri::command]
 pub fn get_meeting_settings(state: tauri::State<'_, AppState>) -> serde_json::Value {
     serde_json::json!({
         "auto_detect": state.settings.meeting_auto_detect(),

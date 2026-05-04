@@ -235,6 +235,7 @@ pub fn run() {
             commands::get_meeting_settings,
             commands::set_meeting_auto_detect,
             commands::set_meeting_app_pref,
+            commands::meeting_consent,
         ])
         .setup(move |app| {
             // Tray.
