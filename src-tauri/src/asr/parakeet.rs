@@ -19,6 +19,8 @@ pub enum EngineError {
     },
     #[error("transcription failed: {0}")]
     Transcribe(Box<dyn std::error::Error + Send + Sync>),
+    #[error("io: {0}")]
+    Io(String),
 }
 
 /// Loaded Parakeet engine. `transcribe_rs::ParakeetModel` is `Send` (per the

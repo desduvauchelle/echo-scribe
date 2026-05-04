@@ -20,6 +20,7 @@ pub mod chat;
 pub mod events;
 pub mod search;
 pub mod stats;
+pub mod meetings;
 pub mod tasks;
 
 pub use chat::{ChatMessage, ChatSession};

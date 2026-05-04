@@ -131,6 +131,35 @@ CREATE INDEX IF NOT EXISTS idx_item_session_links_session ON item_session_links(
 ALTER TABLE items ADD COLUMN capture_context TEXT;
 "#,
     ),
+    (
+        7,
+        r#"
+CREATE TABLE IF NOT EXISTS meetings (
+  item_id            TEXT PRIMARY KEY REFERENCES items(id),
+  started_at         TEXT NOT NULL,
+  ended_at           TEXT,
+  duration_ms        INTEGER,
+  detected_app       TEXT,
+  detected_app_name  TEXT,
+  status             TEXT NOT NULL,
+  transcript_json    TEXT,
+  summary_json       TEXT,
+  user_notes         TEXT,
+  failed_chunk_count INTEGER NOT NULL DEFAULT 0,
+  mic_only           INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_meetings_started_at ON meetings(started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_meetings_status ON meetings(status);
+
+CREATE TABLE IF NOT EXISTS meeting_action_links (
+  meeting_id TEXT NOT NULL REFERENCES meetings(item_id) ON DELETE CASCADE,
+  item_id    TEXT NOT NULL REFERENCES items(id),
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (meeting_id, item_id)
+);
+CREATE INDEX IF NOT EXISTS idx_meeting_action_links_item ON meeting_action_links(item_id);
+"#,
+    ),
 ];
 
 const META_TABLE_SQL: &str = r#"
@@ -192,7 +221,7 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(v, "6");
+        assert_eq!(v, "7");
     }
 
     #[test]
@@ -245,5 +274,25 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM items", [], |r| r.get(0))
             .unwrap();
         assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn migration_v7_creates_meetings_tables() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        run_migrations(&mut conn).unwrap();
+
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('meetings', 'meeting_action_links')",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 2);
+
+        let version: String = conn
+            .query_row("SELECT value FROM schema_meta WHERE key = 'schema_version'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, "7");
     }
 }

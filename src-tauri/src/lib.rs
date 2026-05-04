@@ -3,6 +3,7 @@ pub mod audio;
 pub mod classifier;
 pub mod commands;
 pub mod coordinator;
+pub mod meeting;
 pub mod db;
 pub mod event_log;
 pub mod input;
@@ -17,7 +18,7 @@ pub mod updater;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, RwLock};
 
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 use tracing::{info, warn};
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::fmt::writer::MakeWriterExt;
@@ -223,6 +224,20 @@ pub fn run() {
             list_claude_sessions,
             load_claude_session,
             get_dashboard_stats,
+            commands::start_meeting_manual,
+            commands::stop_meeting,
+            commands::is_meeting_active,
+            commands::get_meeting,
+            commands::list_meetings,
+            commands::update_meeting_notes,
+            commands::rename_meeting,
+            commands::delete_meeting,
+            commands::get_meeting_settings,
+            commands::set_meeting_auto_detect,
+            commands::set_meeting_app_pref,
+            commands::meeting_consent,
+            commands::retry_meeting_summary,
+            commands::retry_meeting_chunks,
         ])
         .setup(move |app| {
             // Tray.
@@ -332,6 +347,49 @@ pub fn run() {
             let paused_hotkeys = Arc::new(AtomicBool::new(false));
             let rebinding = Arc::new(AtomicBool::new(false));
 
+            // Build the MeetingManager. Requires an open Db; if Db open failed
+            // upstream the meeting subsystem is unavailable.
+            let data_dir = app
+                .path()
+                .app_data_dir()
+                .unwrap_or_else(|_| std::path::PathBuf::from("/tmp/EchoScribe"));
+            let meeting_db = db
+                .clone()
+                .expect("db must be open for meeting manager");
+            let meeting_manager = crate::meeting::MeetingManager::new(
+                Arc::clone(&asr),
+                Arc::clone(&llm),
+                meeting_db,
+                data_dir,
+                app.handle().clone(),
+            );
+
+            // Recover orphaned meetings from a previous session crash.
+            if let Some(db_ref) = db.as_ref() {
+                let orphans = crate::meeting::scan_orphans(
+                    &app.path()
+                        .app_data_dir()
+                        .unwrap_or_else(|_| std::path::PathBuf::from("/tmp/EchoScribe")),
+                    db_ref,
+                );
+                if !orphans.is_empty() {
+                    crate::meeting::finalize_orphans_as_failed(db_ref, &orphans);
+                    let _ = app.emit(
+                        "meetings-recovered",
+                        serde_json::json!({"ids": orphans}),
+                    );
+                }
+            }
+
+            // Spawn the meeting detector loop (NSWorkspace polling + CoreAudio).
+            // Cloning settings here is cheap (Arc-backed). The spawn returns
+            // immediately and the loop tracks frontmost-app changes for life.
+            crate::meeting::detector::spawn(
+                Arc::clone(&meeting_manager),
+                settings.clone(),
+                app.handle().clone(),
+            );
+
             let app_state = AppState {
                 tray: Arc::clone(&tray),
                 settings,
@@ -346,6 +404,7 @@ pub fn run() {
                 db,
                 event_log_root,
                 _log_guard: Mutex::new(guard_slot.take()),
+                meeting_manager,
             };
             app.manage(app_state);
 

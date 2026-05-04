@@ -49,6 +49,9 @@ jobs:
           " "$VERSION"
           sed -i "" "s/^version = .*/version = \"$VERSION\"/" src-tauri/Cargo.toml
 
+      - name: Build syscap sidecar
+        run: bash scripts/build-syscap.sh
+
       - name: Build app bundle
         run: bun tauri build --bundles app
 

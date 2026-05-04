@@ -3,6 +3,7 @@ import {
   Activity,
   CheckSquare,
   Folder,
+  Phone,
   Hash,
   LayoutDashboard,
   MessageSquare,
@@ -21,6 +22,8 @@ import { formatBinding } from "../lib/binding";
 import ActivityFeed from "./sections/ActivityFeed";
 import TasksView from "./sections/TasksView";
 import SearchView from "./sections/SearchView";
+import { MeetingsView } from "./sections/MeetingsView";
+import { MeetingView } from "./sections/MeetingView";
 import ChatView from "./sections/ChatView";
 import DashboardView from "./sections/DashboardView";
 
@@ -30,6 +33,8 @@ export type MainSection =
   | { kind: "search" }
   | { kind: "chat" }
   | { kind: "dashboard" }
+  | { kind: "meetings" }
+  | { kind: "meeting"; id: string }
   | { kind: "project"; id: string };
 
 type Props = {
@@ -106,6 +111,19 @@ export default function Main({ onOpenSettings }: Props) {
         return <ChatView projects={projects} />;
       case "dashboard":
         return <DashboardView />;
+      case "meetings":
+        return (
+          <MeetingsView
+            onSelect={(id) => setSection({ kind: "meeting", id })}
+          />
+        );
+      case "meeting":
+        return (
+          <MeetingView
+            meetingId={section.id}
+            onClose={() => setSection({ kind: "meetings" })}
+          />
+        );
     }
   };
 
@@ -155,6 +173,12 @@ export default function Main({ onOpenSettings }: Props) {
             label="Chat"
             active={section.kind === "chat"}
             onClick={() => setSection({ kind: "chat" })}
+          />
+          <NavItem
+            icon={Phone}
+            label="Meetings"
+            active={section.kind === "meetings" || section.kind === "meeting"}
+            onClick={() => setSection({ kind: "meetings" })}
           />
           <NavItem
             icon={LayoutDashboard}
