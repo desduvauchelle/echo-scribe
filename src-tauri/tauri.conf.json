@@ -32,6 +32,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "externalBin": ["binaries/echo-scribe-syscap"],
     "category": "Productivity",
     "resources": [
       "resources/tray_idle.png",
