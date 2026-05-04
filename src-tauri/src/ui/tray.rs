@@ -8,6 +8,7 @@ use tauri::tray::{TrayIcon, TrayIconBuilder};
 use tauri::{AppHandle, Emitter, Manager, Runtime, Theme};
 use tracing::{info, warn};
 
+use crate::commands::AppState;
 use crate::coordinator::TrayPipelineState;
 
 /// Owned by the app for its full lifetime. Holds the tray icon plus the
@@ -17,6 +18,9 @@ pub struct TrayHandle<R: Runtime> {
     /// The Pause/Resume toggle item — relabelled when the user flips the
     /// pause state via the menu.
     pause_item: Mutex<Option<MenuItem<R>>>,
+    /// The Start/Stop meeting toggle item — relabelled when a meeting begins
+    /// or ends (via tray, MeetingsView button, auto-detect, or hard-cap).
+    meeting_item: Mutex<Option<MenuItem<R>>>,
     /// Last applied pipeline state, so we can re-apply the right icon when
     /// the user toggles "Paused" on/off without losing the underlying state.
     last_state: Mutex<TrayPipelineState>,
@@ -27,6 +31,8 @@ pub struct TrayHandle<R: Runtime> {
 impl<R: Runtime> TrayHandle<R> {
     pub fn install(app: &AppHandle<R>) -> tauri::Result<TrayHandle<R>> {
         let open = MenuItem::with_id(app, "open", "Open Echo Scribe", true, None::<&str>)?;
+        let meeting =
+            MenuItem::with_id(app, "meeting", "Start meeting", true, None::<&str>)?;
         let pause = MenuItem::with_id(app, "pause", "Pause hotkeys", true, None::<&str>)?;
         let settings = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
         let sep1 = PredefinedMenuItem::separator(app)?;
@@ -34,10 +40,11 @@ impl<R: Runtime> TrayHandle<R> {
         let quit = MenuItem::with_id(app, "quit", "Quit Echo Scribe", true, None::<&str>)?;
         let menu = Menu::with_items(
             app,
-            &[&open, &sep1, &pause, &settings, &sep2, &quit],
+            &[&open, &sep1, &meeting, &pause, &settings, &sep2, &quit],
         )?;
 
         let pause_for_handle = pause.clone();
+        let meeting_for_handle = meeting.clone();
         let icon = TrayIconBuilder::new()
             .menu(&menu)
             .icon(load_icon(app, TrayPipelineState::Idle, false))
@@ -47,6 +54,7 @@ impl<R: Runtime> TrayHandle<R> {
         Ok(TrayHandle {
             icon,
             pause_item: Mutex::new(Some(pause_for_handle)),
+            meeting_item: Mutex::new(Some(meeting_for_handle)),
             last_state: Mutex::new(TrayPipelineState::Idle),
             paused: Mutex::new(Arc::new(AtomicBool::new(false))),
         })
@@ -82,6 +90,35 @@ impl<R: Runtime> TrayHandle<R> {
                     show_main_window(&app_for_handler);
                     let _ = app_for_handler.emit("open_settings", ());
                 }
+                "meeting" => {
+                    let app = app_for_handler.clone();
+                    tauri::async_runtime::spawn(async move {
+                        let state = app.state::<AppState>();
+                        let manager = state.meeting_manager.clone();
+                        if manager.is_active().await {
+                            if let Err(e) = manager.stop().await {
+                                warn!(?e, "tray: stop_meeting failed");
+                                let _ = app.emit(
+                                    "meeting-action-error",
+                                    e.to_string(),
+                                );
+                            } else {
+                                info!("meeting stopped via tray");
+                            }
+                        } else {
+                            match manager.start(None, None).await {
+                                Ok(id) => info!(%id, "meeting started via tray"),
+                                Err(e) => {
+                                    warn!(?e, "tray: start_meeting failed");
+                                    let _ = app.emit(
+                                        "meeting-action-error",
+                                        e.to_string(),
+                                    );
+                                }
+                            }
+                        }
+                    });
+                }
                 "pause" => {
                     let was_paused = paused.load(Ordering::SeqCst);
                     let now_paused = !was_paused;
@@ -109,6 +146,24 @@ impl<R: Runtime> TrayHandle<R> {
                 _ => {}
             }
         });
+    }
+
+    /// Update the "Start meeting" / "Stop meeting" label. Idempotent.
+    /// Called from event listeners in `lib.rs` so the label tracks the true
+    /// `MeetingManager` state regardless of who started/stopped the meeting
+    /// (tray, MeetingsView button, auto-detect, hard-cap).
+    pub fn set_meeting_active(&self, active: bool) {
+        let item = self
+            .meeting_item
+            .lock()
+            .ok()
+            .and_then(|g| g.as_ref().map(|m| m.clone()));
+        if let Some(item) = item {
+            let label = if active { "Stop meeting" } else { "Start meeting" };
+            if let Err(e) = item.set_text(label) {
+                warn!(?e, "failed to relabel meeting menu item");
+            }
+        }
     }
 
     pub fn set_state(&self, state: TrayPipelineState) {

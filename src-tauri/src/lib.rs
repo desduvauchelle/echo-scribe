@@ -18,7 +18,7 @@ pub mod updater;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, RwLock};
 
-use tauri::{Emitter, Manager};
+use tauri::{Emitter, Listener, Manager};
 use tracing::{info, warn};
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::fmt::writer::MakeWriterExt;
@@ -414,6 +414,39 @@ pub fn run() {
             // AppHandle and the paused atomic together.
             if let Ok(t) = tray.lock() {
                 t.bind_menu(&app.handle().clone(), Arc::clone(&paused_hotkeys));
+            }
+
+            // Keep the tray "Start/Stop meeting" label in sync with the actual
+            // MeetingManager state. The tray, the MeetingsView button, the
+            // auto-detect prompt, and the hard-cap timer can all change state,
+            // so we drive the label off the same events the frontend watches.
+            {
+                let tray_started = Arc::clone(&tray);
+                app.handle().listen("meeting-started", move |_evt| {
+                    if let Ok(t) = tray_started.lock() {
+                        t.set_meeting_active(true);
+                    }
+                });
+                let tray_status = Arc::clone(&tray);
+                app.handle().listen("meeting-status", move |evt| {
+                    // Any non-recording status means we're past the recording
+                    // phase; flip the label back to "Start meeting".
+                    let payload = evt.payload();
+                    if payload.contains("\"transcribing\"")
+                        || payload.contains("\"summarizing\"")
+                        || payload.contains("\"failed\"")
+                    {
+                        if let Ok(t) = tray_status.lock() {
+                            t.set_meeting_active(false);
+                        }
+                    }
+                });
+                let tray_complete = Arc::clone(&tray);
+                app.handle().listen("meeting-complete", move |_evt| {
+                    if let Ok(t) = tray_complete.lock() {
+                        t.set_meeting_active(false);
+                    }
+                });
             }
 
             if let Err(e) = crate::ui::menu::install(&app.handle().clone()) {
