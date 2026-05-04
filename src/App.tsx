@@ -133,6 +133,26 @@ function AppShell() {
     };
   }, [toasts]);
 
+  // Surface "meeting-soft-warn" events as a non-blocking toast.
+  useEffect(() => {
+    let unlisten: UnlistenFn | null = null;
+    let cancelled = false;
+    (async () => {
+      const fn = await listen("meeting-soft-warn", () => {
+        toasts.push({
+          tone: "info",
+          message: "Meeting has been running for 2 hours. Stop manually when done.",
+        });
+      });
+      if (cancelled) fn();
+      else unlisten = fn;
+    })();
+    return () => {
+      cancelled = true;
+      if (unlisten) unlisten();
+    };
+  }, [toasts]);
+
   // Surface "meetings-recovered" events as a one-time toast.
   useEffect(() => {
     let unlisten: UnlistenFn | null = null;

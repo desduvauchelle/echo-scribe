@@ -240,6 +240,29 @@ impl MeetingManager {
         );
         crate::overlay::show_meeting_overlay(&self.app_handle, detected_app_name.as_deref());
 
+        // Soft-warn timer (emit event after N minutes).
+        let app_handle_warn = self.app_handle.clone();
+        let id_for_warn = id.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(120 * 60)).await;
+            let _ = app_handle_warn
+                .emit("meeting-soft-warn", serde_json::json!({"id": id_for_warn}));
+        });
+
+        // Hard-cap timer (auto-stop after N minutes).
+        let manager_weak = Arc::downgrade(&self);
+        let id_for_cap = id.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(240 * 60)).await;
+            if let Some(mgr) = manager_weak.upgrade() {
+                let active_id = mgr.active_id().await;
+                if active_id.as_deref() == Some(&id_for_cap) {
+                    tracing::warn!(id = %id_for_cap, "hard cap reached, auto-stopping");
+                    let _ = mgr.stop().await;
+                }
+            }
+        });
+
         *guard = Some(ActiveMeeting {
             item_id: id.clone(),
             started_at,
