@@ -1969,6 +1969,30 @@ pub fn set_meeting_app_pref(
 }
 
 #[tauri::command]
+pub async fn retry_meeting_summary(
+    state: tauri::State<'_, AppState>,
+    id: String,
+) -> Result<(), String> {
+    state
+        .meeting_manager
+        .retry_summary(&id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn retry_meeting_chunks(
+    state: tauri::State<'_, AppState>,
+    id: String,
+) -> Result<(), String> {
+    state
+        .meeting_manager
+        .retry_chunks(&id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn delete_meeting(
     state: tauri::State<'_, AppState>,
     id: String,

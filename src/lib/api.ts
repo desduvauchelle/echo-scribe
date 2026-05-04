@@ -586,3 +586,8 @@ export const setMeetingAppPref = (
   bundle_id: string,
   pref: "always" | "ask" | "never",
 ): Promise<void> => invoke("set_meeting_app_pref", { bundleId: bundle_id, pref });
+
+export const retryMeetingSummary = (id: string): Promise<void> =>
+  invoke("retry_meeting_summary", { id });
+export const retryMeetingChunks = (id: string): Promise<void> =>
+  invoke("retry_meeting_chunks", { id });

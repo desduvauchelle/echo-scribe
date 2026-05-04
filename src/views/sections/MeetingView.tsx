@@ -5,6 +5,8 @@ import {
   updateMeetingNotes,
   renameMeeting,
   deleteMeeting,
+  retryMeetingSummary,
+  retryMeetingChunks,
   type MeetingRow,
   type StoredTranscript,
   type StoredSummary,
@@ -118,7 +120,16 @@ export function MeetingView({ meetingId, onClose }: Props) {
         </section>
       ) : row.status === "complete" && summary === null ? (
         <section className="rounded-lg bg-surface-2 p-4 text-sm text-muted">
-          Summary generation failed. <button className="underline">Retry</button>
+          Summary generation failed.{" "}
+          <button
+            className="underline"
+            onClick={async () => {
+              await retryMeetingSummary(meetingId);
+              void refresh();
+            }}
+          >
+            Retry
+          </button>
         </section>
       ) : null}
 
@@ -176,7 +187,15 @@ export function MeetingView({ meetingId, onClose }: Props) {
         <div className="rounded-md bg-yellow-100 p-3 text-sm text-yellow-900">
           {row.failed_chunk_count} audio segment
           {row.failed_chunk_count > 1 ? "s" : ""} failed to transcribe.{" "}
-          <button className="underline">Retry</button>
+          <button
+            className="underline"
+            onClick={async () => {
+              await retryMeetingChunks(meetingId);
+              void refresh();
+            }}
+          >
+            Retry
+          </button>
         </div>
       ) : null}
 

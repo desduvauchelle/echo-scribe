@@ -236,6 +236,8 @@ pub fn run() {
             commands::set_meeting_auto_detect,
             commands::set_meeting_app_pref,
             commands::meeting_consent,
+            commands::retry_meeting_summary,
+            commands::retry_meeting_chunks,
         ])
         .setup(move |app| {
             // Tray.

@@ -390,6 +390,123 @@ impl MeetingManager {
     }
 }
 
+impl MeetingManager {
+    /// Re-run synthesis using the persisted transcript JSON. Used when the
+    /// initial summary call failed (no llm) or returned malformed JSON.
+    pub async fn retry_summary(&self, id: &str) -> Result<(), MeetingError> {
+        let id_for_db = id.to_string();
+        let row = self
+            .db
+            .with_conn(move |conn| crate::db::meetings::get_meeting(conn, &id_for_db))
+            .map_err(|e| MeetingError::Db(e.to_string()))?
+            .ok_or_else(|| MeetingError::Db("meeting not found".into()))?;
+
+        let transcript: serde_json::Value = row
+            .transcript_json
+            .as_deref()
+            .map(|s| serde_json::from_str(s).unwrap_or(serde_json::json!({})))
+            .unwrap_or(serde_json::json!({}));
+        let segments: Vec<Segment> = serde_json::from_value(
+            transcript
+                .get("segments")
+                .cloned()
+                .unwrap_or(serde_json::Value::Null),
+        )
+        .unwrap_or_default();
+        let duration_ms = transcript
+            .get("duration_ms")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+
+        let synthesis = synthesizer::synthesize(
+            self.llm.clone(),
+            &segments,
+            row.detected_app_name.as_deref(),
+            duration_ms,
+        )
+        .await;
+        if let Ok(s) = synthesis {
+            let summary_str = serde_json::to_string(&s).unwrap_or_default();
+            let id_for_db = id.to_string();
+            self.db
+                .with_conn(move |conn| {
+                    conn.execute(
+                        "UPDATE meetings SET summary_json = ?1, status = 'complete' WHERE item_id = ?2",
+                        rusqlite::params![summary_str, id_for_db],
+                    )?;
+                    Ok(())
+                })
+                .map_err(|e| MeetingError::Db(e.to_string()))?;
+        }
+        Ok(())
+    }
+
+    /// Re-transcribe each WAV in `failed/`, append to existing transcript.
+    pub async fn retry_chunks(&self, id: &str) -> Result<(), MeetingError> {
+        let dir = self.data_dir.join("meetings").join(id).join("failed");
+        if !dir.exists() {
+            return Ok(());
+        }
+        let entries: Vec<std::path::PathBuf> = std::fs::read_dir(&dir)?
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| p.extension().and_then(|s| s.to_str()) == Some("wav"))
+            .collect();
+
+        let id_for_load = id.to_string();
+        let row = self
+            .db
+            .with_conn(move |conn| crate::db::meetings::get_meeting(conn, &id_for_load))
+            .map_err(|e| MeetingError::Db(e.to_string()))?
+            .ok_or_else(|| MeetingError::Db("meeting not found".into()))?;
+        let mut transcript: serde_json::Value = row
+            .transcript_json
+            .as_deref()
+            .map(|s| serde_json::from_str(s).unwrap_or(serde_json::json!({})))
+            .unwrap_or(serde_json::json!({}));
+
+        let mut still_failed: Vec<std::path::PathBuf> = Vec::new();
+        for path in &entries {
+            let speaker = match path.file_name().and_then(|s| s.to_str()) {
+                Some(name) if name.starts_with("mic-") => Speaker::You,
+                Some(name) if name.starts_with("sys-") => Speaker::Them,
+                _ => continue,
+            };
+            match self.asr.transcribe_file(path).await {
+                Ok(text) if !text.trim().is_empty() => {
+                    let seg = Segment {
+                        speaker,
+                        start_ms: 0,
+                        end_ms: 0,
+                        text,
+                    };
+                    if let Some(arr) = transcript
+                        .get_mut("segments")
+                        .and_then(|v| v.as_array_mut())
+                    {
+                        arr.push(serde_json::to_value(&seg).unwrap());
+                    }
+                    let _ = std::fs::remove_file(path);
+                }
+                _ => still_failed.push(path.clone()),
+            }
+        }
+
+        let id_for_save = id.to_string();
+        let transcript_str = serde_json::to_string(&transcript).unwrap();
+        let still_count = still_failed.len() as i64;
+        self.db
+            .with_conn(move |conn| {
+                conn.execute(
+                    "UPDATE meetings SET transcript_json = ?1, failed_chunk_count = ?2 WHERE item_id = ?3",
+                    rusqlite::params![transcript_str, still_count, id_for_save],
+                )?;
+                Ok(())
+            })
+            .map_err(|e| MeetingError::Db(e.to_string()))?;
+        Ok(())
+    }
+}
+
 /// Scan for meeting rows whose status is non-terminal (interrupted by crash).
 /// Returns the IDs that need user attention.
 pub fn scan_orphans(_data_dir: &std::path::Path, db: &Db) -> Vec<String> {
