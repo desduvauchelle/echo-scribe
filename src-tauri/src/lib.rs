@@ -3,6 +3,7 @@ pub mod audio;
 pub mod classifier;
 pub mod commands;
 pub mod coordinator;
+pub mod meeting;
 pub mod db;
 pub mod event_log;
 pub mod input;
