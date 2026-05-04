@@ -61,6 +61,7 @@ pub enum SettingsError {
 ///
 /// All settings live in a single JSON file (`settings.json`) located in the
 /// per-app data dir managed by tauri-plugin-store.
+#[derive(Clone)]
 pub struct SettingsStore {
     store: Arc<Store<tauri::Wry>>,
 }

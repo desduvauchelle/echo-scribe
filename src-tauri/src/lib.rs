@@ -361,6 +361,15 @@ pub fn run() {
                 app.handle().clone(),
             );
 
+            // Spawn the meeting detector loop (NSWorkspace polling + CoreAudio).
+            // Cloning settings here is cheap (Arc-backed). The spawn returns
+            // immediately and the loop tracks frontmost-app changes for life.
+            crate::meeting::detector::spawn(
+                Arc::clone(&meeting_manager),
+                settings.clone(),
+                app.handle().clone(),
+            );
+
             let app_state = AppState {
                 tray: Arc::clone(&tray),
                 settings,
