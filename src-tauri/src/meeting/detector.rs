@@ -36,7 +36,7 @@ pub fn spawn(
     settings: SettingsStore,
     app_handle: tauri::AppHandle,
 ) {
-    tokio::spawn(async move {
+    tauri::async_runtime::spawn(async move {
         let mut consecutive_match: HashMap<String, u32> = HashMap::new();
         let mut mic_in_use_since: Option<Instant> = None;
         let mut interval = tokio::time::interval(Duration::from_secs(2));
