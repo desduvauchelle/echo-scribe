@@ -507,3 +507,64 @@ export type DashboardStats = {
 
 export const getDashboardStats = (): Promise<DashboardStats> =>
   invoke("get_dashboard_stats");
+
+// ============= Meetings =============
+
+export type MeetingStatus =
+  | "recording"
+  | "transcribing"
+  | "summarizing"
+  | "complete"
+  | "failed"
+  | "recovered";
+
+export type MeetingRow = {
+  item_id: string;
+  started_at: string;
+  ended_at: string | null;
+  duration_ms: number | null;
+  detected_app: string | null;
+  detected_app_name: string | null;
+  status: MeetingStatus;
+  transcript_json: string | null;
+  summary_json: string | null;
+  user_notes: string | null;
+  failed_chunk_count: number;
+  mic_only: boolean;
+};
+
+export type Segment = {
+  speaker: "you" | "them";
+  start_ms: number;
+  end_ms: number;
+  text: string;
+};
+
+export type StoredTranscript = {
+  segments: Segment[];
+  duration_ms: number;
+  asr_model: string;
+  chunk_seconds: number;
+  failed_chunk_count: number;
+  mic_only: boolean;
+};
+
+export type StoredSummary = {
+  summary: string[];
+  action_items: { text: string; owner: "you" | "them" | "unspecified" }[];
+  suggested_title: string;
+  raw?: string | null;
+};
+
+export const startMeetingManual = (): Promise<string> => invoke("start_meeting_manual");
+export const stopMeeting = (): Promise<string> => invoke("stop_meeting");
+export const isMeetingActive = (): Promise<boolean> => invoke("is_meeting_active");
+export const getMeeting = (id: string): Promise<MeetingRow | null> =>
+  invoke("get_meeting", { id });
+export const listMeetings = (): Promise<MeetingRow[]> => invoke("list_meetings");
+export const updateMeetingNotes = (id: string, notes: string): Promise<void> =>
+  invoke("update_meeting_notes", { id, notes });
+export const renameMeeting = (id: string, title: string): Promise<void> =>
+  invoke("rename_meeting", { id, title });
+export const deleteMeeting = (id: string): Promise<void> =>
+  invoke("delete_meeting", { id });
