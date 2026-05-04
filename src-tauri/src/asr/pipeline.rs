@@ -269,4 +269,94 @@ impl AsrPipeline {
         self.touch();
         Ok(text)
     }
+
+    /// Read a 16kHz mono Int16 WAV file written by ChunkedWavWriter and return f32 samples.
+    pub fn load_wav_16k_mono_int16(
+        path: &std::path::Path,
+    ) -> Result<(Vec<f32>, u32, u16), AsrError> {
+        use std::io::Read;
+        let mut bytes = Vec::new();
+        std::fs::File::open(path)
+            .and_then(|mut f| f.read_to_end(&mut bytes))
+            .map_err(|e| AsrError::Engine(EngineError::Io(e.to_string())))?;
+        if bytes.len() < 44 || &bytes[0..4] != b"RIFF" || &bytes[8..12] != b"WAVE" {
+            return Err(AsrError::Engine(EngineError::Io("not a WAV file".into())));
+        }
+        let sample_rate = u32::from_le_bytes(bytes[24..28].try_into().unwrap());
+        let channels = u16::from_le_bytes(bytes[22..24].try_into().unwrap());
+        let bits_per_sample = u16::from_le_bytes(bytes[34..36].try_into().unwrap());
+        if bits_per_sample != 16 {
+            return Err(AsrError::Engine(EngineError::Io(format!(
+                "expected 16-bit PCM, got {bits_per_sample}"
+            ))));
+        }
+        // Find "data" chunk.
+        let mut idx = 12;
+        let mut data_offset = 44;
+        let mut data_len = 0u32;
+        while idx + 8 <= bytes.len() {
+            let id = &bytes[idx..idx + 4];
+            let size = u32::from_le_bytes(bytes[idx + 4..idx + 8].try_into().unwrap()) as usize;
+            if id == b"data" {
+                data_offset = idx + 8;
+                data_len = size as u32;
+                break;
+            }
+            idx += 8 + size;
+        }
+        let count = (data_len as usize) / 2;
+        let mut samples = Vec::with_capacity(count);
+        for i in 0..count {
+            let lo = bytes[data_offset + i * 2];
+            let hi = bytes[data_offset + i * 2 + 1];
+            let s = i16::from_le_bytes([lo, hi]) as f32 / 32768.0;
+            samples.push(s);
+        }
+        Ok((samples, sample_rate, channels))
+    }
+
+    /// Transcribe a WAV file produced by ChunkedWavWriter. Returns the trimmed text.
+    pub async fn transcribe_file(&self, path: &std::path::Path) -> Result<String, AsrError> {
+        let (samples, rate, channels) = Self::load_wav_16k_mono_int16(path)?;
+        self.transcribe(samples, rate, channels).await
+    }
+}
+
+#[cfg(test)]
+mod transcribe_file_tests {
+    use super::*;
+    use std::io::Write;
+    use tempfile::tempdir;
+
+    fn write_silence_wav(path: &std::path::Path, seconds: u32) {
+        let sr: u32 = 16_000;
+        let samples = sr * seconds;
+        let data_bytes = samples * 2;
+        let riff = 36 + data_bytes;
+        let mut f = std::fs::File::create(path).unwrap();
+        f.write_all(b"RIFF").unwrap();
+        f.write_all(&riff.to_le_bytes()).unwrap();
+        f.write_all(b"WAVEfmt ").unwrap();
+        f.write_all(&16u32.to_le_bytes()).unwrap();
+        f.write_all(&1u16.to_le_bytes()).unwrap();
+        f.write_all(&1u16.to_le_bytes()).unwrap();
+        f.write_all(&sr.to_le_bytes()).unwrap();
+        f.write_all(&(sr * 2).to_le_bytes()).unwrap();
+        f.write_all(&2u16.to_le_bytes()).unwrap();
+        f.write_all(&16u16.to_le_bytes()).unwrap();
+        f.write_all(b"data").unwrap();
+        f.write_all(&data_bytes.to_le_bytes()).unwrap();
+        f.write_all(&vec![0u8; data_bytes as usize]).unwrap();
+    }
+
+    #[test]
+    fn load_wav_returns_correct_sample_count() {
+        let tmp = tempdir().unwrap();
+        let path = tmp.path().join("silence.wav");
+        write_silence_wav(&path, 2);
+        let (samples, rate, channels) = AsrPipeline::load_wav_16k_mono_int16(&path).unwrap();
+        assert_eq!(rate, 16_000);
+        assert_eq!(channels, 1);
+        assert_eq!(samples.len(), 32_000);
+    }
 }
