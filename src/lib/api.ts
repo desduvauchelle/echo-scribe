@@ -119,8 +119,8 @@ export const deleteSpeechModel = (id: string): Promise<void> =>
 
 // ----- Items / projects / tasks -----
 
-export type ItemKind = "note" | "task";
-export type ItemSource = "voice_at_cursor" | "log_capture";
+export type ItemKind = "note" | "task" | "meeting";
+export type ItemSource = "voice_at_cursor" | "log_capture" | "meeting";
 export type Visibility = "hidden" | "visible";
 
 export type Item = {
