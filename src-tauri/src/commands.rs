@@ -71,6 +71,7 @@ pub struct AppState {
     /// The non-blocking log appender's worker guard. Held for the lifetime
     /// of `AppState` so logs flush on graceful exit — see `lib.rs::run`.
     pub _log_guard: Mutex<Option<tracing_appender::non_blocking::WorkerGuard>>,
+    pub meeting_manager: Arc<crate::meeting::MeetingManager>,
 }
 
 /// JSON-friendly mirror of [`Binding`].
@@ -1804,6 +1805,101 @@ pub fn get_dashboard_stats(state: State<'_, AppState>) -> Result<db::stats::Dash
         .unwrap_or(0);
     db.with_conn(|c| db::stats::dashboard_stats(c, now))
         .map_err(|e| e.to_string())
+}
+
+// ============================================================================
+// Meetings
+// ============================================================================
+
+#[tauri::command]
+pub async fn start_meeting_manual(
+    state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
+    state
+        .meeting_manager
+        .clone()
+        .start(None, None)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn stop_meeting(
+    state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
+    state
+        .meeting_manager
+        .stop()
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn is_meeting_active(
+    state: tauri::State<'_, AppState>,
+) -> Result<bool, String> {
+    Ok(state.meeting_manager.is_active().await)
+}
+
+#[tauri::command]
+pub fn get_meeting(
+    state: tauri::State<'_, AppState>,
+    id: String,
+) -> Result<Option<crate::db::meetings::MeetingRow>, String> {
+    let db = state.db.as_ref().ok_or("db unavailable")?;
+    db.with_conn(move |conn| crate::db::meetings::get_meeting(conn, &id))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn list_meetings(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<crate::db::meetings::MeetingRow>, String> {
+    let db = state.db.as_ref().ok_or("db unavailable")?;
+    db.with_conn(|conn| crate::db::meetings::list_meetings(conn))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn update_meeting_notes(
+    state: tauri::State<'_, AppState>,
+    id: String,
+    notes: String,
+) -> Result<(), String> {
+    let db = state.db.as_ref().ok_or("db unavailable")?;
+    db.with_conn(move |conn| crate::db::meetings::update_user_notes(conn, &id, &notes))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn rename_meeting(
+    state: tauri::State<'_, AppState>,
+    id: String,
+    title: String,
+) -> Result<(), String> {
+    let db = state.db.as_ref().ok_or("db unavailable")?;
+    db.with_conn(move |conn| {
+        conn.execute(
+            "UPDATE items SET content = ?1 WHERE id = ?2 AND kind = 'meeting'",
+            rusqlite::params![title, id],
+        )?;
+        Ok(())
+    })
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn delete_meeting(
+    state: tauri::State<'_, AppState>,
+    id: String,
+) -> Result<(), String> {
+    let db = state.db.as_ref().ok_or("db unavailable")?;
+    db.with_conn(move |conn| {
+        crate::db::meetings::delete_meeting(conn, &id)?;
+        conn.execute("DELETE FROM items WHERE id = ?1", rusqlite::params![id])?;
+        Ok(())
+    })
+    .map_err(|e| e.to_string())
 }
 
 #[cfg(test)]

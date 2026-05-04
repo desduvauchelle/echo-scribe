@@ -224,6 +224,14 @@ pub fn run() {
             list_claude_sessions,
             load_claude_session,
             get_dashboard_stats,
+            commands::start_meeting_manual,
+            commands::stop_meeting,
+            commands::is_meeting_active,
+            commands::get_meeting,
+            commands::list_meetings,
+            commands::update_meeting_notes,
+            commands::rename_meeting,
+            commands::delete_meeting,
         ])
         .setup(move |app| {
             // Tray.
@@ -333,6 +341,23 @@ pub fn run() {
             let paused_hotkeys = Arc::new(AtomicBool::new(false));
             let rebinding = Arc::new(AtomicBool::new(false));
 
+            // Build the MeetingManager. Requires an open Db; if Db open failed
+            // upstream the meeting subsystem is unavailable.
+            let data_dir = app
+                .path()
+                .app_data_dir()
+                .unwrap_or_else(|_| std::path::PathBuf::from("/tmp/EchoScribe"));
+            let meeting_db = db
+                .clone()
+                .expect("db must be open for meeting manager");
+            let meeting_manager = crate::meeting::MeetingManager::new(
+                Arc::clone(&asr),
+                Arc::clone(&llm),
+                meeting_db,
+                data_dir,
+                app.handle().clone(),
+            );
+
             let app_state = AppState {
                 tray: Arc::clone(&tray),
                 settings,
@@ -347,6 +372,7 @@ pub fn run() {
                 db,
                 event_log_root,
                 _log_guard: Mutex::new(guard_slot.take()),
+                meeting_manager,
             };
             app.manage(app_state);
 

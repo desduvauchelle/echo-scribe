@@ -148,92 +148,171 @@ impl ChunkedWavWriter {
     }
 }
 
-/// Mic capture wrapper that pushes 16 kHz mono Int16 samples via callback.
+/// Mic capture wrapper. Owns a dedicated thread that holds the (`!Send`)
+/// `cpal::Stream` for its lifetime, so the wrapper itself is `Send + Sync`
+/// (and can therefore live in `tauri::State`).
 pub struct MicCapture {
-    _stream: cpal::Stream,
+    stop_tx: Option<std::sync::mpsc::Sender<()>>,
+    handle: Option<std::thread::JoinHandle<()>>,
 }
 
 impl MicCapture {
-    pub fn start<F>(mut on_samples: F) -> Result<Self, MeetingError>
+    pub fn start<F>(on_samples: F) -> Result<Self, MeetingError>
     where
         F: FnMut(&[i16]) + Send + 'static,
     {
-        let host = cpal::default_host();
-        let device = host
-            .default_input_device()
-            .ok_or_else(|| MeetingError::Audio("no default input device".into()))?;
-        let config = device
-            .default_input_config()
-            .map_err(|e| MeetingError::Audio(format!("config: {e}")))?;
-        let in_sample_rate = config.sample_rate().0;
-        let in_channels = config.channels();
+        let (init_tx, init_rx) = std::sync::mpsc::channel::<Result<(), MeetingError>>();
+        let (stop_tx, stop_rx) = std::sync::mpsc::channel::<()>();
+        let on_samples = std::sync::Arc::new(std::sync::Mutex::new(on_samples));
 
-        let cfg = cpal::StreamConfig {
-            channels: in_channels,
-            sample_rate: cpal::SampleRate(in_sample_rate),
-            buffer_size: cpal::BufferSize::Default,
-        };
+        let handle = std::thread::spawn(move || {
+            let host = cpal::default_host();
+            let device = match host.default_input_device() {
+                Some(d) => d,
+                None => {
+                    let _ = init_tx
+                        .send(Err(MeetingError::Audio("no default input device".into())));
+                    return;
+                }
+            };
+            let config = match device.default_input_config() {
+                Ok(c) => c,
+                Err(e) => {
+                    let _ = init_tx.send(Err(MeetingError::Audio(format!("config: {e}"))));
+                    return;
+                }
+            };
+            let in_sample_rate = config.sample_rate().0;
+            let in_channels = config.channels();
 
-        let mut int_buf: Vec<i16> = Vec::with_capacity(8192);
+            let cfg = cpal::StreamConfig {
+                channels: in_channels,
+                sample_rate: cpal::SampleRate(in_sample_rate),
+                buffer_size: cpal::BufferSize::Default,
+            };
 
-        let stream = match config.sample_format() {
-            cpal::SampleFormat::F32 => device.build_input_stream(
-                &cfg,
-                move |data: &[f32], _| {
-                    let resampled = crate::audio::resample::resample_to_16k_mono(
-                        data,
-                        in_sample_rate,
-                        in_channels,
-                    );
-                    int_buf.clear();
-                    for s in resampled {
-                        let v = (s.clamp(-1.0, 1.0) * 32767.0) as i16;
-                        int_buf.push(v);
-                    }
-                    on_samples(&int_buf);
-                },
-                |e| error!(?e, "mic stream error"),
-                None,
-            ),
-            cpal::SampleFormat::I16 => device.build_input_stream(
-                &cfg,
-                move |data: &[i16], _| {
-                    let mut floats: Vec<f32> = Vec::with_capacity(data.len());
-                    for &s in data {
-                        floats.push(s as f32 / 32768.0);
-                    }
-                    let resampled = crate::audio::resample::resample_to_16k_mono(
-                        &floats,
-                        in_sample_rate,
-                        in_channels,
-                    );
-                    int_buf.clear();
-                    for s in resampled {
-                        let v = (s.clamp(-1.0, 1.0) * 32767.0) as i16;
-                        int_buf.push(v);
-                    }
-                    on_samples(&int_buf);
-                },
-                |e| error!(?e, "mic stream error"),
-                None,
-            ),
-            other => {
-                return Err(MeetingError::Audio(format!(
-                    "unsupported sample format: {other:?}"
-                )));
+            let int_buf: std::sync::Arc<std::sync::Mutex<Vec<i16>>> =
+                std::sync::Arc::new(std::sync::Mutex::new(Vec::with_capacity(8192)));
+
+            let stream_result = match config.sample_format() {
+                cpal::SampleFormat::F32 => {
+                    let int_buf = int_buf.clone();
+                    let on_samples = on_samples.clone();
+                    device.build_input_stream(
+                        &cfg,
+                        move |data: &[f32], _| {
+                            let resampled = crate::audio::resample::resample_to_16k_mono(
+                                data,
+                                in_sample_rate,
+                                in_channels,
+                            );
+                            let mut buf = match int_buf.lock() {
+                                Ok(g) => g,
+                                Err(_) => return,
+                            };
+                            buf.clear();
+                            for s in resampled {
+                                let v = (s.clamp(-1.0, 1.0) * 32767.0) as i16;
+                                buf.push(v);
+                            }
+                            if let Ok(mut cb) = on_samples.lock() {
+                                cb(&buf);
+                            }
+                        },
+                        |e| error!(?e, "mic stream error"),
+                        None,
+                    )
+                }
+                cpal::SampleFormat::I16 => {
+                    let int_buf = int_buf.clone();
+                    let on_samples = on_samples.clone();
+                    device.build_input_stream(
+                        &cfg,
+                        move |data: &[i16], _| {
+                            let mut floats: Vec<f32> = Vec::with_capacity(data.len());
+                            for &s in data {
+                                floats.push(s as f32 / 32768.0);
+                            }
+                            let resampled = crate::audio::resample::resample_to_16k_mono(
+                                &floats,
+                                in_sample_rate,
+                                in_channels,
+                            );
+                            let mut buf = match int_buf.lock() {
+                                Ok(g) => g,
+                                Err(_) => return,
+                            };
+                            buf.clear();
+                            for s in resampled {
+                                let v = (s.clamp(-1.0, 1.0) * 32767.0) as i16;
+                                buf.push(v);
+                            }
+                            if let Ok(mut cb) = on_samples.lock() {
+                                cb(&buf);
+                            }
+                        },
+                        |e| error!(?e, "mic stream error"),
+                        None,
+                    )
+                }
+                other => {
+                    let _ = init_tx.send(Err(MeetingError::Audio(format!(
+                        "unsupported sample format: {other:?}"
+                    ))));
+                    return;
+                }
+            };
+
+            let stream = match stream_result {
+                Ok(s) => s,
+                Err(e) => {
+                    let _ = init_tx
+                        .send(Err(MeetingError::Audio(format!("build_input_stream: {e}"))));
+                    return;
+                }
+            };
+
+            if let Err(e) = stream.play() {
+                let _ = init_tx.send(Err(MeetingError::Audio(format!("play: {e}"))));
+                return;
             }
-        }
-        .map_err(|e| MeetingError::Audio(format!("build_input_stream: {e}")))?;
 
-        stream
-            .play()
-            .map_err(|e| MeetingError::Audio(format!("play: {e}")))?;
-        info!(
-            rate = in_sample_rate,
-            channels = in_channels,
-            "mic capture started"
-        );
-        Ok(Self { _stream: stream })
+            info!(
+                rate = in_sample_rate,
+                channels = in_channels,
+                "mic capture started"
+            );
+            let _ = init_tx.send(Ok(()));
+
+            // Park the thread until stop is signaled. The cpal stream runs on
+            // its own internal threads; we just need to keep the Stream alive.
+            let _ = stop_rx.recv();
+            drop(stream);
+        });
+
+        match init_rx.recv() {
+            Ok(Ok(())) => Ok(Self {
+                stop_tx: Some(stop_tx),
+                handle: Some(handle),
+            }),
+            Ok(Err(e)) => Err(e),
+            Err(_) => Err(MeetingError::Audio("mic thread died during init".into())),
+        }
+    }
+
+    pub fn stop(&mut self) {
+        if let Some(tx) = self.stop_tx.take() {
+            let _ = tx.send(());
+        }
+        if let Some(h) = self.handle.take() {
+            let _ = h.join();
+        }
+    }
+}
+
+impl Drop for MicCapture {
+    fn drop(&mut self) {
+        self.stop();
     }
 }
 
