@@ -76,6 +76,8 @@ strsim = "0.11"
 # `_exit` to bypass C++ static destructors on quit (llama.cpp Metal cleanup
 # crashes when an inference is still in flight at shutdown).
 libc = "0.2"
+uuid = { version = "1.23.1", features = ["v4"] }
+chrono = "0.4.44"
 
 [dev-dependencies]
 tempfile = "3"
