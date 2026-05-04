@@ -390,6 +390,42 @@ impl MeetingManager {
     }
 }
 
+/// Scan for meeting rows whose status is non-terminal (interrupted by crash).
+/// Returns the IDs that need user attention.
+pub fn scan_orphans(_data_dir: &std::path::Path, db: &Db) -> Vec<String> {
+    let result = db.with_conn(|conn| -> Result<Vec<String>, crate::db::DbError> {
+        let mut stmt = conn.prepare(
+            "SELECT item_id FROM meetings WHERE status IN ('recording', 'transcribing', 'summarizing')",
+        )?;
+        let ids = stmt
+            .query_map([], |r| r.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(ids)
+    });
+    match result {
+        Ok(ids) => {
+            for id in &ids {
+                tracing::warn!(meeting = %id, "orphaned meeting found");
+            }
+            ids
+        }
+        Err(e) => {
+            tracing::error!(?e, "scan_orphans query failed");
+            Vec::new()
+        }
+    }
+}
+
+/// Mark all orphans as `failed` so the UI shows them as broken.
+pub fn finalize_orphans_as_failed(db: &Db, ids: &[String]) {
+    for id in ids {
+        let id = id.clone();
+        let _ = db.with_conn(move |conn| {
+            crate::db::meetings::update_status(conn, &id, MeetingStatus::Failed)
+        });
+    }
+}
+
 /// Build the flattened body that goes into items.content for FTS5 indexing.
 pub fn build_flattened_body(
     segments: &[Segment],

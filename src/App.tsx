@@ -133,6 +133,32 @@ function AppShell() {
     };
   }, [toasts]);
 
+  // Surface "meetings-recovered" events as a one-time toast.
+  useEffect(() => {
+    let unlisten: UnlistenFn | null = null;
+    let cancelled = false;
+    (async () => {
+      const fn = await listen<{ ids: string[] }>(
+        "meetings-recovered",
+        (event) => {
+          const n = event.payload.ids.length;
+          if (n > 0) {
+            toasts.push({
+              tone: "info",
+              message: `${n} unfinished meeting${n > 1 ? "s" : ""} recovered. View them in Meetings.`,
+            });
+          }
+        },
+      );
+      if (cancelled) fn();
+      else unlisten = fn;
+    })();
+    return () => {
+      cancelled = true;
+      if (unlisten) unlisten();
+    };
+  }, [toasts]);
+
   // Surface "meeting-detected" events from the backend detector with an
   // in-app three-button prompt (Always / Just once / Never). The prompt
   // dismisses on choice, calling the meeting_consent command.

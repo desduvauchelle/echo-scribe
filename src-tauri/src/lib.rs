@@ -18,7 +18,7 @@ pub mod updater;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, RwLock};
 
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 use tracing::{info, warn};
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::fmt::writer::MakeWriterExt;
@@ -361,6 +361,23 @@ pub fn run() {
                 data_dir,
                 app.handle().clone(),
             );
+
+            // Recover orphaned meetings from a previous session crash.
+            if let Some(db_ref) = db.as_ref() {
+                let orphans = crate::meeting::scan_orphans(
+                    &app.path()
+                        .app_data_dir()
+                        .unwrap_or_else(|_| std::path::PathBuf::from("/tmp/EchoScribe")),
+                    db_ref,
+                );
+                if !orphans.is_empty() {
+                    crate::meeting::finalize_orphans_as_failed(db_ref, &orphans);
+                    let _ = app.emit(
+                        "meetings-recovered",
+                        serde_json::json!({"ids": orphans}),
+                    );
+                }
+            }
 
             // Spawn the meeting detector loop (NSWorkspace polling + CoreAudio).
             // Cloning settings here is cheap (Arc-backed). The spawn returns
