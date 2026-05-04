@@ -568,3 +568,21 @@ export const renameMeeting = (id: string, title: string): Promise<void> =>
   invoke("rename_meeting", { id, title });
 export const deleteMeeting = (id: string): Promise<void> =>
   invoke("delete_meeting", { id });
+
+export type MeetingSettings = {
+  auto_detect: boolean;
+  app_prefs: Record<string, "always" | "ask" | "never">;
+  soft_warn_min: number;
+  hard_cap_min: number;
+};
+
+export const getMeetingSettings = (): Promise<MeetingSettings> =>
+  invoke("get_meeting_settings");
+
+export const setMeetingAutoDetect = (on: boolean): Promise<void> =>
+  invoke("set_meeting_auto_detect", { on });
+
+export const setMeetingAppPref = (
+  bundle_id: string,
+  pref: "always" | "ask" | "never",
+): Promise<void> => invoke("set_meeting_app_pref", { bundleId: bundle_id, pref });

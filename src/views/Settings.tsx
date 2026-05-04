@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import {
   ArrowLeft,
   Mic,
+  Phone,
   Settings as SettingsIcon,
   Sparkles,
   Wrench,
@@ -37,11 +38,12 @@ import {
 } from "../lib/api";
 import { useToasts } from "../components/ToastProvider";
 
-type Tab = "voice" | "ai" | "general" | "advanced";
+type Tab = "voice" | "ai" | "meetings" | "general" | "advanced";
 
 const TABS: { id: Tab; label: string; icon: LucideIcon }[] = [
   { id: "voice", label: "Voice", icon: Mic },
   { id: "ai", label: "AI", icon: Sparkles },
+  { id: "meetings", label: "Meetings", icon: Phone },
   { id: "general", label: "General", icon: SettingsIcon },
   { id: "advanced", label: "Advanced", icon: Wrench },
 ];
@@ -92,6 +94,7 @@ export default function Settings({ onBack }: Props) {
         <div className="mt-6">
           {tab === "voice" && <VoiceTab />}
           {tab === "ai" && <AiTab />}
+          {tab === "meetings" && <MeetingsTab />}
           {tab === "general" && <GeneralTab />}
           {tab === "advanced" && <AdvancedTab />}
         </div>
@@ -246,6 +249,132 @@ function AutoFileSettings() {
         </label>
       </div>
     </Section>
+  );
+}
+
+function MeetingsTab() {
+  const [settings, setSettings] = useState<{
+    auto_detect: boolean;
+    app_prefs: Record<string, "always" | "ask" | "never">;
+    soft_warn_min: number;
+    hard_cap_min: number;
+  } | null>(null);
+
+  useEffect(() => {
+    void import("../lib/api").then(({ getMeetingSettings }) =>
+      getMeetingSettings().then(setSettings),
+    );
+  }, []);
+
+  if (!settings) {
+    return <div className="text-sm text-muted">Loading…</div>;
+  }
+
+  return (
+    <div className="flex flex-col gap-8">
+      <Section
+        title="Auto-detect meetings"
+        subtitle="Echo Scribe watches for Zoom, Teams, FaceTime, Discord, Slack, and browser tabs and offers to record."
+      >
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={settings.auto_detect}
+            onChange={async (e) => {
+              const on = e.target.checked;
+              const { setMeetingAutoDetect } = await import("../lib/api");
+              await setMeetingAutoDetect(on);
+              setSettings({ ...settings, auto_detect: on });
+            }}
+          />
+          <span>Detect supported meeting apps automatically</span>
+        </label>
+      </Section>
+
+      {Object.keys(settings.app_prefs).length > 0 && (
+        <Section
+          title="Per-app preferences"
+          subtitle="Override the per-app prompt: always record, always ask, or never record."
+        >
+          <table className="w-full text-sm">
+            <tbody>
+              {Object.entries(settings.app_prefs).map(([bundle, pref]) => (
+                <tr key={bundle} className="border-t border-line">
+                  <td className="py-2">{bundle}</td>
+                  <td className="py-2 text-right">
+                    <select
+                      className="rounded-md bg-canvas px-2 py-1 text-xs"
+                      value={pref}
+                      onChange={async (e) => {
+                        const next = e.target.value as
+                          | "always"
+                          | "ask"
+                          | "never";
+                        const { setMeetingAppPref } = await import(
+                          "../lib/api"
+                        );
+                        await setMeetingAppPref(bundle, next);
+                        setSettings({
+                          ...settings,
+                          app_prefs: {
+                            ...settings.app_prefs,
+                            [bundle]: next,
+                          },
+                        });
+                      }}
+                    >
+                      <option value="always">Always</option>
+                      <option value="ask">Ask</option>
+                      <option value="never">Never</option>
+                    </select>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Section>
+      )}
+
+      <Section
+        title="Time limits"
+        subtitle="Echo Scribe shows a soft warning at the soft-warn time and auto-stops at the hard cap."
+      >
+        <div className="flex flex-col gap-3 text-sm">
+          <label className="flex items-center justify-between gap-3">
+            <span>Soft warn at (minutes)</span>
+            <input
+              type="number"
+              min={1}
+              max={1440}
+              value={settings.soft_warn_min}
+              onChange={(e) =>
+                setSettings({
+                  ...settings,
+                  soft_warn_min: Number(e.target.value),
+                })
+              }
+              className="w-20 rounded-md bg-canvas px-2 py-1 text-right text-xs"
+            />
+          </label>
+          <label className="flex items-center justify-between gap-3">
+            <span>Hard cap at (minutes)</span>
+            <input
+              type="number"
+              min={1}
+              max={1440}
+              value={settings.hard_cap_min}
+              onChange={(e) =>
+                setSettings({
+                  ...settings,
+                  hard_cap_min: Number(e.target.value),
+                })
+              }
+              className="w-20 rounded-md bg-canvas px-2 py-1 text-right text-xs"
+            />
+          </label>
+        </div>
+      </Section>
+    </div>
   );
 }
 
