@@ -25,6 +25,18 @@ const KEY_LAST_UPDATE_CHECK: &str = "last_update_check";
 const KEY_DISMISSED_UPDATE_VERSION: &str = "dismissed_update_version";
 const KEY_AUTO_FILE_ENABLED: &str = "auto_file_enabled";
 const KEY_AUTO_FILE_THRESHOLD: &str = "auto_file_threshold";
+const KEY_MEETING_AUTO_DETECT: &str = "meeting_auto_detect";
+const KEY_MEETING_APP_PREFS: &str = "meeting_app_prefs";
+const KEY_MEETING_SOFT_WARN_MIN: &str = "meeting_soft_warn_minutes";
+const KEY_MEETING_HARD_CAP_MIN: &str = "meeting_hard_cap_minutes";
+
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum MeetingAppPref {
+    Always,
+    Ask,
+    Never,
+}
 
 /// Default: unload the LLM engine after 2 minutes of idle. `0` means never unload.
 pub const DEFAULT_LLM_UNLOAD_SECS: u64 = 120;
@@ -388,6 +400,75 @@ impl SettingsStore {
             KEY_AUTO_FILE_THRESHOLD,
             serde_json::Value::from(clamped),
         );
+        self.store
+            .save()
+            .map_err(|e| SettingsError::Store(e.to_string()))?;
+        Ok(())
+    }
+
+    pub fn meeting_auto_detect(&self) -> bool {
+        self.store
+            .get(KEY_MEETING_AUTO_DETECT)
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true)
+    }
+
+    pub fn set_meeting_auto_detect(&self, on: bool) -> Result<(), SettingsError> {
+        self.store
+            .set(KEY_MEETING_AUTO_DETECT, serde_json::Value::Bool(on));
+        self.store
+            .save()
+            .map_err(|e| SettingsError::Store(e.to_string()))?;
+        Ok(())
+    }
+
+    pub fn meeting_app_prefs(&self) -> std::collections::HashMap<String, MeetingAppPref> {
+        self.store
+            .get(KEY_MEETING_APP_PREFS)
+            .and_then(|v| serde_json::from_value(v).ok())
+            .unwrap_or_default()
+    }
+
+    pub fn set_meeting_app_prefs(
+        &self,
+        prefs: &std::collections::HashMap<String, MeetingAppPref>,
+    ) -> Result<(), SettingsError> {
+        let value = serde_json::to_value(prefs)?;
+        self.store.set(KEY_MEETING_APP_PREFS, value);
+        self.store
+            .save()
+            .map_err(|e| SettingsError::Store(e.to_string()))?;
+        Ok(())
+    }
+
+    pub fn meeting_soft_warn_min(&self) -> u32 {
+        self.store
+            .get(KEY_MEETING_SOFT_WARN_MIN)
+            .and_then(|v| v.as_u64())
+            .map(|n| n as u32)
+            .unwrap_or(120)
+    }
+
+    pub fn set_meeting_soft_warn_min(&self, n: u32) -> Result<(), SettingsError> {
+        self.store
+            .set(KEY_MEETING_SOFT_WARN_MIN, serde_json::Value::Number(n.into()));
+        self.store
+            .save()
+            .map_err(|e| SettingsError::Store(e.to_string()))?;
+        Ok(())
+    }
+
+    pub fn meeting_hard_cap_min(&self) -> u32 {
+        self.store
+            .get(KEY_MEETING_HARD_CAP_MIN)
+            .and_then(|v| v.as_u64())
+            .map(|n| n as u32)
+            .unwrap_or(240)
+    }
+
+    pub fn set_meeting_hard_cap_min(&self, n: u32) -> Result<(), SettingsError> {
+        self.store
+            .set(KEY_MEETING_HARD_CAP_MIN, serde_json::Value::Number(n.into()));
         self.store
             .save()
             .map_err(|e| SettingsError::Store(e.to_string()))?;

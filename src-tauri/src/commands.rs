@@ -1889,6 +1889,41 @@ pub fn rename_meeting(
 }
 
 #[tauri::command]
+pub fn get_meeting_settings(state: tauri::State<'_, AppState>) -> serde_json::Value {
+    serde_json::json!({
+        "auto_detect": state.settings.meeting_auto_detect(),
+        "app_prefs": state.settings.meeting_app_prefs(),
+        "soft_warn_min": state.settings.meeting_soft_warn_min(),
+        "hard_cap_min": state.settings.meeting_hard_cap_min(),
+    })
+}
+
+#[tauri::command]
+pub fn set_meeting_auto_detect(
+    state: tauri::State<'_, AppState>,
+    on: bool,
+) -> Result<(), String> {
+    state
+        .settings
+        .set_meeting_auto_detect(on)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn set_meeting_app_pref(
+    state: tauri::State<'_, AppState>,
+    bundle_id: String,
+    pref: crate::settings::MeetingAppPref,
+) -> Result<(), String> {
+    let mut prefs = state.settings.meeting_app_prefs();
+    prefs.insert(bundle_id, pref);
+    state
+        .settings
+        .set_meeting_app_prefs(&prefs)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn delete_meeting(
     state: tauri::State<'_, AppState>,
     id: String,

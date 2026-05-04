@@ -232,6 +232,9 @@ pub fn run() {
             commands::update_meeting_notes,
             commands::rename_meeting,
             commands::delete_meeting,
+            commands::get_meeting_settings,
+            commands::set_meeting_auto_detect,
+            commands::set_meeting_app_pref,
         ])
         .setup(move |app| {
             // Tray.
