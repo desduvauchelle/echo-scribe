@@ -1,4 +1,5 @@
-//! Detects when the user enters a meeting (supported app frontmost + mic in use).
+//! Detects when the user enters a meeting (supported app frontmost + mic in use)
+//! and monitors for meeting end (mic goes silent).
 
 use crate::meeting::MeetingManager;
 use crate::settings::{MeetingAppPref, SettingsStore};
@@ -30,6 +31,42 @@ pub fn lookup(bundle_id: &str) -> Option<(&'static str, bool)> {
         .map(|(_, name, is_browser)| (*name, *is_browser))
 }
 
+/// Returns true if the window title indicates the app is in an actual meeting.
+/// Default behavior:
+/// - Zoom/Teams: require a positive meeting marker (avoids triggers on the
+///   Home/Contacts/launch states or app-name-only titles).
+/// - Other native apps (Discord/Slack/FaceTime): any non-empty title passes
+///   (their window titles don't reliably contain a meeting marker; the mic
+///   gate carries the weight there).
+fn is_meeting_window_title(bundle_id: &str, title: &str) -> bool {
+    if title.trim().is_empty() {
+        return false;
+    }
+    let trimmed = title.trim();
+    match bundle_id {
+        "us.zoom.xos" => {
+            let lower = trimmed.to_lowercase();
+            if lower == "zoom" || lower == "zoom workplace" {
+                return false;
+            }
+            const ZOOM_IDLE_LABELS: &[&str] =
+                &["home", "contacts", "chat", "settings", "meetings"];
+            if ZOOM_IDLE_LABELS.iter().any(|l| lower == *l) {
+                return false;
+            }
+            lower.contains("meeting") || lower.contains("personal meeting room")
+        }
+        "com.microsoft.teams2" | "com.microsoft.teams" => {
+            let lower = trimmed.to_lowercase();
+            if lower == "microsoft teams" || lower == "microsoft teams (work or school)" {
+                return false;
+            }
+            lower.contains("| microsoft teams")
+        }
+        _ => true,
+    }
+}
+
 /// Spawns the detection loop. Returns immediately; the loop runs until process exit.
 pub fn spawn(
     manager: Arc<MeetingManager>,
@@ -45,12 +82,22 @@ pub fn spawn(
             if !settings.meeting_auto_detect() {
                 continue;
             }
-            if manager.is_active().await {
+            // While a meeting is active OR we're inside the post-stop cooldown
+            // (synthesis still running), keep counters cleared so we don't
+            // immediately re-trigger the moment the gate opens.
+            if manager.is_active().await || manager.in_cooldown() {
+                consecutive_match.clear();
+                mic_in_use_since = None;
                 continue;
             }
 
-            let frontmost = match frontmost_bundle_id() {
-                Some(id) => id,
+            // Use capture_context() to get both bundle ID and window title.
+            let ctx = match crate::input::focus::capture_context() {
+                Some(c) => c,
+                None => continue,
+            };
+            let frontmost = match ctx.bundle_id.as_deref() {
+                Some(id) => id.to_string(),
                 None => continue,
             };
             let Some((name, is_browser)) = lookup(&frontmost) else {
@@ -58,20 +105,34 @@ pub fn spawn(
                 continue;
             };
 
-            let mic_active = is_default_input_running();
-            let triggered = if is_browser {
-                if mic_active {
-                    let since = mic_in_use_since.get_or_insert(Instant::now());
-                    since.elapsed() >= Duration::from_secs(5)
-                } else {
+            // For native apps, require a positive meeting signal in the
+            // window title. (Browsers are gated by URL in a later task.)
+            if !is_browser {
+                let title_ok = ctx
+                    .window_title
+                    .as_deref()
+                    .map(|t| is_meeting_window_title(&frontmost, t))
+                    .unwrap_or(false);
+                if !title_ok {
                     mic_in_use_since = None;
-                    false
+                    consecutive_match.clear();
+                    continue;
                 }
-            } else {
-                let count = consecutive_match.entry(frontmost.clone()).or_insert(0);
-                *count += 1;
-                *count >= 2
-            };
+            }
+
+            // All app types require mic active for 5+ seconds.
+            // For native apps like Zoom, the mic only activates when the
+            // user actually joins a meeting, so this prevents false triggers
+            // on app launch.
+            let mic_active = is_default_input_running();
+            if !mic_active {
+                mic_in_use_since = None;
+                consecutive_match.clear();
+                continue;
+            }
+
+            let since = mic_in_use_since.get_or_insert(Instant::now());
+            let triggered = since.elapsed() >= Duration::from_secs(5);
 
             if !triggered {
                 continue;
@@ -86,12 +147,15 @@ pub fn spawn(
             {
                 MeetingAppPref::Always => {
                     info!(app = %frontmost, "auto-starting meeting (Always)");
+                    let app_for_monitor = frontmost.clone();
                     if let Err(e) = manager
                         .clone()
                         .start(Some(frontmost.clone()), Some(name.into()))
                         .await
                     {
                         warn!(?e, "auto-start failed");
+                    } else {
+                        spawn_end_monitor(manager.clone(), Some(app_for_monitor));
                     }
                     consecutive_match.clear();
                 }
@@ -102,8 +166,80 @@ pub fn spawn(
                         "meeting-detected",
                         serde_json::json!({ "bundle_id": frontmost, "app_name": name }),
                     );
+                    use tauri_plugin_notification::NotificationExt;
+                    if let Err(e) = app_handle
+                        .notification()
+                        .builder()
+                        .title("Meeting Detected")
+                        .body(format!("{name} is active — want to record?"))
+                        .show()
+                    {
+                        warn!(?e, "failed to show meeting-detected OS notification");
+                    }
                     consecutive_match.clear();
                 }
+            }
+        }
+    });
+}
+
+/// Spawns a background task that monitors for meeting end signals.
+/// Auto-stops the meeting when the mic has been silent for 30 consecutive
+/// seconds (6 checks x 5s interval). This handles the case where the user
+/// leaves a Zoom/Teams meeting but forgets to manually stop recording.
+pub fn spawn_end_monitor(
+    manager: Arc<MeetingManager>,
+    detected_app: Option<String>,
+) {
+    tauri::async_runtime::spawn(async move {
+        let mut consecutive_silent: u32 = 0;
+        // 6 consecutive silent checks x 5 seconds = 30 seconds of silence.
+        let silence_threshold: u32 = 6;
+        let mut interval = tokio::time::interval(Duration::from_secs(5));
+
+        loop {
+            interval.tick().await;
+
+            // If the meeting was already stopped (manually or by hard cap), exit.
+            if !manager.is_active().await {
+                info!("end-monitor: meeting no longer active, exiting");
+                return;
+            }
+
+            let mic_active = is_default_input_running();
+
+            if mic_active {
+                consecutive_silent = 0;
+                continue;
+            }
+
+            // Mic is silent. Check if the meeting app is still frontmost.
+            let app_still_frontmost = detected_app.as_ref().map_or(false, |bundle| {
+                frontmost_bundle_id()
+                    .as_deref()
+                    .map_or(false, |f| f == bundle)
+            });
+
+            if app_still_frontmost {
+                // App is still frontmost but mic is silent — could be a
+                // temporary mute or the meeting is transitioning. Be patient.
+                consecutive_silent += 1;
+            } else {
+                // App is not frontmost AND mic is silent — strong signal
+                // that the meeting has ended. Count faster (2x weight).
+                consecutive_silent += 2;
+            }
+
+            if consecutive_silent >= silence_threshold {
+                info!(
+                    app = ?detected_app,
+                    silent_checks = consecutive_silent,
+                    "end-monitor: meeting appears to have ended, auto-stopping"
+                );
+                if let Err(e) = manager.stop().await {
+                    warn!(?e, "end-monitor: auto-stop failed");
+                }
+                return;
             }
         }
     });
@@ -112,6 +248,79 @@ pub fn spawn(
 /// Returns the bundle ID of the frontmost regular app, or None.
 fn frontmost_bundle_id() -> Option<String> {
     crate::input::focus::capture_context().and_then(|ctx| ctx.bundle_id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lookup_finds_zoom() {
+        let result = lookup("us.zoom.xos");
+        assert_eq!(result, Some(("Zoom", false)));
+    }
+
+    #[test]
+    fn lookup_returns_none_for_unknown() {
+        assert!(lookup("com.example.unknown").is_none());
+    }
+
+    #[test]
+    fn lookup_finds_chrome_as_browser() {
+        let (name, is_browser) = lookup("com.google.Chrome").unwrap();
+        assert_eq!(name, "Chrome");
+        assert!(is_browser);
+    }
+
+    #[test]
+    fn is_meeting_title_zoom_in_meeting() {
+        assert!(is_meeting_window_title("us.zoom.xos", "Zoom Meeting"));
+        assert!(is_meeting_window_title("us.zoom.xos", "Personal Meeting Room"));
+        assert!(is_meeting_window_title("us.zoom.xos", "Weekly Standup - Zoom Meeting"));
+    }
+
+    #[test]
+    fn is_meeting_title_zoom_idle() {
+        assert!(!is_meeting_window_title("us.zoom.xos", "Zoom"));
+        assert!(!is_meeting_window_title("us.zoom.xos", "Zoom Workplace"));
+        assert!(!is_meeting_window_title("us.zoom.xos", "Home"));
+        assert!(!is_meeting_window_title("us.zoom.xos", "Contacts"));
+        assert!(!is_meeting_window_title("us.zoom.xos", "Settings"));
+        assert!(!is_meeting_window_title("us.zoom.xos", ""));
+    }
+
+    #[test]
+    fn is_meeting_title_teams_in_meeting() {
+        assert!(is_meeting_window_title(
+            "com.microsoft.teams2",
+            "Daily Standup | Microsoft Teams"
+        ));
+        assert!(is_meeting_window_title(
+            "com.microsoft.teams",
+            "John Doe | Microsoft Teams"
+        ));
+    }
+
+    #[test]
+    fn is_meeting_title_teams_idle() {
+        assert!(!is_meeting_window_title(
+            "com.microsoft.teams2",
+            "Microsoft Teams"
+        ));
+        assert!(!is_meeting_window_title(
+            "com.microsoft.teams",
+            "Microsoft Teams (work or school)"
+        ));
+        assert!(!is_meeting_window_title("com.microsoft.teams2", ""));
+    }
+
+    #[test]
+    fn is_meeting_title_other_native_apps_pass_through() {
+        assert!(is_meeting_window_title("com.hnc.Discord", "General"));
+        assert!(is_meeting_window_title("com.tinyspeck.slackmacgap", "Acme Workspace"));
+        assert!(is_meeting_window_title("com.apple.FaceTime", "FaceTime"));
+        assert!(!is_meeting_window_title("com.hnc.Discord", ""));
+    }
 }
 
 /// CoreAudio `kAudioDevicePropertyDeviceIsRunningSomewhere` on the default input device.
