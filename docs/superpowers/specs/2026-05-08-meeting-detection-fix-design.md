@@ -98,52 +98,37 @@ In `meeting/detector.rs::spawn`, the per-tick logic becomes:
 - `com.microsoft.teams2` / `com.microsoft.teams`: returns true if title contains `"| Microsoft Teams"` AND does not equal `"Microsoft Teams"` or `"Microsoft Teams (work or school)"`. Real meeting titles in Teams look like `"John Doe | Microsoft Teams"` or `"Daily Standup | Microsoft Teams"`.
 - All other native apps: returns true if title is non-empty (preserves current behavior).
 
-### 3. OS notification with action buttons
+### 3. OS-level consent overlay window
 
-Wire `tauri-plugin-notification` v2 action categories.
+> **Revised during implementation (2026-05-08).** The original plan called for `tauri-plugin-notification` v2 action buttons. On verification, the action APIs (`ActionType`, `Action`, `register_action_types`, `on_action`) are gated behind `#[cfg(mobile)]` in the installed crate (2.3.3) — desktop has no action-button support, and a plain `.title().body().show()` builder produces a non-actionable banner. The user picked **Option A** from the regression proposal: a floating consent overlay window.
 
-**Setup** (`src-tauri/src/lib.rs`, after `.plugin(tauri_plugin_notification::init())`):
+Final approach: a small always-on-top Tauri WebView window registered as `consent_overlay`, mirroring the existing `recording_overlay`.
 
-```rust
-use tauri_plugin_notification::{NotificationExt, ActionType, Action};
+- 320×130 logical points, bottom-right of the primary monitor with a 24pt margin.
+- Transparent + borderless + skip-taskbar + always-on-top + non-focusable + non-closable.
+- Created hidden at app startup (`crate::overlay::create_consent_overlay`).
+- Three buttons: `Record` (primary blue), `Always` (secondary), `Don't record` (muted).
 
-app.notification().register_action_types([
-    ActionType::new("meeting_consent")
-        .actions([
-            Action::new("once",   "Record"),
-            Action::new("always", "Always"),
-            Action::new("never",  "Don't record"),
-        ])
-])?;
-app.notification().on_action(|action| {
-    // action.id ∈ {"once","always","never"}
-    // action.user_info contains bundle_id + app_name we serialized in
-    // the extra payload at notification time.
-    // Dispatch to meeting_consent command via a global channel.
-});
-```
-
-(The exact tauri-plugin-notification 2.x API surface for actions is verified at implementation time — if the trait names differ, the implementer adapts. The semantic contract is: register one category with three actions, route action clicks to a handler that calls `meeting_consent`.)
-
-**Detection notification** (`detector.rs`, replacing the current `.title().body().show()`):
+**Trigger flow** (`detector.rs::Ask` arm):
 
 ```rust
-app_handle.notification().builder()
-    .title(format!("{provider_name} detected"))
-    .body("Record this meeting? Audio stays on your device.")
-    .action_type_id("meeting_consent")
-    .extra("bundle_id", &frontmost)
-    .extra("app_name", provider_name)
-    .show()?;
+let _ = app_handle.emit(
+    "meeting-detected",
+    serde_json::json!({ "bundle_id": frontmost, "app_name": display_name }),
+);
+crate::overlay::show_consent_overlay(&app_handle, &frontmost, display_name);
 ```
 
-`provider_name` is the URL-classifier output for browsers, the bundle's display name for native apps.
+The `meeting-detected` event continues to be emitted so the existing in-app prompt at `App.tsx:384` still works as a redundant signal when the main window happens to be foreground.
 
-**Action handler → command:**
+**Decision flow** (consent overlay frontend, `src/consent-overlay/ConsentOverlay.tsx`):
 
-A new background channel (`tokio::sync::mpsc::UnboundedSender<MeetingConsentEvent>`) is set up at startup. The notification action handler sends `{ bundle_id, app_name, decision }`; a single consumer task awaits messages and calls `MeetingManager::start` (for `once`/`always`) or `SettingsStore::set_meeting_app_prefs` (for `always`/`never`). This isolates the notification callback (which must be `Send + 'static` and synchronous-ish) from async Tauri state.
+1. `listen("show-consent")` → render with the payload.
+2. User clicks → `invoke("meeting_consent", { bundleId, appName, decision })` (existing command, unchanged).
+3. Then `invoke("hide_consent_overlay")` to dismiss the overlay window.
+4. If 30 seconds pass with no click → frontend hides itself; no decision is recorded.
 
-**Fallback:** If no action arrives within 60 seconds and the user clicks the notification body itself, Tauri raises the main window — the existing in-app `meeting-detected` listener still fires (we continue to emit it), so the in-app three-button prompt is the fallback path. On platforms where action buttons don't render (Windows toast collapse), this fallback is the primary path.
+The overlay reuses the existing `meeting_consent` command exactly as the in-app prompt does, so there is no new dispatcher channel, no new action types, no native-API plumbing. Cross-platform consistent.
 
 ### 4. Stale pref cleanup
 
@@ -152,8 +137,8 @@ A new background channel (`tokio::sync::mpsc::UnboundedSender<MeetingConsentEven
   let prefs = settings.meeting_app_prefs();
   if !prefs.is_empty() { tracing::info!(?prefs, "meeting app prefs"); }
   ```
-- **New command** `meeting_clear_app_pref(bundle_id: String)` and `meeting_list_app_prefs() -> Vec<(bundle_id, app_name, pref)>`.
-- **Settings UI** — new section in the Meetings settings panel listing each entry as `{display_name}: {Always|Never|Ask}` with a `Clear` button per row. UI calls the two new commands.
+- **New command** `meeting_clear_app_pref(bundle_id: String)`. (The originally-planned `meeting_list_app_prefs` was dropped — the existing settings query already exposes the prefs map to the frontend.)
+- **Settings UI** — the existing per-app prefs row in `views/Settings.tsx` gains a `Clear` button next to the Always/Ask/Never dropdown that invokes the new command and removes the entry from local state.
 
 ### 5. Tests
 
