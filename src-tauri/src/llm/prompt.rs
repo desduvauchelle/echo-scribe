@@ -132,17 +132,36 @@ pub fn build_meeting_synthesis_prompt(
     flattened_transcript: &str,
     detected_app_name: Option<&str>,
     duration_minutes: u64,
+    existing_project_names: &[String],
 ) -> (Option<String>, String) {
     let app = detected_app_name.unwrap_or("a meeting");
+
+    let project_hint = if existing_project_names.is_empty() {
+        "If the meeting clearly relates to a specific project or initiative, set \"project_name\" to a short name for it. \
+Otherwise set it to null.".to_string()
+    } else {
+        let names = existing_project_names.join("\", \"");
+        format!(
+            "The user has these existing projects: [\"{names}\"]. \
+If the meeting clearly relates to one of them, set \"project_name\" to that exact name. \
+If it relates to a new project not in the list, set \"project_name\" to a short name for it. \
+Otherwise set it to null."
+        )
+    };
+
     let system = format!(
         "You are an expert meeting note-taker. You receive a transcript of a {duration_minutes}-minute conversation captured from {app}. \
 The transcript labels each segment as 'You:' (the user) or 'Them:' (the other side). \
 Produce a JSON object with exactly these fields:\n\
 - summary: array of 3 to 5 bullet strings. Each bullet covers one decision, key topic, or outcome. \
 Bullets must be self-contained sentences, no leading dashes.\n\
-- action_items: array (possibly empty) of objects {{ \"text\": string, \"owner\": \"you\" | \"them\" | \"unspecified\" }}. \
-Only include items the speakers explicitly committed to or were explicitly asked to do. Do not invent action items.\n\
+- action_items: array (possibly empty) of objects {{ \"text\": string, \"owner\": \"you\" | \"them\" | \"unspecified\", \
+\"tags\": array of short keyword strings (1-3 tags), \"project_name\": string or null }}. \
+Only include items the speakers explicitly committed to or were explicitly asked to do. Do not invent action items. \
+Each action item's tags and project_name describe that specific task.\n\
 - suggested_title: short string (max 60 characters) capturing the meeting's purpose.\n\
+- tags: array of 1-3 short keyword strings that categorize the overall meeting topic (e.g. \"design\", \"planning\", \"bugfix\").\n\
+- project_name: string or null. {project_hint}\n\
 Output JSON only — no preamble, no commentary, no markdown fences."
     );
     let user = format!("Transcript:\n\n{flattened_transcript}\n\nProduce the JSON now.");

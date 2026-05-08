@@ -10,6 +10,7 @@ use super::DbError;
 pub enum ItemSource {
     VoiceAtCursor,
     LogCapture,
+    Meeting,
 }
 
 impl ItemSource {
@@ -17,6 +18,7 @@ impl ItemSource {
         match self {
             ItemSource::VoiceAtCursor => "voice_at_cursor",
             ItemSource::LogCapture => "log_capture",
+            ItemSource::Meeting => "meeting",
         }
     }
 
@@ -24,6 +26,7 @@ impl ItemSource {
         match s {
             "voice_at_cursor" => Some(ItemSource::VoiceAtCursor),
             "log_capture" => Some(ItemSource::LogCapture),
+            "meeting" => Some(ItemSource::Meeting),
             _ => None,
         }
     }

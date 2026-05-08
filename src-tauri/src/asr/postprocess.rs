@@ -267,4 +267,44 @@ mod tests {
         let out = postprocess("uh antoine, you know, said hello", &fillers, &custom);
         assert_eq!(out, "Antoine, said hello");
     }
+
+    #[test]
+    fn custom_words_pure_alphabetic_roundtrip() {
+        // A pure-alphabetic word is saved and applied correctly.
+        let words = vec!["Tauri".to_string()];
+        let out = apply_custom_words("tauri is fast", &words);
+        assert_eq!(out, "Tauri is fast");
+    }
+
+    #[test]
+    fn custom_words_words_with_special_chars_are_skipped() {
+        // Words containing apostrophes or hyphens pass the frontend validation
+        // for filler words but are filtered by the backend's alphabetic-only
+        // guard.  Verify the guard works and that alphabetic words in the same
+        // list are still applied.
+        let words = vec!["O'Brien".to_string(), "Antoine".to_string()];
+        let out = apply_custom_words("obrien and antoine", &words);
+        // "O'Brien" is filtered out (non-alphabetic); "Antoine" is still applied.
+        assert_eq!(out, "obrien and Antoine");
+    }
+
+    #[test]
+    fn custom_words_all_valid_frontend_words_pass_backend_filter() {
+        // Any word that passes the frontend regex /^[A-Za-z]+$/ must also pass
+        // the backend's `chars().all(char::is_alphabetic)` guard so nothing is
+        // silently dropped.
+        let acceptable = ["Antoine", "Scribe", "GPT", "Amandine", "EchoScribe"];
+        for w in acceptable {
+            assert!(
+                w.chars().all(char::is_alphabetic),
+                "'{w}' passes frontend regex but would be silently dropped by backend"
+            );
+        }
+    }
+
+    #[test]
+    fn custom_words_empty_list_is_passthrough() {
+        let out = apply_custom_words("hello world", &[]);
+        assert_eq!(out, "hello world");
+    }
 }

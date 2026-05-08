@@ -57,7 +57,7 @@ function CustomWordsCard() {
       placeholder="Add a word"
       words={words}
       onChange={(w) => void persist(w)}
-      validate={(w) => /^[A-Za-z][A-Za-z'-]*$/.test(w)}
+      validate={(w) => /^[A-Za-z]+$/.test(w)}
     />
   );
 }
@@ -234,7 +234,7 @@ function ChipListCard(props: {
         <button
           type="button"
           onClick={add}
-          disabled={!input.trim()}
+          disabled={!input.trim() || (!!validate && !validate(input.trim()))}
           className="rounded-md bg-danger/15 px-3 py-1.5 text-xs font-semibold text-danger hover:bg-danger/15 disabled:opacity-40"
         >
           Add

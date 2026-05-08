@@ -98,6 +98,7 @@ pub enum MeetingError {
 
 use std::sync::Arc;
 use tauri::Emitter;
+use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::sync::mpsc;
 use tokio::sync::Mutex as AsyncMutex;
 
@@ -108,6 +109,11 @@ use crate::meeting::pipeline::Pipeline;
 use crate::meeting::recorder::Recorder;
 use crate::meeting::synthesizer::StoredSummary;
 
+/// Cooldown after a meeting stops during which the auto-detector must not
+/// auto-start a new meeting. Prevents the detector from racing in while the
+/// previous meeting is still synthesizing (state is cleared early in `stop()`).
+const POST_STOP_COOLDOWN_MS: u64 = 60_000;
+
 /// Public lifecycle manager. One per app process. Holds the active meeting (if any)
 /// and orchestrates record → transcribe → synthesize → persist.
 pub struct MeetingManager {
@@ -117,6 +123,9 @@ pub struct MeetingManager {
     pub data_dir: std::path::PathBuf,
     pub app_handle: tauri::AppHandle,
     state: AsyncMutex<Option<ActiveMeeting>>,
+    /// Wall-clock millis (UTC) when the most recent `stop()` cleared `state`.
+    /// Detector consults `in_cooldown()` to avoid auto-restarting immediately.
+    last_stopped_at_ms: AtomicU64,
 }
 
 struct ActiveMeeting {
@@ -145,11 +154,23 @@ impl MeetingManager {
             data_dir,
             app_handle,
             state: AsyncMutex::new(None),
+            last_stopped_at_ms: AtomicU64::new(0),
         })
     }
 
     pub async fn is_active(&self) -> bool {
         self.state.lock().await.is_some()
+    }
+
+    /// True while the post-stop cooldown is in effect. The auto-detector should
+    /// skip auto-starting during this window.
+    pub fn in_cooldown(&self) -> bool {
+        let stopped = self.last_stopped_at_ms.load(Ordering::Relaxed);
+        if stopped == 0 {
+            return false;
+        }
+        let now = chrono::Utc::now().timestamp_millis() as u64;
+        now.saturating_sub(stopped) < POST_STOP_COOLDOWN_MS
     }
 
     pub async fn active_id(&self) -> Option<String> {
@@ -282,10 +303,21 @@ impl MeetingManager {
         let Some(mut active) = guard.take() else {
             return Err(MeetingError::NotRecording);
         };
+        // Stamp the cooldown the moment state is cleared, so the auto-detector
+        // can't race in while synthesis is still running below.
+        self.last_stopped_at_ms.store(
+            chrono::Utc::now().timestamp_millis() as u64,
+            Ordering::Relaxed,
+        );
         drop(guard);
 
         // Step 1: Stop recording.
         active.recorder.stop().await?;
+        // Capture fields we need later before dropping the recorder.
+        let mic_only = active.recorder.mic_only;
+        // Drop the recorder so its ChunkedWavWriter senders are released, closing the chunk
+        // channel and allowing the pipeline drain task to exit its recv loop.
+        drop(active.recorder);
 
         // Step 2: Flag UI state as "transcribing".
         let id = active.item_id.clone();
@@ -300,7 +332,7 @@ impl MeetingManager {
             serde_json::json!({"id": id, "status": "transcribing"}),
         );
 
-        // Step 3: Wait for pipeline to drain (the chunk channel sender was dropped by recorder.stop()).
+        // Step 3: Wait for pipeline to drain (chunk channel is now closed — drain exits cleanly).
         let _ = active.chunk_drain_handle.await;
 
         // Step 4: Pull segments out of the pipeline.
@@ -323,11 +355,19 @@ impl MeetingManager {
         let now = chrono::Utc::now();
         let duration_ms = (now.timestamp_millis() as u64).saturating_sub(active.started_at_ms);
 
+        // Fetch existing project names so the LLM can match against them.
+        let existing_projects = self
+            .db
+            .with_conn(|conn| crate::db::projects::list_projects(conn, false))
+            .unwrap_or_default();
+        let project_names: Vec<String> = existing_projects.iter().map(|p| p.name.clone()).collect();
+
         let synthesis = synthesizer::synthesize(
             self.llm.clone(),
             &segments,
             active.detected_app_name.as_deref(),
             duration_ms,
+            &project_names,
         )
         .await;
 
@@ -338,7 +378,7 @@ impl MeetingManager {
             "asr_model": self.asr.active_model_id().unwrap_or_else(|| "unknown".into()),
             "chunk_seconds": 60,
             "failed_chunk_count": failed_count,
-            "mic_only": active.recorder.mic_only,
+            "mic_only": mic_only,
         });
         let summary_json = match &synthesis {
             Ok(s) => Some(serde_json::to_string(s).unwrap_or_else(|_| "{}".into())),
@@ -348,14 +388,20 @@ impl MeetingManager {
             }
         };
 
-        // Step 7: Persist + flatten body for FTS.
+        // Step 7: Persist + flatten body for FTS, assign project/tags, and
+        // create action-item tasks — all in a single atomic transaction so a
+        // partial failure can't leave the meeting in an inconsistent state
+        // (e.g. status = 'complete' but no project/tags assigned).
         let body = build_flattened_body(&segments, summary_json.as_deref(), None);
         let id_db3 = id.clone();
         let ended_at = now.to_rfc3339();
         let transcript_str = serde_json::to_string(&transcript_json).unwrap();
         let summary_for_db = summary_json.clone();
+        let synthesis_for_db = synthesis.as_ref().ok().cloned();
+        let existing_projects_clone = existing_projects.clone();
         self.db
             .with_conn(move |conn| {
+                // Finalize meeting row (sets status = 'complete').
                 crate::db::meetings::finalize_meeting(
                     conn,
                     &id_db3,
@@ -365,47 +411,77 @@ impl MeetingManager {
                     summary_for_db.as_deref(),
                     failed_count,
                 )?;
+                // Update the items.content with the flattened body for FTS —
+                // only touches `content`, never resets status or other fields.
                 conn.execute(
                     "UPDATE items SET content = ?1 WHERE id = ?2",
                     rusqlite::params![body, id_db3],
                 )?;
-                Ok(())
-            })
-            .map_err(|e| MeetingError::Db(e.to_string()))?;
 
-        // Step 8: If synthesis succeeded, write each action_item as a task + link.
-        if let Ok(s) = &synthesis {
-            let actions = s.action_items.clone();
-            let meeting_id_clone = id.clone();
-            self.db
-                .with_conn(move |conn| {
-                    for action in &actions {
+                // If synthesis succeeded, assign project/tags and create tasks.
+                if let Some(s) = &synthesis_for_db {
+                    let meeting_project_id = resolve_project_name(
+                        conn,
+                        s.project_name.as_deref(),
+                        &existing_projects_clone,
+                    )?;
+
+                    if let Some(ref pid) = meeting_project_id {
+                        conn.execute(
+                            "UPDATE items SET project_id = ?1 WHERE id = ?2",
+                            rusqlite::params![pid, id_db3],
+                        )?;
+                    }
+                    if !s.tags.is_empty() {
+                        crate::db::items::replace_tags(conn, &id_db3, &s.tags)?;
+                    }
+
+                    for action in &s.action_items {
                         let task_id = uuid::Uuid::new_v4().to_string();
                         let now_iso = chrono::Utc::now().to_rfc3339();
+
+                        let task_project_id = if action.project_name.is_some() {
+                            resolve_project_name(
+                                conn,
+                                action.project_name.as_deref(),
+                                &existing_projects_clone,
+                            )?
+                        } else {
+                            meeting_project_id.clone()
+                        };
+
                         conn.execute(
-                            "INSERT INTO items (id, content, source, visibility, kind, captured_at, created_at)
-                             VALUES (?1, ?2, 'meeting', 'visible', 'task', ?3, ?3)",
-                            rusqlite::params![task_id, action.text, now_iso],
+                            "INSERT INTO items (id, content, source, visibility, kind, project_id, captured_at, created_at)
+                             VALUES (?1, ?2, 'meeting', 'visible', 'task', ?3, ?4, ?4)",
+                            rusqlite::params![task_id, action.text, task_project_id, now_iso],
                         )?;
                         conn.execute(
                             "INSERT INTO tasks (item_id, deadline, completed_at) VALUES (?1, NULL, NULL)",
                             rusqlite::params![task_id],
                         )?;
-                        crate::db::meetings::link_action(conn, &meeting_id_clone, &task_id, &now_iso)?;
+                        let task_tags = if action.tags.is_empty() {
+                            &s.tags
+                        } else {
+                            &action.tags
+                        };
+                        if !task_tags.is_empty() {
+                            crate::db::items::replace_tags(conn, &task_id, task_tags)?;
+                        }
+                        crate::db::meetings::link_action(conn, &id_db3, &task_id, &now_iso)?;
                     }
-                    Ok(())
-                })
-                .map_err(|e| MeetingError::Db(e.to_string()))?;
-        }
+                }
+                Ok(())
+            })
+            .map_err(|e| MeetingError::Db(e.to_string()))?;
 
-        // Step 9: Emit "complete" event and hide the overlay.
+        // Step 8: Emit "complete" event and hide the overlay.
         let _ = self.app_handle.emit(
             "meeting-complete",
             serde_json::json!({"id": id}),
         );
         crate::overlay::hide_recording_overlay(&self.app_handle);
 
-        // Step 10: Best-effort cleanup of empty meeting dir if no failed chunks.
+        // Step 9: Best-effort cleanup of empty meeting dir if no failed chunks.
         if failed.is_empty() {
             let _ = std::fs::remove_dir_all(self.data_dir.join("meetings").join(&id));
         }
@@ -442,22 +518,97 @@ impl MeetingManager {
             .and_then(|v| v.as_u64())
             .unwrap_or(0);
 
+        let existing_projects = self
+            .db
+            .with_conn(|conn| crate::db::projects::list_projects(conn, false))
+            .unwrap_or_default();
+        let project_names: Vec<String> = existing_projects.iter().map(|p| p.name.clone()).collect();
+
         let synthesis = synthesizer::synthesize(
             self.llm.clone(),
             &segments,
             row.detected_app_name.as_deref(),
             duration_ms,
+            &project_names,
         )
         .await;
         if let Ok(s) = synthesis {
             let summary_str = serde_json::to_string(&s).unwrap_or_default();
             let id_for_db = id.to_string();
+            let actions = s.action_items.clone();
+            let meeting_tags = s.tags.clone();
+            let meeting_project_name = s.project_name.clone();
+            let existing_projects_clone = existing_projects.clone();
             self.db
                 .with_conn(move |conn| {
+                    // Only advance status to 'complete' from expected
+                    // pre-states; never regress from 'recovered' or other
+                    // terminal states — updating the summary should not
+                    // overwrite unrelated meeting state.
                     conn.execute(
-                        "UPDATE meetings SET summary_json = ?1, status = 'complete' WHERE item_id = ?2",
+                        "UPDATE meetings SET summary_json = ?1,
+                            status = CASE WHEN status IN ('failed', 'summarizing') THEN 'complete' ELSE status END
+                         WHERE item_id = ?2",
                         rusqlite::params![summary_str, id_for_db],
                     )?;
+
+                    // Bring project + tag + task assignment to parity with the
+                    // primary stop() path. Skip task creation if this meeting
+                    // already has linked action items so retries don't dupe.
+                    let existing_action_count: i64 = conn.query_row(
+                        "SELECT COUNT(*) FROM meeting_action_links WHERE meeting_id = ?1",
+                        rusqlite::params![id_for_db],
+                        |row| row.get(0),
+                    )?;
+
+                    let meeting_project_id = resolve_project_name(
+                        conn,
+                        meeting_project_name.as_deref(),
+                        &existing_projects_clone,
+                    )?;
+                    if let Some(ref pid) = meeting_project_id {
+                        conn.execute(
+                            "UPDATE items SET project_id = ?1 WHERE id = ?2",
+                            rusqlite::params![pid, id_for_db],
+                        )?;
+                    }
+                    if !meeting_tags.is_empty() {
+                        crate::db::items::replace_tags(conn, &id_for_db, &meeting_tags)?;
+                    }
+
+                    if existing_action_count == 0 {
+                        for action in &actions {
+                            let task_id = uuid::Uuid::new_v4().to_string();
+                            let now_iso = chrono::Utc::now().to_rfc3339();
+                            let task_project_id = if action.project_name.is_some() {
+                                resolve_project_name(
+                                    conn,
+                                    action.project_name.as_deref(),
+                                    &existing_projects_clone,
+                                )?
+                            } else {
+                                meeting_project_id.clone()
+                            };
+                            conn.execute(
+                                "INSERT INTO items (id, content, source, visibility, kind, project_id, captured_at, created_at)
+                                 VALUES (?1, ?2, 'meeting', 'visible', 'task', ?3, ?4, ?4)",
+                                rusqlite::params![task_id, action.text, task_project_id, now_iso],
+                            )?;
+                            conn.execute(
+                                "INSERT INTO tasks (item_id, deadline, completed_at) VALUES (?1, NULL, NULL)",
+                                rusqlite::params![task_id],
+                            )?;
+                            let task_tags = if action.tags.is_empty() {
+                                &meeting_tags
+                            } else {
+                                &action.tags
+                            };
+                            if !task_tags.is_empty() {
+                                crate::db::items::replace_tags(conn, &task_id, task_tags)?;
+                            }
+                            crate::db::meetings::link_action(conn, &id_for_db, &task_id, &now_iso)?;
+                        }
+                    }
                     Ok(())
                 })
                 .map_err(|e| MeetingError::Db(e.to_string()))?;
@@ -567,6 +718,37 @@ pub fn finalize_orphans_as_failed(db: &Db, ids: &[String]) {
     }
 }
 
+/// Resolve a project name from the LLM to a project ID.
+/// If the name matches an existing project (case-insensitive), return its ID.
+/// If it's a new name, create the project and return its ID.
+fn resolve_project_name(
+    conn: &rusqlite::Connection,
+    name: Option<&str>,
+    existing: &[crate::db::projects::Project],
+) -> Result<Option<String>, crate::db::DbError> {
+    let name = match name.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(n) => n,
+        None => return Ok(None),
+    };
+    // Try to match existing project (case-insensitive).
+    let lower = name.to_lowercase();
+    if let Some(p) = existing.iter().find(|p| p.name.to_lowercase() == lower) {
+        return Ok(Some(p.id.clone()));
+    }
+    // Create new project.
+    let pid = ulid::Ulid::new().to_string();
+    let now = chrono::Utc::now().to_rfc3339();
+    let proj = crate::db::projects::Project {
+        id: pid.clone(),
+        name: name.to_string(),
+        created_at: now,
+        archived_at: None,
+    };
+    crate::db::projects::insert_project(conn, &proj)?;
+    tracing::info!(project_id = %pid, project_name = %name, "auto-created project from meeting");
+    Ok(Some(pid))
+}
+
 /// Build the flattened body that goes into items.content for FTS5 indexing.
 pub fn build_flattened_body(
     segments: &[Segment],
@@ -594,4 +776,118 @@ pub fn build_flattened_body(
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::schema::run_migrations;
+
+    fn fresh_conn() -> rusqlite::Connection {
+        let mut conn = rusqlite::Connection::open_in_memory().unwrap();
+        run_migrations(&mut conn).unwrap();
+        conn
+    }
+
+    fn make_project(id: &str, name: &str) -> crate::db::projects::Project {
+        crate::db::projects::Project {
+            id: id.into(),
+            name: name.into(),
+            created_at: "2026-05-01T00:00:00Z".into(),
+            archived_at: None,
+        }
+    }
+
+    #[test]
+    fn resolve_project_name_returns_none_for_none() {
+        let conn = fresh_conn();
+        assert!(resolve_project_name(&conn, None, &[]).unwrap().is_none());
+    }
+
+    #[test]
+    fn resolve_project_name_returns_none_for_empty_string() {
+        let conn = fresh_conn();
+        assert!(resolve_project_name(&conn, Some("  "), &[]).unwrap().is_none());
+    }
+
+    #[test]
+    fn resolve_project_name_matches_existing_case_insensitive() {
+        let conn = fresh_conn();
+        let existing = vec![make_project("p1", "Alpha Project")];
+        let result = resolve_project_name(&conn, Some("alpha project"), &existing).unwrap();
+        assert_eq!(result, Some("p1".into()));
+    }
+
+    #[test]
+    fn resolve_project_name_creates_new_project() {
+        let conn = fresh_conn();
+        let result = resolve_project_name(&conn, Some("New Project"), &[]).unwrap();
+        assert!(result.is_some());
+        // Verify it was actually created in the DB.
+        let proj = crate::db::projects::get_project(&conn, &result.unwrap()).unwrap();
+        assert!(proj.is_some());
+        assert_eq!(proj.unwrap().name, "New Project");
+    }
+
+    /// Helper: insert a minimal meeting row for testing.
+    fn insert_test_meeting(conn: &rusqlite::Connection, id: &str) {
+        conn.execute(
+            "INSERT INTO items (id, content, source, visibility, kind, captured_at, created_at)
+             VALUES (?1, 'test', 'meeting', 'visible', 'meeting', '2026-05-01T00:00:00Z', '2026-05-01T00:00:00Z')",
+            rusqlite::params![id],
+        ).unwrap();
+        crate::db::meetings::insert_meeting(conn, &crate::db::meetings::MeetingRow {
+            item_id: id.into(),
+            started_at: "2026-05-01T00:00:00Z".into(),
+            ended_at: None,
+            duration_ms: None,
+            detected_app: None,
+            detected_app_name: None,
+            status: "recording".into(),
+            transcript_json: None,
+            summary_json: None,
+            user_notes: None,
+            failed_chunk_count: 0,
+            mic_only: false,
+        }).unwrap();
+    }
+
+    #[test]
+    fn retry_summary_sql_does_not_regress_recovered_status() {
+        // Simulates the conditional UPDATE used in retry_summary: status
+        // should only advance to 'complete' from 'failed' or 'summarizing',
+        // never regress from 'recovered'.
+        let conn = fresh_conn();
+        insert_test_meeting(&conn, "m-retry");
+        crate::db::meetings::update_status(&conn, "m-retry", MeetingStatus::Recovered).unwrap();
+
+        // Run the same conditional UPDATE that retry_summary uses.
+        conn.execute(
+            "UPDATE meetings SET summary_json = ?1,
+                status = CASE WHEN status IN ('failed', 'summarizing') THEN 'complete' ELSE status END
+             WHERE item_id = ?2",
+            rusqlite::params![r#"{"summary":["x"]}"#, "m-retry"],
+        ).unwrap();
+
+        let got = crate::db::meetings::get_meeting(&conn, "m-retry").unwrap().unwrap();
+        assert_eq!(got.status, "recovered", "status must not regress from 'recovered' to 'complete'");
+        assert!(got.summary_json.is_some(), "summary_json should still be updated");
+    }
+
+    #[test]
+    fn retry_summary_sql_advances_failed_to_complete() {
+        let conn = fresh_conn();
+        insert_test_meeting(&conn, "m-fail");
+        crate::db::meetings::update_status(&conn, "m-fail", MeetingStatus::Failed).unwrap();
+
+        conn.execute(
+            "UPDATE meetings SET summary_json = ?1,
+                status = CASE WHEN status IN ('failed', 'summarizing') THEN 'complete' ELSE status END
+             WHERE item_id = ?2",
+            rusqlite::params![r#"{"summary":["x"]}"#, "m-fail"],
+        ).unwrap();
+
+        let got = crate::db::meetings::get_meeting(&conn, "m-fail").unwrap().unwrap();
+        assert_eq!(got.status, "complete");
+    }
 }

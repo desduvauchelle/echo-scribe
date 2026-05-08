@@ -93,6 +93,12 @@ fn show_overlay_state(app_handle: &AppHandle<Wry>, state: &str) {
             let _ = overlay.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
         }
         let _ = overlay.show();
+        // The overlay must never become the key window — if it does, Cmd+V
+        // lands here instead of the user's target app. On macOS, showing a
+        // window can make it key even if it was created with focused(false).
+        // Re-asserting always_on_top after show uses orderFront internally
+        // which avoids makeKeyAndOrderFront semantics.
+        let _ = overlay.set_always_on_top(true);
         let _ = overlay.emit("show-overlay", state);
     }
 }
@@ -106,6 +112,7 @@ pub fn show_meeting_overlay(app_handle: &AppHandle<Wry>, detected_app_name: Opti
             let _ = overlay.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
         }
         let _ = overlay.show();
+        let _ = overlay.set_always_on_top(true);
         let _ = overlay.emit(
             "show-overlay",
             serde_json::json!({
@@ -142,6 +149,15 @@ pub fn hide_recording_overlay(app_handle: &AppHandle<Wry>) {
             std::thread::sleep(std::time::Duration::from_millis(300));
             let _ = overlay_clone.hide();
         });
+    }
+}
+
+/// Hides the overlay immediately without the fade-out animation.
+/// Used before pasting so the always-on-top overlay doesn't interfere
+/// with focus restore and Cmd+V delivery to the target app.
+pub fn hide_recording_overlay_now(app_handle: &AppHandle<Wry>) {
+    if let Some(overlay) = app_handle.get_webview_window("recording_overlay") {
+        let _ = overlay.hide();
     }
 }
 

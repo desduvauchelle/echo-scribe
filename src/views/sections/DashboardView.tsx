@@ -73,6 +73,11 @@ export default function DashboardView() {
         <Heatmap data={stats.daily_counts} />
       </div>
 
+      <div className="mt-5">
+        <div className="mb-2 text-xs font-medium text-muted">Daily captures — last 30 days</div>
+        <BarChart data={stats.daily_counts} />
+      </div>
+
       <Tips stats={stats} />
     </div>
   );
@@ -170,6 +175,66 @@ function Heatmap({ data }: { data: [string, number][] }) {
           })}
         </div>
       ))}
+    </div>
+  );
+}
+
+function BarChart({ data }: { data: [string, number][] }) {
+  const countMap = new Map<string, number>();
+  for (const [d, c] of data) countMap.set(d, c);
+
+  const now = new Date();
+  const bars: { date: string; count: number; label: string }[] = [];
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date(now);
+    d.setDate(d.getDate() - i);
+    const ds = d.toISOString().slice(0, 10);
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    bars.push({ date: ds, count: countMap.get(ds) ?? 0, label: `${mm}/${dd}` });
+  }
+
+  const maxCount = Math.max(1, ...bars.map((b) => b.count));
+  const chartH = 80;
+  const barW = 8;
+  const gap = 4;
+  const totalW = bars.length * (barW + gap) - gap;
+
+  return (
+    <div className="rounded-lg border border-line bg-surface/60 px-4 py-3">
+      <svg width={totalW} height={chartH + 18} className="w-full overflow-visible" viewBox={`0 0 ${totalW} ${chartH + 18}`}>
+        {bars.map((bar, i) => {
+          const barH = Math.max(2, Math.round((bar.count / maxCount) * chartH));
+          const x = i * (barW + gap);
+          const y = chartH - barH;
+          const showLabel = i === 0 || i === 14 || i === 29;
+          return (
+            <g key={bar.date}>
+              <rect
+                x={x}
+                y={y}
+                width={barW}
+                height={barH}
+                rx={2}
+                className={bar.count > 0 ? "fill-accent/70" : "fill-elevated"}
+              >
+                <title>{`${bar.date}: ${bar.count} capture${bar.count === 1 ? "" : "s"}`}</title>
+              </rect>
+              {showLabel && (
+                <text
+                  x={x + barW / 2}
+                  y={chartH + 14}
+                  textAnchor="middle"
+                  fontSize={9}
+                  className="fill-faint font-sans"
+                >
+                  {bar.label}
+                </text>
+              )}
+            </g>
+          );
+        })}
+      </svg>
     </div>
   );
 }

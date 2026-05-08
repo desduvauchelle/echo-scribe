@@ -4,7 +4,9 @@
 
 **Always run a TCC reset when you rebuild and replace `/Applications/Echo Scribe.app`.**
 
-macOS TCC (Transparency, Consent, and Control) keys permission grants on the binary's code signature. Every release build produces a binary with a new ad-hoc signature, so the prior Microphone and Accessibility grants no longer apply. Symptoms when you skip the reset: in-process permission prompts crash silently, the Accessibility list shows multiple stale "Echo Scribe.app" entries, or the new binary thinks it has no permissions even though the System Settings toggle is on.
+macOS TCC (Transparency, Consent, and Control) keys permission grants on the binary's code signature. Every release build produces a binary with a new ad-hoc signature, so the prior Microphone, Accessibility, and Screen Recording grants no longer apply. Symptoms when you skip the reset: in-process permission prompts crash silently, the Accessibility list shows multiple stale "Echo Scribe.app" entries, or the new binary thinks it has no permissions even though the System Settings toggle is on.
+
+Screen Recording specifically gates the `echo-scribe-syscap` sidecar's ScreenCaptureKit query (it captures system audio for the "other person" track during meetings). When the sidecar emits `stream_stopped: Failed to find any displays or windows to capture`, that's the canonical symptom of missing Screen Recording authorization.
 
 The full reset-and-reinstall sequence:
 
@@ -14,6 +16,7 @@ pkill -f "Echo Scribe" 2>/dev/null
 sleep 1
 tccutil reset Microphone com.echoscribe.app
 tccutil reset Accessibility com.echoscribe.app
+tccutil reset ScreenCapture com.echoscribe.app
 rm -rf "/Applications/Echo Scribe.app"
 cp -R "src-tauri/target/release/bundle/macos/Echo Scribe.app" /Applications/
 open "/Applications/Echo Scribe.app"

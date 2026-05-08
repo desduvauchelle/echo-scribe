@@ -15,6 +15,17 @@ import {
 
 type Props = { meetingId: string; onClose: () => void };
 
+/** Numeric rank for meeting status — prevents stale refreshes from
+ *  regressing the displayed status badge. */
+const STATUS_RANK: Record<string, number> = {
+  recording: 0,
+  transcribing: 1,
+  summarizing: 2,
+  complete: 3,
+  failed: 3,
+  recovered: 3,
+};
+
 export function MeetingView({ meetingId, onClose }: Props) {
   const [row, setRow] = useState<MeetingRow | null>(null);
   const [editingTitle, setEditingTitle] = useState(false);
@@ -23,10 +34,18 @@ export function MeetingView({ meetingId, onClose }: Props) {
 
   const refresh = async () => {
     const r = await getMeeting(meetingId);
-    setRow(r);
-    if (r) {
-      setNotesDraft(r.user_notes ?? "");
-    }
+    if (!r) { setRow(null); return; }
+    // Monotonic guard: never regress the displayed status.
+    setRow((prev) => {
+      if (
+        prev &&
+        (STATUS_RANK[r.status] ?? 0) < (STATUS_RANK[prev.status] ?? 0)
+      ) {
+        return { ...r, status: prev.status };
+      }
+      return r;
+    });
+    setNotesDraft(r.user_notes ?? "");
   };
 
   useEffect(() => {

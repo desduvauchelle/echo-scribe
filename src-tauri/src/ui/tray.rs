@@ -106,8 +106,11 @@ impl<R: Runtime> TrayHandle<R> {
                                 info!("meeting stopped via tray");
                             }
                         } else {
-                            match manager.start(None, None).await {
-                                Ok(id) => info!(%id, "meeting started via tray"),
+                            match manager.clone().start(None, None).await {
+                                Ok(id) => {
+                                    info!(%id, "meeting started via tray");
+                                    crate::meeting::detector::spawn_end_monitor(manager, None);
+                                }
                                 Err(e) => {
                                     warn!(?e, "tray: start_meeting failed");
                                     let _ = app.emit(

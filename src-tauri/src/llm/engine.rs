@@ -178,12 +178,13 @@ impl LlmEngine {
         let n_prompt = tokens.len();
         let n_ctx_required = n_prompt + req.max_tokens;
         if (n_ctx_required as u64) > (self.n_ctx as u64) {
-            warn!(
-                n_prompt,
-                max_tokens = req.max_tokens,
-                n_ctx = self.n_ctx,
-                "prompt + max_tokens exceeds n_ctx; truncation may occur"
-            );
+            // llama.cpp's decode calls ggml_abort() (= SIGABRT, kills process)
+            // when the KV cache overflows. Reject the request instead so the
+            // caller can recover.
+            return Err(EngineError::Request(format!(
+                "prompt ({} tokens) + max_tokens ({}) exceeds n_ctx ({}); shorten input or reduce max_tokens",
+                n_prompt, req.max_tokens, self.n_ctx
+            )));
         }
 
         // Build a fresh context.

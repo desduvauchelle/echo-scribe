@@ -6,12 +6,25 @@ import {
   startMeetingManual,
   stopMeeting,
   type MeetingRow,
+  type MeetingStatus,
 } from "../../lib/api";
 import { useToasts } from "../../components/ToastProvider";
 
 type Filter = "all" | "week" | "month" | string;
 
 type Props = { onSelect: (id: string) => void };
+
+/** Numeric rank for meeting status — higher = further along the lifecycle.
+ *  Used to enforce monotonic status transitions in the UI so that a stale
+ *  refresh can never regress a card's displayed status. */
+const STATUS_RANK: Record<string, number> = {
+  recording: 0,
+  transcribing: 1,
+  summarizing: 2,
+  complete: 3,
+  failed: 3,
+  recovered: 3,
+};
 
 export function MeetingsView({ onSelect }: Props) {
   const [rows, setRows] = useState<MeetingRow[]>([]);
@@ -22,7 +35,23 @@ export function MeetingsView({ onSelect }: Props) {
 
   const refreshRows = useCallback(async () => {
     try {
-      setRows(await listMeetings());
+      const fresh = await listMeetings();
+      // Enforce monotonic status: never let a stale DB read regress a
+      // meeting's displayed status to an earlier lifecycle stage.
+      setRows((prev) => {
+        const floor = new Map<string, MeetingStatus>();
+        for (const r of prev) floor.set(r.item_id, r.status);
+        return fresh.map((r) => {
+          const prev_status = floor.get(r.item_id);
+          if (
+            prev_status &&
+            (STATUS_RANK[r.status] ?? 0) < (STATUS_RANK[prev_status] ?? 0)
+          ) {
+            return { ...r, status: prev_status };
+          }
+          return r;
+        });
+      });
     } catch {
       /* ignore */
     }
@@ -193,7 +222,11 @@ export function MeetingsView({ onSelect }: Props) {
                   <div className="flex items-center justify-between">
                     <div className="text-sm font-medium">
                       {r.detected_app_name ?? "Manual"} ·{" "}
-                      {new Date(r.started_at).toLocaleDateString()}
+                      {new Date(r.started_at).toLocaleDateString()}{" "}
+                      {new Date(r.started_at).toLocaleTimeString([], {
+                        hour: "numeric",
+                        minute: "2-digit",
+                      })}
                     </div>
                     <div className="text-xs text-muted">
                       {Math.round((r.duration_ms ?? 0) / 60000)}m

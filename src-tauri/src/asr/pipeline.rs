@@ -304,7 +304,10 @@ impl AsrPipeline {
             }
             idx += 8 + size;
         }
-        let count = (data_len as usize) / 2;
+        let header_count = (data_len as usize) / 2;
+        // Clamp to actual available bytes in case the header lies (e.g. a truncated file).
+        let available = bytes.len().saturating_sub(data_offset) / 2;
+        let count = header_count.min(available);
         let mut samples = Vec::with_capacity(count);
         for i in 0..count {
             let lo = bytes[data_offset + i * 2];
