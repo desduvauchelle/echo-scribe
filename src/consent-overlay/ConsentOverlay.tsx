@@ -56,10 +56,7 @@ const ConsentOverlay: React.FC = () => {
     // Hide the overlay window itself once the decision is dispatched.
     window.setTimeout(() => {
       setPayload(null);
-      void invoke("hide_consent_overlay").catch(() => {
-        // Command may not exist yet; the Rust side hides the window in
-        // task 7 via the dispatcher. Best-effort.
-      });
+      void invoke("hide_consent_overlay").catch(() => {});
     }, 200);
   };
 

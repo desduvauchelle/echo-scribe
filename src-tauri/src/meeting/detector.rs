@@ -3,7 +3,6 @@
 
 use crate::meeting::MeetingManager;
 use crate::settings::{MeetingAppPref, SettingsStore};
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tauri::Emitter;
@@ -81,7 +80,6 @@ pub fn spawn(
     app_handle: tauri::AppHandle,
 ) {
     tauri::async_runtime::spawn(async move {
-        let mut consecutive_match: HashMap<String, u32> = HashMap::new();
         let mut mic_in_use_since: Option<Instant> = None;
         let mut interval = tokio::time::interval(Duration::from_secs(2));
         loop {
@@ -90,10 +88,9 @@ pub fn spawn(
                 continue;
             }
             // While a meeting is active OR we're inside the post-stop cooldown
-            // (synthesis still running), keep counters cleared so we don't
+            // (synthesis still running), reset the mic timer so we don't
             // immediately re-trigger the moment the gate opens.
             if manager.is_active().await || manager.in_cooldown() {
-                consecutive_match.clear();
                 mic_in_use_since = None;
                 continue;
             }
@@ -108,19 +105,17 @@ pub fn spawn(
                 None => continue,
             };
             let Some((name, is_browser)) = lookup(&frontmost) else {
-                consecutive_match.clear();
                 continue;
             };
 
             // For browsers, require a known meeting URL. The provider name
             // (e.g. "Google Meet") replaces the browser display name in the
-            // notification and meeting title.
+            // consent overlay and meeting title.
             let display_name: &str = if is_browser {
                 match browser_provider_name(ctx.browser_url.as_deref()) {
                     Some(provider) => provider,
                     None => {
                         mic_in_use_since = None;
-                        consecutive_match.clear();
                         continue;
                     }
                 }
@@ -129,7 +124,7 @@ pub fn spawn(
             };
 
             // For native apps, require a positive meeting signal in the
-            // window title. (Browsers are gated by URL in a later task.)
+            // window title.
             if !is_browser {
                 let title_ok = ctx
                     .window_title
@@ -138,19 +133,14 @@ pub fn spawn(
                     .unwrap_or(false);
                 if !title_ok {
                     mic_in_use_since = None;
-                    consecutive_match.clear();
                     continue;
                 }
             }
 
-            // All app types require mic active for 5+ seconds.
-            // For native apps like Zoom, the mic only activates when the
-            // user actually joins a meeting, so this prevents false triggers
-            // on app launch.
+            // Mic must be running for the threshold below before we trigger.
             let mic_active = is_default_input_running();
             if !mic_active {
                 mic_in_use_since = None;
-                consecutive_match.clear();
                 continue;
             }
 
@@ -189,7 +179,6 @@ pub fn spawn(
                     } else {
                         spawn_end_monitor(manager.clone(), Some(app_for_monitor));
                     }
-                    consecutive_match.clear();
                 }
                 MeetingAppPref::Never => { /* no-op */ }
                 MeetingAppPref::Ask => {
@@ -206,7 +195,6 @@ pub fn spawn(
                     // frontend dispatches `meeting_consent` on click and
                     // hides itself after 30s if no choice is made.
                     crate::overlay::show_consent_overlay(&app_handle, &frontmost, display_name);
-                    consecutive_match.clear();
                 }
             }
         }

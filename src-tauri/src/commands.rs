@@ -1902,16 +1902,19 @@ pub async fn meeting_consent(
     let mut prefs = state.settings.meeting_app_prefs();
     match decision.as_str() {
         "always" => {
-            prefs.insert(bundle_id.clone(), MeetingAppPref::Always);
-            state
-                .settings
-                .set_meeting_app_prefs(&prefs)
-                .map_err(|e| e.to_string())?;
+            // Start the meeting first; only persist the `Always` pref if
+            // the start succeeds, so a transient AsrNotReady doesn't leave
+            // a sticky pref the user never confirmed worked.
             let id = state
                 .meeting_manager
                 .clone()
-                .start(Some(bundle_id), Some(app_name))
+                .start(Some(bundle_id.clone()), Some(app_name))
                 .await
+                .map_err(|e| e.to_string())?;
+            prefs.insert(bundle_id, MeetingAppPref::Always);
+            state
+                .settings
+                .set_meeting_app_prefs(&prefs)
                 .map_err(|e| e.to_string())?;
             Ok(Some(id))
         }
