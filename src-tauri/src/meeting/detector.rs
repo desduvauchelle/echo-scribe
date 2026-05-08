@@ -154,8 +154,17 @@ pub fn spawn(
                 continue;
             }
 
+            // Mic-gate: browsers stay at 5s (URL allowlist is already a
+            // strong filter); native apps need 12s to ride out audio-engine
+            // warm-ups (Zoom in particular keeps the mic device "running"
+            // briefly outside of calls).
+            let mic_threshold = if is_browser {
+                Duration::from_secs(5)
+            } else {
+                Duration::from_secs(12)
+            };
             let since = mic_in_use_since.get_or_insert(Instant::now());
-            let triggered = since.elapsed() >= Duration::from_secs(5);
+            let triggered = since.elapsed() >= mic_threshold;
 
             if !triggered {
                 continue;
