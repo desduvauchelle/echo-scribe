@@ -8,6 +8,8 @@
     <string>Echo Scribe needs Accessibility access to listen for the global dictation hotkey and paste transcribed text at your cursor in any app.</string>
     <key>NSAppleEventsUsageDescription</key>
     <string>Echo Scribe synthesizes a paste keystroke to insert transcribed text at your cursor.</string>
+    <key>NSScreenCaptureUsageDescription</key>
+    <string>Echo Scribe captures system audio during meetings so it can transcribe the other participants. Only audio is read; no screen content is recorded or stored.</string>
     <key>LSUIElement</key>
     <true/>
 </dict>

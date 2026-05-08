@@ -1815,12 +1815,15 @@ pub fn get_dashboard_stats(state: State<'_, AppState>) -> Result<db::stats::Dash
 pub async fn start_meeting_manual(
     state: tauri::State<'_, AppState>,
 ) -> Result<String, String> {
-    state
+    let id = state
         .meeting_manager
         .clone()
         .start(None, None)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    // Spawn end-monitor so the meeting auto-stops when mic goes silent.
+    crate::meeting::detector::spawn_end_monitor(state.meeting_manager.clone(), None);
+    Ok(id)
 }
 
 #[tauri::command]
@@ -1899,16 +1902,19 @@ pub async fn meeting_consent(
     let mut prefs = state.settings.meeting_app_prefs();
     match decision.as_str() {
         "always" => {
-            prefs.insert(bundle_id.clone(), MeetingAppPref::Always);
-            state
-                .settings
-                .set_meeting_app_prefs(&prefs)
-                .map_err(|e| e.to_string())?;
+            // Start the meeting first; only persist the `Always` pref if
+            // the start succeeds, so a transient AsrNotReady doesn't leave
+            // a sticky pref the user never confirmed worked.
             let id = state
                 .meeting_manager
                 .clone()
-                .start(Some(bundle_id), Some(app_name))
+                .start(Some(bundle_id.clone()), Some(app_name))
                 .await
+                .map_err(|e| e.to_string())?;
+            prefs.insert(bundle_id, MeetingAppPref::Always);
+            state
+                .settings
+                .set_meeting_app_prefs(&prefs)
                 .map_err(|e| e.to_string())?;
             Ok(Some(id))
         }
@@ -1931,6 +1937,25 @@ pub async fn meeting_consent(
         }
         _ => Err("invalid decision".into()),
     }
+}
+
+#[tauri::command]
+pub async fn hide_consent_overlay(app_handle: tauri::AppHandle) -> Result<(), String> {
+    crate::overlay::hide_consent_overlay(&app_handle);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn meeting_clear_app_pref(
+    state: tauri::State<'_, AppState>,
+    bundle_id: String,
+) -> Result<(), String> {
+    let mut prefs = state.settings.meeting_app_prefs();
+    prefs.remove(&bundle_id);
+    state
+        .settings
+        .set_meeting_app_prefs(&prefs)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

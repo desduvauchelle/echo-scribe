@@ -59,6 +59,8 @@ futures-util = "0.3"
 # Persistence: bundled SQLite (so we have FTS5 on every macOS) + ULID for IDs.
 rusqlite = { version = "0.32", features = ["bundled"] }
 ulid = "1"
+# URL parsing for the meeting URL allowlist (browser-based meeting detection).
+url = "2"
 # Local LLM (llama.cpp) bindings. Default features (openmp,
 # android-shared-stdcxx) are off; we enable Metal explicitly for Apple Silicon
 # GPU offload. Pinned to 0.1.146 (current latest).

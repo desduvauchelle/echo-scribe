@@ -13,7 +13,7 @@ use crate::classifier::{self, Classification};
 use crate::db::items::{chrono_now_iso, Item, ItemSource, Visibility};
 use crate::db::Db;
 use crate::event_log::{self, EventEnvelope};
-use crate::input::focus::{self, FocusContext};
+use crate::input::focus::{self, FocusContext, FocusElement};
 use crate::input::hotkeys::HotkeyEvent;
 use crate::input::paste::paste_at_cursor;
 use crate::llm::Llm;
@@ -129,6 +129,11 @@ pub fn spawn(
         // key-window status. Without this, dictating into our own chat input
         // fails because opening the overlay drops first-responder.
         let mut pending_context: Option<FocusContext> = None;
+        // Held alongside `pending_context`. Non-Send, but the coordinator runs
+        // on a `LocalSet` so that's fine. Restoring focus via AX element rather
+        // than re-activating the app fixes "paste lands in previous field"
+        // bugs in multi-window apps where NSApp picks the wrong NSWindow.
+        let mut pending_focus_element: Option<FocusElement> = None;
 
         // Set up audio level callback to feed the overlay waveform.
         {
@@ -177,8 +182,16 @@ pub fn spawn(
                     // showing the overlay can shift key-window status away
                     // from the user's text field.
                     pending_context = focus::capture_context();
+                    pending_focus_element = focus::capture_focused_element();
                     if let Some(s) = &pending_context {
-                        info!(pid = s.pid, bundle = ?s.bundle_id, app = ?s.app_name, "captured frontmost app");
+                        info!(
+                            pid = s.pid,
+                            bundle = ?s.bundle_id,
+                            app = ?s.app_name,
+                            window = ?s.window_title,
+                            ax_element_role = ?pending_focus_element.as_ref().and_then(|e| e.role().map(|r| r.to_string())),
+                            "captured frontmost app + AX focus"
+                        );
                     }
                     on_state_change(TrayPipelineState::Recording);
                     crate::audio::mute::on_recording_start();
@@ -255,29 +268,36 @@ pub fn spawn(
                                             &app,
                                             pending_context.as_ref().and_then(serialise_context),
                                         );
-                                        // Hide the overlay first so it can't
-                                        // be the key window when we paste.
-                                        crate::overlay::hide_recording_overlay(&app);
-                                        // Re-activate the originally-frontmost
-                                        // app, then give the WindowServer a
-                                        // moment to re-route key focus before
-                                        // we post the Cmd+V event.
+                                        // Hide the overlay synchronously so it
+                                        // can't interfere with focus routing.
+                                        crate::overlay::hide_recording_overlay_now(&app);
+                                        // Restore focus surgically: prefer the
+                                        // captured AX element (lands in the
+                                        // exact field), fall back to app
+                                        // activation. Skip activation when the
+                                        // captured app is already frontmost
+                                        // (e.g. dictating into Echo Scribe
+                                        // itself) — re-activating cycles key
+                                        // windows and is the regression source.
                                         if let Some(snap) = pending_context.take() {
-                                            let ok = focus::restore(&snap);
-                                            info!(restored = ok, pid = snap.pid, "restored focus before paste");
-                                            // Tell the frontend a paste is
-                                            // imminent. If our own app was the
-                                            // target, a registered text field
-                                            // (e.g. the chat input) can re-focus
-                                            // itself so the keystroke lands
-                                            // there. Harmless when paste targets
-                                            // an external app.
+                                            let element = pending_focus_element.take();
+                                            let outcome = focus::restore_focus(&snap, element.as_ref());
+                                            info!(
+                                                pid = snap.pid,
+                                                same_app = outcome.same_app,
+                                                activated = outcome.activated_app,
+                                                ax_focused = outcome.ax_focused,
+                                                ax_role = ?outcome.element_role,
+                                                frontmost_before = ?outcome.frontmost_pid_before,
+                                                "focus restored before paste"
+                                            );
                                             let _ = app.emit("voice:paste_pending", ());
-                                            // 150ms: give the WindowServer time to re-route key
-                                            // focus to the restored app. Apps backgrounded during
-                                            // long recordings may need more than 50ms to complete
-                                            // activation before Cmd+V can be safely delivered.
-                                            std::thread::sleep(std::time::Duration::from_millis(150));
+                                            // Settle delay. Same-app skips the
+                                            // app-activation round-trip so we
+                                            // can wait less; cross-app needs
+                                            // WindowServer time to route key.
+                                            let settle_ms = if outcome.same_app { 60 } else { 250 };
+                                            std::thread::sleep(std::time::Duration::from_millis(settle_ms));
                                         }
                                         info!(chars = text.len(), "pasting transcription");
                                         if let Err(e) = paste_at_cursor(&text) {
@@ -426,6 +446,19 @@ pub fn spawn(
                         Ok(id) => {
                             info!(item_id = %id, "log capture persisted");
                             let _ = app.emit("item:created", ());
+                            if kind == crate::db::items::ItemKind::Note {
+                                use tauri_plugin_notification::NotificationExt;
+                                let preview = preview_first_chars(&content, 120);
+                                if let Err(e) = app
+                                    .notification()
+                                    .builder()
+                                    .title("Note Saved")
+                                    .body(preview)
+                                    .show()
+                                {
+                                    warn!(?e, "failed to show note-saved OS notification");
+                                }
+                            }
                         }
                         Err(e) => error!(?e, "log capture persistence failed"),
                     }
