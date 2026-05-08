@@ -1934,6 +1934,12 @@ pub async fn meeting_consent(
 }
 
 #[tauri::command]
+pub async fn hide_consent_overlay(app_handle: tauri::AppHandle) -> Result<(), String> {
+    crate::overlay::hide_consent_overlay(&app_handle);
+    Ok(())
+}
+
+#[tauri::command]
 pub fn get_meeting_settings(state: tauri::State<'_, AppState>) -> serde_json::Value {
     serde_json::json!({
         "auto_detect": state.settings.meeting_auto_detect(),
