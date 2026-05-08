@@ -193,21 +193,19 @@ pub fn spawn(
                 }
                 MeetingAppPref::Never => { /* no-op */ }
                 MeetingAppPref::Ask => {
-                    info!(app = %frontmost, "asking user about new meeting app");
+                    info!(app = %frontmost, %display_name, "asking user about new meeting app");
+                    // Emit the in-app event for any view that wants to react
+                    // (e.g., the existing in-app prompt when the main window
+                    // is foreground).
                     let _ = app_handle.emit(
                         "meeting-detected",
                         serde_json::json!({ "bundle_id": frontmost, "app_name": display_name }),
                     );
-                    use tauri_plugin_notification::NotificationExt;
-                    if let Err(e) = app_handle
-                        .notification()
-                        .builder()
-                        .title("Meeting Detected")
-                        .body(format!("{display_name} detected — record this meeting?"))
-                        .show()
-                    {
-                        warn!(?e, "failed to show meeting-detected OS notification");
-                    }
+                    // Show the always-on-top consent overlay window. Visible
+                    // regardless of which app is frontmost. The overlay
+                    // frontend dispatches `meeting_consent` on click and
+                    // hides itself after 30s if no choice is made.
+                    crate::overlay::show_consent_overlay(&app_handle, &frontmost, display_name);
                     consecutive_match.clear();
                 }
             }
