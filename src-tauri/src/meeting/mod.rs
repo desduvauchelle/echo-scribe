@@ -10,6 +10,7 @@ pub mod pipeline;
 pub mod recorder;
 pub mod syscap;
 pub mod synthesizer;
+pub mod url_allowlist;
 
 /// Which audio stream a transcript segment came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
