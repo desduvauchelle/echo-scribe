@@ -67,6 +67,13 @@ fn is_meeting_window_title(bundle_id: &str, title: &str) -> bool {
     }
 }
 
+/// Returns the meeting-provider display name for a browser URL, or None.
+/// Thin wrapper around `url_allowlist::classify` to make the detector loop
+/// readable and unit-testable.
+fn browser_provider_name(url: Option<&str>) -> Option<&'static str> {
+    crate::meeting::url_allowlist::classify(url?)
+}
+
 /// Spawns the detection loop. Returns immediately; the loop runs until process exit.
 pub fn spawn(
     manager: Arc<MeetingManager>,
@@ -103,6 +110,22 @@ pub fn spawn(
             let Some((name, is_browser)) = lookup(&frontmost) else {
                 consecutive_match.clear();
                 continue;
+            };
+
+            // For browsers, require a known meeting URL. The provider name
+            // (e.g. "Google Meet") replaces the browser display name in the
+            // notification and meeting title.
+            let display_name: &str = if is_browser {
+                match browser_provider_name(ctx.browser_url.as_deref()) {
+                    Some(provider) => provider,
+                    None => {
+                        mic_in_use_since = None;
+                        consecutive_match.clear();
+                        continue;
+                    }
+                }
+            } else {
+                name
             };
 
             // For native apps, require a positive meeting signal in the
@@ -150,7 +173,7 @@ pub fn spawn(
                     let app_for_monitor = frontmost.clone();
                     if let Err(e) = manager
                         .clone()
-                        .start(Some(frontmost.clone()), Some(name.into()))
+                        .start(Some(frontmost.clone()), Some(display_name.into()))
                         .await
                     {
                         warn!(?e, "auto-start failed");
@@ -164,14 +187,14 @@ pub fn spawn(
                     info!(app = %frontmost, "asking user about new meeting app");
                     let _ = app_handle.emit(
                         "meeting-detected",
-                        serde_json::json!({ "bundle_id": frontmost, "app_name": name }),
+                        serde_json::json!({ "bundle_id": frontmost, "app_name": display_name }),
                     );
                     use tauri_plugin_notification::NotificationExt;
                     if let Err(e) = app_handle
                         .notification()
                         .builder()
                         .title("Meeting Detected")
-                        .body(format!("{name} is active — want to record?"))
+                        .body(format!("{display_name} detected — record this meeting?"))
                         .show()
                     {
                         warn!(?e, "failed to show meeting-detected OS notification");
@@ -320,6 +343,19 @@ mod tests {
         assert!(is_meeting_window_title("com.tinyspeck.slackmacgap", "Acme Workspace"));
         assert!(is_meeting_window_title("com.apple.FaceTime", "FaceTime"));
         assert!(!is_meeting_window_title("com.hnc.Discord", ""));
+    }
+
+    #[test]
+    fn browser_provider_name_uses_url_classifier() {
+        assert_eq!(
+            browser_provider_name(Some("https://meet.google.com/abc-defg-hij")),
+            Some("Google Meet")
+        );
+        assert_eq!(
+            browser_provider_name(Some("https://news.ycombinator.com")),
+            None
+        );
+        assert_eq!(browser_provider_name(None), None);
     }
 }
 
