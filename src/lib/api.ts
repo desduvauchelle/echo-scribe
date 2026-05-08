@@ -551,9 +551,16 @@ export type StoredTranscript = {
 
 export type StoredSummary = {
   summary: string[];
-  action_items: { text: string; owner: "you" | "them" | "unspecified" }[];
+  action_items: {
+    text: string;
+    owner: "you" | "them" | "unspecified";
+    tags?: string[];
+    project_name?: string | null;
+  }[];
   suggested_title: string;
   raw?: string | null;
+  tags?: string[];
+  project_name?: string | null;
 };
 
 export const startMeetingManual = (): Promise<string> => invoke("start_meeting_manual");
@@ -586,6 +593,9 @@ export const setMeetingAppPref = (
   bundle_id: string,
   pref: "always" | "ask" | "never",
 ): Promise<void> => invoke("set_meeting_app_pref", { bundleId: bundle_id, pref });
+
+export const clearMeetingAppPref = (bundle_id: string): Promise<void> =>
+  invoke("meeting_clear_app_pref", { bundleId: bundle_id });
 
 export const retryMeetingSummary = (id: string): Promise<void> =>
   invoke("retry_meeting_summary", { id });

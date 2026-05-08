@@ -302,31 +302,48 @@ function MeetingsTab() {
                 <tr key={bundle} className="border-t border-line">
                   <td className="py-2">{bundle}</td>
                   <td className="py-2 text-right">
-                    <select
-                      className="rounded-md bg-canvas px-2 py-1 text-xs"
-                      value={pref}
-                      onChange={async (e) => {
-                        const next = e.target.value as
-                          | "always"
-                          | "ask"
-                          | "never";
-                        const { setMeetingAppPref } = await import(
-                          "../lib/api"
-                        );
-                        await setMeetingAppPref(bundle, next);
-                        setSettings({
-                          ...settings,
-                          app_prefs: {
-                            ...settings.app_prefs,
-                            [bundle]: next,
-                          },
-                        });
-                      }}
-                    >
-                      <option value="always">Always</option>
-                      <option value="ask">Ask</option>
-                      <option value="never">Never</option>
-                    </select>
+                    <div className="flex justify-end gap-2">
+                      <select
+                        className="rounded-md bg-canvas px-2 py-1 text-xs"
+                        value={pref}
+                        onChange={async (e) => {
+                          const next = e.target.value as
+                            | "always"
+                            | "ask"
+                            | "never";
+                          const { setMeetingAppPref } = await import(
+                            "../lib/api"
+                          );
+                          await setMeetingAppPref(bundle, next);
+                          setSettings({
+                            ...settings,
+                            app_prefs: {
+                              ...settings.app_prefs,
+                              [bundle]: next,
+                            },
+                          });
+                        }}
+                      >
+                        <option value="always">Always</option>
+                        <option value="ask">Ask</option>
+                        <option value="never">Never</option>
+                      </select>
+                      <button
+                        className="rounded-md bg-surface-2 px-2 py-1 text-xs text-muted hover:text-fg"
+                        onClick={async () => {
+                          const { clearMeetingAppPref } = await import(
+                            "../lib/api"
+                          );
+                          await clearMeetingAppPref(bundle);
+                          const next = { ...settings.app_prefs };
+                          delete next[bundle];
+                          setSettings({ ...settings, app_prefs: next });
+                        }}
+                        title="Remove this app's preference (revert to Ask on next detection)"
+                      >
+                        Clear
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}

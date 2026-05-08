@@ -237,6 +237,7 @@ pub fn run() {
             commands::set_meeting_app_pref,
             commands::meeting_consent,
             commands::hide_consent_overlay,
+            commands::meeting_clear_app_pref,
             commands::retry_meeting_summary,
             commands::retry_meeting_chunks,
         ])
@@ -247,6 +248,14 @@ pub fn run() {
 
             // Persisted settings.
             let settings = SettingsStore::load(&app.handle().clone())?;
+
+            // One-shot log so the user (and us, when debugging) can see
+            // which apps have a sticky `Always`/`Never` pref.
+            let prefs_for_log = settings.meeting_app_prefs();
+            if !prefs_for_log.is_empty() {
+                tracing::info!(?prefs_for_log, "loaded meeting app prefs");
+            }
+
             let initial_binding = settings.voice_at_cursor_binding();
             let binding = Arc::new(RwLock::new(initial_binding));
             let initial_log_binding = settings.log_capture_binding();
