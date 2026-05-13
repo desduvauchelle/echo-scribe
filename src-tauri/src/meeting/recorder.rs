@@ -381,13 +381,28 @@ impl Recorder {
 
         let sw_for_pcm = sys_writer.clone();
         let pcm_task = tokio::spawn(async move {
+            let mut frame_count: u64 = 0;
+            let mut sample_count: u64 = 0;
+            let mut first_frame_logged = false;
             while let Some(frame) = pcm_rx.recv().await {
+                if !first_frame_logged {
+                    info!(samples = frame.len(), "sys writer: first PCM frame from syscap");
+                    first_frame_logged = true;
+                }
+                frame_count += 1;
+                sample_count += frame.len() as u64;
                 if let Ok(mut w) = sw_for_pcm.lock() {
                     if let Err(e) = w.write(&frame) {
                         error!(?e, "sys chunk write failed");
                     }
                 }
             }
+            info!(
+                frame_count,
+                sample_count,
+                approx_seconds = sample_count / 16_000,
+                "sys writer: PCM channel closed (final stats)"
+            );
         });
 
         let evt_task = tokio::spawn(async move {

@@ -87,13 +87,24 @@ impl Syscap {
         std::thread::spawn(move || {
             let mut reader = stdout;
             let mut buf = [0u8; 1280];
+            let mut total_bytes: u64 = 0;
             loop {
                 if stop_clone.load(Ordering::Relaxed) {
                     break;
                 }
                 match reader.read(&mut buf) {
-                    Ok(0) => break,
+                    Ok(0) => {
+                        // Logged at info so we have the byte total at the moment
+                        // the sidecar closed its pipe (key signal for future
+                        // diagnostics — keep this one).
+                        info!(
+                            total_bytes,
+                            "syscap stdout EOF (sidecar closed pipe or exited)"
+                        );
+                        break;
+                    }
                     Ok(n) => {
+                        total_bytes += n as u64;
                         let samples = n / 2;
                         let mut frame = Vec::with_capacity(samples);
                         for i in 0..samples {
@@ -102,11 +113,12 @@ impl Syscap {
                             frame.push(i16::from_le_bytes([lo, hi]));
                         }
                         if pcm_tx_clone.blocking_send(frame).is_err() {
+                            warn!(total_bytes, "syscap pcm channel closed; stdout reader exiting");
                             break;
                         }
                     }
                     Err(e) => {
-                        error!(?e, "syscap stdout read error");
+                        error!(?e, total_bytes, "syscap stdout read error");
                         break;
                     }
                 }
@@ -131,11 +143,11 @@ impl Syscap {
                 let parsed = match event {
                     "ready" => SyscapEvent::Ready,
                     "heartbeat" => SyscapEvent::Heartbeat {
-                        ts: val
-                            .get("ts")
-                            .and_then(|v| v.as_f64())
-                            .unwrap_or(0.0),
+                        ts: val.get("ts").and_then(|v| v.as_f64()).unwrap_or(0.0),
                     },
+                    // Periodic diagnostic snapshot (every ~30s, or immediately when
+                    // an error counter goes non-zero). Logged via the "unhandled
+                    // kind" fallthrough below — info-level, one line.
                     "warn" => SyscapEvent::Warn(
                         val.get("msg")
                             .and_then(|v| v.as_str())
@@ -154,7 +166,13 @@ impl Syscap {
                             .unwrap_or("")
                             .to_string(),
                     },
-                    _ => continue,
+                    // Surface any other JSON event the sidecar emits (first_audio,
+                    // stop_requested, stopped, ...) so we never silently drop
+                    // diagnostic signals again.
+                    other => {
+                        info!(event = other, json = %val, "syscap event (unhandled kind)");
+                        continue;
+                    }
                 };
                 if evt_tx_clone.blocking_send(parsed).is_err() {
                     break;

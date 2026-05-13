@@ -237,6 +237,7 @@ impl MeetingManager {
 
         let id_for_evt = id.clone();
         tokio::spawn(async move {
+            let mut heartbeat_count: u32 = 0;
             while let Some(evt) = evt_rx.recv().await {
                 match evt {
                     syscap::SyscapEvent::Error { kind, msg } => {
@@ -245,7 +246,24 @@ impl MeetingManager {
                     syscap::SyscapEvent::Warn(msg) => {
                         tracing::warn!(meeting = %id_for_evt, %msg, "syscap warn");
                     }
-                    _ => {}
+                    syscap::SyscapEvent::Ready => {
+                        tracing::info!(meeting = %id_for_evt, "syscap ready (SCStream started)");
+                    }
+                    syscap::SyscapEvent::Heartbeat { ts } => {
+                        heartbeat_count = heartbeat_count.saturating_add(1);
+                        // Log first heartbeat and every 30th after (so we see liveness without spam).
+                        if heartbeat_count == 1 || heartbeat_count % 30 == 0 {
+                            tracing::info!(
+                                meeting = %id_for_evt,
+                                count = heartbeat_count,
+                                ts,
+                                "syscap heartbeat"
+                            );
+                        }
+                    }
+                    syscap::SyscapEvent::Exited(code) => {
+                        tracing::warn!(meeting = %id_for_evt, code, "syscap exited");
+                    }
                 }
             }
         });
