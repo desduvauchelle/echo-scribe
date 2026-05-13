@@ -36,6 +36,13 @@ pub struct FocusContext {
 #[cfg(target_os = "macos")]
 pub struct FocusElement {
     element: CFRetained<AXUIElement>,
+    /// The application pid the element was captured from. Needed at restore
+    /// time so we can build an app-level `AXUIElement` and use the
+    /// conventional `app.set(AXFocusedUIElement, element)` pattern, which
+    /// is reliable across NSApp / Electron / Cocoa apps. Setting
+    /// `AXFocused=true` directly on the element is read-only on most
+    /// targets and was the cause of our earlier restore failures.
+    pid: i32,
     role: Option<String>,
 }
 
@@ -83,10 +90,19 @@ pub fn capture_context() -> Option<FocusContext> {
     None
 }
 
-/// Capture the AX-level focused UI element via the system-wide AXUIElement.
-/// Returns `None` if Accessibility permission is missing or the call fails.
+/// Capture the AX-level focused UI element of the given pid's application.
+///
+/// Tries the **app-level** `AXUIElement` first (the conventional, reliable
+/// pattern), and falls back to the system-wide element only if the app-level
+/// query fails. The previous system-wide-only approach returned
+/// `kAXErrorNoValue (-25212)` for the vast majority of apps in production
+/// — the system-wide `AXFocusedUIElement` attribute only populates when an
+/// app explicitly forwards focus through it, which most apps do not.
+///
+/// Emits diagnostic log lines with the raw `AXError` code from each call
+/// path so we can tell exactly which step succeeded or failed.
 #[cfg(target_os = "macos")]
-pub fn capture_focused_element() -> Option<FocusElement> {
+pub fn capture_focused_element(pid: i32) -> Option<FocusElement> {
     use objc2_core_foundation::{CFString, CFType};
     use std::ptr::NonNull;
 
@@ -94,42 +110,75 @@ pub fn capture_focused_element() -> Option<FocusElement> {
     let ax_role = CFString::from_str("AXRole");
 
     unsafe {
-        let system_wide = AXUIElement::new_system_wide();
-        let _ = system_wide.set_messaging_timeout(0.1);
+        // ── Strategy 1: app-level AXFocusedUIElement ────────────────────
+        let app_el = AXUIElement::new_application(pid as pid_t);
+        // 500 ms keeps the hotkey responsive while ruling out timeout on
+        // first round-trip to heavy AX servers (Electron, etc.).
+        let _ = app_el.set_messaging_timeout(0.5);
 
         let mut raw: *const CFType = std::ptr::null();
-        let err = system_wide.copy_attribute_value(
-            &ax_focused_ui,
-            NonNull::new(&mut raw as *mut *const CFType)?,
-        );
-        if err.0 != 0 || raw.is_null() {
-            return None;
-        }
-        let nn = NonNull::new(raw as *mut AXUIElement)?;
-        let element: CFRetained<AXUIElement> = CFRetained::from_raw(nn);
+        let out_ptr = NonNull::new(&mut raw as *mut *const CFType)?;
+        let app_err = app_el.copy_attribute_value(&ax_focused_ui, out_ptr);
+
+        let (element, source) = if app_err.0 == 0 && !raw.is_null() {
+            let nn = NonNull::new(raw as *mut AXUIElement)?;
+            (CFRetained::<AXUIElement>::from_raw(nn), "app")
+        } else {
+            // ── Strategy 2: system-wide fallback ────────────────────────
+            tracing::info!(
+                pid,
+                ax_error = app_err.0,
+                raw_null = raw.is_null(),
+                "capture_focused_element: app-level returned no element; falling back to system-wide"
+            );
+            let system_wide = AXUIElement::new_system_wide();
+            let _ = system_wide.set_messaging_timeout(0.5);
+            let mut sw_raw: *const CFType = std::ptr::null();
+            let sw_out = NonNull::new(&mut sw_raw as *mut *const CFType)?;
+            let sw_err = system_wide.copy_attribute_value(&ax_focused_ui, sw_out);
+            if sw_err.0 != 0 || sw_raw.is_null() {
+                tracing::info!(
+                    pid,
+                    app_ax_error = app_err.0,
+                    system_wide_ax_error = sw_err.0,
+                    raw_null = sw_raw.is_null(),
+                    "capture_focused_element: both paths failed; no element captured"
+                );
+                return None;
+            }
+            let nn = NonNull::new(sw_raw as *mut AXUIElement)?;
+            (CFRetained::<AXUIElement>::from_raw(nn), "system-wide")
+        };
 
         // Best-effort role lookup for diagnostic logging.
-        let role = {
+        let (role, role_err) = {
             let mut role_raw: *const CFType = std::ptr::null();
-            let err2 = element.copy_attribute_value(
-                &ax_role,
-                NonNull::new(&mut role_raw as *mut *const CFType)?,
-            );
-            if err2.0 == 0 && !role_raw.is_null() {
+            let role_out = NonNull::new(&mut role_raw as *mut *const CFType)?;
+            let err2 = element.copy_attribute_value(&ax_role, role_out);
+            let role = if err2.0 == 0 && !role_raw.is_null() {
                 let role_nn = NonNull::new(role_raw as *mut CFString)?;
                 let role_cf: CFRetained<CFString> = CFRetained::from_raw(role_nn);
                 Some(role_cf.to_string())
             } else {
                 None
-            }
+            };
+            (role, err2.0)
         };
 
-        Some(FocusElement { element, role })
+        tracing::info!(
+            pid,
+            source,
+            role = ?role,
+            role_ax_error = role_err,
+            "capture_focused_element: captured element"
+        );
+
+        Some(FocusElement { element, pid, role })
     }
 }
 
 #[cfg(not(target_os = "macos"))]
-pub fn capture_focused_element() -> Option<FocusElement> {
+pub fn capture_focused_element(_pid: i32) -> Option<FocusElement> {
     None
 }
 
@@ -139,19 +188,63 @@ impl FocusElement {
         self.role.as_deref()
     }
 
-    /// Set `kAXFocusedAttribute = true` on the captured element. This restores
-    /// keyboard focus to the exact UI element the user was on, surgically
-    /// avoiding NSApp's "most-recently-key NSWindow" routing.
-    pub fn restore(&self) -> bool {
-        use objc2_core_foundation::{CFBoolean, CFString};
+    pub fn pid(&self) -> i32 {
+        self.pid
+    }
 
-        let ax_focused = CFString::from_str("AXFocused");
-        let true_val: &CFBoolean = CFBoolean::new(true);
+    /// Restore keyboard focus to the captured element using the conventional
+    /// AX pattern: `app_element.set(kAXFocusedUIElement, captured_element)`.
+    /// This sets the *app's* notion of which element has focus and is what
+    /// NSApp / Cocoa / standard AX servers honour.
+    ///
+    /// Falls back to `element.set(AXFocused, true)` only if the app-level
+    /// path fails (kept as a last resort for the rare app that supports it).
+    ///
+    /// Returns the raw `AXError` code from the primary path
+    /// (0 = `kAXErrorSuccess`). Common non-zero codes to expect:
+    ///   * -25205 `kAXErrorAttributeUnsupported` — app doesn't expose
+    ///      `kAXFocusedUIElement` as settable.
+    ///   * -25204 `kAXErrorCannotComplete` — usually a timeout or the
+    ///      target app is unresponsive to AX messages.
+    ///   * -25200 `kAXErrorInvalidUIElement` — the captured element is
+    ///      stale (re-rendered/replaced since capture).
+    pub fn restore(&self) -> i32 {
+        use objc2_core_foundation::{CFBoolean, CFString};
+        use objc2_application_services::AXUIElement;
+
+        let ax_focused_ui = CFString::from_str("AXFocusedUIElement");
+
         unsafe {
-            let err = self
+            // Primary: app.set(kAXFocusedUIElement, element)
+            let app_el = AXUIElement::new_application(self.pid as pid_t);
+            let _ = app_el.set_messaging_timeout(0.5);
+            let element_ref: &AXUIElement = &self.element;
+            let element_as_cf: &objc2_core_foundation::CFType = element_ref.as_ref();
+            let err = app_el.set_attribute_value(&ax_focused_ui, element_as_cf);
+            tracing::info!(
+                pid = self.pid,
+                ax_error = err.0,
+                "FocusElement::restore app.set(AXFocusedUIElement, element)"
+            );
+            if err.0 == 0 {
+                return 0;
+            }
+
+            // Fallback: element.set(AXFocused = true). Rarely works on
+            // standard NSApp/Cocoa elements but documented for some custom
+            // AX servers — cheap to try once before giving up.
+            let ax_focused = CFString::from_str("AXFocused");
+            let true_val: &CFBoolean = CFBoolean::new(true);
+            let err2 = self
                 .element
                 .set_attribute_value(&ax_focused, true_val.as_ref());
-            err.0 == 0
+            tracing::info!(
+                pid = self.pid,
+                ax_error = err2.0,
+                primary_ax_error = err.0,
+                "FocusElement::restore fallback element.set(AXFocused=true)"
+            );
+            err2.0
         }
     }
 }
@@ -218,15 +311,20 @@ pub fn restore_focus(ctx: &FocusContext, element: Option<&FocusElement>) -> Rest
         }
     }
 
-    let ax_set = match element {
-        Some(el) => el.restore(),
-        None => false,
+    let (ax_set, ax_error) = match element {
+        Some(el) => {
+            let code = el.restore();
+            (code == 0, Some(code))
+        }
+        None => (false, None),
     };
 
     RestoreOutcome {
         same_app,
         activated_app: activated,
         ax_focused: ax_set,
+        ax_error,
+        element_captured: element.is_some(),
         element_role: element.and_then(|e| e.role().map(|s| s.to_string())),
         frontmost_pid_before: frontmost,
     }
@@ -243,6 +341,13 @@ pub struct RestoreOutcome {
     pub same_app: bool,
     pub activated_app: bool,
     pub ax_focused: bool,
+    /// Raw `AXError` code from `FocusElement::restore()`. `None` if no
+    /// element was captured (so we never made the call). 0 means success.
+    pub ax_error: Option<i32>,
+    /// Whether `capture_focused_element()` returned `Some` at hotkey-press
+    /// time. Distinguishes "capture failed, restore never ran" from
+    /// "capture succeeded, restore returned non-zero".
+    pub element_captured: bool,
     pub element_role: Option<String>,
     pub frontmost_pid_before: Option<i32>,
 }

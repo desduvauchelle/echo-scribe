@@ -246,6 +246,12 @@ pub fn run() {
             let tray = TrayHandle::install(&app.handle().clone())?;
             let tray = Arc::new(Mutex::new(tray));
 
+            // Make the main window follow the user to whichever macOS Space
+            // they're currently on when they re-open it from the tray.
+            if let Some(main) = app.get_webview_window("main") {
+                crate::ui::dock::enable_move_to_active_space(&main);
+            }
+
             // Persisted settings.
             let settings = SettingsStore::load(&app.handle().clone())?;
 

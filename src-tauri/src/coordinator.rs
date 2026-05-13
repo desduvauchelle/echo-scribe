@@ -182,7 +182,9 @@ pub fn spawn(
                     // showing the overlay can shift key-window status away
                     // from the user's text field.
                     pending_context = focus::capture_context();
-                    pending_focus_element = focus::capture_focused_element();
+                    pending_focus_element = pending_context
+                        .as_ref()
+                        .and_then(|c| focus::capture_focused_element(c.pid));
                     if let Some(s) = &pending_context {
                         info!(
                             pid = s.pid,
@@ -287,6 +289,8 @@ pub fn spawn(
                                                 same_app = outcome.same_app,
                                                 activated = outcome.activated_app,
                                                 ax_focused = outcome.ax_focused,
+                                                ax_error = ?outcome.ax_error,
+                                                element_captured = outcome.element_captured,
                                                 ax_role = ?outcome.element_role,
                                                 frontmost_before = ?outcome.frontmost_pid_before,
                                                 "focus restored before paste"
