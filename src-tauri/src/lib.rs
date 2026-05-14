@@ -3,6 +3,7 @@ pub mod audio;
 pub mod classifier;
 pub mod commands;
 pub mod coordinator;
+pub mod daily_summary;
 pub mod meeting;
 pub mod db;
 pub mod event_log;
@@ -240,6 +241,12 @@ pub fn run() {
             commands::meeting_clear_app_pref,
             commands::retry_meeting_summary,
             commands::retry_meeting_chunks,
+            commands::list_input_devices,
+            commands::get_preferred_input_device,
+            commands::set_preferred_input_device,
+            commands::get_recent_input_devices,
+            commands::get_input_device_sort,
+            commands::set_input_device_sort,
         ])
         .setup(move |app| {
             // Tray.
