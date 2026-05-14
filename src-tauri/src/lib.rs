@@ -431,6 +431,9 @@ pub fn run() {
             };
             app.manage(app_state);
 
+            // Daily recap scheduler — fires once per day at the user-configured hour.
+            crate::daily_summary::scheduler::spawn(app.handle().clone());
+
             // Wire tray menu events that need access to the managed state
             // (e.g. Pause/Resume toggling). The TrayHandle exposes a
             // `bind_menu` hook called from setup so it can capture the

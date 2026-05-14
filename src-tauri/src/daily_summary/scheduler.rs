@@ -1,6 +1,20 @@
 //! Scheduler: when to fire, which dates to backfill.
+//!
+//! Two halves: a pure timing layer (`next_fire_time`,
+//! `dates_needing_generation`) covered by unit tests, and a runtime layer
+//! (`spawn`, `run_loop`) that drives the Tokio task. The runtime layer is
+//! validated by manual smoke; see the spec for the smoke checklist.
 
-use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, NaiveTime, Weekday};
+use std::time::Duration as StdDuration;
+
+use chrono::{Datelike, Duration, Local, NaiveDate, NaiveDateTime, NaiveTime, Timelike, Weekday};
+use tauri::{AppHandle, Manager};
+use tauri_plugin_notification::NotificationExt;
+use tracing::{error, info, warn};
+
+use crate::commands::AppState;
+use crate::daily_summary::{generate_for_date, DailySummaryResult, DEFAULT_LLM_MODEL_ID};
+use crate::db::daily_summaries;
 
 /// Settings snapshot passed in to keep the scheduler pure and testable.
 #[derive(Debug, Clone, Copy)]
@@ -69,6 +83,123 @@ pub fn dates_needing_generation(
     }
     out.reverse(); // chronological (oldest first)
     out
+}
+
+/// Spawn the scheduler background task. Idempotent: caller must ensure
+/// it's only invoked once at app startup.
+pub fn spawn(app: AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        run_loop(app).await;
+    });
+}
+
+async fn run_loop(app: AppHandle) {
+    // Tick once a minute. Each tick re-reads settings (so toggles apply
+    // without restart) and fires the pipeline on the first tick that
+    // observes the configured deliver hour.
+    let tick = StdDuration::from_secs(60);
+    let mut last_hour = Local::now().hour();
+
+    loop {
+        tokio::time::sleep(tick).await;
+
+        let now_hour = Local::now().hour();
+        let (enabled, deliver_hour, include_weekends) = {
+            let state = app.state::<AppState>();
+            (
+                state.settings.daily_recap_enabled(),
+                state.settings.daily_recap_deliver_hour() as u32,
+                state.settings.daily_recap_include_weekends(),
+            )
+        };
+        if !enabled {
+            last_hour = now_hour;
+            continue;
+        }
+
+        let crossed = last_hour != deliver_hour && now_hour == deliver_hour;
+        last_hour = now_hour;
+        if !crossed {
+            continue;
+        }
+
+        info!("scheduler: firing daily recap pipeline");
+        match run_backfill(&app, include_weekends).await {
+            Ok(results) => fire_notification_for_latest(&app, &results),
+            Err(e) => error!("scheduler: backfill failed: {e}"),
+        }
+    }
+}
+
+async fn run_backfill(
+    app: &AppHandle,
+    include_weekends: bool,
+) -> Result<Vec<DailySummaryResult>, String> {
+    let (db, llm) = {
+        let state = app.state::<AppState>();
+        let db = state
+            .db
+            .as_ref()
+            .ok_or_else(|| "db unavailable".to_string())?
+            .clone();
+        let llm = state.llm.clone();
+        (db, llm)
+    };
+
+    let today = Local::now().date_naive();
+    let existing = db
+        .with_conn(|conn| {
+            daily_summaries::dates_in_last_n_days_with_row(conn, 7)
+                .map_err(crate::db::DbError::from)
+        })
+        .map_err(|e| format!("{e:?}"))?;
+    let dates = dates_needing_generation(today, &existing, 7, include_weekends);
+
+    let mut results = Vec::new();
+    for date in dates {
+        match generate_for_date(&db, &llm, &date, DEFAULT_LLM_MODEL_ID).await {
+            Ok(r) => results.push(r),
+            Err(e) => {
+                error!("scheduler: generate_for_date({date}) failed: {e:?}");
+            }
+        }
+    }
+    Ok(results)
+}
+
+fn fire_notification_for_latest(app: &AppHandle, results: &[DailySummaryResult]) {
+    let latest_generated = results
+        .iter()
+        .rev()
+        .find(|r| matches!(r, DailySummaryResult::Generated { .. }));
+    let Some(DailySummaryResult::Generated { date }) = latest_generated else {
+        return;
+    };
+    let day_name = humanize_day_of_week(date).unwrap_or_else(|| date.clone());
+    let title = format!("Your {day_name} recap");
+    let body = "Your daily recap is ready.";
+    if let Err(e) = app
+        .notification()
+        .builder()
+        .title(title)
+        .body(body)
+        .show()
+    {
+        warn!("scheduler: failed to show notification: {e}");
+    }
+}
+
+fn humanize_day_of_week(date: &str) -> Option<String> {
+    let d = chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d").ok()?;
+    Some(match d.weekday() {
+        Weekday::Mon => "Monday".into(),
+        Weekday::Tue => "Tuesday".into(),
+        Weekday::Wed => "Wednesday".into(),
+        Weekday::Thu => "Thursday".into(),
+        Weekday::Fri => "Friday".into(),
+        Weekday::Sat => "Saturday".into(),
+        Weekday::Sun => "Sunday".into(),
+    })
 }
 
 #[cfg(test)]
