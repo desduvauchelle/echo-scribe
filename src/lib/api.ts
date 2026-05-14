@@ -601,3 +601,84 @@ export const retryMeetingSummary = (id: string): Promise<void> =>
   invoke("retry_meeting_summary", { id });
 export const retryMeetingChunks = (id: string): Promise<void> =>
   invoke("retry_meeting_chunks", { id });
+
+// ----- Input device selection -----
+
+export interface InputDevice {
+  name: string;
+  sample_rate: number;
+  channels: number;
+  is_system_default: boolean;
+}
+
+export type InputDeviceSort = "last_used" | "alphabetical";
+
+export const listInputDevices = (): Promise<InputDevice[]> =>
+  invoke("list_input_devices");
+
+export const getPreferredInputDevice = (): Promise<string | null> =>
+  invoke("get_preferred_input_device");
+
+export const setPreferredInputDevice = (name: string | null): Promise<void> =>
+  invoke("set_preferred_input_device", { name });
+
+export const getRecentInputDevices = (): Promise<string[]> =>
+  invoke("get_recent_input_devices");
+
+export const getInputDeviceSort = (): Promise<InputDeviceSort> =>
+  invoke("get_input_device_sort");
+
+export const setInputDeviceSort = (sort: InputDeviceSort): Promise<void> =>
+  invoke("set_input_device_sort", { sort });
+
+// ---------------------------------------------------------------------------
+// Daily recap
+// ---------------------------------------------------------------------------
+
+export type DailySummaryStatus = "generated" | "skipped_empty" | "failed";
+
+export type DailySummarySectionItem = {
+  text: string;
+  source_id?: string | null;
+};
+
+export type DailySummarySections = {
+  meetings?: DailySummarySectionItem[];
+  focus_work?: DailySummarySectionItem[];
+  notes?: DailySummarySectionItem[];
+  things_that_came_up?: DailySummarySectionItem[];
+};
+
+export type DailySummary = {
+  date: string;
+  generated_at: string;
+  status: DailySummaryStatus;
+  narrative: string;
+  sections: DailySummarySections;
+  source_meeting_ids: string[];
+  source_item_ids: string[];
+  model_version: string;
+};
+
+export type DailyRecapSettings = {
+  enabled: boolean;
+  deliver_hour: number;
+  include_weekends: boolean;
+};
+
+export const getDailySummary = (date: string): Promise<DailySummary | null> =>
+  invoke("daily_summary_get", { date });
+
+export const listRecentDailySummaries = (
+  limit: number,
+): Promise<DailySummary[]> => invoke("daily_summary_list_recent", { limit });
+
+export const regenerateDailySummary = (date: string): Promise<DailySummary> =>
+  invoke("daily_summary_regenerate", { date });
+
+export const getDailyRecapSettings = (): Promise<DailyRecapSettings> =>
+  invoke("daily_recap_settings_get");
+
+export const setDailyRecapSettings = (
+  settings: DailyRecapSettings,
+): Promise<void> => invoke("daily_recap_settings_set", { settings });

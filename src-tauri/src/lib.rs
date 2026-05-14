@@ -247,6 +247,11 @@ pub fn run() {
             commands::get_recent_input_devices,
             commands::get_input_device_sort,
             commands::set_input_device_sort,
+            commands::daily_summary_get,
+            commands::daily_summary_list_recent,
+            commands::daily_summary_regenerate,
+            commands::daily_recap_settings_get,
+            commands::daily_recap_settings_set,
         ])
         .setup(move |app| {
             // Tray.

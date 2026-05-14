@@ -2031,6 +2031,180 @@ pub fn delete_meeting(
     .map_err(|e| e.to_string())
 }
 
+// ----- Input device selection -----
+
+#[tauri::command]
+pub fn list_input_devices() -> Vec<crate::audio::devices::InputDevice> {
+    crate::audio::devices::list_input_devices()
+}
+
+#[tauri::command]
+pub fn get_preferred_input_device(state: State<'_, AppState>) -> Option<String> {
+    state.settings.preferred_input_device()
+}
+
+/// Persist the user's preferred input device. Pass `null` to clear (use system default).
+/// Selecting a device also bumps it to the top of the recent-devices MRU list.
+#[tauri::command]
+pub fn set_preferred_input_device(
+    state: State<'_, AppState>,
+    name: Option<String>,
+) -> Result<(), String> {
+    state
+        .settings
+        .set_preferred_input_device(name.as_deref())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_recent_input_devices(state: State<'_, AppState>) -> Vec<String> {
+    state.settings.recent_input_devices()
+}
+
+#[tauri::command]
+pub fn get_input_device_sort(state: State<'_, AppState>) -> String {
+    match state.settings.input_device_sort() {
+        crate::settings::InputDeviceSort::LastUsed => "last_used".to_string(),
+        crate::settings::InputDeviceSort::Alphabetical => "alphabetical".to_string(),
+    }
+}
+
+#[tauri::command]
+pub fn set_input_device_sort(
+    state: State<'_, AppState>,
+    sort: String,
+) -> Result<(), String> {
+    let parsed = match sort.as_str() {
+        "last_used" => crate::settings::InputDeviceSort::LastUsed,
+        "alphabetical" => crate::settings::InputDeviceSort::Alphabetical,
+        other => return Err(format!("unknown sort '{other}'")),
+    };
+    state
+        .settings
+        .set_input_device_sort(parsed)
+        .map_err(|e| e.to_string())
+}
+
+// ---------------------------------------------------------------------------
+// Daily recap commands
+// ---------------------------------------------------------------------------
+
+use crate::daily_summary::{generate_for_date, DEFAULT_LLM_MODEL_ID};
+use crate::db::daily_summaries::{
+    self as daily_summaries_db, DailySummaryRow, SummaryStatus,
+};
+
+#[derive(serde::Serialize)]
+pub struct DailySummaryDto {
+    pub date: String,
+    pub generated_at: String,
+    pub status: String,
+    pub narrative: String,
+    pub sections: serde_json::Value,
+    pub source_meeting_ids: Vec<String>,
+    pub source_item_ids: Vec<String>,
+    pub model_version: String,
+}
+
+fn to_dto(row: DailySummaryRow) -> DailySummaryDto {
+    DailySummaryDto {
+        date: row.date,
+        generated_at: row.generated_at,
+        status: match row.status {
+            SummaryStatus::Generated => "generated".into(),
+            SummaryStatus::SkippedEmpty => "skipped_empty".into(),
+            SummaryStatus::Failed => "failed".into(),
+        },
+        narrative: row.narrative,
+        sections: serde_json::from_str(&row.sections_json)
+            .unwrap_or(serde_json::Value::Object(Default::default())),
+        source_meeting_ids: serde_json::from_str(&row.source_meeting_ids_json)
+            .unwrap_or_default(),
+        source_item_ids: serde_json::from_str(&row.source_item_ids_json)
+            .unwrap_or_default(),
+        model_version: row.model_version,
+    }
+}
+
+#[tauri::command]
+pub fn daily_summary_get(
+    state: State<'_, AppState>,
+    date: String,
+) -> Result<Option<DailySummaryDto>, String> {
+    let db = state.db.as_ref().ok_or("db unavailable")?;
+    let row = db
+        .with_conn(|conn| daily_summaries_db::get(conn, &date).map_err(crate::db::DbError::from))
+        .map_err(|e| format!("{e:?}"))?;
+    Ok(row.map(to_dto))
+}
+
+#[tauri::command]
+pub fn daily_summary_list_recent(
+    state: State<'_, AppState>,
+    limit: u32,
+) -> Result<Vec<DailySummaryDto>, String> {
+    let db = state.db.as_ref().ok_or("db unavailable")?;
+    let rows = db
+        .with_conn(|conn| {
+            daily_summaries_db::list_recent(conn, limit).map_err(crate::db::DbError::from)
+        })
+        .map_err(|e| format!("{e:?}"))?;
+    Ok(rows.into_iter().map(to_dto).collect())
+}
+
+#[tauri::command]
+pub async fn daily_summary_regenerate(
+    state: State<'_, AppState>,
+    date: String,
+) -> Result<DailySummaryDto, String> {
+    let db = state.db.as_ref().ok_or("db unavailable")?.clone();
+    let llm = state.llm.clone();
+    generate_for_date(&db, &llm, &date, DEFAULT_LLM_MODEL_ID)
+        .await
+        .map_err(|e| format!("{e:?}"))?;
+    let row = db
+        .with_conn(|conn| daily_summaries_db::get(conn, &date).map_err(crate::db::DbError::from))
+        .map_err(|e| format!("{e:?}"))?
+        .ok_or_else(|| "row missing after generate".to_string())?;
+    Ok(to_dto(row))
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct DailyRecapSettings {
+    pub enabled: bool,
+    pub deliver_hour: u8,
+    pub include_weekends: bool,
+}
+
+#[tauri::command]
+pub fn daily_recap_settings_get(state: State<'_, AppState>) -> DailyRecapSettings {
+    DailyRecapSettings {
+        enabled: state.settings.daily_recap_enabled(),
+        deliver_hour: state.settings.daily_recap_deliver_hour(),
+        include_weekends: state.settings.daily_recap_include_weekends(),
+    }
+}
+
+#[tauri::command]
+pub fn daily_recap_settings_set(
+    state: State<'_, AppState>,
+    settings: DailyRecapSettings,
+) -> Result<(), String> {
+    state
+        .settings
+        .set_daily_recap_enabled(settings.enabled)
+        .map_err(|e| e.to_string())?;
+    state
+        .settings
+        .set_daily_recap_deliver_hour(settings.deliver_hour)
+        .map_err(|e| e.to_string())?;
+    state
+        .settings
+        .set_daily_recap_include_weekends(settings.include_weekends)
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
