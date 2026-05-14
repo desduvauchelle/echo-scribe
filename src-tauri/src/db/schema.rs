@@ -160,6 +160,25 @@ CREATE TABLE IF NOT EXISTS meeting_action_links (
 CREATE INDEX IF NOT EXISTS idx_meeting_action_links_item ON meeting_action_links(item_id);
 "#,
     ),
+    (
+        8,
+        r#"
+CREATE TABLE IF NOT EXISTS daily_summaries (
+  date                    TEXT PRIMARY KEY,
+  generated_at            TEXT NOT NULL,
+  status                  TEXT NOT NULL,
+  narrative               TEXT NOT NULL DEFAULT '',
+  sections_json           TEXT NOT NULL DEFAULT '{}',
+  source_meeting_ids_json TEXT NOT NULL DEFAULT '[]',
+  source_item_ids_json    TEXT NOT NULL DEFAULT '[]',
+  model_version           TEXT NOT NULL,
+  input_token_count       INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_daily_summaries_generated_at
+  ON daily_summaries(generated_at DESC);
+"#,
+    ),
 ];
 
 const META_TABLE_SQL: &str = r#"
@@ -221,7 +240,7 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(v, "7");
+        assert_eq!(v, "8");
     }
 
     #[test]
@@ -293,6 +312,36 @@ mod tests {
         let version: String = conn
             .query_row("SELECT value FROM schema_meta WHERE key = 'schema_version'", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(version, "7");
+        assert_eq!(version, "8");
+    }
+
+    #[test]
+    fn migration_v8_adds_daily_summaries() {
+        use rusqlite::Connection;
+        let mut conn = Connection::open_in_memory().unwrap();
+        run_migrations(&mut conn).unwrap();
+        let cols: Vec<String> = conn
+            .prepare("PRAGMA table_info(daily_summaries)")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        for required in &[
+            "date",
+            "generated_at",
+            "status",
+            "narrative",
+            "sections_json",
+            "source_meeting_ids_json",
+            "source_item_ids_json",
+            "model_version",
+            "input_token_count",
+        ] {
+            assert!(
+                cols.iter().any(|c| c == required),
+                "missing column: {required}"
+            );
+        }
     }
 }
