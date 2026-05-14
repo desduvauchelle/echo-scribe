@@ -23,18 +23,29 @@ import {
   getAudioFeedbackEnabled,
   getAutoFileEnabled,
   getAutoFileThreshold,
+  getDailyRecapSettings,
+  getInputDeviceSort,
   getLlmUnloadSecs,
   getLogCaptureBinding,
   getMuteWhileRecording,
+  getPreferredInputDevice,
+  getRecentInputDevices,
+  listInputDevices,
   resetOnboardingAndQuit,
   setAsrUnloadSecs,
   setAudioFeedbackEnabled,
   setAutoFileEnabled,
   setAutoFileThreshold,
+  setDailyRecapSettings,
+  setInputDeviceSort,
   setLlmUnloadSecs,
   setMuteWhileRecording,
+  setPreferredInputDevice,
   testLlmInference,
   updateLogCaptureBinding,
+  type DailyRecapSettings as DailyRecapSettingsT,
+  type InputDevice,
+  type InputDeviceSort,
 } from "../lib/api";
 import { useToasts } from "../components/ToastProvider";
 
@@ -107,6 +118,13 @@ function VoiceTab() {
   return (
     <div className="flex flex-col gap-8">
       <SpeechModelPicker />
+
+      <Section
+        title="Microphone"
+        subtitle="Pick which input device Echo Scribe records from. Default uses whatever macOS has selected."
+      >
+        <MicrophonePicker />
+      </Section>
 
       <Section
         title="Voice-at-cursor hotkey"
@@ -250,6 +268,160 @@ function AutoFileSettings() {
       </div>
     </Section>
   );
+}
+
+function MicrophonePicker() {
+  const [devices, setDevices] = useState<InputDevice[]>([]);
+  const [preferred, setPreferred] = useState<string | null>(null);
+  const [recent, setRecent] = useState<string[]>([]);
+  const [sort, setSort] = useState<InputDeviceSort>("last_used");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const reload = async () => {
+    try {
+      const [d, p, r, s] = await Promise.all([
+        listInputDevices(),
+        getPreferredInputDevice(),
+        getRecentInputDevices(),
+        getInputDeviceSort(),
+      ]);
+      setDevices(d);
+      setPreferred(p);
+      setRecent(r);
+      setSort(s);
+      setError(null);
+    } catch (e) {
+      setError(`Couldn't load microphones: ${String(e)}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    reload();
+  }, []);
+
+  // Order: system default first, then preferred (if not the same as default
+  // and present), then everything else by chosen sort. The system-default
+  // entry is always shown — even if it changed since last selection — so the
+  // user can revert to "follow macOS" with one click.
+  const ordered = orderDevices(devices, recent, sort);
+  const systemDefault = devices.find((d) => d.is_system_default) ?? null;
+  const preferredMissing =
+    preferred !== null && !devices.some((d) => d.name === preferred);
+
+  if (loading) {
+    return <p className="text-xs text-muted">Loading microphones…</p>;
+  }
+  if (error) {
+    return (
+      <div className="flex flex-col gap-2">
+        <p className="text-xs text-warning">{error}</p>
+        <button
+          type="button"
+          onClick={reload}
+          className="self-start rounded border border-line px-2 py-1 text-xs"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      {preferredMissing && (
+        <p className="rounded border border-warning/40 bg-warning/10 px-2 py-1.5 text-xs text-warning">
+          Saved mic <span className="font-mono">{preferred}</span> isn't
+          connected. Pick another below or revert to the system default.
+        </p>
+      )}
+
+      <label className="flex flex-col gap-1 text-sm">
+        <span className="text-muted">Input device</span>
+        <select
+          className="rounded border border-line bg-canvas px-2 py-1 text-sm"
+          value={preferred ?? ""}
+          onChange={async (e) => {
+            const next = e.target.value === "" ? null : e.target.value;
+            const prev = preferred;
+            setPreferred(next);
+            try {
+              await setPreferredInputDevice(next);
+              if (next !== null) {
+                setRecent((curr) => {
+                  const without = curr.filter((n) => n !== next);
+                  return [next, ...without].slice(0, 10);
+                });
+              }
+            } catch {
+              setPreferred(prev);
+            }
+          }}
+        >
+          <option value="">
+            System default
+            {systemDefault ? ` — ${systemDefault.name}` : ""}
+          </option>
+          {ordered.map((d) => (
+            <option key={d.name} value={d.name}>
+              {d.name}
+              {d.sample_rate ? ` · ${d.sample_rate / 1000}kHz` : ""}
+              {d.channels ? ` · ${d.channels}ch` : ""}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <label className="flex items-center gap-2 text-sm">
+        <span className="text-muted">Sort by</span>
+        <select
+          className="rounded border border-line bg-canvas px-2 py-1 text-sm"
+          value={sort}
+          onChange={async (e) => {
+            const next = e.target.value as InputDeviceSort;
+            const prev = sort;
+            setSort(next);
+            try {
+              await setInputDeviceSort(next);
+            } catch {
+              setSort(prev);
+            }
+          }}
+        >
+          <option value="last_used">Last used</option>
+          <option value="alphabetical">Alphabetical</option>
+        </select>
+      </label>
+
+      <p className="text-[11px] text-muted">
+        When a saved mic is unplugged, Echo Scribe will refuse to record and
+        notify you — it won't silently fall back to another device.
+      </p>
+    </div>
+  );
+}
+
+function orderDevices(
+  devices: InputDevice[],
+  recent: string[],
+  sort: InputDeviceSort,
+): InputDevice[] {
+  if (sort === "alphabetical") {
+    return [...devices].sort((a, b) => a.name.localeCompare(b.name));
+  }
+  // last_used: recent-MRU first (in order), then unseen devices alphabetical.
+  const recentSet = new Set(recent);
+  const recentDevices: InputDevice[] = [];
+  for (const name of recent) {
+    const d = devices.find((x) => x.name === name);
+    if (d) recentDevices.push(d);
+  }
+  const rest = devices
+    .filter((d) => !recentSet.has(d.name))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  return [...recentDevices, ...rest];
 }
 
 function MeetingsTab() {
@@ -410,6 +582,13 @@ function GeneralTab() {
         subtitle="Pause music and system audio while the hotkey is held, then restore it when you release."
       >
         <MuteWhileRecordingToggle />
+      </Section>
+
+      <Section
+        title="Daily recap"
+        subtitle="A morning notification that summarizes yesterday's meetings, notes, and dictations."
+      >
+        <DailyRecapSection />
       </Section>
 
       <Section
@@ -663,7 +842,7 @@ function DiagnosticsPane() {
           </button>
         </div>
         {error ? (
-          <p className="mt-2 text-xs text-warning">{error}</p>
+          <p className="mt-2 text-xs text-warninging">{error}</p>
         ) : null}
         <pre className="mt-2 max-h-64 overflow-auto rounded-md border border-line bg-canvas p-2 font-mono text-[11px] leading-snug text-muted">
           {recent || "(no log content yet)"}
@@ -914,5 +1093,121 @@ function ResetSection() {
         </div>
       ) : null}
     </section>
+  );
+}
+
+function DailyRecapSection() {
+  const [settings, setSettings] = useState<DailyRecapSettingsT | null>(null);
+  const [busy, setBusy] = useState(false);
+  const toasts = useToasts();
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const v = await getDailyRecapSettings();
+        if (!cancelled) setSettings(v);
+      } catch (e) {
+        if (!cancelled) {
+          toasts.push({
+            tone: "error",
+            message: `Couldn't load daily recap settings: ${
+              e instanceof Error ? e.message : String(e)
+            }`,
+          });
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // toasts is stable from context; intentionally excluded to avoid re-fetch
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const save = async (patch: Partial<DailyRecapSettingsT>) => {
+    if (!settings) return;
+    const next = { ...settings, ...patch };
+    setSettings(next);
+    setBusy(true);
+    try {
+      await setDailyRecapSettings(next);
+    } catch (e) {
+      toasts.push({
+        tone: "error",
+        message: `Couldn't save daily recap settings: ${
+          e instanceof Error ? e.message : String(e)
+        }`,
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!settings) {
+    return (
+      <div className="rounded-lg border border-line bg-canvas p-3 text-xs text-muted">
+        Loading…
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      <label className="flex items-center justify-between rounded-lg border border-line bg-canvas p-3">
+        <div>
+          <div className="text-sm font-semibold text-fg">
+            Generate a daily recap each morning
+          </div>
+          <p className="text-xs text-muted">
+            One macOS notification at your chosen hour, summarizing yesterday.
+          </p>
+        </div>
+        <input
+          type="checkbox"
+          disabled={busy}
+          checked={settings.enabled}
+          onChange={(e) => void save({ enabled: e.target.checked })}
+          className="h-4 w-4 cursor-pointer accent-accent"
+        />
+      </label>
+
+      <label className="flex items-center justify-between rounded-lg border border-line bg-canvas p-3">
+        <div>
+          <div className="text-sm font-semibold text-fg">Deliver at</div>
+          <p className="text-xs text-muted">Local time. Default 08:00.</p>
+        </div>
+        <select
+          disabled={busy || !settings.enabled}
+          value={settings.deliver_hour}
+          onChange={(e) =>
+            void save({ deliver_hour: Number(e.target.value) })
+          }
+          className="rounded-md border border-line bg-canvas px-2 py-1 text-sm text-fg disabled:opacity-50"
+        >
+          {Array.from({ length: 24 }, (_, h) => (
+            <option key={h} value={h}>
+              {`${String(h).padStart(2, "0")}:00`}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <label className="flex items-center justify-between rounded-lg border border-line bg-canvas p-3">
+        <div>
+          <div className="text-sm font-semibold text-fg">Include weekends</div>
+          <p className="text-xs text-muted">
+            Off by default — no Sunday morning summary unless you want one.
+          </p>
+        </div>
+        <input
+          type="checkbox"
+          disabled={busy || !settings.enabled}
+          checked={settings.include_weekends}
+          onChange={(e) => void save({ include_weekends: e.target.checked })}
+          className="h-4 w-4 cursor-pointer accent-accent"
+        />
+      </label>
+    </div>
   );
 }
