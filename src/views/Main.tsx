@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Activity,
+  CalendarDays,
   CheckSquare,
   Folder,
   Phone,
@@ -26,6 +27,7 @@ import { MeetingsView } from "./sections/MeetingsView";
 import { MeetingView } from "./sections/MeetingView";
 import ChatView from "./sections/ChatView";
 import DashboardView from "./sections/DashboardView";
+import DailyView from "./sections/DailyView";
 
 export type MainSection =
   | { kind: "activity" }
@@ -33,6 +35,7 @@ export type MainSection =
   | { kind: "search" }
   | { kind: "chat" }
   | { kind: "dashboard" }
+  | { kind: "daily"; date?: string }
   | { kind: "meetings" }
   | { kind: "meeting"; id: string }
   | { kind: "project"; id: string };
@@ -111,6 +114,8 @@ export default function Main({ onOpenSettings }: Props) {
         return <ChatView projects={projects} />;
       case "dashboard":
         return <DashboardView />;
+      case "daily":
+        return <DailyView initialDate={section.date} />;
       case "meetings":
         return (
           <MeetingsView
@@ -185,6 +190,12 @@ export default function Main({ onOpenSettings }: Props) {
             label="Dashboard"
             active={section.kind === "dashboard"}
             onClick={() => setSection({ kind: "dashboard" })}
+          />
+          <NavItem
+            icon={CalendarDays}
+            label="Daily"
+            active={section.kind === "daily"}
+            onClick={() => setSection({ kind: "daily" })}
           />
         </nav>
 
