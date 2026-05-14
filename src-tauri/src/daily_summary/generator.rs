@@ -137,6 +137,36 @@ pub fn prompt_version() -> String {
     digest[..4].iter().map(|b| format!("{:02x}", b)).collect()
 }
 
+use crate::llm::{GenerateRequest, Llm, LlmError};
+
+/// Generate a daily summary by prompting the local LLM with the input
+/// bundle. Awaits the async `Llm::generate` (which internally wraps the
+/// CPU/Metal-bound work in `spawn_blocking`).
+pub async fn generate(llm: &Llm, input: &DailySummaryInput) -> Result<DailySummaryOutput, GenerateError> {
+    let (system, user) = build_prompt(input);
+    let raw = llm
+        .generate(GenerateRequest {
+            system: Some(system),
+            user,
+            history: Vec::new(),
+            max_tokens: 1024,
+            temperature: 0.3,
+            stop_strings: Vec::new(),
+            grammar_gbnf: Some(OUTPUT_GRAMMAR.to_string()),
+        })
+        .await
+        .map_err(GenerateError::Llm)?;
+    parse_response(&raw).map_err(GenerateError::Parse)
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum GenerateError {
+    #[error("llm failure: {0}")]
+    Llm(LlmError),
+    #[error("parse failure: {0}")]
+    Parse(ParseError),
+}
+
 /// Parse the LLM response into a typed output, returning a descriptive error
 /// for bad JSON or schema mismatch.
 pub fn parse_response(raw: &str) -> Result<DailySummaryOutput, ParseError> {
