@@ -252,6 +252,7 @@ pub fn run() {
             commands::daily_summary_regenerate,
             commands::daily_recap_settings_get,
             commands::daily_recap_settings_set,
+            commands::daily_recap_notification_permission_status,
         ])
         .setup(move |app| {
             // Tray.

@@ -2186,6 +2186,18 @@ pub fn daily_recap_settings_get(state: State<'_, AppState>) -> DailyRecapSetting
 }
 
 #[tauri::command]
+pub fn daily_recap_notification_permission_status(
+    app: tauri::AppHandle,
+) -> Result<bool, String> {
+    use tauri_plugin_notification::{NotificationExt, PermissionState};
+    let state = app
+        .notification()
+        .permission_state()
+        .map_err(|e| e.to_string())?;
+    Ok(matches!(state, PermissionState::Granted))
+}
+
+#[tauri::command]
 pub fn daily_recap_settings_set(
     state: State<'_, AppState>,
     settings: DailyRecapSettings,

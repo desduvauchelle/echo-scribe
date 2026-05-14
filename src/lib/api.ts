@@ -682,3 +682,6 @@ export const getDailyRecapSettings = (): Promise<DailyRecapSettings> =>
 export const setDailyRecapSettings = (
   settings: DailyRecapSettings,
 ): Promise<void> => invoke("daily_recap_settings_set", { settings });
+
+export const dailyRecapNotificationPermissionStatus = (): Promise<boolean> =>
+  invoke("daily_recap_notification_permission_status");

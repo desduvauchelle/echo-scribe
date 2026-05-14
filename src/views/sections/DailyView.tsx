@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
-import { ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
+import { ChevronLeft, ChevronRight, RefreshCw, X } from "lucide-react";
 import {
+  dailyRecapNotificationPermissionStatus,
   getDailySummary,
   listRecentDailySummaries,
   regenerateDailySummary,
   type DailySummary,
   type DailySummarySectionItem,
 } from "../../lib/api";
+
+const FIRST_RUN_FLAG = "daily_recap_first_run_dismissed";
 
 type Props = {
   initialDate?: string;
@@ -55,6 +58,40 @@ export default function DailyView({ initialDate }: Props) {
   const [recent, setRecent] = useState<DailySummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
+  const [showFirstRun, setShowFirstRun] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(FIRST_RUN_FLAG) !== "1";
+    } catch {
+      return true;
+    }
+  });
+  const [permissionGranted, setPermissionGranted] = useState<boolean | null>(
+    null,
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const ok = await dailyRecapNotificationPermissionStatus();
+        if (!cancelled) setPermissionGranted(ok);
+      } catch {
+        if (!cancelled) setPermissionGranted(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const dismissFirstRun = useCallback(() => {
+    try {
+      localStorage.setItem(FIRST_RUN_FLAG, "1");
+    } catch {
+      // ignore
+    }
+    setShowFirstRun(false);
+  }, []);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -146,6 +183,35 @@ export default function DailyView({ initialDate }: Props) {
 
       {/* Main */}
       <main className="flex-1 overflow-y-auto px-8 pt-10">
+        {showFirstRun && (
+          <div className="mb-4 flex items-start justify-between gap-3 rounded-md border border-line bg-elevated p-3 text-xs text-muted">
+            <p className="leading-relaxed">
+              This recap looks at your meetings, notes, and dictations — all
+              stored locally on this Mac.
+            </p>
+            <button
+              onClick={dismissFirstRun}
+              aria-label="Dismiss"
+              className="shrink-0 rounded p-0.5 hover:bg-canvas"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        )}
+
+        {permissionGranted === false && (
+          <div className="mb-4 rounded-md border border-warning/40 bg-warning/15 p-3 text-xs text-fg">
+            <p className="leading-relaxed">
+              Notifications are disabled — your daily recap won't surface until
+              you enable them in{" "}
+              <span className="font-semibold">
+                System Settings → Notifications → Echo Scribe
+              </span>
+              .
+            </p>
+          </div>
+        )}
+
         <header className="mb-6 flex items-center gap-3">
           <button
             onClick={() => setDate((d) => shiftDate(d, -1))}
