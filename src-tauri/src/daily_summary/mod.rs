@@ -3,3 +3,4 @@
 //! See `docs/superpowers/specs/2026-05-13-daily-recap-design.md`.
 
 pub mod collector;
+pub mod generator;
