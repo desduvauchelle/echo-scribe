@@ -10,6 +10,7 @@ use std::sync::Arc;
 
 use chrono::Utc;
 use serde::Serialize;
+use tracing::{error, info};
 
 use crate::db::daily_summaries::{self, DailySummaryRow, SummaryStatus};
 use crate::db::{Db, DbError};
@@ -59,6 +60,16 @@ pub async fn generate_for_date(
     let now = Utc::now().to_rfc3339();
     let model_version = format!("{}@{}", llm_model_id, generator::prompt_version());
 
+    info!(
+        date = %date,
+        meetings = input.meetings.len(),
+        notes = input.notes.len(),
+        dictation_apps = input.dictations_by_app.len(),
+        dictations = input.dictations_by_app.iter().map(|(_, v)| v.len()).sum::<usize>(),
+        model_version = %model_version,
+        "daily_summary: starting generation"
+    );
+
     if collector::is_empty(&input) {
         let row = DailySummaryRow {
             date: date.into(),
@@ -91,6 +102,15 @@ pub async fn generate_for_date(
     // 2. Async: call LLM.
     match generator::generate(llm, &input).await {
         Ok(out) => {
+            info!(
+                date = %date,
+                narrative_len = out.narrative.len(),
+                meetings_bullets = out.sections.meetings.len(),
+                focus_work_bullets = out.sections.focus_work.len(),
+                notes_bullets = out.sections.notes.len(),
+                things_bullets = out.sections.things_that_came_up.len(),
+                "daily_summary: generated"
+            );
             let row = DailySummaryRow {
                 date: date.into(),
                 generated_at: now,
@@ -109,11 +129,14 @@ pub async fn generate_for_date(
         }
         Err(e) => {
             let reason = e.to_string();
+            error!(date = %date, reason = %reason, "daily_summary: generation failed");
+            // Persist the reason in the narrative field so it's visible from the DB
+            // and surfaces in the Daily view's failed state (debugging aid).
             let row = DailySummaryRow {
                 date: date.into(),
                 generated_at: now,
                 status: SummaryStatus::Failed,
-                narrative: String::new(),
+                narrative: format!("Generation failed: {reason}"),
                 sections_json: "{}".into(),
                 source_meeting_ids_json: serde_json::to_string(&meeting_ids)
                     .unwrap_or_else(|_| "[]".into()),

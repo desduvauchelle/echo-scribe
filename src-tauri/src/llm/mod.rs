@@ -65,7 +65,11 @@ pub enum LlmError {
     Join,
 }
 
-const DEFAULT_N_CTX: u32 = 8192;
+/// Context window used when loading any model in the registry. Capped at the
+/// model's own `context_length`. Bumped from 8192 to 16384 to give features
+/// like the daily recap room to summarize a full day's input. Memory cost:
+/// ~0.5–1 GB extra KV-cache RAM while a model is loaded.
+const DEFAULT_N_CTX: u32 = 16384;
 
 pub struct Llm {
     /// `tokio::sync::Mutex` because we hold the lock across an `await` inside
