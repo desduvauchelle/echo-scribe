@@ -22,6 +22,7 @@ pub mod search;
 pub mod stats;
 pub mod meetings;
 pub mod tasks;
+pub mod daily_summaries;
 
 pub use chat::{ChatMessage, ChatSession};
 pub use items::{Item, ItemKind, ItemSource, Visibility};
