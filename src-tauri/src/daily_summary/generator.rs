@@ -72,6 +72,11 @@ const DICTATIONS_PER_APP_CAP: usize = 15;
 
 /// Per-item character caps. Tokens are roughly chars/4 for English-ish
 /// content; these caps keep the per-item contribution bounded.
+///
+/// `MEETING_TITLE_CAP_CHARS` is small because the `items.content` field for
+/// meetings actually stores transcript text (up to ~90 KB on long calls).
+/// 200 chars is enough for a real title without dragging in transcripts.
+const MEETING_TITLE_CAP_CHARS: usize = 200;
 const MEETING_SUMMARY_CAP_CHARS: usize = 800;
 const NOTE_CAP_CHARS: usize = 600;
 const DICTATION_CAP_CHARS: usize = 400;
@@ -119,7 +124,8 @@ fn build_user_prompt(input: &DailySummaryInput, dictation_cap: usize) -> String 
         user.push_str("# Meetings\n");
         for (i, m) in input.meetings.iter().enumerate() {
             let id = format!("m{}", i + 1);
-            let title = m.suggested_title.as_deref().unwrap_or("(untitled)");
+            let raw_title = m.suggested_title.as_deref().unwrap_or("(untitled)");
+            let title = truncate(raw_title, MEETING_TITLE_CAP_CHARS);
             user.push_str(&format!("- [{id}] {title} (started {})\n", m.started_at));
             if let Some(s) = &m.summary_json {
                 let s = truncate(s, MEETING_SUMMARY_CAP_CHARS);
@@ -280,14 +286,29 @@ async fn call(
             system: Some(system),
             user,
             history: Vec::new(),
-            max_tokens: 768,
+            // 1536 tokens of output room. A full recap with 4 sections of
+            // ~5 bullets each + a narrative comes in around 800-1200
+            // tokens; the extra slack covers heavy days. n_ctx = 16384,
+            // so input can still be ~14K tokens.
+            max_tokens: 1536,
             temperature: 0.3,
             stop_strings: Vec::new(),
             grammar_gbnf: None,
         })
         .await
         .map_err(GenerateError::Llm)?;
-    parse_response(&raw).map_err(GenerateError::Parse)
+    parse_response(&raw).map_err(|e| {
+        // Log a generous prefix of the raw output so future parse failures
+        // are diagnosable without re-running. Truncated to keep one line.
+        let preview: String = raw.chars().take(800).collect();
+        warn!(
+            error = %e,
+            raw_len = raw.len(),
+            raw_preview = %preview,
+            "daily_summary: parse failure"
+        );
+        GenerateError::Parse(e)
+    })
 }
 
 /// Replace each dictation-app group with a single synthetic "condensed"
@@ -469,6 +490,29 @@ mod tests {
         let (_, user) = build_prompt(&input);
         assert!(user.contains("[m1] Roadmap sync"));
         assert!(user.contains("Discussed Q3"));
+    }
+
+    #[test]
+    fn prompt_truncates_long_meeting_title() {
+        // The items.content column for meetings can hold transcript text
+        // up to ~90 KB. The prompt must cap that or the whole budget is
+        // blown by a single meeting.
+        let mut input = empty_input("2026-05-12");
+        let huge_title = "x".repeat(10_000);
+        input.meetings.push(MeetingForSummary {
+            id: "m-1".into(),
+            started_at: "2026-05-12T09:00:00Z".into(),
+            ended_at: None,
+            suggested_title: Some(huge_title),
+            summary_json: None,
+        });
+        let (_, user) = build_prompt(&input);
+        assert!(
+            user.len() < 2_000,
+            "expected prompt to be short with title capped, got {} chars",
+            user.len()
+        );
+        assert!(user.contains('…'), "expected ellipsis marker on truncated title");
     }
 
     #[test]
