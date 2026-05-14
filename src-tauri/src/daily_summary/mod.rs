@@ -4,6 +4,7 @@
 
 pub mod collector;
 pub mod generator;
+pub mod scheduler;
 
 use std::sync::Arc;
 
