@@ -29,6 +29,39 @@ const KEY_MEETING_AUTO_DETECT: &str = "meeting_auto_detect";
 const KEY_MEETING_APP_PREFS: &str = "meeting_app_prefs";
 const KEY_MEETING_SOFT_WARN_MIN: &str = "meeting_soft_warn_minutes";
 const KEY_MEETING_HARD_CAP_MIN: &str = "meeting_hard_cap_minutes";
+const KEY_PREFERRED_INPUT_DEVICE: &str = "preferred_input_device";
+const KEY_RECENT_INPUT_DEVICES: &str = "recent_input_devices";
+const KEY_INPUT_DEVICE_SORT: &str = "input_device_sort";
+const KEY_DAILY_RECAP_ENABLED: &str = "daily_recap_enabled";
+const KEY_DAILY_RECAP_DELIVER_HOUR: &str = "daily_recap_deliver_hour";
+const KEY_DAILY_RECAP_INCLUDE_WEEKENDS: &str = "daily_recap_include_weekends";
+
+/// Default: morning recap notification is on.
+pub const DEFAULT_DAILY_RECAP_ENABLED: bool = true;
+/// Default: deliver at 08:00 local time. Range 0–23.
+pub const DEFAULT_DAILY_RECAP_DELIVER_HOUR: u8 = 8;
+/// Default: skip weekends.
+pub const DEFAULT_DAILY_RECAP_INCLUDE_WEEKENDS: bool = false;
+
+/// Cap on how many entries we keep in the recent-input-devices MRU list.
+/// Picks beyond this fall off the end.
+const RECENT_INPUT_DEVICES_CAP: usize = 10;
+
+/// Sort order for the input-device picker. Defaults to [`InputDeviceSort::LastUsed`].
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum InputDeviceSort {
+    /// System default first, then preferred, then by recency, then alphabetical.
+    LastUsed,
+    /// System default first, then preferred, then strictly alphabetical.
+    Alphabetical,
+}
+
+impl Default for InputDeviceSort {
+    fn default() -> Self {
+        InputDeviceSort::LastUsed
+    }
+}
 
 #[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -475,6 +508,139 @@ impl SettingsStore {
             .map_err(|e| SettingsError::Store(e.to_string()))?;
         Ok(())
     }
+
+    /// Name of the user's preferred input device, or `None` for "use system default."
+    /// When set, the recorder hard-fails (no silent fallback) if the named device
+    /// is unavailable — see [`crate::audio::recorder::RecorderError::PreferredDeviceMissing`].
+    pub fn preferred_input_device(&self) -> Option<String> {
+        self.store
+            .get(KEY_PREFERRED_INPUT_DEVICE)
+            .and_then(|v| v.as_str().map(|s| s.to_string()))
+    }
+
+    /// Persist the preferred input device. Pass `None` to clear (revert to system default).
+    /// Side effect: when `Some(name)`, also bumps `name` to the front of the MRU list.
+    pub fn set_preferred_input_device(&self, name: Option<&str>) -> Result<(), SettingsError> {
+        match name {
+            Some(n) => {
+                self.store.set(
+                    KEY_PREFERRED_INPUT_DEVICE,
+                    serde_json::Value::String(n.to_string()),
+                );
+                self.bump_recent_input_device_inner(n)?;
+            }
+            None => {
+                self.store.delete(KEY_PREFERRED_INPUT_DEVICE);
+            }
+        }
+        self.store
+            .save()
+            .map_err(|e| SettingsError::Store(e.to_string()))?;
+        Ok(())
+    }
+
+    /// MRU list of recently selected input devices, most recent first.
+    pub fn recent_input_devices(&self) -> Vec<String> {
+        self.store
+            .get(KEY_RECENT_INPUT_DEVICES)
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v).ok())
+            .unwrap_or_default()
+    }
+
+    /// Push a device to the front of the MRU list. Dedupes (case-sensitive
+    /// match), caps the list at [`RECENT_INPUT_DEVICES_CAP`], saves on success.
+    pub fn bump_recent_input_device(&self, name: &str) -> Result<(), SettingsError> {
+        self.bump_recent_input_device_inner(name)?;
+        self.store
+            .save()
+            .map_err(|e| SettingsError::Store(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Internal helper: mutates the MRU without saving, so callers can batch
+    /// multiple updates into one `save()`.
+    fn bump_recent_input_device_inner(&self, name: &str) -> Result<(), SettingsError> {
+        let mut list = self.recent_input_devices();
+        list.retain(|n| n != name);
+        list.insert(0, name.to_string());
+        list.truncate(RECENT_INPUT_DEVICES_CAP);
+        let value = serde_json::to_value(&list)?;
+        self.store.set(KEY_RECENT_INPUT_DEVICES, value);
+        Ok(())
+    }
+
+    /// User's preferred sort order for the input-device picker.
+    pub fn input_device_sort(&self) -> InputDeviceSort {
+        self.store
+            .get(KEY_INPUT_DEVICE_SORT)
+            .and_then(|v| serde_json::from_value::<InputDeviceSort>(v).ok())
+            .unwrap_or_default()
+    }
+
+    pub fn set_input_device_sort(&self, sort: InputDeviceSort) -> Result<(), SettingsError> {
+        let value = serde_json::to_value(sort)?;
+        self.store.set(KEY_INPUT_DEVICE_SORT, value);
+        self.store
+            .save()
+            .map_err(|e| SettingsError::Store(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Whether the daily-recap notification fires each morning. Default: on.
+    pub fn daily_recap_enabled(&self) -> bool {
+        self.store
+            .get(KEY_DAILY_RECAP_ENABLED)
+            .and_then(|v| v.as_bool())
+            .unwrap_or(DEFAULT_DAILY_RECAP_ENABLED)
+    }
+
+    pub fn set_daily_recap_enabled(&self, on: bool) -> Result<(), SettingsError> {
+        self.store
+            .set(KEY_DAILY_RECAP_ENABLED, serde_json::Value::Bool(on));
+        self.store
+            .save()
+            .map_err(|e| SettingsError::Store(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Hour of day (0–23, local time) at which the daily recap notification
+    /// fires. Default 8.
+    pub fn daily_recap_deliver_hour(&self) -> u8 {
+        self.store
+            .get(KEY_DAILY_RECAP_DELIVER_HOUR)
+            .and_then(|v| v.as_u64())
+            .and_then(|n| if n < 24 { Some(n as u8) } else { None })
+            .unwrap_or(DEFAULT_DAILY_RECAP_DELIVER_HOUR)
+    }
+
+    pub fn set_daily_recap_deliver_hour(&self, hour: u8) -> Result<(), SettingsError> {
+        let clamped = hour.min(23);
+        self.store.set(
+            KEY_DAILY_RECAP_DELIVER_HOUR,
+            serde_json::Value::Number(serde_json::Number::from(clamped as u64)),
+        );
+        self.store
+            .save()
+            .map_err(|e| SettingsError::Store(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Whether the daily recap fires on Saturday and Sunday. Default: off.
+    pub fn daily_recap_include_weekends(&self) -> bool {
+        self.store
+            .get(KEY_DAILY_RECAP_INCLUDE_WEEKENDS)
+            .and_then(|v| v.as_bool())
+            .unwrap_or(DEFAULT_DAILY_RECAP_INCLUDE_WEEKENDS)
+    }
+
+    pub fn set_daily_recap_include_weekends(&self, on: bool) -> Result<(), SettingsError> {
+        self.store
+            .set(KEY_DAILY_RECAP_INCLUDE_WEEKENDS, serde_json::Value::Bool(on));
+        self.store
+            .save()
+            .map_err(|e| SettingsError::Store(e.to_string()))?;
+        Ok(())
+    }
 }
 
 /// The default voice-at-cursor binding used when nothing is stored.
@@ -512,5 +678,15 @@ mod auto_file_tests {
         assert_eq!(KEY_AUTO_FILE_ENABLED, "auto_file_enabled");
         assert_eq!(KEY_AUTO_FILE_THRESHOLD, "auto_file_threshold");
         assert!((DEFAULT_AUTO_FILE_THRESHOLD - 0.75).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn daily_recap_defaults() {
+        assert!(DEFAULT_DAILY_RECAP_ENABLED);
+        assert_eq!(DEFAULT_DAILY_RECAP_DELIVER_HOUR, 8);
+        assert!(!DEFAULT_DAILY_RECAP_INCLUDE_WEEKENDS);
+        assert_eq!(KEY_DAILY_RECAP_ENABLED, "daily_recap_enabled");
+        assert_eq!(KEY_DAILY_RECAP_DELIVER_HOUR, "daily_recap_deliver_hour");
+        assert_eq!(KEY_DAILY_RECAP_INCLUDE_WEEKENDS, "daily_recap_include_weekends");
     }
 }
