@@ -70,3 +70,9 @@ dist-ssr/
 .vscode/*
 !.vscode/extensions.json
 .idea/
+
+# Local reference clone (not part of this project)
+Handy/
+
+# Brainstorm visual-companion artifacts
+.superpowers/

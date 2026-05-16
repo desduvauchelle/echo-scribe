@@ -27,6 +27,12 @@ pub struct FocusContext {
     pub app_name: Option<String>,
     pub window_title: Option<String>,
     pub browser_url: Option<String>,
+    /// Active tab title for known browsers. Often richer than `window_title`
+    /// for SPAs whose window title is the app name (e.g. "Google Chrome" vs
+    /// "Echo Scribe — pricing"). Fetched via same osascript path as
+    /// `browser_url`. `None` outside browsers or on AppleScript failure.
+    #[serde(default)]
+    pub browser_tab_title: Option<String>,
 }
 
 /// Opaque handle to the AX UI element that had keyboard focus at capture
@@ -75,6 +81,9 @@ pub fn capture_context() -> Option<FocusContext> {
     let browser_url = bundle_id
         .as_deref()
         .and_then(capture_browser_url_macos);
+    let browser_tab_title = bundle_id
+        .as_deref()
+        .and_then(capture_browser_tab_title_macos);
 
     Some(FocusContext {
         pid,
@@ -82,6 +91,7 @@ pub fn capture_context() -> Option<FocusContext> {
         app_name,
         window_title,
         browser_url,
+        browser_tab_title,
     })
 }
 
@@ -422,6 +432,33 @@ fn capture_browser_url_macos(bundle_id: &str) -> Option<String> {
         _ => return None,
     };
 
+    run_osascript_with_timeout(script)
+}
+
+/// Fetch the active tab *title* from a known browser via AppleScript.
+/// For SPAs (Gmail, Notion, Linear, Meet) the `<title>` is far more
+/// informative than the AX window title, which is often the app name.
+#[cfg(target_os = "macos")]
+fn capture_browser_tab_title_macos(bundle_id: &str) -> Option<String> {
+    let script = match bundle_id {
+        "com.apple.Safari" =>
+            "tell application \"Safari\" to get name of current tab of front window",
+        "com.google.Chrome" | "com.google.Chrome.beta" | "com.google.Chrome.canary" =>
+            "tell application \"Google Chrome\" to get title of active tab of front window",
+        "company.thebrowser.Browser" =>
+            "tell application \"Arc\" to get title of active tab of front window",
+        "com.brave.Browser" | "com.brave.Browser.beta" =>
+            "tell application \"Brave Browser\" to get title of active tab of front window",
+        _ => return None,
+    };
+
+    run_osascript_with_timeout(script)
+}
+
+/// Run an AppleScript with a 500 ms deadline. Returns trimmed stdout on
+/// success, `None` on timeout/failure/empty/"missing value".
+#[cfg(target_os = "macos")]
+fn run_osascript_with_timeout(script: &str) -> Option<String> {
     let script = script.to_string();
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
@@ -439,11 +476,11 @@ fn capture_browser_url_macos(bundle_id: &str) -> Option<String> {
     if !output.status.success() {
         return None;
     }
-    let url = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if url.is_empty() || url == "missing value" {
+    let s = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if s.is_empty() || s == "missing value" {
         None
     } else {
-        Some(url)
+        Some(s)
     }
 }
 
@@ -487,6 +524,7 @@ mod tests {
             app_name: None,
             window_title: None,
             browser_url: None,
+            browser_tab_title: None,
         };
         assert!(!restore(&ctx));
     }
@@ -499,6 +537,7 @@ mod tests {
             app_name: None,
             window_title: None,
             browser_url: None,
+            browser_tab_title: None,
         };
         let outcome = restore_focus(&ctx, None);
         assert!(!outcome.activated_app);

@@ -264,6 +264,20 @@ fn build_system_prompt(
             s.push_str(url);
             s.push('\n');
         }
+        if let Some(ref tab) = ctx.browser_tab_title {
+            // Skip when redundant with window_title (Safari often returns the
+            // same string for both; no value in repeating it).
+            let redundant = ctx
+                .window_title
+                .as_deref()
+                .map(|wt| wt == tab.as_str())
+                .unwrap_or(false);
+            if !redundant {
+                s.push_str("- Tab: ");
+                s.push_str(tab);
+                s.push('\n');
+            }
+        }
     }
     s
 }
@@ -457,6 +471,7 @@ mod tests {
             app_name: Some("Google Chrome".into()),
             window_title: Some("Inbox — Gmail".into()),
             browser_url: Some("https://mail.google.com/".into()),
+            browser_tab_title: Some("Inbox (12) — gmail.com".into()),
         };
         let prompt = build_system_prompt(&[], &[], "2026-05-03T10:00:00Z", "Sunday", Some(&ctx));
         assert!(prompt.contains("Google Chrome"), "app_name missing from prompt");

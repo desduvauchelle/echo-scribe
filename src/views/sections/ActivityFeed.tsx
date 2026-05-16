@@ -4,17 +4,15 @@ import { Inbox, Mic } from "lucide-react";
 import {
   archiveProject,
   countItemsForProject,
-  deleteItem,
   listItems,
   renameProject,
-  restoreItem,
-  updateItem,
   type Item,
   type ItemKind,
   type Project,
   type Visibility,
 } from "../../lib/api";
 import ItemCard from "../../components/ItemCard";
+import { useActivityPanel } from "../../components/ActivityPanelContext";
 import { useToasts } from "../../components/ToastProvider";
 
 type Props = {
@@ -50,6 +48,7 @@ export default function ActivityFeed({
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState(project?.name ?? "");
   const toasts = useToasts();
+  const { refreshTick } = useActivityPanel();
 
   const projectId = project?.id ?? null;
 
@@ -90,6 +89,13 @@ export default function ActivityFeed({
     // Intentionally re-run only when filters/project change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visibility, projectId]);
+
+  // Refetch when the activity panel reports a save/delete.
+  useEffect(() => {
+    if (refreshTick === 0) return;
+    void fetchPage("reset");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshTick]);
 
   useEffect(() => {
     let cancelled = false;
@@ -142,59 +148,6 @@ export default function ActivityFeed({
     }
     return items.filter((i) => i.kind === kindFilter);
   }, [items, kindFilter]);
-
-  const replaceItem = (updated: Item) => {
-    setItems((prev) => prev.map((i) => (i.id === updated.id ? updated : i)));
-  };
-
-  const handleEdited = (updated: Item) => replaceItem(updated);
-
-  const handleDelete = async (item: Item) => {
-    setItems((prev) => prev.filter((i) => i.id !== item.id));
-    try {
-      await deleteItem(item.id);
-      toasts.push({
-        tone: "info",
-        message: "Item deleted",
-        action: {
-          label: "Undo",
-          onClick: () => {
-            void (async () => {
-              try {
-                await restoreItem(item.id);
-                // Re-fetch from current filters so it reappears in proper order.
-                await fetchPage("reset");
-              } catch (e) {
-                toasts.push({
-                  tone: "error",
-                  message: `Restore failed: ${e instanceof Error ? e.message : String(e)}`,
-                });
-              }
-            })();
-          },
-        },
-      });
-    } catch (e) {
-      toasts.push({
-        tone: "error",
-        message: `Delete failed: ${e instanceof Error ? e.message : String(e)}`,
-      });
-      // Restore optimistic UI: reload.
-      await fetchPage("reset");
-    }
-  };
-
-  const handleToggleKind = async (item: Item, next: "note" | "task") => {
-    try {
-      const updated = await updateItem({ id: item.id, kind: next });
-      replaceItem(updated);
-    } catch (e) {
-      toasts.push({
-        tone: "error",
-        message: `Couldn't update: ${e instanceof Error ? e.message : String(e)}`,
-      });
-    }
-  };
 
   const handleRename = async () => {
     if (!project) return;
@@ -363,9 +316,6 @@ export default function ActivityFeed({
                 key={item.id}
                 item={item}
                 projects={projects}
-                onEdited={handleEdited}
-                onDelete={() => void handleDelete(item)}
-                onToggleKind={(next) => void handleToggleKind(item, next)}
               />
             ))}
             {hasMore ? (

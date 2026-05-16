@@ -8,7 +8,7 @@ use tracing::{error, info, warn};
 
 use crate::asr::pipeline::AsrPipeline;
 use crate::audio::feedback::{self, Sfx};
-use crate::audio::recorder::Recorder;
+use crate::audio::recorder::{Recorder, RecorderError};
 use crate::classifier::{self, Classification};
 use crate::db::items::{chrono_now_iso, Item, ItemSource, Visibility};
 use crate::db::Db;
@@ -202,6 +202,13 @@ pub fn spawn(
                     if matches!(action, Action::LogCapture) {
                         let _ = app.emit("log_capture:recording_started", ());
                     }
+                    // Apply the user's preferred input device (if any) before
+                    // each start. Reading it fresh each time means a settings
+                    // change takes effect on the next press without a restart.
+                    let preferred = app
+                        .try_state::<crate::commands::AppState>()
+                        .and_then(|s| s.settings.preferred_input_device());
+                    recorder.set_preferred_device(preferred.clone());
                     if let Err(e) = recorder.start() {
                         error!(?e, ?action, "failed to start recorder; returning to Idle");
                         crate::overlay::hide_recording_overlay(&app);
@@ -210,6 +217,7 @@ pub fn spawn(
                         if matches!(action, Action::LogCapture) {
                             let _ = app.emit("log_capture:cancelled", ());
                         }
+                        notify_recorder_failure(&app, &e, preferred.as_deref());
                     } else {
                         // Recording started — pre-load the ASR engine in the
                         // background so it's warm by the time the user releases.
@@ -645,6 +653,44 @@ async fn run_classifier(
     let now = crate::db::items::chrono_now_iso();
     let dow = classifier::dow_from_iso(&now);
     classifier::classify(llm, transcript, &projects, &recents, &now, dow, focus).await
+}
+
+/// Surface a recorder-start failure to the user: emits a Tauri event for any
+/// listening UI and fires an OS notification so the user notices even when
+/// no Echo Scribe window is visible. Best-effort — both are fire-and-forget.
+fn notify_recorder_failure(
+    app: &AppHandle<Wry>,
+    err: &RecorderError,
+    preferred: Option<&str>,
+) {
+    use tauri_plugin_notification::NotificationExt;
+
+    let kind = err.kind();
+    let payload = serde_json::json!({
+        "kind": kind,
+        "error": err.to_string(),
+        "preferred_device": preferred,
+    });
+    let _ = app.emit("recorder:start_failed", payload);
+
+    let (title, body) = match err {
+        RecorderError::PreferredDeviceMissing(name) => (
+            "Microphone unavailable".to_string(),
+            format!("Saved mic '{name}' isn't connected. Pick another in Settings → Voice."),
+        ),
+        RecorderError::NoDevice => (
+            "No microphone detected".to_string(),
+            "macOS reports no input device. Connect a mic and try again.".to_string(),
+        ),
+        RecorderError::BuildStream(msg) | RecorderError::StartStream(msg) => (
+            "Microphone unavailable".to_string(),
+            format!("Couldn't open the input device: {msg}. Try a different mic in Settings → Voice."),
+        ),
+        RecorderError::NotRunning => return, // shouldn't happen here; nothing to notify
+    };
+    if let Err(e) = app.notification().builder().title(title).body(body).show() {
+        warn!(?e, "failed to show recorder-failure OS notification");
+    }
 }
 
 /// Returns true when the classification meets the user's auto-file criteria:

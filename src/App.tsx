@@ -18,6 +18,8 @@ import LogCaptureOverlay from "./views/LogCaptureOverlay";
 import PermissionWarningBanner from "./components/PermissionWarningBanner";
 import { ToastProvider, useToasts } from "./components/ToastProvider";
 import UpdateBanner from "./components/UpdateBanner";
+import { ActivityPanelProvider } from "./components/ActivityPanelContext";
+import ActivityPanel from "./components/ActivityPanel";
 import { useVoicePasteFocus } from "./lib/voicePasteFocus";
 
 type View = "checking" | "onboarding" | "main" | "settings";
@@ -25,7 +27,10 @@ type View = "checking" | "onboarding" | "main" | "settings";
 export default function App() {
   return (
     <ToastProvider>
-      <AppShell />
+      <ActivityPanelProvider>
+        <AppShell />
+        <ActivityPanel />
+      </ActivityPanelProvider>
     </ToastProvider>
   );
 }
@@ -35,6 +40,8 @@ function AppShell() {
   const [initialStatus, setInitialStatus] = useState<PermissionsStatus>({
     microphone: false,
     accessibility: false,
+    screen_recording: false,
+    calendars: false,
   });
   const [resumeNotice, setResumeNotice] = useState<string | null>(null);
   const [mainKey, setMainKey] = useState(0);

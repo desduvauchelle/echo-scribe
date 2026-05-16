@@ -1,7 +1,7 @@
 //! Calls the LLM with a meeting transcript and parses the structured JSON response.
 
 use crate::llm::{GenerateRequest, Llm};
-use crate::meeting::Segment;
+use crate::meeting::{MeetingStartContext, Segment};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tracing::{info, warn};
@@ -66,6 +66,7 @@ pub async fn synthesize(
     detected_app_name: Option<&str>,
     duration_ms: u64,
     existing_project_names: &[String],
+    start_context: &MeetingStartContext,
 ) -> Result<StoredSummary, String> {
     let flattened = truncate_transcript(flatten_transcript(segments));
     let duration_minutes = duration_ms / 60_000;
@@ -74,6 +75,7 @@ pub async fn synthesize(
         detected_app_name,
         duration_minutes,
         existing_project_names,
+        start_context,
     );
 
     for attempt in 0..2u8 {

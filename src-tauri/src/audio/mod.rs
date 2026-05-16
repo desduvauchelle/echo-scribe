@@ -1,3 +1,4 @@
+pub mod devices;
 pub mod feedback;
 pub mod mute;
 pub mod recorder;

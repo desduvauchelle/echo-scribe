@@ -24,7 +24,6 @@ import ActivityFeed from "./sections/ActivityFeed";
 import TasksView from "./sections/TasksView";
 import SearchView from "./sections/SearchView";
 import { MeetingsView } from "./sections/MeetingsView";
-import { MeetingView } from "./sections/MeetingView";
 import ChatView from "./sections/ChatView";
 import DashboardView from "./sections/DashboardView";
 import DailyView from "./sections/DailyView";
@@ -37,7 +36,6 @@ export type MainSection =
   | { kind: "dashboard" }
   | { kind: "daily"; date?: string }
   | { kind: "meetings" }
-  | { kind: "meeting"; id: string }
   | { kind: "project"; id: string };
 
 type Props = {
@@ -117,18 +115,7 @@ export default function Main({ onOpenSettings }: Props) {
       case "daily":
         return <DailyView initialDate={section.date} />;
       case "meetings":
-        return (
-          <MeetingsView
-            onSelect={(id) => setSection({ kind: "meeting", id })}
-          />
-        );
-      case "meeting":
-        return (
-          <MeetingView
-            meetingId={section.id}
-            onClose={() => setSection({ kind: "meetings" })}
-          />
-        );
+        return <MeetingsView />;
     }
   };
 
@@ -182,7 +169,7 @@ export default function Main({ onOpenSettings }: Props) {
           <NavItem
             icon={Phone}
             label="Meetings"
-            active={section.kind === "meetings" || section.kind === "meeting"}
+            active={section.kind === "meetings"}
             onClick={() => setSection({ kind: "meetings" })}
           />
           <NavItem

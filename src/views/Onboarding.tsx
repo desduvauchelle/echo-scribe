@@ -10,10 +10,14 @@ import {
   listLlmModels,
   listSpeechModels,
   openAccessibilitySettings,
+  openCalendarSettings,
   openMicrophoneSettings,
+  openScreenRecordingSettings,
   permissionsStatus,
   promptAccessibilityAccess,
+  promptCalendarAccess,
   requestMicrophoneAccess,
+  requestScreenRecordingAccess,
   resetTccAndQuit,
   setOnboardingCompleted,
   startPipeline,
@@ -70,8 +74,9 @@ function ResetTccBlock() {
   return (
     <div className="rounded-md border border-warning/40 bg-warning/10 p-3 text-xs text-warning">
       <p>
-        This wipes Microphone + Accessibility grants and quits Echo Scribe.
-        You'll need to relaunch and re-grant access. Continue?
+        This wipes Microphone + Accessibility + Screen Recording grants and
+        quits Echo Scribe. You'll need to relaunch and re-grant access.
+        Continue?
       </p>
       <div className="mt-2 flex gap-2">
         <button
@@ -179,6 +184,51 @@ export default function Onboarding({ initialStatus, onStarted, resumeNotice }: P
     }
   };
 
+  const handleGrantScreenRecording = async () => {
+    // CGRequestScreenCaptureAccess() registers the app in the macOS Screen
+    // Recording list and shows the system prompt. Returns false the first
+    // time; the user has to flip the toggle in System Settings. We open
+    // the pane as a fallback so they don't have to hunt for it.
+    try {
+      const granted = await requestScreenRecordingAccess();
+      if (granted) {
+        await refresh();
+        return;
+      }
+    } catch {
+      /* fall through */
+    }
+    try {
+      await openScreenRecordingSettings();
+    } catch {
+      /* ignore */
+    }
+    await refresh().catch(() => {});
+  };
+
+  const handleGrantCalendars = async () => {
+    // Optional. promptCalendarAccess spawns the calmatch sidecar with
+    // --request-access, which calls EKEventStore.requestFullAccessToEvents.
+    // First call shows the system dialog; subsequent calls return cached.
+    // On deny / sidecar failure we fall back to opening Settings so the
+    // user can grant manually.
+    try {
+      const granted = await promptCalendarAccess();
+      if (granted) {
+        await refresh();
+        return;
+      }
+    } catch {
+      /* fall through */
+    }
+    try {
+      await openCalendarSettings();
+    } catch {
+      /* ignore */
+    }
+    await refresh().catch(() => {});
+  };
+
   const handleGrantAccessibility = async () => {
     // First call promptAccessibilityAccess() — this is the call that registers
     // Echo Scribe in the macOS Accessibility list. Without it, the list shows
@@ -234,8 +284,9 @@ export default function Onboarding({ initialStatus, onStarted, resumeNotice }: P
           Welcome to Echo Scribe
         </h1>
         <p className="mt-1.5 text-[13px] leading-relaxed text-muted">
-          Grant the two permissions below, pick a speech model, then start
-          dictating anywhere.
+          Grant the permissions below, pick a speech model, then start
+          dictating anywhere. Screen Recording is optional — only needed if
+          you want meetings to capture the other person's audio.
         </p>
 
         {resumeNotice ? (
@@ -266,6 +317,36 @@ export default function Onboarding({ initialStatus, onStarted, resumeNotice }: P
             granted={status.accessibility}
             onGrant={() => {
               void handleGrantAccessibility();
+            }}
+            onRecheck={() => {
+              void refresh();
+            }}
+            recheckBusy={checking}
+          />
+
+          <div className="h-px bg-elevated" />
+
+          <PermissionRow
+            title="Screen Recording"
+            subtitle="Lets Echo Scribe capture the other participant's audio during Zoom, Google Meet, and other meetings. Without it, only your microphone is recorded."
+            granted={status.screen_recording}
+            onGrant={() => {
+              void handleGrantScreenRecording();
+            }}
+            onRecheck={() => {
+              void refresh();
+            }}
+            recheckBusy={checking}
+          />
+
+          <div className="h-px bg-elevated" />
+
+          <PermissionRow
+            title="Calendar (optional)"
+            subtitle="Matches each meeting to your calendar invite so summaries name attendees and reference the meeting topic. Calendar data never leaves your Mac. Skip — you can grant later in Settings."
+            granted={status.calendars}
+            onGrant={() => {
+              void handleGrantCalendars();
             }}
             onRecheck={() => {
               void refresh();

@@ -1,5 +1,6 @@
 pub mod asr;
 pub mod audio;
+pub mod calendar;
 pub mod classifier;
 pub mod commands;
 pub mod coordinator;
@@ -36,9 +37,11 @@ use crate::commands::{
     get_asr_unload_secs, get_audio_feedback_enabled, get_custom_words, get_default_filler_words,
     get_filler_removal_enabled, get_filler_words, get_llm_unload_secs, get_log_capture_binding,
     get_mute_while_recording, get_onboarding_completed, get_voice_at_cursor_binding,
-    is_pipeline_running, list_chat_sessions, list_items, list_llm_models, list_projects, list_speech_models,
+    get_item, is_pipeline_running, list_chat_sessions, list_items, list_llm_models, list_projects, list_speech_models,
     list_tags_for_item, list_tasks, load_chat_messages, open_accessibility_settings, open_microphone_settings,
-    permissions_status, prompt_accessibility_access, rename_chat_session, rename_project, request_microphone_access,
+    open_calendar_settings, open_screen_recording_settings, permissions_status,
+    prompt_accessibility_access, prompt_calendar_access, rename_chat_session,
+    rename_project, request_microphone_access, request_screen_recording_access,
     reset_onboarding_and_quit, reset_tcc_and_quit, restore_item, search_items, set_active_llm_model,
     set_active_speech_model, set_audio_feedback_enabled, set_custom_words,
     set_asr_unload_secs, set_filler_removal_enabled, set_filler_words, set_llm_unload_secs, set_mute_while_recording,
@@ -145,8 +148,12 @@ pub fn run() {
             permissions_status,
             open_microphone_settings,
             open_accessibility_settings,
+            open_screen_recording_settings,
+            open_calendar_settings,
             request_microphone_access,
             prompt_accessibility_access,
+            request_screen_recording_access,
+            prompt_calendar_access,
             get_voice_at_cursor_binding,
             update_voice_at_cursor_binding,
             get_log_capture_binding,
@@ -161,6 +168,7 @@ pub fn run() {
             set_active_speech_model,
             delete_speech_model,
             list_items,
+            get_item,
             search_items,
             delete_item,
             count_items,
@@ -241,6 +249,8 @@ pub fn run() {
             commands::meeting_clear_app_pref,
             commands::retry_meeting_summary,
             commands::retry_meeting_chunks,
+            commands::set_meeting_calendar_match,
+            commands::match_meeting_calendar,
             commands::list_input_devices,
             commands::get_preferred_input_device,
             commands::set_preferred_input_device,

@@ -10,6 +10,11 @@ type Props = {
 /// System Settings). Stays out of the way when everything is green.
 export default function PermissionWarningBanner({ onOpenSettings }: Props) {
   const [missing, setMissing] = useState<string[]>([]);
+  // Track whether the missing permission(s) actually break core functionality
+  // (mic + a11y are required) vs. only degrade meetings (screen recording —
+  // mic-only meetings still work). The banner wording adapts so we don't tell
+  // the user dictation is broken when only Screen Recording is missing.
+  const [coreBroken, setCoreBroken] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -20,7 +25,9 @@ export default function PermissionWarningBanner({ onOpenSettings }: Props) {
         const m: string[] = [];
         if (!s.microphone) m.push("Microphone");
         if (!s.accessibility) m.push("Accessibility");
+        if (!s.screen_recording) m.push("Screen Recording");
         setMissing(m);
+        setCoreBroken(!s.microphone || !s.accessibility);
       } catch {
         /* ignore — transient */
       }
@@ -38,8 +45,10 @@ export default function PermissionWarningBanner({ onOpenSettings }: Props) {
   return (
     <div className="flex items-center justify-between gap-3 border-b border-warning/40 bg-warning/10 px-4 py-2 text-xs text-warning">
       <span>
-        <strong>Permission missing:</strong> {missing.join(" + ")}. Echo Scribe
-        can't dictate or paste until you re-grant.
+        <strong>Permission missing:</strong> {missing.join(" + ")}.{" "}
+        {coreBroken
+          ? "Echo Scribe can't dictate or paste until you re-grant."
+          : "Meetings will only record your microphone — the other person's audio won't be captured."}
       </span>
       <button
         type="button"

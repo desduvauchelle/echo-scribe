@@ -1,10 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import {
   openAccessibilitySettings,
+  openCalendarSettings,
   openMicrophoneSettings,
+  openScreenRecordingSettings,
   permissionsStatus,
   promptAccessibilityAccess,
+  promptCalendarAccess,
   requestMicrophoneAccess,
+  requestScreenRecordingAccess,
   resetTccAndQuit,
   type PermissionsStatus,
 } from "../lib/api";
@@ -20,6 +24,8 @@ export default function PermissionsSection() {
   const [status, setStatus] = useState<PermissionsStatus>({
     microphone: false,
     accessibility: false,
+    screen_recording: false,
+    calendars: false,
   });
   const [checking, setChecking] = useState(false);
   const [resetting, setResetting] = useState(false);
@@ -60,6 +66,51 @@ export default function PermissionsSection() {
     } catch {
       await openMicrophoneSettings().catch(() => {});
     }
+  };
+
+  const handleGrantScreenRecording = async () => {
+    // CGRequestScreenCaptureAccess registers Echo Scribe in the macOS Screen
+    // Recording list and shows the system prompt. First call typically
+    // returns false — user has to flip the toggle in System Settings. We
+    // open the pane as a fallback in that case.
+    try {
+      const granted = await requestScreenRecordingAccess();
+      if (granted) {
+        await refresh();
+        return;
+      }
+    } catch {
+      /* fall through */
+    }
+    try {
+      await openScreenRecordingSettings();
+    } catch {
+      /* ignore */
+    }
+    await refresh().catch(() => {});
+  };
+
+  const handleGrantCalendars = async () => {
+    // Calendar access is optional. promptCalendarAccess shells out to the
+    // calmatch sidecar which calls requestFullAccessToEvents — first call
+    // shows the system dialog, subsequent calls return cached. If the
+    // sidecar isn't available or the user declines, we fall back to
+    // opening Settings.
+    try {
+      const granted = await promptCalendarAccess();
+      if (granted) {
+        await refresh();
+        return;
+      }
+    } catch {
+      /* fall through */
+    }
+    try {
+      await openCalendarSettings();
+    } catch {
+      /* ignore */
+    }
+    await refresh().catch(() => {});
   };
 
   const handleGrantAccessibility = async () => {
@@ -132,14 +183,37 @@ export default function PermissionsSection() {
 
       <div className="h-px bg-elevated" />
 
+      <PermissionRow
+        title="Screen Recording"
+        subtitle="Lets Echo Scribe capture the other participant's audio during Zoom, Google Meet, and similar meetings. Without it, only your microphone is recorded."
+        granted={status.screen_recording}
+        onGrant={() => void handleGrantScreenRecording()}
+        onRecheck={() => void refresh()}
+        recheckBusy={checking}
+      />
+
+      <div className="h-px bg-elevated" />
+
+      <PermissionRow
+        title="Calendar (optional)"
+        subtitle="Matches each meeting to your calendar invite so summaries name attendees and reference the meeting topic. The calendar data never leaves your Mac."
+        granted={status.calendars}
+        onGrant={() => void handleGrantCalendars()}
+        onRecheck={() => void refresh()}
+        recheckBusy={checking}
+      />
+
+      <div className="h-px bg-elevated" />
+
       <div className="flex items-start justify-between gap-6">
         <div className="min-w-0 flex-1">
           <div className="font-semibold tracking-tight text-warning">
             Reset permissions
           </div>
           <p className="mt-1 text-sm text-muted">
-            Wipes Microphone + Accessibility grants and quits the app. Use if a
-            permission feels broken — relaunch will re-prompt from scratch.
+            Wipes Microphone + Accessibility + Screen Recording grants and
+            quits the app. Use if a permission feels broken — relaunch will
+            re-prompt from scratch.
           </p>
         </div>
         {confirmReset ? (

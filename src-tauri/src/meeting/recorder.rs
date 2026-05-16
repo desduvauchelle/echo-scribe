@@ -357,6 +357,30 @@ impl Recorder {
             }
         })?;
 
+        // Preflight Screen Recording TCC. Without it, ScreenCaptureKit
+        // throws `setup` ~100ms in and the sidecar exits with 0 bytes —
+        // user gets a half-recording with no "other person" track and no
+        // visible warning. Catch it up front, skip syscap, and surface
+        // the gap as an explicit mic-only meeting so the UI can prompt.
+        if !crate::permissions::screen_recording_authorized() {
+            warn!("Screen Recording permission missing; meeting will be mic-only");
+            let _ = on_syscap_event.send(crate::meeting::syscap::SyscapEvent::Error {
+                kind: "permission".into(),
+                msg: "Screen Recording permission is not granted. Grant it in System Settings → Privacy & Security → Screen Recording to capture the other participant's audio.".into(),
+            });
+            return Ok(Self {
+                meeting_id,
+                dir,
+                syscap: None,
+                mic: Some(mic),
+                syscap_task: None,
+                syscap_evt_task: None,
+                mic_only: true,
+                mic_writer,
+                sys_writer,
+            });
+        }
+
         let (syscap, mut pcm_rx, mut evt_rx) = match Syscap::spawn() {
             Ok(s) => s,
             Err(e) => {

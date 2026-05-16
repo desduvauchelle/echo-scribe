@@ -10,6 +10,10 @@
     <string>Echo Scribe synthesizes a paste keystroke to insert transcribed text at your cursor.</string>
     <key>NSScreenCaptureUsageDescription</key>
     <string>Echo Scribe captures system audio during meetings so it can transcribe the other participants. Only audio is read; no screen content is recorded or stored.</string>
+    <key>NSCalendarsFullAccessUsageDescription</key>
+    <string>Echo Scribe matches your meetings to calendar events so summaries include attendees and topic. The data never leaves your Mac.</string>
+    <key>NSCalendarsUsageDescription</key>
+    <string>Echo Scribe matches your meetings to calendar events so summaries include attendees and topic. The data never leaves your Mac.</string>
     <key>LSUIElement</key>
     <true/>
 </dict>

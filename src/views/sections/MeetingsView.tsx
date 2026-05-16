@@ -9,10 +9,9 @@ import {
   type MeetingStatus,
 } from "../../lib/api";
 import { useToasts } from "../../components/ToastProvider";
+import { useActivityPanel } from "../../components/ActivityPanelContext";
 
 type Filter = "all" | "week" | "month" | string;
-
-type Props = { onSelect: (id: string) => void };
 
 /** Numeric rank for meeting status — higher = further along the lifecycle.
  *  Used to enforce monotonic status transitions in the UI so that a stale
@@ -26,12 +25,13 @@ const STATUS_RANK: Record<string, number> = {
   recovered: 3,
 };
 
-export function MeetingsView({ onSelect }: Props) {
+export function MeetingsView() {
   const [rows, setRows] = useState<MeetingRow[]>([]);
   const [filter, setFilter] = useState<Filter>("all");
   const [active, setActive] = useState(false);
   const [busy, setBusy] = useState(false);
   const toasts = useToasts();
+  const { openItem, refreshTick } = useActivityPanel();
 
   const refreshRows = useCallback(async () => {
     try {
@@ -69,6 +69,12 @@ export function MeetingsView({ onSelect }: Props) {
     void refreshRows();
     void refreshActive();
   }, [refreshRows, refreshActive]);
+
+  useEffect(() => {
+    if (refreshTick === 0) return;
+    void refreshRows();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshTick]);
 
   useEffect(() => {
     let unsubs: UnlistenFn[] = [];
@@ -217,7 +223,7 @@ export function MeetingsView({ onSelect }: Props) {
                 <li
                   key={r.item_id}
                   className="cursor-pointer rounded-md bg-surface-2 p-3 hover:bg-surface-3"
-                  onClick={() => onSelect(r.item_id)}
+                  onClick={() => openItem(r.item_id)}
                 >
                   <div className="flex items-center justify-between">
                     <div className="text-sm font-medium">

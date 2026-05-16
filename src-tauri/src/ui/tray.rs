@@ -106,7 +106,18 @@ impl<R: Runtime> TrayHandle<R> {
                                 info!("meeting stopped via tray");
                             }
                         } else {
-                            match manager.clone().start(None, None).await {
+                            let start_ctx = {
+                                let ctx = crate::input::focus::capture_context();
+                                crate::meeting::MeetingStartContext {
+                                    window_title: ctx.as_ref().and_then(|c| c.window_title.clone()),
+                                    browser_url: ctx.as_ref().and_then(|c| c.browser_url.clone()),
+                                    browser_tab_title: ctx
+                                        .as_ref()
+                                        .and_then(|c| c.browser_tab_title.clone()),
+                                    calendar_match: None,
+                                }
+                            };
+                            match manager.clone().start(None, None, start_ctx).await {
                                 Ok(id) => {
                                     info!(%id, "meeting started via tray");
                                     crate::meeting::detector::spawn_end_monitor(manager, None);

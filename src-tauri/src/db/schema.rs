@@ -179,6 +179,12 @@ CREATE INDEX IF NOT EXISTS idx_daily_summaries_generated_at
   ON daily_summaries(generated_at DESC);
 "#,
     ),
+    (
+        9,
+        r#"
+ALTER TABLE meetings ADD COLUMN calendar_match_json TEXT;
+"#,
+    ),
 ];
 
 const META_TABLE_SQL: &str = r#"
@@ -240,7 +246,25 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(v, "8");
+        assert_eq!(v, "9");
+    }
+
+    #[test]
+    fn migration_v9_adds_calendar_match_json_column() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        run_migrations(&mut conn).unwrap();
+        let cols: Vec<String> = conn
+            .prepare("PRAGMA table_info(meetings)")
+            .unwrap()
+            .query_map([], |r| r.get::<_, String>(1))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        assert!(
+            cols.iter().any(|c| c == "calendar_match_json"),
+            "missing calendar_match_json column; got {:?}",
+            cols
+        );
     }
 
     #[test]
@@ -312,7 +336,7 @@ mod tests {
         let version: String = conn
             .query_row("SELECT value FROM schema_meta WHERE key = 'schema_version'", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(version, "8");
+        assert_eq!(version, "9");
     }
 
     #[test]

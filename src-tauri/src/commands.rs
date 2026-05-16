@@ -179,6 +179,11 @@ pub fn open_accessibility_settings() -> Result<(), String> {
     permissions::open_settings(SettingsPane::Accessibility).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+pub fn open_screen_recording_settings() -> Result<(), String> {
+    permissions::open_settings(SettingsPane::ScreenCapture).map_err(|e| e.to_string())
+}
+
 /// Trigger the macOS in-process microphone prompt (or return the cached
 /// decision). Returns `true` if access is granted (now or already), `false`
 /// if denied or undetermined.
@@ -196,6 +201,26 @@ pub async fn request_microphone_access() -> Result<bool, String> {
 #[tauri::command]
 pub fn prompt_accessibility_access() -> Result<bool, String> {
     Ok(permissions::prompt_accessibility())
+}
+
+/// Trigger the macOS Screen Recording prompt (or return the cached
+/// decision). Backs the ScreenCaptureKit-driven "other person" audio
+/// track in meetings.
+#[tauri::command]
+pub fn request_screen_recording_access() -> Result<bool, String> {
+    Ok(permissions::request_screen_recording())
+}
+
+/// Trigger the macOS Calendar prompt by spawning the calmatch sidecar.
+/// Returns the resulting grant. Used by Onboarding + Settings.
+#[tauri::command]
+pub async fn prompt_calendar_access() -> Result<bool, String> {
+    Ok(permissions::prompt_calendars().await)
+}
+
+#[tauri::command]
+pub fn open_calendar_settings() -> Result<(), String> {
+    permissions::open_settings(SettingsPane::Calendars).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -587,6 +612,13 @@ pub fn list_items(
     let limit = clamp_limit(limit);
     let offset = offset.unwrap_or(0);
     db.with_conn(|c| db::items::list_items(c, vis, project_id.as_deref(), limit, offset))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_item(state: State<'_, AppState>, id: String) -> Result<Option<Item>, String> {
+    let db = require_db(&state)?;
+    db.with_conn(move |c| db::items::get_item(c, &id))
         .map_err(|e| e.to_string())
 }
 
@@ -1119,19 +1151,21 @@ pub async fn reset_onboarding_and_quit(app: AppHandle) -> Result<(), String> {
 
 // ----- Reset TCC permissions -----
 
-/// Run `tccutil reset` for Microphone + Accessibility against this app's
-/// bundle id, then quit the app. macOS keeps TCC grants attached to the
-/// running process, so the user must relaunch to be re-prompted.
+/// Run `tccutil reset` for Microphone + Accessibility + ScreenCapture
+/// against this app's bundle id, then quit the app. macOS keeps TCC grants
+/// attached to the running process, so the user must relaunch to be
+/// re-prompted.
 ///
-/// Equivalent to the manual `tccutil reset Microphone com.echoscribe.app` +
-/// `tccutil reset Accessibility com.echoscribe.app` flow documented in
-/// CLAUDE.md, but exposed in the UI so the user doesn't need a terminal.
+/// Equivalent to the manual `tccutil reset Microphone com.echoscribe.app`
+/// + `tccutil reset Accessibility com.echoscribe.app` + `tccutil reset
+/// ScreenCapture com.echoscribe.app` flow documented in CLAUDE.md, but
+/// exposed in the UI so the user doesn't need a terminal.
 #[tauri::command]
 pub async fn reset_tcc_and_quit(app: AppHandle) -> Result<(), String> {
     use std::process::Command;
     const BUNDLE_ID: &str = "com.echoscribe.app";
     info!(bundle = BUNDLE_ID, "reset_tcc_and_quit invoked");
-    for service in ["Microphone", "Accessibility"] {
+    for service in ["Microphone", "Accessibility", "ScreenCapture"] {
         let output = Command::new("/usr/bin/tccutil")
             .args(["reset", service, BUNDLE_ID])
             .output()
@@ -1815,15 +1849,33 @@ pub fn get_dashboard_stats(state: State<'_, AppState>) -> Result<db::stats::Dash
 pub async fn start_meeting_manual(
     state: tauri::State<'_, AppState>,
 ) -> Result<String, String> {
+    // Capture frontmost context so manual-start meetings also get the
+    // window-title / URL / tab-title hint in the synthesis prompt.
+    let start_context = capture_meeting_start_context();
     let id = state
         .meeting_manager
         .clone()
-        .start(None, None)
+        .start(None, None, start_context)
         .await
         .map_err(|e| e.to_string())?;
     // Spawn end-monitor so the meeting auto-stops when mic goes silent.
     crate::meeting::detector::spawn_end_monitor(state.meeting_manager.clone(), None);
     Ok(id)
+}
+
+/// Snapshot the frontmost window/URL/tab to feed the meeting synthesis prompt.
+/// Best-effort; returns an empty context when AX/AppleScript fails or the app
+/// is non-macOS.
+fn capture_meeting_start_context() -> crate::meeting::MeetingStartContext {
+    let ctx = crate::input::focus::capture_context();
+    // calendar_match is filled in by MeetingManager::start once we have an
+    // anchor timestamp — the capture site only knows app/window context.
+    crate::meeting::MeetingStartContext {
+        window_title: ctx.as_ref().and_then(|c| c.window_title.clone()),
+        browser_url: ctx.as_ref().and_then(|c| c.browser_url.clone()),
+        browser_tab_title: ctx.as_ref().and_then(|c| c.browser_tab_title.clone()),
+        calendar_match: None,
+    }
 }
 
 #[tauri::command]
@@ -1908,7 +1960,11 @@ pub async fn meeting_consent(
             let id = state
                 .meeting_manager
                 .clone()
-                .start(Some(bundle_id.clone()), Some(app_name))
+                .start(
+                    Some(bundle_id.clone()),
+                    Some(app_name),
+                    capture_meeting_start_context(),
+                )
                 .await
                 .map_err(|e| e.to_string())?;
             prefs.insert(bundle_id, MeetingAppPref::Always);
@@ -1922,7 +1978,11 @@ pub async fn meeting_consent(
             let id = state
                 .meeting_manager
                 .clone()
-                .start(Some(bundle_id), Some(app_name))
+                .start(
+                    Some(bundle_id),
+                    Some(app_name),
+                    capture_meeting_start_context(),
+                )
                 .await
                 .map_err(|e| e.to_string())?;
             Ok(Some(id))
@@ -2013,6 +2073,43 @@ pub async fn retry_meeting_chunks(
     state
         .meeting_manager
         .retry_chunks(&id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Override the calendar match for a meeting (or clear it). Passing
+/// `None` for `r#match` removes the snapshot; passing a `CalendarMatch`
+/// object persists it on the row. The caller is expected to follow up
+/// with `retry_meeting_summary` to regenerate with the new context.
+#[tauri::command]
+pub async fn set_meeting_calendar_match(
+    state: tauri::State<'_, AppState>,
+    id: String,
+    r#match: Option<crate::calendar::CalendarMatch>,
+) -> Result<(), String> {
+    let db = state.db.as_ref().ok_or("db unavailable")?;
+    let json = r#match
+        .as_ref()
+        .map(|m| serde_json::to_string(m).unwrap_or_default());
+    let id_owned = id.clone();
+    db.with_conn(move |conn| {
+        crate::db::meetings::update_calendar_match(conn, &id_owned, json.as_deref())
+    })
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Probe the user's calendar for events around a given window. Used by
+/// the meeting detail UI to populate "Wrong match?" alternatives that
+/// weren't in the original ranked candidates. Returns the best match
+/// plus next-ranked candidates (or `null` if nothing overlaps).
+#[tauri::command]
+pub async fn match_meeting_calendar(
+    iso_start: String,
+    iso_end: String,
+    conf_hint: Option<String>,
+) -> Result<Option<crate::calendar::MatchOutcome>, String> {
+    crate::calendar::match_meeting(&iso_start, &iso_end, conf_hint.as_deref())
         .await
         .map_err(|e| e.to_string())
 }

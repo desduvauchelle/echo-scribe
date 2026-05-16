@@ -11,12 +11,16 @@ use serde::Serialize;
 pub struct PermissionsStatus {
     pub microphone: bool,
     pub accessibility: bool,
+    pub screen_recording: bool,
+    pub calendars: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub enum SettingsPane {
     Microphone,
     Accessibility,
+    ScreenCapture,
+    Calendars,
 }
 
 /// Result of an asynchronous microphone access request.
@@ -50,7 +54,29 @@ mod imp {
         PermissionsStatus {
             microphone: microphone_authorized(),
             accessibility: accessibility_trusted(),
+            screen_recording: screen_recording_authorized(),
+            calendars: crate::calendar::is_authorized_sync(),
         }
+    }
+
+    /// Non-prompting probe of the Screen Recording TCC grant.
+    ///
+    /// Backs ScreenCaptureKit. `CGPreflightScreenCaptureAccess` returns the
+    /// cached decision without ever showing a dialog — safe to call from any
+    /// thread on app startup, in tray menus, etc.
+    pub fn screen_recording_authorized() -> bool {
+        core_graphics::access::ScreenCaptureAccess.preflight()
+    }
+
+    /// Trigger the macOS Screen Recording prompt.
+    ///
+    /// `CGRequestScreenCaptureAccess` either (a) returns immediately with the
+    /// cached decision, or (b) prompts the user and returns the user's
+    /// response. There is no async completion handler — the call is
+    /// synchronous on the framework side but cheap, so we don't bother with
+    /// a tokio oneshot.
+    pub fn request_screen_recording() -> bool {
+        core_graphics::access::ScreenCaptureAccess.request()
     }
 
     fn accessibility_trusted() -> bool {
@@ -175,6 +201,8 @@ mod imp {
         PermissionsStatus {
             microphone: true,
             accessibility: true,
+            screen_recording: true,
+            calendars: true,
         }
     }
 
@@ -183,6 +211,14 @@ mod imp {
     }
 
     pub fn prompt_accessibility() -> bool {
+        true
+    }
+
+    pub fn screen_recording_authorized() -> bool {
+        true
+    }
+
+    pub fn request_screen_recording() -> bool {
         true
     }
 }
@@ -208,6 +244,35 @@ pub fn prompt_accessibility() -> bool {
     imp::prompt_accessibility()
 }
 
+/// Returns the current Screen Recording (TCC `kTCCServiceScreenCapture`)
+/// grant for this process without prompting. Backs the ScreenCaptureKit
+/// path used by the syscap sidecar to capture the other participant's
+/// audio during meetings.
+pub fn screen_recording_authorized() -> bool {
+    imp::screen_recording_authorized()
+}
+
+/// Trigger the macOS Screen Recording prompt and return the resulting
+/// grant. On first call this shows the system dialog; subsequent calls
+/// return the cached decision without prompting.
+pub fn request_screen_recording() -> bool {
+    imp::request_screen_recording()
+}
+
+/// Trigger the macOS Calendar prompt by spawning the `echo-scribe-calmatch`
+/// sidecar with `--request-access`. Returns the resulting authorization
+/// state. The sidecar exits 0 on grant, 1 on deny; we treat absence of
+/// the binary (dev build) as a non-grant.
+pub async fn prompt_calendars() -> bool {
+    crate::calendar::prompt_access().await
+}
+
+/// Non-prompting probe of the Calendar grant. Spawns the sidecar with
+/// `--probe`. Returns false when the sidecar isn't built.
+pub fn calendars_authorized() -> bool {
+    crate::calendar::is_authorized_sync()
+}
+
 /// Open the relevant System Settings pane for the user to grant access.
 ///
 /// Uses the `x-apple.systempreferences:` URL scheme via the `open(1)` binary.
@@ -219,6 +284,12 @@ pub fn open_settings(pane: SettingsPane) -> Result<(), std::io::Error> {
         }
         SettingsPane::Accessibility => {
             "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+        }
+        SettingsPane::ScreenCapture => {
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
+        }
+        SettingsPane::Calendars => {
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars"
         }
     };
     let status = std::process::Command::new("open").arg(url).status()?;

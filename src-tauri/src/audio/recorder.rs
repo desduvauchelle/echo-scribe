@@ -12,12 +12,28 @@ const LEVEL_BUCKETS: usize = 16;
 pub enum RecorderError {
     #[error("no default input device")]
     NoDevice,
+    #[error("preferred input device '{0}' not found")]
+    PreferredDeviceMissing(String),
     #[error("failed to build input stream: {0}")]
     BuildStream(String),
     #[error("failed to start input stream: {0}")]
     StartStream(String),
     #[error("recorder is not running")]
     NotRunning,
+}
+
+impl RecorderError {
+    /// Short slug for the failure category, used in the UI/event payload so
+    /// the frontend can tailor the message without parsing the error string.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            RecorderError::NoDevice => "no_device",
+            RecorderError::PreferredDeviceMissing(_) => "preferred_missing",
+            RecorderError::BuildStream(_) => "build_stream",
+            RecorderError::StartStream(_) => "start_stream",
+            RecorderError::NotRunning => "not_running",
+        }
+    }
 }
 
 /// Optional callback that receives amplitude levels for overlay visualization.
@@ -29,6 +45,9 @@ pub struct Recorder {
     sample_rate: u32,
     channels: u16,
     level_callback: Option<LevelCallback>,
+    preferred_device_name: Option<String>,
+    /// Name of the device the most recent successful start() actually used.
+    active_device_name: Option<String>,
 }
 
 impl Recorder {
@@ -39,6 +58,8 @@ impl Recorder {
             sample_rate: 0,
             channels: 0,
             level_callback: None,
+            preferred_device_name: None,
+            active_device_name: None,
         }
     }
 
@@ -48,15 +69,61 @@ impl Recorder {
         self.level_callback = Some(Arc::new(cb));
     }
 
+    /// Set the preferred input device by name. `None` (default) means "use the
+    /// system default input." When set to `Some(name)`, `start()` will refuse
+    /// to record (returning [`RecorderError::PreferredDeviceMissing`]) if the
+    /// named device is not currently enumerable — no silent fallback.
+    pub fn set_preferred_device(&mut self, name: Option<String>) {
+        self.preferred_device_name = name;
+    }
+
+    /// Returns the name of the device the last successful `start()` used, or
+    /// `None` if the recorder has never started successfully.
+    pub fn active_device_name(&self) -> Option<&str> {
+        self.active_device_name.as_deref()
+    }
+
     pub fn start(&mut self) -> Result<(), RecorderError> {
         let host = cpal::default_host();
-        let device = host.default_input_device().ok_or(RecorderError::NoDevice)?;
+        let (device, resolved_name) = if let Some(preferred) = &self.preferred_device_name {
+            let mut found: Option<cpal::Device> = None;
+            match host.input_devices() {
+                Ok(it) => {
+                    for d in it {
+                        if let Ok(n) = d.name() {
+                            if n == *preferred {
+                                found = Some(d);
+                                break;
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    warn!(?e, "failed to enumerate input devices while resolving preferred");
+                }
+            }
+            match found {
+                Some(d) => (d, preferred.clone()),
+                None => return Err(RecorderError::PreferredDeviceMissing(preferred.clone())),
+            }
+        } else {
+            let d = host.default_input_device().ok_or(RecorderError::NoDevice)?;
+            let n = d.name().unwrap_or_else(|_| "<unknown>".to_string());
+            (d, n)
+        };
+
         let config = device
             .default_input_config()
             .map_err(|e| RecorderError::BuildStream(e.to_string()))?;
         self.sample_rate = config.sample_rate().0;
         self.channels = config.channels();
-        info!(sample_rate = self.sample_rate, channels = self.channels, format = ?config.sample_format(), "starting recorder");
+        info!(
+            device = %resolved_name,
+            sample_rate = self.sample_rate,
+            channels = self.channels,
+            format = ?config.sample_format(),
+            "starting recorder"
+        );
 
         // Reset buffer
         if let Ok(mut s) = self.samples.lock() {
@@ -114,6 +181,7 @@ impl Recorder {
 
         stream.play().map_err(|e| RecorderError::StartStream(e.to_string()))?;
         self.stream = Some(stream);
+        self.active_device_name = Some(resolved_name);
         Ok(())
     }
 

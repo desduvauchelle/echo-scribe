@@ -170,9 +170,15 @@ pub fn spawn(
                 MeetingAppPref::Always => {
                     info!(app = %frontmost, "auto-starting meeting (Always)");
                     let app_for_monitor = frontmost.clone();
+                    let start_ctx = crate::meeting::MeetingStartContext {
+                        window_title: ctx.window_title.clone(),
+                        browser_url: ctx.browser_url.clone(),
+                        browser_tab_title: ctx.browser_tab_title.clone(),
+                        calendar_match: None,
+                    };
                     if let Err(e) = manager
                         .clone()
-                        .start(Some(frontmost.clone()), Some(display_name.into()))
+                        .start(Some(frontmost.clone()), Some(display_name.into()), start_ctx)
                         .await
                     {
                         warn!(?e, "auto-start failed");
@@ -201,71 +207,215 @@ pub fn spawn(
     });
 }
 
+/// Snapshot of the signals consulted by [`EndMonitorTicker`] on each tick.
+///
+/// Decoupled from the live system so the ticker can be unit-tested with
+/// synthetic scenarios.
+#[derive(Debug, Clone)]
+pub struct EndMonitorSignals {
+    /// Whether [`MeetingManager`] still considers a meeting active. When false
+    /// the ticker returns [`EndMonitorDecision::Exit`] regardless of presence.
+    pub manager_active: bool,
+    /// Bundle id of the meeting app that triggered the recording, e.g.
+    /// `"us.zoom.xos"` or `"com.google.Chrome"`. `None` for manual starts —
+    /// without it we have no source to track and the ticker stays idle.
+    pub detected_app: Option<String>,
+    /// Bundle id of the currently frontmost app, or `None`.
+    pub frontmost_bundle: Option<String>,
+    /// Window title of the frontmost window. Used for native-app meeting
+    /// presence (e.g. Zoom/Teams).
+    pub frontmost_window_title: Option<String>,
+    /// Browser URL when the frontmost app is a known browser. Used for
+    /// browser-app meeting presence (Google Meet, Zoom Web, etc.).
+    pub frontmost_browser_url: Option<String>,
+}
+
+/// Result of a single [`EndMonitorTicker::tick`] call.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EndMonitorDecision {
+    /// Keep monitoring; the meeting source still appears to be present, or
+    /// the signals are inconclusive.
+    Continue,
+    /// The meeting source has been gone for `threshold` ticks. Caller should
+    /// invoke `MeetingManager::stop()`.
+    Stop,
+    /// `MeetingManager` is no longer active (manually stopped or hard-capped).
+    /// Caller should exit the monitoring task.
+    Exit,
+}
+
+/// Categorical evaluation of whether the meeting source is still observable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Presence {
+    /// We can see the meeting source and it's still there. Resets the counter.
+    Present,
+    /// We can see what would be the meeting source and it's gone. Counter +1.
+    Gone,
+    /// We can't tell from current signals (e.g., user is in a different app).
+    /// Counter is left unchanged so we don't false-stop when the user opens
+    /// Slack to check messages mid-meeting.
+    Unknown,
+}
+
+/// Per-tick decision-maker for the meeting end monitor. Pure: no system calls.
+/// Caller is responsible for gathering [`EndMonitorSignals`] and acting on the
+/// returned [`EndMonitorDecision`].
+#[derive(Debug, Clone)]
+pub struct EndMonitorTicker {
+    consecutive_gone: u32,
+    threshold: u32,
+}
+
+impl EndMonitorTicker {
+    /// Threshold of 6: at the production tick interval of 5s, that's 30s of
+    /// continuous "meeting source gone" signal before auto-stop fires.
+    pub fn new() -> Self {
+        Self::with_threshold(6)
+    }
+
+    pub fn with_threshold(threshold: u32) -> Self {
+        Self {
+            consecutive_gone: 0,
+            threshold,
+        }
+    }
+
+    /// Apply one tick of the end-monitor state machine.
+    ///
+    /// Note: when frontmost is **not** the detected meeting app we treat the
+    /// situation as inconclusive (counter unchanged) rather than confidently
+    /// "gone." This avoids false-stops when the user briefly tabs to Slack or
+    /// the browser during a native-app meeting. The trade-off: if the user
+    /// fully quits the meeting app and never returns, auto-stop won't fire.
+    /// They can manually stop or the hard-cap will kick in.
+    pub fn tick(&mut self, signals: &EndMonitorSignals) -> EndMonitorDecision {
+        if !signals.manager_active {
+            return EndMonitorDecision::Exit;
+        }
+        match evaluate_meeting_presence(signals) {
+            Presence::Present => {
+                self.consecutive_gone = 0;
+                EndMonitorDecision::Continue
+            }
+            Presence::Gone => {
+                self.consecutive_gone = self.consecutive_gone.saturating_add(1);
+                if self.consecutive_gone >= self.threshold {
+                    EndMonitorDecision::Stop
+                } else {
+                    EndMonitorDecision::Continue
+                }
+            }
+            Presence::Unknown => EndMonitorDecision::Continue,
+        }
+    }
+
+    #[cfg(test)]
+    fn consecutive_gone(&self) -> u32 {
+        self.consecutive_gone
+    }
+}
+
+impl Default for EndMonitorTicker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Decide whether the meeting source (window title / URL) is still observable
+/// from the supplied signals.
+fn evaluate_meeting_presence(signals: &EndMonitorSignals) -> Presence {
+    let Some(detected_app) = signals.detected_app.as_deref() else {
+        // Manual start with no detected app — we have no source to track.
+        return Presence::Unknown;
+    };
+    // We can only inspect the meeting app's window title or URL when it's the
+    // frontmost app (no cross-app window enumeration). When it isn't, signals
+    // are inconclusive.
+    if signals.frontmost_bundle.as_deref() != Some(detected_app) {
+        return Presence::Unknown;
+    }
+    let Some((_, is_browser)) = lookup(detected_app) else {
+        // Detected app dropped out of the registry (e.g., between releases).
+        // Without a way to interpret signals, stay safe.
+        return Presence::Unknown;
+    };
+    if is_browser {
+        match browser_provider_name(signals.frontmost_browser_url.as_deref()) {
+            Some(_) => Presence::Present,
+            None => Presence::Gone,
+        }
+    } else {
+        let title_indicates_meeting = signals
+            .frontmost_window_title
+            .as_deref()
+            .map(|t| is_meeting_window_title(detected_app, t))
+            .unwrap_or(false);
+        if title_indicates_meeting {
+            Presence::Present
+        } else {
+            Presence::Gone
+        }
+    }
+}
+
 /// Spawns a background task that monitors for meeting end signals.
-/// Auto-stops the meeting when the mic has been silent for 30 consecutive
-/// seconds (6 checks x 5s interval). This handles the case where the user
-/// leaves a Zoom/Teams meeting but forgets to manually stop recording.
+///
+/// Auto-stops the meeting when the meeting source (window title / URL) has
+/// been gone for [`EndMonitorTicker::threshold`] consecutive ticks. This
+/// handles the common case where the user clicks End in Zoom or Leave in
+/// Google Meet but doesn't manually stop the recording.
+///
+/// History note: an earlier implementation gated on
+/// `kAudioDevicePropertyDeviceIsRunningSomewhere` (the system-wide "mic in
+/// use" flag). That signal was permanently true once we started recording the
+/// meeting ourselves — Echo Scribe's own cpal input stream contaminated the
+/// observation. The auto-stop never fired and meetings recorded forever. The
+/// current logic uses meeting-source presence (window title / URL) instead.
 pub fn spawn_end_monitor(
     manager: Arc<MeetingManager>,
     detected_app: Option<String>,
 ) {
     tauri::async_runtime::spawn(async move {
-        let mut consecutive_silent: u32 = 0;
-        // 6 consecutive silent checks x 5 seconds = 30 seconds of silence.
-        let silence_threshold: u32 = 6;
+        let mut ticker = EndMonitorTicker::new();
         let mut interval = tokio::time::interval(Duration::from_secs(5));
-
         loop {
             interval.tick().await;
-
-            // If the meeting was already stopped (manually or by hard cap), exit.
-            if !manager.is_active().await {
-                info!("end-monitor: meeting no longer active, exiting");
-                return;
-            }
-
-            let mic_active = is_default_input_running();
-
-            if mic_active {
-                consecutive_silent = 0;
-                continue;
-            }
-
-            // Mic is silent. Check if the meeting app is still frontmost.
-            let app_still_frontmost = detected_app.as_ref().map_or(false, |bundle| {
-                frontmost_bundle_id()
-                    .as_deref()
-                    .map_or(false, |f| f == bundle)
-            });
-
-            if app_still_frontmost {
-                // App is still frontmost but mic is silent — could be a
-                // temporary mute or the meeting is transitioning. Be patient.
-                consecutive_silent += 1;
-            } else {
-                // App is not frontmost AND mic is silent — strong signal
-                // that the meeting has ended. Count faster (2x weight).
-                consecutive_silent += 2;
-            }
-
-            if consecutive_silent >= silence_threshold {
-                info!(
-                    app = ?detected_app,
-                    silent_checks = consecutive_silent,
-                    "end-monitor: meeting appears to have ended, auto-stopping"
-                );
-                if let Err(e) = manager.stop().await {
-                    warn!(?e, "end-monitor: auto-stop failed");
+            let signals = gather_end_monitor_signals(&manager, &detected_app).await;
+            match ticker.tick(&signals) {
+                EndMonitorDecision::Continue => {}
+                EndMonitorDecision::Exit => {
+                    info!("end-monitor: meeting no longer active, exiting");
+                    return;
                 }
-                return;
+                EndMonitorDecision::Stop => {
+                    info!(
+                        app = ?detected_app,
+                        "end-monitor: meeting source gone, auto-stopping"
+                    );
+                    if let Err(e) = manager.stop().await {
+                        warn!(?e, "end-monitor: auto-stop failed");
+                    }
+                    return;
+                }
             }
         }
     });
 }
 
-/// Returns the bundle ID of the frontmost regular app, or None.
-fn frontmost_bundle_id() -> Option<String> {
-    crate::input::focus::capture_context().and_then(|ctx| ctx.bundle_id)
+/// Snapshot the live signals the end-monitor tick consumes.
+async fn gather_end_monitor_signals(
+    manager: &Arc<MeetingManager>,
+    detected_app: &Option<String>,
+) -> EndMonitorSignals {
+    let manager_active = manager.is_active().await;
+    let ctx = crate::input::focus::capture_context();
+    EndMonitorSignals {
+        manager_active,
+        detected_app: detected_app.clone(),
+        frontmost_bundle: ctx.as_ref().and_then(|c| c.bundle_id.clone()),
+        frontmost_window_title: ctx.as_ref().and_then(|c| c.window_title.clone()),
+        frontmost_browser_url: ctx.as_ref().and_then(|c| c.browser_url.clone()),
+    }
 }
 
 #[cfg(test)]
@@ -351,6 +501,214 @@ mod tests {
             None
         );
         assert_eq!(browser_provider_name(None), None);
+    }
+
+    // ---- End-monitor ticker tests ----
+
+    fn signals_with_detected(detected_app: &str) -> EndMonitorSignals {
+        EndMonitorSignals {
+            manager_active: true,
+            detected_app: Some(detected_app.to_string()),
+            frontmost_bundle: None,
+            frontmost_window_title: None,
+            frontmost_browser_url: None,
+        }
+    }
+
+    /// Regression test for the bug where the end-monitor relied on
+    /// `kAudioDevicePropertyDeviceIsRunningSomewhere`. Echo Scribe's own
+    /// recorder kept the property `true` for the entire meeting, so the old
+    /// silence counter never advanced and auto-stop never fired.
+    ///
+    /// This test feeds the *exact* situation that used to break the old
+    /// monitor: the user has clicked End in Zoom (meeting window now shows
+    /// "Home"), but the system mic is still in use because Echo Scribe is
+    /// recording. The new ticker ignores mic state entirely and uses
+    /// meeting-source presence (window title), so it must reach `Stop`.
+    #[test]
+    fn regression_end_monitor_stops_even_while_recorder_holds_mic() {
+        let mut t = EndMonitorTicker::with_threshold(6);
+        // Zoom is frontmost but the meeting window is gone (user clicked End,
+        // Zoom now shows its Home view). Note: no mic-state field exists on
+        // EndMonitorSignals — by construction the new ticker can't be tricked
+        // by Echo Scribe's own recorder holding the input device open.
+        let signals = EndMonitorSignals {
+            manager_active: true,
+            detected_app: Some("us.zoom.xos".into()),
+            frontmost_bundle: Some("us.zoom.xos".into()),
+            frontmost_window_title: Some("Home".into()),
+            frontmost_browser_url: None,
+        };
+        let mut decisions = Vec::new();
+        for _ in 0..10 {
+            let d = t.tick(&signals);
+            decisions.push(d);
+            if matches!(d, EndMonitorDecision::Stop) {
+                break;
+            }
+        }
+        assert!(
+            decisions.iter().any(|d| matches!(d, EndMonitorDecision::Stop)),
+            "ticker never stopped after Zoom meeting window closed; decisions: {decisions:?}"
+        );
+    }
+
+    #[test]
+    fn end_monitor_stops_when_zoom_meeting_window_closes() {
+        let mut t = EndMonitorTicker::with_threshold(6);
+        let signals = EndMonitorSignals {
+            manager_active: true,
+            detected_app: Some("us.zoom.xos".into()),
+            frontmost_bundle: Some("us.zoom.xos".into()),
+            frontmost_window_title: Some("Home".into()),
+            frontmost_browser_url: None,
+        };
+        // 6 ticks at +1 each = exactly threshold.
+        for _ in 0..5 {
+            assert_eq!(t.tick(&signals), EndMonitorDecision::Continue);
+        }
+        assert_eq!(t.tick(&signals), EndMonitorDecision::Stop);
+    }
+
+    #[test]
+    fn end_monitor_stops_when_google_meet_url_changes() {
+        let mut t = EndMonitorTicker::with_threshold(6);
+        // The user clicked Leave call; the URL shifted off the meeting code
+        // pattern. Browser is still frontmost and on meet.google.com, but the
+        // path no longer matches `is_meet_code` so url_allowlist returns None.
+        let signals = EndMonitorSignals {
+            manager_active: true,
+            detected_app: Some("com.google.Chrome".into()),
+            frontmost_bundle: Some("com.google.Chrome".into()),
+            frontmost_window_title: Some("Google Meet".into()),
+            frontmost_browser_url: Some("https://meet.google.com/landing".into()),
+        };
+        for _ in 0..5 {
+            assert_eq!(t.tick(&signals), EndMonitorDecision::Continue);
+        }
+        assert_eq!(t.tick(&signals), EndMonitorDecision::Stop);
+    }
+
+    #[test]
+    fn end_monitor_continues_during_normal_zoom_meeting() {
+        let mut t = EndMonitorTicker::with_threshold(6);
+        let signals = EndMonitorSignals {
+            manager_active: true,
+            detected_app: Some("us.zoom.xos".into()),
+            frontmost_bundle: Some("us.zoom.xos".into()),
+            frontmost_window_title: Some("Weekly Standup - Zoom Meeting".into()),
+            frontmost_browser_url: None,
+        };
+        for _ in 0..50 {
+            assert_eq!(t.tick(&signals), EndMonitorDecision::Continue);
+        }
+        assert_eq!(t.consecutive_gone(), 0);
+    }
+
+    #[test]
+    fn end_monitor_continues_during_normal_google_meet_meeting() {
+        let mut t = EndMonitorTicker::with_threshold(6);
+        let signals = EndMonitorSignals {
+            manager_active: true,
+            detected_app: Some("com.google.Chrome".into()),
+            frontmost_bundle: Some("com.google.Chrome".into()),
+            frontmost_window_title: Some("Meet — Standup".into()),
+            frontmost_browser_url: Some("https://meet.google.com/abc-defg-hij".into()),
+        };
+        for _ in 0..50 {
+            assert_eq!(t.tick(&signals), EndMonitorDecision::Continue);
+        }
+    }
+
+    #[test]
+    fn end_monitor_does_not_stop_when_user_tabs_to_slack_during_meeting() {
+        // The user's in a Zoom call but is checking Slack. We can't see Zoom's
+        // window state from here (no cross-app enumeration). Must NOT stop —
+        // false-stops during meetings would be much worse than late-stops.
+        let mut t = EndMonitorTicker::with_threshold(6);
+        let signals = EndMonitorSignals {
+            manager_active: true,
+            detected_app: Some("us.zoom.xos".into()),
+            frontmost_bundle: Some("com.tinyspeck.slackmacgap".into()),
+            frontmost_window_title: Some("Acme Workspace".into()),
+            frontmost_browser_url: None,
+        };
+        for tick in 0..50 {
+            assert_eq!(
+                t.tick(&signals),
+                EndMonitorDecision::Continue,
+                "tick {tick} should be Continue (user tabbed away mid-meeting)"
+            );
+        }
+        assert_eq!(t.consecutive_gone(), 0);
+    }
+
+    #[test]
+    fn end_monitor_exits_when_manager_no_longer_active() {
+        let mut t = EndMonitorTicker::with_threshold(6);
+        let mut signals = signals_with_detected("us.zoom.xos");
+        signals.manager_active = false;
+        assert_eq!(t.tick(&signals), EndMonitorDecision::Exit);
+    }
+
+    #[test]
+    fn end_monitor_resets_counter_when_user_returns_to_meeting() {
+        // Scenario: Zoom is frontmost on the Home view (user might be looking
+        // for the meeting), counter starts climbing. Then they navigate back
+        // into the meeting window — counter should reset.
+        let mut t = EndMonitorTicker::with_threshold(6);
+        let home_signals = EndMonitorSignals {
+            manager_active: true,
+            detected_app: Some("us.zoom.xos".into()),
+            frontmost_bundle: Some("us.zoom.xos".into()),
+            frontmost_window_title: Some("Home".into()),
+            frontmost_browser_url: None,
+        };
+        for _ in 0..3 {
+            assert_eq!(t.tick(&home_signals), EndMonitorDecision::Continue);
+        }
+        assert_eq!(t.consecutive_gone(), 3);
+        let meeting_signals = EndMonitorSignals {
+            frontmost_window_title: Some("Zoom Meeting".into()),
+            ..home_signals
+        };
+        assert_eq!(t.tick(&meeting_signals), EndMonitorDecision::Continue);
+        assert_eq!(t.consecutive_gone(), 0);
+    }
+
+    #[test]
+    fn end_monitor_unknown_when_detected_app_not_in_registry() {
+        // Defensive: if a future release removes an app from the registry but
+        // there's still a recording in flight, don't auto-stop just because
+        // we can no longer interpret the signals.
+        let mut t = EndMonitorTicker::with_threshold(6);
+        let signals = EndMonitorSignals {
+            manager_active: true,
+            detected_app: Some("com.removed.app".into()),
+            frontmost_bundle: Some("com.removed.app".into()),
+            frontmost_window_title: Some("Untitled".into()),
+            frontmost_browser_url: None,
+        };
+        for _ in 0..50 {
+            assert_eq!(t.tick(&signals), EndMonitorDecision::Continue);
+        }
+    }
+
+    #[test]
+    fn end_monitor_unknown_when_no_detected_app_manual_start() {
+        // Manual start: no detected app means we have no source to track.
+        // Stay quiet; the user can stop manually.
+        let mut t = EndMonitorTicker::with_threshold(6);
+        let signals = EndMonitorSignals {
+            manager_active: true,
+            detected_app: None,
+            frontmost_bundle: Some("us.zoom.xos".into()),
+            frontmost_window_title: Some("Home".into()),
+            frontmost_browser_url: None,
+        };
+        for _ in 0..50 {
+            assert_eq!(t.tick(&signals), EndMonitorDecision::Continue);
+        }
     }
 }
 

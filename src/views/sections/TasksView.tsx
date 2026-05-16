@@ -2,15 +2,14 @@ import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useState } from "react";
 import {
   completeTask,
-  deleteItem,
   listTasks,
-  restoreItem,
   setTaskDeadline,
   uncompleteTask,
   type Project,
   type TaskWithItem,
 } from "../../lib/api";
 import ItemCard from "../../components/ItemCard";
+import { useActivityPanel } from "../../components/ActivityPanelContext";
 import { useToasts } from "../../components/ToastProvider";
 import {
   dateInputToIso,
@@ -34,6 +33,7 @@ export default function TasksView({ projects }: Props) {
   const [loadingDone, setLoadingDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const toasts = useToasts();
+  const { refreshTick } = useActivityPanel();
 
   const fetchOpen = useCallback(async () => {
     setLoadingOpen(true);
@@ -66,6 +66,13 @@ export default function TasksView({ projects }: Props) {
   useEffect(() => {
     void fetchOpen();
   }, [fetchOpen]);
+
+  useEffect(() => {
+    if (refreshTick === 0) return;
+    void fetchOpen();
+    if (showDone) void fetchDone();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshTick]);
 
   useEffect(() => {
     if (showDone) void fetchDone();
@@ -137,41 +144,6 @@ export default function TasksView({ projects }: Props) {
     }
   };
 
-  const onDelete = async (t: TaskWithItem) => {
-    setOpen((prev) => prev.filter((x) => x.item.id !== t.item.id));
-    setDone((prev) => prev.filter((x) => x.item.id !== t.item.id));
-    try {
-      await deleteItem(t.item.id);
-      toasts.push({
-        tone: "info",
-        message: "Task deleted",
-        action: {
-          label: "Undo",
-          onClick: () => {
-            void (async () => {
-              try {
-                await restoreItem(t.item.id);
-                void fetchOpen();
-                if (showDone) void fetchDone();
-              } catch (e) {
-                toasts.push({
-                  tone: "error",
-                  message: `Restore failed: ${e instanceof Error ? e.message : String(e)}`,
-                });
-              }
-            })();
-          },
-        },
-      });
-    } catch (e) {
-      toasts.push({
-        tone: "error",
-        message: `Delete failed: ${e instanceof Error ? e.message : String(e)}`,
-      });
-      void fetchOpen();
-    }
-  };
-
   return (
     <div className="flex h-full flex-col">
       <div className="border-b border-line bg-canvas/40 px-6 py-4">
@@ -217,7 +189,6 @@ export default function TasksView({ projects }: Props) {
                   completed={false}
                   onToggle={() => void onComplete(t)}
                   onChangeDeadline={(v) => void onChangeDeadline(t, v)}
-                  onDelete={() => void onDelete(t)}
                 />
               ))}
             </div>
@@ -256,7 +227,6 @@ export default function TasksView({ projects }: Props) {
                     completed={true}
                     onToggle={() => void onUncomplete(t)}
                     onChangeDeadline={(v) => void onChangeDeadline(t, v)}
-                    onDelete={() => void onDelete(t)}
                   />
                 ))}
               </div>
@@ -274,14 +244,12 @@ function TaskRow({
   completed,
   onToggle,
   onChangeDeadline,
-  onDelete,
 }: {
   task: TaskWithItem;
   projects: Map<string, Project>;
   completed: boolean;
   onToggle: () => void;
   onChangeDeadline: (value: string) => void;
-  onDelete: () => void;
 }) {
   return (
     <div className="flex items-start gap-3">
@@ -297,7 +265,6 @@ function TaskRow({
           item={task.item}
           projects={projects}
           compact
-          onDelete={onDelete}
           rightSlot={
             <DeadlineBadge
               deadlineIso={task.deadline}

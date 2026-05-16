@@ -10,18 +10,27 @@ use std::path::PathBuf;
 ///      them at build time avoids committing binaries while keeping the
 ///      runtime path zero-IO.
 fn main() {
-    // Build the Swift sidecar in release mode only (not during cargo check/test).
+    // Build the Swift sidecars in release mode only (not during cargo check/test).
     if std::env::var("PROFILE").as_deref() == Ok("release") {
-        let status = std::process::Command::new("bash")
+        let syscap = std::process::Command::new("bash")
             .arg("../scripts/build-syscap.sh")
             .status()
             .expect("failed to run build-syscap.sh");
-        if !status.success() {
+        if !syscap.success() {
             panic!("syscap build failed");
+        }
+        let calmatch = std::process::Command::new("bash")
+            .arg("../scripts/build-calmatch.sh")
+            .status()
+            .expect("failed to run build-calmatch.sh");
+        if !calmatch.success() {
+            panic!("calmatch build failed");
         }
     }
     println!("cargo:rerun-if-changed=syscap/main.swift");
     println!("cargo:rerun-if-changed=syscap/Package.swift");
+    println!("cargo:rerun-if-changed=calmatch/main.swift");
+    println!("cargo:rerun-if-changed=calmatch/Package.swift");
 
     tauri_build::build();
 

@@ -11,6 +11,8 @@ export type JsBinding = {
 export type PermissionsStatus = {
   microphone: boolean;
   accessibility: boolean;
+  screen_recording: boolean;
+  calendars: boolean;
 };
 
 export const permissionsStatus = (): Promise<PermissionsStatus> =>
@@ -22,11 +24,23 @@ export const openMicrophoneSettings = (): Promise<void> =>
 export const openAccessibilitySettings = (): Promise<void> =>
   invoke("open_accessibility_settings");
 
+export const openScreenRecordingSettings = (): Promise<void> =>
+  invoke("open_screen_recording_settings");
+
+export const openCalendarSettings = (): Promise<void> =>
+  invoke("open_calendar_settings");
+
 export const requestMicrophoneAccess = (): Promise<boolean> =>
   invoke("request_microphone_access");
 
 export const promptAccessibilityAccess = (): Promise<boolean> =>
   invoke("prompt_accessibility_access");
+
+export const requestScreenRecordingAccess = (): Promise<boolean> =>
+  invoke("request_screen_recording_access");
+
+export const promptCalendarAccess = (): Promise<boolean> =>
+  invoke("prompt_calendar_access");
 
 export const getVoiceAtCursorBinding = (): Promise<JsBinding> =>
   invoke("get_voice_at_cursor_binding");
@@ -135,7 +149,30 @@ export type Item = {
   deleted_at: string | null;
   confidence: number | null;
   classified_by: string | null;
+  /** JSON-serialized FocusContext, if captured at recording time. */
+  capture_context: string | null;
 };
+
+/** Parsed shape of the JSON stored in `Item.capture_context`. All fields optional. */
+export type ParsedCaptureContext = {
+  pid?: number;
+  bundle_id?: string | null;
+  app_name?: string | null;
+  window_title?: string | null;
+  browser_url?: string | null;
+  browser_tab_title?: string | null;
+};
+
+export function parseCaptureContext(raw: string | null | undefined): ParsedCaptureContext | null {
+  if (!raw) return null;
+  try {
+    const obj = JSON.parse(raw);
+    if (typeof obj !== "object" || obj === null) return null;
+    return obj as ParsedCaptureContext;
+  } catch {
+    return null;
+  }
+}
 
 export type Project = {
   id: string;
@@ -162,6 +199,9 @@ export const listItems = (args: {
     limit: args.limit ?? 50,
     offset: args.offset ?? 0,
   });
+
+export const getItem = (id: string): Promise<Item | null> =>
+  invoke("get_item", { id });
 
 export const searchItems = (query: string, limit = 50): Promise<Item[]> =>
   invoke("search_items", { query, limit });
@@ -531,7 +571,68 @@ export type MeetingRow = {
   user_notes: string | null;
   failed_chunk_count: number;
   mic_only: boolean;
+  /// Snapshot of the matched calendar event (JSON-encoded
+  /// `CalendarMatch`) at the time the meeting was recorded. `null` when
+  /// no event matched, calendar access wasn't granted, or the sidecar
+  /// failed.
+  calendar_match_json: string | null;
 };
+
+export type CalendarAttendee = {
+  name: string | null;
+  email: string | null;
+  self: boolean;
+  role: string | null;
+};
+
+export type CalendarMatch = {
+  title: string | null;
+  organizer: CalendarAttendee | null;
+  attendees: CalendarAttendee[];
+  starts_at: string;
+  ends_at: string;
+  notes: string | null;
+  calendar_name: string | null;
+  conferencing_url: string | null;
+  match_score: number;
+  match_reason: string;
+};
+
+export type MatchOutcome = {
+  best: CalendarMatch;
+  candidates: CalendarMatch[];
+};
+
+export const matchMeetingCalendar = (
+  iso_start: string,
+  iso_end: string,
+  conf_hint?: string | null,
+): Promise<MatchOutcome | null> =>
+  invoke("match_meeting_calendar", {
+    isoStart: iso_start,
+    isoEnd: iso_end,
+    confHint: conf_hint ?? null,
+  });
+
+export const setMeetingCalendarMatch = (
+  id: string,
+  match: CalendarMatch | null,
+): Promise<void> => invoke("set_meeting_calendar_match", { id, match });
+
+/// Parse the `calendar_match_json` column on a `MeetingRow` into a
+/// `CalendarMatch` object. Returns `null` when the column is null or
+/// the JSON is malformed (logged as a console warning).
+export function parseCalendarMatch(
+  row: Pick<MeetingRow, "calendar_match_json">,
+): CalendarMatch | null {
+  if (!row.calendar_match_json) return null;
+  try {
+    return JSON.parse(row.calendar_match_json) as CalendarMatch;
+  } catch (e) {
+    console.warn("calendar_match_json parse failed", e);
+    return null;
+  }
+}
 
 export type Segment = {
   speaker: "you" | "them";
