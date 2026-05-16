@@ -8,6 +8,7 @@ pub mod detector;
 pub mod grammar;
 pub mod pipeline;
 pub mod recorder;
+pub mod stitch;
 pub mod syscap;
 pub mod synthesizer;
 pub mod url_allowlist;
