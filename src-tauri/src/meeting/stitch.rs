@@ -92,4 +92,43 @@ mod tests {
     fn full_duplicate_returns_empty() {
         assert_eq!(strip_overlap("alpha beta gamma", "beta gamma"), "");
     }
+
+    #[test]
+    fn filler_false_positive_is_known_lossy() {
+        // Speaker genuinely said "you know" twice (filler), no acoustic
+        // overlap — exact-match stitch drops it. Documented lossy tradeoff.
+        let out = strip_overlap(
+            "so the migration is risky and that is the whole thing you know",
+            "you know we also have the rollback path to consider",
+        );
+        assert_eq!(out, "we also have the rollback path to consider");
+    }
+
+    #[test]
+    fn asr_variance_leaks_duplicate() {
+        // A single differing token in the re-transcribed overlap defeats the
+        // exact match — duplication leaks. Documented lossy tradeoff.
+        let out = strip_overlap(
+            "okay so to wrap up we should ship it by friday",
+            "we shouldship it by friday and tell the team",
+        );
+        assert_eq!(out, "we shouldship it by friday and tell the team");
+    }
+
+    #[test]
+    fn punct_only_leading_token_dropped_but_no_words_lost() {
+        let out = strip_overlap("the plan is set ...", "... the budget needs review");
+        assert_eq!(out, "the budget needs review");
+    }
+
+    #[test]
+    fn repeated_word_run_greedy_longest_match() {
+        let out = strip_overlap("i think the the the", "the the the cat");
+        assert_eq!(out, "cat");
+    }
+
+    #[test]
+    fn whitespace_only_prev_returns_new() {
+        assert_eq!(strip_overlap("   \t ", "hello world"), "hello world");
+    }
 }
