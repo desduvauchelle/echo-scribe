@@ -80,6 +80,14 @@ impl Pipeline {
                                 text,
                             };
                             builder.lock().await.push(seg);
+                            {
+                                let b = builder.lock().await;
+                                let seg_count = b.segments.len();
+                                let text_bytes: usize = b.segments.iter().map(|s| s.text.len()).sum();
+                                drop(b);
+                                tracing::info!(seg_count, text_bytes, "[mem] chunk drained");
+                            }
+                            crate::util::rss::log_rss("after chunk transcribe");
                             if let Err(e) = tokio::fs::remove_file(&chunk.path).await {
                                 warn!(?e, path = %chunk.path.display(), "remove chunk failed");
                             }

@@ -414,7 +414,10 @@ impl MeetingManager {
 
         // Step 4: Pull segments out of the pipeline.
         let pipeline = active.pipeline.take().expect("set in start");
+        crate::util::rss::log_rss("before pipeline.finalize");
         let (segments, failed) = pipeline.finalize().await;
+        crate::util::rss::log_rss("after pipeline.finalize");
+        tracing::info!(seg_count = segments.len(), "[mem] segments materialized");
         let failed_count = failed.len() as i64;
 
         // Step 5: Run synthesis.
@@ -490,6 +493,7 @@ impl MeetingManager {
             browser_tab_title: active.start_browser_tab_title.clone(),
             calendar_match: refined_match.clone(),
         };
+        crate::util::rss::log_rss("before synthesize");
         let synthesis = synthesizer::synthesize(
             self.llm.clone(),
             &segments,
@@ -499,6 +503,7 @@ impl MeetingManager {
             &start_context,
         )
         .await;
+        crate::util::rss::log_rss("after synthesize");
 
         // Step 6: Build the transcript JSON, serialize summary, write to DB.
         let transcript_json = serde_json::json!({
