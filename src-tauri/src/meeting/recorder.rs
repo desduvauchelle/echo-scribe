@@ -1,4 +1,4 @@
-//! Chunked WAV writer (60s rotation) and recording orchestrator.
+//! Chunked WAV writer (silence-aware rotation) and recording orchestrator.
 
 use crate::meeting::syscap::Syscap;
 use crate::meeting::{ChunkReady, MeetingError, Speaker};
@@ -14,10 +14,31 @@ use tracing::{error, info, warn};
 const SAMPLE_RATE: u32 = 16_000;
 const CHANNELS: u16 = 1;
 const BITS_PER_SAMPLE: u16 = 16;
-const CHUNK_SECONDS: u64 = 60;
-const SAMPLES_PER_CHUNK: u64 = SAMPLE_RATE as u64 * CHUNK_SECONDS;
+/// Soft target: once this many samples are buffered, the writer looks for a
+/// silence boundary to close the chunk on.
+const CHUNK_TARGET_SECONDS: u64 = 20;
+const CHUNK_TARGET_SAMPLES: u64 = SAMPLE_RATE as u64 * CHUNK_TARGET_SECONDS;
+/// Hard cap: force-close even mid-speech at this many samples.
+const CHUNK_MAX_SECONDS: u64 = 30;
+const CHUNK_MAX_SAMPLES: u64 = SAMPLE_RATE as u64 * CHUNK_MAX_SECONDS;
+/// The chunk-duration value recorded into transcript JSON metadata.
+pub const CHUNK_TARGET_SECONDS_PUB: u64 = CHUNK_TARGET_SECONDS;
+/// Window (samples) whose RMS is tested for the silence boundary: 300 ms.
+const SILENCE_WINDOW_SAMPLES: usize = (SAMPLE_RATE as usize / 1000) * 300;
+/// i16 RMS gate. Mirrors `audio::vad::RMS_THRESHOLD` (0.003 of full-scale)
+/// scaled to i16: 0.003 * 32768 ≈ 98.
+const SILENCE_RMS_I16: f32 = 98.0;
 
-/// Streaming WAV writer that rotates files every `CHUNK_SECONDS`.
+/// Root-mean-square amplitude of an i16 PCM window.
+fn rms_i16(samples: &[i16]) -> f32 {
+    if samples.is_empty() {
+        return 0.0;
+    }
+    let sum_sq: f64 = samples.iter().map(|&s| (s as f64) * (s as f64)).sum();
+    ((sum_sq / samples.len() as f64).sqrt()) as f32
+}
+
+/// Streaming WAV writer that rotates files using a silence-aware policy.
 pub struct ChunkedWavWriter {
     speaker: Speaker,
     dir: PathBuf,
@@ -28,6 +49,8 @@ pub struct ChunkedWavWriter {
     current_path: Option<PathBuf>,
     chunk_start_ms: u64,
     on_chunk_ready: mpsc::UnboundedSender<ChunkReady>,
+    /// Sliding window of the most recent samples, used for silence detection.
+    tail: Vec<i16>,
 }
 
 impl ChunkedWavWriter {
@@ -47,6 +70,7 @@ impl ChunkedWavWriter {
             current_path: None,
             chunk_start_ms: 0,
             on_chunk_ready,
+            tail: Vec::with_capacity(SILENCE_WINDOW_SAMPLES + 1),
         })
     }
 
@@ -56,13 +80,24 @@ impl ChunkedWavWriter {
             if self.writer.is_none() {
                 self.open_new_chunk()?;
             }
-            let remaining = (SAMPLES_PER_CHUNK - self.samples_in_chunk) as usize;
-            let take = remaining.min(samples.len() - offset);
-            self.write_raw(&samples[offset..offset + take])?;
+            // How many more samples until the hard cap.
+            let until_cap = (CHUNK_MAX_SAMPLES - self.samples_in_chunk) as usize;
+            let take = until_cap.min(samples.len() - offset);
+            let slice = &samples[offset..offset + take];
+            self.write_raw(slice)?;
+            self.tail.extend_from_slice(slice);
+            while self.tail.len() > SILENCE_WINDOW_SAMPLES {
+                self.tail.remove(0);
+            }
             self.samples_in_chunk += take as u64;
             self.total_samples += take as u64;
             offset += take;
-            if self.samples_in_chunk >= SAMPLES_PER_CHUNK {
+
+            let at_cap = self.samples_in_chunk >= CHUNK_MAX_SAMPLES;
+            let past_target = self.samples_in_chunk >= CHUNK_TARGET_SAMPLES;
+            let at_silence = self.tail.len() >= SILENCE_WINDOW_SAMPLES
+                && rms_i16(&self.tail) < SILENCE_RMS_I16;
+            if at_cap || (past_target && at_silence) {
                 self.finalize_chunk()?;
             }
         }
@@ -86,6 +121,7 @@ impl ChunkedWavWriter {
         self.writer = Some(BufWriter::new(file));
         self.current_path = Some(path);
         self.samples_in_chunk = 0;
+        self.tail.clear();
         self.chunk_start_ms = self.total_samples * 1000 / SAMPLE_RATE as u64;
         Ok(())
     }
@@ -487,22 +523,53 @@ mod tests {
     }
 
     #[test]
-    fn rotates_at_60_seconds() {
+    fn rms_i16_detects_silence_vs_speech() {
+        let silence = vec![0i16; SILENCE_WINDOW_SAMPLES];
+        assert!(super::rms_i16(&silence) < SILENCE_RMS_I16);
+
+        let loud: Vec<i16> = (0..SILENCE_WINDOW_SAMPLES)
+            .map(|i| ((i as f32 * 0.2).sin() * 8000.0) as i16)
+            .collect();
+        assert!(super::rms_i16(&loud) > SILENCE_RMS_I16);
+    }
+
+    #[test]
+    fn force_cuts_at_hard_cap_on_continuous_speech() {
         let tmp = tempdir().unwrap();
         let (mut w, mut rx) = make_writer(tmp.path(), Speaker::You);
-        let one_sec = vec![0i16; SAMPLE_RATE as usize];
-        for _ in 0..60 {
-            w.write(&one_sec).unwrap();
+        // 31 s of continuous loud audio → must force-cut at 30 s (no silence).
+        let loud: Vec<i16> = (0..SAMPLE_RATE as usize)
+            .map(|i| ((i as f32 * 0.2).sin() * 8000.0) as i16)
+            .collect();
+        for _ in 0..31 {
+            w.write(&loud).unwrap();
         }
-        let extra = vec![0i16; 1600];
-        w.write(&extra).unwrap();
-
-        let chunk = rx.try_recv().expect("chunk emitted");
-        assert_eq!(chunk.speaker, Speaker::You);
+        let chunk = rx.try_recv().expect("hard-cap chunk emitted");
         assert_eq!(chunk.start_ms, 0);
-        assert_eq!(chunk.end_ms, 60_000);
-        assert!(chunk.path.exists());
-        assert!(rx.try_recv().is_err(), "only one chunk should be emitted");
+        assert_eq!(chunk.end_ms, CHUNK_MAX_SECONDS * 1000);
+    }
+
+    #[test]
+    fn closes_on_silence_after_target() {
+        let tmp = tempdir().unwrap();
+        let (mut w, mut rx) = make_writer(tmp.path(), Speaker::You);
+        let loud: Vec<i16> = (0..SAMPLE_RATE as usize)
+            .map(|i| ((i as f32 * 0.2).sin() * 8000.0) as i16)
+            .collect();
+        // 22 s loud (past the 20 s target) ...
+        for _ in 0..22 {
+            w.write(&loud).unwrap();
+        }
+        // ... then 0.5 s of silence → should close shortly after 22 s.
+        let silence = vec![0i16; (SAMPLE_RATE / 2) as usize];
+        w.write(&silence).unwrap();
+        let chunk = rx.try_recv().expect("silence-closed chunk emitted");
+        assert_eq!(chunk.start_ms, 0);
+        assert!(
+            chunk.end_ms >= 22_000 && chunk.end_ms < CHUNK_MAX_SECONDS * 1000,
+            "expected silence close between 22s and 30s, got {}",
+            chunk.end_ms
+        );
     }
 
     #[test]
@@ -522,9 +589,11 @@ mod tests {
     fn wav_header_is_valid_after_finalize() {
         let tmp = tempdir().unwrap();
         let (mut w, mut rx) = make_writer(tmp.path(), Speaker::You);
-        let one_sec = vec![0i16; SAMPLE_RATE as usize];
-        for _ in 0..60 {
-            w.write(&one_sec).unwrap();
+        let loud: Vec<i16> = (0..SAMPLE_RATE as usize)
+            .map(|i| ((i as f32 * 0.2).sin() * 8000.0) as i16)
+            .collect();
+        for _ in 0..31 {
+            w.write(&loud).unwrap();
         }
         let chunk = rx.try_recv().unwrap();
 
