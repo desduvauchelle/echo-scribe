@@ -10,6 +10,22 @@
 
 This plan is Plan A of two. Plan B (the Guide feature) is authored after this lands so its tasks bind to the real interfaces created here.
 
+## Plan B follow-ups (descoped from Plan A, confirmed by final review)
+
+1. **Fuzzy-align stitch fallback.** Plan A ships `strip_overlap` as exact
+   normalized-word match only. The design spec's fuzzy-align fallback
+   ("otherwise fuzzy-align the overlap text and cut at best match") was
+   intentionally descoped: under ASR variance a single differing token in
+   the re-transcribed 4 s overlap defeats the match and leaks the duplicated
+   span into the transcript (encoded in `stitch::asr_variance_leaks_duplicate`).
+   Acceptable for the Plan A memory objective; revisit for transcript quality
+   in Plan B (edit-distance / LCS alignment).
+2. **Sub-4 s trailing chunk drop.** When `flush_partial` emits a final chunk
+   shorter than the 4 s overlap, a fully-duplicated `strip_overlap` result is
+   empty and the segment is dropped (`pipeline.rs` `if !stitched.trim()...`).
+   Words were already captured via the prior chunk's overlap, so this is
+   intentional and acceptable; documented here so it isn't mistaken for a bug.
+
 ---
 
 ## File Structure
