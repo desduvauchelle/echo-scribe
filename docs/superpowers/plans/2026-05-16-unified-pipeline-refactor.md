@@ -300,8 +300,9 @@ pub fn write(&mut self, samples: &[i16]) -> std::io::Result<()> {
         let slice = &samples[offset..offset + take];
         self.write_raw(slice)?;
         self.tail.extend_from_slice(slice);
-        while self.tail.len() > SILENCE_WINDOW_SAMPLES {
-            self.tail.remove(0);
+        if self.tail.len() > SILENCE_WINDOW_SAMPLES {
+            let excess = self.tail.len() - SILENCE_WINDOW_SAMPLES;
+            self.tail.drain(0..excess);
         }
         self.samples_in_chunk += take as u64;
         self.total_samples += take as u64;
