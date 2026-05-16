@@ -510,7 +510,7 @@ impl MeetingManager {
             "segments": segments,
             "duration_ms": duration_ms,
             "asr_model": self.asr.active_model_id().unwrap_or_else(|| "unknown".into()),
-            "chunk_seconds": 60,
+            "chunk_seconds": crate::meeting::recorder::CHUNK_TARGET_SECONDS_PUB,
             "failed_chunk_count": failed_count,
             "mic_only": mic_only,
         });
