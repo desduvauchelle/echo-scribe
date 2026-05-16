@@ -557,6 +557,20 @@ git add src-tauri/src/meeting/stitch.rs src-tauri/src/meeting/mod.rs
 git commit -m "feat(meeting): add transcript overlap stitch module"
 ```
 
+> **AS BUILT (deviation from the snippet below):** The per-chunk
+> `workers.push(tokio::spawn(...))` + `Semaphore::new(1)` structure prescribed
+> below was found racy in code review — detached per-chunk workers made the
+> per-speaker tail read→transcribe→write non-atomic, desyncing overlap under
+> backpressure. The drain loop was instead made **sequential** (a single
+> `while let Some(chunk) = rx.recv().await { ... }` inside one outer
+> `tokio::spawn`), and the `Semaphore` was removed entirely (the sequential
+> loop already guarantees one transcription at a time). Both failure branches
+> (load + transcribe) now clear that speaker's tail AND `last_text` so a
+> failed chunk can't poison the next chunk's overlap/stitch. `spawn_drain`
+> still returns `JoinHandle<()>`; `Pipeline::finalize()` and the `mod.rs`
+> caller are unchanged. Future work (Plan B) should build on the sequential
+> drain loop, not the snippet below.
+
 ### Task 7: Wire bounded overlap into the transcription pipeline
 
 **Files:**
