@@ -37,8 +37,8 @@ mod tests {
         for i in (0..big.len()).step_by(4096) {
             big[i] = 1;
         }
-        let after = max_rss_bytes();
         std::hint::black_box(&big);
+        let after = max_rss_bytes();
         assert!(before > 0, "RSS probe returned 0");
         assert!(after >= before, "peak RSS must be monotonic");
     }
