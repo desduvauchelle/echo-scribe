@@ -2,9 +2,12 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
   isMeetingActive,
+  listGuideTemplates,
   listMeetings,
+  startGuidedSession,
   startMeetingManual,
   stopMeeting,
+  type GuideTemplate,
   type MeetingRow,
   type MeetingStatus,
 } from "../../lib/api";
@@ -30,6 +33,8 @@ export function MeetingsView() {
   const [filter, setFilter] = useState<Filter>("all");
   const [active, setActive] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [templates, setTemplates] = useState<GuideTemplate[]>([]);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const toasts = useToasts();
   const { openItem, refreshTick } = useActivityPanel();
 
@@ -71,6 +76,10 @@ export function MeetingsView() {
   }, [refreshRows, refreshActive]);
 
   useEffect(() => {
+    listGuideTemplates().then(setTemplates).catch(() => setTemplates([]));
+  }, []);
+
+  useEffect(() => {
     if (refreshTick === 0) return;
     void refreshRows();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -98,6 +107,26 @@ export function MeetingsView() {
       unsubs.forEach((f) => f());
     };
   }, [refreshActive, refreshRows]);
+
+  const onStartGuided = useCallback(
+    async (templateId: string) => {
+      if (busy) return;
+      setBusy(true);
+      setPickerOpen(false);
+      try {
+        await startGuidedSession(templateId);
+        await refreshActive();
+      } catch (e) {
+        toasts.push({
+          tone: "error",
+          message: e instanceof Error ? e.message : String(e),
+        });
+      } finally {
+        setBusy(false);
+      }
+    },
+    [busy, refreshActive, toasts],
+  );
 
   const onToggle = useCallback(async () => {
     if (busy) return;
@@ -167,7 +196,33 @@ export function MeetingsView() {
     <div className="meetings-view flex flex-col gap-4 p-6">
       <header className="flex items-center justify-between">
         <h2 className="text-lg font-semibold">Meetings</h2>
-        {toggleButton}
+        <div className="flex items-center gap-2">
+          {!active && templates.length > 0 && (
+            <div className="relative">
+              <button
+                className="rounded-md border border-line px-3 py-1 text-sm text-muted hover:text-fg disabled:opacity-50"
+                disabled={busy}
+                onClick={() => setPickerOpen((o) => !o)}
+              >
+                Start guided session
+              </button>
+              {pickerOpen && (
+                <div className="absolute right-0 z-10 mt-1 w-56 rounded-md border border-line bg-surface p-1 shadow-lg">
+                  {templates.map((t) => (
+                    <button
+                      key={t.id}
+                      className="block w-full truncate rounded px-2 py-1 text-left text-sm text-fg hover:bg-elevated"
+                      onClick={() => onStartGuided(t.id)}
+                    >
+                      {t.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+          {toggleButton}
+        </div>
       </header>
 
       {!rows.length ? (
