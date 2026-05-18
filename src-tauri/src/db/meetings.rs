@@ -23,6 +23,12 @@ pub struct MeetingRow {
     /// denied, or the sidecar timed out.
     #[serde(default)]
     pub calendar_match_json: Option<String>,
+    /// Immutable snapshot of the guide template attached to this meeting at
+    /// start time (a `crate::db::guide_templates::GuideTemplate` serialized as
+    /// JSON). `None` for non-guided meetings. Frozen — later edits to the
+    /// template must not rewrite history.
+    #[serde(default)]
+    pub guide_template_json: Option<String>,
 }
 
 pub fn insert_meeting(conn: &Connection, m: &MeetingRow) -> Result<(), DbError> {
@@ -30,8 +36,8 @@ pub fn insert_meeting(conn: &Connection, m: &MeetingRow) -> Result<(), DbError> 
         "INSERT INTO meetings (
             item_id, started_at, ended_at, duration_ms, detected_app, detected_app_name,
             status, transcript_json, summary_json, user_notes, failed_chunk_count, mic_only,
-            calendar_match_json
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+            calendar_match_json, guide_template_json
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
         params![
             m.item_id,
             m.started_at,
@@ -46,6 +52,7 @@ pub fn insert_meeting(conn: &Connection, m: &MeetingRow) -> Result<(), DbError> 
             m.failed_chunk_count,
             m.mic_only as i64,
             m.calendar_match_json,
+            m.guide_template_json,
         ],
     )?;
     Ok(())
@@ -55,7 +62,7 @@ pub fn get_meeting(conn: &Connection, item_id: &str) -> Result<Option<MeetingRow
     conn.query_row(
         "SELECT item_id, started_at, ended_at, duration_ms, detected_app, detected_app_name,
                 status, transcript_json, summary_json, user_notes, failed_chunk_count, mic_only,
-                calendar_match_json
+                calendar_match_json, guide_template_json
          FROM meetings WHERE item_id = ?1",
         [item_id],
         row_to_meeting,
@@ -68,7 +75,7 @@ pub fn list_meetings(conn: &Connection) -> Result<Vec<MeetingRow>, DbError> {
     let mut stmt = conn.prepare(
         "SELECT item_id, started_at, ended_at, duration_ms, detected_app, detected_app_name,
                 status, transcript_json, summary_json, user_notes, failed_chunk_count, mic_only,
-                calendar_match_json
+                calendar_match_json, guide_template_json
          FROM meetings ORDER BY started_at DESC",
     )?;
     let rows = stmt
@@ -88,6 +95,20 @@ pub fn update_calendar_match(
     conn.execute(
         "UPDATE meetings SET calendar_match_json = ?1 WHERE item_id = ?2",
         params![calendar_match_json, item_id],
+    )?;
+    Ok(())
+}
+
+/// Persist the immutable guide-template snapshot on a meeting row. Called
+/// once right after a guided session starts. Mirrors `update_calendar_match`.
+pub fn update_guide_template(
+    conn: &Connection,
+    item_id: &str,
+    guide_template_json: Option<&str>,
+) -> Result<(), DbError> {
+    conn.execute(
+        "UPDATE meetings SET guide_template_json = ?1 WHERE item_id = ?2",
+        params![guide_template_json, item_id],
     )?;
     Ok(())
 }
@@ -160,6 +181,7 @@ fn row_to_meeting(row: &rusqlite::Row<'_>) -> rusqlite::Result<MeetingRow> {
         failed_chunk_count: row.get(10)?,
         mic_only: row.get::<_, i64>(11)? != 0,
         calendar_match_json: row.get(12)?,
+        guide_template_json: row.get(13)?,
     })
 }
 
@@ -195,6 +217,7 @@ mod tests {
             failed_chunk_count: 0,
             mic_only: false,
             calendar_match_json: None,
+            guide_template_json: None,
         }
     }
 
@@ -230,6 +253,20 @@ mod tests {
         update_calendar_match(&conn, "m-1", None).unwrap();
         let got = get_meeting(&conn, "m-1").unwrap().unwrap();
         assert!(got.calendar_match_json.is_none());
+    }
+
+    #[test]
+    fn guide_template_round_trip() {
+        let conn = setup();
+        insert_meeting(&conn, &sample()).unwrap();
+        let snap = r#"{"id":"t1","name":"Discovery","goal":"g","notes":"n"}"#;
+        update_guide_template(&conn, "m-1", Some(snap)).unwrap();
+        let got = get_meeting(&conn, "m-1").unwrap().unwrap();
+        assert_eq!(got.guide_template_json.as_deref(), Some(snap));
+
+        update_guide_template(&conn, "m-1", None).unwrap();
+        let got = get_meeting(&conn, "m-1").unwrap().unwrap();
+        assert!(got.guide_template_json.is_none());
     }
 
     #[test]
