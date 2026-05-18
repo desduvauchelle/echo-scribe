@@ -268,6 +268,7 @@ pub fn run() {
             commands::create_guide_template,
             commands::update_guide_template,
             commands::delete_guide_template,
+            commands::start_guided_session,
         ])
         .setup(move |app| {
             // Tray.

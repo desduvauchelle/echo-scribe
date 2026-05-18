@@ -1878,6 +1878,44 @@ fn capture_meeting_start_context() -> crate::meeting::MeetingStartContext {
     }
 }
 
+/// Start a manually-triggered guided session: a normal meeting recording
+/// with an immutable snapshot of the chosen guide template frozen onto the
+/// meeting row. The live HUD/guidance loop is Plan B2 — this only attaches
+/// the template so the session is reviewable later.
+#[tauri::command]
+pub async fn start_guided_session(
+    state: tauri::State<'_, AppState>,
+    template_id: String,
+) -> Result<String, String> {
+    // Load + snapshot the template BEFORE starting so a missing template
+    // fails fast without leaving a dangling recording.
+    let db = require_db(&state)?;
+    let tid = template_id.clone();
+    let template = db
+        .with_conn(move |c| crate::db::guide_templates::get_template(c, &tid))
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("guide template {template_id} not found"))?;
+    let snapshot = serde_json::to_string(&template).map_err(|e| e.to_string())?;
+
+    let start_context = capture_meeting_start_context();
+    let id = state
+        .meeting_manager
+        .clone()
+        .start(None, None, start_context)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // Persist the immutable snapshot onto the freshly-created meeting row.
+    let id_for_db = id.clone();
+    db.with_conn(move |c| {
+        crate::db::meetings::update_guide_template(c, &id_for_db, Some(snapshot.as_str()))
+    })
+    .map_err(|e| e.to_string())?;
+
+    crate::meeting::detector::spawn_end_monitor(state.meeting_manager.clone(), None);
+    Ok(id)
+}
+
 #[tauri::command]
 pub async fn stop_meeting(
     state: tauri::State<'_, AppState>,
