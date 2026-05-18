@@ -786,3 +786,41 @@ export const setDailyRecapSettings = (
 
 export const dailyRecapNotificationPermissionStatus = (): Promise<boolean> =>
   invoke("daily_recap_notification_permission_status");
+
+// ===================== Guide templates =====================
+
+export type GuideTemplate = {
+  id: string;
+  name: string;
+  description: string;
+  goal: string;
+  notes: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export const listGuideTemplates = (): Promise<GuideTemplate[]> =>
+  invoke("list_guide_templates");
+
+export const createGuideTemplate = (
+  name: string,
+  description: string,
+  goal: string,
+  notes: string,
+): Promise<GuideTemplate> =>
+  invoke("create_guide_template", { name, description, goal, notes });
+
+export const updateGuideTemplate = (
+  id: string,
+  name: string,
+  description: string,
+  goal: string,
+  notes: string,
+): Promise<void> =>
+  invoke("update_guide_template", { id, name, description, goal, notes });
+
+export const deleteGuideTemplate = (id: string): Promise<void> =>
+  invoke("delete_guide_template", { id });
+
+export const startGuidedSession = (templateId: string): Promise<string> =>
+  invoke("start_guided_session", { templateId });
