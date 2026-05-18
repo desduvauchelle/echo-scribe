@@ -12,6 +12,7 @@ import HotkeyRebinder from "../components/HotkeyRebinder";
 import SpeechModelPicker from "../components/SpeechModelPicker";
 import LlmModelPicker from "../components/LlmModelPicker";
 import ProjectManager from "../components/ProjectManager";
+import GuideTemplateManager from "../components/GuideTemplateManager";
 import PermissionsSection from "../components/PermissionsSection";
 import StartAtLoginToggle from "../components/StartAtLoginToggle";
 import TranscriptionSettings from "../components/TranscriptionSettings";
@@ -562,6 +563,13 @@ function MeetingsTab() {
             />
           </label>
         </div>
+      </Section>
+
+      <Section
+        title="Guide templates"
+        subtitle="Reusable goals + notes you can attach to a guided meeting session."
+      >
+        <GuideTemplateManager />
       </Section>
     </div>
   );
