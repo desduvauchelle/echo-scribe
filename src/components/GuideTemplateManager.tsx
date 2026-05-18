@@ -136,7 +136,7 @@ export default function GuideTemplateManager() {
         editingId === t.id ? (
           <div key={t.id}>{editor}</div>
         ) : (
-          <li
+          <div
             key={t.id}
             className="flex items-center justify-between gap-2 rounded-md border border-line bg-surface px-3 py-2"
           >
@@ -162,7 +162,7 @@ export default function GuideTemplateManager() {
                 Delete
               </button>
             </div>
-          </li>
+          </div>
         ),
       )}
       {creating ? (
