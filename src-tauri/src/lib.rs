@@ -264,6 +264,10 @@ pub fn run() {
             commands::daily_recap_settings_get,
             commands::daily_recap_settings_set,
             commands::daily_recap_notification_permission_status,
+            commands::list_guide_templates,
+            commands::create_guide_template,
+            commands::update_guide_template,
+            commands::delete_guide_template,
         ])
         .setup(move |app| {
             // Tray.

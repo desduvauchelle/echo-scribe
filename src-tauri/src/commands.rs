@@ -2314,6 +2314,78 @@ pub fn daily_recap_settings_set(
     Ok(())
 }
 
+// ============================================================================
+// Guide templates
+// ============================================================================
+
+#[tauri::command]
+pub fn list_guide_templates(
+    state: State<'_, AppState>,
+) -> Result<Vec<crate::db::guide_templates::GuideTemplate>, String> {
+    let db = require_db(&state)?;
+    db.with_conn(|c| crate::db::guide_templates::list_templates(c))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn create_guide_template(
+    state: State<'_, AppState>,
+    name: String,
+    description: String,
+    goal: String,
+    notes: String,
+) -> Result<crate::db::guide_templates::GuideTemplate, String> {
+    let trimmed = name.trim().to_string();
+    if trimmed.is_empty() {
+        return Err("template name cannot be empty".into());
+    }
+    let db = require_db(&state)?;
+    let now = chrono_now_iso();
+    let t = crate::db::guide_templates::GuideTemplate {
+        id: ulid::Ulid::new().to_string(),
+        name: trimmed,
+        description,
+        goal,
+        notes,
+        created_at: now.clone(),
+        updated_at: now,
+    };
+    let t2 = t.clone();
+    db.with_conn(move |c| crate::db::guide_templates::insert_template(c, &t2))
+        .map_err(|e| e.to_string())?;
+    Ok(t)
+}
+
+#[tauri::command]
+pub fn update_guide_template(
+    state: State<'_, AppState>,
+    id: String,
+    name: String,
+    description: String,
+    goal: String,
+    notes: String,
+) -> Result<(), String> {
+    let trimmed = name.trim().to_string();
+    if trimmed.is_empty() {
+        return Err("template name cannot be empty".into());
+    }
+    let db = require_db(&state)?;
+    let now = chrono_now_iso();
+    db.with_conn(move |c| {
+        crate::db::guide_templates::update_template(
+            c, &id, &trimmed, &description, &goal, &notes, &now,
+        )
+    })
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn delete_guide_template(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    let db = require_db(&state)?;
+    db.with_conn(move |c| crate::db::guide_templates::delete_template(c, &id))
+        .map_err(|e| e.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
