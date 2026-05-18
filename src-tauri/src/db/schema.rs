@@ -185,6 +185,22 @@ CREATE INDEX IF NOT EXISTS idx_daily_summaries_generated_at
 ALTER TABLE meetings ADD COLUMN calendar_match_json TEXT;
 "#,
     ),
+    (
+        10,
+        r#"
+CREATE TABLE IF NOT EXISTS guide_templates (
+  id          TEXT PRIMARY KEY,
+  name        TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  goal        TEXT NOT NULL DEFAULT '',
+  notes       TEXT NOT NULL DEFAULT '',
+  created_at  TEXT NOT NULL,
+  updated_at  TEXT NOT NULL
+);
+
+ALTER TABLE meetings ADD COLUMN guide_template_json TEXT;
+"#,
+    ),
 ];
 
 const META_TABLE_SQL: &str = r#"
@@ -246,7 +262,7 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(v, "9");
+        assert_eq!(v, "10");
     }
 
     #[test]
@@ -264,6 +280,38 @@ mod tests {
             cols.iter().any(|c| c == "calendar_match_json"),
             "missing calendar_match_json column; got {:?}",
             cols
+        );
+    }
+
+    #[test]
+    fn migration_v10_creates_guide_templates_and_meetings_column() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        run_migrations(&mut conn).unwrap();
+
+        let tcols: Vec<String> = conn
+            .prepare("PRAGMA table_info(guide_templates)")
+            .unwrap()
+            .query_map([], |r| r.get::<_, String>(1))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        for expected in ["id", "name", "description", "goal", "notes", "created_at", "updated_at"] {
+            assert!(
+                tcols.iter().any(|c| c == expected),
+                "guide_templates missing column {expected}; got {tcols:?}"
+            );
+        }
+
+        let mcols: Vec<String> = conn
+            .prepare("PRAGMA table_info(meetings)")
+            .unwrap()
+            .query_map([], |r| r.get::<_, String>(1))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        assert!(
+            mcols.iter().any(|c| c == "guide_template_json"),
+            "meetings missing guide_template_json column; got {mcols:?}"
         );
     }
 
@@ -336,7 +384,7 @@ mod tests {
         let version: String = conn
             .query_row("SELECT value FROM schema_meta WHERE key = 'schema_version'", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(version, "9");
+        assert_eq!(version, "10");
     }
 
     #[test]
