@@ -168,7 +168,7 @@ impl GuidanceEngine {
 
     /// Run one cycle. Returns immediately if a cycle is already in flight
     /// (skip-if-busy). Spawns a background task — fire and forget.
-    pub fn fire_cycle(self: &Self) {
+    pub fn fire_cycle(&self) {
         // CAS the in-flight gate.
         if self
             .inner
