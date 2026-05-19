@@ -517,3 +517,75 @@ mod tests {
         );
     }
 }
+
+/// One key point the LLM is asked to track during a guided session.
+/// Mirrored in `meeting/guidance.rs` — fields stay aligned with the JSON
+/// schema the LLM is asked to emit so deserialization is cheap.
+pub const GUIDANCE_JSON_HINT: &str = r#"{
+  "key_points": [
+    { "id": "<short stable id, lowercase_with_underscores>",
+      "label": "<short label shown to the user>",
+      "status": "covered" | "partial" | "open" }
+  ],
+  "suggestions": ["<one short next-best thing to ask or do>"]
+}"#;
+
+/// Build the system+user prompt for one live guidance cycle.
+///
+/// The LLM is given the conversation goal + freeform notes, a bounded recent
+/// transcript window, and the prior derived points (for stable IDs and status
+/// progression). It must emit a small JSON document. `max_tokens` is sized
+/// for this in the engine; the prompt asks for terse output.
+pub fn build_guidance_prompt(
+    goal: &str,
+    notes: &str,
+    rolling_transcript: &str,
+    prior_points_json: Option<&str>,
+) -> (Option<String>, String) {
+    let system = format!(
+        "You are a real-time meeting facilitator. Track whether the conversation \
+         has covered each key point implied by the user's goal and notes. Return \
+         ONLY a single JSON object matching this exact schema (no prose, no \
+         markdown, no code fences):\n{GUIDANCE_JSON_HINT}\n\n\
+         Rules:\n\
+         - Reuse the SAME id for a point that already appeared in 'previous \
+         points'. Do not invent new ids for the same concept.\n\
+         - status: 'covered' if clearly addressed, 'partial' if touched but \
+         incomplete, 'open' otherwise.\n\
+         - 3-6 key_points total. 1-3 suggestions, each ≤ 12 words, actionable, \
+         specific to the most recent transcript, not generic.\n\
+         - Output JSON only.",
+    );
+    let prior = prior_points_json.unwrap_or("[]");
+    let user = format!(
+        "Goal: {goal}\n\nNotes:\n{notes}\n\nPrevious points (carry ids forward):\n{prior}\n\nRecent transcript:\n{rolling_transcript}\n\nReturn the JSON now."
+    );
+    (Some(system), user)
+}
+
+#[cfg(test)]
+mod guidance_prompt_tests {
+    use super::*;
+
+    #[test]
+    fn embeds_goal_notes_transcript_and_prior() {
+        let (sys, user) = build_guidance_prompt(
+            "Customer discovery",
+            "ask about tools\nask about budget",
+            "they said spreadsheets break daily",
+            Some(r#"[{"id":"current_tools","label":"Current tools","status":"covered"}]"#),
+        );
+        assert!(sys.is_some());
+        assert!(user.contains("Goal: Customer discovery"));
+        assert!(user.contains("ask about tools"));
+        assert!(user.contains("spreadsheets break daily"));
+        assert!(user.contains("current_tools"));
+        assert!(user.contains("Return the JSON now."));
+    }
+
+    #[test]
+    fn empty_prior_defaults_to_empty_array() {
+        let (_sys, user) = build_guidance_prompt("g", "n", "t", None);
+        assert!(user.contains("Previous points (carry ids forward):\n[]"));
+    }
+}
