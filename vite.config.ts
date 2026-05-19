@@ -18,6 +18,7 @@ export default defineConfig({
         main: resolve(__dirname, "index.html"),
         overlay: resolve(__dirname, "src/overlay/index.html"),
         consent: resolve(__dirname, "src/consent-overlay/index.html"),
+        guide: resolve(__dirname, "src/guide-overlay/index.html"),
       },
     },
   },

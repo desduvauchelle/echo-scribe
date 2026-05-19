@@ -820,3 +820,26 @@ export const deleteGuideTemplate = (id: string): Promise<void> =>
 
 export const startGuidedSession = (templateId: string): Promise<string> =>
   invoke("start_guided_session", { templateId });
+
+export const guideSetMode = (mode: "auto" | "on_demand"): Promise<void> =>
+  invoke("guide_set_mode", { mode });
+
+export const guideTriggerNow = (): Promise<void> => invoke("guide_trigger_now");
+
+export const guideEnd = (): Promise<string> => invoke("guide_end");
+
+export type GuideKeyPoint = {
+  id: string;
+  label: string;
+  status: "covered" | "partial" | "open" | string;
+};
+
+export type GuideUpdate = {
+  meetingId: string;
+  templateName?: string;
+  goal?: string;
+  mode: "auto" | "on_demand";
+  keyPoints: GuideKeyPoint[];
+  suggestions: string[];
+  updatedAt: string;
+};
