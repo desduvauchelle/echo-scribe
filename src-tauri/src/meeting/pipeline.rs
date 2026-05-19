@@ -8,6 +8,10 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
 use tracing::{error, info, warn};
 
+/// Fires once per post-stitch segment that survives the empty-trim. Used by
+/// the live guidance engine; never called during plain (non-guided) meetings.
+pub type SegmentObserver = std::sync::Arc<dyn Fn(Segment) + Send + Sync>;
+
 /// Seconds of the previous chunk's audio prepended to the next chunk so
 /// Parakeet has acoustic context across the boundary. Bounded — only the
 /// last chunk's tail is ever retained.
@@ -65,6 +69,7 @@ pub struct Pipeline {
     failed_dir: PathBuf,
     /// Last OVERLAP_SAMPLES of f32 PCM per speaker. Bounded by construction.
     tails: Arc<Mutex<(Vec<f32>, Vec<f32>)>>,
+    on_segment: Option<SegmentObserver>,
 }
 
 impl Pipeline {
@@ -74,7 +79,14 @@ impl Pipeline {
             builder: Arc::new(Mutex::new(TranscriptBuilder::default())),
             failed_dir,
             tails: Arc::new(Mutex::new((Vec::new(), Vec::new()))),
+            on_segment: None,
         }
+    }
+
+    /// Attach a per-segment observer. Must be called BEFORE `spawn_drain`.
+    pub fn with_observer(mut self, cb: SegmentObserver) -> Self {
+        self.on_segment = Some(cb);
+        self
     }
 
     fn tail_index(sp: Speaker) -> usize {
@@ -94,6 +106,7 @@ impl Pipeline {
         let builder = self.builder.clone();
         let failed_dir = self.failed_dir.clone();
         let tails = self.tails.clone();
+        let on_segment = self.on_segment.clone();
         // Sequential drain: process chunks strictly in `rx` arrival order.
         // One transcription runs at a time by construction (Parakeet on ANE
         // is single-tenant), so the tail-read → transcribe → tail-write
@@ -162,12 +175,17 @@ impl Pipeline {
                         if !stitched.trim().is_empty() {
                             let mut b = builder.lock().await;
                             b.set_last_text(chunk.speaker, &stitched);
-                            b.push(Segment {
+                            let seg = Segment {
                                 speaker: chunk.speaker,
                                 start_ms: chunk.start_ms,
                                 end_ms: chunk.end_ms,
                                 text: stitched,
-                            });
+                            };
+                            b.push(seg.clone());
+                            drop(b);
+                            if let Some(cb) = &on_segment {
+                                cb(seg);
+                            }
                         }
                         // Free the chunk WAV — disk flush.
                         if let Err(e) = tokio::fs::remove_file(&chunk.path).await {
@@ -216,6 +234,28 @@ impl Pipeline {
 mod tests {
     use super::*;
     use crate::meeting::{Segment, Speaker};
+
+    #[test]
+    fn with_observer_attaches_callback() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let asr = Arc::new(crate::asr::pipeline::AsrPipeline::default());
+        let count = Arc::new(AtomicUsize::new(0));
+        let count_for_cb = count.clone();
+        let cb: SegmentObserver = Arc::new(move |_seg| {
+            count_for_cb.fetch_add(1, Ordering::Relaxed);
+        });
+        let p = Pipeline::new(asr, std::path::PathBuf::from("/tmp/fail"))
+            .with_observer(cb);
+        if let Some(cb) = &p.on_segment {
+            cb(Segment {
+                speaker: Speaker::You,
+                start_ms: 0,
+                end_ms: 1000,
+                text: "hello".into(),
+            });
+        }
+        assert_eq!(count.load(Ordering::Relaxed), 1);
+    }
 
     #[test]
     fn builder_tracks_last_text_per_speaker() {
