@@ -35,6 +35,8 @@ const KEY_INPUT_DEVICE_SORT: &str = "input_device_sort";
 const KEY_DAILY_RECAP_ENABLED: &str = "daily_recap_enabled";
 const KEY_DAILY_RECAP_DELIVER_HOUR: &str = "daily_recap_deliver_hour";
 const KEY_DAILY_RECAP_INCLUDE_WEEKENDS: &str = "daily_recap_include_weekends";
+const KEY_GUIDE_OVERLAY_MODE: &str = "guide_overlay_mode";
+const KEY_GUIDE_OVERLAY_FRAME: &str = "guide_overlay_frame";
 
 /// Default: morning recap notification is on.
 pub const DEFAULT_DAILY_RECAP_ENABLED: bool = true;
@@ -636,6 +638,42 @@ impl SettingsStore {
     pub fn set_daily_recap_include_weekends(&self, on: bool) -> Result<(), SettingsError> {
         self.store
             .set(KEY_DAILY_RECAP_INCLUDE_WEEKENDS, serde_json::Value::Bool(on));
+        self.store
+            .save()
+            .map_err(|e| SettingsError::Store(e.to_string()))?;
+        Ok(())
+    }
+
+    pub fn guide_overlay_mode(&self) -> Option<crate::meeting::guidance::Mode> {
+        let v = self.store.get(KEY_GUIDE_OVERLAY_MODE)?;
+        let s = v.as_str()?;
+        crate::meeting::guidance::Mode::parse(s)
+    }
+
+    pub fn set_guide_overlay_mode(
+        &self,
+        mode: crate::meeting::guidance::Mode,
+    ) -> Result<(), SettingsError> {
+        let v = match mode {
+            crate::meeting::guidance::Mode::Auto => "auto",
+            crate::meeting::guidance::Mode::OnDemand => "on_demand",
+        };
+        self.store
+            .set(KEY_GUIDE_OVERLAY_MODE, serde_json::Value::String(v.into()));
+        self.store
+            .save()
+            .map_err(|e| SettingsError::Store(e.to_string()))?;
+        Ok(())
+    }
+
+    /// HUD frame {x, y, width, height, collapsed}. Free-form JSON: the
+    /// overlay reads/writes its own keys; backend just persists the blob.
+    pub fn guide_overlay_frame(&self) -> Option<serde_json::Value> {
+        self.store.get(KEY_GUIDE_OVERLAY_FRAME)
+    }
+
+    pub fn set_guide_overlay_frame(&self, v: serde_json::Value) -> Result<(), SettingsError> {
+        self.store.set(KEY_GUIDE_OVERLAY_FRAME, v);
         self.store
             .save()
             .map_err(|e| SettingsError::Store(e.to_string()))?;
