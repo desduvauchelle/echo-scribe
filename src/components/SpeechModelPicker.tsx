@@ -288,7 +288,7 @@ function ModelCard({
           ) : (
             <>
               {model.size_bytes > 0 ? (
-                <span className="text-[11px] text-faint">
+                <span className="text-[11px] text-muted">
                   {formatBytes(model.size_bytes)}
                 </span>
               ) : null}
@@ -481,7 +481,7 @@ export default function SpeechModelPicker({ onChange }: Props) {
 
       {downloaded.length > 0 ? (
         <section className="space-y-2">
-          <h4 className="text-xs font-medium uppercase tracking-wide text-faint">
+          <h4 className="text-xs font-medium uppercase tracking-[0.08em] text-muted">
             Downloaded models
           </h4>
           <div className="flex flex-col gap-3">
@@ -504,7 +504,7 @@ export default function SpeechModelPicker({ onChange }: Props) {
 
       {available.length > 0 ? (
         <section className="space-y-2">
-          <h4 className="text-xs font-medium uppercase tracking-wide text-faint">
+          <h4 className="text-xs font-medium uppercase tracking-[0.08em] text-muted">
             Available to download
           </h4>
           <div className="flex flex-col gap-3">

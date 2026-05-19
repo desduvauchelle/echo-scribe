@@ -147,7 +147,7 @@ export default function DailyView({ initialDate }: Props) {
     <div className="flex h-full bg-canvas text-fg">
       {/* History strip */}
       <aside className="flex w-[200px] shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-line bg-surface px-2 pt-10">
-        <div className="px-2 pb-2 text-[10px] font-medium uppercase tracking-wider text-faint">
+        <div className="px-2 pb-2 text-[11px] font-medium uppercase tracking-[0.08em] text-muted">
           Recent days
         </div>
         {recent.length === 0 ? (

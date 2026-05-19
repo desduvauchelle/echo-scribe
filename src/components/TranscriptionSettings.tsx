@@ -243,7 +243,7 @@ function ChipListCard(props: {
 
       <div className="flex flex-wrap gap-1.5">
         {(words ?? []).length === 0 ? (
-          <p className="text-xs text-faint">
+          <p className="text-xs text-muted">
             {words === null ? "Loading…" : "No entries yet."}
           </p>
         ) : (

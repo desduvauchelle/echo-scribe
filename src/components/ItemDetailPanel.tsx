@@ -103,12 +103,12 @@ function ActivityTab({ itemId }: { itemId: string }) {
   }, [itemId]);
 
   if (loading) {
-    return <div className="text-[11px] text-faint">Loading...</div>;
+    return <div className="text-[11px] text-muted">Loading...</div>;
   }
 
   if (events.length === 0) {
     return (
-      <div className="text-[11px] text-faint">No activity recorded.</div>
+      <div className="text-[11px] text-muted">No activity recorded.</div>
     );
   }
 
@@ -190,7 +190,7 @@ function SessionsTab({ itemId }: { itemId: string }) {
   };
 
   if (loading) {
-    return <div className="text-[11px] text-faint">Loading...</div>;
+    return <div className="text-[11px] text-muted">Loading...</div>;
   }
 
   const hasChatSessions = chatSessions.length > 0;
@@ -198,7 +198,7 @@ function SessionsTab({ itemId }: { itemId: string }) {
 
   if (!hasChatSessions && !hasClaudeSessions) {
     return (
-      <div className="text-[11px] text-faint">
+      <div className="text-[11px] text-muted">
         No linked sessions found.
       </div>
     );
@@ -208,7 +208,7 @@ function SessionsTab({ itemId }: { itemId: string }) {
     <div className="space-y-2">
       {hasChatSessions && (
         <div>
-          <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-faint">
+          <div className="mb-1 text-[11px] font-medium uppercase tracking-[0.08em] text-muted">
             Echo Scribe Chat
           </div>
           {chatSessions.map((s) => (
@@ -254,7 +254,7 @@ function SessionsTab({ itemId }: { itemId: string }) {
                     </div>
                   ))}
                   {chatMessages.length === 0 && (
-                    <div className="text-[11px] text-faint">
+                    <div className="text-[11px] text-muted">
                       No messages.
                     </div>
                   )}
@@ -267,7 +267,7 @@ function SessionsTab({ itemId }: { itemId: string }) {
 
       {hasClaudeSessions && (
         <div>
-          <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-faint">
+          <div className="mb-1 text-[11px] font-medium uppercase tracking-[0.08em] text-muted">
             Claude Code Sessions
           </div>
           {claudeSessions.slice(0, 10).map((s) => (
@@ -316,7 +316,7 @@ function SessionsTab({ itemId }: { itemId: string }) {
                     </div>
                   ))}
                   {claudeMessages.length === 0 && (
-                    <div className="text-[11px] text-faint">
+                    <div className="text-[11px] text-muted">
                       No messages.
                     </div>
                   )}

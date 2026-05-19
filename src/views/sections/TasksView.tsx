@@ -172,7 +172,7 @@ export default function TasksView({ projects, embedded = false }: Props) {
         ) : null}
 
         <section>
-          <h2 className="mb-2 text-xs uppercase tracking-wider text-faint">
+          <h2 className="mb-2 text-[11px] font-medium uppercase tracking-[0.08em] text-muted">
             Open
           </h2>
           {loadingOpen ? (
@@ -201,7 +201,7 @@ export default function TasksView({ projects, embedded = false }: Props) {
 
         <section className="mt-8">
           <div className="mb-2 flex items-center justify-between">
-            <h2 className="text-xs uppercase tracking-wider text-faint">
+            <h2 className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted">
               Done
             </h2>
             <button

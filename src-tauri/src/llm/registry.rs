@@ -82,13 +82,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn registry_has_one_model() {
-        assert_eq!(registry().len(), 1);
+    fn registry_has_expected_models() {
+        assert_eq!(registry().len(), 2);
     }
 
     #[test]
     fn lookup_finds_known_model() {
         assert!(lookup("gemma-4-e2b-it-q4_k_m").is_some());
+        assert!(lookup("gemma-4-e4b-it-q4_k_m").is_some());
         assert!(lookup("gemma-bogus").is_none());
     }
 

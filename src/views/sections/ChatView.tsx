@@ -174,7 +174,7 @@ export default function ChatView({ projects }: Props) {
         </div>
         <div className="flex-1 overflow-y-auto">
           {sessions.length === 0 ? (
-            <p className="px-3 py-4 text-center text-xs text-faint">
+            <p className="px-3 py-4 text-center text-xs text-muted">
               No conversations yet
             </p>
           ) : (
@@ -199,7 +199,7 @@ export default function ChatView({ projects }: Props) {
               ? (sessions.find((s) => s.id === activeSessionId)?.name ?? "Chat")
               : "Chat"}
           </h1>
-          <p className="mt-0.5 text-xs text-faint">
+          <p className="mt-0.5 text-xs text-muted">
             Ask questions about your notes and captures
           </p>
         </div>
@@ -213,7 +213,7 @@ export default function ChatView({ projects }: Props) {
               <p className="text-sm font-medium text-fg">
                 Chat with your memory
               </p>
-              <p className="max-w-xs text-xs leading-relaxed text-faint">
+              <p className="max-w-xs text-xs leading-relaxed text-muted">
                 Start a new chat or select a previous conversation.
               </p>
             </div>
@@ -225,7 +225,7 @@ export default function ChatView({ projects }: Props) {
               <p className="text-sm font-medium text-fg">
                 New conversation
               </p>
-              <p className="max-w-xs text-xs leading-relaxed text-faint">
+              <p className="max-w-xs text-xs leading-relaxed text-muted">
                 Ask about your captures, notes, and tasks. Try "what did I
                 capture today?"
               </p>
@@ -387,7 +387,7 @@ function SourcesPanel({ sources }: { sources: ContextSource[] }) {
 function ThinkingBubble() {
   return (
     <div className="flex justify-start">
-      <div className="rounded-lg bg-elevated/60 px-3 py-2 text-sm text-faint">
+      <div className="rounded-lg bg-elevated/60 px-3 py-2 text-sm text-muted">
         <p className="mb-1 text-[10px] font-medium uppercase tracking-wider">
           Echo Scribe AI
         </p>

@@ -244,7 +244,7 @@ export default function LogCaptureOverlay() {
                 className="rounded-md border border-line bg-canvas px-3 py-2 text-sm focus:border-accent focus:outline-none"
               />
               {edit.projectId && !edit.newProjectName ? (
-                <span className="mt-1 text-xs text-faint">
+                <span className="mt-1 text-xs text-muted">
                   Existing project id: {edit.projectId}
                 </span>
               ) : null}

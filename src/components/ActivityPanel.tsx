@@ -192,7 +192,7 @@ function PanelBody({ itemId, onClose }: { itemId: string; onClose: () => void })
       </header>
       <div className="flex-1 overflow-y-auto px-4 py-3 text-sm text-fg">
         {loading ? (
-          <div className="text-xs text-faint">Loading…</div>
+          <div className="text-xs text-muted">Loading…</div>
         ) : error ? (
           <div className="text-xs text-red-400">{error}</div>
         ) : item ? (
@@ -281,7 +281,7 @@ function safeParseTranscript(json: string): StoredTranscript | null {
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div className="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-faint">
+    <div className="mb-1.5 text-[11px] font-medium uppercase tracking-[0.08em] text-muted">
       {children}
     </div>
   );
@@ -568,7 +568,7 @@ function MetadataSection({ item }: { item: Item }) {
     return (
       <div>
         <SectionLabel>Metadata</SectionLabel>
-        <div className="text-[11px] text-faint">No metadata captured.</div>
+        <div className="text-[11px] text-muted">No metadata captured.</div>
       </div>
     );
   }
@@ -908,10 +908,10 @@ function CalendarMatchPanel({
       {expanded ? (
         <div className="mt-2 space-y-1 border-t border-line pt-2 text-[11px]">
           {busy ? (
-            <div className="text-faint">Loading…</div>
+            <div className="text-muted">Loading…</div>
           ) : null}
           {candidates && candidates.length === 0 ? (
-            <div className="text-faint">No alternative events found.</div>
+            <div className="text-muted">No alternative events found.</div>
           ) : null}
           {candidates?.map((c, i) => (
             <button

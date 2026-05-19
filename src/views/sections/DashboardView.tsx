@@ -342,7 +342,7 @@ export default function DashboardView({ projects }: Props) {
 
 function StatStrip({ stats }: { stats: DashboardStats }) {
   return (
-    <div className="flex flex-wrap items-stretch gap-x-6 gap-y-2 rounded-lg border border-line bg-surface/60 px-4 py-3">
+    <div className="flex flex-wrap items-stretch gap-x-8 gap-y-3 rounded-xl border border-line bg-surface px-6 py-5">
       <Stat label="Today" value={stats.today.transcriptions} sub={`${stats.today.words.toLocaleString()} words`} />
       <Stat label="Week" value={stats.week.transcriptions} sub={`${stats.week.words.toLocaleString()} words`} />
       <Stat label="Month" value={stats.month.transcriptions} sub={`${stats.month.words.toLocaleString()} words`} />
@@ -379,18 +379,18 @@ function Stat({
   tone?: "success";
 }) {
   return (
-    <div className="flex flex-col justify-center">
-      <span className="text-[10px] uppercase tracking-wider text-faint">
+    <div className="flex flex-col justify-center gap-1">
+      <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted">
         {label}
       </span>
       <span
-        className={`text-lg font-bold tabular-nums leading-tight ${
+        className={`text-2xl font-semibold tabular-nums leading-none ${
           tone === "success" ? "text-success" : "text-fg"
         }`}
       >
         {value}
       </span>
-      <span className="text-[11px] text-faint">{sub}</span>
+      <span className="text-xs text-muted">{sub}</span>
     </div>
   );
 }
@@ -415,7 +415,7 @@ function RecapCard({
   const body = (
     <div className="flex items-center gap-3">
       <div className="min-w-0 flex-1">
-        <div className="text-[10px] uppercase tracking-wider text-faint">
+        <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted">
           Yesterday · {dateLabel}
         </div>
         <p className="mt-0.5 line-clamp-1 text-[13px] text-fg">{preview}</p>
