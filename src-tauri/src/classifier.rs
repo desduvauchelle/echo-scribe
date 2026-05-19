@@ -325,7 +325,7 @@ pub fn dow_from_iso(iso: &str) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::items::{Item, ItemSource, Visibility};
+    use crate::db::items::{Item, ItemSource};
 
     struct StubLlm {
         response: std::sync::Mutex<Vec<String>>,
@@ -367,7 +367,6 @@ mod tests {
             id: "x".into(),
             content: content.into(),
             source: ItemSource::LogCapture,
-            visibility: Visibility::Visible,
             kind: None,
             project_id: None,
             captured_at: "2026-05-01T00:00:00Z".into(),

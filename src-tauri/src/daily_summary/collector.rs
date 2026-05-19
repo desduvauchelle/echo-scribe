@@ -133,8 +133,8 @@ mod tests {
         ctx: Option<&str>,
     ) {
         conn.execute(
-            "INSERT INTO items (id, content, source, visibility, kind, captured_at, created_at, capture_context)
-             VALUES (?1, ?2, ?3, 'visible', NULL, ?4, ?4, ?5)",
+            "INSERT INTO items (id, content, source, kind, captured_at, created_at, capture_context)
+             VALUES (?1, ?2, ?3, NULL, ?4, ?4, ?5)",
             params![id, content, source, captured_at, ctx],
         )
         .unwrap();
@@ -142,8 +142,8 @@ mod tests {
 
     fn insert_meeting(conn: &Connection, id: &str, started_at: &str) {
         conn.execute(
-            "INSERT INTO items (id, content, source, visibility, kind, captured_at, created_at)
-             VALUES (?1, 'Meeting', 'meeting', 'visible', 'meeting', ?2, ?2)",
+            "INSERT INTO items (id, content, source, kind, captured_at, created_at)
+             VALUES (?1, 'Meeting', 'meeting', 'meeting', ?2, ?2)",
             params![id, started_at],
         )
         .unwrap();

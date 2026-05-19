@@ -124,7 +124,6 @@ mod tests {
                 id: "item-1".into(),
                 content: "hello".into(),
                 source: crate::db::items::ItemSource::VoiceAtCursor,
-                visibility: crate::db::items::Visibility::Hidden,
                 kind: None,
                 project_id: None,
                 captured_at: "2026-05-01T00:00:00Z".into(),

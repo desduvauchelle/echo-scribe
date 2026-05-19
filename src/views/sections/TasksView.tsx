@@ -23,9 +23,11 @@ import { EmptyState, SkeletonList } from "./ActivityFeed";
 
 type Props = {
   projects: Map<string, Project>;
+  /** When true, render without outer page chrome (header, h-full, own scroll). */
+  embedded?: boolean;
 };
 
-export default function TasksView({ projects }: Props) {
+export default function TasksView({ projects, embedded = false }: Props) {
   const [open, setOpen] = useState<TaskWithItem[]>([]);
   const [done, setDone] = useState<TaskWithItem[]>([]);
   const [showDone, setShowDone] = useState(false);
@@ -145,19 +147,21 @@ export default function TasksView({ projects }: Props) {
   };
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="border-b border-line bg-canvas/40 px-6 py-4">
-        <h1 className="text-lg font-semibold tracking-tight text-fg">Tasks</h1>
-        <p className="mt-0.5 text-xs text-muted">
-          <span className="font-medium text-fg">{open.length}</span> open ·{" "}
-          <span className="font-medium text-fg">
-            {done.length || (showDone ? 0 : "—")}
-          </span>{" "}
-          done
-        </p>
-      </div>
+    <div className={embedded ? "flex flex-col" : "flex h-full flex-col"}>
+      {embedded ? null : (
+        <div className="border-b border-line bg-canvas/40 px-6 py-4">
+          <h1 className="text-lg font-semibold tracking-tight text-fg">Tasks</h1>
+          <p className="mt-0.5 text-xs text-muted">
+            <span className="font-medium text-fg">{open.length}</span> open ·{" "}
+            <span className="font-medium text-fg">
+              {done.length || (showDone ? 0 : "—")}
+            </span>{" "}
+            done
+          </p>
+        </div>
+      )}
 
-      <div className="flex-1 overflow-y-auto px-6 py-4">
+      <div className={embedded ? "" : "flex-1 overflow-y-auto px-6 py-4"}>
         {error ? (
           <div className="mb-3 rounded-md border border-danger/40 bg-danger/15 px-3 py-2 text-sm text-danger">
             {error}{" "}

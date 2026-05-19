@@ -9,7 +9,6 @@ import {
   type Item,
   type ItemKind,
   type Project,
-  type Visibility,
 } from "../../lib/api";
 import ItemCard from "../../components/ItemCard";
 import { useActivityPanel } from "../../components/ActivityPanelContext";
@@ -26,7 +25,6 @@ type Props = {
   onProjectArchived?: () => void;
 };
 
-type VisibilityFilter = "all" | Visibility;
 type KindFilter = "all" | ItemKind;
 
 const PAGE_SIZE = 50;
@@ -42,7 +40,6 @@ export default function ActivityFeed({
   const [hasMore, setHasMore] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [visibility, setVisibility] = useState<VisibilityFilter>("all");
   const [kindFilter, setKindFilter] = useState<KindFilter>("all");
   const [projectCount, setProjectCount] = useState<number | null>(null);
   const [renaming, setRenaming] = useState(false);
@@ -59,7 +56,6 @@ export default function ActivityFeed({
       try {
         const nextOffset = mode === "reset" ? 0 : offset;
         const page = await listItems({
-          visibility: visibility === "all" ? null : visibility,
           project_id: projectId,
           limit: PAGE_SIZE,
           offset: nextOffset,
@@ -78,7 +74,7 @@ export default function ActivityFeed({
         setLoading(false);
       }
     },
-    [offset, visibility, projectId],
+    [offset, projectId],
   );
 
   useEffect(() => {
@@ -88,7 +84,7 @@ export default function ActivityFeed({
     void fetchPage("reset");
     // Intentionally re-run only when filters/project change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visibility, projectId]);
+  }, [projectId]);
 
   // Refetch when the activity panel reports a save/delete.
   useEffect(() => {
@@ -119,7 +115,7 @@ export default function ActivityFeed({
       unlisteners.forEach((u) => u());
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visibility, projectId]);
+  }, [projectId]);
 
   useEffect(() => {
     if (!project) {
@@ -257,16 +253,6 @@ export default function ActivityFeed({
       )}
 
       <div className="flex flex-wrap items-center gap-3 border-b border-line bg-canvas/40 px-6 py-3 text-xs text-muted">
-        <FilterGroup<VisibilityFilter>
-          label="Visibility"
-          value={visibility}
-          options={[
-            { value: "all", label: "All" },
-            { value: "visible", label: "Visible" },
-            { value: "hidden", label: "Hidden" },
-          ]}
-          onChange={setVisibility}
-        />
         <FilterGroup<KindFilter>
           label="Kind"
           value={kindFilter}

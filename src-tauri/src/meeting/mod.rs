@@ -230,8 +230,8 @@ impl MeetingManager {
         self.db
             .with_conn(move |conn| {
                 conn.execute(
-                    "INSERT INTO items (id, content, source, visibility, kind, captured_at, created_at)
-                     VALUES (?1, ?2, 'meeting', 'visible', 'meeting', ?3, ?3)",
+                    "INSERT INTO items (id, content, source, kind, captured_at, created_at)
+                     VALUES (?1, ?2, 'meeting', 'meeting', ?3, ?3)",
                     rusqlite::params![id_for_db, title, started_for_db],
                 )?;
                 crate::db::meetings::insert_meeting(
@@ -587,8 +587,8 @@ impl MeetingManager {
                         };
 
                         conn.execute(
-                            "INSERT INTO items (id, content, source, visibility, kind, project_id, captured_at, created_at)
-                             VALUES (?1, ?2, 'meeting', 'visible', 'task', ?3, ?4, ?4)",
+                            "INSERT INTO items (id, content, source, kind, project_id, captured_at, created_at)
+                             VALUES (?1, ?2, 'meeting', 'task', ?3, ?4, ?4)",
                             rusqlite::params![task_id, action.text, task_project_id, now_iso],
                         )?;
                         conn.execute(
@@ -738,8 +738,8 @@ impl MeetingManager {
                                 meeting_project_id.clone()
                             };
                             conn.execute(
-                                "INSERT INTO items (id, content, source, visibility, kind, project_id, captured_at, created_at)
-                                 VALUES (?1, ?2, 'meeting', 'visible', 'task', ?3, ?4, ?4)",
+                                "INSERT INTO items (id, content, source, kind, project_id, captured_at, created_at)
+                                 VALUES (?1, ?2, 'meeting', 'task', ?3, ?4, ?4)",
                                 rusqlite::params![task_id, action.text, task_project_id, now_iso],
                             )?;
                             conn.execute(
@@ -1017,8 +1017,8 @@ mod tests {
     /// Helper: insert a minimal meeting row for testing.
     fn insert_test_meeting(conn: &rusqlite::Connection, id: &str) {
         conn.execute(
-            "INSERT INTO items (id, content, source, visibility, kind, captured_at, created_at)
-             VALUES (?1, 'test', 'meeting', 'visible', 'meeting', '2026-05-01T00:00:00Z', '2026-05-01T00:00:00Z')",
+            "INSERT INTO items (id, content, source, kind, captured_at, created_at)
+             VALUES (?1, 'test', 'meeting', 'meeting', '2026-05-01T00:00:00Z', '2026-05-01T00:00:00Z')",
             rusqlite::params![id],
         ).unwrap();
         crate::db::meetings::insert_meeting(conn, &crate::db::meetings::MeetingRow {

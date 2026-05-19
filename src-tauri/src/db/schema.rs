@@ -208,6 +208,13 @@ UPDATE items SET kind = 'transcription'
   WHERE source = 'voice_at_cursor' AND kind IS NULL;
 "#,
     ),
+    (
+        12,
+        r#"
+DROP INDEX IF EXISTS idx_items_visibility;
+ALTER TABLE items DROP COLUMN visibility;
+"#,
+    ),
 ];
 
 const META_TABLE_SQL: &str = r#"
@@ -269,7 +276,7 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(v, "11");
+        assert_eq!(v, "12");
     }
 
     #[test]
@@ -355,13 +362,12 @@ mod tests {
         let mut conn = Connection::open_in_memory().unwrap();
         run_migrations(&mut conn).unwrap();
         conn.execute(
-            "INSERT INTO items(id, content, source, visibility, captured_at, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            "INSERT INTO items(id, content, source, captured_at, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
             params![
                 "01ABC",
                 "hello world",
                 "voice_at_cursor",
-                "hidden",
                 "2026-05-01T00:00:00Z",
                 "2026-05-01T00:00:00Z"
             ],
@@ -391,7 +397,7 @@ mod tests {
         let version: String = conn
             .query_row("SELECT value FROM schema_meta WHERE key = 'schema_version'", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(version, "11");
+        assert_eq!(version, "12");
     }
 
     #[test]

@@ -195,8 +195,8 @@ mod tests {
         run_migrations(&mut conn).unwrap();
         let conn = conn;
         conn.execute(
-            "INSERT INTO items (id, content, source, visibility, kind, captured_at, created_at)
-             VALUES ('m-1', 'Test Meeting', 'meeting', 'visible', 'meeting', '2026-05-03T00:00:00Z', '2026-05-03T00:00:00Z')",
+            "INSERT INTO items (id, content, source, kind, captured_at, created_at)
+             VALUES ('m-1', 'Test Meeting', 'meeting', 'meeting', '2026-05-03T00:00:00Z', '2026-05-03T00:00:00Z')",
             [],
         ).unwrap();
         conn

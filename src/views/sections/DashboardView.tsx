@@ -1,10 +1,11 @@
 import { listen } from "@tauri-apps/api/event";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronRight, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ChevronRight, Search as SearchIcon, X } from "lucide-react";
 import {
   getDailySummary,
   getDashboardStats,
   listItems,
+  searchItems,
   type DailySummary,
   type DailySummarySectionItem,
   type DashboardStats,
@@ -15,9 +16,10 @@ import {
 import ItemCard from "../../components/ItemCard";
 import { useActivityPanel } from "../../components/ActivityPanelContext";
 import { SkeletonList } from "./ActivityFeed";
+import TasksView from "./TasksView";
 
 const SECONDS_SAVED_PER_CAPTURE = 30;
-const RECENT_LIMIT = 50;
+const PAGE_SIZE = 50;
 
 type Props = {
   projects: Map<string, Project>;
@@ -51,28 +53,53 @@ function formatSaved(count: number): string {
   return `${(secs / 3600).toFixed(1)}h`;
 }
 
+function applyKindFilter(list: Item[], kind: KindFilter): Item[] {
+  if (kind === "all") return list;
+  if (kind === "meeting") {
+    return list.filter((i) => i.kind === "meeting" || i.source === "meeting");
+  }
+  return list.filter((i) => i.kind === kind);
+}
+
 export default function DashboardView({ projects }: Props) {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [summary, setSummary] = useState<DailySummary | null>(null);
   const [items, setItems] = useState<Item[]>([]);
+  const [offset, setOffset] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [kindFilter, setKindFilter] = useState<KindFilter>("all");
   const [recapOpen, setRecapOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { refreshTick } = useActivityPanel();
 
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<Item[]>([]);
+  const [searching, setSearching] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+
+  const { refreshTick } = useActivityPanel();
   const yesterday = useMemo(() => yesterdayLocalIso(), []);
 
-  const loadItems = useCallback(async () => {
+  const fetchItems = useCallback(async (mode: "reset" | "append") => {
+    if (mode === "append") setLoadingMore(true);
     try {
-      const page = await listItems({
-        visibility: "visible",
-        limit: RECENT_LIMIT,
-      });
-      setItems(page);
+      const nextOffset = mode === "reset" ? 0 : offset;
+      const page = await listItems({ limit: PAGE_SIZE, offset: nextOffset });
+      setHasMore(page.length === PAGE_SIZE);
+      if (mode === "reset") {
+        setItems(page);
+        setOffset(page.length);
+      } else {
+        setItems((prev) => [...prev, ...page]);
+        setOffset((o) => o + page.length);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoadingMore(false);
     }
-  }, []);
+  }, [offset]);
 
   const loadAll = useCallback(async () => {
     try {
@@ -86,17 +113,17 @@ export default function DashboardView({ projects }: Props) {
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
-    await loadItems();
-  }, [yesterday, loadItems]);
+    await fetchItems("reset");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [yesterday]);
 
   useEffect(() => {
     void loadAll();
   }, [loadAll]);
 
-  // Refresh the feed after edits/deletes from the detail panel.
   useEffect(() => {
     if (refreshTick === 0) return;
-    void loadItems();
+    void fetchItems("reset");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshTick]);
 
@@ -105,7 +132,7 @@ export default function DashboardView({ projects }: Props) {
     const unlisteners: Array<() => void> = [];
     void (async () => {
       const handler = () => {
-        if (!cancelled) void loadItems();
+        if (!cancelled) void fetchItems("reset");
       };
       const u1 = await listen("item:created", handler);
       const u2 = await listen("app:refresh", handler);
@@ -120,19 +147,52 @@ export default function DashboardView({ projects }: Props) {
       cancelled = true;
       unlisteners.forEach((u) => u());
     };
-  }, [loadItems]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  const filteredItems = useMemo(() => {
-    const list =
-      kindFilter === "all"
-        ? items
-        : kindFilter === "meeting"
-          ? items.filter(
-              (i) => i.kind === "meeting" || i.source === "meeting",
-            )
-          : items.filter((i) => i.kind === kindFilter);
-    return list.slice(0, 15);
-  }, [items, kindFilter]);
+  // Debounced search
+  useEffect(() => {
+    const q = query.trim();
+    if (!q) {
+      setSearchResults([]);
+      setSearching(false);
+      return;
+    }
+    const t = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const r = await searchItems(q, 50);
+        setSearchResults(r);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setSearching(false);
+      }
+    }, 250);
+    return () => clearTimeout(t);
+  }, [query]);
+
+  const isSearching = searchOpen && query.trim() !== "";
+  const isTasks = kindFilter === "task";
+
+  const openSearch = () => {
+    setSearchOpen(true);
+    setTimeout(() => searchInputRef.current?.focus(), 0);
+  };
+  const closeSearch = () => {
+    setSearchOpen(false);
+    setQuery("");
+    setSearchResults([]);
+  };
+
+  const filteredItems = useMemo(
+    () => applyKindFilter(items, kindFilter),
+    [items, kindFilter],
+  );
+  const filteredResults = useMemo(
+    () => applyKindFilter(searchResults, kindFilter),
+    [searchResults, kindFilter],
+  );
 
   if (error && !stats) {
     return (
@@ -146,55 +206,128 @@ export default function DashboardView({ projects }: Props) {
     <div className="flex h-full flex-col overflow-y-auto px-6 py-6">
       <h1 className="mb-4 text-lg font-semibold tracking-tight">Dashboard</h1>
 
-      {stats ? <StatStrip stats={stats} /> : <div className="h-12" />}
+      {!isSearching && (stats ? <StatStrip stats={stats} /> : <div className="h-12" />)}
 
-      <RecapCard
-        summary={summary}
-        dateLabel={dayLabel(yesterday)}
-        onOpen={() => setRecapOpen(true)}
-      />
+      {!isSearching && (
+        <RecapCard
+          summary={summary}
+          dateLabel={dayLabel(yesterday)}
+          onOpen={() => setRecapOpen(true)}
+        />
+      )}
 
-      <div className="mt-5 flex items-center gap-1.5">
-        {(
-          [
-            ["all", "All"],
-            ["transcription", "Transcriptions"],
-            ["note", "Notes"],
-            ["task", "Tasks"],
-            ["meeting", "Meetings"],
-          ] as [KindFilter, string][]
-        ).map(([value, label]) => {
-          const active = value === kindFilter;
-          return (
-            <button
-              key={value}
-              type="button"
-              onClick={() => setKindFilter(value)}
-              className={`rounded-full px-3 py-1 text-xs transition-colors ${
-                active
-                  ? "bg-fg text-canvas"
-                  : "border border-line bg-surface text-muted hover:bg-elevated"
-              }`}
-            >
-              {label}
-            </button>
-          );
-        })}
+      {searchOpen ? (
+        <div className="mt-5 flex items-center gap-2 rounded-md border border-line bg-surface px-3 py-1.5 focus-within:border-accent">
+          <SearchIcon size={14} className="shrink-0 text-faint" />
+          <input
+            ref={searchInputRef}
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search captures…"
+            className="flex-1 bg-transparent text-[13px] text-fg outline-none placeholder:text-faint"
+            onKeyDown={(e) => {
+              if (e.key === "Escape") closeSearch();
+            }}
+          />
+          <button
+            type="button"
+            onClick={closeSearch}
+            aria-label="Close search"
+            className="rounded p-0.5 text-faint hover:bg-elevated hover:text-fg"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      ) : null}
+
+      <div className="mt-5 flex items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-1.5">
+          {(
+            [
+              ["all", "All"],
+              ["transcription", "Transcriptions"],
+              ["note", "Notes"],
+              ["task", "Tasks"],
+              ["meeting", "Meetings"],
+            ] as [KindFilter, string][]
+          ).map(([value, label]) => {
+            const active = value === kindFilter;
+            return (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setKindFilter(value)}
+                className={`rounded-full px-3 py-1 text-xs transition-colors ${
+                  active
+                    ? "bg-fg text-canvas"
+                    : "border border-line bg-surface text-muted hover:bg-elevated"
+                }`}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+        {!searchOpen ? (
+          <button
+            type="button"
+            onClick={openSearch}
+            aria-label="Search"
+            className="rounded-md border border-line bg-surface p-1.5 text-muted hover:bg-elevated hover:text-fg"
+          >
+            <SearchIcon size={14} />
+          </button>
+        ) : null}
       </div>
 
-      <div className="mt-3 flex flex-col gap-2 pb-4">
-        {items.length === 0 && !error ? (
-          <SkeletonList />
-        ) : filteredItems.length === 0 ? (
-          <p className="rounded-lg border border-line bg-surface/40 px-4 py-6 text-center text-xs text-muted">
-            Nothing here yet.
-          </p>
-        ) : (
-          filteredItems.map((item) => (
-            <ItemCard key={item.id} item={item} projects={projects} />
-          ))
-        )}
-      </div>
+      {isTasks ? (
+        <div className="mt-3 pb-4">
+          <TasksView projects={projects} embedded />
+        </div>
+      ) : isSearching ? (
+        <div className="mt-3 flex flex-col gap-2 pb-4">
+          {searching && filteredResults.length === 0 ? (
+            <SkeletonList />
+          ) : filteredResults.length === 0 ? (
+            <p className="rounded-lg border border-line bg-surface/40 px-4 py-6 text-center text-xs text-muted">
+              No results for &ldquo;{query.trim()}&rdquo;.
+            </p>
+          ) : (
+            filteredResults.map((item) => (
+              <ItemCard key={item.id} item={item} projects={projects} />
+            ))
+          )}
+        </div>
+      ) : (
+        <div className="mt-3 flex flex-col gap-2 pb-4">
+          {items.length === 0 && !error ? (
+            <SkeletonList />
+          ) : filteredItems.length === 0 ? (
+            <p className="rounded-lg border border-line bg-surface/40 px-4 py-6 text-center text-xs text-muted">
+              Nothing here yet.
+            </p>
+          ) : (
+            <>
+              {filteredItems.map((item) => (
+                <ItemCard key={item.id} item={item} projects={projects} />
+              ))}
+              {hasMore ? (
+                <div className="my-3 flex justify-center">
+                  <button
+                    type="button"
+                    onClick={() => void fetchItems("append")}
+                    disabled={loadingMore}
+                    className="rounded border border-line px-4 py-1 text-xs hover:bg-elevated disabled:opacity-50"
+                  >
+                    {loadingMore ? "Loading…" : "Load more"}
+                  </button>
+                </div>
+              ) : null}
+            </>
+          )}
+        </div>
+      )}
 
       {recapOpen && summary?.status === "generated" ? (
         <RecapModal

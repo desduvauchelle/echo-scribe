@@ -26,7 +26,7 @@ use crate::coordinator::{self, new_state_handle, Action, CoordinatorMsg, TrayPip
 use crate::db::items::{chrono_now_iso, ItemKind};
 use crate::db::projects::Project;
 use crate::db::tasks::TaskWithItem;
-use crate::db::{self, ChatMessage, ChatSession, Db, Item, Visibility};
+use crate::db::{self, ChatMessage, ChatSession, Db, Item};
 use crate::db::chat;
 use crate::temporal::extract_date_window;
 use crate::input::binding::{code_from_key, key_from_code, Binding, ModifierKind, ModifierSide, SerKey};
@@ -584,15 +584,6 @@ fn require_db(state: &AppState) -> Result<&Db, String> {
         .ok_or_else(|| "database not available".to_string())
 }
 
-fn parse_visibility(s: Option<String>) -> Result<Option<Visibility>, String> {
-    match s.as_deref() {
-        None | Some("") => Ok(None),
-        Some(v) => Visibility::parse(v)
-            .map(Some)
-            .ok_or_else(|| format!("invalid visibility: {v}")),
-    }
-}
-
 fn clamp_limit(limit: Option<u32>) -> u32 {
     limit
         .unwrap_or(DEFAULT_ITEM_LIMIT)
@@ -602,16 +593,14 @@ fn clamp_limit(limit: Option<u32>) -> u32 {
 #[tauri::command]
 pub fn list_items(
     state: State<'_, AppState>,
-    visibility: Option<String>,
     project_id: Option<String>,
     limit: Option<u32>,
     offset: Option<u32>,
 ) -> Result<Vec<Item>, String> {
     let db = require_db(&state)?;
-    let vis = parse_visibility(visibility)?;
     let limit = clamp_limit(limit);
     let offset = offset.unwrap_or(0);
-    db.with_conn(|c| db::items::list_items(c, vis, project_id.as_deref(), limit, offset))
+    db.with_conn(|c| db::items::list_items(c, project_id.as_deref(), limit, offset))
         .map_err(|e| e.to_string())
 }
 
@@ -645,13 +634,9 @@ pub fn delete_item(state: State<'_, AppState>, id: String) -> Result<(), String>
 }
 
 #[tauri::command]
-pub fn count_items(
-    state: State<'_, AppState>,
-    visibility: Option<String>,
-) -> Result<u32, String> {
+pub fn count_items(state: State<'_, AppState>) -> Result<u32, String> {
     let db = require_db(&state)?;
-    let vis = parse_visibility(visibility)?;
-    db.with_conn(|c| db::items::count_items(c, vis))
+    db.with_conn(|c| db::items::count_items(c))
         .map_err(|e| e.to_string())
 }
 

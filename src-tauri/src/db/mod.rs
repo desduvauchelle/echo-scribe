@@ -26,7 +26,7 @@ pub mod daily_summaries;
 pub mod guide_templates;
 
 pub use chat::{ChatMessage, ChatSession};
-pub use items::{Item, ItemKind, ItemSource, Visibility};
+pub use items::{Item, ItemKind, ItemSource};
 
 #[derive(Debug, Error)]
 pub enum DbError {

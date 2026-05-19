@@ -34,30 +34,6 @@ impl ItemSource {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub enum Visibility {
-    Hidden,
-    Visible,
-}
-
-impl Visibility {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Visibility::Hidden => "hidden",
-            Visibility::Visible => "visible",
-        }
-    }
-
-    pub fn parse(s: &str) -> Option<Self> {
-        match s {
-            "hidden" => Some(Visibility::Hidden),
-            "visible" => Some(Visibility::Visible),
-            _ => None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
 pub enum ItemKind {
     Note,
     Task,
@@ -88,7 +64,6 @@ pub struct Item {
     pub id: String,
     pub content: String,
     pub source: ItemSource,
-    pub visibility: Visibility,
     pub kind: Option<ItemKind>,
     pub project_id: Option<String>,
     pub captured_at: String,
@@ -109,7 +84,6 @@ pub(crate) fn row_to_item_for_join(row: &Row<'_>) -> rusqlite::Result<Item> {
 
 fn row_to_item(row: &Row<'_>) -> rusqlite::Result<Item> {
     let source_s: String = row.get("source")?;
-    let visibility_s: String = row.get("visibility")?;
     let kind_s: Option<String> = row.get("kind")?;
     Ok(Item {
         id: row.get("id")?,
@@ -119,13 +93,6 @@ fn row_to_item(row: &Row<'_>) -> rusqlite::Result<Item> {
                 0,
                 rusqlite::types::Type::Text,
                 format!("invalid source: {source_s}").into(),
-            )
-        })?,
-        visibility: Visibility::parse(&visibility_s).ok_or_else(|| {
-            rusqlite::Error::FromSqlConversionFailure(
-                0,
-                rusqlite::types::Type::Text,
-                format!("invalid visibility: {visibility_s}").into(),
             )
         })?,
         kind: kind_s.and_then(|s| ItemKind::parse(&s)),
@@ -142,15 +109,14 @@ fn row_to_item(row: &Row<'_>) -> rusqlite::Result<Item> {
 pub fn insert_item(conn: &Connection, item: &Item) -> Result<(), DbError> {
     conn.execute(
         "INSERT INTO items
-            (id, content, source, visibility, kind, project_id, captured_at, created_at,
+            (id, content, source, kind, project_id, captured_at, created_at,
              deleted_at, confidence, classified_by, capture_context)
          VALUES
-            (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
         params![
             item.id,
             item.content,
             item.source.as_str(),
-            item.visibility.as_str(),
             item.kind.map(|k| k.as_str()),
             item.project_id,
             item.captured_at,
@@ -166,7 +132,7 @@ pub fn insert_item(conn: &Connection, item: &Item) -> Result<(), DbError> {
 
 pub fn get_item(conn: &Connection, id: &str) -> Result<Option<Item>, DbError> {
     let mut stmt = conn.prepare(
-        "SELECT id, content, source, visibility, kind, project_id, captured_at, created_at,
+        "SELECT id, content, source, kind, project_id, captured_at, created_at,
                 deleted_at, confidence, classified_by, capture_context
          FROM items WHERE id = ?1",
     )?;
@@ -181,21 +147,16 @@ pub fn get_item(conn: &Connection, id: &str) -> Result<Option<Item>, DbError> {
 /// Newest-first list, soft-deleted excluded.
 pub fn list_items(
     conn: &Connection,
-    visibility: Option<Visibility>,
     project_id: Option<&str>,
     limit: u32,
     offset: u32,
 ) -> Result<Vec<Item>, DbError> {
     let mut sql = String::from(
-        "SELECT id, content, source, visibility, kind, project_id, captured_at, created_at,
+        "SELECT id, content, source, kind, project_id, captured_at, created_at,
                 deleted_at, confidence, classified_by, capture_context
          FROM items WHERE deleted_at IS NULL",
     );
     let mut args: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
-    if let Some(v) = visibility {
-        sql.push_str(" AND visibility = ?");
-        args.push(Box::new(v.as_str().to_string()));
-    }
     if let Some(pid) = project_id {
         sql.push_str(" AND project_id = ?");
         args.push(Box::new(pid.to_string()));
@@ -285,19 +246,12 @@ pub fn list_tags_for_item(conn: &Connection, item_id: &str) -> Result<Vec<String
     Ok(out)
 }
 
-pub fn count_items(conn: &Connection, visibility: Option<Visibility>) -> Result<u32, DbError> {
-    let count: i64 = match visibility {
-        Some(v) => conn.query_row(
-            "SELECT COUNT(*) FROM items WHERE deleted_at IS NULL AND visibility = ?1",
-            params![v.as_str()],
-            |r| r.get(0),
-        )?,
-        None => conn.query_row(
-            "SELECT COUNT(*) FROM items WHERE deleted_at IS NULL",
-            [],
-            |r| r.get(0),
-        )?,
-    };
+pub fn count_items(conn: &Connection) -> Result<u32, DbError> {
+    let count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM items WHERE deleted_at IS NULL",
+        [],
+        |r| r.get(0),
+    )?;
     Ok(count.max(0) as u32)
 }
 
@@ -347,12 +301,11 @@ mod tests {
         conn
     }
 
-    fn make_item(id: &str, content: &str, vis: Visibility, captured: &str) -> Item {
+    fn make_item(id: &str, content: &str, captured: &str) -> Item {
         Item {
             id: id.to_string(),
             content: content.to_string(),
             source: ItemSource::VoiceAtCursor,
-            visibility: vis,
             kind: None,
             project_id: None,
             captured_at: captured.to_string(),
@@ -367,38 +320,30 @@ mod tests {
     #[test]
     fn insert_item_then_get_round_trips() {
         let conn = fresh_db();
-        let item = make_item("01A", "hello", Visibility::Hidden, "2026-05-01T00:00:00Z");
+        let item = make_item("01A", "hello", "2026-05-01T00:00:00Z");
         insert_item(&conn, &item).unwrap();
         let got = get_item(&conn, "01A").unwrap().unwrap();
         assert_eq!(got, item);
     }
 
     #[test]
-    fn list_items_filters_by_visibility() {
+    fn list_items_returns_all_non_deleted() {
         let conn = fresh_db();
-        insert_item(&conn, &make_item("a", "x", Visibility::Hidden, "2026-05-01T00:00:00Z")).unwrap();
-        insert_item(&conn, &make_item("b", "y", Visibility::Visible, "2026-05-01T00:00:01Z")).unwrap();
+        insert_item(&conn, &make_item("a", "x", "2026-05-01T00:00:00Z")).unwrap();
+        insert_item(&conn, &make_item("b", "y", "2026-05-01T00:00:01Z")).unwrap();
 
-        let hidden = list_items(&conn, Some(Visibility::Hidden), None, 50, 0).unwrap();
-        assert_eq!(hidden.len(), 1);
-        assert_eq!(hidden[0].id, "a");
-
-        let visible = list_items(&conn, Some(Visibility::Visible), None, 50, 0).unwrap();
-        assert_eq!(visible.len(), 1);
-        assert_eq!(visible[0].id, "b");
-
-        let all = list_items(&conn, None, None, 50, 0).unwrap();
+        let all = list_items(&conn, None, 50, 0).unwrap();
         assert_eq!(all.len(), 2);
     }
 
     #[test]
     fn list_items_orders_newest_first() {
         let conn = fresh_db();
-        insert_item(&conn, &make_item("old", "x", Visibility::Hidden, "2026-04-01T00:00:00Z")).unwrap();
-        insert_item(&conn, &make_item("mid", "y", Visibility::Hidden, "2026-04-15T00:00:00Z")).unwrap();
-        insert_item(&conn, &make_item("new", "z", Visibility::Hidden, "2026-05-01T00:00:00Z")).unwrap();
+        insert_item(&conn, &make_item("old", "x", "2026-04-01T00:00:00Z")).unwrap();
+        insert_item(&conn, &make_item("mid", "y", "2026-04-15T00:00:00Z")).unwrap();
+        insert_item(&conn, &make_item("new", "z", "2026-05-01T00:00:00Z")).unwrap();
 
-        let listed = list_items(&conn, None, None, 50, 0).unwrap();
+        let listed = list_items(&conn, None, 50, 0).unwrap();
         let ids: Vec<&str> = listed.iter().map(|i| i.id.as_str()).collect();
         assert_eq!(ids, vec!["new", "mid", "old"]);
     }
@@ -406,11 +351,11 @@ mod tests {
     #[test]
     fn soft_delete_excludes_from_list_items() {
         let conn = fresh_db();
-        insert_item(&conn, &make_item("a", "x", Visibility::Hidden, "2026-05-01T00:00:00Z")).unwrap();
-        insert_item(&conn, &make_item("b", "y", Visibility::Hidden, "2026-05-01T00:00:01Z")).unwrap();
+        insert_item(&conn, &make_item("a", "x", "2026-05-01T00:00:00Z")).unwrap();
+        insert_item(&conn, &make_item("b", "y", "2026-05-01T00:00:01Z")).unwrap();
 
         soft_delete_item(&conn, "a").unwrap();
-        let listed = list_items(&conn, None, None, 50, 0).unwrap();
+        let listed = list_items(&conn, None, 50, 0).unwrap();
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].id, "b");
 
@@ -426,7 +371,7 @@ mod tests {
         let conn = fresh_db();
         insert_item(
             &conn,
-            &make_item("a", "x", Visibility::Hidden, "2026-05-01T00:00:00Z"),
+            &make_item("a", "x", "2026-05-01T00:00:00Z"),
         )
         .unwrap();
         soft_delete_item(&conn, "a").unwrap();
@@ -443,13 +388,13 @@ mod tests {
         let conn = fresh_db();
         insert_item(
             &conn,
-            &make_item("a", "x", Visibility::Hidden, "2026-05-01T00:00:00Z"),
+            &make_item("a", "x", "2026-05-01T00:00:00Z"),
         )
         .unwrap();
         soft_delete_item(&conn, "a").unwrap();
-        assert!(list_items(&conn, None, None, 50, 0).unwrap().is_empty());
+        assert!(list_items(&conn, None, 50, 0).unwrap().is_empty());
         restore_item(&conn, "a").unwrap();
-        assert_eq!(list_items(&conn, None, None, 50, 0).unwrap().len(), 1);
+        assert_eq!(list_items(&conn, None, 50, 0).unwrap().len(), 1);
     }
 
     #[test]
@@ -457,7 +402,7 @@ mod tests {
         let conn = fresh_db();
         insert_item(
             &conn,
-            &make_item("a", "x", Visibility::Hidden, "2026-05-01T00:00:00Z"),
+            &make_item("a", "x", "2026-05-01T00:00:00Z"),
         )
         .unwrap();
         // Content + kind set.
@@ -497,7 +442,7 @@ mod tests {
         let conn = fresh_db();
         insert_item(
             &conn,
-            &make_item("a", "x", Visibility::Hidden, "2026-05-01T00:00:00Z"),
+            &make_item("a", "x", "2026-05-01T00:00:00Z"),
         )
         .unwrap();
         replace_tags(&conn, "a", &["alpha".into(), "beta".into()]).unwrap();
@@ -510,16 +455,14 @@ mod tests {
     }
 
     #[test]
-    fn count_items_respects_soft_delete_and_visibility() {
+    fn count_items_respects_soft_delete() {
         let conn = fresh_db();
-        insert_item(&conn, &make_item("a", "x", Visibility::Hidden, "2026-05-01T00:00:00Z")).unwrap();
-        insert_item(&conn, &make_item("b", "y", Visibility::Visible, "2026-05-01T00:00:01Z")).unwrap();
-        insert_item(&conn, &make_item("c", "z", Visibility::Hidden, "2026-05-01T00:00:02Z")).unwrap();
+        insert_item(&conn, &make_item("a", "x", "2026-05-01T00:00:00Z")).unwrap();
+        insert_item(&conn, &make_item("b", "y", "2026-05-01T00:00:01Z")).unwrap();
+        insert_item(&conn, &make_item("c", "z", "2026-05-01T00:00:02Z")).unwrap();
         soft_delete_item(&conn, "c").unwrap();
 
-        assert_eq!(count_items(&conn, None).unwrap(), 2);
-        assert_eq!(count_items(&conn, Some(Visibility::Hidden)).unwrap(), 1);
-        assert_eq!(count_items(&conn, Some(Visibility::Visible)).unwrap(), 1);
+        assert_eq!(count_items(&conn).unwrap(), 2);
     }
 
     #[test]

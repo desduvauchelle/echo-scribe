@@ -1,15 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Activity,
   CalendarDays,
-  CheckSquare,
   Folder,
   Phone,
   Hash,
   LayoutDashboard,
   MessageSquare,
   Mic,
-  Search as SearchIcon,
   Settings as SettingsIcon,
   type LucideIcon,
 } from "lucide-react";
@@ -21,17 +18,12 @@ import {
 } from "../lib/api";
 import { formatBinding } from "../lib/binding";
 import ActivityFeed from "./sections/ActivityFeed";
-import TasksView from "./sections/TasksView";
-import SearchView from "./sections/SearchView";
 import { MeetingsView } from "./sections/MeetingsView";
 import ChatView from "./sections/ChatView";
 import DashboardView from "./sections/DashboardView";
 import DailyView from "./sections/DailyView";
 
 export type MainSection =
-  | { kind: "activity" }
-  | { kind: "tasks" }
-  | { kind: "search" }
   | { kind: "chat" }
   | { kind: "dashboard" }
   | { kind: "daily"; date?: string }
@@ -86,13 +78,6 @@ export default function Main({ onOpenSettings }: Props) {
 
   const renderContent = () => {
     switch (section.kind) {
-      case "activity":
-        return (
-          <ActivityFeed
-            projects={projectMap}
-            onProjectsChanged={refreshProjects}
-          />
-        );
       case "project": {
         const project = projectMap.get(section.id) ?? null;
         return (
@@ -100,14 +85,10 @@ export default function Main({ onOpenSettings }: Props) {
             project={project}
             projects={projectMap}
             onProjectsChanged={refreshProjects}
-            onProjectArchived={() => setSection({ kind: "activity" })}
+            onProjectArchived={() => setSection({ kind: "dashboard" })}
           />
         );
       }
-      case "tasks":
-        return <TasksView projects={projectMap} />;
-      case "search":
-        return <SearchView projects={projectMap} />;
       case "chat":
         return <ChatView projects={projects} />;
       case "dashboard":
@@ -147,24 +128,6 @@ export default function Main({ onOpenSettings }: Props) {
             label="Dashboard"
             active={section.kind === "dashboard"}
             onClick={() => setSection({ kind: "dashboard" })}
-          />
-          <NavItem
-            icon={Activity}
-            label="Activity"
-            active={section.kind === "activity"}
-            onClick={() => setSection({ kind: "activity" })}
-          />
-          <NavItem
-            icon={CheckSquare}
-            label="Tasks"
-            active={section.kind === "tasks"}
-            onClick={() => setSection({ kind: "tasks" })}
-          />
-          <NavItem
-            icon={SearchIcon}
-            label="Search"
-            active={section.kind === "search"}
-            onClick={() => setSection({ kind: "search" })}
           />
           <NavItem
             icon={MessageSquare}

@@ -217,7 +217,7 @@ pub fn dashboard_stats(conn: &Connection, now_epoch: i64) -> Result<DashboardSta
 mod tests {
     use super::*;
     use crate::db::schema::run_migrations;
-    use crate::db::items::{insert_item, Item, ItemSource, Visibility};
+    use crate::db::items::{insert_item, Item, ItemSource};
 
     fn fresh_db() -> Connection {
         let mut conn = Connection::open_in_memory().unwrap();
@@ -230,7 +230,6 @@ mod tests {
             id: id.to_string(),
             content: content.to_string(),
             source: ItemSource::VoiceAtCursor,
-            visibility: Visibility::Visible,
             kind: None,
             project_id: None,
             captured_at: captured.to_string(),

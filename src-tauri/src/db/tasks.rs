@@ -93,7 +93,7 @@ pub fn list_tasks(
     project_id: Option<&str>,
 ) -> Result<Vec<TaskWithItem>, DbError> {
     let mut sql = String::from(
-        "SELECT items.id, items.content, items.source, items.visibility, items.kind,
+        "SELECT items.id, items.content, items.source, items.kind,
                 items.project_id, items.captured_at, items.created_at, items.deleted_at,
                 items.confidence, items.classified_by, items.capture_context,
                 tasks.deadline AS deadline, tasks.completed_at AS completed_at
@@ -136,7 +136,7 @@ pub fn list_tasks(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::items::{insert_item, Item, ItemKind, ItemSource, Visibility};
+    use crate::db::items::{insert_item, Item, ItemKind, ItemSource};
     use crate::db::schema::run_migrations;
 
     fn fresh() -> Connection {
@@ -150,7 +150,6 @@ mod tests {
             id: id.into(),
             content: format!("task {id}"),
             source: ItemSource::LogCapture,
-            visibility: Visibility::Visible,
             kind: Some(ItemKind::Task),
             project_id: None,
             captured_at: captured.into(),

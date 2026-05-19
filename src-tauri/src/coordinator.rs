@@ -10,7 +10,7 @@ use crate::asr::pipeline::AsrPipeline;
 use crate::audio::feedback::{self, Sfx};
 use crate::audio::recorder::{Recorder, RecorderError};
 use crate::classifier::{self, Classification};
-use crate::db::items::{chrono_now_iso, Item, ItemSource, Visibility};
+use crate::db::items::{chrono_now_iso, Item, ItemSource};
 use crate::db::Db;
 use crate::event_log::{self, EventEnvelope};
 use crate::input::focus::{self, FocusContext, FocusElement};
@@ -549,7 +549,6 @@ fn persist_capture(
             id: id.clone(),
             content: text.to_string(),
             source: ItemSource::VoiceAtCursor,
-            visibility: Visibility::Hidden,
             kind: Some(crate::db::items::ItemKind::Transcription),
             project_id: None,
             captured_at: now.clone(),
@@ -641,7 +640,7 @@ async fn run_classifier(
         Some(db) => db
             .with_conn(|c| {
                 let projects = crate::db::projects::list_projects(c, false)?;
-                let recents = crate::db::items::list_items(c, None, None, 5, 0)?;
+                let recents = crate::db::items::list_items(c, None, 5, 0)?;
                 Ok::<_, crate::db::DbError>((projects, recents))
             })
             .unwrap_or_else(|e| {
@@ -813,7 +812,6 @@ fn persist_log_capture(
         id: id.clone(),
         content: content.to_string(),
         source: ItemSource::LogCapture,
-        visibility: Visibility::Visible,
         kind: Some(kind),
         project_id: final_project_id.clone(),
         captured_at: now.clone(),

@@ -197,10 +197,10 @@ mod tests {
     fn source_ids_are_collected_from_meetings_notes_dictations() {
         let conn = setup();
         conn.execute(
-            "INSERT INTO items (id, content, source, visibility, kind, captured_at, created_at)
-             VALUES ('m1', 'Meeting', 'meeting', 'visible', 'meeting', '2026-05-12T09:00:00Z', '2026-05-12T09:00:00Z'),
-                    ('n1', 'note', 'log_capture', 'visible', NULL, '2026-05-12T10:00:00Z', '2026-05-12T10:00:00Z'),
-                    ('d1', 'hi', 'voice_at_cursor', 'visible', NULL, '2026-05-12T11:00:00Z', '2026-05-12T11:00:00Z')",
+            "INSERT INTO items (id, content, source, kind, captured_at, created_at)
+             VALUES ('m1', 'Meeting', 'meeting', 'meeting', '2026-05-12T09:00:00Z', '2026-05-12T09:00:00Z'),
+                    ('n1', 'note', 'log_capture', NULL, '2026-05-12T10:00:00Z', '2026-05-12T10:00:00Z'),
+                    ('d1', 'hi', 'voice_at_cursor', NULL, '2026-05-12T11:00:00Z', '2026-05-12T11:00:00Z')",
             [],
         ).unwrap();
         conn.execute(

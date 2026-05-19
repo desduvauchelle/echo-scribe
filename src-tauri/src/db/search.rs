@@ -12,7 +12,7 @@ pub fn search_items(conn: &Connection, query: &str, limit: u32) -> Result<Vec<It
         return Ok(Vec::new());
     }
     let mut stmt = conn.prepare(
-        "SELECT items.id, items.content, items.source, items.visibility, items.kind,
+        "SELECT items.id, items.content, items.source, items.kind,
                 items.project_id, items.captured_at, items.created_at, items.deleted_at,
                 items.confidence, items.classified_by, items.capture_context
          FROM items
@@ -41,7 +41,7 @@ pub fn search_items_for_project(
         return Ok(Vec::new());
     }
     let sql = if project_id.is_some() {
-        "SELECT items.id, items.content, items.source, items.visibility, items.kind,
+        "SELECT items.id, items.content, items.source, items.kind,
                 items.project_id, items.captured_at, items.created_at, items.deleted_at,
                 items.confidence, items.classified_by, items.capture_context
          FROM items
@@ -50,7 +50,7 @@ pub fn search_items_for_project(
          ORDER BY rank
          LIMIT ?2"
     } else {
-        "SELECT items.id, items.content, items.source, items.visibility, items.kind,
+        "SELECT items.id, items.content, items.source, items.kind,
                 items.project_id, items.captured_at, items.created_at, items.deleted_at,
                 items.confidence, items.classified_by, items.capture_context
          FROM items
@@ -87,7 +87,7 @@ pub fn search_items_with_date_window(
         return Ok(Vec::new());
     }
     let mut sql = String::from(
-        "SELECT items.id, items.content, items.source, items.visibility, items.kind,
+        "SELECT items.id, items.content, items.source, items.kind,
                 items.project_id, items.captured_at, items.created_at, items.deleted_at,
                 items.confidence, items.classified_by, items.capture_context
          FROM items
@@ -129,7 +129,7 @@ pub fn search_items_with_date_window(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::items::{insert_item, soft_delete_item, Item, ItemSource, Visibility};
+    use crate::db::items::{insert_item, soft_delete_item, Item, ItemSource};
     use crate::db::projects::{insert_project, Project};
     use crate::db::schema::run_migrations;
 
@@ -144,7 +144,6 @@ mod tests {
             id: id.to_string(),
             content: content.to_string(),
             source: ItemSource::VoiceAtCursor,
-            visibility: Visibility::Hidden,
             kind: None,
             project_id: None,
             captured_at: "2026-05-01T00:00:00Z".to_string(),

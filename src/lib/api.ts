@@ -135,13 +135,11 @@ export const deleteSpeechModel = (id: string): Promise<void> =>
 
 export type ItemKind = "note" | "task" | "meeting" | "transcription";
 export type ItemSource = "voice_at_cursor" | "log_capture" | "meeting";
-export type Visibility = "hidden" | "visible";
 
 export type Item = {
   id: string;
   content: string;
   source: ItemSource;
-  visibility: Visibility;
   kind: ItemKind | null;
   project_id: string | null;
   captured_at: string;
@@ -188,13 +186,11 @@ export type TaskWithItem = {
 };
 
 export const listItems = (args: {
-  visibility?: Visibility | null;
   project_id?: string | null;
   limit?: number;
   offset?: number;
 }): Promise<Item[]> =>
   invoke("list_items", {
-    visibility: args.visibility ?? null,
     projectId: args.project_id ?? null,
     limit: args.limit ?? 50,
     offset: args.offset ?? 0,
