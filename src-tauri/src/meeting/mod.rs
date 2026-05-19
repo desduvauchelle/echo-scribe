@@ -6,6 +6,7 @@ use std::path::PathBuf;
 
 pub mod detector;
 pub mod grammar;
+pub mod guidance;
 pub mod pipeline;
 pub mod recorder;
 pub mod stitch;
