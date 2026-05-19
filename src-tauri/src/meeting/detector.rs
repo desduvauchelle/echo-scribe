@@ -175,6 +175,7 @@ pub fn spawn(
                         browser_url: ctx.browser_url.clone(),
                         browser_tab_title: ctx.browser_tab_title.clone(),
                         calendar_match: None,
+                        guide_template: None,
                     };
                     if let Err(e) = manager
                         .clone()

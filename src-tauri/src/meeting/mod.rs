@@ -151,6 +151,8 @@ struct ActiveMeeting {
     recorder: Recorder,
     chunk_drain_handle: tokio::task::JoinHandle<()>,
     pipeline: Option<Pipeline>,
+    guide_template: Option<crate::db::guide_templates::GuideTemplate>,
+    guide_engine: Option<crate::meeting::guidance::GuidanceEngine>,
 }
 
 /// Optional context captured at meeting-start time, fed into the synthesis
@@ -161,6 +163,10 @@ pub struct MeetingStartContext {
     pub browser_url: Option<String>,
     pub browser_tab_title: Option<String>,
     pub calendar_match: Option<crate::calendar::CalendarMatch>,
+    /// The guide template to attach to this session (None for a normal
+    /// auto-detected/manual meeting). When `Some`, `start()` persists the
+    /// snapshot atomically and constructs a `GuidanceEngine`.
+    pub guide_template: Option<crate::db::guide_templates::GuideTemplate>,
 }
 
 impl MeetingManager {
@@ -199,6 +205,11 @@ impl MeetingManager {
 
     pub async fn active_id(&self) -> Option<String> {
         self.state.lock().await.as_ref().map(|a| a.item_id.clone())
+    }
+
+    /// Returns a clone of the active session's GuidanceEngine handle, if any.
+    pub async fn guide_engine(&self) -> Option<crate::meeting::guidance::GuidanceEngine> {
+        self.state.lock().await.as_ref().and_then(|a| a.guide_engine.clone())
     }
 
     pub async fn start(
@@ -295,7 +306,57 @@ impl MeetingManager {
             }
         });
 
-        let pipeline = Pipeline::new(self.asr.clone(), dir.join("failed"));
+        // Build the pipeline. If a guide template is attached, also build
+        // the guidance engine and install its segment observer BEFORE the
+        // drain task spawns (the observer is captured at spawn time).
+        let mut pipeline = Pipeline::new(self.asr.clone(), dir.join("failed"));
+        let guide_template = start_context.guide_template.clone();
+        let guide_engine = if let Some(template) = guide_template.clone() {
+            // Persist the immutable snapshot now. Mirrors B1's post-hoc
+            // update_guide_template call but happens inside start() so a
+            // bad write doesn't escape into the active meeting state.
+            let id_for_snap = id.clone();
+            if let Ok(snap) = serde_json::to_string(&template) {
+                if let Err(e) = self.db.with_conn(move |c| {
+                    crate::db::meetings::update_guide_template(c, &id_for_snap, Some(snap.as_str()))
+                }) {
+                    tracing::warn!(?e, "persisting guide template snapshot failed");
+                }
+            }
+            // Initial mode comes from persisted setting (Auto by default).
+            let initial_mode = match crate::settings::SettingsStore::load(&self.app_handle)
+                .ok()
+                .and_then(|s| s.guide_overlay_mode())
+            {
+                Some(crate::meeting::guidance::Mode::OnDemand) => {
+                    crate::meeting::guidance::Mode::OnDemand
+                }
+                _ => crate::meeting::guidance::Mode::Auto,
+            };
+            let engine = crate::meeting::guidance::GuidanceEngine::new(
+                id.clone(),
+                template,
+                self.llm.clone(),
+                self.app_handle.clone(),
+                initial_mode,
+            );
+            // Wire the per-segment observer: forward into the engine, then
+            // fire a cycle if Auto mode says so.
+            let engine_obs = engine.clone();
+            let cb: crate::meeting::pipeline::SegmentObserver =
+                std::sync::Arc::new(move |seg| {
+                    let should_fire = engine_obs.ingest_segment(&seg);
+                    if should_fire {
+                        engine_obs.fire_cycle();
+                    }
+                });
+            pipeline = pipeline.with_observer(cb);
+            // Show the HUD now that a guided session is starting.
+            crate::overlay::show_guide_overlay(&self.app_handle);
+            Some(engine)
+        } else {
+            None
+        };
         let chunk_drain_handle = pipeline.spawn_drain(chunk_rx);
 
         let _ = self.app_handle.emit(
@@ -374,6 +435,8 @@ impl MeetingManager {
             recorder,
             chunk_drain_handle,
             pipeline: Some(pipeline),
+            guide_template,
+            guide_engine,
         });
         Ok(id)
     }
@@ -495,6 +558,7 @@ impl MeetingManager {
             browser_url: active.start_browser_url.clone(),
             browser_tab_title: active.start_browser_tab_title.clone(),
             calendar_match: refined_match.clone(),
+            guide_template: None,
         };
         crate::util::rss::log_rss("before synthesize");
         let synthesis = synthesizer::synthesize(
@@ -617,6 +681,7 @@ impl MeetingManager {
             serde_json::json!({"id": id}),
         );
         crate::overlay::hide_recording_overlay(&self.app_handle);
+        crate::overlay::hide_guide_overlay(&self.app_handle);
 
         // Step 9: Best-effort cleanup of empty meeting dir if no failed chunks.
         if failed.is_empty() {
