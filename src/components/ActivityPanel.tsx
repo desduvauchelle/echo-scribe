@@ -29,8 +29,10 @@ import {
   type StoredSummary,
   type StoredTranscript,
 } from "../lib/api";
+import { ask } from "@tauri-apps/plugin-dialog";
 import { relativeTime } from "../lib/format";
 import { useActivityPanel } from "./ActivityPanelContext";
+import { useToasts } from "./ToastProvider";
 import ItemDetailPanel from "./ItemDetailPanel";
 
 export default function ActivityPanel() {
@@ -72,6 +74,7 @@ export default function ActivityPanel() {
 
 function PanelBody({ itemId, onClose }: { itemId: string; onClose: () => void }) {
   const { bumpRefresh } = useActivityPanel();
+  const toasts = useToasts();
   const [item, setItem] = useState<Item | null>(null);
   const [meeting, setMeeting] = useState<MeetingRow | null>(null);
   const [tags, setTags] = useState<string[]>([]);
@@ -144,14 +147,25 @@ function PanelBody({ itemId, onClose }: { itemId: string; onClose: () => void })
 
   const onDelete = async () => {
     if (!item) return;
-    if (!confirm("Delete this item? You can restore it from the trash.")) return;
-    if (meeting) {
-      await deleteMeeting(item.id);
-    } else {
-      await deleteItem(item.id);
+    const confirmed = await ask(
+      "Delete this item? You can restore it from the trash.",
+      { title: "Delete item", kind: "warning" },
+    );
+    if (!confirmed) return;
+    try {
+      if (meeting) {
+        await deleteMeeting(item.id);
+      } else {
+        await deleteItem(item.id);
+      }
+      bumpRefresh();
+      onClose();
+    } catch (e) {
+      toasts.push({
+        tone: "error",
+        message: `Delete failed: ${e instanceof Error ? e.message : String(e)}`,
+      });
     }
-    bumpRefresh();
-    onClose();
   };
 
   const onRestore = async () => {
@@ -241,7 +255,13 @@ function activityTitle(item: Item, meeting: MeetingRow | null): string {
     if (summary?.suggested_title) return truncate(summary.suggested_title, 60);
   }
   const firstLine = item.content.split("\n")[0]?.trim() ?? "";
-  if (!firstLine) return item.kind === "task" ? "Task" : meeting ? "Meeting" : "Note";
+  if (!firstLine) {
+    if (item.kind === "task") return "Task";
+    if (meeting) return "Meeting";
+    if (item.source === "voice_at_cursor" || item.kind === "transcription")
+      return "Transcription";
+    return "Note";
+  }
   return truncate(firstLine, 60);
 }
 
@@ -270,7 +290,8 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 function HeaderSection({ item, meeting }: { item: Item; meeting: MeetingRow | null }) {
   const badges: string[] = [];
   if (meeting) badges.push("Meeting");
-  else if (item.source === "voice_at_cursor") badges.push("Voice");
+  else if (item.source === "voice_at_cursor" || item.kind === "transcription")
+    badges.push("Transcription");
   else if (item.source === "log_capture") badges.push("Log capture");
   if (item.kind === "task") badges.push("Task");
   if (item.deleted_at) badges.push("Deleted");
@@ -344,7 +365,7 @@ function KindSection({ item, onChange }: { item: Item; onChange: (i: Item) => vo
     <div>
       <SectionLabel>Kind</SectionLabel>
       <div className="flex gap-1">
-        {(["note", "task", ""] as const).map((k) => (
+        {(["transcription", "note", "task", ""] as const).map((k) => (
           <button
             key={k || "unset"}
             type="button"
@@ -355,7 +376,13 @@ function KindSection({ item, onChange }: { item: Item; onChange: (i: Item) => vo
                 : "border-line text-muted hover:bg-elevated hover:text-fg"
             }`}
           >
-            {k === "" ? "Unset" : k === "task" ? "Task" : "Note"}
+            {k === ""
+              ? "Unset"
+              : k === "task"
+                ? "Task"
+                : k === "transcription"
+                  ? "Transcription"
+                  : "Note"}
           </button>
         ))}
       </div>
