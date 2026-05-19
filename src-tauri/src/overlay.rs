@@ -238,3 +238,69 @@ pub fn emit_levels(app_handle: &AppHandle<Wry>, levels: &[f32]) {
         let _ = overlay.emit("mic-level", levels);
     }
 }
+
+const GUIDE_OVERLAY_WIDTH: f64 = 280.0;
+const GUIDE_OVERLAY_HEIGHT: f64 = 280.0;
+const GUIDE_OVERLAY_RIGHT_MARGIN: f64 = 24.0;
+const GUIDE_OVERLAY_TOP_MARGIN: f64 = 24.0;
+
+fn calculate_guide_overlay_position(app_handle: &AppHandle<Wry>) -> Option<(f64, f64)> {
+    let monitor = app_handle.primary_monitor().ok().flatten()?;
+    let size = monitor.size();
+    let scale = monitor.scale_factor();
+    let logical_w = size.width as f64 / scale;
+    let x = (logical_w - GUIDE_OVERLAY_WIDTH - GUIDE_OVERLAY_RIGHT_MARGIN).max(0.0);
+    let y = GUIDE_OVERLAY_TOP_MARGIN;
+    Some((x, y))
+}
+
+/// Build the guide-overlay webview window. Idempotent (no-op if already
+/// created). Mirrors `create_recording_overlay` flags: transparent,
+/// decorations off, always-on-top, never focused/in-taskbar.
+pub fn create_guide_overlay(app_handle: &AppHandle<Wry>) {
+    if app_handle.get_webview_window("guide_overlay").is_some() {
+        return;
+    }
+    let (x, y) = calculate_guide_overlay_position(app_handle).unwrap_or((100.0, 100.0));
+    let _ = WebviewWindowBuilder::new(
+        app_handle,
+        "guide_overlay",
+        tauri::WebviewUrl::App("src/guide-overlay/index.html".into()),
+    )
+    .title("Guide")
+    .position(x, y)
+    .inner_size(GUIDE_OVERLAY_WIDTH, GUIDE_OVERLAY_HEIGHT)
+    .resizable(false)
+    .shadow(false)
+    .maximizable(false)
+    .minimizable(false)
+    .closable(false)
+    .accept_first_mouse(true)
+    .decorations(false)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .transparent(true)
+    .focused(false)
+    .visible(false)
+    .build();
+}
+
+pub fn show_guide_overlay(app_handle: &AppHandle<Wry>) {
+    if let Some(w) = app_handle.get_webview_window("guide_overlay") {
+        let _ = w.show();
+        let _ = w.set_always_on_top(true);
+    } else {
+        // Window wasn't pre-created (e.g. dev hot-reload): build then show.
+        create_guide_overlay(app_handle);
+        if let Some(w) = app_handle.get_webview_window("guide_overlay") {
+            let _ = w.show();
+            let _ = w.set_always_on_top(true);
+        }
+    }
+}
+
+pub fn hide_guide_overlay(app_handle: &AppHandle<Wry>) {
+    if let Some(w) = app_handle.get_webview_window("guide_overlay") {
+        let _ = w.hide();
+    }
+}

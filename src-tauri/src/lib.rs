@@ -509,6 +509,7 @@ pub fn run() {
             // triggers a recording).
             crate::overlay::create_recording_overlay(&app.handle().clone());
             crate::overlay::create_consent_overlay(&app.handle().clone());
+            crate::overlay::create_guide_overlay(&app.handle().clone());
 
             // If permissions are already green at startup AND a model is
             // ready, auto-start the pipeline so returning users don't need to
