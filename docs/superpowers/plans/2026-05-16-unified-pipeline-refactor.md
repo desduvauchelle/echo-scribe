@@ -860,6 +860,39 @@ git commit -m "docs: record pipeline refactor verification"
 
 ---
 
+## Phase 0 finding (captured 2026-05-19, real guided-session run)
+
+Instrumented RSS over a real recorded session (3 chunks → finalize → synthesize):
+
+| Boundary | RSS MiB |
+|---|---|
+| every `after chunk transcribe` (seg_count 1,2,3) | **1103 (flat)** |
+| `before`/`after pipeline.finalize` | 1103 |
+| `before synthesize` | 1103 |
+| `after synthesize` | **1811 (+708)** |
+
+**Conclusion:** the chunk-drain path does NOT accumulate — RSS is byte-flat at
+1103 MiB across the entire recording regardless of segment count. The whole
+balloon (~708 MiB here; the ~2 GiB on long real meetings) is the **LLM
+synthesis call (Gemma)**, localized entirely to that one step. Gemma
+idle-unloads afterward, so it is transient/self-freeing, not a leak. The
+silence-aware chunking + bounded overlap + buffer flush did their job (the
+1103 baseline stays bounded), but the original "2 GiB" symptom was never the
+audio/transcription pipeline.
+
+**Plan B2 implication:** the live guidance engine invokes Gemma repeatedly
+*during* the meeting and keeps it resident for the whole guided session (no
+idle-unload while looping). B2's contention/memory design must account for
+Gemma being resident + spiking ~700 MiB per synthesis-class call throughout
+the call, not just once at the end.
+
+## B1 verification (same run)
+
+Guided session `a15e6d10`: status `complete`; `guide_template_json` persisted
+the frozen snapshot (`{"id":"01KRY...","name":"Customer Discovery",...}`);
+normal transcript + synthesis produced (4 summary bullets, 1 action). B1
+end-to-end confirmed. (No live UI by design — that is Plan B2.)
+
 ## Self-Review
 
 **Spec coverage (Section 1 of `2026-05-16-meeting-guide-design.md`):**
