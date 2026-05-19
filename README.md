@@ -1,6 +1,6 @@
 # Echo Scribe
 
-**[echoscribe.app →](https://denisduvauchelle.github.io/echo-scribe/)**
+**[echoscribe.app →](https://desduvauchelle.github.io/echo-scribe/)**
 
 A voice-first personal capture tool for macOS. Press a hotkey, speak, and Echo Scribe transcribes and understands your words — entirely on your device, with no internet required.
 
@@ -67,7 +67,7 @@ Dictate code comments, documentation drafts, TODO items, or feature ideas withou
 Open Terminal (Cmd+Space, type "Terminal", press Enter) and paste:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/denisduvauchelle/echo-scribe/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/desduvauchelle/echo-scribe/main/install.sh | bash
 ```
 
 The script installs to `/Applications/`, handles macOS security permissions, and works on both Apple Silicon and Intel. To update, run the same command again.
@@ -100,12 +100,15 @@ The script installs to `/Applications/`, handles macOS security permissions, and
 
 ## Building from source
 
+macOS only.
+
 ```bash
-# Prerequisites: Rust (rustup), Bun, CMake
-git clone https://github.com/denisduvauchelle/echo-scribe.git
+git clone https://github.com/desduvauchelle/echo-scribe.git
 cd echo-scribe
-bun install
-bun tauri build --bundles app
+./scripts/build-from-source.sh
 ```
 
-The `.app` bundle lands at `src-tauri/target/release/bundle/macos/Echo Scribe.app`.
+The script checks prerequisites (Xcode Command Line Tools, Rust, CMake, and
+bun or npm), asking for confirmation before installing anything missing. It
+builds the Swift sidecars and the app bundle, then installs **Echo Scribe.app**
+to `/Applications` and launches it.

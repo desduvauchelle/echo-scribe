@@ -61,6 +61,7 @@ impl Visibility {
 pub enum ItemKind {
     Note,
     Task,
+    Transcription,
 }
 
 impl ItemKind {
@@ -68,6 +69,7 @@ impl ItemKind {
         match self {
             ItemKind::Note => "note",
             ItemKind::Task => "task",
+            ItemKind::Transcription => "transcription",
         }
     }
 
@@ -75,6 +77,7 @@ impl ItemKind {
         match s {
             "note" => Some(ItemKind::Note),
             "task" => Some(ItemKind::Task),
+            "transcription" => Some(ItemKind::Transcription),
             _ => None,
         }
     }

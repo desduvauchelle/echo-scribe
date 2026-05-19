@@ -43,7 +43,7 @@ type Props = {
 };
 
 export default function Main({ onOpenSettings }: Props) {
-  const [section, setSection] = useState<MainSection>({ kind: "activity" });
+  const [section, setSection] = useState<MainSection>({ kind: "dashboard" });
   const [projects, setProjects] = useState<Project[]>([]);
   const [showAllProjects, setShowAllProjects] = useState(false);
   const [binding, setBinding] = useState<JsBinding | null>(null);
@@ -111,7 +111,7 @@ export default function Main({ onOpenSettings }: Props) {
       case "chat":
         return <ChatView projects={projects} />;
       case "dashboard":
-        return <DashboardView />;
+        return <DashboardView projects={projectMap} />;
       case "daily":
         return <DailyView initialDate={section.date} />;
       case "meetings":
@@ -143,6 +143,12 @@ export default function Main({ onOpenSettings }: Props) {
 
         <nav className="flex flex-col gap-0.5 px-2">
           <NavItem
+            icon={LayoutDashboard}
+            label="Dashboard"
+            active={section.kind === "dashboard"}
+            onClick={() => setSection({ kind: "dashboard" })}
+          />
+          <NavItem
             icon={Activity}
             label="Activity"
             active={section.kind === "activity"}
@@ -171,12 +177,6 @@ export default function Main({ onOpenSettings }: Props) {
             label="Meetings"
             active={section.kind === "meetings"}
             onClick={() => setSection({ kind: "meetings" })}
-          />
-          <NavItem
-            icon={LayoutDashboard}
-            label="Dashboard"
-            active={section.kind === "dashboard"}
-            onClick={() => setSection({ kind: "dashboard" })}
           />
           <NavItem
             icon={CalendarDays}

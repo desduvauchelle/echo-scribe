@@ -59,7 +59,7 @@ GitHub Actions (`release.yml`) builds Apple Silicon + Intel `.app` bundles and a
 
 **User install command:**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/denisduvauchelle/echo-scribe/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/desduvauchelle/echo-scribe/main/install.sh | bash
 ```
 The script detects arch, fetches the latest release from the GitHub API, downloads the matching `.tar.gz`, installs to `/Applications/`, and strips the quarantine attribute so Gatekeeper never blocks it.
 

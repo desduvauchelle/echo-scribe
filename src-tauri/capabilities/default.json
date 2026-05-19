@@ -14,6 +14,7 @@
       ]
     },
     "autostart:default",
-    "notification:default"
+    "notification:default",
+    "dialog:default"
   ]
 }

@@ -49,6 +49,7 @@ import {
   type InputDeviceSort,
 } from "../lib/api";
 import { useToasts } from "../components/ToastProvider";
+import { ask } from "@tauri-apps/plugin-dialog";
 
 type Tab = "voice" | "ai" | "meetings" | "general" | "advanced";
 
@@ -1055,11 +1056,11 @@ function ResetSection() {
   const toasts = useToasts();
 
   const onReset = async () => {
-    if (
-      !window.confirm(
-        "Reset onboarding? This clears the settings store and quits the app. You'll need to relaunch.",
-      )
-    ) {
+    const confirmed = await ask(
+      "Reset onboarding? This clears the settings store and quits the app. You'll need to relaunch.",
+      { title: "Reset onboarding", kind: "warning" },
+    );
+    if (!confirmed) {
       return;
     }
     setBusy(true);

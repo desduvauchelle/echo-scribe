@@ -201,6 +201,13 @@ CREATE TABLE IF NOT EXISTS guide_templates (
 ALTER TABLE meetings ADD COLUMN guide_template_json TEXT;
 "#,
     ),
+    (
+        11,
+        r#"
+UPDATE items SET kind = 'transcription'
+  WHERE source = 'voice_at_cursor' AND kind IS NULL;
+"#,
+    ),
 ];
 
 const META_TABLE_SQL: &str = r#"
@@ -262,7 +269,7 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(v, "10");
+        assert_eq!(v, "11");
     }
 
     #[test]
@@ -384,7 +391,7 @@ mod tests {
         let version: String = conn
             .query_row("SELECT value FROM schema_meta WHERE key = 'schema_version'", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(version, "10");
+        assert_eq!(version, "11");
     }
 
     #[test]

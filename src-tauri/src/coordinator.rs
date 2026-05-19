@@ -550,7 +550,7 @@ fn persist_capture(
             content: text.to_string(),
             source: ItemSource::VoiceAtCursor,
             visibility: Visibility::Hidden,
-            kind: None,
+            kind: Some(crate::db::items::ItemKind::Transcription),
             project_id: None,
             captured_at: now.clone(),
             created_at: now.clone(),
@@ -750,6 +750,7 @@ fn notify_auto_filed(
         let kind_label = match kind {
             crate::db::items::ItemKind::Task => "Task",
             crate::db::items::ItemKind::Note => "Note",
+            crate::db::items::ItemKind::Transcription => "Transcription",
         };
         let title = format!("Filed to {name}");
         let body = format!("{kind_label}: {preview}");

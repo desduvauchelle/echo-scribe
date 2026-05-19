@@ -27,7 +27,7 @@ type Props = {
 };
 
 type VisibilityFilter = "all" | Visibility;
-type KindFilter = "all" | ItemKind | "voice";
+type KindFilter = "all" | ItemKind;
 
 const PAGE_SIZE = 50;
 
@@ -143,8 +143,15 @@ export default function ActivityFeed({
 
   const filteredItems = useMemo(() => {
     if (kindFilter === "all") return items;
-    if (kindFilter === "voice") {
-      return items.filter((i) => i.source === "voice_at_cursor");
+    if (kindFilter === "transcription") {
+      return items.filter(
+        (i) => i.kind === "transcription" || i.source === "voice_at_cursor",
+      );
+    }
+    if (kindFilter === "meeting") {
+      return items.filter(
+        (i) => i.kind === "meeting" || i.source === "meeting",
+      );
     }
     return items.filter((i) => i.kind === kindFilter);
   }, [items, kindFilter]);
@@ -265,9 +272,10 @@ export default function ActivityFeed({
           value={kindFilter}
           options={[
             { value: "all", label: "All" },
+            { value: "transcription", label: "Transcription" },
             { value: "note", label: "Note" },
             { value: "task", label: "Task" },
-            { value: "voice", label: "Voice" },
+            { value: "meeting", label: "Meeting" },
           ]}
           onChange={setKindFilter}
         />

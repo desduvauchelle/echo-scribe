@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO="denisduvauchelle/echo-scribe"
+REPO="desduvauchelle/echo-scribe"
 APP_BUNDLE="Echo Scribe.app"
 
 # Must be macOS
