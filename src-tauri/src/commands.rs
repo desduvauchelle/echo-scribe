@@ -1895,6 +1895,41 @@ pub async fn start_guided_session(
 }
 
 #[tauri::command]
+pub async fn guide_set_mode(
+    state: tauri::State<'_, AppState>,
+    mode: String,
+) -> Result<(), String> {
+    let m = crate::meeting::guidance::Mode::parse(&mode)
+        .ok_or_else(|| format!("unknown guide mode: {mode}"))?;
+    if let Some(engine) = state.meeting_manager.guide_engine().await {
+        engine.set_mode(m);
+    }
+    // Persist for next session even when no engine is active.
+    state.settings.set_guide_overlay_mode(m).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn guide_trigger_now(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    if let Some(engine) = state.meeting_manager.guide_engine().await {
+        engine.fire_cycle();
+        Ok(())
+    } else {
+        Err("no active guided session".into())
+    }
+}
+
+#[tauri::command]
+pub async fn guide_end(state: tauri::State<'_, AppState>) -> Result<String, String> {
+    // "End" from the HUD is just a stop for the current meeting. We reuse
+    // the standard stop path so transcript + summary still produce.
+    state
+        .meeting_manager
+        .stop()
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn stop_meeting(
     state: tauri::State<'_, AppState>,
 ) -> Result<String, String> {
