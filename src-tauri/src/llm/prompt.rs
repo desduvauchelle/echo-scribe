@@ -134,6 +134,7 @@ pub fn build_meeting_synthesis_prompt(
     duration_minutes: u64,
     existing_project_names: &[String],
     start_context: &crate::meeting::MeetingStartContext,
+    custom_prompt: Option<&str>,
 ) -> (Option<String>, String) {
     let app = detected_app_name.unwrap_or("a meeting");
 
@@ -155,9 +156,16 @@ Otherwise set it to null."
         )
     };
 
-    let system = format!(
+    let base_guidelines = custom_prompt.unwrap_or(
         "You are an expert meeting note-taker. You receive a transcript of a {duration_minutes}-minute conversation captured from {app}. \
-The transcript labels each segment as 'You:' (the user) or 'Them:' (the other side). \
+The transcript labels each segment as 'You:' (the user) or 'Them:' (the other side)."
+    );
+    let resolved_guidelines = base_guidelines
+        .replace("{duration_minutes}", &duration_minutes.to_string())
+        .replace("{app}", app);
+
+    let system = format!(
+        "{resolved_guidelines}\n\
 Produce a JSON object with exactly these fields:\n\
 - summary: array of 3 to 5 bullet strings. Each bullet covers one decision, key topic, or outcome. \
 Bullets must be self-contained sentences, no leading dashes.\n\
@@ -402,7 +410,7 @@ mod tests {
     fn meeting_synthesis_omits_context_block_when_empty() {
         let ctx = crate::meeting::MeetingStartContext::default();
         let (_sys, user) =
-            build_meeting_synthesis_prompt("You: hi\nThem: hello\n", Some("Zoom"), 5, &[], &ctx);
+            build_meeting_synthesis_prompt("You: hi\nThem: hello\n", Some("Zoom"), 5, &[], &ctx, None);
         assert!(
             !user.contains("Context at meeting start"),
             "empty context must not produce a context block, got: {user}"
@@ -419,7 +427,7 @@ mod tests {
             guide_template: None,
         };
         let (_sys, user) =
-            build_meeting_synthesis_prompt("You: hi\n", Some("Zoom"), 30, &[], &ctx);
+            build_meeting_synthesis_prompt("You: hi\n", Some("Zoom"), 30, &[], &ctx, None);
         assert!(user.contains("Context at meeting start"));
         assert!(user.contains("Weekly Standup - Zoom Meeting"));
         assert!(user.contains("https://meet.google.com/abc-defg-hij"));
@@ -464,7 +472,7 @@ mod tests {
             ..Default::default()
         };
         let (_sys, user) =
-            build_meeting_synthesis_prompt("You: hi\n", Some("Zoom"), 30, &[], &ctx);
+            build_meeting_synthesis_prompt("You: hi\n", Some("Zoom"), 30, &[], &ctx, None);
         assert!(user.contains("Calendar match (confidence 0.92)"), "{user}");
         assert!(user.contains("Weekly Standup"));
         assert!(user.contains("Alice <alice@acme.com>"));
@@ -492,7 +500,7 @@ mod tests {
             ..Default::default()
         };
         let (_sys, user) =
-            build_meeting_synthesis_prompt("You: hi\n", None, 5, &[], &ctx);
+            build_meeting_synthesis_prompt("You: hi\n", None, 5, &[], &ctx, None);
         assert!(
             user.contains("low confidence 0.45 — treat as hint"),
             "missing low-confidence prefix: {user}"
@@ -511,12 +519,29 @@ mod tests {
             guide_template: None,
         };
         let (_sys, user) =
-            build_meeting_synthesis_prompt("You: hi\n", None, 1, &[], &ctx);
+            build_meeting_synthesis_prompt("You: hi\n", None, 1, &[], &ctx, None);
         let occurrences = user.matches("Echo Scribe — pricing").count();
         assert_eq!(
             occurrences, 1,
             "redundant tab title should not be repeated; got {occurrences} occurrences in: {user}"
         );
+    }
+
+    #[test]
+    fn meeting_synthesis_custom_prompt_substitutions() {
+        let ctx = crate::meeting::MeetingStartContext::default();
+        let custom = "Tone: formal. Duration: {duration_minutes}m, platform: {app}. Be concise.";
+        let (sys, _user) = build_meeting_synthesis_prompt(
+            "You: hi\n",
+            Some("Google Meet"),
+            45,
+            &[],
+            &ctx,
+            Some(custom),
+        );
+        let sys_content = sys.unwrap();
+        assert!(sys_content.contains("Tone: formal. Duration: 45m, platform: Google Meet. Be concise."), "got: {sys_content}");
+        assert!(sys_content.contains("Produce a JSON object with exactly these fields:"), "got: {sys_content}");
     }
 }
 

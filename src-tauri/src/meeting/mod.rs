@@ -571,6 +571,9 @@ impl MeetingManager {
             calendar_match: refined_match.clone(),
             guide_template: None,
         };
+        let settings = crate::settings::SettingsStore::load(&self.app_handle).ok();
+        let custom_prompt = settings.as_ref().map(|s| s.meeting_summary_prompt());
+
         crate::util::rss::log_rss("before synthesize");
         let synthesis = synthesizer::synthesize(
             self.llm.clone(),
@@ -579,6 +582,7 @@ impl MeetingManager {
             duration_ms,
             &project_names,
             &start_context,
+            custom_prompt.as_deref(),
         )
         .await;
         crate::util::rss::log_rss("after synthesize");
@@ -748,6 +752,9 @@ impl MeetingManager {
             calendar_match: persisted_match,
             ..Default::default()
         };
+        let settings = crate::settings::SettingsStore::load(&self.app_handle).ok();
+        let custom_prompt = settings.as_ref().map(|s| s.meeting_summary_prompt());
+
         let synthesis = synthesizer::synthesize(
             self.llm.clone(),
             &segments,
@@ -755,6 +762,7 @@ impl MeetingManager {
             duration_ms,
             &project_names,
             &retry_context,
+            custom_prompt.as_deref(),
         )
         .await;
         if let Ok(s) = synthesis {

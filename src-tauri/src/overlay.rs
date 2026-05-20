@@ -135,6 +135,11 @@ pub fn show_log_recording_overlay(app_handle: &AppHandle<Wry>) {
     show_overlay_state(app_handle, "log-recording");
 }
 
+/// Switches the overlay to "action-recording" state (dedicated Action Hotkey gradient).
+pub fn show_action_recording_overlay(app_handle: &AppHandle<Wry>) {
+    show_overlay_state(app_handle, "action-recording");
+}
+
 /// Shows the overlay in "transcribing" state (pulsing text).
 pub fn show_transcribing_overlay(app_handle: &AppHandle<Wry>) {
     show_overlay_state(app_handle, "transcribing");

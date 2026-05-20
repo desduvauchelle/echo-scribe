@@ -46,6 +46,7 @@ pub struct AppState {
     pub settings: SettingsStore,
     pub binding: Arc<RwLock<Binding>>,
     pub log_capture_binding: Arc<RwLock<Binding>>,
+    pub action_binding: Arc<RwLock<Binding>>,
     pub hotkey_started: AtomicBool,
     /// When `true`, the coordinator drops Pressed/Released events. Toggled
     /// from the tray menu (Pause/Resume hotkeys). The hotkey listeners stay
@@ -281,6 +282,68 @@ pub fn update_log_capture_binding(
     Ok(())
 }
 
+#[tauri::command]
+pub fn get_action_binding(state: State<'_, AppState>) -> JsBinding {
+    let b = state
+        .action_binding
+        .read()
+        .map(|g| g.clone())
+        .unwrap_or_else(|_| crate::settings::default_action_binding());
+    b.into()
+}
+
+#[tauri::command]
+pub fn update_action_binding(
+    state: State<'_, AppState>,
+    binding: JsBinding,
+) -> Result<(), String> {
+    let parsed: Binding = binding
+        .try_into()
+        .map_err(|e: BindingConversionError| e.to_string())?;
+    state
+        .settings
+        .set_action_binding(parsed.clone())
+        .map_err(|e| e.to_string())?;
+    let mut guard = state
+        .action_binding
+        .write()
+        .map_err(|_| "action_binding lock poisoned".to_string())?;
+    *guard = parsed;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_trigger_word_routing_enabled(state: State<'_, AppState>) -> bool {
+    state.settings.trigger_word_routing_enabled()
+}
+
+#[tauri::command]
+pub fn set_trigger_word_routing_enabled(
+    state: State<'_, AppState>,
+    enabled: bool,
+) -> Result<(), String> {
+    state
+        .settings
+        .set_trigger_word_routing_enabled(enabled)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_action_trigger_word(state: State<'_, AppState>) -> String {
+    state.settings.action_trigger_word()
+}
+
+#[tauri::command]
+pub fn set_action_trigger_word(
+    state: State<'_, AppState>,
+    word: String,
+) -> Result<(), String> {
+    state
+        .settings
+        .set_action_trigger_word(&word)
+        .map_err(|e| e.to_string())
+}
+
 /// Suspend or resume the CGEventTap listeners. Set to `true` while the
 /// settings UI is in hotkey-capture mode so the web view can receive raw key
 /// events without them being swallowed by the tap.
@@ -489,9 +552,11 @@ pub fn ensure_pipeline_started(state: &AppState, app: &AppHandle) {
 
     let (vac_tx, mut vac_rx) = mpsc::unbounded_channel::<HotkeyEvent>();
     let (lc_tx, mut lc_rx) = mpsc::unbounded_channel::<HotkeyEvent>();
+    let (ac_tx, mut ac_rx) = mpsc::unbounded_channel::<HotkeyEvent>();
 
     spawn_listener(Arc::clone(&state.binding), vac_tx, Arc::clone(&state.rebinding));
     spawn_listener(Arc::clone(&state.log_capture_binding), lc_tx, Arc::clone(&state.rebinding));
+    spawn_listener(Arc::clone(&state.action_binding), ac_tx, Arc::clone(&state.rebinding));
 
     // Adapter tasks: tag + forward into the coordinator channel. We use
     // `tokio::spawn` rather than a dedicated thread because these are pure
@@ -515,6 +580,19 @@ pub fn ensure_pipeline_started(state: &AppState, app: &AppHandle) {
             while let Some(ev) = lc_rx.recv().await {
                 if coord_tx
                     .send(CoordinatorMsg::Hotkey(Action::LogCapture, ev))
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        });
+    }
+    {
+        let coord_tx = coord_tx.clone();
+        tauri::async_runtime::spawn(async move {
+            while let Some(ev) = ac_rx.recv().await {
+                if coord_tx
+                    .send(CoordinatorMsg::Hotkey(Action::ActionCommand, ev))
                     .is_err()
                 {
                     break;
@@ -2078,7 +2156,19 @@ pub fn get_meeting_settings(state: tauri::State<'_, AppState>) -> serde_json::Va
         "app_prefs": state.settings.meeting_app_prefs(),
         "soft_warn_min": state.settings.meeting_soft_warn_min(),
         "hard_cap_min": state.settings.meeting_hard_cap_min(),
+        "summary_prompt": state.settings.meeting_summary_prompt(),
     })
+}
+
+#[tauri::command]
+pub fn set_meeting_summary_prompt(
+    state: tauri::State<'_, AppState>,
+    prompt: String,
+) -> Result<(), String> {
+    state
+        .settings
+        .set_meeting_summary_prompt(&prompt)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

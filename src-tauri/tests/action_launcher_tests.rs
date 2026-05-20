@@ -1,4 +1,4 @@
-use echo_scribe_lib::llm::action_launcher::detect_action;
+use echo_scribe_lib::llm::action_launcher::{detect_action, normalize_spoken_email, strip_trigger_prefix};
 use echo_scribe_lib::llm::{GenerateFuture, GenerateRequest, LlmGenerator};
 use std::sync::{Arc, Mutex};
 
@@ -131,3 +131,51 @@ async fn test_detect_action_failed_twice_returns_error() {
     let err = detect_action(&mock, "open Slack").await.unwrap_err();
     assert!(err.to_string().contains("json parsing failed"));
 }
+
+#[test]
+fn test_normalize_spoken_email() {
+    // Test exact transcript spoken by the user
+    let raw_email = "D-E-S-D-U-V-A-U-C-H-E-L-L E at gmail.com";
+    let normalized = normalize_spoken_email(raw_email);
+    assert_eq!(normalized, "desduvauchelle@gmail.com");
+
+    // Test spoken "@" representations
+    assert_eq!(normalize_spoken_email("test at example.com"), "test@example.com");
+    assert_eq!(normalize_spoken_email("john [at] github.com"), "john@github.com");
+    assert_eq!(normalize_spoken_email("admin (at) livecase.org"), "admin@livecase.org");
+
+    // Test spelling hyphens in local part without domain (fallback)
+    assert_eq!(normalize_spoken_email("d-e-n-i-s"), "denis");
+
+    // Test that a normal email remains unaffected
+    assert_eq!(normalize_spoken_email("denis@livecase.com"), "denis@livecase.com");
+    
+    // Test that a normal email with single hyphen remains unaffected
+    assert_eq!(normalize_spoken_email("jean-paul@example.com"), "jean-paul@example.com");
+}
+
+#[test]
+fn test_strip_trigger_prefix() {
+    // Valid trigger cases with various casings and spacing
+    assert_eq!(strip_trigger_prefix("echo open terminal"), Some("open terminal".to_string()));
+    assert_eq!(strip_trigger_prefix("Echo open terminal"), Some("open terminal".to_string()));
+    assert_eq!(strip_trigger_prefix("echo, open terminal"), Some("open terminal".to_string()));
+    assert_eq!(strip_trigger_prefix("echo - open terminal"), Some("open terminal".to_string()));
+    assert_eq!(strip_trigger_prefix("Echo... open terminal"), Some("open terminal".to_string()));
+    
+    // Phonetic/Robust triggers
+    assert_eq!(strip_trigger_prefix("eco launch slack"), Some("launch slack".to_string()));
+    assert_eq!(strip_trigger_prefix("hecho draft an email"), Some("draft an email".to_string()));
+    assert_eq!(strip_trigger_prefix("ekko show counter"), Some("show counter".to_string()));
+    
+    // Trigger word alone
+    assert_eq!(strip_trigger_prefix("echo"), Some("".to_string()));
+    assert_eq!(strip_trigger_prefix("  hecho  "), Some("".to_string()));
+    
+    // Non-trigger cases (trigger words embedded or as part of other words)
+    assert_eq!(strip_trigger_prefix("ecosystem is good"), None);
+    assert_eq!(strip_trigger_prefix("today we are going to echo our voices"), None);
+    assert_eq!(strip_trigger_prefix("re-echo the command"), None);
+    assert_eq!(strip_trigger_prefix("my hecho is done"), None);
+}
+

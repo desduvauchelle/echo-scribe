@@ -54,6 +54,24 @@ export const getLogCaptureBinding = (): Promise<JsBinding> =>
 export const updateLogCaptureBinding = (binding: JsBinding): Promise<void> =>
   invoke("update_log_capture_binding", { binding });
 
+export const getActionBinding = (): Promise<JsBinding> =>
+  invoke("get_action_binding");
+
+export const updateActionBinding = (binding: JsBinding): Promise<void> =>
+  invoke("update_action_binding", { binding });
+
+export const getTriggerWordRoutingEnabled = (): Promise<boolean> =>
+  invoke("get_trigger_word_routing_enabled");
+
+export const setTriggerWordRoutingEnabled = (enabled: boolean): Promise<void> =>
+  invoke("set_trigger_word_routing_enabled", { enabled });
+
+export const getActionTriggerWord = (): Promise<string> =>
+  invoke("get_action_trigger_word");
+
+export const setActionTriggerWord = (word: string): Promise<void> =>
+  invoke("set_action_trigger_word", { word });
+
 export type Classification = {
   kind: "note" | "task";
   project_id: string | null;
@@ -678,10 +696,14 @@ export type MeetingSettings = {
   app_prefs: Record<string, "always" | "ask" | "never">;
   soft_warn_min: number;
   hard_cap_min: number;
+  summary_prompt: string;
 };
 
 export const getMeetingSettings = (): Promise<MeetingSettings> =>
   invoke("get_meeting_settings");
+
+export const setMeetingSummaryPrompt = (prompt: string): Promise<void> =>
+  invoke("set_meeting_summary_prompt", { prompt });
 
 export const setMeetingAutoDetect = (on: boolean): Promise<void> =>
   invoke("set_meeting_auto_detect", { on });

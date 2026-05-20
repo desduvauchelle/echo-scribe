@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::process::Command;
 use tauri::{AppHandle, Manager};
 use tracing::{debug, info, warn};
-use url::form_urlencoded;
+
 
 use crate::commands::AppState;
 use crate::llm::{GenerateRequest, LlmError, LlmGenerator};
@@ -143,13 +143,16 @@ pub fn execute_action(app: &AppHandle, cmd: &ActionCommand) -> Result<String, Ac
             let subject = cmd.email_subject.as_deref().unwrap_or("");
             let body = cmd.email_body.as_deref().unwrap_or("");
 
-            // URL encode headers for mailto URL
-            let encoded_subject: String = form_urlencoded::byte_serialize(subject.as_bytes()).collect();
-            let encoded_body: String = form_urlencoded::byte_serialize(body.as_bytes()).collect();
+            // Normalize spoken email recipient (removes spacing and spelling hyphens)
+            let normalized_to = normalize_spoken_email(to);
+
+            // URL encode headers using percent encoding (fixes spaces turning into plus signs)
+            let encoded_subject = percent_encode(subject);
+            let encoded_body = percent_encode(body);
             
             let mailto_url = format!(
                 "mailto:{}?subject={}&body={}",
-                to, encoded_subject, encoded_body
+                normalized_to, encoded_subject, encoded_body
             );
 
             let status = Command::new("open")
@@ -165,7 +168,7 @@ pub fn execute_action(app: &AppHandle, cmd: &ActionCommand) -> Result<String, Ac
 
             Ok(format!(
                 "Drafted email to '{}' with subject '{}'",
-                if to.is_empty() { "default recipient" } else { to },
+                if normalized_to.is_empty() { "default recipient".to_string() } else { normalized_to },
                 if subject.is_empty() { "no subject" } else { subject }
             ))
         }
@@ -239,3 +242,84 @@ fn increment_stats(app: &AppHandle) -> Result<(), ActionError> {
     }
     Ok(())
 }
+
+/// Normalize spoken email addresses that contain spelling hyphens and spaces
+pub fn normalize_spoken_email(raw: &str) -> String {
+    let mut email = raw.to_lowercase();
+    
+    // Replace spoken "@" representations
+    email = email.replace(" at ", "@");
+    email = email.replace(" [at] ", "@");
+    email = email.replace(" (at) ", "@");
+    
+    // Remove all whitespace
+    email.retain(|c| !c.is_whitespace());
+    
+    if let Some(pos) = email.find('@') {
+        let local = &email[..pos];
+        let domain = &email[pos + 1..];
+        
+        // Count hyphens in local part
+        let hyphen_count = local.chars().filter(|&c| c == '-').count();
+        
+        // If there are multiple hyphens (e.g. 2 or more), strip all hyphens from the local part.
+        let clean_local = if hyphen_count >= 2 {
+            local.replace('-', "")
+        } else {
+            local.to_string()
+        };
+        
+        // Clean domain part (e.g. remove spelling hyphens, but usually domain is simple)
+        let clean_domain = domain.replace('-', "");
+        
+        format!("{}@{}", clean_local, clean_domain)
+    } else {
+        // Fallback if no @ was found: remove hyphens if it looks spelled out
+        let hyphen_count = email.chars().filter(|&c| c == '-').count();
+        if hyphen_count >= 2 {
+            email.replace('-', "")
+        } else {
+            email
+        }
+    }
+}
+
+/// Standard percent-encoding (RFC 3986) to encode spaces as %20 instead of +
+fn percent_encode(s: &str) -> String {
+    let mut encoded = String::new();
+    for b in s.as_bytes() {
+        match *b {
+            b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                encoded.push(*b as char);
+            }
+            _ => {
+                encoded.push_str(&format!("%{:02X}", b));
+            }
+        }
+    }
+    encoded
+}
+
+/// Check if the transcript starts with a command trigger word (e.g., "echo", "eco", "hecho", "ekko").
+/// Returns Some(stripped_command) if a trigger is detected, or None if it's regular dictation.
+pub fn strip_trigger_prefix(text: &str) -> Option<String> {
+    let text_trimmed = text.trim();
+    let text_lower = text_trimmed.to_lowercase();
+    for trigger in &["echo", "eco", "hecho", "ekko"] {
+        if text_lower.starts_with(trigger) {
+            let trigger_len = trigger.len();
+            if text_lower.len() == trigger_len {
+                return Some(String::new());
+            }
+            if let Some(c) = text_lower.chars().nth(trigger_len) {
+                if c.is_whitespace() || c.is_ascii_punctuation() {
+                    let remaining = &text_trimmed[trigger_len..];
+                    let remaining_trimmed = remaining.trim_start_matches(|c: char| c.is_whitespace() || c.is_ascii_punctuation());
+                    return Some(remaining_trimmed.to_string());
+                }
+            }
+        }
+    }
+    None
+}
+

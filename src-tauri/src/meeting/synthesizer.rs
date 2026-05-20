@@ -108,6 +108,7 @@ pub async fn synthesize(
     duration_ms: u64,
     existing_project_names: &[String],
     start_context: &MeetingStartContext,
+    custom_prompt: Option<&str>,
 ) -> Result<StoredSummary, String> {
     let flattened_raw = flatten_transcript(segments);
     let flattened = if flattened_raw.len() <= MAX_TRANSCRIPT_BYTES {
@@ -125,6 +126,7 @@ pub async fn synthesize(
         duration_minutes,
         existing_project_names,
         start_context,
+        custom_prompt,
     );
 
     for attempt in 0..2u8 {

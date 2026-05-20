@@ -6,11 +6,14 @@ use tauri_plugin_store::{Store, StoreExt};
 use thiserror::Error;
 use tracing::warn;
 
-use crate::input::binding::Binding;
+use crate::input::binding::{Binding, ModifierKind, ModifierSide, SerKey};
 
 const STORE_FILENAME: &str = "settings.json";
 const KEY_VOICE_AT_CURSOR_BINDING: &str = "voice_at_cursor_binding";
 const KEY_LOG_CAPTURE_BINDING: &str = "log_capture_binding";
+const KEY_ACTION_BINDING: &str = "action_binding";
+const KEY_TRIGGER_WORD_ROUTING_ENABLED: &str = "trigger_word_routing_enabled";
+const KEY_ACTION_TRIGGER_WORD: &str = "action_trigger_word";
 const KEY_SPEECH_MODEL_ID: &str = "speech_model_id";
 const KEY_LLM_MODEL_ID: &str = "llm_model_id";
 const KEY_AUDIO_FEEDBACK_ENABLED: &str = "audio_feedback_enabled";
@@ -39,6 +42,9 @@ const KEY_GUIDE_OVERLAY_MODE: &str = "guide_overlay_mode";
 const KEY_GUIDE_OVERLAY_FRAME: &str = "guide_overlay_frame";
 const KEY_APP_LAUNCHER_ENABLED: &str = "app_launcher_enabled";
 const KEY_ACTION_COUNTER: &str = "action_counter";
+const KEY_MEETING_SUMMARY_PROMPT: &str = "meeting_summary_prompt";
+
+pub const DEFAULT_MEETING_SUMMARY_PROMPT: &str = "You are an expert meeting note-taker. You receive a transcript of a {duration_minutes}-minute conversation captured from {app}. The transcript labels each segment as 'You:' (the user) or 'Them:' (the other side).";
 
 /// Default: morning recap notification is on.
 pub const DEFAULT_DAILY_RECAP_ENABLED: bool = true;
@@ -197,6 +203,71 @@ impl SettingsStore {
     pub fn set_log_capture_binding(&self, b: Binding) -> Result<(), SettingsError> {
         let value = serde_json::to_value(&b)?;
         self.store.set(KEY_LOG_CAPTURE_BINDING, value);
+        self.store
+            .save()
+            .map_err(|e| SettingsError::Store(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Returns the configured action hotkey binding, or the default
+    /// combo Option+A if none is stored or invalid.
+    pub fn action_binding(&self) -> Binding {
+        match self.store.get(KEY_ACTION_BINDING) {
+            Some(value) => match serde_json::from_value::<Binding>(value) {
+                Ok(b) => b,
+                Err(e) => {
+                    warn!(?e, "stored action_binding is invalid; falling back to default");
+                    default_action_binding()
+                }
+            },
+            None => default_action_binding(),
+        }
+    }
+
+    /// Persist the action hotkey binding.
+    pub fn set_action_binding(&self, b: Binding) -> Result<(), SettingsError> {
+        let value = serde_json::to_value(&b)?;
+        self.store.set(KEY_ACTION_BINDING, value);
+        self.store
+            .save()
+            .map_err(|e| SettingsError::Store(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Getter for whether prefix trigger routing is enabled (default: true)
+    pub fn trigger_word_routing_enabled(&self) -> bool {
+        self.store
+            .get(KEY_TRIGGER_WORD_ROUTING_ENABLED)
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true)
+    }
+
+    /// Setter for whether prefix trigger routing is enabled
+    pub fn set_trigger_word_routing_enabled(&self, on: bool) -> Result<(), SettingsError> {
+        self.store
+            .set(KEY_TRIGGER_WORD_ROUTING_ENABLED, serde_json::Value::Bool(on));
+        self.store
+            .save()
+            .map_err(|e| SettingsError::Store(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Getter for the action trigger word prefix (default: "echo")
+    pub fn action_trigger_word(&self) -> String {
+        self.store
+            .get(KEY_ACTION_TRIGGER_WORD)
+            .and_then(|v| {
+                v.as_str()
+                    .map(|s| s.to_string())
+                    .or_else(|| serde_json::from_value::<String>(v).ok())
+            })
+            .unwrap_or_else(|| "echo".to_string())
+    }
+
+    /// Setter for the action trigger word prefix
+    pub fn set_action_trigger_word(&self, word: &str) -> Result<(), SettingsError> {
+        self.store
+            .set(KEY_ACTION_TRIGGER_WORD, serde_json::Value::String(word.trim().to_lowercase()));
         self.store
             .save()
             .map_err(|e| SettingsError::Store(e.to_string()))?;
@@ -721,6 +792,26 @@ impl SettingsStore {
         self.set_action_counter(next)?;
         Ok(next)
     }
+
+    pub fn meeting_summary_prompt(&self) -> String {
+        self.store
+            .get(KEY_MEETING_SUMMARY_PROMPT)
+            .and_then(|v| {
+                v.as_str()
+                    .map(|s| s.to_string())
+                    .or_else(|| serde_json::from_value::<String>(v).ok())
+            })
+            .unwrap_or_else(|| DEFAULT_MEETING_SUMMARY_PROMPT.to_string())
+    }
+
+    pub fn set_meeting_summary_prompt(&self, prompt: &str) -> Result<(), SettingsError> {
+        self.store
+            .set(KEY_MEETING_SUMMARY_PROMPT, serde_json::Value::String(prompt.to_string()));
+        self.store
+            .save()
+            .map_err(|e| SettingsError::Store(e.to_string()))?;
+        Ok(())
+    }
 }
 
 /// The default voice-at-cursor binding used when nothing is stored.
@@ -732,6 +823,14 @@ pub fn default_binding() -> Binding {
 /// Per the Phase 0 design: right Option (AltGr).
 pub fn default_log_capture_binding() -> Binding {
     Binding::single(Key::AltGr)
+}
+
+/// The default dedicated action binding: Alt + KeyA
+pub fn default_action_binding() -> Binding {
+    Binding {
+        primary: SerKey(Key::KeyA),
+        modifiers: vec![(ModifierKind::Alt, ModifierSide::Either)],
+    }
 }
 
 #[cfg(test)]

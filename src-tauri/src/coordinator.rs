@@ -21,6 +21,7 @@ use crate::llm::Llm;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
     VoiceAtCursor,
+    ActionCommand,
     LogCapture,
     /// Reserved for Phase 4+: cancel an in-flight capture (e.g. via Esc).
     /// Currently a no-op stub — the wiring is in place but we don't bind it
@@ -198,7 +199,12 @@ pub fn spawn(
                     on_state_change(TrayPipelineState::Recording);
                     crate::audio::mute::on_recording_start();
                     feedback::play(Sfx::Start);
-                    crate::overlay::show_recording_overlay(&app);
+                    match action {
+                        Action::VoiceAtCursor => crate::overlay::show_recording_overlay(&app),
+                        Action::ActionCommand => crate::overlay::show_action_recording_overlay(&app),
+                        Action::LogCapture => crate::overlay::show_log_recording_overlay(&app),
+                        _ => {}
+                    }
                     if matches!(action, Action::LogCapture) {
                         let _ = app.emit("log_capture:recording_started", ());
                     }
@@ -268,14 +274,14 @@ pub fn spawn(
                                 }
                                 Ok(text) => {
                                     let text = postprocess_with_settings(&app, text);
-                                    if try_intercept_action(&app, &llm, &text).await {
+                                    if try_intercept_action(&app, &llm, &text, action).await {
                                         crate::overlay::hide_recording_overlay_now(&app);
                                         force_state(&state, PipelineState::Idle);
                                         on_state_change(TrayPipelineState::Idle);
                                         continue;
                                     }
                                     match action {
-                                    Action::VoiceAtCursor => {
+                                    Action::VoiceAtCursor | Action::ActionCommand => {
                                         // Phase 1 behavior: persist hidden + paste.
                                         persist_capture(
                                             &text,
@@ -361,10 +367,11 @@ pub fn spawn(
                                                 c.deadline_iso.clone(),
                                                 Some(c.confidence),
                                                 Some("ai"),
-                                                pending_context.as_ref().and_then(serialise_context),
+                                                pending_context.take().as_ref().and_then(serialise_context),
                                                 db.as_ref(),
                                                 event_log_root.as_deref(),
                                             );
+                                            pending_focus_element = None;
                                             match res {
                                                 Ok(item_id) => {
                                                     info!(item_id = %item_id, "auto-saved log capture");
@@ -456,10 +463,11 @@ pub fn spawn(
                         deadline_iso,
                         None,
                         Some("user"),
-                        None,  // no context for user-confirmed saves
+                        pending_context.take().as_ref().and_then(serialise_context),
                         db.as_ref(),
                         event_log_root.as_deref(),
                     );
+                    pending_focus_element = None;
                     match &res {
                         Ok(id) => {
                             info!(item_id = %id, "log capture persisted");
@@ -485,6 +493,8 @@ pub fn spawn(
                     on_state_change(TrayPipelineState::Idle);
                 }
                 CoordinatorMsg::CancelLogCapture => {
+                    pending_context = None;
+                    pending_focus_element = None;
                     let _ = app.emit("log_capture:cancelled", ());
                     force_state(&state, PipelineState::Idle);
                     on_state_change(TrayPipelineState::Idle);
@@ -530,10 +540,11 @@ fn force_state(state: &StateHandle, to: PipelineState) {
 /// Serialise a `FocusContext` to a compact JSON string for storage.
 fn serialise_context(ctx: &crate::input::focus::FocusContext) -> Option<String> {
     serde_json::to_string(&serde_json::json!({
-        "app_name":     ctx.app_name,
-        "window_title": ctx.window_title,
-        "browser_url":  ctx.browser_url,
-        "bundle_id":    ctx.bundle_id,
+        "app_name":          ctx.app_name,
+        "window_title":      ctx.window_title,
+        "browser_url":       ctx.browser_url,
+        "browser_tab_title": ctx.browser_tab_title,
+        "bundle_id":         ctx.bundle_id,
     }))
     .ok()
 }
@@ -666,18 +677,80 @@ async fn try_intercept_action(
     app: &tauri::AppHandle,
     llm: &crate::llm::Llm,
     text: &str,
+    action: Action,
 ) -> bool {
-    let enabled = app
+    let (enabled, trigger_enabled, trigger_word) = app
         .try_state::<crate::commands::AppState>()
-        .map(|s| s.settings.app_launcher_enabled())
-        .unwrap_or(true);
+        .map(|s| (
+            s.settings.app_launcher_enabled(),
+            s.settings.trigger_word_routing_enabled(),
+            s.settings.action_trigger_word(),
+        ))
+        .unwrap_or((true, true, "echo".to_string()));
 
     if !enabled {
         return false;
     }
 
-    info!("Checking dictation for action launcher intent: '{}'", text);
-    match crate::llm::action_launcher::detect_action(llm, text).await {
+    let stripped_text = if action == Action::ActionCommand {
+        // Dedicated Action Hotkey: bypass trigger word prefix check entirely
+        let trimmed = text.trim();
+        if trimmed.is_empty() {
+            return false;
+        }
+        trimmed.to_string()
+    } else if action == Action::VoiceAtCursor {
+        // Prefix-Based Routing
+        if !trigger_enabled {
+            // Option 2 fallback bypass: standard voice typing completely bypasses LLM
+            return false;
+        }
+
+        let text_trimmed = text.trim();
+        let text_lower = text_trimmed.to_lowercase();
+        let trigger_lower = trigger_word.trim().to_lowercase();
+        
+        let mut matched_trigger = None;
+        if trigger_lower == "echo" {
+            for trig in &["echo", "eco", "hecho", "ekko"] {
+                if text_lower.starts_with(trig) {
+                    matched_trigger = Some(trig.len());
+                    break;
+                }
+            }
+        } else {
+            if text_lower.starts_with(&trigger_lower) {
+                matched_trigger = Some(trigger_lower.len());
+            }
+        }
+
+        match matched_trigger {
+            Some(len) => {
+                if text_lower.len() == len {
+                    String::new()
+                } else {
+                    let remaining = &text_trimmed[len..];
+                    let remaining_trimmed = remaining.trim_start_matches(|c: char| c.is_whitespace() || c.is_ascii_punctuation());
+                    remaining_trimmed.to_string()
+                }
+            }
+            None => {
+                // No trigger prefix found: bypass the LLM entirely (instant paste!)
+                return false;
+            }
+        }
+    } else {
+        // For other actions (e.g. LogCapture), we don't intercept action commands here
+        return false;
+    };
+
+    if stripped_text.is_empty() {
+        debug!("Command text is empty; bypassing LLM");
+        return false;
+    }
+
+    info!("Checking dictation for action launcher intent: '{}'", stripped_text);
+    match crate::llm::action_launcher::detect_action(llm, &stripped_text).await {
         Ok(cmd) => {
             if cmd.is_action && cmd.confidence >= 0.75 {
                 info!(
@@ -701,6 +774,11 @@ async fn try_intercept_action(
                             .title("Echo Scribe Action")
                             .body(&msg)
                             .show();
+                        
+                        // Increment action counter
+                        if let Some(s) = app.try_state::<crate::commands::AppState>() {
+                            let _ = s.settings.increment_action_counter();
+                        }
                         
                         return true;
                     }

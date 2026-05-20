@@ -2,7 +2,7 @@ import { listen } from "@tauri-apps/api/event";
 import React, { useEffect, useRef, useState } from "react";
 import "./RecordingOverlay.css";
 
-type OverlayState = "recording" | "log-recording" | "transcribing" | "meeting";
+type OverlayState = "recording" | "log-recording" | "transcribing" | "meeting" | "action-recording";
 
 type MeetingOverlayPayload = { mode: "meeting"; app_name: string | null };
 
@@ -42,6 +42,20 @@ const CancelIcon: React.FC = () => (
     <path
       d="M3.17 3.17a.5.5 0 0 1 .7 0L6 5.29l2.13-2.12a.5.5 0 0 1 .7.7L6.71 6l2.12 2.13a.5.5 0 0 1-.7.7L6 6.71 3.87 8.83a.5.5 0 0 1-.7-.7L5.29 6 3.17 3.87a.5.5 0 0 1 0-.7Z"
       fill="#ffe5ee"
+    />
+  </svg>
+);
+
+const ActionIcon: React.FC = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+    <path
+      d="m3.75 13.5 10.5-11.25L12.75 9h7.5L9.75 20.25 11.25 15H3.75Z"
+      stroke="#22d3ee"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      fill="#c084fc"
+      fillOpacity="0.4"
     />
   </svg>
 );
@@ -94,17 +108,18 @@ const RecordingOverlay: React.FC = () => {
     setupEventListeners();
   }, []);
 
-  const isRecording = state === "recording" || state === "log-recording";
+  const isRecording = state === "recording" || state === "log-recording" || state === "action-recording";
   const isMeeting = state === "meeting";
 
   const getIcon = () => {
     if (state === "log-recording") return <PencilIcon />;
+    if (state === "action-recording") return <ActionIcon />;
     if (state === "recording" || state === "meeting") return <MicrophoneIcon />;
     return <TranscriptionIcon />;
   };
 
   return (
-    <div className={`recording-overlay ${isVisible ? "fade-in" : ""} ${state === "log-recording" ? "log-mode" : ""} ${isMeeting ? "meeting-mode" : ""}`}>
+    <div className={`recording-overlay ${isVisible ? "fade-in" : ""} ${state === "log-recording" ? "log-mode" : ""} ${isMeeting ? "meeting-mode" : ""} ${state === "action-recording" ? "action-mode" : ""}`}>
       <div className="overlay-left">{getIcon()}</div>
 
       <div className="overlay-middle">

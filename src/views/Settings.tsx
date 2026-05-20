@@ -6,6 +6,9 @@ import {
   Settings as SettingsIcon,
   Sparkles,
   Wrench,
+  X,
+  Info,
+  Check,
   type LucideIcon,
 } from "lucide-react";
 import HotkeyRebinder from "../components/HotkeyRebinder";
@@ -49,6 +52,12 @@ import {
   getActionCounter,
   resetActionCounter,
   getCommonActions,
+  getActionBinding,
+  updateActionBinding,
+  getTriggerWordRoutingEnabled,
+  setTriggerWordRoutingEnabled,
+  getActionTriggerWord,
+  setActionTriggerWord,
   type CommonActionTemplate,
   type DailyRecapSettings as DailyRecapSettingsT,
   type InputDevice,
@@ -432,19 +441,266 @@ function orderDevices(
   return [...recentDevices, ...rest];
 }
 
+const SUMMARY_TEMPLATES = [
+  {
+    id: "standard",
+    name: "Standard Note-Taker",
+    description: "General summary and actionable next steps",
+    prompt: `You are an expert meeting note-taker. You receive a transcript of a {duration_minutes}-minute conversation captured from {app}. The transcript labels each segment as 'You:' (the user) or 'Them:' (the other side).
+
+Generate a comprehensive meeting summary that captures the essence of the discussion. Focus on:
+1. The main objectives and topics of the meeting.
+2. The key discussion points, arguments, and context.
+3. Crucial decisions made or consensus reached.
+4. Specific action items with clear ownership.`,
+  },
+  {
+    id: "action-item",
+    name: "Action-Item Focused",
+    description: "Prioritizes tasks, owners, and deadlines",
+    prompt: `You are a highly efficient project manager. You receive a transcript of a {duration_minutes}-minute conversation captured from {app}. The transcript labels each segment as 'You:' (the user) or 'Them:' (the other side).
+
+Focus deeply on extracting all action items, ownership, deadlines, and deliverables. Ensure:
+1. Every task is explicitly captured with its owner (either 'you', 'them', or 'unspecified').
+2. Mention any deadlines, timelines, or dependencies mentioned.
+3. Keep the general summary extremely concise, highlighting only what led to the tasks.`,
+  },
+  {
+    id: "executive",
+    name: "Executive Summary",
+    description: "Strategic roadmaps, outcomes, and business impact",
+    prompt: `You are a high-level strategic advisor. You receive a transcript of a {duration_minutes}-minute conversation captured from {app}. The transcript labels each segment as 'You:' (the user) or 'Them:' (the other side).
+
+Create a premium, high-level executive summary for leadership. Focus on:
+1. Key takeaways, strategic decisions, and alignment.
+2. Core business/product outcomes and why they matter.
+3. High-level roadmaps, major milestones, and strategic action items.
+4. Keep technical minutiae to an absolute minimum, focusing on high-level impact.`,
+  },
+  {
+    id: "technical",
+    name: "Technical Sync",
+    description: "Deep dev syncs, APIs, and blockers",
+    prompt: `You are a lead systems architect and technical writer. You receive a transcript of a {duration_minutes}-minute conversation captured from {app}. The transcript labels each segment as 'You:' (the user) or 'Them:' (the other side).
+
+Generate a highly detailed technical sync note. Focus on:
+1. Architectural decisions, system designs, and code changes discussed.
+2. Specific APIs, libraries, endpoints, database schemas, or protocols mentioned.
+3. Blockers, bugs, performance issues, and debugging steps.
+4. Precise technical tasks, dev ownership, and next steps for the engineering team.`,
+  },
+];
+
+interface SummaryPromptModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  currentPrompt: string;
+  onSave: (prompt: string) => Promise<void>;
+}
+
+function SummaryPromptModal({
+  isOpen,
+  onClose,
+  currentPrompt,
+  onSave,
+}: SummaryPromptModalProps) {
+  const [prompt, setPrompt] = useState(currentPrompt);
+  const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      setPrompt(currentPrompt);
+      const matched = SUMMARY_TEMPLATES.find(
+        (t) => t.prompt.trim() === currentPrompt.trim()
+      );
+      setSelectedTemplate(matched ? matched.id : null);
+    }
+  }, [isOpen, currentPrompt]);
+
+  if (!isOpen) return null;
+
+  const handleSave = async () => {
+    setBusy(true);
+    try {
+      await onSave(prompt);
+      onClose();
+    } catch {
+      // Parent's handler processes reporting errors via Toast
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-backdrop">
+      <style>{`
+        @keyframes modal-backdrop-fade {
+          from { opacity: 0; background-color: rgba(0, 0, 0, 0); backdrop-filter: blur(0px); }
+          to { opacity: 1; background-color: rgba(0, 0, 0, 0.6); backdrop-filter: blur(4px); }
+        }
+        @keyframes modal-card-appear {
+          from { opacity: 0; transform: scale(0.96) translateY(12px); }
+          to { opacity: 1; transform: scale(1) translateY(0); }
+        }
+        .animate-backdrop {
+          animation: modal-backdrop-fade 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+        .animate-card {
+          animation: modal-card-appear 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+        }
+      `}</style>
+      <div className="w-full max-w-[680px] rounded-xl border border-line bg-surface p-6 text-fg shadow-2xl flex flex-col max-h-[90vh] animate-card">
+        {/* Header */}
+        <div className="flex items-start justify-between border-b border-line pb-4">
+          <div>
+            <h2 className="text-base font-semibold tracking-tight flex items-center gap-1.5">
+              <Sparkles size={14} className="text-accent animate-pulse" />
+              Meeting Summary Guidelines
+            </h2>
+            <p className="mt-1 text-xs text-muted">
+              Customize the instructions the local AI uses to summarize and extract action items from transcripts.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md p-1.5 text-muted hover:bg-elevated hover:text-fg transition-colors"
+          >
+            <X size={14} />
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="mt-4 flex-1 overflow-y-auto pr-1 flex flex-col gap-4">
+          {/* Templates Section */}
+          <div className="flex flex-col gap-2">
+            <span className="text-xs font-semibold text-fg">Load from pre-defined templates</span>
+            <div className="grid grid-cols-2 gap-2">
+              {SUMMARY_TEMPLATES.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => {
+                    setPrompt(t.prompt);
+                    setSelectedTemplate(t.id);
+                  }}
+                  className={[
+                    "flex flex-col items-start gap-1 p-3 rounded-lg border text-left transition-all",
+                    selectedTemplate === t.id
+                      ? "border-accent bg-accent-soft/30 text-fg ring-1 ring-accent"
+                      : "border-line bg-canvas hover:bg-elevated text-muted hover:text-fg",
+                  ].join(" ")}
+                >
+                  <span className="text-xs font-bold">{t.name}</span>
+                  <span className="text-[10px] text-muted leading-tight">{t.description}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Textarea Section */}
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-fg">Custom guidelines</span>
+              {selectedTemplate && (
+                <span className="text-[10px] text-accent font-medium">
+                  Template loaded
+                </span>
+              )}
+            </div>
+            <textarea
+              rows={11}
+              value={prompt}
+              onChange={(e) => {
+                setPrompt(e.target.value);
+                setSelectedTemplate(null);
+              }}
+              placeholder="Describe how the AI should summarize the meeting transcript..."
+              className="w-full rounded-lg border border-line bg-canvas p-3 text-xs leading-relaxed font-mono focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent transition-all resize-none"
+            />
+          </div>
+
+          {/* Guidelines info card */}
+          <div className="rounded-lg border border-line bg-canvas p-3 flex flex-col gap-1.5 text-xs text-muted">
+            <div className="flex items-center gap-1.5 font-semibold text-fg">
+              <Info size={12} className="text-accent" />
+              Dynamic Placeholders
+            </div>
+            <p className="text-[11px] leading-relaxed">
+              You can insert <code className="font-mono text-accent bg-accent-soft px-1 rounded">{"{duration_minutes}"}</code> and <code className="font-mono text-accent bg-accent-soft px-1 rounded">{"{app}"}</code> in your guidelines. They will be replaced at runtime with the meeting's duration and app name (e.g., Zoom, Teams).
+            </p>
+          </div>
+
+          {/* Safety Notice */}
+          <div className="rounded-lg border border-success/20 bg-success/5 p-3 flex flex-col gap-1.5 text-xs text-success">
+            <div className="flex items-center gap-1.5 font-semibold">
+              <Check size={12} />
+              Format Safety Handled Automatically
+            </div>
+            <p className="text-[11px] leading-relaxed text-muted">
+              Do not worry about instructing the AI to output JSON or specific lists format. The backend automatically appends formatting schemas to ensure the meeting summary is properly parsed and displayed in the application layout.
+            </p>
+          </div>
+        </div>
+
+        {/* Footer Actions */}
+        <div className="mt-6 flex items-center justify-end gap-2.5 border-t border-line pt-4 shrink-0">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onClose}
+            className="rounded-md border border-line px-3 py-1.5 text-xs font-semibold text-muted hover:bg-elevated hover:text-fg transition-colors disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={busy || !prompt.trim()}
+            onClick={handleSave}
+            className="rounded-md bg-accent px-4 py-1.5 text-xs font-semibold text-canvas hover:bg-accent-hover transition-colors flex items-center gap-1 disabled:opacity-50"
+          >
+            {busy ? "Saving..." : "Save Guidelines"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function MeetingsTab() {
   const [settings, setSettings] = useState<{
     auto_detect: boolean;
     app_prefs: Record<string, "always" | "ask" | "never">;
     soft_warn_min: number;
     hard_cap_min: number;
+    summary_prompt: string;
   } | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const toasts = useToasts();
 
   useEffect(() => {
     void import("../lib/api").then(({ getMeetingSettings }) =>
       getMeetingSettings().then(setSettings),
     );
   }, []);
+
+  const handleSavePrompt = async (nextPrompt: string) => {
+    try {
+      const { setMeetingSummaryPrompt } = await import("../lib/api");
+      await setMeetingSummaryPrompt(nextPrompt);
+      setSettings((prev) => prev ? { ...prev, summary_prompt: nextPrompt } : null);
+      toasts.push({
+        tone: "success",
+        message: "Meeting summary guidelines updated successfully.",
+      });
+    } catch (e) {
+      toasts.push({
+        tone: "error",
+        message: `Failed to save guidelines: ${e instanceof Error ? e.message : String(e)}`,
+      });
+    }
+  };
 
   if (!settings) {
     return <div className="text-sm text-muted">Loading…</div>;
@@ -533,6 +789,30 @@ function MeetingsTab() {
       )}
 
       <Section
+        title="Meeting summary guidelines"
+        subtitle="Configure custom prompt guidelines used by the local AI to summarize your meetings."
+      >
+        <div className="flex flex-col gap-3 rounded-lg border border-line bg-canvas p-4">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex flex-col gap-1 min-w-0 flex-1">
+              <span className="text-xs font-semibold text-muted">Active guidelines</span>
+              <p className="mt-1.5 text-xs text-muted/80 line-clamp-3 italic whitespace-pre-wrap leading-relaxed font-mono">
+                {settings.summary_prompt || "No custom guidelines set."}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsModalOpen(true)}
+              className="shrink-0 inline-flex items-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-xs font-semibold text-fg transition-all hover:bg-elevated hover:text-accent active:scale-[0.98]"
+            >
+              <Sparkles size={12} className="text-accent" />
+              Edit guidelines...
+            </button>
+          </div>
+        </div>
+      </Section>
+
+      <Section
         title="Time limits"
         subtitle="Echo Scribe shows a soft warning at the soft-warn time and auto-stops at the hard cap."
       >
@@ -578,6 +858,13 @@ function MeetingsTab() {
       >
         <GuideTemplateManager />
       </Section>
+
+      <SummaryPromptModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        currentPrompt={settings.summary_prompt}
+        onSave={handleSavePrompt}
+      />
     </div>
   );
 }
@@ -785,6 +1072,8 @@ function AppLauncherSettingsSection() {
   const [enabled, setEnabled] = useState<boolean | null>(null);
   const [counter, setCounter] = useState<number>(0);
   const [templates, setTemplates] = useState<CommonActionTemplate[]>([]);
+  const [routingEnabled, setRoutingEnabled] = useState<boolean | null>(null);
+  const [triggerWord, setTriggerWord] = useState<string>("echo");
   const [busy, setBusy] = useState(false);
   const toasts = useToasts();
 
@@ -792,15 +1081,19 @@ function AppLauncherSettingsSection() {
     let cancelled = false;
     (async () => {
       try {
-        const [en, cnt, tmpl] = await Promise.all([
+        const [en, cnt, tmpl, routEnabled, trgWord] = await Promise.all([
           getAppLauncherEnabled(),
           getActionCounter(),
           getCommonActions(),
+          getTriggerWordRoutingEnabled().catch(() => false),
+          getActionTriggerWord().catch(() => "echo"),
         ]);
         if (!cancelled) {
           setEnabled(en);
           setCounter(cnt);
           setTemplates(tmpl);
+          setRoutingEnabled(routEnabled);
+          setTriggerWord(trgWord);
         }
       } catch (e) {
         console.error("Failed to load launcher settings:", e);
@@ -872,6 +1165,93 @@ function AppLauncherSettingsSection() {
 
       {enabled && (
         <div className="rounded-lg border border-line bg-canvas p-4 flex flex-col gap-4 transition-all duration-300">
+          {/* Option 2: Prefix-Based Routing */}
+          <div className="border border-line rounded-lg p-4 bg-surface/30 flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <span className="text-xs font-semibold text-fg block">Prefix-Based Trigger Routing</span>
+                <span className="text-[11px] text-muted block mt-0.5">
+                  Route normal voice dictations to AI only if they start with a trigger word (e.g. "echo"). Prevents dictation latency!
+                </span>
+              </div>
+              <input
+                type="checkbox"
+                disabled={busy || routingEnabled === null}
+                checked={routingEnabled ?? false}
+                onChange={async (e) => {
+                  const val = e.target.checked;
+                  setRoutingEnabled(val);
+                  try {
+                    await setTriggerWordRoutingEnabled(val);
+                    toasts.push({ tone: "success", message: `Prefix trigger routing ${val ? "enabled" : "disabled"}` });
+                  } catch (err) {
+                    setRoutingEnabled(!val);
+                    toasts.push({ tone: "error", message: "Failed to update prefix routing settings" });
+                  }
+                }}
+                className="h-4 w-4 cursor-pointer accent-accent"
+              />
+            </div>
+
+            {routingEnabled && (
+              <div className="flex flex-col gap-1.5 mt-1 border-t border-line/30 pt-3">
+                <label className="text-[11px] font-medium text-muted">Trigger Prefix Word</label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={triggerWord}
+                    onChange={(e) => setTriggerWord(e.target.value)}
+                    onBlur={async () => {
+                      const word = triggerWord.trim();
+                      if (!word) {
+                        setTriggerWord("echo");
+                        await setActionTriggerWord("echo");
+                        return;
+                      }
+                      try {
+                        await setActionTriggerWord(word);
+                        toasts.push({ tone: "success", message: `Trigger word updated to "${word}"` });
+                      } catch (err) {
+                        toasts.push({ tone: "error", message: "Failed to save trigger word" });
+                      }
+                    }}
+                    className="flex-1 bg-surface border border-line rounded-md px-2.5 py-1 text-xs text-fg focus:outline-none focus:border-accent"
+                    placeholder="echo"
+                  />
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setTriggerWord("echo");
+                      await setActionTriggerWord("echo");
+                      toasts.push({ tone: "success", message: 'Trigger word reset to "echo"' });
+                    }}
+                    className="rounded-md border border-line bg-surface px-2.5 py-1 text-xs font-medium text-fg hover:bg-elevated hover:text-accent transition-colors"
+                  >
+                    Reset
+                  </button>
+                </div>
+                <p className="text-[10px] text-faint italic leading-snug">
+                  * Note: "echo" triggers loose phonetic matches (echo, eco, ekko, hecho) automatically!
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Option 3: Dedicated Action Hotkey */}
+          <div className="border border-line rounded-lg p-4 bg-surface/30 flex flex-col gap-3">
+            <div>
+              <span className="text-xs font-semibold text-fg block">Dedicated Action Hotkey</span>
+              <span className="text-[11px] text-muted block mt-0.5">
+                Press a custom key combination to trigger Action Command mode directly. Always runs AI and bypasses prefix rules.
+              </span>
+            </div>
+            <div className="mt-1">
+              <HotkeyRebinder
+                load={getActionBinding}
+                save={updateActionBinding}
+              />
+            </div>
+          </div>
           <div className="flex items-center justify-between bg-surface-2/40 border border-line/50 rounded-lg p-3">
             <div className="flex flex-col">
               <span className="text-xs font-semibold text-fg">Automated Actions Count</span>
