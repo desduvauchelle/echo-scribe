@@ -52,6 +52,11 @@ use crate::commands::{
     set_auto_file_enabled, get_auto_file_threshold, set_auto_file_threshold,
     list_item_events, list_sessions_for_item, list_claude_sessions, load_claude_session,
     get_dashboard_stats,
+    get_app_launcher_enabled,
+    set_app_launcher_enabled,
+    get_action_counter,
+    reset_action_counter,
+    get_common_actions,
     AppState,
 };
 use crate::llm::Llm;
@@ -273,6 +278,11 @@ pub fn run() {
             commands::guide_set_mode,
             commands::guide_trigger_now,
             commands::guide_end,
+            get_app_launcher_enabled,
+            set_app_launcher_enabled,
+            get_action_counter,
+            reset_action_counter,
+            get_common_actions,
         ])
         .setup(move |app| {
             // Tray.

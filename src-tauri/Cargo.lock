@@ -1281,6 +1281,7 @@ dependencies = [
  "futures-util",
  "libc",
  "llama-cpp-2",
+ "llama-cpp-sys-2",
  "objc2 0.6.4",
  "objc2-app-kit",
  "objc2-application-services",

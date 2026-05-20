@@ -241,16 +241,24 @@ pub fn emit_levels(app_handle: &AppHandle<Wry>, levels: &[f32]) {
 
 const GUIDE_OVERLAY_WIDTH: f64 = 280.0;
 const GUIDE_OVERLAY_HEIGHT: f64 = 280.0;
-const GUIDE_OVERLAY_RIGHT_MARGIN: f64 = 24.0;
-const GUIDE_OVERLAY_TOP_MARGIN: f64 = 24.0;
+/// Vertical gap (logical px) between the recording overlay's top edge and the
+/// guide HUD's bottom edge. Keeps both visible without overlap.
+const GUIDE_OVERLAY_GAP_ABOVE_RECORDING: f64 = 12.0;
 
+/// Position the guide HUD just above the recording overlay (bottom-center).
+/// The recording overlay's top edge sits at `logical_h - OVERLAY_HEIGHT -
+/// OVERLAY_BOTTOM_OFFSET`; we place the HUD's top above that with a gap.
+/// Returns LOGICAL coordinates (Tauri's `.position(x, y)` interprets them
+/// as logical pixels).
 fn calculate_guide_overlay_position(app_handle: &AppHandle<Wry>) -> Option<(f64, f64)> {
     let monitor = app_handle.primary_monitor().ok().flatten()?;
     let size = monitor.size();
     let scale = monitor.scale_factor();
     let logical_w = size.width as f64 / scale;
-    let x = (logical_w - GUIDE_OVERLAY_WIDTH - GUIDE_OVERLAY_RIGHT_MARGIN).max(0.0);
-    let y = GUIDE_OVERLAY_TOP_MARGIN;
+    let logical_h = size.height as f64 / scale;
+    let x = ((logical_w - GUIDE_OVERLAY_WIDTH) / 2.0).max(0.0);
+    let recording_top = logical_h - OVERLAY_HEIGHT - OVERLAY_BOTTOM_OFFSET;
+    let y = (recording_top - GUIDE_OVERLAY_GAP_ABOVE_RECORDING - GUIDE_OVERLAY_HEIGHT).max(0.0);
     Some((x, y))
 }
 
@@ -259,10 +267,12 @@ fn calculate_guide_overlay_position(app_handle: &AppHandle<Wry>) -> Option<(f64,
 /// decorations off, always-on-top, never focused/in-taskbar.
 pub fn create_guide_overlay(app_handle: &AppHandle<Wry>) {
     if app_handle.get_webview_window("guide_overlay").is_some() {
+        tracing::info!("guide overlay already exists; skipping create");
         return;
     }
-    let (x, y) = calculate_guide_overlay_position(app_handle).unwrap_or((100.0, 100.0));
-    let _ = WebviewWindowBuilder::new(
+    let (x, y) = calculate_guide_overlay_position(app_handle).unwrap_or((200.0, 200.0));
+    tracing::info!(x, y, "creating guide overlay window (above recording overlay)");
+    match WebviewWindowBuilder::new(
         app_handle,
         "guide_overlay",
         tauri::WebviewUrl::App("src/guide-overlay/index.html".into()),
@@ -282,19 +292,61 @@ pub fn create_guide_overlay(app_handle: &AppHandle<Wry>) {
     .transparent(true)
     .focused(false)
     .visible(false)
-    .build();
+    .build()
+    {
+        Ok(_) => tracing::info!("guide overlay window created (hidden)"),
+        Err(e) => tracing::error!(?e, "failed to create guide overlay window"),
+    }
 }
 
-pub fn show_guide_overlay(app_handle: &AppHandle<Wry>) {
+/// Show the guide HUD and emit `guide-init` so the React component can render
+/// its shell (template name + goal + "waiting…" indicator) BEFORE the first
+/// LLM cycle completes — otherwise the window is visible but blank-transparent
+/// until the engine emits its first `guide-update`, which the user perceives
+/// as the HUD "not appearing".
+pub fn show_guide_overlay(
+    app_handle: &AppHandle<Wry>,
+    template_name: &str,
+    goal: &str,
+    mode: &str,
+) {
+    // Always re-position before showing so a previously-dragged HUD snaps back
+    // to the above-recording slot for the new session.
+    if let Some((x, y)) = calculate_guide_overlay_position(app_handle) {
+        if let Some(w) = app_handle.get_webview_window("guide_overlay") {
+            let _ = w.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
+        }
+    }
     if let Some(w) = app_handle.get_webview_window("guide_overlay") {
-        let _ = w.show();
-        let _ = w.set_always_on_top(true);
+        tracing::info!(%template_name, %mode, "show_guide_overlay: showing + emitting init");
+        if let Err(e) = w.show() {
+            tracing::error!(?e, "guide overlay show failed");
+        }
+        if let Err(e) = w.set_always_on_top(true) {
+            tracing::error!(?e, "guide overlay set_always_on_top failed");
+        }
+        let init = serde_json::json!({
+            "templateName": template_name,
+            "goal": goal,
+            "mode": mode,
+        });
+        if let Err(e) = w.emit("guide-init", init) {
+            tracing::error!(?e, "guide overlay emit guide-init failed");
+        }
     } else {
-        // Window wasn't pre-created (e.g. dev hot-reload): build then show.
+        tracing::warn!("show_guide_overlay: window MISSING — building now");
         create_guide_overlay(app_handle);
         if let Some(w) = app_handle.get_webview_window("guide_overlay") {
             let _ = w.show();
             let _ = w.set_always_on_top(true);
+            let init = serde_json::json!({
+                "templateName": template_name,
+                "goal": goal,
+                "mode": mode,
+            });
+            let _ = w.emit("guide-init", init);
+        } else {
+            tracing::error!("guide overlay STILL missing after rebuild attempt");
         }
     }
 }

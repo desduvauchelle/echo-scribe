@@ -60,6 +60,47 @@ pub fn flatten_transcript(segments: &[Segment]) -> String {
 /// inside the typical 8192-token context window.
 const MAX_TRANSCRIPT_BYTES: usize = 18_000;
 
+async fn condense_transcript(llm: &impl crate::llm::LlmGenerator, text: &str) -> Result<String, String> {
+    let mut chunks = Vec::new();
+    let mut current_chunk = String::new();
+    
+    for line in text.lines() {
+        if current_chunk.len() + line.len() + 1 > 15000 && !current_chunk.is_empty() {
+            chunks.push(std::mem::take(&mut current_chunk));
+        }
+        current_chunk.push_str(line);
+        current_chunk.push('\n');
+    }
+    if !current_chunk.is_empty() {
+        chunks.push(current_chunk);
+    }
+    
+    let mut summaries = Vec::new();
+    let num_chunks = chunks.len();
+    for (i, chunk) in chunks.iter().enumerate() {
+        let system_prompt = "You are a precise meeting assistant. Summarize the following meeting segment chronologically. Highlight key points, decisions, and action items discussed during this part of the meeting. Keep it concise but detailed enough for a final synthesizer.".to_string();
+        let user_prompt = format!("Meeting Segment {}/{}:\n\n{}", i + 1, num_chunks, chunk);
+        
+        let req = GenerateRequest {
+            system: Some(system_prompt),
+            user: user_prompt,
+            history: Vec::new(),
+            max_tokens: 1024,
+            temperature: 0.3,
+            stop_strings: Vec::new(),
+            grammar_gbnf: None,
+            n_ctx: Some(8192),
+        };
+        
+        let chunk_summary = llm.generate(req).await
+            .map_err(|e| format!("Error condensing segment {}: {}", i + 1, e))?;
+            
+        summaries.push(format!("--- Chronological Segment {}/{} ---\n{}", i + 1, num_chunks, chunk_summary.trim()));
+    }
+    
+    Ok(summaries.join("\n\n"))
+}
+
 pub async fn synthesize(
     llm: Arc<Llm>,
     segments: &[Segment],
@@ -68,7 +109,15 @@ pub async fn synthesize(
     existing_project_names: &[String],
     start_context: &MeetingStartContext,
 ) -> Result<StoredSummary, String> {
-    let flattened = truncate_transcript(flatten_transcript(segments));
+    let flattened_raw = flatten_transcript(segments);
+    let flattened = if flattened_raw.len() <= MAX_TRANSCRIPT_BYTES {
+        flattened_raw
+    } else {
+        let condensed = condense_transcript(llm.as_ref(), &flattened_raw).await?;
+        format!(
+            "[Note: The following transcript has been condensed chronologically due to its length]\n\n{condensed}"
+        )
+    };
     let duration_minutes = duration_ms / 60_000;
     let (system, user) = crate::llm::prompt::build_meeting_synthesis_prompt(
         &flattened,
@@ -88,6 +137,7 @@ pub async fn synthesize(
             temperature,
             stop_strings: Vec::new(),
             grammar_gbnf: None,
+            n_ctx: Some(16384),
         };
         let raw = match llm.generate(req).await {
             Ok(r) => r,
@@ -135,36 +185,49 @@ pub async fn synthesize(
     unreachable!()
 }
 
-/// Trim a flattened transcript to fit the synthesis prompt's context budget.
-/// Keeps the head and tail (where intros and action items typically live) and
-/// drops the middle when the transcript exceeds [`MAX_TRANSCRIPT_BYTES`].
-fn truncate_transcript(text: String) -> String {
-    if text.len() <= MAX_TRANSCRIPT_BYTES {
-        return text;
-    }
-    let head_budget = MAX_TRANSCRIPT_BYTES * 2 / 3;
-    let tail_budget = MAX_TRANSCRIPT_BYTES - head_budget;
-
-    let mut head_end = head_budget.min(text.len());
-    while head_end > 0 && !text.is_char_boundary(head_end) {
-        head_end -= 1;
-    }
-    let mut tail_start = text.len().saturating_sub(tail_budget);
-    while tail_start < text.len() && !text.is_char_boundary(tail_start) {
-        tail_start += 1;
-    }
-    if tail_start <= head_end {
-        return text;
-    }
-    let head = &text[..head_end];
-    let tail = &text[tail_start..];
-    format!("{head}\n[... transcript truncated for length ...]\n{tail}")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::meeting::Speaker;
+
+    struct MockLlm {
+        generated_responses: std::sync::Mutex<Vec<String>>,
+    }
+
+    impl crate::llm::LlmGenerator for MockLlm {
+        fn generate<'a>(&'a self, _req: GenerateRequest) -> crate::llm::GenerateFuture<'a> {
+            Box::pin(async move {
+                let mut guard = self.generated_responses.lock().unwrap();
+                if guard.is_empty() {
+                    Ok("mock summary".to_string())
+                } else {
+                    Ok(guard.remove(0))
+                }
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn test_condense_transcript_splits_chronologically() {
+        let mock = MockLlm {
+            generated_responses: std::sync::Mutex::new(vec![
+                "Summary 1".to_string(),
+                "Summary 2".to_string(),
+            ]),
+        };
+        // Create a long input text that exceeds 15,000 bytes.
+        // Each line is 100 bytes, 160 lines is 16,000 bytes.
+        let mut text = String::new();
+        for i in 0..160 {
+            text.push_str(&format!("Line {}: {}\n", i, "a".repeat(90)));
+        }
+
+        let result = condense_transcript(&mock, &text).await.unwrap();
+        assert!(result.contains("--- Chronological Segment 1/2 ---"));
+        assert!(result.contains("Summary 1"));
+        assert!(result.contains("--- Chronological Segment 2/2 ---"));
+        assert!(result.contains("Summary 2"));
+    }
 
     #[test]
     fn flatten_produces_speaker_labeled_lines() {
@@ -174,20 +237,6 @@ mod tests {
         ];
         let out = flatten_transcript(&segs);
         assert_eq!(out, "You: hello\nThem: hi\n");
-    }
-
-    #[test]
-    fn truncate_transcript_passthrough_when_short() {
-        let s = "short transcript".to_string();
-        assert_eq!(truncate_transcript(s.clone()), s);
-    }
-
-    #[test]
-    fn truncate_transcript_keeps_head_and_tail_when_long() {
-        let big = "a".repeat(MAX_TRANSCRIPT_BYTES * 2);
-        let out = truncate_transcript(big);
-        assert!(out.contains("[... transcript truncated for length ...]"));
-        assert!(out.len() < MAX_TRANSCRIPT_BYTES * 2);
     }
 
     #[test]

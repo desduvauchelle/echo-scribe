@@ -193,7 +193,7 @@ export function MeetingsView() {
   );
 
   return (
-    <div className="meetings-view flex flex-col gap-4 p-6">
+    <div className="meetings-view flex h-full flex-col overflow-y-auto gap-4 p-6">
       <header className="flex items-center justify-between">
         <h2 className="text-lg font-semibold">Meetings</h2>
         <div className="flex items-center gap-2">

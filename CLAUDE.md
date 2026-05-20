@@ -2,13 +2,30 @@
 
 ## Build + reinstall workflow (macOS)
 
-**Always run a TCC reset when you rebuild and replace `/Applications/Echo Scribe.app`.**
+**Default: SKIP the TCC reset.** Most rebuilds keep the same bundle identifier + Info.plist usage descriptions + entitlements; macOS Sequoia+ then re-binds prior permission grants to the new ad-hoc-signed binary automatically. The user's stated preference for this project is "skip TCC unless I say otherwise."
 
-macOS TCC (Transparency, Consent, and Control) keys permission grants on the binary's code signature. Every release build produces a binary with a new ad-hoc signature, so the prior Microphone, Accessibility, and Screen Recording grants no longer apply. Symptoms when you skip the reset: in-process permission prompts crash silently, the Accessibility list shows multiple stale "Echo Scribe.app" entries, or the new binary thinks it has no permissions even though the System Settings toggle is on.
+**Only reset TCC when this rebuild changes anything permission-related**, e.g.:
 
-Screen Recording specifically gates the `echo-scribe-syscap` sidecar's ScreenCaptureKit query (it captures system audio for the "other person" track during meetings). When the sidecar emits `stream_stopped: Failed to find any displays or windows to capture`, that's the canonical symptom of missing Screen Recording authorization.
+- `src-tauri/Info.plist` — `NSMicrophoneUsageDescription`, `NSScreenCaptureUsageDescription`, `NSAccessibilityUsageDescription`, `NSCalendarsFullAccessUsageDescription`, etc. (added, removed, or text changed).
+- `src-tauri/tauri.conf.json` — `identifier` (bundle id), `macOSPrivateApi`, `entitlements` paths.
+- `src-tauri/capabilities/*.json` — new windows or permission keys.
+- `src-tauri/Cargo.toml` — TCC-touching deps (e.g. cpal feature flips, ScreenCaptureKit-related crates, calendar/EventKit crates).
+- A new permission category needs to be re-requested (e.g. first build that adds calendar access).
 
-The full reset-and-reinstall sequence:
+Symptoms when you SHOULD HAVE reset and didn't: in-process permission prompts crash silently; the Accessibility list shows multiple stale "Echo Scribe.app" entries; the new binary thinks it has no permissions even though the System Settings toggle is on. Sidecar-specific: `stream_stopped: Failed to find any displays or windows to capture` from `echo-scribe-syscap` is the canonical Screen Recording-not-granted signal.
+
+**Skip-TCC reinstall (default):**
+
+```bash
+osascript -e 'tell application "Echo Scribe" to quit' 2>/dev/null
+pkill -f "Echo Scribe" 2>/dev/null
+sleep 1
+rm -rf "/Applications/Echo Scribe.app"
+cp -R "src-tauri/target/release/bundle/macos/Echo Scribe.app" /Applications/
+open "/Applications/Echo Scribe.app"
+```
+
+**Full TCC-reset reinstall (only when permission-related code changed, or user explicitly asks):**
 
 ```bash
 osascript -e 'tell application "Echo Scribe" to quit' 2>/dev/null
@@ -26,7 +43,7 @@ Things to know:
 
 - Add `rm -rf "$HOME/Library/Application Support/EchoScribe/models"` if you also want to force a re-download of Parakeet models (e.g. you changed the model URLs). Otherwise leave the user's downloaded models alone.
 - Add `rm -rf "$HOME/Library/Application Support/EchoScribe"` if you want a complete clean slate (wipes settings store too — user has to redo the hotkey choice).
-- Bypass `tccutil` only when the user explicitly says "don't reset TCC" (sometimes useful when they want to verify in-place upgrades work without re-permissioning).
+- If the user explicitly says "reset TCC" / "do a full reset" → use the full sequence even if no permission code changed.
 
 ## Build commands
 

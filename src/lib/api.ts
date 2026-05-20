@@ -843,3 +843,25 @@ export type GuideUpdate = {
   suggestions: string[];
   updatedAt: string;
 };
+
+export type CommonActionTemplate = {
+  category: string;
+  description: string;
+  voice_phrases: string[];
+};
+
+export const getAppLauncherEnabled = (): Promise<boolean> =>
+  invoke("get_app_launcher_enabled");
+
+export const setAppLauncherEnabled = (enabled: boolean): Promise<void> =>
+  invoke("set_app_launcher_enabled", { enabled });
+
+export const getActionCounter = (): Promise<number> =>
+  invoke("get_action_counter");
+
+export const resetActionCounter = (): Promise<void> =>
+  invoke("reset_action_counter");
+
+export const getCommonActions = (): Promise<CommonActionTemplate[]> =>
+  invoke("get_common_actions");
+

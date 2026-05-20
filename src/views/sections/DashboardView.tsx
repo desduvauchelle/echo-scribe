@@ -345,19 +345,17 @@ function StatStrip({ stats }: { stats: DashboardStats }) {
     <div className="flex flex-wrap items-stretch gap-x-8 gap-y-3 rounded-xl border border-line bg-surface px-6 py-5">
       <Stat label="Today" value={stats.today.transcriptions} sub={`${stats.today.words.toLocaleString()} words`} />
       <Stat label="Week" value={stats.week.transcriptions} sub={`${stats.week.words.toLocaleString()} words`} />
-      <Stat label="Month" value={stats.month.transcriptions} sub={`${stats.month.words.toLocaleString()} words`} />
-      <Divider />
-      <Stat
-        label="Saved (month)"
-        value={formatSaved(stats.month.transcriptions)}
-        sub="vs typing"
-        tone="success"
-      />
-      <Divider />
       <Stat
         label="All time"
         value={stats.all_time.transcriptions.toLocaleString()}
         sub={`${stats.all_time.words.toLocaleString()} words`}
+      />
+      <Divider />
+      <Stat
+        label="Saved (all time)"
+        value={formatSaved(stats.all_time.transcriptions)}
+        sub="vs typing"
+        tone="success"
       />
     </div>
   );

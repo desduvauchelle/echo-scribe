@@ -105,6 +105,7 @@ pub async fn classify<L: LlmGenerator + ?Sized>(
         temperature: 0.2,
         stop_strings: Vec::new(),
         grammar_gbnf: None,
+        n_ctx: Some(4096),
     };
 
     let raw = llm.generate(req.clone()).await?;

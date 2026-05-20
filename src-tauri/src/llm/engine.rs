@@ -22,7 +22,7 @@ use std::num::NonZeroU32;
 use std::path::Path;
 use std::sync::Arc;
 
-use llama_cpp_2::context::params::LlamaContextParams;
+use llama_cpp_2::context::params::{LlamaContextParams, KvCacheType};
 use llama_cpp_2::llama_backend::LlamaBackend;
 use llama_cpp_2::llama_batch::LlamaBatch;
 use llama_cpp_2::model::params::LlamaModelParams;
@@ -65,6 +65,7 @@ pub struct GenerateRequest {
     pub temperature: f32,
     pub stop_strings: Vec<String>,
     pub grammar_gbnf: Option<String>,
+    pub n_ctx: Option<u32>,
 }
 
 impl Default for GenerateRequest {
@@ -81,6 +82,7 @@ impl Default for GenerateRequest {
                 "<end_of_turn>".to_string(),
             ],
             grammar_gbnf: None,
+            n_ctx: None,
         }
     }
 }
@@ -176,25 +178,47 @@ impl LlmEngine {
         }
 
         let n_prompt = tokens.len();
+        let requested_n_ctx = req.n_ctx.unwrap_or(4096).min(self.n_ctx).max(2048);
         let n_ctx_required = n_prompt + req.max_tokens;
-        if (n_ctx_required as u64) > (self.n_ctx as u64) {
+        if (n_ctx_required as u64) > (requested_n_ctx as u64) {
             // llama.cpp's decode calls ggml_abort() (= SIGABRT, kills process)
             // when the KV cache overflows. Reject the request instead so the
             // caller can recover.
             return Err(EngineError::Request(format!(
-                "prompt ({} tokens) + max_tokens ({}) exceeds n_ctx ({}); shorten input or reduce max_tokens",
-                n_prompt, req.max_tokens, self.n_ctx
+                "prompt ({} tokens) + max_tokens ({}) exceeds requested n_ctx ({}); shorten input or reduce max_tokens",
+                n_prompt, req.max_tokens, requested_n_ctx
             )));
         }
 
-        // Build a fresh context.
+        // Build a fresh context with memory optimizations (Flash Attention + symmetric Q8_0 KV cache).
+        // llama-cpp-2 0.1.146: with_flash_attention_policy takes a
+        // `llama_cpp_sys_2::llama_flash_attn_type` (= c_int): AUTO=-1, OFF=0,
+        // ON=1. We don't depend on llama-cpp-sys-2 directly and llama-cpp-2
+        // doesn't re-export the constant, so pass 1 as the integer literal.
+        // cache_type_{k,v} were renamed to type_{k,v} in the same release.
         let ctx_params = LlamaContextParams::default()
-            .with_n_ctx(NonZeroU32::new(self.n_ctx))
-            .with_n_batch(self.n_ctx.max(512));
-        let mut ctx = self
-            .model
-            .new_context(&self._backend, ctx_params)
-            .map_err(|e| EngineError::Context(e.to_string()))?;
+            .with_n_ctx(NonZeroU32::new(requested_n_ctx))
+            .with_n_batch(requested_n_ctx.max(512))
+            .with_flash_attention_policy(1)
+            .with_type_k(KvCacheType::Q8_0)
+            .with_type_v(KvCacheType::Q8_0);
+
+        let mut ctx = match self.model.new_context(&self._backend, ctx_params.clone()) {
+            Ok(c) => c,
+            Err(e) => {
+                warn!(
+                    error = %e,
+                    "Failed to initialize optimized LLM context (Flash Attention + Q8 KV Cache). \
+                     Falling back to standard context parameters..."
+                );
+                let fallback_params = LlamaContextParams::default()
+                    .with_n_ctx(NonZeroU32::new(requested_n_ctx))
+                    .with_n_batch(requested_n_ctx.max(512));
+                self.model
+                    .new_context(&self._backend, fallback_params)
+                    .map_err(|err| EngineError::Context(format!("fallback context creation failed: {}", err)))?
+            }
+        };
 
         // Prefill: feed the prompt as a single batch.
         let mut batch = LlamaBatch::new(n_prompt.max(512), 1);
@@ -364,5 +388,50 @@ mod tests {
         let raw = "hello<turn|><turn|>";
         let cleaned = strip_trailing_stops(raw, &stops);
         assert_eq!(cleaned, "hello");
+    }
+
+    #[test]
+    fn test_dynamic_context_sizing_and_kv_cache() {
+        let default_model_id = crate::llm::registry::default_id();
+        let Some(entry) = crate::llm::registry::lookup(default_model_id) else {
+            return;
+        };
+        
+        if !crate::llm::is_downloaded(&entry) {
+            println!("Default LLM model not downloaded. Skipping integration test.");
+            return;
+        }
+        
+        let model_path = crate::llm::model_file_path(&entry).expect("Model file path should exist");
+        
+        let engine = LlmEngine::load(&model_path, 16384).expect("Should load model");
+        
+        let req_short = GenerateRequest {
+            system: Some("You are a helpful assistant.".to_string()),
+            user: "Write a one word greeting.".to_string(),
+            history: Vec::new(),
+            max_tokens: 10,
+            temperature: 0.5,
+            stop_strings: Vec::new(),
+            grammar_gbnf: None,
+            n_ctx: Some(2048),
+        };
+        let res_short = engine.generate(req_short).expect("Generation with short context should succeed");
+        assert!(!res_short.is_empty());
+        
+        let req_overflow = GenerateRequest {
+            system: Some("You are a helpful assistant.".to_string()),
+            user: "Write a story.".to_string(),
+            history: Vec::new(),
+            max_tokens: 4000,
+            temperature: 0.5,
+            stop_strings: Vec::new(),
+            grammar_gbnf: None,
+            n_ctx: Some(2048),
+        };
+        let err = engine.generate(req_overflow);
+        assert!(err.is_err(), "Overflow request should return an error");
+        let err_msg = err.unwrap_err().to_string();
+        assert!(err_msg.contains("exceeds requested n_ctx"), "Error message should complain about context overflow: {}", err_msg);
     }
 }

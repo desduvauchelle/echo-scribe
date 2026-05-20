@@ -1514,6 +1514,7 @@ pub async fn test_llm_inference(
         temperature: 0.7,
         stop_strings: Vec::new(),
         grammar_gbnf: None,
+        n_ctx: None,
     };
     state.llm.generate(req).await.map_err(|e| e.to_string())
 }
@@ -1753,6 +1754,7 @@ pub async fn chat_with_memory(
         temperature: 0.7,
         stop_strings: Vec::new(),
         grammar_gbnf: None,
+        n_ctx: None,
     };
 
     let reply = state.llm.generate(req).await.map_err(|e| e.to_string())?;
@@ -2233,7 +2235,76 @@ pub fn set_input_device_sort(
         .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+pub fn get_app_launcher_enabled(state: State<'_, AppState>) -> bool {
+    state.settings.app_launcher_enabled()
+}
+
+#[tauri::command]
+pub fn set_app_launcher_enabled(state: State<'_, AppState>, enabled: bool) -> Result<(), String> {
+    state.settings.set_app_launcher_enabled(enabled).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_action_counter(state: State<'_, AppState>) -> u32 {
+    state.settings.action_counter()
+}
+
+#[tauri::command]
+pub fn reset_action_counter(state: State<'_, AppState>) -> Result<(), String> {
+    state.settings.set_action_counter(0).map_err(|e| e.to_string())
+}
+
+#[derive(serde::Serialize)]
+pub struct CommonActionTemplate {
+    pub category: String,
+    pub description: String,
+    pub voice_phrases: Vec<String>,
+}
+
+#[tauri::command]
+pub fn get_common_actions() -> Vec<CommonActionTemplate> {
+    vec![
+        CommonActionTemplate {
+            category: "Applications".to_string(),
+            description: "Launch standard macOS applications or workspace web apps".to_string(),
+            voice_phrases: vec![
+                "open Slack".to_string(),
+                "launch Safari".to_string(),
+                "open Growthinator".to_string(),
+                "launch LiveCase".to_string(),
+            ],
+        },
+        CommonActionTemplate {
+            category: "Emails".to_string(),
+            description: "Draft emails inside the system default client prefilled".to_string(),
+            voice_phrases: vec![
+                "email denis about Growthinator saying tests passed".to_string(),
+                "email John about meeting saying I will be there".to_string(),
+            ],
+        },
+        CommonActionTemplate {
+            category: "Web Browsing".to_string(),
+            description: "Navigate directly to websites in your default browser".to_string(),
+            voice_phrases: vec![
+                "open google".to_string(),
+                "go to github.com".to_string(),
+            ],
+        },
+        CommonActionTemplate {
+            category: "Persistent Counter".to_string(),
+            description: "Increment, query, or reset the app action stats".to_string(),
+            voice_phrases: vec![
+                "increment counter".to_string(),
+                "what is the count".to_string(),
+                "reset action count".to_string(),
+            ],
+        },
+    ]
+}
+
 // ---------------------------------------------------------------------------
+
 // Daily recap commands
 // ---------------------------------------------------------------------------
 

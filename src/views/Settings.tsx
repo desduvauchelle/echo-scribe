@@ -44,6 +44,12 @@ import {
   setPreferredInputDevice,
   testLlmInference,
   updateLogCaptureBinding,
+  getAppLauncherEnabled,
+  setAppLauncherEnabled,
+  getActionCounter,
+  resetActionCounter,
+  getCommonActions,
+  type CommonActionTemplate,
   type DailyRecapSettings as DailyRecapSettingsT,
   type InputDevice,
   type InputDeviceSort,
@@ -594,6 +600,13 @@ function GeneralTab() {
       </Section>
 
       <Section
+        title="Voice Commands & App Launcher"
+        subtitle="Detect command actions inside your voice dictations to launch applications, open links, compose emails, and manage counters."
+      >
+        <AppLauncherSettingsSection />
+      </Section>
+
+      <Section
         title="Daily recap"
         subtitle="A morning notification that summarizes yesterday's meetings, notes, and dictations."
       >
@@ -765,6 +778,148 @@ function MuteWhileRecordingToggle() {
         className="h-4 w-4 cursor-pointer accent-accent"
       />
     </label>
+  );
+}
+
+function AppLauncherSettingsSection() {
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [counter, setCounter] = useState<number>(0);
+  const [templates, setTemplates] = useState<CommonActionTemplate[]>([]);
+  const [busy, setBusy] = useState(false);
+  const toasts = useToasts();
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [en, cnt, tmpl] = await Promise.all([
+          getAppLauncherEnabled(),
+          getActionCounter(),
+          getCommonActions(),
+        ]);
+        if (!cancelled) {
+          setEnabled(en);
+          setCounter(cnt);
+          setTemplates(tmpl);
+        }
+      } catch (e) {
+        console.error("Failed to load launcher settings:", e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const onToggle = async (next: boolean) => {
+    setBusy(true);
+    try {
+      await setAppLauncherEnabled(next);
+      setEnabled(next);
+      toasts.push({
+        tone: "success",
+        message: next ? "Voice Command App Launcher enabled" : "Voice Command App Launcher disabled",
+      });
+    } catch (e) {
+      toasts.push({
+        tone: "error",
+        message: `Couldn't update launcher setting: ${e instanceof Error ? e.message : String(e)}`,
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onReset = async () => {
+    setBusy(true);
+    try {
+      await resetActionCounter();
+      setCounter(0);
+      toasts.push({
+        tone: "success",
+        message: "Action counter reset to 0",
+      });
+    } catch (e) {
+      toasts.push({
+        tone: "error",
+        message: `Couldn't reset counter: ${e instanceof Error ? e.message : String(e)}`,
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-4">
+      <label className="flex items-center justify-between rounded-lg border border-line bg-canvas p-3 transition-all duration-200 hover:border-accent/40">
+        <div>
+          <div className="text-sm font-semibold text-fg flex items-center gap-1.5">
+            <span>Voice command app launcher</span>
+            <span className="rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-medium text-accent">Sonoma+</span>
+          </div>
+          <p className="text-xs text-muted mt-0.5">
+            Intercept voice dictation to launch apps, open links, compose emails, and manage counters.
+          </p>
+        </div>
+        <input
+          type="checkbox"
+          disabled={busy || enabled === null}
+          checked={enabled ?? false}
+          onChange={(e) => void onToggle(e.target.checked)}
+          className="h-4 w-4 cursor-pointer accent-accent"
+        />
+      </label>
+
+      {enabled && (
+        <div className="rounded-lg border border-line bg-canvas p-4 flex flex-col gap-4 transition-all duration-300">
+          <div className="flex items-center justify-between bg-surface-2/40 border border-line/50 rounded-lg p-3">
+            <div className="flex flex-col">
+              <span className="text-xs font-semibold text-fg">Automated Actions Count</span>
+              <span className="text-[11px] text-muted">Number of voice actions run successfully</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="font-mono text-lg font-bold text-accent px-2.5 py-0.5 rounded-md bg-accent/10 border border-accent/20">
+                {counter}
+              </span>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void onReset()}
+                className="rounded-md border border-line bg-surface px-2.5 py-1 text-xs font-medium text-fg hover:bg-elevated hover:text-accent transition-colors disabled:opacity-50"
+              >
+                Reset
+              </button>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <div className="text-xs font-bold tracking-wide uppercase text-[10px] text-muted mb-1">
+              Voice Action Cheatsheet
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {templates.map((t) => (
+                <div key={t.category} className="border border-line rounded-lg p-3 bg-surface/50 hover:bg-surface transition-colors flex flex-col gap-2">
+                  <div className="flex flex-col">
+                    <span className="text-xs font-bold text-accent">{t.category}</span>
+                    <span className="text-[10px] text-muted leading-snug mt-0.5">{t.description}</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {t.voice_phrases.map((phrase) => (
+                      <span
+                        key={phrase}
+                        className="rounded font-mono bg-surface-2 px-1.5 py-0.5 border border-line text-[10px] text-fg whitespace-nowrap"
+                      >
+                        "{phrase}"
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 

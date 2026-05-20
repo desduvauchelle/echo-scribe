@@ -37,6 +37,8 @@ const KEY_DAILY_RECAP_DELIVER_HOUR: &str = "daily_recap_deliver_hour";
 const KEY_DAILY_RECAP_INCLUDE_WEEKENDS: &str = "daily_recap_include_weekends";
 const KEY_GUIDE_OVERLAY_MODE: &str = "guide_overlay_mode";
 const KEY_GUIDE_OVERLAY_FRAME: &str = "guide_overlay_frame";
+const KEY_APP_LAUNCHER_ENABLED: &str = "app_launcher_enabled";
+const KEY_ACTION_COUNTER: &str = "action_counter";
 
 /// Default: morning recap notification is on.
 pub const DEFAULT_DAILY_RECAP_ENABLED: bool = true;
@@ -679,6 +681,46 @@ impl SettingsStore {
             .map_err(|e| SettingsError::Store(e.to_string()))?;
         Ok(())
     }
+
+    pub fn app_launcher_enabled(&self) -> bool {
+        self.store
+            .get(KEY_APP_LAUNCHER_ENABLED)
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true)
+    }
+
+    pub fn set_app_launcher_enabled(&self, on: bool) -> Result<(), SettingsError> {
+        self.store
+            .set(KEY_APP_LAUNCHER_ENABLED, serde_json::Value::Bool(on));
+        self.store
+            .save()
+            .map_err(|e| SettingsError::Store(e.to_string()))?;
+        Ok(())
+    }
+
+    pub fn action_counter(&self) -> u32 {
+        self.store
+            .get(KEY_ACTION_COUNTER)
+            .and_then(|v| v.as_u64())
+            .map(|n| n as u32)
+            .unwrap_or(0)
+    }
+
+    pub fn set_action_counter(&self, count: u32) -> Result<(), SettingsError> {
+        self.store
+            .set(KEY_ACTION_COUNTER, serde_json::Value::Number(count.into()));
+        self.store
+            .save()
+            .map_err(|e| SettingsError::Store(e.to_string()))?;
+        Ok(())
+    }
+
+    pub fn increment_action_counter(&self) -> Result<u32, SettingsError> {
+        let current = self.action_counter();
+        let next = current + 1;
+        self.set_action_counter(next)?;
+        Ok(next)
+    }
 }
 
 /// The default voice-at-cursor binding used when nothing is stored.
@@ -726,5 +768,11 @@ mod auto_file_tests {
         assert_eq!(KEY_DAILY_RECAP_ENABLED, "daily_recap_enabled");
         assert_eq!(KEY_DAILY_RECAP_DELIVER_HOUR, "daily_recap_deliver_hour");
         assert_eq!(KEY_DAILY_RECAP_INCLUDE_WEEKENDS, "daily_recap_include_weekends");
+    }
+
+    #[test]
+    fn app_launcher_constants_are_correct() {
+        assert_eq!(KEY_APP_LAUNCHER_ENABLED, "app_launcher_enabled");
+        assert_eq!(KEY_ACTION_COUNTER, "action_counter");
     }
 }

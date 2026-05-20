@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use tauri::{AppHandle, Emitter, Manager, Wry};
 use tokio::sync::mpsc;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::asr::pipeline::AsrPipeline;
 use crate::audio::feedback::{self, Sfx};
@@ -268,6 +268,12 @@ pub fn spawn(
                                 }
                                 Ok(text) => {
                                     let text = postprocess_with_settings(&app, text);
+                                    if try_intercept_action(&app, &llm, &text).await {
+                                        crate::overlay::hide_recording_overlay_now(&app);
+                                        force_state(&state, PipelineState::Idle);
+                                        on_state_change(TrayPipelineState::Idle);
+                                        continue;
+                                    }
                                     match action {
                                     Action::VoiceAtCursor => {
                                         // Phase 1 behavior: persist hidden + paste.
@@ -652,6 +658,68 @@ async fn run_classifier(
     let now = crate::db::items::chrono_now_iso();
     let dow = classifier::dow_from_iso(&now);
     classifier::classify(llm, transcript, &projects, &recents, &now, dow, focus).await
+}
+
+/// Try to detect and execute a system action from voice dictation.
+/// Returns true if an action was executed successfully.
+async fn try_intercept_action(
+    app: &tauri::AppHandle,
+    llm: &crate::llm::Llm,
+    text: &str,
+) -> bool {
+    let enabled = app
+        .try_state::<crate::commands::AppState>()
+        .map(|s| s.settings.app_launcher_enabled())
+        .unwrap_or(true);
+
+    if !enabled {
+        return false;
+    }
+
+    info!("Checking dictation for action launcher intent: '{}'", text);
+    match crate::llm::action_launcher::detect_action(llm, text).await {
+        Ok(cmd) => {
+            if cmd.is_action && cmd.confidence >= 0.75 {
+                info!(
+                    action_type = ?cmd.action_type,
+                    confidence = cmd.confidence,
+                    "Detected voice action command"
+                );
+                match crate::llm::action_launcher::execute_action(app, &cmd) {
+                    Ok(msg) => {
+                        info!(msg, "Voice action executed successfully");
+                        feedback::play(Sfx::Ready);
+                        let _ = app.emit("action:executed", serde_json::json!({
+                            "message": msg,
+                            "command": cmd,
+                        }));
+                        
+                        // Fire a macOS system notification
+                        use tauri_plugin_notification::NotificationExt;
+                        let _ = app.notification()
+                            .builder()
+                            .title("Echo Scribe Action")
+                            .body(&msg)
+                            .show();
+                        
+                        return true;
+                    }
+                    Err(e) => {
+                        error!(error = %e, "Voice action execution failed; falling back to standard pipeline");
+                    }
+                }
+            } else {
+                debug!(
+                    confidence = cmd.confidence,
+                    "No high-confidence action intent found; continuing standard pipeline"
+                );
+            }
+        }
+        Err(e) => {
+            warn!(error = %e, "Action classification failed; continuing standard pipeline");
+        }
+    }
+    false
 }
 
 /// Surface a recorder-start failure to the user: emits a Tauri event for any

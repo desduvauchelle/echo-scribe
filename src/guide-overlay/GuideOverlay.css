@@ -87,3 +87,24 @@
 
 .hud.collapsed section, .hud.collapsed .footer { display: none; }
 .hud.collapsed header { padding-bottom: 8px; }
+
+.hud .waiting {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0 2px 0;
+  color: #9fb0c9;
+}
+
+.hud .spinner {
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid #2d3340;
+  border-top-color: #7c8aff;
+  border-radius: 50%;
+  animation: hud-spin 0.9s linear infinite;
+}
+
+@keyframes hud-spin {
+  to { transform: rotate(360deg); }
+}

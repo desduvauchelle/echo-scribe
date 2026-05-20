@@ -4,13 +4,18 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 type KeyPoint = { id: string; label: string; status: "covered" | "partial" | "open" | string };
 type GuidePayload = {
-  meetingId: string;
+  meetingId?: string;
   templateName?: string;
   goal?: string;
   mode: "auto" | "on_demand";
   keyPoints: KeyPoint[];
   suggestions: string[];
-  updatedAt: string;
+  updatedAt?: string;
+};
+type GuideInit = {
+  templateName: string;
+  goal: string;
+  mode: "auto" | "on_demand";
 };
 
 function statusMarker(s: string): string {
@@ -35,13 +40,41 @@ export default function GuideOverlay() {
   const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
+    let unlistenInit: UnlistenFn | undefined;
     let unlistenUpdate: UnlistenFn | undefined;
     let unlistenStatus: UnlistenFn | undefined;
-    listen<GuidePayload>("guide-update", (e) => setPayload(e.payload)).then(
-      (u) => (unlistenUpdate = u),
-    );
-    // Self-close: when the meeting moves past recording, the HUD is no
-    // longer meaningful.
+    // guide-init fires immediately when the session starts so the shell can
+    // render BEFORE the first LLM cycle completes.
+    listen<GuideInit>("guide-init", (e) => {
+      setPayload({
+        templateName: e.payload.templateName,
+        goal: e.payload.goal,
+        mode: e.payload.mode,
+        keyPoints: [],
+        suggestions: [],
+        updatedAt: undefined,
+      });
+    }).then((u) => (unlistenInit = u));
+    // guide-update fires per LLM cycle with populated key points + suggestions.
+    listen<GuidePayload>("guide-update", (e) => {
+      setPayload((prev) => ({
+        ...(prev ?? {
+          templateName: e.payload.templateName,
+          goal: e.payload.goal,
+          mode: e.payload.mode,
+          keyPoints: [],
+          suggestions: [],
+        }),
+        meetingId: e.payload.meetingId,
+        templateName: e.payload.templateName ?? prev?.templateName,
+        goal: e.payload.goal ?? prev?.goal,
+        mode: e.payload.mode,
+        keyPoints: e.payload.keyPoints,
+        suggestions: e.payload.suggestions,
+        updatedAt: e.payload.updatedAt,
+      }));
+    }).then((u) => (unlistenUpdate = u));
+    // Self-close: meeting moved past recording → HUD no longer meaningful.
     listen<{ id: string; status: string }>("meeting-status", (e) => {
       if (
         e.payload.status === "transcribing" ||
@@ -52,6 +85,7 @@ export default function GuideOverlay() {
       }
     }).then((u) => (unlistenStatus = u));
     return () => {
+      unlistenInit?.();
       unlistenUpdate?.();
       unlistenStatus?.();
     };
@@ -91,6 +125,7 @@ export default function GuideOverlay() {
   }, []);
 
   if (!payload) return null;
+  const waiting = payload.keyPoints.length === 0 && payload.suggestions.length === 0;
 
   return (
     <div className={`hud ${collapsed ? "collapsed" : ""}`}>
@@ -109,23 +144,36 @@ export default function GuideOverlay() {
       </header>
       <section>
         {payload.goal && <div className="goal">{payload.goal}</div>}
-        {payload.keyPoints.map((p) => (
-          <div key={p.id} className={`point ${p.status}`}>
-            <span className="marker">{statusMarker(p.status)}</span>
-            <span>{p.label}</span>
+        {waiting ? (
+          <div className="waiting">
+            <span className="spinner" aria-hidden="true" />
+            <span>Listening… first guidance arrives after ~20–30s of speech.</span>
           </div>
-        ))}
-        {payload.suggestions.length > 0 && (
+        ) : (
           <>
-            <div className="label" style={{ marginTop: 8 }}>SUGGEST NOW</div>
-            {payload.suggestions.slice(0, 3).map((s, i) => (
-              <div key={i} className="suggest">{s}</div>
+            {payload.keyPoints.map((p) => (
+              <div key={p.id} className={`point ${p.status}`}>
+                <span className="marker">{statusMarker(p.status)}</span>
+                <span>{p.label}</span>
+              </div>
             ))}
+            {payload.suggestions.length > 0 && (
+              <>
+                <div className="label" style={{ marginTop: 8 }}>SUGGEST NOW</div>
+                {payload.suggestions.slice(0, 3).map((s, i) => (
+                  <div key={i} className="suggest">{s}</div>
+                ))}
+              </>
+            )}
           </>
         )}
       </section>
       <div className="footer">
-        <span>updated {relativeAge(payload.updatedAt, now)}</span>
+        <span>
+          {payload.updatedAt
+            ? `updated ${relativeAge(payload.updatedAt, now)}`
+            : "waiting for first cycle…"}
+        </span>
         {payload.mode === "auto" ? (
           <button className="mode" onClick={onToggleMode}>
             Auto ▾

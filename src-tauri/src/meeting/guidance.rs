@@ -123,6 +123,12 @@ impl GuidanceEngine {
         &self.inner.meeting_id
     }
 
+    /// Clone of the attached guide template — used by the meeting lifecycle
+    /// to populate the HUD's initial shell before the first LLM cycle.
+    pub fn template_snapshot(&self) -> GuideTemplate {
+        self.inner.template.clone()
+    }
+
     pub fn mode(&self) -> Mode {
         *self.inner.mode.lock().unwrap()
     }
@@ -226,6 +232,7 @@ async fn run_one_cycle(inner: &Inner) -> Result<(), String> {
             temperature,
             stop_strings: Vec::new(),
             grammar_gbnf: None,
+            n_ctx: Some(4096),
         };
         let raw = match inner.llm.generate(req).await {
             Ok(r) => r,

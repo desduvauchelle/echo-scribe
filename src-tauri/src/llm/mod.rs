@@ -17,6 +17,7 @@ pub mod downloader;
 pub mod engine;
 pub mod prompt;
 pub mod registry;
+pub mod action_launcher;
 
 use std::path::PathBuf;
 use std::sync::Arc;

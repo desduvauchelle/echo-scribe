@@ -294,6 +294,7 @@ async fn call(
             temperature: 0.3,
             stop_strings: Vec::new(),
             grammar_gbnf: None,
+            n_ctx: Some(16384),
         })
         .await
         .map_err(GenerateError::Llm)?;
@@ -378,6 +379,7 @@ async fn summarize_dictation_group(
         temperature: 0.3,
         stop_strings: Vec::new(),
         grammar_gbnf: None,
+        n_ctx: Some(4096),
     };
     let raw = llm.generate(req).await.map_err(GenerateError::Llm)?;
     Ok(raw.trim().to_string())

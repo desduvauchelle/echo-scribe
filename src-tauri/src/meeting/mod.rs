@@ -351,8 +351,19 @@ impl MeetingManager {
                     }
                 });
             pipeline = pipeline.with_observer(cb);
-            // Show the HUD now that a guided session is starting.
-            crate::overlay::show_guide_overlay(&self.app_handle);
+            // Show the HUD with template name + goal + mode so the shell can
+            // render immediately (before the first LLM cycle completes).
+            let mode_str = match initial_mode {
+                crate::meeting::guidance::Mode::Auto => "auto",
+                crate::meeting::guidance::Mode::OnDemand => "on_demand",
+            };
+            let engine_template = engine.template_snapshot();
+            crate::overlay::show_guide_overlay(
+                &self.app_handle,
+                &engine_template.name,
+                &engine_template.goal,
+                mode_str,
+            );
             Some(engine)
         } else {
             None
