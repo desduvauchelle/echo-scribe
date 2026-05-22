@@ -9,16 +9,13 @@ pub const BUNDLED_CLIENT_SECRET: &str = "PASTE_CLIENT_SECRET_HERE";
 
 // AUTH_ENDPOINT and SCOPE are now used by auth_url(); no dead_code allow needed.
 const AUTH_ENDPOINT: &str = "https://accounts.google.com/o/oauth2/v2/auth";
-#[allow(dead_code)]
 const TOKEN_ENDPOINT: &str = "https://oauth2.googleapis.com/token";
 // SCOPE is used by auth_url(); no dead_code allow needed.
 const SCOPE: &str = "https://www.googleapis.com/auth/drive.file openid email";
 #[allow(dead_code)]
 const FOLDER_NAME: &str = "Echo Scribe";
 
-#[allow(dead_code)]
 const KEYCHAIN_SERVICE: &str = "com.echoscribe.app";
-#[allow(dead_code)]
 const KEYCHAIN_ACCOUNT: &str = "google_drive_refresh_token";
 
 use base64::Engine;
@@ -68,6 +65,121 @@ pub fn email_from_id_token(id_token: &str) -> Option<String> {
         .ok()?;
     let v: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
     v.get("email")?.as_str().map(|s| s.to_string())
+}
+
+use serde::Deserialize;
+
+fn keychain_entry() -> Result<keyring::Entry, String> {
+    keyring::Entry::new(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT).map_err(|e| e.to_string())
+}
+
+/// Store (or replace) the long-lived refresh token in the macOS Keychain.
+#[allow(dead_code)] // TODO(phase4): consumed by connect/upload tasks
+pub fn store_refresh_token(token: &str) -> Result<(), String> {
+    keychain_entry()?.set_password(token).map_err(|e| e.to_string())
+}
+
+/// Load the refresh token, or `None` if not connected.
+#[allow(dead_code)] // TODO(phase4): consumed by connect/upload tasks
+pub fn load_refresh_token() -> Option<String> {
+    keychain_entry().ok()?.get_password().ok()
+}
+
+/// Delete the refresh token (disconnect). Already-absent is treated as success.
+#[allow(dead_code)] // TODO(phase4): consumed by connect/upload tasks
+pub fn delete_refresh_token() -> Result<(), String> {
+    match keychain_entry()?.delete_credential() {
+        Ok(()) => Ok(()),
+        Err(keyring::Error::NoEntry) => Ok(()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct TokenResponse {
+    access_token: String,
+    #[serde(default)]
+    refresh_token: Option<String>,
+    #[serde(default)]
+    id_token: Option<String>,
+}
+
+/// Resolve the effective client id/secret: BYO from settings if non-empty,
+/// else the bundled pair.
+#[allow(dead_code)] // TODO(phase4): consumed by connect/upload tasks
+pub fn effective_client(byo_id: &str, byo_secret: &str) -> (String, String) {
+    if !byo_id.trim().is_empty() {
+        (byo_id.to_string(), byo_secret.to_string())
+    } else {
+        (BUNDLED_CLIENT_ID.to_string(), BUNDLED_CLIENT_SECRET.to_string())
+    }
+}
+
+/// Exchange an auth `code` for tokens. Returns (access_token, refresh_token, email).
+#[allow(dead_code)] // TODO(phase4): consumed by connect/upload tasks
+pub async fn exchange_code(
+    client_id: &str,
+    client_secret: &str,
+    code: &str,
+    code_verifier: &str,
+    redirect_uri: &str,
+) -> Result<(String, String, Option<String>), String> {
+    let client = reqwest::Client::new();
+    let mut form = vec![
+        ("client_id", client_id),
+        ("code", code),
+        ("code_verifier", code_verifier),
+        ("grant_type", "authorization_code"),
+        ("redirect_uri", redirect_uri),
+    ];
+    if !client_secret.is_empty() {
+        form.push(("client_secret", client_secret));
+    }
+    let resp = client
+        .post(TOKEN_ENDPOINT)
+        .form(&form)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!(
+            "token exchange failed: {}",
+            resp.text().await.unwrap_or_default()
+        ));
+    }
+    let tok: TokenResponse = resp.json().await.map_err(|e| e.to_string())?;
+    let refresh = tok.refresh_token.ok_or("no refresh_token in response")?;
+    let email = tok.id_token.as_deref().and_then(email_from_id_token);
+    Ok((tok.access_token, refresh, email))
+}
+
+/// Use the stored refresh token to get a fresh access token.
+#[allow(dead_code)] // TODO(phase4): consumed by connect/upload tasks
+pub async fn refresh_access_token(client_id: &str, client_secret: &str) -> Result<String, String> {
+    let refresh = load_refresh_token().ok_or("not connected to Drive")?;
+    let client = reqwest::Client::new();
+    let mut form = vec![
+        ("client_id", client_id),
+        ("refresh_token", refresh.as_str()),
+        ("grant_type", "refresh_token"),
+    ];
+    if !client_secret.is_empty() {
+        form.push(("client_secret", client_secret));
+    }
+    let resp = client
+        .post(TOKEN_ENDPOINT)
+        .form(&form)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!(
+            "token refresh failed: {}",
+            resp.text().await.unwrap_or_default()
+        ));
+    }
+    let tok: TokenResponse = resp.json().await.map_err(|e| e.to_string())?;
+    Ok(tok.access_token)
 }
 
 #[cfg(test)]
