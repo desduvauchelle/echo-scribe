@@ -60,7 +60,7 @@ if CommandLine.arguments.contains("--list-sources") {
                 // Build (or recreate fresh) the thumbs directory so stale thumbs don't accumulate.
                 let home = FileManager.default.homeDirectoryForCurrentUser
                 let thumbsDir = home
-                    .appendingPathComponent("Library/Application Support/EchoScribe/recordings/.source-thumbs")
+                    .appendingPathComponent("Library/Application Support/EchoScribe/recordings/source-thumbs")
                 try? FileManager.default.removeItem(at: thumbsDir)
                 try? FileManager.default.createDirectory(at: thumbsDir, withIntermediateDirectories: true)
                 let windows = content.windows.compactMap { w -> [String: Any]? in

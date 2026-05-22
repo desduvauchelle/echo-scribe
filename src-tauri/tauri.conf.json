@@ -31,6 +31,7 @@
         "enable": true,
         "scope": [
           "$HOME/Library/Application Support/EchoScribe/recordings/**",
+          "$HOME/Library/Application Support/EchoScribe/recordings/source-thumbs/**",
           "$APPDATA/EchoScribe/recordings/**"
         ]
       }
