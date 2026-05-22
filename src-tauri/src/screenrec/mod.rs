@@ -56,11 +56,15 @@ pub fn list_sources() -> Result<Sources, String> {
     parse_sources(&text)
 }
 
-/// Extract a recording's audio track to a 16kHz mono WAV at `out_wav`.
-/// Returns `Ok(())` on success. The Err string is user-facing; the special
-/// value `"no_audio"` is returned when the recording has no audio track so the
-/// caller can show a friendly message.
-pub fn extract_audio(mp4: &std::path::Path, out_wav: &std::path::Path) -> Result<(), String> {
+/// Extract a recording's audio track to a mono WAV at `out_wav`, resampled to
+/// `rate` Hz. Returns `Ok(())` on success. The Err string is user-facing; the
+/// special value `"no_audio"` is returned when the recording has no audio track
+/// so the caller can show a friendly message.
+pub fn extract_audio_at(
+    mp4: &std::path::Path,
+    out_wav: &std::path::Path,
+    rate: u32,
+) -> Result<(), String> {
     let bin = resolve_binary().map_err(|e| e.to_string())?;
     let out = Command::new(&bin)
         .arg("extract-audio")
@@ -68,6 +72,8 @@ pub fn extract_audio(mp4: &std::path::Path, out_wav: &std::path::Path) -> Result
         .arg(mp4)
         .arg("--out")
         .arg(out_wav)
+        .arg("--rate")
+        .arg(rate.to_string())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .output()
@@ -95,6 +101,45 @@ pub fn extract_audio(mp4: &std::path::Path, out_wav: &std::path::Path) -> Result
         "audio extraction failed (exit {:?})",
         out.status.code()
     ))
+}
+
+/// Back-compat: extract at 16kHz mono (used by the transcript pipeline).
+pub fn extract_audio(mp4: &std::path::Path, out_wav: &std::path::Path) -> Result<(), String> {
+    extract_audio_at(mp4, out_wav, 16_000)
+}
+
+/// Mux a cleaned audio WAV into the original video, writing a new mp4.
+pub fn mux_audio(
+    video: &std::path::Path,
+    audio: &std::path::Path,
+    out: &std::path::Path,
+) -> Result<(), String> {
+    let bin = resolve_binary().map_err(|e| e.to_string())?;
+    let res = Command::new(&bin)
+        .arg("mux-audio")
+        .arg("--video")
+        .arg(video)
+        .arg("--audio")
+        .arg(audio)
+        .arg("--out")
+        .arg(out)
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|e| e.to_string())?;
+    if res.status.success() {
+        return Ok(());
+    }
+    let stderr = String::from_utf8_lossy(&res.stderr);
+    for line in stderr.lines().rev() {
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(line) {
+            if val.get("event").and_then(|v| v.as_str()) == Some("error") {
+                let msg = val.get("msg").and_then(|v| v.as_str()).unwrap_or("unknown");
+                return Err(format!("audio mux failed: {msg}"));
+            }
+        }
+    }
+    Err(format!("audio mux failed (exit {:?})", res.status.code()))
 }
 
 /// Parsed `stopped` event payload from the sidecar.
