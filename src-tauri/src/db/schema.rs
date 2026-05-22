@@ -215,6 +215,31 @@ DROP INDEX IF EXISTS idx_items_visibility;
 ALTER TABLE items DROP COLUMN visibility;
 "#,
     ),
+    (
+        13,
+        r#"
+CREATE TABLE IF NOT EXISTS recordings (
+  id TEXT PRIMARY KEY,
+  created_at INTEGER NOT NULL,
+  file_path TEXT NOT NULL,
+  duration_ms INTEGER,
+  width INTEGER,
+  height INTEGER,
+  size_bytes INTEGER,
+  source_label TEXT,
+  has_mic INTEGER NOT NULL DEFAULT 0,
+  has_sysaudio INTEGER NOT NULL DEFAULT 1,
+  thumb_path TEXT,
+  drive_file_id TEXT,
+  drive_link TEXT,
+  upload_status TEXT NOT NULL DEFAULT 'none',
+  upload_error TEXT,
+  exports TEXT NOT NULL DEFAULT '[]'
+);
+
+CREATE INDEX IF NOT EXISTS idx_recordings_created_at ON recordings(created_at DESC);
+"#,
+    ),
 ];
 
 const META_TABLE_SQL: &str = r#"
@@ -276,7 +301,7 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(v, "12");
+        assert_eq!(v, "13");
     }
 
     #[test]
@@ -397,7 +422,7 @@ mod tests {
         let version: String = conn
             .query_row("SELECT value FROM schema_meta WHERE key = 'schema_version'", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(version, "12");
+        assert_eq!(version, "13");
     }
 
     #[test]

@@ -24,6 +24,7 @@ pub mod meetings;
 pub mod tasks;
 pub mod daily_summaries;
 pub mod guide_templates;
+pub mod recordings;
 
 pub use chat::{ChatMessage, ChatSession};
 pub use items::{Item, ItemKind, ItemSource};
