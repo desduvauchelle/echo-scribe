@@ -18,6 +18,22 @@
 
 ---
 
+## ⚠️ CURRENT-STATE RE-SYNC (read first — 2026-05-22, post merge to `main`)
+
+A recording-transcript feature merged to `main` after this plan was written. **Line numbers below are stale — locate by pattern.** Deltas that affect this plan:
+
+- **Depends on Phase 3** (`crate::screenrec::export` + `export_recording`). Build Phase 3 first on this same branch.
+- **`src/views/sections/RecordingsView.tsx`** — detail pane order is now: rename header → video → action row (`Reveal`/`Delete`, ~line 260) → **Phase 3 export buttons + "Exports:" line** (added by Phase 3) → **Transcript section** (~line 274). Add the Phase 4 **Upload-to-Drive section (Task 13) after the Transcript section** so the three feature blocks stack: Exports · Transcript · Drive. `refresh()` already re-resolves `selected`; drop the `setSelected(fresh.find(...))` line from Task 13's handler — just `await refresh()`.
+- **`src/lib/api.ts`** — `RecordingRow` already has `title`, `transcript`; bindings `renameRecording`, `transcribeRecording`, plus Phase 3's `exportRecording`. Add the Drive bindings (Task 11) alongside.
+- **`src-tauri/src/commands.rs`** — `transcribe_recording` (async command with `app.emit("transcribe-progress", …)`) at ~line 2774 is the template for `upload_recording`'s async + event-emit shape. `require_db(&state)?` is the DB accessor.
+- **`src-tauri/src/db/recordings.rs`** — `RecordingRow` has extra `title`/`transcript`; irrelevant to `update_upload_status`/`update_drive_link` (they `UPDATE` specific columns). `sample()` already includes the new fields.
+- **`src-tauri/src/settings.rs`** — the transcript feature added its own keys/accessors; just append the Drive keys/accessors (Task 9) following the same `self.store` get/set pattern (verify exact signatures against an existing accessor, as the task already notes).
+- **`src/views/Settings.tsx`** — confirm the current section layout before inserting `<DriveSettings />` (Task 12); render it alongside the existing settings sections.
+
+Everything else (OAuth/PKCE, keychain, Drive REST, command logic) is unchanged. **Security caveats below still apply.**
+
+---
+
 ## Security caveats (read before Task 1)
 
 - **Bundled client secret is not confidential.** Google "Desktop app" OAuth clients issue a `client_secret` that must be included in the token exchange even with PKCE. Embedded in the app binary it is extractable. This is the accepted, documented model for installed apps (the secret is not a real secret). The BYO override lets advanced users supply their own.

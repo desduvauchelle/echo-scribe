@@ -14,6 +14,25 @@
 
 ---
 
+## ⚠️ CURRENT-STATE RE-SYNC (read first — 2026-05-22, post merge to `main`)
+
+A recording-transcript feature merged to `main` after this plan was written. It moved the files this plan edits and, helpfully, established the exact patterns to mirror. **Line numbers in the tasks below are stale — locate by pattern, not by line.** Concrete current anchors:
+
+- **`src-tauri/screenrec/main.swift`** — sub-commands are now *positional*. The `extract-audio` mode at ~line 193 is the template:
+  ```swift
+  if CommandLine.arguments.count > 1, CommandLine.arguments[1] == "extract-audio" { … exit }
+  ```
+  Insert the `export` block in the **same style** (`CommandLine.arguments[1] == "export"`) immediately **after the `extract-audio` block and before the `// --- arg parsing: record …` block** (~line 210). Do **not** use `contains("export")` — match the positional pattern. Helpers `emit(...)` and `emitFatal(_:_:)` exist; the record path uses `emitFatal`.
+- **`src-tauri/src/screenrec/mod.rs`** — `pub fn extract_audio(mp4, out_wav) -> Result<(), String>` at ~line 61 is the template for `export()`: it spawns the sidecar with `.output()` (blocking), checks `status.success()`, and scans `stderr.lines().rev()` for an `{"event":"error",...}`. **Prefer mirroring this `.output()` approach** for `export()` (collect output, then find the `done` line / error line) over the streaming reader shown in Task 2 — it matches the established codebase pattern. Keep `ExportDone {path, size}` + `parse_export_done` as written.
+- **`src-tauri/src/commands.rs`** — `pub async fn transcribe_recording(...)` at ~line 2774 is the template for `export_recording` (uses `require_db`, fetches the row, runs the sidecar op, updates the row). `export_recording` can stay synchronous (export is blocking) — match the existing `reveal_recording`/`delete_recording` sync command shape for the DB plumbing.
+- **`src-tauri/src/db/recordings.rs`** — `RecordingRow` now has extra fields `title: Option<String>` and `transcript: Option<String>`. This does **not** affect `update_exports` (Task 3) or `export_recording` (they fetch + update, not construct). The `sample()` test helper already includes the new fields.
+- **`src/lib/api.ts`** — `RecordingRow` type now includes `title`, `transcript`; bindings `renameRecording`, `transcribeRecording` exist. Add `exportRecording` alongside them.
+- **`src/views/sections/RecordingsView.tsx`** — substantially grown: detail pane now has a rename header, the video, an action row (`Reveal in Finder` / `Delete`) at ~line 260, and a **Transcript section** at ~line 274. For Task 6, add the export quality buttons **into / just below the existing action row** (the `<div className="mt-4 flex gap-2">` at ~line 260) and the "Exports:" summary line below it — above the Transcript section. `refresh()` already re-resolves `selected` from the fresh list, so the `setSelected(fresh.find(...))` dance in Task 6's handler is unnecessary — just `await refresh()`.
+
+Everything else (DB column existence, the `export` Swift code body, `ExportDone`, command logic, exports-JSON merge) is unchanged.
+
+---
+
 ## File structure
 
 | File | Responsibility | Action |
