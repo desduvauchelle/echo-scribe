@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node -e \"const p=require\\('./package.json'\\); console.log\\(JSON.stringify\\({dep:p.dependencies,dev:p.devDependencies},null,1\\)\\)\")",
+      "Bash(grep -n \"StoredSummary\\\\|StoredTranscript\\\\|suggested_title\\\\|action_items\\\\|interface.*Summary\\\\|type StoredSummary\\\\|export type StoredSummary\" src/lib/api.ts | head; echo \"---TYPES---\"; sed -n '/StoredSummary/,/^}/p' src/lib/api.ts | head -40)",
+      "Bash(bun add *)",
+      "Bash(awk -F'bundle=' 'NR%15==1{print $1 $2}')",
+      "Bash(cd \"$HOME/Library/Logs/EchoScribe\"; echo \"=== unique frontmost bundles seen during 20:05-20:33 Zoom meeting ===\"; sed -E 's/\\\\x1b\\\\[[0-9;]*m//g' echo-scribe.log.2026-05-21 | grep \"captured frontmost app\" | grep -E \"T20:\\(0[5-9]|[12][0-9]|3[0-3]\\)\" | grep -oE 'bundle=Some\\\\\\(\"[^\"]+\"\\\\\\)' | sort | uniq -c | sort -rn)",
+      "Bash(cargo test *)",
+      "Bash(sed -n '/pub fn screenrec_sysaudio/,/^    }/p' src-tauri/src/settings.rs)",
+      "Bash(sed -n '/\\\\[dependencies\\\\]/,/\\\\[/p' src-tauri/Cargo.toml)",
+      "Bash(grep -v \"^$\")",
+      "Bash(sed -n '/^\\\\[dependencies\\\\]/,/^\\\\[build-dependencies\\\\]/p' src-tauri/Cargo.toml | grep -iE \"reqwest|serde|tokio|uuid|tracing|keyring|security|base64|sha2|rand|url|tiny_http|webbrowser|open =\")"
+    ],
+    "additionalDirectories": [
+      "/Users/denisduvauchelle/Documents/code/echo-scribe/src/lib",
+      "/Users/denisduvauchelle/Documents/code/echo-scribe/src-tauri"
+    ]
+  }
+}

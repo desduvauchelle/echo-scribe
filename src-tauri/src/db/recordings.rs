@@ -21,6 +21,8 @@ pub struct RecordingRow {
     pub upload_error: Option<String>,
     /// JSON array of export variants: `[{"quality":"1080","path":"...","size":123}]`.
     pub exports: String,
+    /// User-assigned display name; falls back to `source_label` when `None`.
+    pub title: Option<String>,
 }
 
 pub fn insert(conn: &Connection, r: &RecordingRow) -> Result<(), DbError> {
@@ -28,8 +30,8 @@ pub fn insert(conn: &Connection, r: &RecordingRow) -> Result<(), DbError> {
         "INSERT INTO recordings (
             id, created_at, file_path, duration_ms, width, height, size_bytes,
             source_label, has_mic, has_sysaudio, thumb_path, drive_file_id,
-            drive_link, upload_status, upload_error, exports
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+            drive_link, upload_status, upload_error, exports, title
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
         params![
             r.id,
             r.created_at,
@@ -47,6 +49,7 @@ pub fn insert(conn: &Connection, r: &RecordingRow) -> Result<(), DbError> {
             r.upload_status,
             r.upload_error,
             r.exports,
+            r.title,
         ],
     )?;
     Ok(())
@@ -56,7 +59,7 @@ pub fn list(conn: &Connection) -> Result<Vec<RecordingRow>, DbError> {
     let mut stmt = conn.prepare(
         "SELECT id, created_at, file_path, duration_ms, width, height, size_bytes,
                 source_label, has_mic, has_sysaudio, thumb_path, drive_file_id,
-                drive_link, upload_status, upload_error, exports
+                drive_link, upload_status, upload_error, exports, title
          FROM recordings
          ORDER BY created_at DESC",
     )?;
@@ -70,7 +73,7 @@ pub fn get(conn: &Connection, id: &str) -> Result<Option<RecordingRow>, DbError>
     conn.query_row(
         "SELECT id, created_at, file_path, duration_ms, width, height, size_bytes,
                 source_label, has_mic, has_sysaudio, thumb_path, drive_file_id,
-                drive_link, upload_status, upload_error, exports
+                drive_link, upload_status, upload_error, exports, title
          FROM recordings WHERE id = ?1",
         [id],
         row_to_recording,
@@ -81,6 +84,15 @@ pub fn get(conn: &Connection, id: &str) -> Result<Option<RecordingRow>, DbError>
 
 pub fn delete(conn: &Connection, id: &str) -> Result<(), DbError> {
     conn.execute("DELETE FROM recordings WHERE id = ?1", [id])?;
+    Ok(())
+}
+
+/// Set the user-assigned display name for a recording.
+pub fn rename(conn: &Connection, id: &str, title: &str) -> Result<(), DbError> {
+    conn.execute(
+        "UPDATE recordings SET title = ?1 WHERE id = ?2",
+        params![title, id],
+    )?;
     Ok(())
 }
 
@@ -102,6 +114,7 @@ fn row_to_recording(row: &rusqlite::Row<'_>) -> rusqlite::Result<RecordingRow> {
         upload_status: row.get(13)?,
         upload_error: row.get(14)?,
         exports: row.get(15)?,
+        title: row.get(16)?,
     })
 }
 
@@ -134,6 +147,7 @@ mod tests {
             upload_status: "none".into(),
             upload_error: None,
             exports: "[]".into(),
+            title: None,
         }
     }
 
@@ -167,5 +181,18 @@ mod tests {
         delete(&conn, "rec-1").unwrap();
         assert!(list(&conn).unwrap().is_empty());
         assert!(get(&conn, "rec-1").unwrap().is_none());
+    }
+
+    #[test]
+    fn rename_updates_title() {
+        let conn = setup();
+        insert(&conn, &sample()).unwrap();
+        assert_eq!(get(&conn, "rec-1").unwrap().unwrap().title, None);
+
+        rename(&conn, "rec-1", "Demo walkthrough").unwrap();
+        assert_eq!(
+            get(&conn, "rec-1").unwrap().unwrap().title.as_deref(),
+            Some("Demo walkthrough")
+        );
     }
 }

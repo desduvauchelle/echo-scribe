@@ -7,9 +7,14 @@ import {
   stopScreenRecording,
   listRecordings,
   deleteRecording,
+  renameRecording,
   revealRecording,
   type RecordingRow,
 } from "../../lib/api";
+
+function displayName(r: RecordingRow): string {
+  return r.title?.trim() || r.source_label || "Recording";
+}
 
 function fmtDuration(ms: number | null): string {
   if (!ms) return "0:00";
@@ -30,9 +35,13 @@ export function RecordingsView() {
   const [busy, setBusy] = useState(false);
   const [selected, setSelected] = useState<RecordingRow | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [renaming, setRenaming] = useState(false);
+  const [nameInput, setNameInput] = useState("");
 
   const refresh = useCallback(async () => {
-    setRows(await listRecordings());
+    const next = await listRecordings();
+    setRows(next);
+    setSelected((cur) => (cur ? next.find((r) => r.id === cur.id) ?? cur : cur));
     setRecording(await isScreenRecording());
   }, []);
 
@@ -88,6 +97,28 @@ export function RecordingsView() {
     [refresh, selected],
   );
 
+  const startRename = useCallback(() => {
+    if (!selected) return;
+    setNameInput(displayName(selected));
+    setRenaming(true);
+  }, [selected]);
+
+  const saveRename = useCallback(async () => {
+    if (!selected) return;
+    const next = nameInput.trim();
+    if (!next || next === displayName(selected)) {
+      setRenaming(false);
+      return;
+    }
+    try {
+      await renameRecording(selected.id, next);
+      setRenaming(false);
+      await refresh();
+    } catch (e) {
+      setError(String(e));
+    }
+  }, [selected, nameInput, refresh]);
+
   return (
     <div className="flex h-full flex-col bg-canvas text-fg">
       <div className="flex items-center justify-between border-b border-line px-6 py-4">
@@ -117,7 +148,10 @@ export function RecordingsView() {
             rows.map((r) => (
               <button
                 key={r.id}
-                onClick={() => setSelected(r)}
+                onClick={() => {
+                  setSelected(r);
+                  setRenaming(false);
+                }}
                 className={`flex w-full gap-3 border-b border-line p-3 text-left hover:bg-surface ${
                   selected?.id === r.id ? "bg-surface" : ""
                 }`}
@@ -133,7 +167,7 @@ export function RecordingsView() {
                 )}
                 <div className="min-w-0">
                   <div className="truncate text-[13px] font-medium">
-                    {r.source_label ?? "Recording"}
+                    {displayName(r)}
                   </div>
                   <div className="text-[11px] text-muted">
                     {new Date(r.created_at).toLocaleString()} ·{" "}
@@ -148,6 +182,44 @@ export function RecordingsView() {
         <div className="flex flex-1 flex-col overflow-y-auto p-6">
           {selected ? (
             <>
+              {renaming ? (
+                <div className="mb-3 flex items-center gap-2">
+                  <input
+                    autoFocus
+                    value={nameInput}
+                    onChange={(e) => setNameInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") void saveRename();
+                      if (e.key === "Escape") setRenaming(false);
+                    }}
+                    className="flex-1 rounded-md border border-line bg-surface px-2 py-1 text-[15px] font-semibold outline-none focus:border-accent"
+                  />
+                  <button
+                    onClick={() => void saveRename()}
+                    className="rounded-md bg-accent px-3 py-1.5 text-[13px] font-medium text-white"
+                  >
+                    Save
+                  </button>
+                  <button
+                    onClick={() => setRenaming(false)}
+                    className="rounded-md border border-line px-3 py-1.5 text-[13px] hover:bg-surface"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <div className="mb-3 flex items-center gap-2">
+                  <h2 className="min-w-0 flex-1 truncate text-[15px] font-semibold">
+                    {displayName(selected)}
+                  </h2>
+                  <button
+                    onClick={startRename}
+                    className="shrink-0 rounded-md border border-line px-3 py-1.5 text-[13px] hover:bg-surface"
+                  >
+                    Rename
+                  </button>
+                </div>
+              )}
               <video
                 key={selected.id}
                 src={convertFileSrc(selected.file_path)}

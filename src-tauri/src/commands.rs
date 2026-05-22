@@ -2708,6 +2708,7 @@ pub fn stop_screen_recording_inner(
         upload_status: "none".into(),
         upload_error: None,
         exports: "[]".into(),
+        title: None,
     };
     let db = state.db.as_ref().ok_or_else(|| "database not available".to_string())?;
     db.with_conn(|c| crate::db::recordings::insert(c, &row))
@@ -2752,6 +2753,17 @@ pub fn delete_recording(state: State<'_, AppState>, id: String) -> Result<(), St
         }
     }
     db.with_conn(|c| crate::db::recordings::delete(c, &id))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn rename_recording(
+    state: State<'_, AppState>,
+    id: String,
+    title: String,
+) -> Result<(), String> {
+    let db = require_db(&state)?;
+    db.with_conn(|c| crate::db::recordings::rename(c, &id, title.trim()))
         .map_err(|e| e.to_string())
 }
 

@@ -25,26 +25,30 @@ let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
 
 // --- window thumbnail helper (used by --list-sources) ---
-func windowThumbnail(_ windowID: CGWindowID, dir: URL) -> String {
-    guard let cg = CGWindowListCreateImage(.null, .optionIncludingWindow, windowID, [.boundsIgnoreFraming, .bestResolution]) else { return "" }
-    // downscale to max width 320 preserving aspect
-    let srcW = cg.width, srcH = cg.height
+// Uses ScreenCaptureKit's SCScreenshotManager rather than the deprecated
+// CGWindowListCreateImage, which returns blank images for GPU-composited /
+// transparent windows (e.g. our own Tauri window). SCK captures correctly.
+@available(macOS 14.0, *)
+func windowThumbnail(_ window: SCWindow, dir: URL) async -> String {
+    let srcW = window.frame.width, srcH = window.frame.height
     guard srcW > 0, srcH > 0 else { return "" }
-    let maxW = 320
-    let scale = min(1.0, Double(maxW) / Double(srcW))
-    let dstW = Int(Double(srcW) * scale), dstH = Int(Double(srcH) * scale)
-    guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: dstW, pixelsHigh: dstH,
-        bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
-        colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else { return "" }
-    guard let ctx = NSGraphicsContext(bitmapImageRep: rep) else { return "" }
-    NSGraphicsContext.saveGraphicsState()
-    NSGraphicsContext.current = ctx
-    ctx.cgContext.draw(cg, in: CGRect(x: 0, y: 0, width: dstW, height: dstH))
-    NSGraphicsContext.restoreGraphicsState()
-    guard let data = rep.representation(using: .jpeg, properties: [.compressionFactor: 0.5]) else { return "" }
-    let url = dir.appendingPathComponent("win-\(windowID).jpg")
-    try? data.write(to: url)
-    return url.path
+    let maxW = 320.0
+    let scale = min(1.0, maxW / srcW)
+    let filter = SCContentFilter(desktopIndependentWindow: window)
+    let config = SCStreamConfiguration()
+    config.width = max(1, Int(srcW * scale))
+    config.height = max(1, Int(srcH * scale))
+    config.showsCursor = false
+    do {
+        let cg = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
+        let rep = NSBitmapImageRep(cgImage: cg)
+        guard let data = rep.representation(using: .jpeg, properties: [.compressionFactor: 0.5]) else { return "" }
+        let url = dir.appendingPathComponent("win-\(window.windowID).jpg")
+        try data.write(to: url)
+        return url.path
+    } catch {
+        return ""
+    }
 }
 
 // --- mode: `--list-sources` ---
@@ -63,14 +67,24 @@ if CommandLine.arguments.contains("--list-sources") {
                     .appendingPathComponent("Library/Application Support/EchoScribe/recordings/source-thumbs")
                 try? FileManager.default.removeItem(at: thumbsDir)
                 try? FileManager.default.createDirectory(at: thumbsDir, withIntermediateDirectories: true)
-                let windows = content.windows.compactMap { w -> [String: Any]? in
+                // System apps whose windows are never useful capture targets.
+                let excludedApps: Set<String> = [
+                    "Window Server", "Dock", "Notification Center", "Control Center",
+                    "Spotlight", "WindowManager", "Wallpaper",
+                ]
+                var windows: [[String: Any]] = []
+                for w in content.windows {
                     guard let title = w.title, !title.isEmpty,
                           let app = w.owningApplication?.applicationName, w.isOnScreen,
-                          w.frame.width > 80, w.frame.height > 80 else { return nil }
-                    let thumb = windowThumbnail(w.windowID, dir: thumbsDir)
-                    return ["id": w.windowID, "app": app, "title": title,
-                            "width": Int(w.frame.width), "height": Int(w.frame.height),
-                            "thumb": thumb]
+                          w.frame.width > 80, w.frame.height > 80,
+                          // Normal app windows live on layer 0; menubar, Dock,
+                          // notifications, wallpaper, backstop all sit on other layers.
+                          w.windowLayer == 0,
+                          !excludedApps.contains(app) else { continue }
+                    let thumb = await windowThumbnail(w, dir: thumbsDir)
+                    windows.append(["id": w.windowID, "app": app, "title": title,
+                                    "width": Int(w.frame.width), "height": Int(w.frame.height),
+                                    "thumb": thumb])
                 }
                 let out: [String: Any] = ["displays": displays, "windows": windows]
                 let data = try JSONSerialization.data(withJSONObject: out)

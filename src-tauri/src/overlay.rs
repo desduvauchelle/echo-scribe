@@ -366,8 +366,8 @@ pub fn hide_guide_overlay(app_handle: &AppHandle<Wry>) {
 // Screen-recording setup window
 // ---------------------------------------------------------------------------
 
-const SCREENREC_SETUP_WIDTH: f64 = 460.0;
-const SCREENREC_SETUP_HEIGHT: f64 = 560.0;
+const SCREENREC_SETUP_WIDTH: f64 = 540.0;
+const SCREENREC_SETUP_HEIGHT: f64 = 680.0;
 
 /// Returns the (x, y) logical-coordinate origin to centre a window of the
 /// given logical size on the primary monitor.
