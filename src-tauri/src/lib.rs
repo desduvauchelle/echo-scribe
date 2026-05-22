@@ -5,6 +5,7 @@ pub mod classifier;
 pub mod commands;
 pub mod coordinator;
 pub mod daily_summary;
+pub mod denoise;
 pub mod meeting;
 pub mod screenrec;
 mod util;
@@ -78,6 +79,8 @@ use crate::commands::{
     drive_disconnect,
     get_drive_client_id,
     set_drive_client_credentials,
+    get_drive_prefs,
+    set_drive_prefs,
     upload_recording,
     AppState,
 };
@@ -330,6 +333,8 @@ pub fn run() {
             drive_disconnect,
             get_drive_client_id,
             set_drive_client_credentials,
+            get_drive_prefs,
+            set_drive_prefs,
             upload_recording,
         ])
         .setup(move |app| {
