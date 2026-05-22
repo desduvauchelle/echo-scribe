@@ -1,6 +1,16 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import {
+  ChevronDown,
+  CloudUpload,
+  Download,
+  ExternalLink,
+  FileText,
+  FolderOpen,
+  Loader,
+  Trash2,
+} from "lucide-react";
 import {
   isScreenRecording,
   openScreenrecSetup,
@@ -41,6 +51,96 @@ function parseExports(json: string): ExportVariant[] {
   } catch {
     return [];
   }
+}
+
+function IconButton({
+  title,
+  onClick,
+  disabled,
+  danger,
+  children,
+}: {
+  title: string;
+  onClick: () => void;
+  disabled?: boolean;
+  danger?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      title={title}
+      aria-label={title}
+      onClick={onClick}
+      disabled={disabled}
+      className={`grid h-8 w-8 place-items-center rounded-md border border-line hover:bg-surface disabled:opacity-50 ${
+        danger ? "text-red-500 hover:bg-red-500/10" : "text-fg"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+/** Icon button with a default action plus a caret that opens a resolution menu. */
+function SplitButton({
+  title,
+  icon,
+  options,
+  defaultValue,
+  onSelect,
+  busy,
+  disabled,
+}: {
+  title: string;
+  icon: ReactNode;
+  options: { label: string; value: string }[];
+  defaultValue: string;
+  onSelect: (value: string) => void;
+  busy?: boolean;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="relative flex">
+      <button
+        title={title}
+        aria-label={title}
+        onClick={() => onSelect(defaultValue)}
+        disabled={disabled}
+        className="grid h-8 w-8 place-items-center rounded-l-md border border-line text-fg hover:bg-surface disabled:opacity-50"
+      >
+        {busy ? <Loader size={16} className="animate-spin" /> : icon}
+      </button>
+      <button
+        title="Choose resolution"
+        aria-label="Choose resolution"
+        onClick={() => setOpen((o) => !o)}
+        disabled={disabled}
+        className="grid h-8 w-5 place-items-center rounded-r-md border border-l-0 border-line text-muted hover:bg-surface disabled:opacity-50"
+      >
+        <ChevronDown size={13} />
+      </button>
+      {open ? (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 top-full z-50 mt-1 min-w-[110px] overflow-hidden rounded-md border border-line bg-canvas py-1 shadow-lg">
+            {options.map((o) => (
+              <button
+                key={o.value}
+                onClick={() => {
+                  setOpen(false);
+                  onSelect(o.value);
+                }}
+                className="block w-full px-3 py-1.5 text-left text-[13px] hover:bg-surface"
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+        </>
+      ) : null}
+    </div>
+  );
 }
 
 export function RecordingsView() {
@@ -309,48 +409,128 @@ export function RecordingsView() {
                 controls
                 className="w-full rounded-lg bg-black"
               />
-              <div className="mt-4 flex gap-2">
-                <button
-                  onClick={() => revealRecording(selected.id)}
-                  className="rounded-md border border-line px-3 py-1.5 text-[13px] hover:bg-surface"
+              <div className="mt-4 flex items-center gap-2">
+                <IconButton
+                  title="Reveal in Finder"
+                  onClick={() => void revealRecording(selected.id)}
                 >
-                  Reveal in Finder
-                </button>
-                <button
-                  onClick={() => onDelete(selected.id)}
-                  className="rounded-md border border-line px-3 py-1.5 text-[13px] text-red-500 hover:bg-surface"
+                  <FolderOpen size={16} />
+                </IconButton>
+                <SplitButton
+                  title="Export 1080p"
+                  icon={<Download size={16} />}
+                  busy={exporting !== null}
+                  disabled={exporting !== null || uploading}
+                  defaultValue="1080"
+                  options={[
+                    { label: "1080p", value: "1080" },
+                    { label: "720p", value: "720" },
+                    { label: "480p", value: "480" },
+                  ]}
+                  onSelect={(v) =>
+                    void onExport(selected.id, v as "1080" | "720" | "480")
+                  }
+                />
+                <SplitButton
+                  title="Upload to Drive (1080p)"
+                  icon={<CloudUpload size={16} />}
+                  busy={uploading}
+                  disabled={uploading || exporting !== null}
+                  defaultValue="1080"
+                  options={[
+                    { label: "Original", value: "original" },
+                    { label: "1080p", value: "1080" },
+                    { label: "720p", value: "720" },
+                    { label: "480p", value: "480" },
+                  ]}
+                  onSelect={(v) =>
+                    void onUpload(
+                      selected.id,
+                      v as "original" | "1080" | "720" | "480",
+                    )
+                  }
+                />
+                <IconButton
+                  title={
+                    selected.transcript?.trim()
+                      ? "Regenerate transcript"
+                      : "Get transcript"
+                  }
+                  onClick={() => void onTranscribe()}
+                  disabled={transcribing}
                 >
-                  Delete
-                </button>
+                  {transcribing ? (
+                    <Loader size={16} className="animate-spin" />
+                  ) : (
+                    <FileText size={16} />
+                  )}
+                </IconButton>
+                <div className="flex-1" />
+                <IconButton
+                  title="Delete"
+                  onClick={() => void onDelete(selected.id)}
+                  danger
+                >
+                  <Trash2 size={16} />
+                </IconButton>
               </div>
-              <div className="mt-4 flex flex-wrap items-center gap-2">
-                <span className="text-[12px] text-muted">Export:</span>
-                {(["1080", "720", "480"] as const).map((q) => (
-                  <button
-                    key={q}
-                    onClick={() => void onExport(selected.id, q)}
-                    disabled={exporting !== null || uploading}
-                    className="rounded-md border border-line px-2.5 py-1.5 text-[13px] hover:bg-surface disabled:opacity-50"
+
+              {parseExports(selected.exports).length > 0 ? (
+                <div className="mt-2 text-[12px] text-muted">
+                  Exported:{" "}
+                  {parseExports(selected.exports)
+                    .map((e) => `${e.quality}p (${fmtSize(e.size)})`)
+                    .join(" · ")}
+                </div>
+              ) : null}
+              {transcribing ? (
+                <div className="mt-2 text-[12px] text-muted">
+                  Transcribing… {progress}%
+                </div>
+              ) : null}
+              {uploading ? (
+                <div className="mt-2 text-[12px] text-muted">
+                  Uploading to Drive…
+                </div>
+              ) : null}
+              {selected.upload_status === "error" ? (
+                <div className="mt-2 text-[12px] text-red-400">
+                  Upload failed
+                  {selected.upload_error ? `: ${selected.upload_error}` : ""}
+                </div>
+              ) : null}
+              {selected.upload_status === "done" && selected.drive_link ? (
+                <div className="mt-3 flex items-center gap-2">
+                  <ExternalLink size={14} className="shrink-0 text-muted" />
+                  <a
+                    href={selected.drive_link}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="min-w-0 flex-1 truncate text-[13px] text-accent underline"
                   >
-                    {exporting === q ? `${q}p…` : `${q}p`}
+                    {selected.drive_link}
+                  </a>
+                  <button
+                    onClick={() => {
+                      if (selected.drive_link)
+                        void navigator.clipboard.writeText(selected.drive_link);
+                    }}
+                    className="shrink-0 rounded-md border border-line px-2.5 py-1 text-[12px] hover:bg-surface"
+                  >
+                    Copy link
                   </button>
-                ))}
-                {parseExports(selected.exports).length > 0 ? (
-                  <span className="text-[12px] text-muted">
-                    Done:{" "}
-                    {parseExports(selected.exports)
-                      .map((e) => `${e.quality}p (${fmtSize(e.size)})`)
-                      .join(" · ")}
-                  </span>
-                ) : null}
-              </div>
+                </div>
+              ) : null}
+
               <div className="mt-6 border-t border-line pt-4">
                 <div className="mb-2 flex items-center justify-between">
                   <h3 className="text-[13px] font-semibold">Transcript</h3>
                   {selected.transcript?.trim() ? (
                     <button
                       onClick={() => {
-                        void navigator.clipboard.writeText(selected.transcript ?? "");
+                        void navigator.clipboard.writeText(
+                          selected.transcript ?? "",
+                        );
                       }}
                       className="rounded-md border border-line px-2.5 py-1 text-[12px] hover:bg-surface"
                     >
@@ -364,71 +544,15 @@ export function RecordingsView() {
                       {selected.transcript}
                     </p>
                   ) : (
-                    <div className="flex items-center gap-3">
-                      <span className="text-[13px] text-muted">No speech detected.</span>
-                      <button
-                        onClick={() => void onTranscribe()}
-                        disabled={transcribing}
-                        className="rounded-md border border-line px-3 py-1.5 text-[13px] hover:bg-surface disabled:opacity-50"
-                      >
-                        Re-generate
-                      </button>
-                    </div>
+                    <span className="text-[13px] text-muted">
+                      No speech detected. Use the transcript button above to retry.
+                    </span>
                   )
                 ) : (
-                  <button
-                    onClick={() => void onTranscribe()}
-                    disabled={transcribing}
-                    className="rounded-md bg-accent px-3 py-1.5 text-[13px] font-medium text-white disabled:opacity-50"
-                  >
-                    {transcribing ? `Transcribing… ${progress}%` : "Generate transcript"}
-                  </button>
-                )}
-              </div>
-              <div className="mt-6 border-t border-line pt-4">
-                <h3 className="mb-2 text-[13px] font-semibold">Google Drive</h3>
-                {selected.upload_status === "done" && selected.drive_link ? (
-                  <div className="flex items-center gap-2">
-                    <a
-                      href={selected.drive_link}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="min-w-0 flex-1 truncate text-[13px] text-accent underline"
-                    >
-                      {selected.drive_link}
-                    </a>
-                    <button
-                      onClick={() => {
-                        if (selected.drive_link)
-                          void navigator.clipboard.writeText(selected.drive_link);
-                      }}
-                      className="shrink-0 rounded-md border border-line px-2.5 py-1 text-[12px] hover:bg-surface"
-                    >
-                      Copy link
-                    </button>
-                  </div>
-                ) : (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-[12px] text-muted">Upload:</span>
-                    {(["original", "1080", "720", "480"] as const).map((q) => (
-                      <button
-                        key={q}
-                        onClick={() => void onUpload(selected.id, q)}
-                        disabled={uploading || exporting !== null}
-                        className="rounded-md border border-line px-2.5 py-1.5 text-[13px] hover:bg-surface disabled:opacity-50"
-                      >
-                        {q === "original" ? "Original" : `${q}p`}
-                      </button>
-                    ))}
-                    {uploading ? (
-                      <span className="text-[12px] text-muted">Uploading…</span>
-                    ) : null}
-                    {selected.upload_status === "error" ? (
-                      <span className="text-[12px] text-red-400">
-                        Upload failed{selected.upload_error ? `: ${selected.upload_error}` : ""}
-                      </span>
-                    ) : null}
-                  </div>
+                  <span className="text-[13px] text-muted">
+                    No transcript yet — use the transcript button above to generate
+                    one.
+                  </span>
                 )}
               </div>
             </>
