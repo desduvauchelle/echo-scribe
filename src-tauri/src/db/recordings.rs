@@ -98,6 +98,35 @@ pub fn update_exports(conn: &Connection, id: &str, exports_json: &str) -> Result
     Ok(())
 }
 
+pub fn update_upload_status(
+    conn: &Connection,
+    id: &str,
+    status: &str,
+    error: Option<&str>,
+) -> Result<(), DbError> {
+    conn.execute(
+        "UPDATE recordings SET upload_status = ?2, upload_error = ?3 WHERE id = ?1",
+        params![id, status, error],
+    )?;
+    Ok(())
+}
+
+/// Record a successful upload: stores the file id + link and sets status `done`.
+pub fn update_drive_link(
+    conn: &Connection,
+    id: &str,
+    file_id: &str,
+    link: &str,
+) -> Result<(), DbError> {
+    conn.execute(
+        "UPDATE recordings
+           SET drive_file_id = ?2, drive_link = ?3, upload_status = 'done', upload_error = NULL
+         WHERE id = ?1",
+        params![id, file_id, link],
+    )?;
+    Ok(())
+}
+
 /// Set the user-assigned display name for a recording.
 pub fn rename(conn: &Connection, id: &str, title: &str) -> Result<(), DbError> {
     conn.execute(
@@ -239,5 +268,25 @@ mod tests {
         update_exports(&conn, "rec-1", json).unwrap();
         let got = get(&conn, "rec-1").unwrap().unwrap();
         assert_eq!(got.exports, json);
+    }
+
+    #[test]
+    fn update_upload_status_and_link_round_trip() {
+        let conn = setup();
+        insert(&conn, &sample()).unwrap();
+
+        update_upload_status(&conn, "rec-1", "uploading", None).unwrap();
+        assert_eq!(get(&conn, "rec-1").unwrap().unwrap().upload_status, "uploading");
+
+        update_drive_link(&conn, "rec-1", "fid-9", "https://drive.example/abc").unwrap();
+        let got = get(&conn, "rec-1").unwrap().unwrap();
+        assert_eq!(got.drive_file_id.as_deref(), Some("fid-9"));
+        assert_eq!(got.drive_link.as_deref(), Some("https://drive.example/abc"));
+        assert_eq!(got.upload_status, "done");
+
+        update_upload_status(&conn, "rec-1", "error", Some("network")).unwrap();
+        let got = get(&conn, "rec-1").unwrap().unwrap();
+        assert_eq!(got.upload_status, "error");
+        assert_eq!(got.upload_error.as_deref(), Some("network"));
     }
 }

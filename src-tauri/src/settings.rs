@@ -46,6 +46,10 @@ const KEY_MEETING_SUMMARY_PROMPT: &str = "meeting_summary_prompt";
 const KEY_SCREENREC_SYSAUDIO: &str = "screenrec_sysaudio";
 const KEY_SCREENREC_MIC_ENABLED: &str = "screenrec_mic_enabled";
 const KEY_SCREENREC_MIC_DEVICE: &str = "screenrec_mic_device";
+const KEY_DRIVE_CLIENT_ID: &str = "drive_client_id";
+const KEY_DRIVE_CLIENT_SECRET: &str = "drive_client_secret";
+const KEY_DRIVE_ACCOUNT_EMAIL: &str = "drive_account_email";
+const KEY_DRIVE_FOLDER_ID: &str = "drive_folder_id";
 
 pub const DEFAULT_MEETING_SUMMARY_PROMPT: &str = "You are an expert meeting note-taker. You receive a transcript of a {duration_minutes}-minute conversation captured from {app}. The transcript labels each segment as 'You:' (the user) or 'Them:' (the other side).";
 
@@ -861,6 +865,92 @@ impl SettingsStore {
     pub fn set_screenrec_mic_device(&self, device: String) -> Result<(), SettingsError> {
         self.store
             .set(KEY_SCREENREC_MIC_DEVICE, serde_json::Value::String(device));
+        self.store
+            .save()
+            .map_err(|e| SettingsError::Store(e.to_string()))?;
+        Ok(())
+    }
+
+    /// OAuth2 client ID for Google Drive. Empty string means not configured.
+    pub fn drive_client_id(&self) -> String {
+        self.store
+            .get(KEY_DRIVE_CLIENT_ID)
+            .and_then(|v| v.as_str().map(String::from))
+            .unwrap_or_default()
+    }
+
+    pub fn set_drive_client_id(&self, id: &str) -> Result<(), SettingsError> {
+        self.store
+            .set(KEY_DRIVE_CLIENT_ID, serde_json::Value::String(id.to_string()));
+        self.store
+            .save()
+            .map_err(|e| SettingsError::Store(e.to_string()))?;
+        Ok(())
+    }
+
+    /// OAuth2 client secret for Google Drive. Empty string means not configured.
+    pub fn drive_client_secret(&self) -> String {
+        self.store
+            .get(KEY_DRIVE_CLIENT_SECRET)
+            .and_then(|v| v.as_str().map(String::from))
+            .unwrap_or_default()
+    }
+
+    pub fn set_drive_client_secret(&self, secret: &str) -> Result<(), SettingsError> {
+        self.store
+            .set(KEY_DRIVE_CLIENT_SECRET, serde_json::Value::String(secret.to_string()));
+        self.store
+            .save()
+            .map_err(|e| SettingsError::Store(e.to_string()))?;
+        Ok(())
+    }
+
+    /// The Google account email used for Drive uploads. `None` if not yet authenticated.
+    pub fn drive_account_email(&self) -> Option<String> {
+        self.store
+            .get(KEY_DRIVE_ACCOUNT_EMAIL)
+            .and_then(|v| v.as_str().map(|s| s.to_string()))
+    }
+
+    /// Persist the Drive account email. Pass `None` to clear (sign out).
+    pub fn set_drive_account_email(&self, email: Option<&str>) -> Result<(), SettingsError> {
+        match email {
+            Some(e) => {
+                self.store.set(
+                    KEY_DRIVE_ACCOUNT_EMAIL,
+                    serde_json::Value::String(e.to_string()),
+                );
+            }
+            None => {
+                self.store.delete(KEY_DRIVE_ACCOUNT_EMAIL);
+            }
+        }
+        self.store
+            .save()
+            .map_err(|e| SettingsError::Store(e.to_string()))?;
+        Ok(())
+    }
+
+    /// The Drive folder ID to upload recordings into. `None` means root / not configured.
+    pub fn drive_folder_id(&self) -> Option<String> {
+        self.store
+            .get(KEY_DRIVE_FOLDER_ID)
+            .and_then(|v| v.as_str().map(|s| s.to_string()))
+    }
+
+    /// Persist the Drive folder ID. Pass `None` to clear (revert to root).
+    pub fn set_drive_folder_id(&self, id: Option<&str>) -> Result<(), SettingsError> {
+        match id {
+            Some(folder_id) => {
+                self.store.set(
+                    KEY_DRIVE_FOLDER_ID,
+                    serde_json::Value::String(folder_id.to_string()),
+                );
+            }
+            None => {
+                self.store.delete(KEY_DRIVE_FOLDER_ID);
+            }
+        }
         self.store
             .save()
             .map_err(|e| SettingsError::Store(e.to_string()))?;
