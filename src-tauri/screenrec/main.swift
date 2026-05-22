@@ -648,7 +648,7 @@ extension Recorder {
         }
         guard status == kCMBlockBufferNoErr else { return nil }
 
-        let pts = CMTime(value: startFrame, timescale: 48000)
+        let pts = CMTimeAdd(startPTS, CMTime(value: startFrame, timescale: 48000))
         let duration = CMTime(value: Int64(frames), timescale: 48000)
         var timing = CMSampleTimingInfo(
             duration: duration,
