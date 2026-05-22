@@ -18,6 +18,9 @@ const FOLDER_NAME: &str = "Echo Scribe";
 const KEYCHAIN_SERVICE: &str = "com.echoscribe.app";
 const KEYCHAIN_ACCOUNT: &str = "google_drive_refresh_token";
 
+use std::io::{Read, Write};
+use std::net::TcpListener;
+
 use base64::Engine;
 use sha2::{Digest, Sha256};
 
@@ -74,7 +77,6 @@ fn keychain_entry() -> Result<keyring::Entry, String> {
 }
 
 /// Store (or replace) the long-lived refresh token in the macOS Keychain.
-#[allow(dead_code)] // TODO(phase4): consumed by connect/upload tasks
 pub fn store_refresh_token(token: &str) -> Result<(), String> {
     keychain_entry()?.set_password(token).map_err(|e| e.to_string())
 }
@@ -116,7 +118,6 @@ pub fn effective_client(byo_id: &str, byo_secret: &str) -> (String, String) {
 }
 
 /// Exchange an auth `code` for tokens. Returns (access_token, refresh_token, email).
-#[allow(dead_code)] // TODO(phase4): consumed by connect/upload tasks
 pub async fn exchange_code(
     client_id: &str,
     client_secret: &str,
@@ -180,6 +181,77 @@ pub async fn refresh_access_token(client_id: &str, client_secret: &str) -> Resul
     }
     let tok: TokenResponse = resp.json().await.map_err(|e| e.to_string())?;
     Ok(tok.access_token)
+}
+
+/// Run the full connect flow: bind a loopback listener, open the browser to the
+/// consent page, capture the `code`, exchange it, persist the refresh token, and
+/// return the connected account email (if Google returned one).
+///
+/// The loopback accept runs on a blocking task; the HTTP exchange uses the
+/// current tokio runtime.
+#[allow(dead_code)] // TODO(phase4): consumed by the drive_connect command
+pub async fn connect(client_id: &str, client_secret: &str) -> Result<Option<String>, String> {
+    let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
+    let port = listener.local_addr().map_err(|e| e.to_string())?.port();
+    let redirect_uri = format!("http://127.0.0.1:{port}");
+
+    let (verifier, challenge) = pkce();
+    let state = random_state();
+    let url = auth_url(client_id, &redirect_uri, &challenge, &state);
+
+    // Open the system browser (macOS).
+    std::process::Command::new("open")
+        .arg(&url)
+        .spawn()
+        .map_err(|e| format!("could not open browser: {e}"))?;
+
+    // Accept exactly one request (the redirect) on a blocking task so the async
+    // runtime isn't stalled.
+    let expected_state = state.clone();
+    let (code, got_state) =
+        tokio::task::spawn_blocking(move || -> Result<(String, String), String> {
+            let (mut stream, _) = listener.accept().map_err(|e| e.to_string())?;
+            let mut buf = [0u8; 4096];
+            let n = stream.read(&mut buf).map_err(|e| e.to_string())?;
+            let req = String::from_utf8_lossy(&buf[..n]);
+            // First line: "GET /?code=...&state=... HTTP/1.1"
+            let first = req.lines().next().unwrap_or("");
+            let target = first.split_whitespace().nth(1).unwrap_or("");
+            let query = target.splitn(2, '?').nth(1).unwrap_or("");
+            let mut code = String::new();
+            let mut st = String::new();
+            for (k, v) in url::form_urlencoded::parse(query.as_bytes()) {
+                match k.as_ref() {
+                    "code" => code = v.into_owned(),
+                    "state" => st = v.into_owned(),
+                    _ => {}
+                }
+            }
+            let body = "<html><body style='font-family:system-ui;padding:3rem'>\
+                        <h2>Echo Scribe is connected.</h2><p>You can close this tab.</p></body></html>";
+            let resp = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            let _ = stream.write_all(resp.as_bytes());
+            if code.is_empty() {
+                return Err("no authorization code received".into());
+            }
+            Ok((code, st))
+        })
+        .await
+        .map_err(|e| e.to_string())??;
+
+    if got_state != expected_state {
+        return Err("OAuth state mismatch (possible CSRF); aborting".into());
+    }
+
+    let (access, refresh, email) =
+        exchange_code(client_id, client_secret, &code, &verifier, &redirect_uri).await?;
+    store_refresh_token(&refresh)?;
+    debug_assert!(!access.is_empty());
+    Ok(email)
 }
 
 #[cfg(test)]
