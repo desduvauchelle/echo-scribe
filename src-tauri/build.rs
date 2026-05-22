@@ -26,11 +26,20 @@ fn main() {
         if !calmatch.success() {
             panic!("calmatch build failed");
         }
+        let screenrec = std::process::Command::new("bash")
+            .arg("../scripts/build-screenrec.sh")
+            .status()
+            .expect("failed to run build-screenrec.sh");
+        if !screenrec.success() {
+            panic!("screenrec build failed");
+        }
     }
     println!("cargo:rerun-if-changed=syscap/main.swift");
     println!("cargo:rerun-if-changed=syscap/Package.swift");
     println!("cargo:rerun-if-changed=calmatch/main.swift");
     println!("cargo:rerun-if-changed=calmatch/Package.swift");
+    println!("cargo:rerun-if-changed=screenrec/main.swift");
+    println!("cargo:rerun-if-changed=screenrec/Package.swift");
 
     tauri_build::build();
 
