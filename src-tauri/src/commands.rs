@@ -2710,6 +2710,7 @@ pub fn stop_screen_recording_inner(
         exports: "[]".into(),
         title: None,
         transcript: None,
+        denoised_path: None,
     };
     let db = state.db.as_ref().ok_or_else(|| "database not available".to_string())?;
     db.with_conn(|c| crate::db::recordings::insert(c, &row))
@@ -3004,6 +3005,42 @@ pub fn set_drive_client_credentials(
     Ok(())
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct DrivePrefs {
+    pub folder_name: String,
+    pub make_public: bool,
+}
+
+#[tauri::command]
+pub fn get_drive_prefs(state: State<'_, AppState>) -> DrivePrefs {
+    DrivePrefs {
+        folder_name: state.settings.drive_folder_name(),
+        make_public: state.settings.drive_make_public(),
+    }
+}
+
+#[tauri::command]
+pub fn set_drive_prefs(
+    state: State<'_, AppState>,
+    folder_name: String,
+    make_public: bool,
+) -> Result<(), String> {
+    let prev = state.settings.drive_folder_name();
+    state
+        .settings
+        .set_drive_folder_name(&folder_name)
+        .map_err(|e| e.to_string())?;
+    state
+        .settings
+        .set_drive_make_public(make_public)
+        .map_err(|e| e.to_string())?;
+    // Folder renamed → drop the cached id so the next upload resolves/creates it.
+    if prev != folder_name {
+        state.settings.set_drive_folder_id(None).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 /// Upload a recording at `quality` ("original"|"1080"|"720"|"480") to Drive and
 /// return the updated row (with `drive_link`). Non-"original" exports first.
 #[tauri::command]
@@ -3026,6 +3063,8 @@ pub async fn upload_recording(
         &state.settings.drive_client_secret(),
     );
     let existing_folder: Option<String> = state.settings.drive_folder_id();
+    let folder_name = state.settings.drive_folder_name();
+    let make_public = state.settings.drive_make_public();
 
     // Mark uploading and notify UI.
     {
@@ -3064,7 +3103,7 @@ pub async fn upload_recording(
         let (folder, folder_to_persist) = match existing_folder {
             Some(f) => (f, None),
             None => {
-                let f = crate::screenrec::drive::ensure_folder(&access).await?;
+                let f = crate::screenrec::drive::ensure_folder(&access, &folder_name).await?;
                 let persist = Some(f.clone());
                 (f, persist)
             }
@@ -3072,7 +3111,9 @@ pub async fn upload_recording(
         let file_id =
             crate::screenrec::drive::upload_resumable(&access, &folder, &upload_path, &upload_name)
                 .await?;
-        crate::screenrec::drive::make_anyone_reader(&access, &file_id).await?;
+        if make_public {
+            crate::screenrec::drive::make_anyone_reader(&access, &file_id).await?;
+        }
         let link = crate::screenrec::drive::web_view_link(&access, &file_id).await?;
         Ok((file_id, link, folder_to_persist))
     }

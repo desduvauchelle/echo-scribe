@@ -25,6 +25,8 @@ pub struct RecordingRow {
     pub title: Option<String>,
     /// Cached plain-text transcript; `None` until generated on demand.
     pub transcript: Option<String>,
+    /// Path to the denoised MP4 (separate file). `None` until cleaned.
+    pub denoised_path: Option<String>,
 }
 
 pub fn insert(conn: &Connection, r: &RecordingRow) -> Result<(), DbError> {
@@ -32,8 +34,9 @@ pub fn insert(conn: &Connection, r: &RecordingRow) -> Result<(), DbError> {
         "INSERT INTO recordings (
             id, created_at, file_path, duration_ms, width, height, size_bytes,
             source_label, has_mic, has_sysaudio, thumb_path, drive_file_id,
-            drive_link, upload_status, upload_error, exports, title, transcript
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+            drive_link, upload_status, upload_error, exports, title, transcript,
+            denoised_path
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
         params![
             r.id,
             r.created_at,
@@ -53,6 +56,7 @@ pub fn insert(conn: &Connection, r: &RecordingRow) -> Result<(), DbError> {
             r.exports,
             r.title,
             r.transcript,
+            r.denoised_path,
         ],
     )?;
     Ok(())
@@ -62,7 +66,8 @@ pub fn list(conn: &Connection) -> Result<Vec<RecordingRow>, DbError> {
     let mut stmt = conn.prepare(
         "SELECT id, created_at, file_path, duration_ms, width, height, size_bytes,
                 source_label, has_mic, has_sysaudio, thumb_path, drive_file_id,
-                drive_link, upload_status, upload_error, exports, title, transcript
+                drive_link, upload_status, upload_error, exports, title, transcript,
+                denoised_path
          FROM recordings
          ORDER BY created_at DESC",
     )?;
@@ -76,7 +81,8 @@ pub fn get(conn: &Connection, id: &str) -> Result<Option<RecordingRow>, DbError>
     conn.query_row(
         "SELECT id, created_at, file_path, duration_ms, width, height, size_bytes,
                 source_label, has_mic, has_sysaudio, thumb_path, drive_file_id,
-                drive_link, upload_status, upload_error, exports, title, transcript
+                drive_link, upload_status, upload_error, exports, title, transcript,
+                denoised_path
          FROM recordings WHERE id = ?1",
         [id],
         row_to_recording,
@@ -145,6 +151,25 @@ pub fn set_transcript(conn: &Connection, id: &str, transcript: &str) -> Result<(
     Ok(())
 }
 
+/// Set or clear the denoised-file path for a recording.
+pub fn set_denoised_path(conn: &Connection, id: &str, path: Option<&str>) -> Result<(), DbError> {
+    conn.execute(
+        "UPDATE recordings SET denoised_path = ?1 WHERE id = ?2",
+        params![path, id],
+    )?;
+    Ok(())
+}
+
+/// Promote the cleaned file to be the recording's primary file and clear the
+/// denoised marker. Used when the original is deleted after denoise.
+pub fn promote_denoised(conn: &Connection, id: &str, cleaned_path: &str) -> Result<(), DbError> {
+    conn.execute(
+        "UPDATE recordings SET file_path = ?1, denoised_path = NULL WHERE id = ?2",
+        params![cleaned_path, id],
+    )?;
+    Ok(())
+}
+
 fn row_to_recording(row: &rusqlite::Row<'_>) -> rusqlite::Result<RecordingRow> {
     Ok(RecordingRow {
         id: row.get(0)?,
@@ -165,6 +190,7 @@ fn row_to_recording(row: &rusqlite::Row<'_>) -> rusqlite::Result<RecordingRow> {
         exports: row.get(15)?,
         title: row.get(16)?,
         transcript: row.get(17)?,
+        denoised_path: row.get(18)?,
     })
 }
 
@@ -199,6 +225,7 @@ mod tests {
             exports: "[]".into(),
             title: None,
             transcript: None,
+            denoised_path: None,
         }
     }
 
@@ -258,6 +285,27 @@ mod tests {
             get(&conn, "rec-1").unwrap().unwrap().transcript.as_deref(),
             Some("hello world")
         );
+    }
+
+    #[test]
+    fn set_and_promote_denoised() {
+        let conn = setup();
+        insert(&conn, &sample()).unwrap();
+        assert_eq!(get(&conn, "rec-1").unwrap().unwrap().denoised_path, None);
+
+        set_denoised_path(&conn, "rec-1", Some("/tmp/rec-1.cleaned.mp4")).unwrap();
+        assert_eq!(
+            get(&conn, "rec-1").unwrap().unwrap().denoised_path.as_deref(),
+            Some("/tmp/rec-1.cleaned.mp4")
+        );
+
+        promote_denoised(&conn, "rec-1", "/tmp/rec-1.cleaned.mp4").unwrap();
+        let row = get(&conn, "rec-1").unwrap().unwrap();
+        assert_eq!(row.file_path, "/tmp/rec-1.cleaned.mp4");
+        assert_eq!(row.denoised_path, None);
+
+        set_denoised_path(&conn, "rec-1", None).unwrap();
+        assert_eq!(get(&conn, "rec-1").unwrap().unwrap().denoised_path, None);
     }
 
     #[test]

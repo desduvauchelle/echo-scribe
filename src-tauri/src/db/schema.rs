@@ -252,6 +252,12 @@ ALTER TABLE recordings ADD COLUMN title TEXT;
 ALTER TABLE recordings ADD COLUMN transcript TEXT;
 "#,
     ),
+    (
+        16,
+        r#"
+ALTER TABLE recordings ADD COLUMN denoised_path TEXT;
+"#,
+    ),
 ];
 
 const META_TABLE_SQL: &str = r#"
@@ -313,7 +319,7 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(v, "15");
+        assert_eq!(v, "16");
     }
 
     #[test]
@@ -434,7 +440,7 @@ mod tests {
         let version: String = conn
             .query_row("SELECT value FROM schema_meta WHERE key = 'schema_version'", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(version, "15");
+        assert_eq!(version, "16");
     }
 
     #[test]
