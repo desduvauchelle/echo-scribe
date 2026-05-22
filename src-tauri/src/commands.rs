@@ -2629,7 +2629,7 @@ pub fn start_screen_recording(state: State<'_, AppState>) -> Result<(), String> 
             .as_millis()
     );
     let out_path = dir.join(format!("{id}.mp4"));
-    let handle = crate::screenrec::ScreenrecHandle::start(out_path).map_err(|e| e.to_string())?;
+    let handle = crate::screenrec::ScreenrecHandle::start(out_path)?;
     *guard = Some(handle);
     Ok(())
 }

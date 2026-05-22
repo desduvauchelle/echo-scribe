@@ -28,6 +28,7 @@ export function RecordingsView() {
   const [recording, setRecording] = useState(false);
   const [busy, setBusy] = useState(false);
   const [selected, setSelected] = useState<RecordingRow | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setRows(await listRecordings());
@@ -41,12 +42,15 @@ export function RecordingsView() {
   const onToggle = useCallback(async () => {
     setBusy(true);
     try {
+      setError(null);
       if (recording) {
         await stopScreenRecording();
       } else {
         await startScreenRecording();
       }
       await refresh();
+    } catch (e) {
+      setError(String(e));
     } finally {
       setBusy(false);
     }
@@ -54,9 +58,13 @@ export function RecordingsView() {
 
   const onDelete = useCallback(
     async (id: string) => {
-      await deleteRecording(id);
-      if (selected?.id === id) setSelected(null);
-      await refresh();
+      try {
+        await deleteRecording(id);
+        if (selected?.id === id) setSelected(null);
+        await refresh();
+      } catch (e) {
+        setError(String(e));
+      }
     },
     [refresh, selected],
   );
@@ -75,6 +83,12 @@ export function RecordingsView() {
           {recording ? "Stop recording" : "Record screen"}
         </button>
       </div>
+
+      {error ? (
+        <div className="border-b border-line bg-red-950/40 px-6 py-2 text-[12px] text-red-300">
+          {error}
+        </div>
+      ) : null}
 
       <div className="flex flex-1 overflow-hidden">
         <div className="w-[320px] shrink-0 overflow-y-auto border-r border-line">

@@ -89,10 +89,11 @@ pub struct ScreenrecHandle {
 
 impl ScreenrecHandle {
     /// Spawn the sidecar to record the primary display + system audio to
-    /// `out_path`. Returns once the process is spawned (not when capture is
-    /// confirmed ready — `ready` is logged but not awaited).
-    pub fn start(out_path: PathBuf) -> std::io::Result<Self> {
-        let bin = resolve_binary()?;
+    /// `out_path`. Waits up to 5s for the sidecar to confirm capture is `ready`
+    /// (or report an `error` / exit early) before returning, so callers know
+    /// the recording actually started rather than merely that the process spawned.
+    pub fn start(out_path: PathBuf) -> Result<Self, String> {
+        let bin = resolve_binary().map_err(|e| e.to_string())?;
         info!(path = %bin.display(), out = %out_path.display(), "spawning screenrec");
         let mut child = Command::new(&bin)
             .arg("record")
@@ -101,14 +102,26 @@ impl ScreenrecHandle {
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
             .stdin(Stdio::null())
-            .spawn()?;
+            .spawn()
+            .map_err(|e| e.to_string())?;
 
         let (tx, rx) = mpsc::channel::<StoppedInfo>();
+        let (ready_tx, ready_rx) = mpsc::channel::<Result<(), String>>();
         let stderr = child.stderr.take().expect("piped");
         std::thread::spawn(move || {
+            let mut ready_reported = false;
             let reader = BufReader::new(stderr);
             for line in reader.lines() {
                 let Ok(line) = line else { break };
+                if !ready_reported {
+                    if line.contains("\"event\":\"ready\"") {
+                        let _ = ready_tx.send(Ok(()));
+                        ready_reported = true;
+                    } else if line.contains("\"event\":\"error\"") {
+                        let _ = ready_tx.send(Err(line.clone()));
+                        ready_reported = true;
+                    }
+                }
                 if let Some(info) = parse_stopped(&line) {
                     let _ = tx.send(info);
                     break;
@@ -116,15 +129,39 @@ impl ScreenrecHandle {
                     warn!(line, "screenrec error event");
                 }
             }
+            // stderr closed (process exited) before ready: unblock start().
+            if !ready_reported {
+                let _ = ready_tx.send(Err("screenrec exited before ready".into()));
+            }
         });
 
-        Ok(Self { child, out_path, stopped_rx: rx })
+        match ready_rx.recv_timeout(Duration::from_secs(5)) {
+            Ok(Ok(())) => Ok(Self { child, out_path, stopped_rx: rx }),
+            Ok(Err(e)) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                Err(format!("screenrec failed to start: {e}"))
+            }
+            Err(_) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                Err("screenrec did not become ready within 5s".into())
+            }
+        }
     }
 
     /// SIGTERM the sidecar and wait up to 10s for the `stopped` event (which
     /// arrives after AVAssetWriter finishes finalizing the MP4). Returns the
     /// finalized recording info.
     pub fn stop(mut self) -> Result<StoppedInfo, String> {
+        // If the sidecar already exited (crashed mid-recording), don't block the
+        // full timeout waiting for a `stopped` that will never arrive.
+        if matches!(self.child.try_wait(), Ok(Some(_))) {
+            return self
+                .stopped_rx
+                .recv_timeout(Duration::from_secs(1))
+                .map_err(|_| "screenrec exited without finalizing".to_string());
+        }
         #[cfg(unix)]
         unsafe {
             libc::kill(self.child.id() as i32, libc::SIGTERM);
