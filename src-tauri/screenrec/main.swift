@@ -2,6 +2,7 @@ import Foundation
 import ScreenCaptureKit
 import AVFoundation
 import CoreMedia
+import AppKit
 
 func emit(_ event: [String: Any]) {
     guard let data = try? JSONSerialization.data(withJSONObject: event),
@@ -190,6 +191,7 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
         writer.finishWriting { [weak self] in
             guard let self = self else { exit(exitCode) }
             let size: Int = (try? FileManager.default.attributesOfItem(atPath: self.outURL.path)[.size] as? Int) ?? 0
+            let thumb = writeThumbnail(for: self.outURL)
             emit([
                 "event": "stopped",
                 "path": self.outURL.path,
@@ -197,11 +199,26 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
                 "width": self.pxWidth,
                 "height": self.pxHeight,
                 "size": size,
-                "thumb": "",
+                "thumb": thumb,
             ])
             exit(exitCode)
         }
     }
+}
+
+@available(macOS 14.0, *)
+func writeThumbnail(for videoURL: URL) -> String {
+    let thumbURL = videoURL.deletingPathExtension().appendingPathExtension("jpg")
+    let asset = AVURLAsset(url: videoURL)
+    let gen = AVAssetImageGenerator(asset: asset)
+    gen.appliesPreferredTrackTransform = true
+    gen.maximumSize = CGSize(width: 640, height: 640)
+    let time = CMTime(seconds: 0.5, preferredTimescale: 600)
+    guard let cg = try? gen.copyCGImage(at: time, actualTime: nil) else { return "" }
+    let rep = NSBitmapImageRep(cgImage: cg)
+    guard let data = rep.representation(using: .jpeg, properties: [.compressionFactor: 0.7]) else { return "" }
+    try? data.write(to: thumbURL)
+    return thumbURL.path
 }
 
 @available(macOS 14.0, *)
