@@ -43,6 +43,9 @@ const KEY_GUIDE_OVERLAY_FRAME: &str = "guide_overlay_frame";
 const KEY_APP_LAUNCHER_ENABLED: &str = "app_launcher_enabled";
 const KEY_ACTION_COUNTER: &str = "action_counter";
 const KEY_MEETING_SUMMARY_PROMPT: &str = "meeting_summary_prompt";
+const KEY_SCREENREC_SYSAUDIO: &str = "screenrec_sysaudio";
+const KEY_SCREENREC_MIC_ENABLED: &str = "screenrec_mic_enabled";
+const KEY_SCREENREC_MIC_DEVICE: &str = "screenrec_mic_device";
 
 pub const DEFAULT_MEETING_SUMMARY_PROMPT: &str = "You are an expert meeting note-taker. You receive a transcript of a {duration_minutes}-minute conversation captured from {app}. The transcript labels each segment as 'You:' (the user) or 'Them:' (the other side).";
 
@@ -807,6 +810,57 @@ impl SettingsStore {
     pub fn set_meeting_summary_prompt(&self, prompt: &str) -> Result<(), SettingsError> {
         self.store
             .set(KEY_MEETING_SUMMARY_PROMPT, serde_json::Value::String(prompt.to_string()));
+        self.store
+            .save()
+            .map_err(|e| SettingsError::Store(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Whether system audio capture is enabled for screen recordings. Defaults to `true`.
+    pub fn screenrec_sysaudio(&self) -> bool {
+        self.store
+            .get(KEY_SCREENREC_SYSAUDIO)
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true)
+    }
+
+    pub fn set_screenrec_sysaudio(&self, on: bool) -> Result<(), SettingsError> {
+        self.store
+            .set(KEY_SCREENREC_SYSAUDIO, serde_json::Value::Bool(on));
+        self.store
+            .save()
+            .map_err(|e| SettingsError::Store(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Whether microphone capture is enabled for screen recordings. Defaults to `false`.
+    pub fn screenrec_mic_enabled(&self) -> bool {
+        self.store
+            .get(KEY_SCREENREC_MIC_ENABLED)
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+    }
+
+    pub fn set_screenrec_mic_enabled(&self, on: bool) -> Result<(), SettingsError> {
+        self.store
+            .set(KEY_SCREENREC_MIC_ENABLED, serde_json::Value::Bool(on));
+        self.store
+            .save()
+            .map_err(|e| SettingsError::Store(e.to_string()))?;
+        Ok(())
+    }
+
+    /// The last-used microphone device name for screen recordings. Empty string means "system default".
+    pub fn screenrec_mic_device(&self) -> String {
+        self.store
+            .get(KEY_SCREENREC_MIC_DEVICE)
+            .and_then(|v| v.as_str().map(String::from))
+            .unwrap_or_default()
+    }
+
+    pub fn set_screenrec_mic_device(&self, device: String) -> Result<(), SettingsError> {
+        self.store
+            .set(KEY_SCREENREC_MIC_DEVICE, serde_json::Value::String(device));
         self.store
             .save()
             .map_err(|e| SettingsError::Store(e.to_string()))?;

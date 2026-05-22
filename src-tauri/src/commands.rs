@@ -2752,6 +2752,30 @@ pub fn list_screen_sources() -> Result<crate::screenrec::Sources, String> {
     crate::screenrec::list_sources()
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct ScreenrecAudioPrefs {
+    pub sysaudio: bool,
+    pub mic_enabled: bool,
+    pub mic_device: String,
+}
+
+#[tauri::command]
+pub fn get_screenrec_audio_prefs(state: State<'_, AppState>) -> Result<ScreenrecAudioPrefs, String> {
+    Ok(ScreenrecAudioPrefs {
+        sysaudio: state.settings.screenrec_sysaudio(),
+        mic_enabled: state.settings.screenrec_mic_enabled(),
+        mic_device: state.settings.screenrec_mic_device(),
+    })
+}
+
+#[tauri::command]
+pub fn set_screenrec_audio_prefs(state: State<'_, AppState>, prefs: ScreenrecAudioPrefs) -> Result<(), String> {
+    state.settings.set_screenrec_sysaudio(prefs.sysaudio).map_err(|e| e.to_string())?;
+    state.settings.set_screenrec_mic_enabled(prefs.mic_enabled).map_err(|e| e.to_string())?;
+    state.settings.set_screenrec_mic_device(prefs.mic_device).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

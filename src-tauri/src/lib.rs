@@ -67,6 +67,8 @@ use crate::commands::{
     delete_recording,
     reveal_recording,
     list_screen_sources,
+    get_screenrec_audio_prefs,
+    set_screenrec_audio_prefs,
     AppState,
 };
 use crate::llm::Llm;
@@ -307,6 +309,8 @@ pub fn run() {
             delete_recording,
             reveal_recording,
             list_screen_sources,
+            get_screenrec_audio_prefs,
+            set_screenrec_audio_prefs,
         ])
         .setup(move |app| {
             // Tray.
