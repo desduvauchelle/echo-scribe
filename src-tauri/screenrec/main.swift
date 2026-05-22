@@ -282,8 +282,25 @@ func run() async {
         cfg.excludesCurrentProcessAudio = true
         cfg.sampleRate = 48000
         cfg.channelCount = 2
-        cfg.width = display.width * 2     // capture at backing-pixel resolution
-        cfg.height = display.height * 2
+        // Capture at the display's true pixel resolution, but clamp the long
+        // edge so we never exceed the H.264 encoder's maximum frame size. An
+        // oversized frame makes AVAssetWriter fail on the first append and
+        // produce a 0-byte file (observed on a 5120-wide display where the old
+        // `display.width * 2` = 10240 exceeded the encoder limit).
+        let mode = CGDisplayCopyDisplayMode(display.displayID)
+        var capW = mode?.pixelWidth ?? display.width
+        var capH = mode?.pixelHeight ?? display.height
+        let maxEdge = 3840
+        let longEdge = max(capW, capH)
+        if longEdge > maxEdge {
+            let scale = Double(maxEdge) / Double(longEdge)
+            capW = Int((Double(capW) * scale).rounded())
+            capH = Int((Double(capH) * scale).rounded())
+        }
+        capW -= capW % 2   // H.264 requires even dimensions
+        capH -= capH % 2
+        cfg.width = capW
+        cfg.height = capH
         cfg.minimumFrameInterval = CMTime(value: 1, timescale: 30) // 30 fps
         cfg.queueDepth = 6
         cfg.showsCursor = true
