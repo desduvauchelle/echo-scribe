@@ -43,6 +43,11 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
     let pxWidth: Int
     let pxHeight: Int
     var finished = false
+    var vAppended = 0
+    var vFailed = 0
+    var aAppended = 0
+    var aFailed = 0
+    var firstFailureLogged = false
     // Serializes all access to sessionStarted/startPTS/lastPTS/finished and the
     // sample-buffer appends, which arrive on two separate SCStream queues
     // (screenrec.screen + screenrec.audio). One serial queue removes the
@@ -136,13 +141,29 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
             lastPTS = pts
             switch type {
             case .screen:
-                if videoInput.isReadyForMoreMediaData { videoInput.append(sampleBuffer) }
+                if videoInput.isReadyForMoreMediaData {
+                    if videoInput.append(sampleBuffer) { vAppended += 1 } else { vFailed += 1; reportAppendFailure("video") }
+                }
             case .audio:
-                if audioInput.isReadyForMoreMediaData { audioInput.append(sampleBuffer) }
+                if audioInput.isReadyForMoreMediaData {
+                    if audioInput.append(sampleBuffer) { aAppended += 1 } else { aFailed += 1; reportAppendFailure("audio") }
+                }
             default:
                 break
             }
         }
+    }
+
+    func reportAppendFailure(_ which: String) {
+        guard !firstFailureLogged else { return }
+        firstFailureLogged = true
+        emit([
+            "event": "warn",
+            "msg": "append failed",
+            "which": which,
+            "writer_status": writer.status.rawValue,
+            "writer_error": writer.error?.localizedDescription ?? "",
+        ])
     }
 
     static func frameIsComplete(_ sb: CMSampleBuffer) -> Bool {
@@ -186,11 +207,30 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
         }
 
         let durMs = Int(CMTimeGetSeconds(CMTimeSubtract(lpts, spts)) * 1000.0)
+        emit([
+            "event": "diag",
+            "phase": "pre_finish",
+            "writer_status": writer.status.rawValue,
+            "writer_error": writer.error?.localizedDescription ?? "",
+            "v_appended": vAppended,
+            "v_failed": vFailed,
+            "a_appended": aAppended,
+            "a_failed": aFailed,
+        ])
         videoInput.markAsFinished()
         audioInput.markAsFinished()
         writer.finishWriting { [weak self] in
             guard let self = self else { exit(exitCode) }
             let size: Int = (try? FileManager.default.attributesOfItem(atPath: self.outURL.path)[.size] as? Int) ?? 0
+            emit([
+                "event": "diag",
+                "phase": "post_finish",
+                "writer_status": self.writer.status.rawValue,
+                "writer_error": self.writer.error?.localizedDescription ?? "",
+                "size": size,
+                "v_appended": self.vAppended,
+                "a_appended": self.aAppended,
+            ])
             let thumb = writeThumbnail(for: self.outURL)
             emit([
                 "event": "stopped",

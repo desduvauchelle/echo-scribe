@@ -1,7 +1,7 @@
 //! Supervises the `echo-scribe-screenrec` sidecar: spawn, read stderr JSON
 //! events, finalize on SIGTERM. Mirrors `meeting/syscap.rs`.
 
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
@@ -108,11 +108,18 @@ impl ScreenrecHandle {
         let (tx, rx) = mpsc::channel::<StoppedInfo>();
         let (ready_tx, ready_rx) = mpsc::channel::<Result<(), String>>();
         let stderr = child.stderr.take().expect("piped");
+        let log_path = recordings_dir().ok().map(|d| d.join("screenrec-last.log"));
         std::thread::spawn(move || {
             let mut ready_reported = false;
+            let mut log_file = log_path
+                .as_ref()
+                .and_then(|p| std::fs::File::create(p).ok());
             let reader = BufReader::new(stderr);
             for line in reader.lines() {
                 let Ok(line) = line else { break };
+                if let Some(f) = log_file.as_mut() {
+                    let _ = writeln!(f, "{line}");
+                }
                 if !ready_reported {
                     if line.contains("\"event\":\"ready\"") {
                         let _ = ready_tx.send(Ok(()));
