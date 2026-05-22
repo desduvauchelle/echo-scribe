@@ -2768,6 +2768,86 @@ pub fn rename_recording(
         .map_err(|e| e.to_string())
 }
 
+/// Transcribe a recording's audio on demand and cache the result in the DB.
+/// Emits `transcribe-progress` events `{ id, pct }` while running.
+#[tauri::command]
+pub async fn transcribe_recording(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<String, String> {
+    // Look up the mp4 path, dropping the DB borrow before any await.
+    let mp4: std::path::PathBuf = {
+        let db = require_db(&state)?;
+        let row = db
+            .with_conn(|c| crate::db::recordings::get(c, &id))
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| "recording not found".to_string())?;
+        std::path::PathBuf::from(row.file_path)
+    };
+    if !mp4.exists() {
+        return Err("recording file is missing on disk".into());
+    }
+
+    // Require a downloaded ASR model up front for a clear message.
+    if !state.asr.ready() {
+        return Err("Download a transcription model first".into());
+    }
+
+    // Extract audio to a temp WAV in the recordings dir.
+    let wav = crate::screenrec::recordings_dir()
+        .map_err(|e| e.to_string())?
+        .join(format!("{id}.transcribe.wav"));
+    let mp4_for_blocking = mp4.clone();
+    let wav_for_blocking = wav.clone();
+    let extract = tokio::task::spawn_blocking(move || {
+        crate::screenrec::extract_audio(&mp4_for_blocking, &wav_for_blocking)
+    })
+    .await
+    .map_err(|_| "extraction task panicked".to_string())?;
+    if let Err(e) = extract {
+        let _ = std::fs::remove_file(&wav);
+        if e == "no_audio" {
+            return Err("Recording has no audio".into());
+        }
+        return Err(e);
+    }
+
+    // Load + transcribe in ~60s windows, emitting progress.
+    let (samples, rate, channels) = match AsrPipeline::load_wav_16k_mono_int16(&wav) {
+        Ok(t) => t,
+        Err(e) => {
+            let _ = std::fs::remove_file(&wav);
+            return Err(e.to_string());
+        }
+    };
+    let asr = std::sync::Arc::clone(&state.asr);
+    let app_for_progress = app.clone();
+    let id_for_progress = id.clone();
+    let text = asr
+        .transcribe_long(samples, rate, channels, move |pct| {
+            let _ = app_for_progress.emit(
+                "transcribe-progress",
+                serde_json::json!({ "id": id_for_progress, "pct": pct }),
+            );
+        })
+        .await
+        .map_err(|e| e.to_string());
+
+    // Always clean up the temp WAV.
+    let _ = std::fs::remove_file(&wav);
+    let text = text?;
+
+    // Persist (re-borrow DB after the awaits).
+    {
+        let db = require_db(&state)?;
+        db.with_conn(|c| crate::db::recordings::set_transcript(c, &id, &text))
+            .map_err(|e| e.to_string())?;
+    }
+
+    Ok(text)
+}
+
 #[tauri::command]
 pub fn reveal_recording(state: State<'_, AppState>, id: String) -> Result<(), String> {
     let db = require_db(&state)?;
