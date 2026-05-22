@@ -6,6 +6,7 @@ pub mod commands;
 pub mod coordinator;
 pub mod daily_summary;
 pub mod meeting;
+pub mod screenrec;
 mod util;
 pub mod db;
 pub mod event_log;
