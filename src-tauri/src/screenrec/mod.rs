@@ -6,7 +6,51 @@ use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
+use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
+
+// ----- Source enumeration types -----
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DisplaySource {
+    pub id: u32,
+    pub width: i64,
+    pub height: i64,
+    pub label: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct WindowSource {
+    pub id: u32,
+    pub app: String,
+    pub title: String,
+    pub width: i64,
+    pub height: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct Sources {
+    pub displays: Vec<DisplaySource>,
+    pub windows: Vec<WindowSource>,
+}
+
+/// Parse the JSON stdout of `--list-sources` into [`Sources`].
+pub fn parse_sources(stdout: &str) -> Result<Sources, String> {
+    serde_json::from_str::<Sources>(stdout.trim()).map_err(|e| e.to_string())
+}
+
+/// Invoke the sidecar with `--list-sources` and parse the result.
+pub fn list_sources() -> Result<Sources, String> {
+    let bin = resolve_binary().map_err(|e| e.to_string())?;
+    let out = Command::new(&bin)
+        .arg("--list-sources")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output()
+        .map_err(|e| e.to_string())?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    parse_sources(&text)
+}
 
 /// Parsed `stopped` event payload from the sidecar.
 #[derive(Debug, Clone, PartialEq)]
@@ -216,5 +260,13 @@ mod tests {
         assert!(parse_stopped(r#"{"event":"ready"}"#).is_none());
         assert!(parse_stopped(r#"{"event":"heartbeat","ts":1.0}"#).is_none());
         assert!(parse_stopped("not json").is_none());
+    }
+
+    #[test]
+    fn parse_sources_reads_displays_and_windows() {
+        let s = r#"{"displays":[{"id":1,"width":3840,"height":2160,"label":"Display 1"}],"windows":[{"id":42,"app":"Safari","title":"x","width":800,"height":600}]}"#;
+        let got = parse_sources(s).unwrap();
+        assert_eq!(got.displays.len(), 1);
+        assert_eq!(got.windows[0].app, "Safari");
     }
 }

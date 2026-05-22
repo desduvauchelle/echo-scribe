@@ -16,6 +16,37 @@ func emitFatal(_ kind: String, _ msg: String) -> Never {
 
 let OWN_BUNDLE_ID = "com.echoscribe.app"
 
+// --- mode: `--list-sources` ---
+if CommandLine.arguments.contains("--list-sources") {
+    if #available(macOS 14.0, *) {
+        Task {
+            do {
+                let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+                let displays = content.displays.map { d -> [String: Any] in
+                    ["id": d.displayID, "width": d.width, "height": d.height,
+                     "label": "Display \(d.displayID) (\(d.width)×\(d.height))"]
+                }
+                let windows = content.windows.compactMap { w -> [String: Any]? in
+                    guard let title = w.title, !title.isEmpty,
+                          let app = w.owningApplication?.applicationName, w.isOnScreen,
+                          w.frame.width > 80, w.frame.height > 80 else { return nil }
+                    return ["id": w.windowID, "app": app, "title": title,
+                            "width": Int(w.frame.width), "height": Int(w.frame.height)]
+                }
+                let out: [String: Any] = ["displays": displays, "windows": windows]
+                let data = try JSONSerialization.data(withJSONObject: out)
+                FileHandle.standardOutput.write(data)
+                exit(0)
+            } catch {
+                emitFatal("list_sources", error.localizedDescription)
+            }
+        }
+        RunLoop.main.run()
+    } else {
+        emitFatal("os", "macOS 14+ required")
+    }
+}
+
 // --- arg parsing: `record --out <path>` ---
 var outPath: String?
 do {

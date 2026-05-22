@@ -66,6 +66,7 @@ use crate::commands::{
     list_recordings,
     delete_recording,
     reveal_recording,
+    list_screen_sources,
     AppState,
 };
 use crate::llm::Llm;
@@ -305,6 +306,7 @@ pub fn run() {
             list_recordings,
             delete_recording,
             reveal_recording,
+            list_screen_sources,
         ])
         .setup(move |app| {
             // Tray.

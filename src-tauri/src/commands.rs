@@ -2721,6 +2721,11 @@ pub fn reveal_recording(state: State<'_, AppState>, id: String) -> Result<(), St
     Ok(())
 }
 
+#[tauri::command]
+pub fn list_screen_sources() -> Result<crate::screenrec::Sources, String> {
+    crate::screenrec::list_sources()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
