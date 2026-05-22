@@ -2963,7 +2963,16 @@ pub async fn drive_connect(state: State<'_, AppState>) -> Result<DriveStatus, St
         &state.settings.drive_client_id(),
         &state.settings.drive_client_secret(),
     );
-    let email = crate::screenrec::drive::connect(&cid, &csecret).await?;
+    let email = match crate::screenrec::drive::connect(&cid, &csecret).await {
+        Ok(e) => e,
+        Err(e) => {
+            error!(target: "drive", error = %e, "Drive connect failed");
+            return Err(
+                "Couldn't connect to Google Drive. See Settings → Diagnostics → logs for details."
+                    .into(),
+            );
+        }
+    };
     state
         .settings
         .set_drive_account_email(email.as_deref())
@@ -3085,15 +3094,19 @@ pub async fn upload_recording(
             }
         }
         Err(e) => {
+            // Full technical detail to the log; a short, friendly message to the UI.
+            error!(target: "drive", error = %e, "Drive upload failed");
+            let friendly =
+                "Upload to Drive failed. See Settings → Diagnostics → logs for details.";
             {
                 let db = require_db(&state)?;
                 db.with_conn(|c| {
-                    crate::db::recordings::update_upload_status(c, &id, "error", Some(&e))
+                    crate::db::recordings::update_upload_status(c, &id, "error", Some(friendly))
                 })
                 .map_err(|e| e.to_string())?;
             }
             let _ = app.emit("screenrec-changed", ());
-            return Err(e);
+            return Err(friendly.into());
         }
     }
     let _ = app.emit("screenrec-changed", ());
