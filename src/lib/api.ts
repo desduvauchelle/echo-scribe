@@ -911,6 +911,7 @@ export type RecordingRow = {
   exports: string;
   title: string | null;
   transcript: string | null;
+  denoised_path: string | null;
 };
 
 export const startScreenRecording = (p: {
@@ -939,6 +940,8 @@ export const renameRecording = (id: string, title: string): Promise<void> =>
   invoke("rename_recording", { id, title });
 export const transcribeRecording = (id: string): Promise<string> =>
   invoke("transcribe_recording", { id });
+export const denoiseRecording = (id: string): Promise<void> =>
+  invoke("denoise_recording", { id });
 export const revealRecording = (id: string): Promise<void> =>
   invoke("reveal_recording", { id });
 
@@ -964,6 +967,18 @@ export const uploadRecording = (
   id: string,
   quality: "original" | "1080" | "720" | "480",
 ): Promise<RecordingRow> => invoke("upload_recording", { id, quality });
+
+export type DrivePrefs = {
+  folder_name: string;
+  make_public: boolean;
+};
+
+export const getDrivePrefs = (): Promise<DrivePrefs> => invoke("get_drive_prefs");
+
+export const setDrivePrefs = (
+  folderName: string,
+  makePublic: boolean,
+): Promise<void> => invoke("set_drive_prefs", { folderName, makePublic });
 
 export type DisplaySource = { id: number; width: number; height: number; label: string };
 export type WindowSource = { id: number; app: string; title: string; width: number; height: number; thumb: string };

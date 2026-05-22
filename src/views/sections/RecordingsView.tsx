@@ -2,14 +2,17 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import {
+  Check,
   ChevronDown,
   CloudUpload,
+  Copy,
   Download,
   ExternalLink,
   FileText,
   FolderOpen,
   Loader,
   Pencil,
+  Sparkles,
   Trash2,
 } from "lucide-react";
 import {
@@ -21,6 +24,7 @@ import {
   renameRecording,
   revealRecording,
   transcribeRecording,
+  denoiseRecording,
   exportRecording,
   uploadRecording,
   type RecordingRow,
@@ -63,6 +67,26 @@ function Tooltip({ label, children }: { label: string; children: ReactNode }) {
         {label}
       </span>
     </span>
+  );
+}
+
+/** Copy-to-clipboard icon button; flips to a green check for ~1.2s on click. */
+function CopyButton({ value }: { value: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      onClick={() => {
+        void navigator.clipboard.writeText(value);
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1200);
+      }}
+      aria-label="Copy"
+      className={`grid h-7 w-7 shrink-0 place-items-center rounded-md border hover:bg-surface ${
+        copied ? "border-green-500/40 text-green-500" : "border-line text-fg"
+      }`}
+    >
+      {copied ? <Check size={15} /> : <Copy size={15} />}
+    </button>
   );
 }
 
@@ -170,6 +194,9 @@ export function RecordingsView() {
   const [nameInput, setNameInput] = useState("");
   const [transcribing, setTranscribing] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [denoising, setDenoising] = useState(false);
+  const [denoiseProgress, setDenoiseProgress] = useState(0);
+  const [showCleaned, setShowCleaned] = useState(true);
 
   const refresh = useCallback(async () => {
     const next = await listRecordings();
@@ -201,6 +228,20 @@ export function RecordingsView() {
     let unlisten: (() => void) | undefined;
     void listen<{ id: string; pct: number }>("transcribe-progress", (e) => {
       if (selected && e.payload.id === selected.id) setProgress(e.payload.pct);
+    }).then((fn) => {
+      unlisten = fn;
+    });
+    return () => {
+      unlisten?.();
+    };
+  }, [selected]);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    void listen<{ id: string; pct: number }>("denoise-progress", (e) => {
+      if (selected && e.payload.id === selected.id) {
+        setDenoiseProgress(e.payload.pct);
+      }
     }).then((fn) => {
       unlisten = fn;
     });
@@ -279,6 +320,22 @@ export function RecordingsView() {
     }
   }, [selected, refresh]);
 
+  const onDenoise = useCallback(async () => {
+    if (!selected) return;
+    setDenoising(true);
+    setDenoiseProgress(0);
+    setError(null);
+    try {
+      await denoiseRecording(selected.id);
+      await refresh();
+      setShowCleaned(true);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setDenoising(false);
+    }
+  }, [selected, refresh]);
+
   const [exporting, setExporting] = useState<string | null>(null);
 
   const onExport = useCallback(
@@ -351,6 +408,8 @@ export function RecordingsView() {
                   setSelected(r);
                   setRenaming(false);
                   setProgress(0);
+                  setDenoiseProgress(0);
+                  setShowCleaned(true);
                 }}
                 className={`flex w-full gap-3 border-b border-line p-3 text-left hover:bg-surface ${
                   selected?.id === r.id ? "bg-surface" : ""
@@ -417,9 +476,31 @@ export function RecordingsView() {
                   </IconButton>
                 </div>
               )}
+              {selected.denoised_path ? (
+                <div className="mb-2 inline-flex overflow-hidden rounded-md border border-line text-[12px]">
+                  <button
+                    onClick={() => setShowCleaned(false)}
+                    className={`px-3 py-1 ${!showCleaned ? "bg-surface font-medium" : ""}`}
+                  >
+                    Original
+                  </button>
+                  <button
+                    onClick={() => setShowCleaned(true)}
+                    className={`px-3 py-1 ${showCleaned ? "bg-surface font-medium" : ""}`}
+                  >
+                    Cleaned
+                  </button>
+                </div>
+              ) : null}
               <video
-                key={selected.id}
-                src={convertFileSrc(selected.file_path)}
+                key={`${selected.id}-${
+                  showCleaned && selected.denoised_path ? "clean" : "orig"
+                }`}
+                src={convertFileSrc(
+                  showCleaned && selected.denoised_path
+                    ? selected.denoised_path
+                    : selected.file_path,
+                )}
                 controls
                 className="w-full rounded-lg bg-black"
               />
@@ -479,6 +560,21 @@ export function RecordingsView() {
                     <FileText size={16} />
                   )}
                 </IconButton>
+                <IconButton
+                  title={
+                    selected.denoised_path
+                      ? "Re-clean audio"
+                      : "Clean up audio"
+                  }
+                  onClick={() => void onDenoise()}
+                  disabled={denoising}
+                >
+                  {denoising ? (
+                    <Loader size={16} className="animate-spin" />
+                  ) : (
+                    <Sparkles size={16} />
+                  )}
+                </IconButton>
                 <div className="flex-1" />
                 <IconButton
                   title="Delete"
@@ -500,6 +596,11 @@ export function RecordingsView() {
               {transcribing ? (
                 <div className="mt-2 text-[12px] text-muted">
                   Transcribing… {progress}%
+                </div>
+              ) : null}
+              {denoising ? (
+                <div className="mt-2 text-[12px] text-muted">
+                  Cleaning audio… {denoiseProgress}%
                 </div>
               ) : null}
               {uploading ? (
@@ -524,15 +625,7 @@ export function RecordingsView() {
                   >
                     {selected.drive_link}
                   </a>
-                  <button
-                    onClick={() => {
-                      if (selected.drive_link)
-                        void navigator.clipboard.writeText(selected.drive_link);
-                    }}
-                    className="shrink-0 rounded-md border border-line px-2.5 py-1 text-[12px] hover:bg-surface"
-                  >
-                    Copy link
-                  </button>
+                  <CopyButton value={selected.drive_link} />
                 </div>
               ) : null}
 
@@ -540,16 +633,7 @@ export function RecordingsView() {
                 <div className="mb-2 flex items-center justify-between">
                   <h3 className="text-[13px] font-semibold">Transcript</h3>
                   {selected.transcript?.trim() ? (
-                    <button
-                      onClick={() => {
-                        void navigator.clipboard.writeText(
-                          selected.transcript ?? "",
-                        );
-                      }}
-                      className="rounded-md border border-line px-2.5 py-1 text-[12px] hover:bg-surface"
-                    >
-                      Copy
-                    </button>
+                    <CopyButton value={selected.transcript} />
                   ) : null}
                 </div>
                 {selected.transcript !== null ? (
