@@ -10,6 +10,7 @@ import {
   renameRecording,
   revealRecording,
   transcribeRecording,
+  exportRecording,
   type RecordingRow,
 } from "../../lib/api";
 
@@ -28,6 +29,17 @@ function fmtSize(bytes: number | null): string {
   if (!bytes) return "—";
   const mb = bytes / (1024 * 1024);
   return mb >= 1 ? `${mb.toFixed(1)} MB` : `${(bytes / 1024).toFixed(0)} KB`;
+}
+
+type ExportVariant = { quality: string; path: string; size: number };
+
+function parseExports(json: string): ExportVariant[] {
+  try {
+    const v = JSON.parse(json);
+    return Array.isArray(v) ? (v as ExportVariant[]) : [];
+  } catch {
+    return [];
+  }
 }
 
 export function RecordingsView() {
@@ -148,6 +160,24 @@ export function RecordingsView() {
       setTranscribing(false);
     }
   }, [selected, refresh]);
+
+  const [exporting, setExporting] = useState<string | null>(null);
+
+  const onExport = useCallback(
+    async (id: string, quality: "1080" | "720" | "480") => {
+      setExporting(quality);
+      setError(null);
+      try {
+        await exportRecording(id, quality);
+        await refresh();
+      } catch (e) {
+        setError(String(e));
+      } finally {
+        setExporting(null);
+      }
+    },
+    [refresh],
+  );
 
   return (
     <div className="flex h-full flex-col bg-canvas text-fg">
@@ -270,6 +300,27 @@ export function RecordingsView() {
                 >
                   Delete
                 </button>
+              </div>
+              <div className="mt-4 flex flex-wrap items-center gap-2">
+                <span className="text-[12px] text-muted">Export:</span>
+                {(["1080", "720", "480"] as const).map((q) => (
+                  <button
+                    key={q}
+                    onClick={() => void onExport(selected.id, q)}
+                    disabled={exporting !== null}
+                    className="rounded-md border border-line px-2.5 py-1.5 text-[13px] hover:bg-surface disabled:opacity-50"
+                  >
+                    {exporting === q ? `${q}p…` : `${q}p`}
+                  </button>
+                ))}
+                {parseExports(selected.exports).length > 0 ? (
+                  <span className="text-[12px] text-muted">
+                    Done:{" "}
+                    {parseExports(selected.exports)
+                      .map((e) => `${e.quality}p (${fmtSize(e.size)})`)
+                      .join(" · ")}
+                  </span>
+                ) : null}
               </div>
               <div className="mt-6 border-t border-line pt-4">
                 <div className="mb-2 flex items-center justify-between">

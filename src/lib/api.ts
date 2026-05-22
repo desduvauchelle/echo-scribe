@@ -942,6 +942,11 @@ export const transcribeRecording = (id: string): Promise<string> =>
 export const revealRecording = (id: string): Promise<void> =>
   invoke("reveal_recording", { id });
 
+export const exportRecording = (
+  id: string,
+  quality: "1080" | "720" | "480",
+): Promise<RecordingRow> => invoke("export_recording", { id, quality });
+
 export type DisplaySource = { id: number; width: number; height: number; label: string };
 export type WindowSource = { id: number; app: string; title: string; width: number; height: number; thumb: string };
 export type ScreenSources = { displays: DisplaySource[]; windows: WindowSource[] };
