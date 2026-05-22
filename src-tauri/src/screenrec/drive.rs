@@ -23,6 +23,7 @@ use std::path::Path;
 
 use base64::Engine;
 use sha2::{Digest, Sha256};
+use tracing::{info, warn};
 
 /// Generate a PKCE `(code_verifier, code_challenge)` pair (S256).
 /// The verifier is two concatenated UUIDv4s (64 hex chars — unreserved per
@@ -78,20 +79,51 @@ fn keychain_entry() -> Result<keyring::Entry, String> {
 
 /// Store (or replace) the long-lived refresh token in the macOS Keychain.
 pub fn store_refresh_token(token: &str) -> Result<(), String> {
-    keychain_entry()?.set_password(token).map_err(|e| e.to_string())
+    match keychain_entry()?.set_password(token) {
+        Ok(()) => {
+            info!(target: "drive", chars = token.len(), "stored Drive refresh token in keychain");
+            Ok(())
+        }
+        Err(e) => {
+            warn!(target: "drive", error = %e, "failed to store Drive refresh token");
+            Err(e.to_string())
+        }
+    }
 }
 
 /// Load the refresh token, or `None` if not connected.
 pub fn load_refresh_token() -> Option<String> {
-    keychain_entry().ok()?.get_password().ok()
+    let entry = match keychain_entry() {
+        Ok(e) => e,
+        Err(e) => {
+            warn!(target: "drive", error = %e, "keychain entry init failed on load");
+            return None;
+        }
+    };
+    match entry.get_password() {
+        Ok(t) => {
+            info!(target: "drive", chars = t.len(), "loaded Drive refresh token from keychain");
+            Some(t)
+        }
+        Err(e) => {
+            warn!(target: "drive", error = %e, "no Drive refresh token in keychain");
+            None
+        }
+    }
 }
 
 /// Delete the refresh token (disconnect). Already-absent is treated as success.
 pub fn delete_refresh_token() -> Result<(), String> {
     match keychain_entry()?.delete_credential() {
-        Ok(()) => Ok(()),
+        Ok(()) => {
+            info!(target: "drive", "deleted Drive refresh token from keychain");
+            Ok(())
+        }
         Err(keyring::Error::NoEntry) => Ok(()),
-        Err(e) => Err(e.to_string()),
+        Err(e) => {
+            warn!(target: "drive", error = %e, "failed to delete Drive refresh token");
+            Err(e.to_string())
+        }
     }
 }
 
@@ -153,7 +185,14 @@ pub async fn exchange_code(
 
 /// Use the stored refresh token to get a fresh access token.
 pub async fn refresh_access_token(client_id: &str, client_secret: &str) -> Result<String, String> {
-    let refresh = load_refresh_token().ok_or("not connected to Drive")?;
+    let Some(refresh) = load_refresh_token() else {
+        warn!(
+            target: "drive",
+            "refresh_access_token: no refresh token in keychain (treated as not connected)"
+        );
+        return Err("not connected to Drive".into());
+    };
+    info!(target: "drive", "refreshing Drive access token");
     let client = reqwest::Client::new();
     let mut form = vec![
         ("client_id", client_id),
@@ -170,10 +209,9 @@ pub async fn refresh_access_token(client_id: &str, client_secret: &str) -> Resul
         .await
         .map_err(|e| e.to_string())?;
     if !resp.status().is_success() {
-        return Err(format!(
-            "token refresh failed: {}",
-            resp.text().await.unwrap_or_default()
-        ));
+        let body = resp.text().await.unwrap_or_default();
+        warn!(target: "drive", body = %body, "Drive token refresh failed");
+        return Err(format!("token refresh failed: {body}"));
     }
     let tok: TokenResponse = resp.json().await.map_err(|e| e.to_string())?;
     Ok(tok.access_token)
@@ -263,6 +301,11 @@ pub async fn connect(client_id: &str, client_secret: &str) -> Result<Option<Stri
     let (access, refresh, email) =
         exchange_code(client_id, client_secret, &code, &verifier, &redirect_uri).await?;
     store_refresh_token(&refresh)?;
+    info!(
+        target: "drive",
+        email = email.as_deref().unwrap_or("(unknown)"),
+        "Drive connect complete; refresh token persisted"
+    );
     debug_assert!(!access.is_empty());
     Ok(email)
 }

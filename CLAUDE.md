@@ -1,5 +1,14 @@
 # Echo Scribe — Working Notes for Claude
 
+## Error handling & diagnostics (required for every feature)
+
+Build features so failures are *debuggable without a rebuild*. This is not optional polish — wire it in as you write the feature:
+
+- **Log at every failure + key transition.** Use `tracing` (`info!`/`warn!`/`error!`) in Rust and surface sidecar failures as structured JSON events. Logs go to the daily `echo-scribe.log` (Settings → Diagnostics → open log folder; `log_dir()` in `src-tauri/src/lib.rs`). Give logs a `target:` (e.g. `target: "drive"`) so they're greppable. Log the *result* of fallible boundary ops (keychain, network, file IO, subprocess) — both success ("stored token, N chars") and failure (the error string + relevant status/body). Never log secrets/tokens (log lengths/ids instead).
+- **Surface errors in the UI.** Every user-triggered action that can fail must show the actual error string to the user (toast or inline), not fail silently. The Recordings/Drive flows already return `Err(String)` to the frontend and render it — match that pattern.
+- **HTTP/IPC boundaries:** check `resp.status().is_success()` before parsing, and put the response body in the error so a 401/403/quota failure reads as itself, not a generic "missing field". Same for subprocess: capture stderr and surface the structured error kind.
+- **Diagnose with logs, not hypotheses.** If a bug's cause isn't provable from data in hand, add the logging that would capture it, have the user reproduce, then fix from what the logs show. Don't guess-and-rebuild in a loop.
+
 ## Build + reinstall workflow (macOS)
 
 **Default: SKIP the TCC reset.** Most rebuilds keep the same bundle identifier + Info.plist usage descriptions + entitlements; macOS Sequoia+ then re-binds prior permission grants to the new ad-hoc-signed binary automatically. The user's stated preference for this project is "skip TCC unless I say otherwise."

@@ -83,7 +83,7 @@ libc = "0.2"
 uuid = { version = "1.23.1", features = ["v4"] }
 chrono = "0.4.44"
 base64 = "0.22"
-keyring = "3"
+keyring = { version = "3", features = ["apple-native"] }
 coreaudio-sys = "0.2.17"
 
 [dev-dependencies]
