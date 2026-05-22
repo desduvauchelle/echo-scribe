@@ -70,7 +70,7 @@ let outURL = URL(fileURLWithPath: outArg)
 try? FileManager.default.removeItem(at: outURL)
 
 @available(macOS 14.0, *)
-final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
+final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, AVCaptureAudioDataOutputSampleBufferDelegate {
     var stream: SCStream!
     let outURL: URL
     var writer: AVAssetWriter!
@@ -88,18 +88,66 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
     var aFailed = 0
     var firstFailureLogged = false
     // Serializes all access to sessionStarted/startPTS/lastPTS/finished and the
-    // sample-buffer appends, which arrive on two separate SCStream queues
-    // (screenrec.screen + screenrec.audio). One serial queue removes the
-    // torn-CMTime data race and guarantees markAsFinished can't race an append.
+    // sample-buffer appends, which arrive on multiple queues:
+    // SCStream screen (screenrec.screen), SCStream audio (screenrec.audio), and
+    // — when --mic is set — the AVCaptureSession audio output (screenrec.mic).
+    // One serial queue removes the torn-CMTime data race, serializes the mixer
+    // FIFOs, and guarantees markAsFinished can't race an append.
     let stateQ = DispatchQueue(label: "screenrec.state")
 
-    var capturesAudio: Bool = true
+    // --- audio configuration (Phase 2 Task 3) ---
+    // sysOn: capture system audio from SCStream.  micOn: capture a microphone.
+    //  - sys only  -> append SCStream .audio buffers directly to audioInput
+    //  - mic only  -> append converted mic buffers to audioInput
+    //  - both      -> mix system + mic FIFOs, append mixed CMSampleBuffers
+    //  - neither   -> no audioInput (video only)
+    let sysOn: Bool
+    let micOn: Bool
+    let micUID: String?
+    // We add an audio track whenever ANY source is on.
+    var wantAudio: Bool { sysOn || micOn }
+    // When both sources are on we must software-mix.
+    var doMix: Bool { sysOn && micOn }
 
-    init(outURL: URL, width: Int, height: Int, capturesAudio: Bool = true) {
+    // --- mixer state (all guarded by stateQ) ---
+    // Common interleaved Float32 / 48 kHz / stereo intermediate format. Both the
+    // system and mic streams are converted to this before they are mixed or, in
+    // single-source mode, wrapped back into a CMSampleBuffer for the AAC encoder.
+    let mixFormat: AVAudioFormat = AVAudioFormat(
+        commonFormat: .pcmFormatFloat32,
+        sampleRate: 48000,
+        channels: 2,
+        interleaved: true
+    )!
+    var sysConverter: AVAudioConverter?
+    var micConverter: AVAudioConverter?
+    // Interleaved stereo Float32 FIFOs: 2 floats per frame. We pull min(sys,mic)
+    // frames once both have data; leftovers stay queued. Small drift is acceptable
+    // for v1 (the two clocks are independent and we never resample to re-align).
+    var sysFIFO: [Float] = []
+    var micFIFO: [Float] = []
+    // Running frame counter at 48 kHz used to synthesize a monotonic PTS for the
+    // mixed / converted audio buffers, independent of the source PTS clocks.
+    var audioSampleCount: Int64 = 0
+    var cmFormatDesc: CMAudioFormatDescription?
+
+    // --- mic capture (AVCaptureSession) ---
+    var captureSession: AVCaptureSession?
+
+    // Diagnostic counters for the new audio paths.
+    var sysFramesIn = 0
+    var micFramesIn = 0
+    var mixedFramesOut = 0
+    var audioConvertErrors = 0
+    var cmBuildErrors = 0
+
+    init(outURL: URL, width: Int, height: Int, sysOn: Bool, micOn: Bool, micUID: String?) {
         self.outURL = outURL
         self.pxWidth = width
         self.pxHeight = height
-        self.capturesAudio = capturesAudio
+        self.sysOn = sysOn
+        self.micOn = micOn
+        self.micUID = micUID
         super.init()
     }
 
@@ -119,7 +167,7 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
         }
         writer.add(videoInput)
 
-        if capturesAudio {
+        if wantAudio {
             let audioSettings: [String: Any] = [
                 AVFormatIDKey: kAudioFormatMPEG4AAC,
                 AVNumberOfChannelsKey: 2,
@@ -145,13 +193,77 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
     func start() throws {
         try setupWriter()
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: DispatchQueue(label: "screenrec.screen"))
-        if capturesAudio {
+        // SCStream only delivers .audio when capturesAudio is true, which we set to
+        // sysOn. In mic-only mode there is no SCStream audio output to register.
+        if sysOn {
             try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: DispatchQueue(label: "screenrec.audio"))
+        }
+        if micOn {
+            try setupMicCapture()
         }
         stream.startCapture { [weak self] err in
             if let err = err { emitFatal("start", err.localizedDescription) }
+            // Start the mic session only after the SCStream capture is up so the
+            // first mixed frames have somewhere to go. Failing to start the session
+            // is non-fatal: we still produce video + whatever audio we do have.
+            self?.captureSession?.startRunning()
             emit(["event": "ready"])
             self?.startHeartbeat()
+        }
+    }
+
+    // MARK: - Microphone capture (AVCaptureSession)
+
+    func setupMicCapture() throws {
+        guard let uid = micUID else { return }
+        let device: AVCaptureDevice?
+        if let exact = AVCaptureDevice(uniqueID: uid) {
+            device = exact
+        } else {
+            // Fall back to a discovery-session match (covers built-in/external mics
+            // whose uniqueID isn't resolvable via the direct initializer).
+            let discovery = AVCaptureDevice.DiscoverySession(
+                deviceTypes: [.microphone, .external],
+                mediaType: .audio,
+                position: .unspecified
+            )
+            device = discovery.devices.first(where: { $0.uniqueID == uid }) ?? discovery.devices.first
+        }
+        guard let mic = device else {
+            emit(["event": "warn", "msg": "mic device not found", "uid": uid])
+            return
+        }
+        let session = AVCaptureSession()
+        let input: AVCaptureDeviceInput
+        do {
+            input = try AVCaptureDeviceInput(device: mic)
+        } catch {
+            emit(["event": "warn", "msg": "mic input init failed", "err": error.localizedDescription])
+            return
+        }
+        guard session.canAddInput(input) else {
+            emit(["event": "warn", "msg": "cannot add mic input to session"])
+            return
+        }
+        session.addInput(input)
+        let output = AVCaptureAudioDataOutput()
+        output.setSampleBufferDelegate(self, queue: DispatchQueue(label: "screenrec.mic"))
+        guard session.canAddOutput(output) else {
+            emit(["event": "warn", "msg": "cannot add mic output to session"])
+            return
+        }
+        session.addOutput(output)
+        captureSession = session
+        emit(["event": "mic_ready", "device": mic.localizedName, "uid": mic.uniqueID])
+    }
+
+    // AVCaptureAudioDataOutputSampleBufferDelegate
+    func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+        guard sampleBuffer.isValid else { return }
+        // Route mic samples into the mixer on the shared state queue.
+        stateQ.sync {
+            if finished || !sessionStarted { return }
+            ingestMicLocked(sampleBuffer)
         }
     }
 
@@ -192,8 +304,16 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
                     if videoInput.append(sampleBuffer) { vAppended += 1 } else { vFailed += 1; reportAppendFailure("video") }
                 }
             case .audio:
-                if capturesAudio, let ai = audioInput, ai.isReadyForMoreMediaData {
-                    if ai.append(sampleBuffer) { aAppended += 1 } else { aFailed += 1; reportAppendFailure("audio") }
+                guard sysOn else { break }
+                if doMix {
+                    // Both sources on: convert system audio into the FIFO and let
+                    // the mixer drain matched pairs into the AAC track.
+                    ingestSystemLocked(sampleBuffer)
+                } else {
+                    // System-only (original behavior): append SCStream audio directly.
+                    if let ai = audioInput, ai.isReadyForMoreMediaData {
+                        if ai.append(sampleBuffer) { aAppended += 1 } else { aFailed += 1; reportAppendFailure("audio") }
+                    }
                 }
             default:
                 break
@@ -235,6 +355,18 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
             return true
         }
         guard proceed else { return }
+
+        // Stop the mic session (outside stateQ — stopRunning blocks until the
+        // capture queue drains, and the delegate takes stateQ; calling it inside
+        // would deadlock). `finished` is already true so any late mic buffer is
+        // dropped at the top of captureOutput.
+        captureSession?.stopRunning()
+
+        // Drain any leftover mixed audio so the final partial chunk isn't lost.
+        if doMix {
+            stateQ.sync { drainMixerLocked(flush: true) }
+        }
+
         let (started, lpts, spts) = stateQ.sync { (sessionStarted, lastPTS, startPTS) }
 
         // No frames were ever written (e.g. permission denied before first
@@ -263,9 +395,14 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
             "v_failed": vFailed,
             "a_appended": aAppended,
             "a_failed": aFailed,
+            "sys_frames_in": sysFramesIn,
+            "mic_frames_in": micFramesIn,
+            "mixed_frames_out": mixedFramesOut,
+            "audio_conv_err": audioConvertErrors,
+            "cm_build_err": cmBuildErrors,
         ])
         videoInput.markAsFinished()
-        if capturesAudio { audioInput?.markAsFinished() }
+        if wantAudio { audioInput?.markAsFinished() }
         writer.finishWriting { [weak self] in
             guard let self = self else { exit(exitCode) }
             let size: Int = (try? FileManager.default.attributesOfItem(atPath: self.outURL.path)[.size] as? Int) ?? 0
@@ -290,6 +427,250 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
             ])
             exit(exitCode)
         }
+    }
+}
+
+// MARK: - Audio mixing (Phase 2 Task 3)
+//
+// Both system audio (SCStream .audio) and microphone audio (AVCaptureSession)
+// are converted to a common interleaved Float32 / 48 kHz / stereo format and
+// pushed into per-source FIFOs. Whenever both FIFOs hold at least one chunk we
+// pull min(sysAvail, micAvail) frames from each, sum sample-by-sample (clamped to
+// [-1, 1]), wrap the result in a CMSampleBuffer with a synthetic monotonic PTS,
+// and append it to the AAC audioInput.
+//
+// In single-source mode (mic-only) the same FIFO/CMSampleBuffer machinery is used
+// without the summing step, so we get one uniform path for converting raw PCM into
+// the encoder's input.
+//
+// Drift note (v1): the system and mic clocks are independent. We never resample to
+// re-align them, so over a long recording the two streams can drift by a few ms.
+// This is acceptable for v1; perceptually negligible for meeting/voice content.
+@available(macOS 14.0, *)
+extension Recorder {
+    private static let mixChunkFrames = 1024  // frames per drained chunk
+    private static let stereo = 2             // floats per frame (interleaved)
+
+    /// Convert an incoming source CMSampleBuffer into the common mix format and
+    /// return interleaved stereo Float32 samples (count = frames * 2).
+    /// `cache` is the per-source converter slot so we build each converter once.
+    private func convertToMixSamples(_ sb: CMSampleBuffer, converter cache: inout AVAudioConverter?) -> [Float]? {
+        guard let formatDesc = CMSampleBufferGetFormatDescription(sb),
+              let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDesc)?.pointee else {
+            return nil
+        }
+        var asbdCopy = asbd
+        guard let inputFormat = AVAudioFormat(streamDescription: &asbdCopy) else { return nil }
+
+        if cache == nil {
+            cache = AVAudioConverter(from: inputFormat, to: mixFormat)
+            // The converter handles sample-rate conversion (e.g. 44.1k mic -> 48k)
+            // and channel up/down-mix (mono mic -> stereo) for us.
+        }
+        guard let converter = cache else { return nil }
+
+        guard let pcmIn = pcmBuffer(from: sb, format: inputFormat) else { return nil }
+
+        // Output capacity: scale by the sample-rate ratio plus slack.
+        let ratio = mixFormat.sampleRate / inputFormat.sampleRate
+        let outCap = AVAudioFrameCount(Double(pcmIn.frameLength) * ratio) + 1024
+        guard let pcmOut = AVAudioPCMBuffer(pcmFormat: mixFormat, frameCapacity: outCap) else { return nil }
+
+        var error: NSError?
+        var done = false
+        let status = converter.convert(to: pcmOut, error: &error) { _, outStatus in
+            if done { outStatus.pointee = .noDataNow; return nil }
+            done = true
+            outStatus.pointee = .haveData
+            return pcmIn
+        }
+        guard status == .haveData || status == .inputRanDry else {
+            audioConvertErrors += 1
+            return nil
+        }
+        let frames = Int(pcmOut.frameLength)
+        guard frames > 0, let ch = pcmOut.floatChannelData else { return [] }
+        // mixFormat is interleaved stereo, so channel 0 holds all L/R pairs
+        // contiguously: [L0, R0, L1, R1, ...].
+        let count = frames * Recorder.stereo
+        return Array(UnsafeBufferPointer(start: ch[0], count: count))
+    }
+
+    /// Build an AVAudioPCMBuffer from a CMSampleBuffer (handles planar + interleaved).
+    /// Mirrors the proven syscap implementation.
+    private func pcmBuffer(from sb: CMSampleBuffer, format: AVAudioFormat) -> AVAudioPCMBuffer? {
+        let numSamples = CMSampleBufferGetNumSamples(sb)
+        guard numSamples > 0,
+              let buf = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(numSamples)) else {
+            return nil
+        }
+        buf.frameLength = AVAudioFrameCount(numSamples)
+
+        var listSize: Int = 0
+        var blockBuffer: CMBlockBuffer?
+        var status = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(
+            sb, bufferListSizeNeededOut: &listSize, bufferListOut: nil,
+            bufferListSize: 0, blockBufferAllocator: nil,
+            blockBufferMemoryAllocator: nil, flags: 0, blockBufferOut: nil)
+        guard status == noErr, listSize > 0 else { return nil }
+
+        let listPtr = UnsafeMutableRawPointer.allocate(byteCount: listSize, alignment: MemoryLayout<AudioBufferList>.alignment)
+        defer { listPtr.deallocate() }
+        let abListPtr = listPtr.assumingMemoryBound(to: AudioBufferList.self)
+
+        status = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(
+            sb, bufferListSizeNeededOut: nil, bufferListOut: abListPtr,
+            bufferListSize: listSize, blockBufferAllocator: nil,
+            blockBufferMemoryAllocator: nil,
+            flags: kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment,
+            blockBufferOut: &blockBuffer)
+        guard status == noErr else { return nil }
+
+        let src = UnsafeMutableAudioBufferListPointer(abListPtr)
+        let dst = UnsafeMutableAudioBufferListPointer(buf.mutableAudioBufferList)
+        let planes = min(src.count, dst.count)
+        for i in 0..<planes {
+            if let s = src[i].mData, let d = dst[i].mData {
+                let n = min(Int(src[i].mDataByteSize), Int(dst[i].mDataByteSize))
+                memcpy(d, s, n)
+            }
+        }
+        return buf
+    }
+
+    /// Ingest a system-audio buffer. Must be called on stateQ.
+    func ingestSystemLocked(_ sb: CMSampleBuffer) {
+        guard let samples = convertToMixSamples(sb, converter: &sysConverter) else { return }
+        sysFramesIn += samples.count / Recorder.stereo
+        sysFIFO.append(contentsOf: samples)
+        drainMixerLocked(flush: false)
+    }
+
+    /// Ingest a mic buffer. Must be called on stateQ.
+    func ingestMicLocked(_ sb: CMSampleBuffer) {
+        guard let samples = convertToMixSamples(sb, converter: &micConverter) else { return }
+        micFramesIn += samples.count / Recorder.stereo
+        if doMix {
+            micFIFO.append(contentsOf: samples)
+            drainMixerLocked(flush: false)
+        } else {
+            // mic-only: no summing; emit directly.
+            emitMixedLocked(samples)
+        }
+    }
+
+    /// Drain matched chunks from the two FIFOs, mixing sample-by-sample.
+    /// When `flush` is true, also emit a final partial chunk of whatever overlap
+    /// remains. Must be called on stateQ.
+    func drainMixerLocked(flush: Bool) {
+        guard doMix else { return }
+        let stereo = Recorder.stereo
+        while true {
+            let sysFrames = sysFIFO.count / stereo
+            let micFrames = micFIFO.count / stereo
+            let avail = min(sysFrames, micFrames)
+            if avail == 0 { break }
+            if !flush && avail < Recorder.mixChunkFrames { break }
+            let take = flush ? avail : min(avail, Recorder.mixChunkFrames)
+            let n = take * stereo
+            var mixed = [Float](repeating: 0, count: n)
+            for i in 0..<n {
+                let s = sysFIFO[i] + micFIFO[i]
+                mixed[i] = s > 1.0 ? 1.0 : (s < -1.0 ? -1.0 : s)
+            }
+            sysFIFO.removeFirst(n)
+            micFIFO.removeFirst(n)
+            emitMixedLocked(mixed)
+            if flush { break }  // flush emits exactly one final chunk
+        }
+    }
+
+    /// Wrap interleaved stereo Float32 samples into a CMSampleBuffer with a
+    /// synthetic monotonic PTS and append to the AAC audioInput. Must be on stateQ.
+    func emitMixedLocked(_ samples: [Float]) {
+        guard !samples.isEmpty, let ai = audioInput else { return }
+        let frames = samples.count / Recorder.stereo
+        guard frames > 0 else { return }
+
+        guard let sbuf = makeAudioSampleBuffer(samples: samples, frames: frames, startFrame: audioSampleCount) else {
+            cmBuildErrors += 1
+            return
+        }
+        audioSampleCount += Int64(frames)
+        if ai.isReadyForMoreMediaData {
+            if ai.append(sbuf) { aAppended += 1; mixedFramesOut += frames }
+            else { aFailed += 1; reportAppendFailure("audio_mix") }
+        }
+    }
+
+    /// Build a CMSampleBuffer (interleaved Float32, 48 kHz, stereo) for the AAC
+    /// encoder. PTS is derived from a running 48 kHz sample count so it advances
+    /// monotonically regardless of the source clocks.
+    func makeAudioSampleBuffer(samples: [Float], frames: Int, startFrame: Int64) -> CMSampleBuffer? {
+        // Reuse one format description across calls.
+        if cmFormatDesc == nil {
+            var asbd = mixFormat.streamDescription.pointee
+            var fd: CMAudioFormatDescription?
+            let st = CMAudioFormatDescriptionCreate(
+                allocator: kCFAllocatorDefault,
+                asbd: &asbd,
+                layoutSize: 0, layout: nil,
+                magicCookieSize: 0, magicCookie: nil,
+                extensions: nil,
+                formatDescriptionOut: &fd)
+            guard st == noErr, let fd = fd else { return nil }
+            cmFormatDesc = fd
+        }
+        guard let formatDesc = cmFormatDesc else { return nil }
+
+        let bytesPerFrame = MemoryLayout<Float>.size * Recorder.stereo  // 8 bytes
+        let dataSize = frames * bytesPerFrame
+
+        // Copy the float samples into a CMBlockBuffer.
+        var blockBuffer: CMBlockBuffer?
+        var status = CMBlockBufferCreateWithMemoryBlock(
+            allocator: kCFAllocatorDefault,
+            memoryBlock: nil,
+            blockLength: dataSize,
+            blockAllocator: kCFAllocatorDefault,
+            customBlockSource: nil,
+            offsetToData: 0,
+            dataLength: dataSize,
+            flags: 0,
+            blockBufferOut: &blockBuffer)
+        guard status == kCMBlockBufferNoErr, let block = blockBuffer else { return nil }
+
+        status = samples.withUnsafeBytes { raw -> OSStatus in
+            guard let base = raw.baseAddress else { return -1 }
+            return CMBlockBufferReplaceDataBytes(
+                with: base, blockBuffer: block,
+                offsetIntoDestination: 0, dataLength: dataSize)
+        }
+        guard status == kCMBlockBufferNoErr else { return nil }
+
+        let pts = CMTime(value: startFrame, timescale: 48000)
+        let duration = CMTime(value: Int64(frames), timescale: 48000)
+        var timing = CMSampleTimingInfo(
+            duration: duration,
+            presentationTimeStamp: pts,
+            decodeTimeStamp: .invalid)
+
+        var sampleBuffer: CMSampleBuffer?
+        status = CMSampleBufferCreate(
+            allocator: kCFAllocatorDefault,
+            dataBuffer: block,
+            dataReady: true,
+            makeDataReadyCallback: nil,
+            refcon: nil,
+            formatDescription: formatDesc,
+            sampleCount: frames,
+            sampleTimingEntryCount: 1,
+            sampleTimingArray: &timing,
+            sampleSizeEntryCount: 1,
+            sampleSizeArray: [bytesPerFrame],
+            sampleBufferOut: &sampleBuffer)
+        guard status == noErr else { return nil }
+        return sampleBuffer
     }
 }
 
@@ -337,9 +718,14 @@ func run() async {
     do {
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
 
+        // Audio source selection. sysOn = capture system audio (default on,
+        // suppressed by --no-sysaudio). micOn = capture a microphone (--mic <uid>).
+        let sysOn = !argNoSysaudio
+        let micOn = argMicUID != nil
+
         let cfg = SCStreamConfiguration()
-        // System audio: default ON, disabled by --no-sysaudio.
-        cfg.capturesAudio = !argNoSysaudio
+        // SCStream system-audio capture is enabled iff we actually want system audio.
+        cfg.capturesAudio = sysOn
         cfg.excludesCurrentProcessAudio = true
         cfg.sampleRate = 48000
         cfg.channelCount = 2
@@ -385,7 +771,7 @@ func run() async {
         cfg.width = capW
         cfg.height = capH
 
-        let rec = Recorder(outURL: outURL, width: capW, height: capH, capturesAudio: !argNoSysaudio)
+        let rec = Recorder(outURL: outURL, width: capW, height: capH, sysOn: sysOn, micOn: micOn, micUID: argMicUID)
         let stream = SCStream(filter: filter, configuration: cfg, delegate: rec)
         rec.stream = stream
         Pinned.shared.recorder = rec
