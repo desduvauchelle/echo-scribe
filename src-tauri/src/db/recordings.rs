@@ -90,6 +90,14 @@ pub fn delete(conn: &Connection, id: &str) -> Result<(), DbError> {
     Ok(())
 }
 
+pub fn update_exports(conn: &Connection, id: &str, exports_json: &str) -> Result<(), DbError> {
+    conn.execute(
+        "UPDATE recordings SET exports = ?2 WHERE id = ?1",
+        params![id, exports_json],
+    )?;
+    Ok(())
+}
+
 /// Set the user-assigned display name for a recording.
 pub fn rename(conn: &Connection, id: &str, title: &str) -> Result<(), DbError> {
     conn.execute(
@@ -221,5 +229,15 @@ mod tests {
             get(&conn, "rec-1").unwrap().unwrap().transcript.as_deref(),
             Some("hello world")
         );
+    }
+
+    #[test]
+    fn update_exports_persists_json() {
+        let conn = setup();
+        insert(&conn, &sample()).unwrap();
+        let json = r#"[{"quality":"720","path":"/tmp/rec-1-720.mp4","size":4242}]"#;
+        update_exports(&conn, "rec-1", json).unwrap();
+        let got = get(&conn, "rec-1").unwrap().unwrap();
+        assert_eq!(got.exports, json);
     }
 }
