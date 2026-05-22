@@ -42,7 +42,11 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
     let pxWidth: Int
     let pxHeight: Int
     var finished = false
-    let finishLock = NSLock()
+    // Serializes all access to sessionStarted/startPTS/lastPTS/finished and the
+    // sample-buffer appends, which arrive on two separate SCStream queues
+    // (screenrec.screen + screenrec.audio). One serial queue removes the
+    // torn-CMTime data race and guarantees markAsFinished can't race an append.
+    let stateQ = DispatchQueue(label: "screenrec.state")
 
     init(outURL: URL, width: Int, height: Int) {
         self.outURL = outURL
@@ -61,7 +65,11 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
         ]
         videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: videoSettings)
         videoInput.expectsMediaDataInRealTime = true
-        if writer.canAdd(videoInput) { writer.add(videoInput) }
+        guard writer.canAdd(videoInput) else {
+            throw NSError(domain: "screenrec", code: 2,
+                          userInfo: [NSLocalizedDescriptionKey: "cannot add video input to writer"])
+        }
+        writer.add(videoInput)
 
         let audioSettings: [String: Any] = [
             AVFormatIDKey: kAudioFormatMPEG4AAC,
@@ -71,7 +79,11 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
         ]
         audioInput = AVAssetWriterInput(mediaType: .audio, outputSettings: audioSettings)
         audioInput.expectsMediaDataInRealTime = true
-        if writer.canAdd(audioInput) { writer.add(audioInput) }
+        guard writer.canAdd(audioInput) else {
+            throw NSError(domain: "screenrec", code: 3,
+                          userInfo: [NSLocalizedDescriptionKey: "cannot add audio input to writer"])
+        }
+        writer.add(audioInput)
 
         guard writer.startWriting() else {
             throw NSError(domain: "screenrec", code: 1,
@@ -95,9 +107,8 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
         t.schedule(deadline: .now() + 1, repeating: 1.0)
         t.setEventHandler { [weak self] in
             guard let self = self else { return }
-            let dur = self.sessionStarted
-                ? CMTimeGetSeconds(CMTimeSubtract(self.lastPTS, self.startPTS)) * 1000.0
-                : 0
+            let (started, lpts, spts) = self.stateQ.sync { (self.sessionStarted, self.lastPTS, self.startPTS) }
+            let dur = started ? CMTimeGetSeconds(CMTimeSubtract(lpts, spts)) * 1000.0 : 0
             emit(["event": "heartbeat", "ts": Date().timeIntervalSince1970, "dur_ms": Int(dur)])
         }
         t.resume()
@@ -109,27 +120,27 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
         guard sampleBuffer.isValid else { return }
         let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
 
-        if !sessionStarted {
-            // Start the AVAssetWriter session on the first VIDEO buffer that is
-            // marked complete/displayed, so audio before the first frame is dropped.
-            guard type == .screen, Self.frameIsComplete(sampleBuffer) else { return }
-            startPTS = pts
-            writer.startSession(atSourceTime: pts)
-            sessionStarted = true
-        }
-        lastPTS = pts
-
-        switch type {
-        case .screen:
-            if videoInput.isReadyForMoreMediaData {
-                videoInput.append(sampleBuffer)
+        // All state mutation + the append run on the serial state queue so the
+        // two SCStream delivery queues can't race each other or finalize.
+        stateQ.sync {
+            if finished { return }
+            if !sessionStarted {
+                // Start the writer session on the first COMPLETE video frame;
+                // any audio delivered before that is dropped.
+                guard type == .screen, Self.frameIsComplete(sampleBuffer) else { return }
+                startPTS = pts
+                writer.startSession(atSourceTime: pts)
+                sessionStarted = true
             }
-        case .audio:
-            if audioInput.isReadyForMoreMediaData {
-                audioInput.append(sampleBuffer)
+            lastPTS = pts
+            switch type {
+            case .screen:
+                if videoInput.isReadyForMoreMediaData { videoInput.append(sampleBuffer) }
+            case .audio:
+                if audioInput.isReadyForMoreMediaData { audioInput.append(sampleBuffer) }
+            default:
+                break
             }
-        default:
-            break
         }
     }
 
@@ -147,20 +158,38 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
     }
 
     func finalize(exitCode: Int32) {
-        finishLock.lock()
-        if finished { finishLock.unlock(); return }
-        finished = true
-        finishLock.unlock()
+        // Claim finalize exactly once on the state queue, so any in-flight
+        // appends complete first and none start afterward.
+        let proceed: Bool = stateQ.sync {
+            if finished { return false }
+            finished = true
+            return true
+        }
+        guard proceed else { return }
+        let (started, lpts, spts) = stateQ.sync { (sessionStarted, lastPTS, startPTS) }
 
-        let durMs = sessionStarted
-            ? Int(CMTimeGetSeconds(CMTimeSubtract(lastPTS, startPTS)) * 1000.0)
-            : 0
+        // No frames were ever written (e.g. permission denied before first
+        // frame): cancel rather than violate startSession-before-finish.
+        if !started {
+            writer.cancelWriting()
+            emit([
+                "event": "stopped",
+                "path": outURL.path,
+                "dur_ms": 0,
+                "width": pxWidth,
+                "height": pxHeight,
+                "size": 0,
+                "thumb": "",
+            ])
+            exit(exitCode)
+        }
+
+        let durMs = Int(CMTimeGetSeconds(CMTimeSubtract(lpts, spts)) * 1000.0)
         videoInput.markAsFinished()
         audioInput.markAsFinished()
         writer.finishWriting { [weak self] in
             guard let self = self else { exit(exitCode) }
-            let size = (try? FileManager.default.attributesOfItem(atPath: self.outURL.path)[.size] as? Int) ?? 0
-            // Thumbnail is written in Task 3; emit empty path for now.
+            let size: Int = (try? FileManager.default.attributesOfItem(atPath: self.outURL.path)[.size] as? Int) ?? 0
             emit([
                 "event": "stopped",
                 "path": self.outURL.path,
