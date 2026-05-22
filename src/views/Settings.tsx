@@ -1673,7 +1673,9 @@ function DriveSettings() {
     setBusy(true);
     setErr(null);
     try {
-      if (showByo) await setDriveClientCredentials(clientId, clientSecret);
+      if (showByo && clientId.trim() && clientSecret.trim()) {
+        await setDriveClientCredentials(clientId, clientSecret);
+      }
       setStatus(await driveConnect());
     } catch (e) {
       setErr(String(e));
@@ -1741,6 +1743,9 @@ function DriveSettings() {
             placeholder="Client secret"
             className="w-full rounded-md border border-line bg-canvas px-2 py-1.5 text-[13px]"
           />
+          <p className="text-[11px] text-muted">
+            The secret is stored securely and not shown again. Leave blank on reconnect to keep the saved one.
+          </p>
         </div>
       ) : null}
       {err ? <div className="text-[12px] text-red-400">{err}</div> : null}

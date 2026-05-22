@@ -329,7 +329,7 @@ export function RecordingsView() {
                   <button
                     key={q}
                     onClick={() => void onExport(selected.id, q)}
-                    disabled={exporting !== null}
+                    disabled={exporting !== null || uploading}
                     className="rounded-md border border-line px-2.5 py-1.5 text-[13px] hover:bg-surface disabled:opacity-50"
                   >
                     {exporting === q ? `${q}p…` : `${q}p`}
@@ -414,7 +414,7 @@ export function RecordingsView() {
                       <button
                         key={q}
                         onClick={() => void onUpload(selected.id, q)}
-                        disabled={uploading}
+                        disabled={uploading || exporting !== null}
                         className="rounded-md border border-line px-2.5 py-1.5 text-[13px] hover:bg-surface disabled:opacity-50"
                       >
                         {q === "original" ? "Original" : `${q}p`}
