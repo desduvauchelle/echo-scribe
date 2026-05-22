@@ -1660,6 +1660,8 @@ function DriveSettings() {
   const [showByo, setShowByo] = useState(false);
   const [clientId, setClientId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
+  const [showSetup, setShowSetup] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     void driveStatus().then(setStatus);
@@ -1697,6 +1699,21 @@ function DriveSettings() {
     }
   };
 
+  const onSaveClient = async () => {
+    setSaving(true);
+    setErr(null);
+    try {
+      if (clientId.trim() && clientSecret.trim()) {
+        await setDriveClientCredentials(clientId, clientSecret);
+      }
+      setShowSetup(false);
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div className="flex flex-col gap-3">
       {status.connected ? (
@@ -1730,25 +1747,133 @@ function DriveSettings() {
         Use my own Google OAuth client (removes the unverified-app warning)
       </label>
       {showByo ? (
-        <div className="flex flex-col gap-2">
-          <input
-            value={clientId}
-            onChange={(e) => setClientId(e.target.value)}
-            placeholder="Client ID (…apps.googleusercontent.com)"
-            className="w-full rounded-md border border-line bg-canvas px-2 py-1.5 text-[13px]"
-          />
-          <input
-            value={clientSecret}
-            onChange={(e) => setClientSecret(e.target.value)}
-            placeholder="Client secret"
-            className="w-full rounded-md border border-line bg-canvas px-2 py-1.5 text-[13px]"
-          />
-          <p className="text-[11px] text-muted">
-            The secret is stored securely and not shown again. Leave blank on reconnect to keep the saved one.
-          </p>
+        <div className="flex items-center gap-2">
+          <span className="text-[12px] text-muted">
+            {clientId.trim()
+              ? `Client configured (…${clientId.trim().slice(-14)})`
+              : "No client configured."}
+          </span>
+          <button
+            onClick={() => setShowSetup(true)}
+            className="rounded-md border border-line px-2.5 py-1 text-[12px] hover:bg-surface"
+          >
+            {clientId.trim() ? "Edit" : "Set up"}
+          </button>
+          <button
+            onClick={() => setShowSetup(true)}
+            aria-label="How to create a client ID"
+            title="How to create a client ID"
+            className="grid h-5 w-5 place-items-center rounded-full border border-line text-[11px] text-muted hover:bg-surface"
+          >
+            ?
+          </button>
         </div>
       ) : null}
       {err ? <div className="text-[12px] text-red-400">{err}</div> : null}
+
+      {showSetup ? (
+        <DriveClientSetupModal
+          clientId={clientId}
+          clientSecret={clientSecret}
+          saving={saving}
+          onClientId={setClientId}
+          onClientSecret={setClientSecret}
+          onSave={() => void onSaveClient()}
+          onCancel={() => setShowSetup(false)}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function DriveClientSetupModal(props: {
+  clientId: string;
+  clientSecret: string;
+  saving: boolean;
+  onClientId: (v: string) => void;
+  onClientSecret: (v: string) => void;
+  onSave: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      onClick={props.onCancel}
+    >
+      <div
+        className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-lg border border-line bg-canvas p-5 text-fg shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="mb-3 text-[15px] font-semibold">
+          Set up your own Google OAuth client
+        </h3>
+        <ol className="mb-4 list-decimal space-y-2 pl-5 text-[12px] leading-relaxed text-muted">
+          <li>
+            Open the{" "}
+            <a
+              className="text-accent underline"
+              href="https://console.cloud.google.com/"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Google Cloud Console
+            </a>{" "}
+            and create a project (or pick an existing one).
+          </li>
+          <li>
+            APIs &amp; Services → Library → search <b>Google Drive API</b> →{" "}
+            <b>Enable</b>.
+          </li>
+          <li>
+            APIs &amp; Services → OAuth consent screen → <b>External</b> → fill in
+            the app name and your email → add the scope{" "}
+            <code>.../auth/drive.file</code> → add your Google account under{" "}
+            <b>Test users</b> → Save. Leave it in <b>Testing</b>.
+          </li>
+          <li>
+            APIs &amp; Services → Credentials → Create credentials →{" "}
+            <b>OAuth client ID</b> → Application type: <b>Desktop app</b> → Create.
+          </li>
+          <li>
+            Copy the <b>Client ID</b> and <b>Client secret</b> into the fields
+            below. No redirect URI is needed — Desktop apps allow loopback
+            automatically.
+          </li>
+        </ol>
+        <div className="flex flex-col gap-2">
+          <input
+            value={props.clientId}
+            onChange={(e) => props.onClientId(e.target.value)}
+            placeholder="Client ID (…apps.googleusercontent.com)"
+            className="w-full rounded-md border border-line bg-surface px-2 py-1.5 text-[13px]"
+          />
+          <input
+            value={props.clientSecret}
+            onChange={(e) => props.onClientSecret(e.target.value)}
+            placeholder="Client secret"
+            className="w-full rounded-md border border-line bg-surface px-2 py-1.5 text-[13px]"
+          />
+          <p className="text-[11px] text-muted">
+            Stored securely on this Mac. Leave the secret blank when editing to
+            keep the saved one.
+          </p>
+        </div>
+        <div className="mt-4 flex justify-end gap-2">
+          <button
+            onClick={props.onCancel}
+            className="rounded-md border border-line px-3 py-1.5 text-[13px] hover:bg-surface"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={props.onSave}
+            disabled={props.saving}
+            className="rounded-md bg-accent px-3 py-1.5 text-[13px] font-medium text-canvas disabled:opacity-50"
+          >
+            {props.saving ? "Saving…" : "Save"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
