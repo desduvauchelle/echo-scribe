@@ -11,6 +11,7 @@ import {
   revealRecording,
   transcribeRecording,
   exportRecording,
+  uploadRecording,
   type RecordingRow,
 } from "../../lib/api";
 
@@ -174,6 +175,27 @@ export function RecordingsView() {
         setError(String(e));
       } finally {
         setExporting(null);
+      }
+    },
+    [refresh],
+  );
+
+  const [uploading, setUploading] = useState(false);
+
+  const onUpload = useCallback(
+    async (id: string, quality: "original" | "1080" | "720" | "480") => {
+      setUploading(true);
+      setError(null);
+      try {
+        const updated = await uploadRecording(id, quality);
+        if (updated.drive_link) {
+          await navigator.clipboard.writeText(updated.drive_link);
+        }
+        await refresh();
+      } catch (e) {
+        setError(String(e));
+      } finally {
+        setUploading(false);
       }
     },
     [refresh],
@@ -361,6 +383,52 @@ export function RecordingsView() {
                   >
                     {transcribing ? `Transcribing… ${progress}%` : "Generate transcript"}
                   </button>
+                )}
+              </div>
+              <div className="mt-6 border-t border-line pt-4">
+                <h3 className="mb-2 text-[13px] font-semibold">Google Drive</h3>
+                {selected.upload_status === "done" && selected.drive_link ? (
+                  <div className="flex items-center gap-2">
+                    <a
+                      href={selected.drive_link}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="min-w-0 flex-1 truncate text-[13px] text-accent underline"
+                    >
+                      {selected.drive_link}
+                    </a>
+                    <button
+                      onClick={() => {
+                        if (selected.drive_link)
+                          void navigator.clipboard.writeText(selected.drive_link);
+                      }}
+                      className="shrink-0 rounded-md border border-line px-2.5 py-1 text-[12px] hover:bg-surface"
+                    >
+                      Copy link
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[12px] text-muted">Upload:</span>
+                    {(["original", "1080", "720", "480"] as const).map((q) => (
+                      <button
+                        key={q}
+                        onClick={() => void onUpload(selected.id, q)}
+                        disabled={uploading}
+                        className="rounded-md border border-line px-2.5 py-1.5 text-[13px] hover:bg-surface disabled:opacity-50"
+                      >
+                        {q === "original" ? "Original" : `${q}p`}
+                      </button>
+                    ))}
+                    {uploading ? (
+                      <span className="text-[12px] text-muted">Uploading…</span>
+                    ) : null}
+                    {selected.upload_status === "error" ? (
+                      <span className="text-[12px] text-red-400">
+                        Upload failed{selected.upload_error ? `: ${selected.upload_error}` : ""}
+                      </span>
+                    ) : null}
+                  </div>
                 )}
               </div>
             </>

@@ -947,6 +947,24 @@ export const exportRecording = (
   quality: "1080" | "720" | "480",
 ): Promise<RecordingRow> => invoke("export_recording", { id, quality });
 
+export type DriveStatus = {
+  connected: boolean;
+  email: string | null;
+};
+
+export const driveStatus = (): Promise<DriveStatus> => invoke("drive_status");
+export const driveConnect = (): Promise<DriveStatus> => invoke("drive_connect");
+export const driveDisconnect = (): Promise<void> => invoke("drive_disconnect");
+export const getDriveClientId = (): Promise<string> => invoke("get_drive_client_id");
+export const setDriveClientCredentials = (
+  clientId: string,
+  clientSecret: string,
+): Promise<void> => invoke("set_drive_client_credentials", { clientId, clientSecret });
+export const uploadRecording = (
+  id: string,
+  quality: "original" | "1080" | "720" | "480",
+): Promise<RecordingRow> => invoke("upload_recording", { id, quality });
+
 export type DisplaySource = { id: number; width: number; height: number; label: string };
 export type WindowSource = { id: number; app: string; title: string; width: number; height: number; thumb: string };
 export type ScreenSources = { displays: DisplaySource[]; windows: WindowSource[] };

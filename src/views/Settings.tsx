@@ -58,6 +58,12 @@ import {
   setTriggerWordRoutingEnabled,
   getActionTriggerWord,
   setActionTriggerWord,
+  driveStatus,
+  driveConnect,
+  driveDisconnect,
+  getDriveClientId,
+  setDriveClientCredentials,
+  type DriveStatus,
   type CommonActionTemplate,
   type DailyRecapSettings as DailyRecapSettingsT,
   type InputDevice,
@@ -901,6 +907,13 @@ function GeneralTab() {
       </Section>
 
       <Section
+        title="Google Drive"
+        subtitle="Upload screen recordings to Drive and get an anyone-with-the-link share URL. The app only sees files it creates (scope drive.file)."
+      >
+        <DriveSettings />
+      </Section>
+
+      <Section
         title="Startup"
         subtitle="Launch Echo Scribe automatically when you log in."
       >
@@ -1637,6 +1650,101 @@ function ResetSection() {
         </div>
       ) : null}
     </section>
+  );
+}
+
+function DriveSettings() {
+  const [status, setStatus] = useState<DriveStatus>({ connected: false, email: null });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [showByo, setShowByo] = useState(false);
+  const [clientId, setClientId] = useState("");
+  const [clientSecret, setClientSecret] = useState("");
+
+  useEffect(() => {
+    void driveStatus().then(setStatus);
+    void getDriveClientId().then((id) => {
+      setClientId(id);
+      setShowByo(id.trim().length > 0);
+    });
+  }, []);
+
+  const onConnect = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      if (showByo) await setDriveClientCredentials(clientId, clientSecret);
+      setStatus(await driveConnect());
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onDisconnect = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      await driveDisconnect();
+      setStatus({ connected: false, email: null });
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-3">
+      {status.connected ? (
+        <div className="flex items-center gap-3">
+          <span className="text-[13px]">
+            Connected{status.email ? ` as ${status.email}` : ""}.
+          </span>
+          <button
+            onClick={() => void onDisconnect()}
+            disabled={busy}
+            className="rounded-md border border-line px-3 py-1.5 text-[13px] hover:bg-surface disabled:opacity-50"
+          >
+            Disconnect
+          </button>
+        </div>
+      ) : (
+        <button
+          onClick={() => void onConnect()}
+          disabled={busy}
+          className="self-start rounded-md bg-accent px-3 py-1.5 text-[13px] font-medium text-canvas disabled:opacity-50"
+        >
+          {busy ? "Connecting…" : "Connect Drive"}
+        </button>
+      )}
+      <label className="flex items-center gap-2 text-[12px] text-muted">
+        <input
+          type="checkbox"
+          checked={showByo}
+          onChange={(e) => setShowByo(e.target.checked)}
+        />
+        Use my own Google OAuth client (removes the unverified-app warning)
+      </label>
+      {showByo ? (
+        <div className="flex flex-col gap-2">
+          <input
+            value={clientId}
+            onChange={(e) => setClientId(e.target.value)}
+            placeholder="Client ID (…apps.googleusercontent.com)"
+            className="w-full rounded-md border border-line bg-canvas px-2 py-1.5 text-[13px]"
+          />
+          <input
+            value={clientSecret}
+            onChange={(e) => setClientSecret(e.target.value)}
+            placeholder="Client secret"
+            className="w-full rounded-md border border-line bg-canvas px-2 py-1.5 text-[13px]"
+          />
+        </div>
+      ) : null}
+      {err ? <div className="text-[12px] text-red-400">{err}</div> : null}
+    </div>
   );
 }
 
