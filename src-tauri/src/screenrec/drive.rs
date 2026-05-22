@@ -82,13 +82,11 @@ pub fn store_refresh_token(token: &str) -> Result<(), String> {
 }
 
 /// Load the refresh token, or `None` if not connected.
-#[allow(dead_code)] // TODO(phase4): consumed by connect/upload tasks
 pub fn load_refresh_token() -> Option<String> {
     keychain_entry().ok()?.get_password().ok()
 }
 
 /// Delete the refresh token (disconnect). Already-absent is treated as success.
-#[allow(dead_code)] // TODO(phase4): consumed by connect/upload tasks
 pub fn delete_refresh_token() -> Result<(), String> {
     match keychain_entry()?.delete_credential() {
         Ok(()) => Ok(()),
@@ -108,7 +106,6 @@ struct TokenResponse {
 
 /// Resolve the effective client id/secret: BYO from settings if non-empty,
 /// else the bundled pair.
-#[allow(dead_code)] // TODO(phase4): consumed by connect/upload tasks
 pub fn effective_client(byo_id: &str, byo_secret: &str) -> (String, String) {
     if !byo_id.trim().is_empty() {
         (byo_id.to_string(), byo_secret.to_string())
@@ -155,7 +152,6 @@ pub async fn exchange_code(
 }
 
 /// Use the stored refresh token to get a fresh access token.
-#[allow(dead_code)] // TODO(phase4): consumed by connect/upload tasks
 pub async fn refresh_access_token(client_id: &str, client_secret: &str) -> Result<String, String> {
     let refresh = load_refresh_token().ok_or("not connected to Drive")?;
     let client = reqwest::Client::new();
@@ -189,7 +185,6 @@ pub async fn refresh_access_token(client_id: &str, client_secret: &str) -> Resul
 ///
 /// The loopback accept runs on a blocking task; the HTTP exchange uses the
 /// current tokio runtime.
-#[allow(dead_code)] // TODO(phase4): consumed by the drive_connect command
 pub async fn connect(client_id: &str, client_secret: &str) -> Result<Option<String>, String> {
     let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
     let port = listener.local_addr().map_err(|e| e.to_string())?.port();
@@ -273,7 +268,6 @@ pub async fn connect(client_id: &str, client_secret: &str) -> Result<Option<Stri
 }
 
 /// Find the "Echo Scribe" folder, creating it if absent. Returns its file id.
-#[allow(dead_code)] // TODO(phase4): consumed by upload_recording command
 pub async fn ensure_folder(access_token: &str) -> Result<String, String> {
     let client = reqwest::Client::new();
     let q = format!(
@@ -329,7 +323,6 @@ pub async fn ensure_folder(access_token: &str) -> Result<String, String> {
 /// Upload `file_path` into `folder_id` via a resumable session. Returns the new
 /// file id. v1 sends the whole file in one PUT to the session URI; the session
 /// makes a retry of that PUT safe. (Chunked resume is a future enhancement.)
-#[allow(dead_code)] // TODO(phase4): consumed by upload_recording command
 pub async fn upload_resumable(
     access_token: &str,
     folder_id: &str,
@@ -375,7 +368,6 @@ pub async fn upload_resumable(
 }
 
 /// Grant anyone-with-the-link reader access.
-#[allow(dead_code)] // TODO(phase4): consumed by upload_recording command
 pub async fn make_anyone_reader(access_token: &str, file_id: &str) -> Result<(), String> {
     let client = reqwest::Client::new();
     let body = serde_json::json!({ "role": "reader", "type": "anyone" });
@@ -393,7 +385,6 @@ pub async fn make_anyone_reader(access_token: &str, file_id: &str) -> Result<(),
 }
 
 /// Read the shareable `webViewLink` for a file.
-#[allow(dead_code)] // TODO(phase4): consumed by upload_recording command
 pub async fn web_view_link(access_token: &str, file_id: &str) -> Result<String, String> {
     let client = reqwest::Client::new();
     let resp = client

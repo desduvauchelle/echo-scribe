@@ -2940,6 +2940,169 @@ pub fn set_screenrec_audio_prefs(state: State<'_, AppState>, prefs: ScreenrecAud
     Ok(())
 }
 
+// ----- Drive commands -----
+
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct DriveStatus {
+    pub connected: bool,
+    pub email: Option<String>,
+}
+
+#[tauri::command]
+pub fn drive_status(state: State<'_, AppState>) -> DriveStatus {
+    DriveStatus {
+        connected: crate::screenrec::drive::load_refresh_token().is_some(),
+        email: state.settings.drive_account_email(),
+    }
+}
+
+#[tauri::command]
+pub async fn drive_connect(state: State<'_, AppState>) -> Result<DriveStatus, String> {
+    // Extract owned creds BEFORE awaiting so no State borrow crosses .await.
+    let (cid, csecret) = crate::screenrec::drive::effective_client(
+        &state.settings.drive_client_id(),
+        &state.settings.drive_client_secret(),
+    );
+    let email = crate::screenrec::drive::connect(&cid, &csecret).await?;
+    state
+        .settings
+        .set_drive_account_email(email.as_deref())
+        .map_err(|e| e.to_string())?;
+    Ok(DriveStatus { connected: true, email })
+}
+
+#[tauri::command]
+pub fn drive_disconnect(state: State<'_, AppState>) -> Result<(), String> {
+    crate::screenrec::drive::delete_refresh_token()?;
+    state.settings.set_drive_account_email(None).map_err(|e| e.to_string())?;
+    state.settings.set_drive_folder_id(None).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_drive_client_id(state: State<'_, AppState>) -> String {
+    state.settings.drive_client_id()
+}
+
+#[tauri::command]
+pub fn set_drive_client_credentials(
+    state: State<'_, AppState>,
+    client_id: String,
+    client_secret: String,
+) -> Result<(), String> {
+    state.settings.set_drive_client_id(&client_id).map_err(|e| e.to_string())?;
+    state.settings.set_drive_client_secret(&client_secret).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Upload a recording at `quality` ("original"|"1080"|"720"|"480") to Drive and
+/// return the updated row (with `drive_link`). Non-"original" exports first.
+#[tauri::command]
+pub async fn upload_recording(
+    state: State<'_, AppState>,
+    app: AppHandle,
+    id: String,
+    quality: String,
+) -> Result<crate::db::recordings::RecordingRow, String> {
+    // Gather everything needed from State up front (owned values), mirroring
+    // how transcribe_recording handles the Db handle across awaits.
+    let row = {
+        let db = require_db(&state)?;
+        db.with_conn(|c| crate::db::recordings::get(c, &id))
+            .map_err(|e| e.to_string())?
+            .ok_or("recording not found")?
+    };
+    let (cid, csecret) = crate::screenrec::drive::effective_client(
+        &state.settings.drive_client_id(),
+        &state.settings.drive_client_secret(),
+    );
+    let existing_folder: Option<String> = state.settings.drive_folder_id();
+
+    // Mark uploading and notify UI.
+    {
+        let db = require_db(&state)?;
+        db.with_conn(|c| crate::db::recordings::update_upload_status(c, &id, "uploading", None))
+            .map_err(|e| e.to_string())?;
+    }
+    let _ = app.emit("screenrec-changed", ());
+
+    // Resolve the file to upload (export first if a quality preset was chosen).
+    let upload_path: std::path::PathBuf = if quality == "original" {
+        std::path::PathBuf::from(&row.file_path)
+    } else {
+        let src = std::path::PathBuf::from(&row.file_path);
+        let stem = src.file_stem().and_then(|s| s.to_str()).unwrap_or("rec").to_string();
+        let dir = crate::screenrec::recordings_dir().map_err(|e| e.to_string())?;
+        let out = dir.join(format!("{stem}-{quality}.mp4"));
+        let q = quality.clone();
+        let out2 = out.clone();
+        tokio::task::spawn_blocking(move || crate::screenrec::export(&src, &out2, &q))
+            .await
+            .map_err(|e| e.to_string())??;
+        out
+    };
+    let upload_name = upload_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("recording.mp4")
+        .to_string();
+
+    // Drive sequence: refresh token → ensure folder → upload → share → get link.
+    // Returns (file_id, link, folder_to_persist) where folder_to_persist is Some
+    // only when we created a new folder (so we can cache it in settings).
+    let drive_result: Result<(String, String, Option<String>), String> = async {
+        let access = crate::screenrec::drive::refresh_access_token(&cid, &csecret).await?;
+        let (folder, folder_to_persist) = match existing_folder {
+            Some(f) => (f, None),
+            None => {
+                let f = crate::screenrec::drive::ensure_folder(&access).await?;
+                let persist = Some(f.clone());
+                (f, persist)
+            }
+        };
+        let file_id =
+            crate::screenrec::drive::upload_resumable(&access, &folder, &upload_path, &upload_name)
+                .await?;
+        crate::screenrec::drive::make_anyone_reader(&access, &file_id).await?;
+        let link = crate::screenrec::drive::web_view_link(&access, &file_id).await?;
+        Ok((file_id, link, folder_to_persist))
+    }
+    .await;
+
+    match drive_result {
+        Ok((file_id, link, folder_to_persist)) => {
+            // Persist the newly-created folder id so future uploads reuse it.
+            if let Some(ref folder_id) = folder_to_persist {
+                state
+                    .settings
+                    .set_drive_folder_id(Some(folder_id.as_str()))
+                    .map_err(|e| e.to_string())?;
+            }
+            {
+                let db = require_db(&state)?;
+                db.with_conn(|c| crate::db::recordings::update_drive_link(c, &id, &file_id, &link))
+                    .map_err(|e| e.to_string())?;
+            }
+        }
+        Err(e) => {
+            {
+                let db = require_db(&state)?;
+                db.with_conn(|c| {
+                    crate::db::recordings::update_upload_status(c, &id, "error", Some(&e))
+                })
+                .map_err(|e| e.to_string())?;
+            }
+            let _ = app.emit("screenrec-changed", ());
+            return Err(e);
+        }
+    }
+    let _ = app.emit("screenrec-changed", ());
+    let db = require_db(&state)?;
+    db.with_conn(|c| crate::db::recordings::get(c, &id))
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "recording vanished".to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

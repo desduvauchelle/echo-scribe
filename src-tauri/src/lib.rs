@@ -73,6 +73,12 @@ use crate::commands::{
     get_screenrec_audio_prefs,
     set_screenrec_audio_prefs,
     open_screenrec_setup,
+    drive_status,
+    drive_connect,
+    drive_disconnect,
+    get_drive_client_id,
+    set_drive_client_credentials,
+    upload_recording,
     AppState,
 };
 use crate::llm::Llm;
@@ -319,6 +325,12 @@ pub fn run() {
             get_screenrec_audio_prefs,
             set_screenrec_audio_prefs,
             open_screenrec_setup,
+            drive_status,
+            drive_connect,
+            drive_disconnect,
+            get_drive_client_id,
+            set_drive_client_credentials,
+            upload_recording,
         ])
         .setup(move |app| {
             // Tray.
