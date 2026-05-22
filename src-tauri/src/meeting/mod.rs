@@ -263,6 +263,7 @@ impl MeetingManager {
                         mic_only: false,
                         calendar_match_json: None,
                         guide_template_json: None,
+                        project_name: None,
                     },
                 )?;
                 Ok(())
@@ -398,6 +399,38 @@ impl MeetingManager {
                 if active_id.as_deref() == Some(&id_for_cap) {
                     tracing::warn!(id = %id_for_cap, "hard cap reached, auto-stopping");
                     let _ = mgr.stop().await;
+                }
+            }
+        });
+
+        // Inactivity backstop: auto-stop after a sustained silence even when
+        // window-based end detection is blind (e.g. the user ends a call but
+        // stays focused in another app, so the window monitor only ever sees
+        // `Presence::Unknown`). Polls the pipeline's last-speech clock.
+        let manager_weak_inact = Arc::downgrade(&self);
+        let id_for_inact = id.clone();
+        let activity_clock = pipeline.activity_clock();
+        tokio::spawn(async move {
+            let mut interval =
+                tokio::time::interval(std::time::Duration::from_secs(INACTIVITY_POLL_SECS));
+            loop {
+                interval.tick().await;
+                let Some(mgr) = manager_weak_inact.upgrade() else {
+                    return;
+                };
+                if mgr.active_id().await.as_deref() != Some(&id_for_inact) {
+                    return; // meeting stopped or replaced
+                }
+                let last = activity_clock.load(std::sync::atomic::Ordering::Relaxed);
+                let now = chrono::Utc::now().timestamp_millis().max(0) as u64;
+                if inactivity_should_stop(now, last, INACTIVITY_STOP_MS) {
+                    tracing::info!(
+                        id = %id_for_inact,
+                        silent_ms = now.saturating_sub(last),
+                        "inactivity backstop: no speech, auto-stopping"
+                    );
+                    let _ = mgr.stop().await;
+                    return;
                 }
             }
         });
@@ -1048,6 +1081,24 @@ pub fn build_flattened_body(
     out
 }
 
+/// Inactivity backstop threshold: after this much continuous silence (no
+/// transcribed speech from anyone — mic or system audio), the meeting
+/// auto-stops even when window-based end detection can't see the meeting app.
+/// This is the safety net for the case where the user ends a call but stays
+/// focused in another app, so the window monitor only ever observes
+/// `Presence::Unknown`. See `detector::evaluate_meeting_presence`.
+const INACTIVITY_STOP_MS: u64 = 5 * 60 * 1000;
+
+/// Poll interval for the inactivity backstop timer.
+const INACTIVITY_POLL_SECS: u64 = 30;
+
+/// Pure decision for the inactivity backstop: stop once silence has lasted at
+/// least `threshold_ms`. Kept side-effect-free so it can be unit-tested without
+/// timers or a live meeting.
+fn inactivity_should_stop(now_ms: u64, last_activity_ms: u64, threshold_ms: u64) -> bool {
+    now_ms.saturating_sub(last_activity_ms) >= threshold_ms
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1066,6 +1117,19 @@ mod tests {
             created_at: "2026-05-01T00:00:00Z".into(),
             archived_at: None,
         }
+    }
+
+    #[test]
+    fn inactivity_should_stop_fires_only_after_threshold() {
+        let threshold = 5 * 60 * 1000; // 5 min
+        // Fresh activity (just talked) — keep recording.
+        assert!(!inactivity_should_stop(10 * 60_000, 10 * 60_000, threshold));
+        // 4 minutes of silence — still under threshold, keep recording.
+        assert!(!inactivity_should_stop(4 * 60_000, 0, threshold));
+        // Exactly at the threshold — stop.
+        assert!(inactivity_should_stop(5 * 60_000, 0, threshold));
+        // Well past the threshold — stop.
+        assert!(inactivity_should_stop(30 * 60_000, 10 * 60_000, threshold));
     }
 
     #[test]
@@ -1121,6 +1185,7 @@ mod tests {
             mic_only: false,
             calendar_match_json: None,
             guide_template_json: None,
+            project_name: None,
         }).unwrap();
     }
 

@@ -4,9 +4,27 @@
 use crate::asr::pipeline::AsrPipeline;
 use crate::meeting::{ChunkReady, Segment, Speaker};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
 use tracing::{error, info, warn};
+
+/// Advance `clock` to `now_ms` iff `raw_text` contains real speech.
+///
+/// Used by the meeting inactivity backstop: every transcribed chunk that
+/// produced non-empty text bumps the activity clock. Silent chunks (empty or
+/// whitespace-only transcription) leave it untouched, so the gap since the
+/// clock last moved measures how long the meeting has been quiet.
+pub(crate) fn note_activity(clock: &AtomicU64, raw_text: &str, now_ms: u64) {
+    if !raw_text.trim().is_empty() {
+        clock.store(now_ms, Ordering::Relaxed);
+    }
+}
+
+/// Wall-clock milliseconds since the Unix epoch, clamped non-negative.
+fn now_ms() -> u64 {
+    chrono::Utc::now().timestamp_millis().max(0) as u64
+}
 
 /// Fires once per post-stitch segment that survives the empty-trim. Used by
 /// the live guidance engine; never called during plain (non-guided) meetings.
@@ -70,6 +88,9 @@ pub struct Pipeline {
     /// Last OVERLAP_SAMPLES of f32 PCM per speaker. Bounded by construction.
     tails: Arc<Mutex<(Vec<f32>, Vec<f32>)>>,
     on_segment: Option<SegmentObserver>,
+    /// Epoch-millis of the last chunk that produced non-empty transcription.
+    /// Drives the meeting inactivity backstop (see `meeting::inactivity_should_stop`).
+    last_activity_ms: Arc<AtomicU64>,
 }
 
 impl Pipeline {
@@ -80,7 +101,16 @@ impl Pipeline {
             failed_dir,
             tails: Arc::new(Mutex::new((Vec::new(), Vec::new()))),
             on_segment: None,
+            // Seed with "now" so a meeting that opens to dead air still has a
+            // sane baseline for the backstop's elapsed-since-speech math.
+            last_activity_ms: Arc::new(AtomicU64::new(now_ms())),
         }
+    }
+
+    /// Shared handle to the last-speech clock, for the inactivity backstop timer.
+    /// Clone before moving the pipeline into `ActiveMeeting`.
+    pub fn activity_clock(&self) -> Arc<AtomicU64> {
+        self.last_activity_ms.clone()
     }
 
     /// Attach a per-segment observer. Must be called BEFORE `spawn_drain`.
@@ -107,6 +137,7 @@ impl Pipeline {
         let failed_dir = self.failed_dir.clone();
         let tails = self.tails.clone();
         let on_segment = self.on_segment.clone();
+        let last_activity_ms = self.last_activity_ms.clone();
         // Sequential drain: process chunks strictly in `rx` arrival order.
         // One transcription runs at a time by construction (Parakeet on ANE
         // is single-tenant), so the tail-read → transcribe → tail-write
@@ -156,6 +187,10 @@ impl Pipeline {
 
                 match asr.transcribe(transcribe_input, 16_000, 1).await {
                     Ok(raw_text) => {
+                        // Mark meeting activity on raw (pre-stitch) speech so the
+                        // inactivity backstop measures real audio, not the
+                        // post-dedup transcript.
+                        note_activity(&last_activity_ms, &raw_text, now_ms());
                         // Update the retained tail to this chunk's last
                         // OVERLAP_SAMPLES (bounded — old tail dropped).
                         {
@@ -234,6 +269,18 @@ impl Pipeline {
 mod tests {
     use super::*;
     use crate::meeting::{Segment, Speaker};
+
+    #[test]
+    fn note_activity_advances_clock_only_for_real_speech() {
+        let clock = AtomicU64::new(0);
+        // Silent chunks (empty / whitespace-only transcription) leave it alone.
+        note_activity(&clock, "", 1_000);
+        note_activity(&clock, "   ", 2_000);
+        assert_eq!(clock.load(Ordering::Relaxed), 0);
+        // Real speech bumps the clock to the supplied timestamp.
+        note_activity(&clock, "hello team", 5_000);
+        assert_eq!(clock.load(Ordering::Relaxed), 5_000);
+    }
 
     #[test]
     fn with_observer_attaches_callback() {

@@ -2088,6 +2088,7 @@ pub async fn meeting_consent(
             // Start the meeting first; only persist the `Always` pref if
             // the start succeeds, so a transient AsrNotReady doesn't leave
             // a sticky pref the user never confirmed worked.
+            let bundle_for_monitor = bundle_id.clone();
             let id = state
                 .meeting_manager
                 .clone()
@@ -2098,6 +2099,13 @@ pub async fn meeting_consent(
                 )
                 .await
                 .map_err(|e| e.to_string())?;
+            // Window-based end detection (the auto-start path spawns this; the
+            // consent path must too, or these meetings rely solely on the
+            // inactivity backstop / hard cap to stop).
+            crate::meeting::detector::spawn_end_monitor(
+                state.meeting_manager.clone(),
+                Some(bundle_for_monitor),
+            );
             prefs.insert(bundle_id, MeetingAppPref::Always);
             state
                 .settings
@@ -2106,6 +2114,7 @@ pub async fn meeting_consent(
             Ok(Some(id))
         }
         "once" => {
+            let bundle_for_monitor = bundle_id.clone();
             let id = state
                 .meeting_manager
                 .clone()
@@ -2116,6 +2125,10 @@ pub async fn meeting_consent(
                 )
                 .await
                 .map_err(|e| e.to_string())?;
+            crate::meeting::detector::spawn_end_monitor(
+                state.meeting_manager.clone(),
+                Some(bundle_for_monitor),
+            );
             Ok(Some(id))
         }
         "never" => {

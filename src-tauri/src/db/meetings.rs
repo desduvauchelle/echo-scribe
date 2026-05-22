@@ -29,6 +29,11 @@ pub struct MeetingRow {
     /// template must not rewrite history.
     #[serde(default)]
     pub guide_template_json: Option<String>,
+    /// Name of the project this meeting's item is assigned to, resolved via a
+    /// LEFT JOIN at read time. `None` when unassigned. Not a stored column —
+    /// derived from `items.project_id`, so it reflects later reassignment.
+    #[serde(default)]
+    pub project_name: Option<String>,
 }
 
 pub fn insert_meeting(conn: &Connection, m: &MeetingRow) -> Result<(), DbError> {
@@ -60,10 +65,13 @@ pub fn insert_meeting(conn: &Connection, m: &MeetingRow) -> Result<(), DbError> 
 
 pub fn get_meeting(conn: &Connection, item_id: &str) -> Result<Option<MeetingRow>, DbError> {
     conn.query_row(
-        "SELECT item_id, started_at, ended_at, duration_ms, detected_app, detected_app_name,
-                status, transcript_json, summary_json, user_notes, failed_chunk_count, mic_only,
-                calendar_match_json, guide_template_json
-         FROM meetings WHERE item_id = ?1",
+        "SELECT m.item_id, m.started_at, m.ended_at, m.duration_ms, m.detected_app, m.detected_app_name,
+                m.status, m.transcript_json, m.summary_json, m.user_notes, m.failed_chunk_count, m.mic_only,
+                m.calendar_match_json, m.guide_template_json, p.name
+         FROM meetings m
+         JOIN items i ON i.id = m.item_id
+         LEFT JOIN projects p ON p.id = i.project_id
+         WHERE m.item_id = ?1",
         [item_id],
         row_to_meeting,
     )
@@ -73,10 +81,13 @@ pub fn get_meeting(conn: &Connection, item_id: &str) -> Result<Option<MeetingRow
 
 pub fn list_meetings(conn: &Connection) -> Result<Vec<MeetingRow>, DbError> {
     let mut stmt = conn.prepare(
-        "SELECT item_id, started_at, ended_at, duration_ms, detected_app, detected_app_name,
-                status, transcript_json, summary_json, user_notes, failed_chunk_count, mic_only,
-                calendar_match_json, guide_template_json
-         FROM meetings ORDER BY started_at DESC",
+        "SELECT m.item_id, m.started_at, m.ended_at, m.duration_ms, m.detected_app, m.detected_app_name,
+                m.status, m.transcript_json, m.summary_json, m.user_notes, m.failed_chunk_count, m.mic_only,
+                m.calendar_match_json, m.guide_template_json, p.name
+         FROM meetings m
+         JOIN items i ON i.id = m.item_id
+         LEFT JOIN projects p ON p.id = i.project_id
+         ORDER BY m.started_at DESC",
     )?;
     let rows = stmt
         .query_map([], row_to_meeting)?
@@ -182,6 +193,7 @@ fn row_to_meeting(row: &rusqlite::Row<'_>) -> rusqlite::Result<MeetingRow> {
         mic_only: row.get::<_, i64>(11)? != 0,
         calendar_match_json: row.get(12)?,
         guide_template_json: row.get(13)?,
+        project_name: row.get(14)?,
     })
 }
 
@@ -218,6 +230,7 @@ mod tests {
             mic_only: false,
             calendar_match_json: None,
             guide_template_json: None,
+            project_name: None,
         }
     }
 
