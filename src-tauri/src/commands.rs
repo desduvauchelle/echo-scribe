@@ -2863,6 +2863,48 @@ pub fn reveal_recording(state: State<'_, AppState>, id: String) -> Result<(), St
     Ok(())
 }
 
+/// Transcode a recording to `quality` ("1080"|"720"|"480"), store the output
+/// next to the source as `<stem>-<quality>.mp4`, and merge it into the row's
+/// `exports` JSON (replacing any prior export of the same quality). Returns the
+/// updated row.
+#[tauri::command]
+pub fn export_recording(
+    state: State<'_, AppState>,
+    id: String,
+    quality: String,
+) -> Result<crate::db::recordings::RecordingRow, String> {
+    let db = require_db(&state)?;
+    let row = db
+        .with_conn(|c| crate::db::recordings::get(c, &id))
+        .map_err(|e| e.to_string())?
+        .ok_or("recording not found")?;
+    let src = std::path::PathBuf::from(&row.file_path);
+    let stem = src
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("rec")
+        .to_string();
+    let dir = crate::screenrec::recordings_dir().map_err(|e| e.to_string())?;
+    let out = dir.join(format!("{stem}-{quality}.mp4"));
+
+    let done = crate::screenrec::export(&src, &out, &quality)?;
+
+    let mut exports: Vec<serde_json::Value> =
+        serde_json::from_str(&row.exports).unwrap_or_default();
+    exports.retain(|e| e.get("quality").and_then(|q| q.as_str()) != Some(quality.as_str()));
+    exports.push(serde_json::json!({
+        "quality": quality,
+        "path": done.path,
+        "size": done.size,
+    }));
+    let exports_json = serde_json::to_string(&exports).map_err(|e| e.to_string())?;
+    db.with_conn(|c| crate::db::recordings::update_exports(c, &id, &exports_json))
+        .map_err(|e| e.to_string())?;
+    db.with_conn(|c| crate::db::recordings::get(c, &id))
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "recording vanished".to_string())
+}
+
 #[tauri::command]
 pub fn open_screenrec_setup(app: AppHandle) -> Result<(), String> {
     crate::overlay::show_screenrec_setup(&app);
