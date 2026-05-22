@@ -361,3 +361,82 @@ pub fn hide_guide_overlay(app_handle: &AppHandle<Wry>) {
         let _ = w.hide();
     }
 }
+
+// ---------------------------------------------------------------------------
+// Screen-recording setup window
+// ---------------------------------------------------------------------------
+
+const SCREENREC_SETUP_WIDTH: f64 = 460.0;
+const SCREENREC_SETUP_HEIGHT: f64 = 560.0;
+
+/// Returns the (x, y) logical-coordinate origin to centre a window of the
+/// given logical size on the primary monitor.
+fn calculate_center_position(
+    app_handle: &AppHandle<Wry>,
+    width: f64,
+    height: f64,
+) -> Option<(f64, f64)> {
+    let monitor = app_handle.primary_monitor().ok().flatten()?;
+    let scale = monitor.scale_factor();
+    let monitor_x = monitor.position().x as f64 / scale;
+    let monitor_y = monitor.position().y as f64 / scale;
+    let monitor_width = monitor.size().width as f64 / scale;
+    let monitor_height = monitor.size().height as f64 / scale;
+    let x = monitor_x + (monitor_width - width) / 2.0;
+    let y = monitor_y + (monitor_height - height) / 2.0;
+    Some((x, y))
+}
+
+/// Creates the screen-recording setup window (hidden, decorated, opaque).
+/// Call once at startup alongside the other `create_*_overlay` calls.
+pub fn create_screenrec_setup(app_handle: &AppHandle<Wry>) {
+    if app_handle.get_webview_window("screenrec_setup").is_some() {
+        debug!("screenrec_setup window already exists; skipping create");
+        return;
+    }
+
+    let (x, y) = calculate_center_position(app_handle, SCREENREC_SETUP_WIDTH, SCREENREC_SETUP_HEIGHT)
+        .unwrap_or((200.0, 200.0));
+
+    match WebviewWindowBuilder::new(
+        app_handle,
+        "screenrec_setup",
+        tauri::WebviewUrl::App("src/screenrec-setup/index.html".into()),
+    )
+    .title("Recording setup")
+    .position(x, y)
+    .inner_size(SCREENREC_SETUP_WIDTH, SCREENREC_SETUP_HEIGHT)
+    .resizable(true)
+    .decorations(true)
+    .transparent(false)
+    .always_on_top(false)
+    .skip_taskbar(false)
+    .focused(true)
+    .visible(false)
+    .build()
+    {
+        Ok(_) => {
+            debug!("screenrec_setup window created (hidden)");
+        }
+        Err(e) => {
+            error!("failed to create screenrec_setup window: {}", e);
+        }
+    }
+}
+
+/// Shows (and focuses) the screen-recording setup window.
+/// If the window was never created, creates it first.
+pub fn show_screenrec_setup(app_handle: &AppHandle<Wry>) {
+    if app_handle.get_webview_window("screenrec_setup").is_none() {
+        create_screenrec_setup(app_handle);
+    }
+    if let Some(w) = app_handle.get_webview_window("screenrec_setup") {
+        // Re-centre on show so the window lands correctly even if the user
+        // moved it or changed their monitor layout since startup.
+        if let Some((x, y)) = calculate_center_position(app_handle, SCREENREC_SETUP_WIDTH, SCREENREC_SETUP_HEIGHT) {
+            let _ = w.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
+        }
+        let _ = w.show();
+        let _ = w.set_focus();
+    }
+}

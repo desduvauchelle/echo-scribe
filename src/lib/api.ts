@@ -947,4 +947,6 @@ export const getScreenrecAudioPrefs = (): Promise<ScreenrecAudioPrefs> =>
   invoke("get_screenrec_audio_prefs");
 export const setScreenrecAudioPrefs = (prefs: ScreenrecAudioPrefs): Promise<void> =>
   invoke("set_screenrec_audio_prefs", { prefs });
+export const openScreenrecSetup = (): Promise<void> =>
+  invoke("open_screenrec_setup");
 

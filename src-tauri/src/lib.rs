@@ -69,6 +69,7 @@ use crate::commands::{
     list_screen_sources,
     get_screenrec_audio_prefs,
     set_screenrec_audio_prefs,
+    open_screenrec_setup,
     AppState,
 };
 use crate::llm::Llm;
@@ -311,6 +312,7 @@ pub fn run() {
             list_screen_sources,
             get_screenrec_audio_prefs,
             set_screenrec_audio_prefs,
+            open_screenrec_setup,
         ])
         .setup(move |app| {
             // Tray.
@@ -552,6 +554,7 @@ pub fn run() {
             crate::overlay::create_recording_overlay(&app.handle().clone());
             crate::overlay::create_consent_overlay(&app.handle().clone());
             crate::overlay::create_guide_overlay(&app.handle().clone());
+            crate::overlay::create_screenrec_setup(&app.handle().clone());
 
             // If permissions are already green at startup AND a model is
             // ready, auto-start the pipeline so returning users don't need to
