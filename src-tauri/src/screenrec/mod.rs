@@ -54,6 +54,47 @@ pub fn list_sources() -> Result<Sources, String> {
     parse_sources(&text)
 }
 
+/// Extract a recording's audio track to a 16kHz mono WAV at `out_wav`.
+/// Returns `Ok(())` on success. The Err string is user-facing; the special
+/// value `"no_audio"` is returned when the recording has no audio track so the
+/// caller can show a friendly message.
+pub fn extract_audio(mp4: &std::path::Path, out_wav: &std::path::Path) -> Result<(), String> {
+    let bin = resolve_binary().map_err(|e| e.to_string())?;
+    let out = Command::new(&bin)
+        .arg("extract-audio")
+        .arg("--in")
+        .arg(mp4)
+        .arg("--out")
+        .arg(out_wav)
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|e| e.to_string())?;
+
+    if out.status.success() {
+        return Ok(());
+    }
+
+    // Inspect stderr for the structured error kind (scan from the last line).
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    for line in stderr.lines().rev() {
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(line) {
+            if val.get("event").and_then(|v| v.as_str()) == Some("error") {
+                let kind = val.get("kind").and_then(|v| v.as_str()).unwrap_or("");
+                if kind == "no_audio" {
+                    return Err("no_audio".into());
+                }
+                let msg = val.get("msg").and_then(|v| v.as_str()).unwrap_or("unknown");
+                return Err(format!("audio extraction failed: {msg}"));
+            }
+        }
+    }
+    Err(format!(
+        "audio extraction failed (exit {:?})",
+        out.status.code()
+    ))
+}
+
 /// Parsed `stopped` event payload from the sidecar.
 #[derive(Debug, Clone, PartialEq)]
 pub struct StoppedInfo {
