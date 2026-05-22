@@ -1,6 +1,8 @@
 //! Supervises the `echo-scribe-screenrec` sidecar: spawn, read stderr JSON
 //! events, finalize on SIGTERM. Mirrors `meeting/syscap.rs`.
 
+pub mod drive;
+
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
