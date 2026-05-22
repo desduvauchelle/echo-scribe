@@ -8,6 +8,7 @@ import {
   MessageSquare,
   Mic,
   Settings as SettingsIcon,
+  Video,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -19,6 +20,7 @@ import {
 import { formatBinding } from "../lib/binding";
 import ActivityFeed from "./sections/ActivityFeed";
 import { MeetingsView } from "./sections/MeetingsView";
+import { RecordingsView } from "./sections/RecordingsView";
 import ChatView from "./sections/ChatView";
 import DashboardView from "./sections/DashboardView";
 import DailyView from "./sections/DailyView";
@@ -28,6 +30,7 @@ export type MainSection =
   | { kind: "dashboard" }
   | { kind: "daily"; date?: string }
   | { kind: "meetings" }
+  | { kind: "recordings" }
   | { kind: "project"; id: string };
 
 type Props = {
@@ -97,6 +100,8 @@ export default function Main({ onOpenSettings }: Props) {
         return <DailyView initialDate={section.date} />;
       case "meetings":
         return <MeetingsView />;
+      case "recordings":
+        return <RecordingsView />;
     }
   };
 
@@ -140,6 +145,12 @@ export default function Main({ onOpenSettings }: Props) {
             label="Meetings"
             active={section.kind === "meetings"}
             onClick={() => setSection({ kind: "meetings" })}
+          />
+          <NavItem
+            icon={Video}
+            label="Recordings"
+            active={section.kind === "recordings"}
+            onClick={() => setSection({ kind: "recordings" })}
           />
           <NavItem
             icon={CalendarDays}

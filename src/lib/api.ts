@@ -890,3 +890,37 @@ export const resetActionCounter = (): Promise<void> =>
 export const getCommonActions = (): Promise<CommonActionTemplate[]> =>
   invoke("get_common_actions");
 
+// ============= Screen Recordings =============
+
+export type RecordingRow = {
+  id: string;
+  created_at: number;
+  file_path: string;
+  duration_ms: number | null;
+  width: number | null;
+  height: number | null;
+  size_bytes: number | null;
+  source_label: string | null;
+  has_mic: boolean;
+  has_sysaudio: boolean;
+  thumb_path: string | null;
+  drive_file_id: string | null;
+  drive_link: string | null;
+  upload_status: string;
+  upload_error: string | null;
+  exports: string;
+};
+
+export const startScreenRecording = (): Promise<void> =>
+  invoke("start_screen_recording");
+export const stopScreenRecording = (): Promise<RecordingRow> =>
+  invoke("stop_screen_recording");
+export const isScreenRecording = (): Promise<boolean> =>
+  invoke("is_screen_recording");
+export const listRecordings = (): Promise<RecordingRow[]> =>
+  invoke("list_recordings");
+export const deleteRecording = (id: string): Promise<void> =>
+  invoke("delete_recording", { id });
+export const revealRecording = (id: string): Promise<void> =>
+  invoke("reveal_recording", { id });
+
