@@ -246,6 +246,12 @@ CREATE INDEX IF NOT EXISTS idx_recordings_created_at ON recordings(created_at DE
 ALTER TABLE recordings ADD COLUMN title TEXT;
 "#,
     ),
+    (
+        15,
+        r#"
+ALTER TABLE recordings ADD COLUMN transcript TEXT;
+"#,
+    ),
 ];
 
 const META_TABLE_SQL: &str = r#"
@@ -307,7 +313,7 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(v, "14");
+        assert_eq!(v, "15");
     }
 
     #[test]
@@ -428,7 +434,7 @@ mod tests {
         let version: String = conn
             .query_row("SELECT value FROM schema_meta WHERE key = 'schema_version'", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(version, "14");
+        assert_eq!(version, "15");
     }
 
     #[test]

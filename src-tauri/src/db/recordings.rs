@@ -23,6 +23,8 @@ pub struct RecordingRow {
     pub exports: String,
     /// User-assigned display name; falls back to `source_label` when `None`.
     pub title: Option<String>,
+    /// Cached plain-text transcript; `None` until generated on demand.
+    pub transcript: Option<String>,
 }
 
 pub fn insert(conn: &Connection, r: &RecordingRow) -> Result<(), DbError> {
@@ -30,8 +32,8 @@ pub fn insert(conn: &Connection, r: &RecordingRow) -> Result<(), DbError> {
         "INSERT INTO recordings (
             id, created_at, file_path, duration_ms, width, height, size_bytes,
             source_label, has_mic, has_sysaudio, thumb_path, drive_file_id,
-            drive_link, upload_status, upload_error, exports, title
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+            drive_link, upload_status, upload_error, exports, title, transcript
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
         params![
             r.id,
             r.created_at,
@@ -50,6 +52,7 @@ pub fn insert(conn: &Connection, r: &RecordingRow) -> Result<(), DbError> {
             r.upload_error,
             r.exports,
             r.title,
+            r.transcript,
         ],
     )?;
     Ok(())
@@ -59,7 +62,7 @@ pub fn list(conn: &Connection) -> Result<Vec<RecordingRow>, DbError> {
     let mut stmt = conn.prepare(
         "SELECT id, created_at, file_path, duration_ms, width, height, size_bytes,
                 source_label, has_mic, has_sysaudio, thumb_path, drive_file_id,
-                drive_link, upload_status, upload_error, exports, title
+                drive_link, upload_status, upload_error, exports, title, transcript
          FROM recordings
          ORDER BY created_at DESC",
     )?;
@@ -73,7 +76,7 @@ pub fn get(conn: &Connection, id: &str) -> Result<Option<RecordingRow>, DbError>
     conn.query_row(
         "SELECT id, created_at, file_path, duration_ms, width, height, size_bytes,
                 source_label, has_mic, has_sysaudio, thumb_path, drive_file_id,
-                drive_link, upload_status, upload_error, exports, title
+                drive_link, upload_status, upload_error, exports, title, transcript
          FROM recordings WHERE id = ?1",
         [id],
         row_to_recording,
@@ -92,6 +95,15 @@ pub fn rename(conn: &Connection, id: &str, title: &str) -> Result<(), DbError> {
     conn.execute(
         "UPDATE recordings SET title = ?1 WHERE id = ?2",
         params![title, id],
+    )?;
+    Ok(())
+}
+
+/// Store the generated transcript text for a recording.
+pub fn set_transcript(conn: &Connection, id: &str, transcript: &str) -> Result<(), DbError> {
+    conn.execute(
+        "UPDATE recordings SET transcript = ?1 WHERE id = ?2",
+        params![transcript, id],
     )?;
     Ok(())
 }
@@ -115,6 +127,7 @@ fn row_to_recording(row: &rusqlite::Row<'_>) -> rusqlite::Result<RecordingRow> {
         upload_error: row.get(14)?,
         exports: row.get(15)?,
         title: row.get(16)?,
+        transcript: row.get(17)?,
     })
 }
 
@@ -148,6 +161,7 @@ mod tests {
             upload_error: None,
             exports: "[]".into(),
             title: None,
+            transcript: None,
         }
     }
 
@@ -193,6 +207,19 @@ mod tests {
         assert_eq!(
             get(&conn, "rec-1").unwrap().unwrap().title.as_deref(),
             Some("Demo walkthrough")
+        );
+    }
+
+    #[test]
+    fn set_transcript_round_trip() {
+        let conn = setup();
+        insert(&conn, &sample()).unwrap();
+        assert_eq!(get(&conn, "rec-1").unwrap().unwrap().transcript, None);
+
+        set_transcript(&conn, "rec-1", "hello world").unwrap();
+        assert_eq!(
+            get(&conn, "rec-1").unwrap().unwrap().transcript.as_deref(),
+            Some("hello world")
         );
     }
 }

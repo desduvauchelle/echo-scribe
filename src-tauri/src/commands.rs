@@ -2709,6 +2709,7 @@ pub fn stop_screen_recording_inner(
         upload_error: None,
         exports: "[]".into(),
         title: None,
+        transcript: None,
     };
     let db = state.db.as_ref().ok_or_else(|| "database not available".to_string())?;
     db.with_conn(|c| crate::db::recordings::insert(c, &row))
