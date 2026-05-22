@@ -911,8 +911,20 @@ export type RecordingRow = {
   exports: string;
 };
 
-export const startScreenRecording = (): Promise<void> =>
-  invoke("start_screen_recording");
+export const startScreenRecording = (p: {
+  display_id?: number | null;
+  window_id?: number | null;
+  mic_device?: string | null;
+  sysaudio: boolean;
+  source_label: string;
+}): Promise<void> =>
+  invoke("start_screen_recording", {
+    displayId: p.display_id ?? null,
+    windowId: p.window_id ?? null,
+    micDevice: p.mic_device ?? null,
+    sysaudio: p.sysaudio,
+    sourceLabel: p.source_label,
+  });
 export const stopScreenRecording = (): Promise<RecordingRow> =>
   invoke("stop_screen_recording");
 export const isScreenRecording = (): Promise<boolean> =>

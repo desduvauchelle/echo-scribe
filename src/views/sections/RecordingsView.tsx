@@ -46,7 +46,7 @@ export function RecordingsView() {
       if (recording) {
         await stopScreenRecording();
       } else {
-        await startScreenRecording();
+        await startScreenRecording({ sysaudio: true, source_label: "Entire screen" });
       }
       await refresh();
     } catch (e) {

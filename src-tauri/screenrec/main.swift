@@ -47,13 +47,21 @@ if CommandLine.arguments.contains("--list-sources") {
     }
 }
 
-// --- arg parsing: `record --out <path>` ---
+// --- arg parsing: `record --out <path> [--display <id>] [--window <id>] [--no-sysaudio] [--mic <uid>]` ---
 var outPath: String?
+var argDisplayID: UInt32?
+var argWindowID: UInt32?
+var argNoSysaudio: Bool = false
+var argMicUID: String?
 do {
     let args = CommandLine.arguments
     var i = 1
     while i < args.count {
         if args[i] == "--out", i + 1 < args.count { outPath = args[i + 1]; i += 1 }
+        else if args[i] == "--display", i + 1 < args.count { argDisplayID = UInt32(args[i + 1]); i += 1 }
+        else if args[i] == "--window", i + 1 < args.count { argWindowID = UInt32(args[i + 1]); i += 1 }
+        else if args[i] == "--no-sysaudio" { argNoSysaudio = true }
+        else if args[i] == "--mic", i + 1 < args.count { argMicUID = args[i + 1]; i += 1 }
         i += 1
     }
 }
@@ -67,7 +75,7 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
     let outURL: URL
     var writer: AVAssetWriter!
     var videoInput: AVAssetWriterInput!
-    var audioInput: AVAssetWriterInput!
+    var audioInput: AVAssetWriterInput?
     var sessionStarted = false
     var startPTS: CMTime = .zero
     var lastPTS: CMTime = .zero
@@ -85,10 +93,13 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
     // torn-CMTime data race and guarantees markAsFinished can't race an append.
     let stateQ = DispatchQueue(label: "screenrec.state")
 
-    init(outURL: URL, width: Int, height: Int) {
+    var capturesAudio: Bool = true
+
+    init(outURL: URL, width: Int, height: Int, capturesAudio: Bool = true) {
         self.outURL = outURL
         self.pxWidth = width
         self.pxHeight = height
+        self.capturesAudio = capturesAudio
         super.init()
     }
 
@@ -108,19 +119,22 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
         }
         writer.add(videoInput)
 
-        let audioSettings: [String: Any] = [
-            AVFormatIDKey: kAudioFormatMPEG4AAC,
-            AVNumberOfChannelsKey: 2,
-            AVSampleRateKey: 48000,
-            AVEncoderBitRateKey: 128000,
-        ]
-        audioInput = AVAssetWriterInput(mediaType: .audio, outputSettings: audioSettings)
-        audioInput.expectsMediaDataInRealTime = true
-        guard writer.canAdd(audioInput) else {
-            throw NSError(domain: "screenrec", code: 3,
-                          userInfo: [NSLocalizedDescriptionKey: "cannot add audio input to writer"])
+        if capturesAudio {
+            let audioSettings: [String: Any] = [
+                AVFormatIDKey: kAudioFormatMPEG4AAC,
+                AVNumberOfChannelsKey: 2,
+                AVSampleRateKey: 48000,
+                AVEncoderBitRateKey: 128000,
+            ]
+            let ai = AVAssetWriterInput(mediaType: .audio, outputSettings: audioSettings)
+            ai.expectsMediaDataInRealTime = true
+            guard writer.canAdd(ai) else {
+                throw NSError(domain: "screenrec", code: 3,
+                              userInfo: [NSLocalizedDescriptionKey: "cannot add audio input to writer"])
+            }
+            writer.add(ai)
+            audioInput = ai
         }
-        writer.add(audioInput)
 
         guard writer.startWriting() else {
             throw NSError(domain: "screenrec", code: 1,
@@ -131,7 +145,9 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
     func start() throws {
         try setupWriter()
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: DispatchQueue(label: "screenrec.screen"))
-        try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: DispatchQueue(label: "screenrec.audio"))
+        if capturesAudio {
+            try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: DispatchQueue(label: "screenrec.audio"))
+        }
         stream.startCapture { [weak self] err in
             if let err = err { emitFatal("start", err.localizedDescription) }
             emit(["event": "ready"])
@@ -176,8 +192,8 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
                     if videoInput.append(sampleBuffer) { vAppended += 1 } else { vFailed += 1; reportAppendFailure("video") }
                 }
             case .audio:
-                if audioInput.isReadyForMoreMediaData {
-                    if audioInput.append(sampleBuffer) { aAppended += 1 } else { aFailed += 1; reportAppendFailure("audio") }
+                if capturesAudio, let ai = audioInput, ai.isReadyForMoreMediaData {
+                    if ai.append(sampleBuffer) { aAppended += 1 } else { aFailed += 1; reportAppendFailure("audio") }
                 }
             default:
                 break
@@ -249,7 +265,7 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
             "a_failed": aFailed,
         ])
         videoInput.markAsFinished()
-        audioInput.markAsFinished()
+        if capturesAudio { audioInput?.markAsFinished() }
         writer.finishWriting { [weak self] in
             guard let self = self else { exit(exitCode) }
             let size: Int = (try? FileManager.default.attributesOfItem(atPath: self.outURL.path)[.size] as? Int) ?? 0
@@ -299,44 +315,77 @@ final class Pinned {
     var termSource: DispatchSourceSignal?
 }
 
+// Clamp (w, h) so the long edge ≤ 3840, then enforce even dimensions for H.264.
+func clampDims(_ w: Int, _ h: Int) -> (Int, Int) {
+    var capW = w
+    var capH = h
+    let maxEdge = 3840
+    let longEdge = max(capW, capH)
+    if longEdge > maxEdge {
+        let scale = Double(maxEdge) / Double(longEdge)
+        capW = Int((Double(capW) * scale).rounded())
+        capH = Int((Double(capH) * scale).rounded())
+    }
+    capW -= capW % 2   // H.264 requires even dimensions
+    capH -= capH % 2
+    return (capW, capH)
+}
+
 @available(macOS 14.0, *)
 @MainActor
 func run() async {
     do {
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
-        guard let display = content.displays.first else { emitFatal("no_display", "no shareable display") }
-        let excluded = content.applications.filter { $0.bundleIdentifier == OWN_BUNDLE_ID }
-        let filter = SCContentFilter(display: display, excludingApplications: excluded, exceptingWindows: [])
 
         let cfg = SCStreamConfiguration()
-        cfg.capturesAudio = true
+        // System audio: default ON, disabled by --no-sysaudio.
+        cfg.capturesAudio = !argNoSysaudio
         cfg.excludesCurrentProcessAudio = true
         cfg.sampleRate = 48000
         cfg.channelCount = 2
-        // Capture at the display's true pixel resolution, but clamp the long
-        // edge so we never exceed the H.264 encoder's maximum frame size. An
-        // oversized frame makes AVAssetWriter fail on the first append and
-        // produce a 0-byte file (observed on a 5120-wide display where the old
-        // `display.width * 2` = 10240 exceeded the encoder limit).
-        let mode = CGDisplayCopyDisplayMode(display.displayID)
-        var capW = mode?.pixelWidth ?? display.width
-        var capH = mode?.pixelHeight ?? display.height
-        let maxEdge = 3840
-        let longEdge = max(capW, capH)
-        if longEdge > maxEdge {
-            let scale = Double(maxEdge) / Double(longEdge)
-            capW = Int((Double(capW) * scale).rounded())
-            capH = Int((Double(capH) * scale).rounded())
-        }
-        capW -= capW % 2   // H.264 requires even dimensions
-        capH -= capH % 2
-        cfg.width = capW
-        cfg.height = capH
         cfg.minimumFrameInterval = CMTime(value: 1, timescale: 30) // 30 fps
         cfg.queueDepth = 6
         cfg.showsCursor = true
 
-        let rec = Recorder(outURL: outURL, width: cfg.width, height: cfg.height)
+        let filter: SCContentFilter
+        let capW: Int
+        let capH: Int
+
+        if let windowID = argWindowID {
+            // Window capture
+            guard let window = content.windows.first(where: { $0.windowID == windowID }) else {
+                emitFatal("no_window", "window \(windowID) not found")
+            }
+            filter = SCContentFilter(desktopIndependentWindow: window)
+            let (w, h) = clampDims(Int(window.frame.width), Int(window.frame.height))
+            capW = w; capH = h
+        } else {
+            // Display capture (--display <id> or first display as default)
+            let excluded = content.applications.filter { $0.bundleIdentifier == OWN_BUNDLE_ID }
+            let display: SCDisplay
+            if let displayID = argDisplayID,
+               let found = content.displays.first(where: { $0.displayID == displayID }) {
+                display = found
+            } else if let first = content.displays.first {
+                display = first
+            } else {
+                emitFatal("no_display", "no shareable display")
+            }
+            filter = SCContentFilter(display: display, excludingApplications: excluded, exceptingWindows: [])
+            // Capture at the display's true pixel resolution, but clamp the long
+            // edge so we never exceed the H.264 encoder's maximum frame size. An
+            // oversized frame makes AVAssetWriter fail on the first append and
+            // produce a 0-byte file (observed on a 5120-wide display where the old
+            // `display.width * 2` = 10240 exceeded the encoder limit).
+            let mode = CGDisplayCopyDisplayMode(display.displayID)
+            let (w, h) = clampDims(mode?.pixelWidth ?? display.width, mode?.pixelHeight ?? display.height)
+            capW = w; capH = h
+        }
+
+        cfg.width = capW
+        cfg.height = capH
+
+        let rec = Recorder(outURL: outURL, width: capW, height: capH, capturesAudio: !argNoSysaudio)
         let stream = SCStream(filter: filter, configuration: cfg, delegate: rec)
         rec.stream = stream
         Pinned.shared.recorder = rec

@@ -35,6 +35,14 @@ use crate::permissions::{self, MicAccessOutcome, PermissionsStatus, SettingsPane
 use crate::settings::SettingsStore;
 use crate::ui::tray::TrayHandle;
 
+/// Metadata captured at recording-start time so `stop_screen_recording` can
+/// persist the correct source/audio info without re-deriving it.
+pub struct RecordingMeta {
+    pub source_label: String,
+    pub has_mic: bool,
+    pub has_sysaudio: bool,
+}
+
 /// Application-wide state shared by all Tauri commands.
 ///
 /// `tray` is held behind an `Arc<Mutex<_>>` because tray updates fire from
@@ -73,7 +81,7 @@ pub struct AppState {
     /// of `AppState` so logs flush on graceful exit — see `lib.rs::run`.
     pub _log_guard: Mutex<Option<tracing_appender::non_blocking::WorkerGuard>>,
     pub meeting_manager: Arc<crate::meeting::MeetingManager>,
-    pub active_recording: std::sync::Arc<std::sync::Mutex<Option<crate::screenrec::ScreenrecHandle>>>,
+    pub active_recording: std::sync::Arc<std::sync::Mutex<Option<(crate::screenrec::ScreenrecHandle, RecordingMeta)>>>,
 }
 
 /// JSON-friendly mirror of [`Binding`].
@@ -2615,7 +2623,14 @@ pub fn delete_guide_template(state: State<'_, AppState>, id: String) -> Result<(
 // ----- Screen recording commands -----
 
 #[tauri::command]
-pub fn start_screen_recording(state: State<'_, AppState>) -> Result<(), String> {
+pub fn start_screen_recording(
+    state: State<'_, AppState>,
+    display_id: Option<u32>,
+    window_id: Option<u32>,
+    mic_device: Option<String>,
+    sysaudio: bool,
+    source_label: String,
+) -> Result<(), String> {
     let mut guard = state.active_recording.lock().map_err(|_| "lock poisoned".to_string())?;
     if guard.is_some() {
         return Err("a recording is already in progress".into());
@@ -2629,8 +2644,19 @@ pub fn start_screen_recording(state: State<'_, AppState>) -> Result<(), String> 
             .as_millis()
     );
     let out_path = dir.join(format!("{id}.mp4"));
-    let handle = crate::screenrec::ScreenrecHandle::start(out_path)?;
-    *guard = Some(handle);
+    let params = crate::screenrec::RecordParams {
+        display_id,
+        window_id,
+        mic_device: mic_device.clone(),
+        sysaudio,
+    };
+    let handle = crate::screenrec::ScreenrecHandle::start(out_path, params)?;
+    let meta = RecordingMeta {
+        source_label,
+        has_mic: mic_device.is_some(),
+        has_sysaudio: sysaudio,
+    };
+    *guard = Some((handle, meta));
     Ok(())
 }
 
@@ -2644,7 +2670,7 @@ pub fn is_screen_recording(state: State<'_, AppState>) -> Result<bool, String> {
 pub fn stop_screen_recording(
     state: State<'_, AppState>,
 ) -> Result<crate::db::recordings::RecordingRow, String> {
-    let handle = {
+    let (handle, meta) = {
         let mut guard = state.active_recording.lock().map_err(|_| "lock poisoned".to_string())?;
         guard.take().ok_or("no recording in progress")?
     };
@@ -2665,9 +2691,9 @@ pub fn stop_screen_recording(
         width: Some(info.width),
         height: Some(info.height),
         size_bytes: Some(info.size),
-        source_label: Some("Entire screen".into()),
-        has_mic: false,
-        has_sysaudio: true,
+        source_label: Some(meta.source_label),
+        has_mic: meta.has_mic,
+        has_sysaudio: meta.has_sysaudio,
         thumb_path: if info.thumb.is_empty() { None } else { Some(info.thumb) },
         drive_file_id: None,
         drive_link: None,

@@ -123,6 +123,20 @@ pub fn recordings_dir() -> std::io::Result<PathBuf> {
     Ok(dir)
 }
 
+/// Parameters for a new recording session.
+#[derive(Debug, Clone, Default)]
+pub struct RecordParams {
+    /// Capture a specific display by its SCDisplay id.
+    pub display_id: Option<u32>,
+    /// Capture a specific window by its SCWindow id.
+    pub window_id: Option<u32>,
+    /// Mic device name/uid to mix in (wired up in T3; pushed now so the flag
+    /// round-trips through the sidecar's ignored-arg path).
+    pub mic_device: Option<String>,
+    /// Whether to capture system audio. Defaults to `true`.
+    pub sysaudio: bool,
+}
+
 /// A running screen recording. Holds the child process and the path it is
 /// writing to. Dropping it does not stop the recording — call `stop()`.
 pub struct ScreenrecHandle {
@@ -132,17 +146,29 @@ pub struct ScreenrecHandle {
 }
 
 impl ScreenrecHandle {
-    /// Spawn the sidecar to record the primary display + system audio to
-    /// `out_path`. Waits up to 5s for the sidecar to confirm capture is `ready`
+    /// Spawn the sidecar to record to `out_path` with the given `params`.
+    /// Waits up to 5s for the sidecar to confirm capture is `ready`
     /// (or report an `error` / exit early) before returning, so callers know
     /// the recording actually started rather than merely that the process spawned.
-    pub fn start(out_path: PathBuf) -> Result<Self, String> {
+    pub fn start(out_path: PathBuf, params: RecordParams) -> Result<Self, String> {
         let bin = resolve_binary().map_err(|e| e.to_string())?;
         info!(path = %bin.display(), out = %out_path.display(), "spawning screenrec");
-        let mut child = Command::new(&bin)
-            .arg("record")
-            .arg("--out")
-            .arg(&out_path)
+        let mut cmd = Command::new(&bin);
+        cmd.arg("record").arg("--out").arg(&out_path);
+        // Source selection: window takes priority over display.
+        if let Some(wid) = params.window_id {
+            cmd.arg("--window").arg(wid.to_string());
+        } else if let Some(did) = params.display_id {
+            cmd.arg("--display").arg(did.to_string());
+        }
+        // Audio flags.
+        if !params.sysaudio {
+            cmd.arg("--no-sysaudio");
+        }
+        if let Some(ref uid) = params.mic_device {
+            cmd.arg("--mic").arg(uid);
+        }
+        let mut child = cmd
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
             .stdin(Stdio::null())
