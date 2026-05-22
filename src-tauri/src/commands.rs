@@ -2849,6 +2849,122 @@ pub async fn transcribe_recording(
     Ok(text)
 }
 
+/// Compile-time switch: while denoise is being validated we keep the original
+/// file and expose an Original/Cleaned toggle. Set to `true` to delete the
+/// original after a successful denoise and keep only the cleaned file.
+const DELETE_ORIGINAL_AFTER_DENOISE: bool = false;
+
+/// Denoise a recording's audio and mux it into a new cleaned MP4.
+/// Emits `denoise-progress` events `{ id, pct }` while running.
+#[tauri::command]
+pub async fn denoise_recording(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<(), String> {
+    // Look up the original mp4 path; drop the DB borrow before any await.
+    let orig: std::path::PathBuf = {
+        let db = require_db(&state)?;
+        let row = db
+            .with_conn(|c| crate::db::recordings::get(c, &id))
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| "recording not found".to_string())?;
+        std::path::PathBuf::from(row.file_path)
+    };
+    if !orig.exists() {
+        return Err("recording file is missing on disk".into());
+    }
+
+    let dir = crate::screenrec::recordings_dir().map_err(|e| e.to_string())?;
+    let src_wav = dir.join(format!("{id}.dn-src.wav"));
+    let out_wav = dir.join(format!("{id}.dn-out.wav"));
+    let clean_mp4 = dir.join(format!("{id}.cleaned.mp4"));
+
+    let cleanup = |extra: Option<&std::path::Path>| {
+        let _ = std::fs::remove_file(&src_wav);
+        let _ = std::fs::remove_file(&out_wav);
+        if let Some(p) = extra {
+            let _ = std::fs::remove_file(p);
+        }
+    };
+
+    // 1. Extract 48kHz mono audio.
+    let orig_c = orig.clone();
+    let src_wav_c = src_wav.clone();
+    let extract = tokio::task::spawn_blocking(move || {
+        crate::screenrec::extract_audio_at(&orig_c, &src_wav_c, 48_000)
+    })
+    .await
+    .map_err(|_| "extraction task panicked".to_string())?;
+    if let Err(e) = extract {
+        cleanup(None);
+        if e == "no_audio" {
+            return Err("Recording has no audio".into());
+        }
+        return Err(e);
+    }
+
+    // 2. Denoise (progress emitted per frame batch).
+    let app_p = app.clone();
+    let id_p = id.clone();
+    let src_wav_c = src_wav.clone();
+    let out_wav_c = out_wav.clone();
+    let denoise = tokio::task::spawn_blocking(move || {
+        crate::denoise::denoise_wav(&src_wav_c, &out_wav_c, move |pct| {
+            let _ = app_p.emit("denoise-progress", serde_json::json!({ "id": id_p, "pct": pct }));
+        })
+    })
+    .await
+    .map_err(|_| "denoise task panicked".to_string())?;
+    if let Err(e) = denoise {
+        cleanup(None);
+        return Err(e.to_string());
+    }
+
+    // 3. Mux cleaned audio + original video → new mp4.
+    let orig_c = orig.clone();
+    let out_wav_c = out_wav.clone();
+    let clean_mp4_c = clean_mp4.clone();
+    let mux = tokio::task::spawn_blocking(move || {
+        crate::screenrec::mux_audio(&orig_c, &out_wav_c, &clean_mp4_c)
+    })
+    .await
+    .map_err(|_| "mux task panicked".to_string())?;
+    if let Err(e) = mux {
+        cleanup(Some(&clean_mp4));
+        return Err(e);
+    }
+
+    // 4. Verify output before any DB / destructive step.
+    match std::fs::metadata(&clean_mp4) {
+        Ok(m) if m.len() > 0 => {}
+        _ => {
+            cleanup(Some(&clean_mp4));
+            return Err("denoise produced an empty file".into());
+        }
+    }
+
+    let clean_str = clean_mp4.to_string_lossy().to_string();
+
+    // 5. Record the cleaned path.
+    {
+        let db = require_db(&state)?;
+        db.with_conn(|c| crate::db::recordings::set_denoised_path(c, &id, Some(&clean_str)))
+            .map_err(|e| e.to_string())?;
+    }
+
+    // 6. Optionally drop the original and promote the cleaned file.
+    if DELETE_ORIGINAL_AFTER_DENOISE {
+        let _ = std::fs::remove_file(&orig);
+        let db = require_db(&state)?;
+        db.with_conn(|c| crate::db::recordings::promote_denoised(c, &id, &clean_str))
+            .map_err(|e| e.to_string())?;
+    }
+
+    cleanup(None); // remove temp wavs; keep clean_mp4
+    Ok(())
+}
+
 #[tauri::command]
 pub fn reveal_recording(state: State<'_, AppState>, id: String) -> Result<(), String> {
     let db = require_db(&state)?;
