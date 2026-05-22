@@ -210,7 +210,25 @@ pub async fn connect(client_id: &str, client_secret: &str) -> Result<Option<Stri
     let expected_state = state.clone();
     let (code, got_state) =
         tokio::task::spawn_blocking(move || -> Result<(String, String), String> {
-            let (mut stream, _) = listener.accept().map_err(|e| e.to_string())?;
+            listener.set_nonblocking(true).map_err(|e| e.to_string())?;
+            let deadline =
+                std::time::Instant::now() + std::time::Duration::from_secs(180);
+            let mut stream = loop {
+                match listener.accept() {
+                    Ok((s, _)) => break s,
+                    Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        if std::time::Instant::now() >= deadline {
+                            return Err(
+                                "Drive connection timed out (no response from browser)".into(),
+                            );
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(100));
+                    }
+                    Err(e) => return Err(e.to_string()),
+                }
+            };
+            stream.set_nonblocking(false).ok();
+            stream.set_read_timeout(Some(std::time::Duration::from_secs(10))).ok();
             let mut buf = [0u8; 4096];
             let n = stream.read(&mut buf).map_err(|e| e.to_string())?;
             let req = String::from_utf8_lossy(&buf[..n]);
@@ -268,6 +286,12 @@ pub async fn ensure_folder(access_token: &str) -> Result<String, String> {
         .send()
         .await
         .map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!(
+            "Drive folder lookup failed: {}",
+            resp.text().await.unwrap_or_default()
+        ));
+    }
     let v: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
     if let Some(id) = v
         .get("files")
@@ -289,6 +313,12 @@ pub async fn ensure_folder(access_token: &str) -> Result<String, String> {
         .send()
         .await
         .map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!(
+            "Drive folder create failed: {}",
+            resp.text().await.unwrap_or_default()
+        ));
+    }
     let v: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
     v.get("id")
         .and_then(|i| i.as_str())
@@ -373,6 +403,12 @@ pub async fn web_view_link(access_token: &str, file_id: &str) -> Result<String, 
         .send()
         .await
         .map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!(
+            "fetch share link failed: {}",
+            resp.text().await.unwrap_or_default()
+        ));
+    }
     let v: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
     v.get("webViewLink")
         .and_then(|l| l.as_str())
