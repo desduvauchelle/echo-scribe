@@ -9,6 +9,7 @@ import {
   FileText,
   FolderOpen,
   Loader,
+  Pencil,
   Trash2,
 } from "lucide-react";
 import {
@@ -53,6 +54,18 @@ function parseExports(json: string): ExportVariant[] {
   }
 }
 
+/** CSS hover tooltip (native `title` is unreliable in the macOS webview). */
+function Tooltip({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <span className="group/tt relative inline-flex shrink-0">
+      {children}
+      <span className="pointer-events-none absolute left-1/2 top-full z-[60] mt-1.5 -translate-x-1/2 whitespace-nowrap rounded border border-line bg-elevated px-2 py-1 text-[11px] text-fg opacity-0 shadow-lg transition-opacity duration-100 group-hover/tt:opacity-100">
+        {label}
+      </span>
+    </span>
+  );
+}
+
 function IconButton({
   title,
   onClick,
@@ -67,17 +80,18 @@ function IconButton({
   children: ReactNode;
 }) {
   return (
-    <button
-      title={title}
-      aria-label={title}
-      onClick={onClick}
-      disabled={disabled}
-      className={`grid h-8 w-8 place-items-center rounded-md border border-line hover:bg-surface disabled:opacity-50 ${
-        danger ? "text-red-500 hover:bg-red-500/10" : "text-fg"
-      }`}
-    >
-      {children}
-    </button>
+    <Tooltip label={title}>
+      <button
+        aria-label={title}
+        onClick={onClick}
+        disabled={disabled}
+        className={`grid h-8 w-8 place-items-center rounded-md border border-line hover:bg-surface disabled:opacity-50 ${
+          danger ? "text-red-500 hover:bg-red-500/10" : "text-fg"
+        }`}
+      >
+        {children}
+      </button>
+    </Tooltip>
   );
 }
 
@@ -101,9 +115,8 @@ function SplitButton({
 }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="relative flex">
+    <div className="group/tt relative flex shrink-0">
       <button
-        title={title}
         aria-label={title}
         onClick={() => onSelect(defaultValue)}
         disabled={disabled}
@@ -112,7 +125,6 @@ function SplitButton({
         {busy ? <Loader size={16} className="animate-spin" /> : icon}
       </button>
       <button
-        title="Choose resolution"
         aria-label="Choose resolution"
         onClick={() => setOpen((o) => !o)}
         disabled={disabled}
@@ -120,6 +132,11 @@ function SplitButton({
       >
         <ChevronDown size={13} />
       </button>
+      {open ? null : (
+        <span className="pointer-events-none absolute left-1/2 top-full z-[60] mt-1.5 -translate-x-1/2 whitespace-nowrap rounded border border-line bg-elevated px-2 py-1 text-[11px] text-fg opacity-0 shadow-lg transition-opacity duration-100 group-hover/tt:opacity-100">
+          {title}
+        </span>
+      )}
       {open ? (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
@@ -395,12 +412,9 @@ export function RecordingsView() {
                   <h2 className="min-w-0 flex-1 truncate text-[15px] font-semibold">
                     {displayName(selected)}
                   </h2>
-                  <button
-                    onClick={startRename}
-                    className="shrink-0 rounded-md border border-line px-3 py-1.5 text-[13px] hover:bg-surface"
-                  >
-                    Rename
-                  </button>
+                  <IconButton title="Rename" onClick={startRename}>
+                    <Pencil size={16} />
+                  </IconButton>
                 </div>
               )}
               <video
