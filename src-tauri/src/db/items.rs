@@ -148,6 +148,7 @@ pub fn get_item(conn: &Connection, id: &str) -> Result<Option<Item>, DbError> {
 pub fn list_items(
     conn: &Connection,
     project_id: Option<&str>,
+    kind: Option<&str>,
     limit: u32,
     offset: u32,
 ) -> Result<Vec<Item>, DbError> {
@@ -160,6 +161,16 @@ pub fn list_items(
     if let Some(pid) = project_id {
         sql.push_str(" AND project_id = ?");
         args.push(Box::new(pid.to_string()));
+    }
+    // Meetings are surfaced both by their own `kind` and by any item captured
+    // during a meeting (`source = 'meeting'`), e.g. meeting-derived tasks.
+    if let Some(k) = kind {
+        if k == "meeting" {
+            sql.push_str(" AND (kind = 'meeting' OR source = 'meeting')");
+        } else {
+            sql.push_str(" AND kind = ?");
+            args.push(Box::new(k.to_string()));
+        }
     }
     sql.push_str(" ORDER BY captured_at DESC LIMIT ? OFFSET ?");
     args.push(Box::new(limit as i64));
@@ -332,7 +343,7 @@ mod tests {
         insert_item(&conn, &make_item("a", "x", "2026-05-01T00:00:00Z")).unwrap();
         insert_item(&conn, &make_item("b", "y", "2026-05-01T00:00:01Z")).unwrap();
 
-        let all = list_items(&conn, None, 50, 0).unwrap();
+        let all = list_items(&conn, None, None, 50, 0).unwrap();
         assert_eq!(all.len(), 2);
     }
 
@@ -343,9 +354,62 @@ mod tests {
         insert_item(&conn, &make_item("mid", "y", "2026-04-15T00:00:00Z")).unwrap();
         insert_item(&conn, &make_item("new", "z", "2026-05-01T00:00:00Z")).unwrap();
 
-        let listed = list_items(&conn, None, 50, 0).unwrap();
+        let listed = list_items(&conn, None, None, 50, 0).unwrap();
         let ids: Vec<&str> = listed.iter().map(|i| i.id.as_str()).collect();
         assert_eq!(ids, vec!["new", "mid", "old"]);
+    }
+
+    #[test]
+    fn list_items_filters_by_kind() {
+        let conn = fresh_db();
+        // Many transcriptions newer than the lone meeting/note/task, so a
+        // client-side filter over the first page would miss them. The backend
+        // filter must reach past the newest captures.
+        for i in 0..5 {
+            let mut t = make_item(&format!("t{i}"), "transcript", &format!("2026-05-10T00:00:0{i}Z"));
+            t.kind = Some(ItemKind::Transcription);
+            insert_item(&conn, &t).unwrap();
+        }
+        let mut note = make_item("n1", "a note", "2026-05-01T00:00:00Z");
+        note.kind = Some(ItemKind::Note);
+        insert_item(&conn, &note).unwrap();
+
+        let mut task = make_item("k1", "a task", "2026-05-01T00:00:01Z");
+        task.kind = Some(ItemKind::Task);
+        insert_item(&conn, &task).unwrap();
+
+        // Meeting item: kind = 'meeting' AND source = 'meeting'. There is no
+        // `ItemKind::Meeting` variant (the column stores 'meeting' but it parses
+        // back to None), so insert the row directly to set the column.
+        conn.execute(
+            "INSERT INTO items (id, content, source, kind, captured_at, created_at)
+             VALUES ('m1', 'a meeting', 'meeting', 'meeting', '2026-05-01T00:00:02Z', '2026-05-01T00:00:02Z')",
+            [],
+        )
+        .unwrap();
+
+        // Meeting-derived task: source = meeting but kind = task.
+        let mut mtask = make_item("m2", "meeting task", "2026-05-01T00:00:03Z");
+        mtask.kind = Some(ItemKind::Task);
+        mtask.source = ItemSource::Meeting;
+        insert_item(&conn, &mtask).unwrap();
+
+        let sorted_ids = |kind: &str| {
+            let mut ids: Vec<String> = list_items(&conn, None, Some(kind), 50, 0)
+                .unwrap()
+                .iter()
+                .map(|i| i.id.clone())
+                .collect();
+            ids.sort();
+            ids
+        };
+
+        assert_eq!(sorted_ids("note"), vec!["n1"]);
+        // task filter = all kind='task' (standalone + meeting-derived).
+        assert_eq!(sorted_ids("task"), vec!["k1", "m2"]);
+        // meeting filter = kind='meeting' OR source='meeting' (meeting + its task).
+        assert_eq!(sorted_ids("meeting"), vec!["m1", "m2"]);
+        assert_eq!(list_items(&conn, None, Some("transcription"), 50, 0).unwrap().len(), 5);
     }
 
     #[test]
@@ -355,7 +419,7 @@ mod tests {
         insert_item(&conn, &make_item("b", "y", "2026-05-01T00:00:01Z")).unwrap();
 
         soft_delete_item(&conn, "a").unwrap();
-        let listed = list_items(&conn, None, 50, 0).unwrap();
+        let listed = list_items(&conn, None, None, 50, 0).unwrap();
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].id, "b");
 
@@ -392,9 +456,9 @@ mod tests {
         )
         .unwrap();
         soft_delete_item(&conn, "a").unwrap();
-        assert!(list_items(&conn, None, 50, 0).unwrap().is_empty());
+        assert!(list_items(&conn, None, None, 50, 0).unwrap().is_empty());
         restore_item(&conn, "a").unwrap();
-        assert_eq!(list_items(&conn, None, 50, 0).unwrap().len(), 1);
+        assert_eq!(list_items(&conn, None, None, 50, 0).unwrap().len(), 1);
     }
 
     #[test]

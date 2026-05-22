@@ -337,17 +337,31 @@ pub fn spawn(
                                         feedback::play(Sfx::Ready);
                                         crate::overlay::hide_recording_overlay(&app);
 
-                                        let (enabled, threshold) = app
+                                        let enabled = app
                                             .try_state::<crate::commands::AppState>()
-                                            .map(|s| (s.settings.auto_file_enabled(), s.settings.auto_file_threshold()))
-                                            .unwrap_or((true, 0.75));
+                                            .map(|s| s.settings.auto_file_enabled())
+                                            .unwrap_or(true);
 
-                                        let auto_file = cls.as_ref().ok().is_some_and(|c| should_auto_file(c, enabled, threshold));
+                                        if enabled {
+                                            // Auto-file: the user never wants a confirm popup. If the
+                                            // classifier errored (no model / parse failure), fall back to
+                                            // a plain note with no project so the capture is never lost.
+                                            let c = cls.unwrap_or_else(|e| {
+                                                warn!(?e, "classify failed; filing capture as a plain note");
+                                                Classification {
+                                                    kind: crate::db::items::ItemKind::Note,
+                                                    project_id: None,
+                                                    new_project_name: None,
+                                                    tags: Vec::new(),
+                                                    deadline_iso: None,
+                                                    confidence: 0.0,
+                                                }
+                                            });
 
-                                        if auto_file {
-                                            let c = cls.as_ref().unwrap();
-                                            let project_name: Option<String> =
-                                                c.project_id.as_deref().and_then(|pid| {
+                                            let project_name: Option<String> = c
+                                                .project_id
+                                                .as_deref()
+                                                .and_then(|pid| {
                                                     db.as_ref().and_then(|db| {
                                                         db.with_conn(|conn| {
                                                             crate::db::projects::get_project(conn, pid)
@@ -356,13 +370,14 @@ pub fn spawn(
                                                         .flatten()
                                                         .map(|p| p.name)
                                                     })
-                                                });
+                                                })
+                                                .or_else(|| c.new_project_name.clone());
 
                                             let res = persist_log_capture(
                                                 &text,
                                                 c.kind,
                                                 c.project_id.clone(),
-                                                None,
+                                                c.new_project_name.clone(),
                                                 c.tags.clone(),
                                                 c.deadline_iso.clone(),
                                                 Some(c.confidence),
@@ -393,6 +408,8 @@ pub fn spawn(
                                             force_state(&state, PipelineState::Idle);
                                             on_state_change(TrayPipelineState::Idle);
                                         } else {
+                                            // Review mode (auto-file disabled in Settings): show the
+                                            // confirm overlay so the user can edit before saving.
                                             let _ = app.emit(
                                                 "log_capture:classification_ready",
                                                 serde_json::json!({
@@ -657,7 +674,7 @@ async fn run_classifier(
         Some(db) => db
             .with_conn(|c| {
                 let projects = crate::db::projects::list_projects(c, false)?;
-                let recents = crate::db::items::list_items(c, None, 5, 0)?;
+                let recents = crate::db::items::list_items(c, None, None, 5, 0)?;
                 Ok::<_, crate::db::DbError>((projects, recents))
             })
             .unwrap_or_else(|e| {
@@ -838,21 +855,6 @@ fn notify_recorder_failure(
     }
 }
 
-/// Returns true when the classification meets the user's auto-file criteria:
-/// auto-file enabled, confidence ≥ threshold, an existing project matched,
-/// and the LLM did NOT propose a new project. New-project proposals always
-/// require the review overlay, regardless of confidence.
-fn should_auto_file(
-    cls: &Classification,
-    enabled: bool,
-    threshold: f32,
-) -> bool {
-    enabled
-        && cls.project_id.is_some()
-        && cls.new_project_name.is_none()
-        && cls.confidence >= threshold
-}
-
 /// Emit the in-app toast event AND, when the main window is not visible,
 /// fire an OS notification so the user sees what was filed. When
 /// `project_name` is `None` (lookup failed because the DB is unavailable or
@@ -940,16 +942,28 @@ fn persist_log_capture(
         .map(str::trim)
         .filter(|s| !s.is_empty())
     {
-        let pid = ulid::Ulid::new().to_string();
-        let proj = crate::db::projects::Project {
-            id: pid.clone(),
-            name: name.to_string(),
-            created_at: now.clone(),
-            archived_at: None,
-        };
-        db.with_conn(|c| crate::db::projects::insert_project(c, &proj))
-            .map_err(|e| format!("create project: {e}"))?;
-        Some(pid)
+        // Get-or-create: reuse an existing project with the same name
+        // (case-insensitive) instead of blindly inserting, which would hit the
+        // UNIQUE(name) constraint when the name already exists.
+        let existing = db
+            .with_conn(|c| crate::db::projects::get_project_by_name(c, name))
+            .map_err(|e| format!("lookup project: {e}"))?;
+        if let Some(p) = existing {
+            info!(project_id = %p.id, name = %p.name, "reused existing project for capture");
+            Some(p.id)
+        } else {
+            let pid = ulid::Ulid::new().to_string();
+            let proj = crate::db::projects::Project {
+                id: pid.clone(),
+                name: name.to_string(),
+                created_at: now.clone(),
+                archived_at: None,
+            };
+            db.with_conn(|c| crate::db::projects::insert_project(c, &proj))
+                .map_err(|e| format!("create project: {e}"))?;
+            info!(project_id = %pid, name = %name, "created new project for capture");
+            Some(pid)
+        }
     } else {
         project_id
     };
@@ -1107,53 +1121,3 @@ mod tests {
     }
 }
 
-#[cfg(test)]
-mod auto_file_tests {
-    use super::*;
-    use crate::db::items::ItemKind;
-
-    fn cls(confidence: f32, project_id: Option<&str>, new_name: Option<&str>) -> Classification {
-        Classification {
-            kind: ItemKind::Note,
-            project_id: project_id.map(|s| s.to_string()),
-            new_project_name: new_name.map(|s| s.to_string()),
-            tags: vec![],
-            deadline_iso: None,
-            confidence,
-        }
-    }
-
-    #[test]
-    fn auto_files_when_confident_and_existing_project() {
-        assert!(should_auto_file(&cls(0.9, Some("p1"), None), true, 0.75));
-    }
-
-    #[test]
-    fn refuses_when_disabled() {
-        assert!(!should_auto_file(&cls(0.9, Some("p1"), None), false, 0.75));
-    }
-
-    #[test]
-    fn refuses_below_threshold() {
-        assert!(!should_auto_file(&cls(0.7, Some("p1"), None), true, 0.75));
-    }
-
-    #[test]
-    fn refuses_when_no_project() {
-        assert!(!should_auto_file(&cls(0.95, None, None), true, 0.75));
-    }
-
-    #[test]
-    fn refuses_when_new_project_proposed() {
-        assert!(!should_auto_file(
-            &cls(0.95, None, Some("New Project")),
-            true,
-            0.75
-        ));
-    }
-
-    #[test]
-    fn boundary_at_threshold_is_inclusive() {
-        assert!(should_auto_file(&cls(0.75, Some("p1"), None), true, 0.75));
-    }
-}

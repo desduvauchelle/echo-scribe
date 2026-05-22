@@ -53,12 +53,15 @@ function formatSaved(count: number): string {
   return `${(secs / 3600).toFixed(1)}h`;
 }
 
-function applyKindFilter(list: Item[], kind: KindFilter): Item[] {
-  if (kind === "all") return list;
-  if (kind === "meeting") {
-    return list.filter((i) => i.kind === "meeting" || i.source === "meeting");
-  }
-  return list.filter((i) => i.kind === kind);
+const EMPTY_LABELS: Record<Exclude<KindFilter, "all" | "task">, string> = {
+  transcription: "No transcriptions yet.",
+  note: "No notes yet.",
+  meeting: "No meetings yet.",
+};
+
+function emptyLabel(kind: KindFilter): string {
+  if (kind === "all" || kind === "task") return "Nothing here yet.";
+  return EMPTY_LABELS[kind];
 }
 
 export default function DashboardView({ projects }: Props) {
@@ -81,11 +84,17 @@ export default function DashboardView({ projects }: Props) {
   const { refreshTick } = useActivityPanel();
   const yesterday = useMemo(() => yesterdayLocalIso(), []);
 
+  // Current kind filter, read inside callbacks (event listeners, refetch) so
+  // they always fetch the active filter without being recreated on each change.
+  const kindRef = useRef<KindFilter>(kindFilter);
+  kindRef.current = kindFilter;
+
   const fetchItems = useCallback(async (mode: "reset" | "append") => {
     if (mode === "append") setLoadingMore(true);
     try {
       const nextOffset = mode === "reset" ? 0 : offset;
-      const page = await listItems({ limit: PAGE_SIZE, offset: nextOffset });
+      const kind = kindRef.current === "all" ? undefined : kindRef.current;
+      const page = await listItems({ kind, limit: PAGE_SIZE, offset: nextOffset });
       setHasMore(page.length === PAGE_SIZE);
       if (mode === "reset") {
         setItems(page);
@@ -113,13 +122,19 @@ export default function DashboardView({ projects }: Props) {
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
-    await fetchItems("reset");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [yesterday]);
 
   useEffect(() => {
     void loadAll();
   }, [loadAll]);
+
+  // Fetch items on mount and whenever the kind filter changes (Tasks uses its
+  // own embedded view, so skip the fetch there).
+  useEffect(() => {
+    if (kindFilter === "task") return;
+    void fetchItems("reset");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kindFilter]);
 
   useEffect(() => {
     if (refreshTick === 0) return;
@@ -161,7 +176,8 @@ export default function DashboardView({ projects }: Props) {
     const t = setTimeout(async () => {
       setSearching(true);
       try {
-        const r = await searchItems(q, 50);
+        const kind = kindFilter === "all" ? undefined : kindFilter;
+        const r = await searchItems(q, { kind, limit: 50 });
         setSearchResults(r);
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
@@ -170,7 +186,7 @@ export default function DashboardView({ projects }: Props) {
       }
     }, 250);
     return () => clearTimeout(t);
-  }, [query]);
+  }, [query, kindFilter]);
 
   const isSearching = searchOpen && query.trim() !== "";
   const isTasks = kindFilter === "task";
@@ -184,15 +200,6 @@ export default function DashboardView({ projects }: Props) {
     setQuery("");
     setSearchResults([]);
   };
-
-  const filteredItems = useMemo(
-    () => applyKindFilter(items, kindFilter),
-    [items, kindFilter],
-  );
-  const filteredResults = useMemo(
-    () => applyKindFilter(searchResults, kindFilter),
-    [searchResults, kindFilter],
-  );
 
   if (error && !stats) {
     return (
@@ -287,29 +294,29 @@ export default function DashboardView({ projects }: Props) {
         </div>
       ) : isSearching ? (
         <div className="mt-3 flex flex-col gap-2 pb-4">
-          {searching && filteredResults.length === 0 ? (
+          {searching && searchResults.length === 0 ? (
             <SkeletonList />
-          ) : filteredResults.length === 0 ? (
+          ) : searchResults.length === 0 ? (
             <p className="rounded-lg border border-line bg-surface/40 px-4 py-6 text-center text-xs text-muted">
               No results for &ldquo;{query.trim()}&rdquo;.
             </p>
           ) : (
-            filteredResults.map((item) => (
+            searchResults.map((item) => (
               <ItemCard key={item.id} item={item} projects={projects} />
             ))
           )}
         </div>
       ) : (
         <div className="mt-3 flex flex-col gap-2 pb-4">
-          {items.length === 0 && !error ? (
+          {items.length === 0 && !error && hasMore ? (
             <SkeletonList />
-          ) : filteredItems.length === 0 ? (
+          ) : items.length === 0 ? (
             <p className="rounded-lg border border-line bg-surface/40 px-4 py-6 text-center text-xs text-muted">
-              Nothing here yet.
+              {emptyLabel(kindFilter)}
             </p>
           ) : (
             <>
-              {filteredItems.map((item) => (
+              {items.map((item) => (
                 <ItemCard key={item.id} item={item} projects={projects} />
               ))}
               {hasMore ? (

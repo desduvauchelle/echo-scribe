@@ -681,13 +681,14 @@ fn clamp_limit(limit: Option<u32>) -> u32 {
 pub fn list_items(
     state: State<'_, AppState>,
     project_id: Option<String>,
+    kind: Option<String>,
     limit: Option<u32>,
     offset: Option<u32>,
 ) -> Result<Vec<Item>, String> {
     let db = require_db(&state)?;
     let limit = clamp_limit(limit);
     let offset = offset.unwrap_or(0);
-    db.with_conn(|c| db::items::list_items(c, project_id.as_deref(), limit, offset))
+    db.with_conn(|c| db::items::list_items(c, project_id.as_deref(), kind.as_deref(), limit, offset))
         .map_err(|e| e.to_string())
 }
 
@@ -702,11 +703,12 @@ pub fn get_item(state: State<'_, AppState>, id: String) -> Result<Option<Item>, 
 pub fn search_items(
     state: State<'_, AppState>,
     query: String,
+    kind: Option<String>,
     limit: Option<u32>,
 ) -> Result<Vec<Item>, String> {
     let db = require_db(&state)?;
     let limit = clamp_limit(limit);
-    db.with_conn(|c| db::search::search_items(c, &query, limit))
+    db.with_conn(|c| db::search::search_items(c, &query, kind.as_deref(), limit))
         .map_err(|e| e.to_string())
 }
 

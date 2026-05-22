@@ -7,21 +7,41 @@ use super::DbError;
 
 /// Search items by FTS5 MATCH expression. Soft-deleted items are excluded.
 /// Results are ordered by FTS rank (most relevant first).
-pub fn search_items(conn: &Connection, query: &str, limit: u32) -> Result<Vec<Item>, DbError> {
+/// `kind` optionally restricts results to one item kind; the special value
+/// `"meeting"` matches `kind = 'meeting' OR source = 'meeting'` (mirrors
+/// `db::items::list_items`).
+pub fn search_items(
+    conn: &Connection,
+    query: &str,
+    kind: Option<&str>,
+    limit: u32,
+) -> Result<Vec<Item>, DbError> {
     if query.trim().is_empty() {
         return Ok(Vec::new());
     }
-    let mut stmt = conn.prepare(
+    let mut sql = String::from(
         "SELECT items.id, items.content, items.source, items.kind,
                 items.project_id, items.captured_at, items.created_at, items.deleted_at,
                 items.confidence, items.classified_by, items.capture_context
          FROM items
          JOIN items_fts ON items.rowid = items_fts.rowid
-         WHERE items_fts MATCH ?1 AND items.deleted_at IS NULL
-         ORDER BY rank
-         LIMIT ?2",
-    )?;
-    let rows = stmt.query_map(params![query, limit as i64], row_to_item_for_search)?;
+         WHERE items_fts MATCH ?1 AND items.deleted_at IS NULL",
+    );
+    let mut args: Vec<Box<dyn rusqlite::ToSql>> =
+        vec![Box::new(query.to_string()), Box::new(limit as i64)];
+    if let Some(k) = kind {
+        if k == "meeting" {
+            sql.push_str(" AND (items.kind = 'meeting' OR items.source = 'meeting')");
+        } else {
+            sql.push_str(" AND items.kind = ?3");
+            args.push(Box::new(k.to_string()));
+        }
+    }
+    sql.push_str(" ORDER BY rank LIMIT ?2");
+
+    let mut stmt = conn.prepare(&sql)?;
+    let params_refs: Vec<&dyn rusqlite::ToSql> = args.iter().map(|b| b.as_ref()).collect();
+    let rows = stmt.query_map(params_refs.as_slice(), row_to_item_for_search)?;
     let mut out = Vec::new();
     for r in rows {
         out.push(r?);
@@ -162,7 +182,7 @@ mod tests {
         insert_item(&conn, &make_item("b", "lazy dog barks at moon")).unwrap();
         insert_item(&conn, &make_item("c", "quick action items review")).unwrap();
 
-        let hits = search_items(&conn, "quick", 50).unwrap();
+        let hits = search_items(&conn, "quick", None, 50).unwrap();
         let ids: Vec<&str> = hits.iter().map(|i| i.id.as_str()).collect();
         assert!(ids.contains(&"a"));
         assert!(ids.contains(&"c"));
@@ -176,9 +196,44 @@ mod tests {
         insert_item(&conn, &make_item("b", "alpha delta echo")).unwrap();
 
         soft_delete_item(&conn, "a").unwrap();
-        let hits = search_items(&conn, "alpha", 50).unwrap();
+        let hits = search_items(&conn, "alpha", None, 50).unwrap();
         let ids: Vec<&str> = hits.iter().map(|i| i.id.as_str()).collect();
         assert_eq!(ids, vec!["b"]);
+    }
+
+    #[test]
+    fn search_items_filters_by_kind() {
+        let conn = fresh_db();
+        let mut note = make_item("n1", "alpha planning note");
+        note.kind = Some(crate::db::items::ItemKind::Note);
+        insert_item(&conn, &note).unwrap();
+
+        let mut task = make_item("k1", "alpha planning task");
+        task.kind = Some(crate::db::items::ItemKind::Task);
+        insert_item(&conn, &task).unwrap();
+
+        // Meeting row via raw SQL (no ItemKind::Meeting variant).
+        conn.execute(
+            "INSERT INTO items (id, content, source, kind, captured_at, created_at)
+             VALUES ('m1', 'alpha planning meeting', 'meeting', 'meeting', '2026-05-01T00:00:00Z', '2026-05-01T00:00:00Z')",
+            [],
+        )
+        .unwrap();
+
+        let ids = |kind: Option<&str>| {
+            let mut v: Vec<String> = search_items(&conn, "alpha", kind, 50)
+                .unwrap()
+                .iter()
+                .map(|i| i.id.clone())
+                .collect();
+            v.sort();
+            v
+        };
+
+        assert_eq!(ids(None), vec!["k1", "m1", "n1"]);
+        assert_eq!(ids(Some("note")), vec!["n1"]);
+        assert_eq!(ids(Some("task")), vec!["k1"]);
+        assert_eq!(ids(Some("meeting")), vec!["m1"]);
     }
 
     #[test]
@@ -225,8 +280,8 @@ mod tests {
     fn search_empty_query_returns_empty() {
         let conn = fresh_db();
         insert_item(&conn, &make_item("a", "hello")).unwrap();
-        assert!(search_items(&conn, "", 50).unwrap().is_empty());
-        assert!(search_items(&conn, "   ", 50).unwrap().is_empty());
+        assert!(search_items(&conn, "", None, 50).unwrap().is_empty());
+        assert!(search_items(&conn, "   ", None, 50).unwrap().is_empty());
     }
 
     #[test]

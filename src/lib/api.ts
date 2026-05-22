@@ -205,11 +205,15 @@ export type TaskWithItem = {
 
 export const listItems = (args: {
   project_id?: string | null;
+  /** Restrict to one kind. "meeting" also matches items captured during a
+   *  meeting (source = "meeting"). Omit for all kinds. */
+  kind?: ItemKind | null;
   limit?: number;
   offset?: number;
 }): Promise<Item[]> =>
   invoke("list_items", {
     projectId: args.project_id ?? null,
+    kind: args.kind ?? null,
     limit: args.limit ?? 50,
     offset: args.offset ?? 0,
   });
@@ -217,8 +221,15 @@ export const listItems = (args: {
 export const getItem = (id: string): Promise<Item | null> =>
   invoke("get_item", { id });
 
-export const searchItems = (query: string, limit = 50): Promise<Item[]> =>
-  invoke("search_items", { query, limit });
+export const searchItems = (
+  query: string,
+  opts: { kind?: ItemKind | null; limit?: number } = {},
+): Promise<Item[]> =>
+  invoke("search_items", {
+    query,
+    kind: opts.kind ?? null,
+    limit: opts.limit ?? 50,
+  });
 
 export const deleteItem = (id: string): Promise<void> =>
   invoke("delete_item", { id });

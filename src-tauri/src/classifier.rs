@@ -154,7 +154,7 @@ fn validate(raw: RawClassification, existing_projects: &[Project]) -> Classifica
         .unwrap_or(ItemKind::Note);
 
     let project_id = raw.project_id.and_then(value_to_opt_string);
-    let project_id = match project_id {
+    let mut project_id = match project_id {
         Some(id) if existing_projects.iter().any(|p| p.id == id) => Some(id),
         _ => None,
     };
@@ -165,6 +165,26 @@ fn validate(raw: RawClassification, existing_projects: &[Project]) -> Classifica
             new_project_name = None;
         }
     }
+
+    // Reconcile against existing projects: small local models frequently put a
+    // KNOWN project's name in `new_project_name` instead of returning its id.
+    // If the proposed "new" name matches an existing project (case-insensitive),
+    // treat it as that existing project. Without this, a known project gets
+    // misclassified as new — which both forces the review overlay and, on
+    // confirm, hits the UNIQUE(name) constraint.
+    if project_id.is_none() {
+        if let Some(n) = &new_project_name {
+            let n_norm = n.trim().to_lowercase();
+            if let Some(p) = existing_projects
+                .iter()
+                .find(|p| p.name.trim().to_lowercase() == n_norm)
+            {
+                project_id = Some(p.id.clone());
+                new_project_name = None;
+            }
+        }
+    }
+
     // project_id wins over new_project_name (mutual exclusion).
     if project_id.is_some() {
         new_project_name = None;
@@ -390,6 +410,46 @@ mod tests {
             .unwrap();
         assert_eq!(c.project_id, None);
         assert_eq!(c.new_project_name, None);
+    }
+
+    #[tokio::test]
+    async fn classify_reconciles_new_project_name_to_existing() {
+        // Model proposed a "new" project that already exists -> route to its id.
+        let stub = StubLlm::new(vec![
+            r#"{"kind":"note","project_id":null,"new_project_name":"Echo Scribe","tags":[],"deadline_iso":null,"confidence":0.9}"#,
+        ]);
+        let projects = vec![proj("p1", "Echo Scribe")];
+        let c = classify(&stub, "a note", &projects, &[], "2026-05-01T10:00:00Z", "Friday", None)
+            .await
+            .unwrap();
+        assert_eq!(c.project_id.as_deref(), Some("p1"));
+        assert_eq!(c.new_project_name, None);
+    }
+
+    #[tokio::test]
+    async fn classify_reconciles_new_project_name_case_insensitively() {
+        let stub = StubLlm::new(vec![
+            r#"{"kind":"note","project_id":null,"new_project_name":"  echo scribe ","tags":[],"deadline_iso":null,"confidence":0.9}"#,
+        ]);
+        let projects = vec![proj("p1", "Echo Scribe")];
+        let c = classify(&stub, "x", &projects, &[], "2026-05-01T10:00:00Z", "Friday", None)
+            .await
+            .unwrap();
+        assert_eq!(c.project_id.as_deref(), Some("p1"));
+        assert_eq!(c.new_project_name, None);
+    }
+
+    #[tokio::test]
+    async fn classify_keeps_genuinely_new_project_name() {
+        let stub = StubLlm::new(vec![
+            r#"{"kind":"note","project_id":null,"new_project_name":"Brand New","tags":[],"deadline_iso":null,"confidence":0.9}"#,
+        ]);
+        let projects = vec![proj("p1", "Echo Scribe")];
+        let c = classify(&stub, "x", &projects, &[], "2026-05-01T10:00:00Z", "Friday", None)
+            .await
+            .unwrap();
+        assert_eq!(c.project_id, None);
+        assert_eq!(c.new_project_name.as_deref(), Some("Brand New"));
     }
 
     #[tokio::test]

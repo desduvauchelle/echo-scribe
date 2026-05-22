@@ -58,6 +58,22 @@ pub fn get_project(conn: &Connection, id: &str) -> Result<Option<Project>, DbErr
     }
 }
 
+/// Look up a project by exact name, case-insensitive. The `UNIQUE(name)`
+/// constraint makes names effectively unique, so there is at most one match
+/// (modulo case). Used for get-or-create so a capture routed to an existing
+/// project name reuses it instead of hitting the UNIQUE constraint.
+pub fn get_project_by_name(conn: &Connection, name: &str) -> Result<Option<Project>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, name, created_at, archived_at FROM projects WHERE name = ?1 COLLATE NOCASE LIMIT 1",
+    )?;
+    let mut rows = stmt.query(params![name])?;
+    if let Some(row) = rows.next()? {
+        Ok(Some(row_to_project(row)?))
+    } else {
+        Ok(None)
+    }
+}
+
 pub fn rename_project(conn: &Connection, id: &str, name: &str) -> Result<(), DbError> {
     conn.execute(
         "UPDATE projects SET name = ?1 WHERE id = ?2",
@@ -131,6 +147,18 @@ mod tests {
         assert_eq!(list_projects(&c, true).unwrap().len(), 1);
         unarchive_project(&c, "1").unwrap();
         assert_eq!(list_projects(&c, false).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn get_project_by_name_is_case_insensitive() {
+        let c = fresh();
+        insert_project(&c, &make("1", "Echo Scribe")).unwrap();
+        assert_eq!(
+            get_project_by_name(&c, "echo scribe").unwrap().unwrap().id,
+            "1"
+        );
+        assert_eq!(get_project_by_name(&c, "Echo Scribe").unwrap().unwrap().id, "1");
+        assert!(get_project_by_name(&c, "Nonexistent").unwrap().is_none());
     }
 
     #[test]
