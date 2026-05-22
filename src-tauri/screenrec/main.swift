@@ -16,6 +16,14 @@ func emitFatal(_ kind: String, _ msg: String) -> Never {
 
 let OWN_BUNDLE_ID = "com.echoscribe.app"
 
+// ScreenCaptureKit window capture — SCContentFilter(desktopIndependentWindow:) —
+// requires a WindowServer connection. A bare CLI process has none, so creating
+// the window filter asserts CGS_REQUIRE_INIT. Establish the connection with a
+// background (accessory) NSApplication; we still drive our own RunLoop below.
+// This must run before any SCContentFilter usage, including --list-sources.
+let app = NSApplication.shared
+app.setActivationPolicy(.accessory)
+
 // --- mode: `--list-sources` ---
 if CommandLine.arguments.contains("--list-sources") {
     if #available(macOS 14.0, *) {
