@@ -100,6 +100,113 @@ if CommandLine.arguments.contains("--list-sources") {
     }
 }
 
+// --- mode: `extract-audio --in <mp4> --out <wav>` ---
+func emitError(kind: String, msg: String) {
+    emit(["event": "error", "kind": kind, "msg": msg])
+}
+
+func extractAudio(inPath: String, outPath: String) {
+    let url = URL(fileURLWithPath: inPath)
+    let asset = AVAsset(url: url)
+    guard let track = asset.tracks(withMediaType: .audio).first else {
+        emitError(kind: "no_audio", msg: "recording has no audio track")
+        exit(3)
+    }
+
+    let reader: AVAssetReader
+    do { reader = try AVAssetReader(asset: asset) }
+    catch { emitError(kind: "reader", msg: "\(error)"); exit(4) }
+
+    let settings: [String: Any] = [
+        AVFormatIDKey: kAudioFormatLinearPCM,
+        AVSampleRateKey: 16000,
+        AVNumberOfChannelsKey: 1,
+        AVLinearPCMBitDepthKey: 16,
+        AVLinearPCMIsFloatKey: false,
+        AVLinearPCMIsBigEndianKey: false,
+        AVLinearPCMIsNonInterleaved: false,
+    ]
+    let output = AVAssetReaderTrackOutput(track: track, outputSettings: settings)
+    output.alwaysCopiesSampleData = false
+    guard reader.canAdd(output) else {
+        emitError(kind: "reader", msg: "cannot add audio output")
+        exit(4)
+    }
+    reader.add(output)
+
+    var pcm = Data()
+    guard reader.startReading() else {
+        emitError(kind: "reader", msg: "startReading failed: \(String(describing: reader.error))")
+        exit(4)
+    }
+    while reader.status == .reading {
+        guard let sample = output.copyNextSampleBuffer(),
+              let block = CMSampleBufferGetDataBuffer(sample) else { continue }
+        let length = CMBlockBufferGetDataLength(block)
+        var bytes = [UInt8](repeating: 0, count: length)
+        CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: length, destination: &bytes)
+        pcm.append(contentsOf: bytes)
+        CMSampleBufferInvalidate(sample)
+    }
+    if reader.status == .failed {
+        emitError(kind: "reader", msg: "read failed: \(String(describing: reader.error))")
+        exit(4)
+    }
+
+    let sampleRate: UInt32 = 16000
+    let channels: UInt16 = 1
+    let bitsPerSample: UInt16 = 16
+    let byteRate = sampleRate * UInt32(channels) * UInt32(bitsPerSample / 8)
+    let blockAlign = channels * (bitsPerSample / 8)
+    let dataLen = UInt32(pcm.count)
+    var header = Data()
+    func append32(_ v: UInt32) { var x = v.littleEndian; header.append(Data(bytes: &x, count: 4)) }
+    func append16(_ v: UInt16) { var x = v.littleEndian; header.append(Data(bytes: &x, count: 2)) }
+    header.append("RIFF".data(using: .ascii)!)
+    append32(36 + dataLen)
+    header.append("WAVE".data(using: .ascii)!)
+    header.append("fmt ".data(using: .ascii)!)
+    append32(16)
+    append16(1)
+    append16(channels)
+    append32(sampleRate)
+    append32(byteRate)
+    append16(blockAlign)
+    append16(bitsPerSample)
+    header.append("data".data(using: .ascii)!)
+    append32(dataLen)
+
+    var file = header
+    file.append(pcm)
+    do {
+        try file.write(to: URL(fileURLWithPath: outPath))
+    } catch {
+        emitError(kind: "write", msg: "\(error)")
+        exit(5)
+    }
+
+    let samples = Int(dataLen) / 2
+    emit(["event": "done", "path": outPath, "samples": samples])
+    exit(0)
+}
+
+if CommandLine.arguments.count > 1, CommandLine.arguments[1] == "extract-audio" {
+    var inPath: String?
+    var outPath: String?
+    var i = 2
+    let a = CommandLine.arguments
+    while i < a.count {
+        if a[i] == "--in", i + 1 < a.count { inPath = a[i + 1]; i += 1 }
+        else if a[i] == "--out", i + 1 < a.count { outPath = a[i + 1]; i += 1 }
+        i += 1
+    }
+    guard let inPath, let outPath else {
+        emitError(kind: "args", msg: "extract-audio requires --in and --out")
+        exit(2)
+    }
+    extractAudio(inPath: inPath, outPath: outPath)
+}
+
 // --- arg parsing: `record --out <path> [--display <id>] [--window <id>] [--no-sysaudio] [--mic <uid>]` ---
 var outPath: String?
 var argDisplayID: UInt32?
