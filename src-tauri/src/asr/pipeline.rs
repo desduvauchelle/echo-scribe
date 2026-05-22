@@ -41,6 +41,23 @@ pub struct AsrPipeline {
     unload_after: Arc<Mutex<Duration>>,
 }
 
+/// Split a buffer of `len` samples into consecutive `[start, end)` windows of
+/// at most `window` samples each. The final window may be shorter. Returns an
+/// empty vec when `len == 0` or `window == 0`.
+fn window_ranges(len: usize, window: usize) -> Vec<(usize, usize)> {
+    if len == 0 || window == 0 {
+        return Vec::new();
+    }
+    let mut ranges = Vec::new();
+    let mut start = 0;
+    while start < len {
+        let end = (start + window).min(len);
+        ranges.push((start, end));
+        start = end;
+    }
+    ranges
+}
+
 impl Default for AsrPipeline {
     fn default() -> Self {
         Self::new(Duration::from_secs(120))
@@ -322,6 +339,55 @@ impl AsrPipeline {
     pub async fn transcribe_file(&self, path: &std::path::Path) -> Result<String, AsrError> {
         let (samples, rate, channels) = Self::load_wav_16k_mono_int16(path)?;
         self.transcribe(samples, rate, channels).await
+    }
+
+    /// Transcribe arbitrary-length audio by windowing the samples into
+    /// ~60-second chunks, transcribing each via [`Self::transcribe`], and
+    /// joining the non-empty results with single spaces. Calls `progress(pct)`
+    /// with 0..=100 after each chunk completes.
+    pub async fn transcribe_long(
+        &self,
+        samples: Vec<f32>,
+        from_rate: u32,
+        channels: u16,
+        progress: impl Fn(u8) + Send + 'static,
+    ) -> Result<String, AsrError> {
+        const WINDOW_SECS: usize = 60;
+        let window = WINDOW_SECS * from_rate as usize * channels.max(1) as usize;
+        let ranges = window_ranges(samples.len(), window);
+        if ranges.is_empty() {
+            return Ok(String::new());
+        }
+        let total = ranges.len();
+        let mut parts: Vec<String> = Vec::with_capacity(total);
+        for (i, (start, end)) in ranges.into_iter().enumerate() {
+            let chunk = samples[start..end].to_vec();
+            let text = self.transcribe(chunk, from_rate, channels).await?;
+            let text = text.trim();
+            if !text.is_empty() {
+                parts.push(text.to_string());
+            }
+            let pct = ((i + 1) * 100 / total) as u8;
+            progress(pct);
+        }
+        Ok(parts.join(" "))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn window_ranges_splits_correctly() {
+        // exact multiple
+        assert_eq!(window_ranges(10, 5), vec![(0, 5), (5, 10)]);
+        // remainder: last window short
+        assert_eq!(window_ranges(12, 5), vec![(0, 5), (5, 10), (10, 12)]);
+        // len < window: single full-length window
+        assert_eq!(window_ranges(3, 5), vec![(0, 3)]);
+        // empty
+        assert_eq!(window_ranges(0, 5), Vec::<(usize, usize)>::new());
     }
 }
 
