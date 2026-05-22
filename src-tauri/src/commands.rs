@@ -21,7 +21,7 @@ use tracing::{error, info};
 use crate::asr::downloader::{self, DownloadProgress};
 use crate::asr::pipeline::AsrPipeline;
 use crate::asr::registry::{self, ModelEntry};
-use crate::llm::{self, GenerateRequest, Llm, LlmDownloadProgress, LlmModelEntry};
+use crate::llm::{self, rag, GenerateRequest, Llm, LlmDownloadProgress, LlmModelEntry};
 use crate::coordinator::{self, new_state_handle, Action, CoordinatorMsg, TrayPipelineState};
 use crate::db::items::{chrono_now_iso, ItemKind};
 use crate::db::projects::Project;
@@ -1755,9 +1755,28 @@ pub async fn chat_with_memory(
     let now_iso = crate::db::items::chrono_now_iso();
     let today_str = &now_iso[..10];
 
-    // FTS5 retrieval with optional temporal window.
+    // FTS5 retrieval, then chunked re-ranking. FTS finds the right items; rag
+    // selects the most relevant passages within them under a token budget.
+    let terms = rag::query_terms(&message);
     let date_window = extract_date_window(&message, now_secs);
-    let sources: Vec<ContextSource> = {
+
+    // Load history first so retrieval can be budgeted against its token cost.
+    let history_msgs = db
+        .with_conn(|c| chat::load_messages(c, &session_id, (rag::HISTORY_TURNS + 1) as u32))
+        .unwrap_or_default();
+    let hist: Vec<(String, String)> = history_msgs
+        .into_iter()
+        .rev()
+        .skip(1) // drop the just-inserted current user message
+        .rev()
+        .map(|m| (m.role, m.content))
+        .collect();
+    let history_tokens: usize = hist.iter().map(|(_, c)| rag::estimate_tokens(c)).sum();
+    let chunk_budget = rag::CONTEXT_BUDGET_TOKENS
+        .saturating_sub(history_tokens)
+        .max(rag::MIN_CHUNK_BUDGET_TOKENS);
+
+    let chunks: Vec<rag::Chunk> = {
         let rag_query = build_rag_query(&message);
         if rag_query.is_empty() {
             Vec::new()
@@ -1766,29 +1785,73 @@ pub async fn chat_with_memory(
                 Some((f, t)) => (Some(f.as_str()), Some(t.as_str())),
                 None => (None, None),
             };
-            let raw_items = db.with_conn(|c| {
-                db::search::search_items_with_date_window(
-                    c,
-                    &rag_query,
-                    from,
-                    to,
-                    project_id.as_deref(),
-                    6,
-                )
-            })
-            .unwrap_or_default();
-            let mut out = Vec::with_capacity(raw_items.len());
-            for item in raw_items {
-                // Record that this item was referenced in this session.
-                let iid = item.id.clone();
+            let raw_items = db
+                .with_conn(|c| {
+                    db::search::search_items_with_date_window(
+                        c,
+                        &rag_query,
+                        from,
+                        to,
+                        project_id.as_deref(),
+                        rag::FTS_ITEM_LIMIT,
+                    )
+                })
+                .unwrap_or_default();
+
+            let item_sources: Vec<rag::ChunkSource> = raw_items
+                .iter()
+                .map(|item| {
+                    let kind = item
+                        .kind
+                        .as_ref()
+                        .map(|k| k.as_str())
+                        .unwrap_or("note")
+                        .to_string();
+                    let date = item.captured_at[..10.min(item.captured_at.len())].to_string();
+                    rag::ChunkSource {
+                        item_id: item.id.clone(),
+                        date,
+                        kind,
+                        content: item.content.clone(),
+                    }
+                })
+                .collect();
+
+            rag::build_context_chunks(&item_sources, &terms, chunk_budget)
+        }
+    };
+
+    // Record which items actually contributed context to this session.
+    {
+        let mut linked = std::collections::HashSet::new();
+        for ch in &chunks {
+            if linked.insert(ch.item_id.clone()) {
+                let iid = ch.item_id.clone();
                 let sid = session_id.clone();
                 let _ = db.with_conn(move |c| db::events::link_item_to_session(c, &iid, &sid));
-                let kind = item.kind.as_ref().map(|k| k.as_str()).unwrap_or("note").to_string();
-                let date = item.captured_at[..10.min(item.captured_at.len())].to_string();
-                out.push(ContextSource { date, kind, content: item.content });
             }
-            out
         }
+    }
+
+    // One source row per distinct item, joining its selected chunks for display.
+    let sources: Vec<ContextSource> = {
+        let mut seen = std::collections::HashSet::new();
+        let mut out = Vec::new();
+        for ch in &chunks {
+            if seen.insert(ch.item_id.clone()) {
+                let joined: Vec<String> = chunks
+                    .iter()
+                    .filter(|c| c.item_id == ch.item_id)
+                    .map(|c| c.content.clone())
+                    .collect();
+                out.push(ContextSource {
+                    date: ch.date.clone(),
+                    kind: ch.kind.clone(),
+                    content: joined.join("\n…\n"),
+                });
+            }
+        }
+        out
     };
 
     let temporal_note = if date_window.is_some() && sources.is_empty() {
@@ -1806,9 +1869,9 @@ pub async fn chat_with_memory(
              If the user is asking what they did or said, tell them no matching captures were found."
         )
     } else {
-        let context_lines: Vec<String> = sources
+        let context_lines: Vec<String> = chunks
             .iter()
-            .map(|s| format!("[{}] ({}): {}", s.date, s.kind, s.content))
+            .map(|c| format!("[{}] ({}): {}", c.date, c.kind, c.content))
             .collect();
         format!(
             "You are a helpful assistant built into Echo Scribe. \
@@ -1821,18 +1884,6 @@ pub async fn chat_with_memory(
         )
     };
 
-    // Load history from DB (last 20 messages), excluding the one just inserted.
-    let history_msgs = db
-        .with_conn(|c| chat::load_messages(c, &session_id, 20))
-        .unwrap_or_default();
-    let hist: Vec<(String, String)> = history_msgs
-        .into_iter()
-        .rev()
-        .skip(1)
-        .rev()
-        .map(|m| (m.role, m.content))
-        .collect();
-
     let req = GenerateRequest {
         system: Some(system),
         user: message.clone(),
@@ -1841,7 +1892,7 @@ pub async fn chat_with_memory(
         temperature: 0.7,
         stop_strings: Vec::new(),
         grammar_gbnf: None,
-        n_ctx: None,
+        n_ctx: Some(rag::CHAT_N_CTX),
     };
 
     let reply = state.llm.generate(req).await.map_err(|e| e.to_string())?;
