@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Copy, RotateCcw, Trash2, X } from "lucide-react";
+import { Copy, Eye, Pencil, RotateCcw, Trash2, X } from "lucide-react";
+import Markdown from "./Markdown";
 import {
   completeTask,
   createProject,
@@ -197,45 +198,53 @@ function PanelBody({ itemId, onClose }: { itemId: string; onClose: () => void })
           <div className="text-xs text-red-400">{error}</div>
         ) : item ? (
           <div className="space-y-5">
-            <HeaderSection item={item} meeting={meeting} />
-            <ContentSection item={item} onChange={onItemChange} />
-            {!meeting ? (
-              <KindSection item={item} onChange={onItemChange} />
-            ) : null}
-            <ProjectSection
-              item={item}
-              projects={projects}
-              onProjectsChange={setProjects}
-              onChange={onItemChange}
-            />
-            <TagsSection
-              item={item}
-              tags={tags}
-              onTagsChange={setTags}
-              onSaved={onSavedSideEffect}
-            />
-            <MetadataSection item={item} />
-            {item.kind === "task" ? (
-              <TaskSection
-                itemId={item.id}
-                deadline={deadline}
-                completedAt={completedAt}
-                onChange={(d, c) => {
-                  setDeadline(d);
-                  setCompletedAt(c);
-                  bumpRefresh();
-                }}
-              />
-            ) : null}
             {meeting ? (
-              <MeetingSection
+              <MeetingView
+                item={item}
                 meeting={meeting}
+                projects={projects}
+                tags={tags}
+                onProjectsChange={setProjects}
+                onItemChange={onItemChange}
+                onTagsChange={setTags}
+                onSaved={onSavedSideEffect}
                 onMeetingChange={(m) => {
                   setMeeting(m);
                   bumpRefresh();
                 }}
               />
-            ) : null}
+            ) : (
+              <>
+                <HeaderSection item={item} meeting={meeting} />
+                <ContentSection item={item} onChange={onItemChange} />
+                <KindSection item={item} onChange={onItemChange} />
+                <ProjectSection
+                  item={item}
+                  projects={projects}
+                  onProjectsChange={setProjects}
+                  onChange={onItemChange}
+                />
+                <TagsSection
+                  item={item}
+                  tags={tags}
+                  onTagsChange={setTags}
+                  onSaved={onSavedSideEffect}
+                />
+                <MetadataSection item={item} />
+                {item.kind === "task" ? (
+                  <TaskSection
+                    itemId={item.id}
+                    deadline={deadline}
+                    completedAt={completedAt}
+                    onChange={(d, c) => {
+                      setDeadline(d);
+                      setCompletedAt(c);
+                      bumpRefresh();
+                    }}
+                  />
+                ) : null}
+              </>
+            )}
             <ItemDetailPanel itemId={item.id} />
             <ActionsSection
               item={item}
@@ -311,8 +320,29 @@ function HeaderSection({ item, meeting }: { item: Item; meeting: MeetingRow | nu
   );
 }
 
+function EditToggle({ editing, onClick }: { editing: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-faint hover:bg-elevated hover:text-fg"
+    >
+      {editing ? (
+        <>
+          <Eye size={11} strokeWidth={2.25} /> Done
+        </>
+      ) : (
+        <>
+          <Pencil size={11} strokeWidth={2.25} /> Edit
+        </>
+      )}
+    </button>
+  );
+}
+
 function ContentSection({ item, onChange }: { item: Item; onChange: (i: Item) => void }) {
   const [draft, setDraft] = useState(item.content);
+  const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -342,16 +372,28 @@ function ContentSection({ item, onChange }: { item: Item; onChange: (i: Item) =>
     <div>
       <div className="mb-1.5 flex items-center justify-between">
         <SectionLabel>Content</SectionLabel>
-        <span className="text-[10px] text-faint">
-          {saving ? "Saving…" : draft !== item.content ? "Unsaved" : "Saved"}
-        </span>
+        <div className="flex items-center gap-2">
+          {editing ? (
+            <span className="text-[10px] text-faint">
+              {saving ? "Saving…" : draft !== item.content ? "Unsaved" : "Saved"}
+            </span>
+          ) : null}
+          <EditToggle editing={editing} onClick={() => setEditing((e) => !e)} />
+        </div>
       </div>
-      <textarea
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        rows={5}
-        className="w-full rounded-md border border-line bg-surface px-2.5 py-2 font-mono text-[12.5px] text-fg transition-colors focus:border-accent focus:outline-none"
-      />
+      {editing ? (
+        <textarea
+          autoFocus
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          rows={8}
+          className="w-full rounded-md border border-line bg-surface px-2.5 py-2 font-mono text-[12.5px] text-fg transition-colors focus:border-accent focus:outline-none"
+        />
+      ) : draft.trim() ? (
+        <Markdown>{draft}</Markdown>
+      ) : (
+        <div className="text-[12px] italic text-faint">No content.</div>
+      )}
     </div>
   );
 }
@@ -661,77 +703,86 @@ function TaskSection({
   );
 }
 
-function MeetingSection({
+function MeetingView({
+  item,
   meeting,
+  projects,
+  tags,
+  onProjectsChange,
+  onItemChange,
+  onTagsChange,
+  onSaved,
   onMeetingChange,
 }: {
+  item: Item;
   meeting: MeetingRow;
+  projects: Project[];
+  tags: string[];
+  onProjectsChange: (next: Project[]) => void;
+  onItemChange: (i: Item) => void;
+  onTagsChange: (next: string[]) => void;
+  onSaved: () => void;
   onMeetingChange: (m: MeetingRow) => void;
 }) {
   const summary = meeting.summary_json ? safeParseSummary(meeting.summary_json) : null;
   const transcript = meeting.transcript_json ? safeParseTranscript(meeting.transcript_json) : null;
-  const [titleDraft, setTitleDraft] = useState(summary?.suggested_title ?? "");
-  const [notesDraft, setNotesDraft] = useState(meeting.user_notes ?? "");
-  const [savingTitle, setSavingTitle] = useState(false);
-  const titleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const notesTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    setTitleDraft(summary?.suggested_title ?? "");
-    setNotesDraft(meeting.user_notes ?? "");
-  }, [meeting.item_id, summary?.suggested_title, meeting.user_notes]);
-
-  // Debounced title save.
-  useEffect(() => {
-    if (titleDraft === (summary?.suggested_title ?? "")) return;
-    if (titleTimer.current) clearTimeout(titleTimer.current);
-    titleTimer.current = setTimeout(async () => {
-      setSavingTitle(true);
-      try {
-        await renameMeeting(meeting.item_id, titleDraft);
-        // Pull fresh meeting row so summary_json reflects new title.
-        const m = await getMeeting(meeting.item_id);
-        if (m) onMeetingChange(m);
-      } finally {
-        setSavingTitle(false);
-      }
-    }, 600);
-    return () => {
-      if (titleTimer.current) clearTimeout(titleTimer.current);
-    };
-  }, [titleDraft, summary?.suggested_title, meeting.item_id, onMeetingChange]);
-
-  // Debounced notes save.
-  useEffect(() => {
-    if (notesDraft === (meeting.user_notes ?? "")) return;
-    if (notesTimer.current) clearTimeout(notesTimer.current);
-    notesTimer.current = setTimeout(async () => {
-      await updateMeetingNotes(meeting.item_id, notesDraft);
-      onMeetingChange({ ...meeting, user_notes: notesDraft });
-    }, 600);
-    return () => {
-      if (notesTimer.current) clearTimeout(notesTimer.current);
-    };
-  }, [notesDraft, meeting, onMeetingChange]);
-
   const durationMin = meeting.duration_ms
     ? Math.round(meeting.duration_ms / 60000)
     : null;
+  const projectName = projects.find((p) => p.id === item.project_id)?.name ?? null;
 
   return (
-    <div className="space-y-3">
-      <div>
-        <div className="mb-1.5 flex items-center justify-between">
-          <SectionLabel>Meeting title</SectionLabel>
-          <span className="text-[10px] text-faint">{savingTitle ? "Saving…" : null}</span>
-        </div>
-        <input
-          value={titleDraft}
-          onChange={(e) => setTitleDraft(e.target.value)}
-          placeholder="Untitled meeting"
-          className="w-full rounded-md border border-line bg-surface px-2 py-1.5 text-xs text-fg focus:border-accent focus:outline-none"
-        />
+    <div className="space-y-5">
+      <MeetingTitle meeting={meeting} summary={summary} onMeetingChange={onMeetingChange} />
+
+      <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted">
+        <span className="rounded-full bg-elevated px-2 py-0.5 text-fg">Meeting</span>
+        {projectName ? (
+          <span className="rounded-full bg-accent-soft px-2 py-0.5 font-medium text-accent">
+            {projectName}
+          </span>
+        ) : null}
+        {meeting.detected_app_name ? <span>{meeting.detected_app_name}</span> : null}
+        <span>{relativeTime(item.captured_at)}</span>
+        {durationMin != null ? <span>· {durationMin} min</span> : null}
       </div>
+
+      <ProjectSection
+        item={item}
+        projects={projects}
+        onProjectsChange={onProjectsChange}
+        onChange={onItemChange}
+      />
+
+      <MeetingRecap item={item} summary={summary} onItemChange={onItemChange} />
+
+      {summary && summary.action_items.length > 0 ? (
+        <div>
+          <SectionLabel>Action items</SectionLabel>
+          <ul className="space-y-1.5 text-[12px] text-fg">
+            {summary.action_items.map((a, i) => (
+              <li key={i} className="flex gap-2">
+                <span className="mt-0.5 shrink-0 rounded bg-elevated px-1.5 py-0.5 text-[10px] text-muted">
+                  {a.owner}
+                </span>
+                <span className="leading-relaxed">{a.text}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      <NotesSection meeting={meeting} onMeetingChange={onMeetingChange} />
+
+      <CalendarMatchPanel meeting={meeting} onChange={onMeetingChange} />
+
+      <TagsSection
+        item={item}
+        tags={tags}
+        onTagsChange={onTagsChange}
+        onSaved={onSaved}
+      />
+
       <div>
         <SectionLabel>Meeting metadata</SectionLabel>
         <dl className="space-y-1 text-[11px]">
@@ -763,33 +814,7 @@ function MeetingSection({
           ) : null}
         </dl>
       </div>
-      <div>
-        <SectionLabel>Notes</SectionLabel>
-        <textarea
-          value={notesDraft}
-          onChange={(e) => setNotesDraft(e.target.value)}
-          rows={3}
-          placeholder="Add personal notes…"
-          className="w-full rounded-md border border-line bg-surface px-2 py-1.5 text-xs text-fg focus:border-accent focus:outline-none"
-        />
-      </div>
-      <CalendarMatchPanel
-        meeting={meeting}
-        onChange={onMeetingChange}
-      />
-      {summary && summary.action_items.length > 0 ? (
-        <div>
-          <SectionLabel>Action items</SectionLabel>
-          <ul className="space-y-1 text-[11px] text-muted">
-            {summary.action_items.map((a, i) => (
-              <li key={i} className="flex gap-2">
-                <span className="text-faint">[{a.owner}]</span>
-                <span>{a.text}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
+
       {transcript && transcript.segments.length > 0 ? (
         <details>
           <summary className="cursor-pointer text-[11px] text-faint hover:text-muted">
@@ -807,6 +832,230 @@ function MeetingSection({
           </div>
         </details>
       ) : null}
+    </div>
+  );
+}
+
+function MeetingTitle({
+  meeting,
+  summary,
+  onMeetingChange,
+}: {
+  meeting: MeetingRow;
+  summary: StoredSummary | null;
+  onMeetingChange: (m: MeetingRow) => void;
+}) {
+  const current = summary?.suggested_title ?? "";
+  const [titleDraft, setTitleDraft] = useState(current);
+  const [editing, setEditing] = useState(false);
+  const [savingTitle, setSavingTitle] = useState(false);
+  const titleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    setTitleDraft(current);
+  }, [meeting.item_id, current]);
+
+  // Debounced title save.
+  useEffect(() => {
+    if (titleDraft === current) return;
+    if (titleTimer.current) clearTimeout(titleTimer.current);
+    titleTimer.current = setTimeout(async () => {
+      setSavingTitle(true);
+      try {
+        await renameMeeting(meeting.item_id, titleDraft);
+        // Pull fresh meeting row so summary_json reflects new title.
+        const m = await getMeeting(meeting.item_id);
+        if (m) onMeetingChange(m);
+      } finally {
+        setSavingTitle(false);
+      }
+    }, 600);
+    return () => {
+      if (titleTimer.current) clearTimeout(titleTimer.current);
+    };
+  }, [titleDraft, current, meeting.item_id, onMeetingChange]);
+
+  return (
+    <div>
+      {editing ? (
+        <>
+          <div className="mb-1.5 flex items-center justify-between">
+            <SectionLabel>Meeting title</SectionLabel>
+            <div className="flex items-center gap-2">
+              {savingTitle ? <span className="text-[10px] text-faint">Saving…</span> : null}
+              <EditToggle editing onClick={() => setEditing(false)} />
+            </div>
+          </div>
+          <input
+            autoFocus
+            value={titleDraft}
+            onChange={(e) => setTitleDraft(e.target.value)}
+            placeholder="Untitled meeting"
+            className="w-full rounded-md border border-line bg-surface px-2.5 py-2 text-base font-semibold text-fg focus:border-accent focus:outline-none"
+          />
+        </>
+      ) : (
+        <div className="group flex items-start justify-between gap-2">
+          <h2 className="text-lg font-semibold leading-snug text-fg">
+            {titleDraft.trim() || "Untitled meeting"}
+          </h2>
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            aria-label="Edit title"
+            className="mt-1 shrink-0 rounded p-1 text-faint opacity-0 transition hover:bg-elevated hover:text-fg group-hover:opacity-100"
+          >
+            <Pencil size={13} strokeWidth={2.25} />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MeetingRecap({
+  item,
+  summary,
+  onItemChange,
+}: {
+  item: Item;
+  summary: StoredSummary | null;
+  onItemChange: (i: Item) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(item.content);
+  const [saving, setSaving] = useState(false);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    setDraft(item.content);
+  }, [item.id, item.content]);
+
+  useEffect(() => {
+    if (draft === item.content) return;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(async () => {
+      setSaving(true);
+      try {
+        const updated = await updateItem({ id: item.id, content: draft });
+        onItemChange(updated);
+      } finally {
+        setSaving(false);
+      }
+    }, 600);
+    return () => {
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+    };
+  }, [draft, item.content, item.id, onItemChange]);
+
+  const bullets = summary?.summary ?? [];
+
+  return (
+    <div>
+      <div className="mb-1.5 flex items-center justify-between">
+        <SectionLabel>Summary</SectionLabel>
+        <div className="flex items-center gap-2">
+          {editing ? (
+            <span className="text-[10px] text-faint">
+              {saving ? "Saving…" : draft !== item.content ? "Unsaved" : "Saved"}
+            </span>
+          ) : null}
+          <EditToggle editing={editing} onClick={() => setEditing((e) => !e)} />
+        </div>
+      </div>
+      {editing ? (
+        <textarea
+          autoFocus
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          rows={10}
+          className="w-full rounded-md border border-line bg-surface px-2.5 py-2 font-mono text-[12.5px] text-fg transition-colors focus:border-accent focus:outline-none"
+        />
+      ) : bullets.length > 0 ? (
+        <ul className="space-y-1.5 text-[13px] text-fg">
+          {bullets.map((b, i) => (
+            <li key={i} className="flex gap-2 leading-relaxed">
+              <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-accent/70" />
+              <span>{b}</span>
+            </li>
+          ))}
+        </ul>
+      ) : item.content.trim() ? (
+        <Markdown>{item.content}</Markdown>
+      ) : (
+        <div className="text-[12px] italic text-faint">No summary yet.</div>
+      )}
+    </div>
+  );
+}
+
+function NotesSection({
+  meeting,
+  onMeetingChange,
+}: {
+  meeting: MeetingRow;
+  onMeetingChange: (m: MeetingRow) => void;
+}) {
+  const current = meeting.user_notes ?? "";
+  const [editing, setEditing] = useState(false);
+  const [notesDraft, setNotesDraft] = useState(current);
+  const [saving, setSaving] = useState(false);
+  const notesTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    setNotesDraft(current);
+  }, [meeting.item_id, current]);
+
+  useEffect(() => {
+    if (notesDraft === current) return;
+    if (notesTimer.current) clearTimeout(notesTimer.current);
+    notesTimer.current = setTimeout(async () => {
+      setSaving(true);
+      try {
+        await updateMeetingNotes(meeting.item_id, notesDraft);
+        onMeetingChange({ ...meeting, user_notes: notesDraft });
+      } finally {
+        setSaving(false);
+      }
+    }, 600);
+    return () => {
+      if (notesTimer.current) clearTimeout(notesTimer.current);
+    };
+  }, [notesDraft, current, meeting, onMeetingChange]);
+
+  return (
+    <div>
+      <div className="mb-1.5 flex items-center justify-between">
+        <SectionLabel>Notes</SectionLabel>
+        <div className="flex items-center gap-2">
+          {editing ? (
+            <span className="text-[10px] text-faint">
+              {saving ? "Saving…" : notesDraft !== current ? "Unsaved" : "Saved"}
+            </span>
+          ) : null}
+          <EditToggle editing={editing} onClick={() => setEditing((e) => !e)} />
+        </div>
+      </div>
+      {editing ? (
+        <textarea
+          autoFocus
+          value={notesDraft}
+          onChange={(e) => setNotesDraft(e.target.value)}
+          rows={4}
+          placeholder="Add personal notes…"
+          className="w-full rounded-md border border-line bg-surface px-2.5 py-2 text-[12.5px] text-fg focus:border-accent focus:outline-none"
+        />
+      ) : notesDraft.trim() ? (
+        <Markdown>{notesDraft}</Markdown>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setEditing(true)}
+          className="text-[12px] italic text-faint hover:text-muted"
+        >
+          Add personal notes…
+        </button>
+      )}
     </div>
   );
 }

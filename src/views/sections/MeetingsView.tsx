@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { AlignLeft, Folder, ListChecks } from "lucide-react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
   isMeetingActive,
@@ -262,26 +263,29 @@ export function MeetingsView() {
           </div>
           <ul className="meeting-rows flex flex-col gap-2">
             {filtered.map((r) => {
-              const summary = r.summary_json
+              const parsed = r.summary_json
                 ? (() => {
                     try {
-                      return (
-                        (JSON.parse(r.summary_json!) as { summary?: string[] })
-                          .summary?.[0] ?? ""
-                      );
+                      return JSON.parse(r.summary_json!) as {
+                        summary?: string[];
+                        action_items?: unknown[];
+                      };
                     } catch {
-                      return "";
+                      return null;
                     }
                   })()
-                : "";
+                : null;
+              const firstPoint = parsed?.summary?.[0] ?? "";
+              const summaryCount = parsed?.summary?.length ?? 0;
+              const actionCount = parsed?.action_items?.length ?? 0;
               return (
                 <li
                   key={r.item_id}
                   className="cursor-pointer rounded-md bg-surface-2 p-3 hover:bg-surface-3"
                   onClick={() => openItem(r.item_id)}
                 >
-                  <div className="flex items-center justify-between">
-                    <div className="text-sm font-medium">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0 truncate text-sm font-medium">
                       {r.detected_app_name ?? "Manual"} ·{" "}
                       {new Date(r.started_at).toLocaleDateString()}{" "}
                       {new Date(r.started_at).toLocaleTimeString([], {
@@ -289,12 +293,43 @@ export function MeetingsView() {
                         minute: "2-digit",
                       })}
                     </div>
-                    <div className="text-xs text-muted">
-                      {Math.round((r.duration_ms ?? 0) / 60000)}m
+                    <div className="flex shrink-0 items-center gap-2.5 text-xs text-muted">
+                      {summaryCount > 0 && (
+                        <span
+                          className="inline-flex items-center gap-1"
+                          title={`${summaryCount} summary point${summaryCount === 1 ? "" : "s"}`}
+                        >
+                          <AlignLeft size={13} strokeWidth={2} />
+                          {summaryCount}
+                        </span>
+                      )}
+                      {actionCount > 0 && (
+                        <span
+                          className="inline-flex items-center gap-1"
+                          title={`${actionCount} action item${actionCount === 1 ? "" : "s"}`}
+                        >
+                          <ListChecks size={13} strokeWidth={2} />
+                          {actionCount}
+                        </span>
+                      )}
+                      <span title="Duration">
+                        {Math.round((r.duration_ms ?? 0) / 60000)}m
+                      </span>
                     </div>
                   </div>
-                  {summary && (
-                    <div className="mt-1 text-xs text-muted">{summary}</div>
+                  {r.project_name && (
+                    <div className="mt-1.5">
+                      <span
+                        className="inline-flex items-center gap-1 rounded-full bg-accent-soft px-2 py-0.5 text-[11px] font-medium text-accent"
+                        title={`Project: ${r.project_name}`}
+                      >
+                        <Folder size={11} strokeWidth={2} />
+                        {r.project_name}
+                      </span>
+                    </div>
+                  )}
+                  {firstPoint && (
+                    <div className="mt-1.5 text-xs text-muted">{firstPoint}</div>
                   )}
                 </li>
               );

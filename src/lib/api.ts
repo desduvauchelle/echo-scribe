@@ -590,6 +590,9 @@ export type MeetingRow = {
   /// no event matched, calendar access wasn't granted, or the sidecar
   /// failed.
   calendar_match_json: string | null;
+  /// Project name resolved via the meeting's item.project_id at read time.
+  /// `null` when unassigned. Reflects later reassignment from the detail panel.
+  project_name: string | null;
 };
 
 export type CalendarAttendee = {
