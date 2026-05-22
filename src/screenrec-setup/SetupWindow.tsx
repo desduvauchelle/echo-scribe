@@ -87,7 +87,7 @@ const SetupWindow: React.FC = () => {
       await startScreenRecording({
         display_id: sourceKind === "screen" ? selectedDisplayId : null,
         window_id: sourceKind === "window" ? selectedWindowId : null,
-        mic_device: micEnabled ? micDevice : null,
+        mic_device: micEnabled && micDevice ? micDevice : null,
         sysaudio,
         source_label: sourceLabel,
       });

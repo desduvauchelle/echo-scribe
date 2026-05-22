@@ -29,6 +29,10 @@ pub struct TrayHandle<R: Runtime> {
     last_state: Mutex<TrayPipelineState>,
     /// Mirrors `AppState.paused_hotkeys` for icon decisions.
     paused: Mutex<Arc<AtomicBool>>,
+    /// Whether a screen recording is currently active. Independent of the
+    /// pipeline `last_state` so a dictation/meeting cycle ending in Idle does
+    /// not clobber the red recording icon. Takes precedence in `set_state`.
+    screenrec_active: AtomicBool,
 }
 
 impl<R: Runtime> TrayHandle<R> {
@@ -64,6 +68,7 @@ impl<R: Runtime> TrayHandle<R> {
             screenrec_item: Mutex::new(Some(screenrec_for_handle)),
             last_state: Mutex::new(TrayPipelineState::Idle),
             paused: Mutex::new(Arc::new(AtomicBool::new(false))),
+            screenrec_active: AtomicBool::new(false),
         })
     }
 
@@ -224,6 +229,7 @@ impl TrayHandle<Wry> {
     /// Update the "Start screen recording" / "Stop screen recording" label
     /// and flip the tray icon to red (Recording) or back to Idle.
     pub fn set_screenrec_active(&self, active: bool) {
+        self.screenrec_active.store(active, Ordering::SeqCst);
         let item = self
             .screenrec_item
             .lock()
@@ -235,7 +241,17 @@ impl TrayHandle<Wry> {
                 warn!(?e, "failed to relabel screenrec menu item");
             }
         }
-        self.set_state(if active { TrayPipelineState::Recording } else { TrayPipelineState::Idle });
+        // Re-apply the icon. When turning ON, set_state honors screenrec_active
+        // and forces Recording. When turning OFF, the flag is now false so the
+        // icon reverts to the pipeline's current last_state. Read last_state and
+        // drop its guard BEFORE calling set_state (which re-locks last_state) to
+        // avoid a deadlock.
+        let base = self
+            .last_state
+            .lock()
+            .map(|g| *g)
+            .unwrap_or(TrayPipelineState::Idle);
+        self.set_state(base);
     }
 
     pub fn set_state(&self, state: TrayPipelineState) {
@@ -248,8 +264,16 @@ impl TrayHandle<Wry> {
             .ok()
             .map(|g| g.load(Ordering::SeqCst))
             .unwrap_or(false);
+        // A live screen recording forces the red Recording icon regardless of
+        // the pipeline state, so a dictation/meeting cycle ending in Idle does
+        // not turn the icon idle while recording continues.
+        let effective = if self.screenrec_active.load(Ordering::SeqCst) {
+            TrayPipelineState::Recording
+        } else {
+            state
+        };
         let app = self.icon.app_handle();
-        let img = load_icon(app, state, paused);
+        let img = load_icon(app, effective, paused);
         if let Err(e) = self.icon.set_icon(Some(img)) {
             warn!(?e, "failed to update tray icon");
         }

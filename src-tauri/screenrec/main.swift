@@ -216,19 +216,18 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, AVCaptureAudio
 
     func setupMicCapture() throws {
         guard let uid = micUID else { return }
-        let device: AVCaptureDevice?
-        if let exact = AVCaptureDevice(uniqueID: uid) {
-            device = exact
-        } else {
-            // Fall back to a discovery-session match (covers built-in/external mics
-            // whose uniqueID isn't resolvable via the direct initializer).
-            let discovery = AVCaptureDevice.DiscoverySession(
-                deviceTypes: [.microphone, .external],
-                mediaType: .audio,
-                position: .unspecified
-            )
-            device = discovery.devices.first(where: { $0.uniqueID == uid }) ?? discovery.devices.first
-        }
+        // The frontend mic picker sends a cpal device *name*, which maps to
+        // AVCaptureDevice.localizedName — match on that first. uniqueID is kept
+        // as a secondary match, and the direct initializer as a final fallback.
+        let discovery = AVCaptureDevice.DiscoverySession(
+            deviceTypes: [.microphone, .external],
+            mediaType: .audio,
+            position: .unspecified
+        )
+        let device = discovery.devices.first(where: { $0.localizedName == uid })
+            ?? discovery.devices.first(where: { $0.uniqueID == uid })
+            ?? AVCaptureDevice(uniqueID: uid)
+            ?? discovery.devices.first
         guard let mic = device else {
             emit(["event": "warn", "msg": "mic device not found", "uid": uid])
             return
