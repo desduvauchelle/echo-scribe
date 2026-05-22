@@ -2625,6 +2625,7 @@ pub fn delete_guide_template(state: State<'_, AppState>, id: String) -> Result<(
 #[tauri::command]
 pub fn start_screen_recording(
     state: State<'_, AppState>,
+    app: AppHandle,
     display_id: Option<u32>,
     window_id: Option<u32>,
     mic_device: Option<String>,
@@ -2657,6 +2658,12 @@ pub fn start_screen_recording(
         has_sysaudio: sysaudio,
     };
     *guard = Some((handle, meta));
+    // Flip tray icon to red and update menu label.
+    if let Ok(t) = state.tray.lock() {
+        t.set_screenrec_active(true);
+    }
+    // Notify the frontend so RecordingsView refreshes.
+    let _ = app.emit("screenrec-changed", ());
     Ok(())
 }
 
@@ -2666,9 +2673,10 @@ pub fn is_screen_recording(state: State<'_, AppState>) -> Result<bool, String> {
     Ok(guard.is_some())
 }
 
-#[tauri::command]
-pub fn stop_screen_recording(
-    state: State<'_, AppState>,
+/// Non-command inner implementation so the tray can reuse stop logic without
+/// going through a `#[tauri::command]` wrapper (which requires `State<'_>`).
+pub fn stop_screen_recording_inner(
+    state: &AppState,
 ) -> Result<crate::db::recordings::RecordingRow, String> {
     let (handle, meta) = {
         let mut guard = state.active_recording.lock().map_err(|_| "lock poisoned".to_string())?;
@@ -2701,9 +2709,24 @@ pub fn stop_screen_recording(
         upload_error: None,
         exports: "[]".into(),
     };
-    let db = require_db(&state)?;
+    let db = state.db.as_ref().ok_or_else(|| "database not available".to_string())?;
     db.with_conn(|c| crate::db::recordings::insert(c, &row))
         .map_err(|e| e.to_string())?;
+    // Flip tray icon back to idle.
+    if let Ok(t) = state.tray.lock() {
+        t.set_screenrec_active(false);
+    }
+    Ok(row)
+}
+
+#[tauri::command]
+pub fn stop_screen_recording(
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<crate::db::recordings::RecordingRow, String> {
+    let row = stop_screen_recording_inner(&state)?;
+    // Notify the frontend so RecordingsView refreshes.
+    let _ = app.emit("screenrec-changed", ());
     Ok(row)
 }
 

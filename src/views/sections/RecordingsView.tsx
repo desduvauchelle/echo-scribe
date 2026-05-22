@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import {
   isScreenRecording,
-  startScreenRecording,
+  openScreenrecSetup,
   stopScreenRecording,
   listRecordings,
   deleteRecording,
@@ -39,16 +40,34 @@ export function RecordingsView() {
     void refresh();
   }, [refresh]);
 
+  // Listen for screenrec-changed events (emitted by Rust on start/stop,
+  // whether triggered from the setup window or tray) to keep button state
+  // and list in sync without polling.
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    void listen("screenrec-changed", () => {
+      void refresh();
+    }).then((fn) => {
+      unlisten = fn;
+    });
+    return () => {
+      unlisten?.();
+    };
+  }, [refresh]);
+
   const onToggle = useCallback(async () => {
     setBusy(true);
     try {
       setError(null);
       if (recording) {
         await stopScreenRecording();
+        await refresh();
       } else {
-        await startScreenRecording({ sysaudio: true, source_label: "Entire screen" });
+        // Open the setup window so the user can pick source/audio before
+        // recording starts. The actual start is triggered from that window;
+        // screenrec-changed will fire and refresh() when recording begins.
+        await openScreenrecSetup();
       }
-      await refresh();
     } catch (e) {
       setError(String(e));
     } finally {

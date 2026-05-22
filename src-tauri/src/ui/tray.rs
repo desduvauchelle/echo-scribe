@@ -5,7 +5,7 @@ use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::path::BaseDirectory;
 use tauri::tray::{TrayIcon, TrayIconBuilder};
-use tauri::{AppHandle, Emitter, Manager, Runtime, Theme};
+use tauri::{AppHandle, Emitter, Manager, Runtime, Theme, Wry};
 use tracing::{info, warn};
 
 use crate::commands::AppState;
@@ -21,6 +21,9 @@ pub struct TrayHandle<R: Runtime> {
     /// The Start/Stop meeting toggle item — relabelled when a meeting begins
     /// or ends (via tray, MeetingsView button, auto-detect, or hard-cap).
     meeting_item: Mutex<Option<MenuItem<R>>>,
+    /// The Start/Stop screen recording toggle item — relabelled when a
+    /// screen recording begins or ends.
+    screenrec_item: Mutex<Option<MenuItem<R>>>,
     /// Last applied pipeline state, so we can re-apply the right icon when
     /// the user toggles "Paused" on/off without losing the underlying state.
     last_state: Mutex<TrayPipelineState>,
@@ -33,6 +36,8 @@ impl<R: Runtime> TrayHandle<R> {
         let open = MenuItem::with_id(app, "open", "Open Echo Scribe", true, None::<&str>)?;
         let meeting =
             MenuItem::with_id(app, "meeting", "Start meeting", true, None::<&str>)?;
+        let screenrec =
+            MenuItem::with_id(app, "screenrec", "Start screen recording", true, None::<&str>)?;
         let pause = MenuItem::with_id(app, "pause", "Pause hotkeys", true, None::<&str>)?;
         let settings = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
         let sep1 = PredefinedMenuItem::separator(app)?;
@@ -40,11 +45,12 @@ impl<R: Runtime> TrayHandle<R> {
         let quit = MenuItem::with_id(app, "quit", "Quit Echo Scribe", true, None::<&str>)?;
         let menu = Menu::with_items(
             app,
-            &[&open, &sep1, &meeting, &pause, &settings, &sep2, &quit],
+            &[&open, &sep1, &meeting, &screenrec, &pause, &settings, &sep2, &quit],
         )?;
 
         let pause_for_handle = pause.clone();
         let meeting_for_handle = meeting.clone();
+        let screenrec_for_handle = screenrec.clone();
         let icon = TrayIconBuilder::new()
             .menu(&menu)
             .icon(load_icon(app, TrayPipelineState::Idle, false))
@@ -55,14 +61,20 @@ impl<R: Runtime> TrayHandle<R> {
             icon,
             pause_item: Mutex::new(Some(pause_for_handle)),
             meeting_item: Mutex::new(Some(meeting_for_handle)),
+            screenrec_item: Mutex::new(Some(screenrec_for_handle)),
             last_state: Mutex::new(TrayPipelineState::Idle),
             paused: Mutex::new(Arc::new(AtomicBool::new(false))),
         })
     }
 
+}
+
+/// Wry-specific impl for `bind_menu` — needs concrete `AppHandle<Wry>` to
+/// call overlay functions that take `&AppHandle<Wry>` directly.
+impl TrayHandle<Wry> {
     /// Wire the menu-event handler. Called from `lib.rs::run` after the
     /// managed `AppState` (and its `paused_hotkeys` atomic) exists.
-    pub fn bind_menu(&self, app: &AppHandle<R>, paused: Arc<AtomicBool>) {
+    pub fn bind_menu(&self, app: &AppHandle<Wry>, paused: Arc<AtomicBool>) {
         if let Ok(mut slot) = self.paused.lock() {
             *slot = Arc::clone(&paused);
         }
@@ -134,6 +146,34 @@ impl<R: Runtime> TrayHandle<R> {
                         }
                     });
                 }
+                "screenrec" => {
+                    let app = app_for_handler.clone();
+                    let state = app.state::<AppState>();
+                    let recording = state
+                        .active_recording
+                        .lock()
+                        .map(|g| g.is_some())
+                        .unwrap_or(false);
+                    if recording {
+                        let app2 = app.clone();
+                        std::thread::spawn(move || {
+                            let st = app2.state::<AppState>();
+                            match crate::commands::stop_screen_recording_inner(&st) {
+                                Ok(_) => {
+                                    if let Ok(t) = st.tray.lock() {
+                                        t.set_screenrec_active(false);
+                                    }
+                                    let _ = app2.emit("screenrec-changed", ());
+                                }
+                                Err(e) => {
+                                    tracing::warn!(%e, "tray stop screenrec failed");
+                                }
+                            }
+                        });
+                    } else {
+                        crate::overlay::show_screenrec_setup(&app);
+                    }
+                }
                 "pause" => {
                     let was_paused = paused.load(Ordering::SeqCst);
                     let now_paused = !was_paused;
@@ -179,6 +219,23 @@ impl<R: Runtime> TrayHandle<R> {
                 warn!(?e, "failed to relabel meeting menu item");
             }
         }
+    }
+
+    /// Update the "Start screen recording" / "Stop screen recording" label
+    /// and flip the tray icon to red (Recording) or back to Idle.
+    pub fn set_screenrec_active(&self, active: bool) {
+        let item = self
+            .screenrec_item
+            .lock()
+            .ok()
+            .and_then(|g| g.as_ref().map(|m| m.clone()));
+        if let Some(item) = item {
+            let label = if active { "Stop screen recording" } else { "Start screen recording" };
+            if let Err(e) = item.set_text(label) {
+                warn!(?e, "failed to relabel screenrec menu item");
+            }
+        }
+        self.set_state(if active { TrayPipelineState::Recording } else { TrayPipelineState::Idle });
     }
 
     pub fn set_state(&self, state: TrayPipelineState) {
