@@ -274,7 +274,7 @@ export function RecordingsView() {
               <div className="mt-6 border-t border-line pt-4">
                 <div className="mb-2 flex items-center justify-between">
                   <h3 className="text-[13px] font-semibold">Transcript</h3>
-                  {selected.transcript ? (
+                  {selected.transcript?.trim() ? (
                     <button
                       onClick={() => {
                         void navigator.clipboard.writeText(selected.transcript ?? "");
@@ -285,7 +285,7 @@ export function RecordingsView() {
                     </button>
                   ) : null}
                 </div>
-                {selected.transcript ? (
+                {selected.transcript !== null ? (
                   selected.transcript.trim() ? (
                     <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-fg">
                       {selected.transcript}
