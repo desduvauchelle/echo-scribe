@@ -2,7 +2,7 @@
 //! events, finalize on SIGTERM. Mirrors `meeting/syscap.rs`.
 
 use std::io::{BufRead, BufReader, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
@@ -121,6 +121,63 @@ pub fn parse_stopped(line: &str) -> Option<StoppedInfo> {
         size: val.get("size").and_then(|v| v.as_i64()).unwrap_or(0),
         thumb: val.get("thumb").and_then(|v| v.as_str()).unwrap_or("").to_string(),
     })
+}
+
+/// Parsed `done` event from an `export` run.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExportDone {
+    pub path: String,
+    pub size: i64,
+}
+
+/// Parse one line of sidecar stderr JSON into an `ExportDone`, if it is the
+/// `done` event. Returns `None` for any other event or malformed line.
+pub fn parse_export_done(line: &str) -> Option<ExportDone> {
+    let val: serde_json::Value = serde_json::from_str(line).ok()?;
+    if val.get("event")?.as_str()? != "done" {
+        return None;
+    }
+    Some(ExportDone {
+        path: val.get("path")?.as_str()?.to_string(),
+        size: val.get("size").and_then(|v| v.as_i64()).unwrap_or(0),
+    })
+}
+
+/// Transcode `in_path` to `out_path` at `quality` ("1080"|"720"|"480") by
+/// running the sidecar's `export` sub-command. Blocks until it finishes.
+/// Returns the finalized export info on success. Mirrors `extract_audio`.
+pub fn export(in_path: &Path, out_path: &Path, quality: &str) -> Result<ExportDone, String> {
+    let bin = resolve_binary().map_err(|e| e.to_string())?;
+    let out = Command::new(&bin)
+        .arg("export")
+        .arg("--in")
+        .arg(in_path)
+        .arg("--out")
+        .arg(out_path)
+        .arg("--quality")
+        .arg(quality)
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|e| e.to_string())?;
+
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    // Success: find the `done` event (progress events precede it).
+    for line in stderr.lines().rev() {
+        if let Some(d) = parse_export_done(line) {
+            return Ok(d);
+        }
+    }
+    // Failure: surface the structured error if present.
+    for line in stderr.lines().rev() {
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(line) {
+            if val.get("event").and_then(|v| v.as_str()) == Some("error") {
+                let msg = val.get("msg").and_then(|v| v.as_str()).unwrap_or("unknown");
+                return Err(format!("export failed: {msg}"));
+            }
+        }
+    }
+    Err(format!("export produced no output (exit {:?})", out.status.code()))
 }
 
 /// Resolve the bundled `echo-scribe-screenrec` sidecar, falling back to the
@@ -345,5 +402,19 @@ mod tests {
         let got = parse_sources(s).unwrap();
         assert_eq!(got.displays.len(), 1);
         assert_eq!(got.windows[0].app, "Safari");
+    }
+
+    #[test]
+    fn parse_export_done_extracts_fields() {
+        let line = r#"{"event":"done","path":"/tmp/a-720.mp4","size":4242}"#;
+        let got = parse_export_done(line).unwrap();
+        assert_eq!(got.path, "/tmp/a-720.mp4");
+        assert_eq!(got.size, 4242);
+    }
+
+    #[test]
+    fn parse_export_done_ignores_other_events() {
+        assert!(parse_export_done(r#"{"event":"progress","pct":50}"#).is_none());
+        assert!(parse_export_done("not json").is_none());
     }
 }
