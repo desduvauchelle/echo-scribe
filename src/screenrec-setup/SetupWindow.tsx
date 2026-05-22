@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import {
   listScreenSources,
   listInputDevices,
@@ -194,9 +195,19 @@ const SetupWindow: React.FC = () => {
                       }}
                       onClick={() => setSelectedWindowId(w.id)}
                     >
-                      <span style={styles.windowApp}>{w.app}</span>
-                      <span style={styles.windowSep}> — </span>
-                      <span style={styles.windowTitle}>{w.title}</span>
+                      {w.thumb ? (
+                        <img
+                          src={convertFileSrc(w.thumb)}
+                          alt=""
+                          style={styles.windowThumb}
+                        />
+                      ) : (
+                        <div style={styles.windowThumbPlaceholder} />
+                      )}
+                      <div style={styles.windowMeta}>
+                        <span style={styles.windowApp}>{w.app}</span>
+                        <span style={styles.windowTitle}>{w.title}</span>
+                      </div>
                     </button>
                   ))}
                 </div>
@@ -366,7 +377,7 @@ const styles: Record<string, React.CSSProperties> = {
     display: "flex",
     flexDirection: "column",
     gap: "2px",
-    maxHeight: "160px",
+    maxHeight: "240px",
     overflowY: "auto",
     border: "1px solid var(--color-line)",
     borderRadius: "6px",
@@ -375,7 +386,7 @@ const styles: Record<string, React.CSSProperties> = {
   windowRow: {
     display: "flex",
     alignItems: "center",
-    padding: "7px 10px",
+    padding: "6px 10px",
     textAlign: "left",
     backgroundColor: "transparent",
     border: "none",
@@ -384,28 +395,48 @@ const styles: Record<string, React.CSSProperties> = {
     color: "var(--color-fg)",
     fontSize: "13px",
     transition: "background-color 120ms ease",
-    gap: "0",
-    whiteSpace: "nowrap",
+    gap: "10px",
     overflow: "hidden",
-    textOverflow: "ellipsis",
   },
   windowRowSelected: {
     backgroundColor: "var(--color-accent-soft)",
     color: "var(--color-accent)",
   },
+  windowThumb: {
+    width: "96px",
+    height: "60px",
+    objectFit: "cover" as React.CSSProperties["objectFit"],
+    borderRadius: "4px",
+    flexShrink: 0,
+    backgroundColor: "var(--color-line)",
+  },
+  windowThumbPlaceholder: {
+    width: "96px",
+    height: "60px",
+    borderRadius: "4px",
+    flexShrink: 0,
+    backgroundColor: "var(--color-line)",
+  },
+  windowMeta: {
+    display: "flex",
+    flexDirection: "column" as React.CSSProperties["flexDirection"],
+    gap: "2px",
+    overflow: "hidden",
+    minWidth: 0,
+  },
   windowApp: {
     fontWeight: 500,
     flexShrink: 0,
-  },
-  windowSep: {
-    color: "var(--color-muted)",
-    margin: "0 4px",
-    flexShrink: 0,
+    whiteSpace: "nowrap" as React.CSSProperties["whiteSpace"],
+    overflow: "hidden",
+    textOverflow: "ellipsis",
   },
   windowTitle: {
     color: "var(--color-muted)",
     overflow: "hidden",
     textOverflow: "ellipsis",
+    whiteSpace: "nowrap" as React.CSSProperties["whiteSpace"],
+    fontSize: "12px",
   },
   toggleRow: {
     display: "flex",

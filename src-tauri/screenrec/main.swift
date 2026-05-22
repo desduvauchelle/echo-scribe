@@ -24,6 +24,29 @@ let OWN_BUNDLE_ID = "com.echoscribe.app"
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
 
+// --- window thumbnail helper (used by --list-sources) ---
+func windowThumbnail(_ windowID: CGWindowID, dir: URL) -> String {
+    guard let cg = CGWindowListCreateImage(.null, .optionIncludingWindow, windowID, [.boundsIgnoreFraming, .bestResolution]) else { return "" }
+    // downscale to max width 320 preserving aspect
+    let srcW = cg.width, srcH = cg.height
+    guard srcW > 0, srcH > 0 else { return "" }
+    let maxW = 320
+    let scale = min(1.0, Double(maxW) / Double(srcW))
+    let dstW = Int(Double(srcW) * scale), dstH = Int(Double(srcH) * scale)
+    guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: dstW, pixelsHigh: dstH,
+        bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+        colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else { return "" }
+    guard let ctx = NSGraphicsContext(bitmapImageRep: rep) else { return "" }
+    NSGraphicsContext.saveGraphicsState()
+    NSGraphicsContext.current = ctx
+    ctx.cgContext.draw(cg, in: CGRect(x: 0, y: 0, width: dstW, height: dstH))
+    NSGraphicsContext.restoreGraphicsState()
+    guard let data = rep.representation(using: .jpeg, properties: [.compressionFactor: 0.5]) else { return "" }
+    let url = dir.appendingPathComponent("win-\(windowID).jpg")
+    try? data.write(to: url)
+    return url.path
+}
+
 // --- mode: `--list-sources` ---
 if CommandLine.arguments.contains("--list-sources") {
     if #available(macOS 14.0, *) {
@@ -34,12 +57,20 @@ if CommandLine.arguments.contains("--list-sources") {
                     ["id": d.displayID, "width": d.width, "height": d.height,
                      "label": "Display \(d.displayID) (\(d.width)×\(d.height))"]
                 }
+                // Build (or recreate fresh) the thumbs directory so stale thumbs don't accumulate.
+                let home = FileManager.default.homeDirectoryForCurrentUser
+                let thumbsDir = home
+                    .appendingPathComponent("Library/Application Support/EchoScribe/recordings/.source-thumbs")
+                try? FileManager.default.removeItem(at: thumbsDir)
+                try? FileManager.default.createDirectory(at: thumbsDir, withIntermediateDirectories: true)
                 let windows = content.windows.compactMap { w -> [String: Any]? in
                     guard let title = w.title, !title.isEmpty,
                           let app = w.owningApplication?.applicationName, w.isOnScreen,
                           w.frame.width > 80, w.frame.height > 80 else { return nil }
+                    let thumb = windowThumbnail(w.windowID, dir: thumbsDir)
                     return ["id": w.windowID, "app": app, "title": title,
-                            "width": Int(w.frame.width), "height": Int(w.frame.height)]
+                            "width": Int(w.frame.width), "height": Int(w.frame.height),
+                            "thumb": thumb]
                 }
                 let out: [String: Any] = ["displays": displays, "windows": windows]
                 let data = try JSONSerialization.data(withJSONObject: out)

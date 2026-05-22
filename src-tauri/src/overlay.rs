@@ -409,7 +409,8 @@ pub fn create_screenrec_setup(app_handle: &AppHandle<Wry>) {
     .resizable(true)
     .decorations(true)
     .transparent(false)
-    .always_on_top(false)
+    .always_on_top(true)
+    .visible_on_all_workspaces(true)
     .skip_taskbar(false)
     .focused(true)
     .visible(false)
@@ -437,6 +438,9 @@ pub fn show_screenrec_setup(app_handle: &AppHandle<Wry>) {
             let _ = w.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
         }
         let _ = w.show();
+        // Re-assert always_on_top after show (mirrors the overlay pattern — showing
+        // a window can promote it to key; orderFront semantics avoid makeKeyAndOrderFront).
+        let _ = w.set_always_on_top(true);
         let _ = w.set_focus();
     }
 }

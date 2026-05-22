@@ -937,7 +937,7 @@ export const revealRecording = (id: string): Promise<void> =>
   invoke("reveal_recording", { id });
 
 export type DisplaySource = { id: number; width: number; height: number; label: string };
-export type WindowSource = { id: number; app: string; title: string; width: number; height: number };
+export type WindowSource = { id: number; app: string; title: string; width: number; height: number; thumb: string };
 export type ScreenSources = { displays: DisplaySource[]; windows: WindowSource[] };
 export const listScreenSources = (): Promise<ScreenSources> =>
   invoke("list_screen_sources");

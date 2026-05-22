@@ -26,6 +26,8 @@ pub struct WindowSource {
     pub title: String,
     pub width: i64,
     pub height: i64,
+    #[serde(default)]
+    pub thumb: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
