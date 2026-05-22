@@ -179,11 +179,19 @@ impl ScreenrecHandle {
         let (ready_tx, ready_rx) = mpsc::channel::<Result<(), String>>();
         let stderr = child.stderr.take().expect("piped");
         let log_path = recordings_dir().ok().map(|d| d.join("screenrec-last.log"));
+        let out_path_for_log = out_path.clone();
         std::thread::spawn(move || {
             let mut ready_reported = false;
             let mut log_file = log_path
                 .as_ref()
-                .and_then(|p| std::fs::File::create(p).ok());
+                .and_then(|p| std::fs::OpenOptions::new().create(true).append(true).open(p).ok());
+            if let Some(f) = log_file.as_mut() {
+                let ts = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis())
+                    .unwrap_or(0);
+                let _ = writeln!(f, "=== start {} out={} ===", ts, out_path_for_log.display());
+            }
             let reader = BufReader::new(stderr);
             for line in reader.lines() {
                 let Ok(line) = line else { break };

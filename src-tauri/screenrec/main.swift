@@ -201,6 +201,8 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, AVCaptureAudio
         if micOn {
             try setupMicCapture()
         }
+        emit(["event": "diag", "phase": "outputs_added"])
+        emit(["event": "diag", "phase": "starting_capture"])
         stream.startCapture { [weak self] err in
             if let err = err { emitFatal("start", err.localizedDescription) }
             // Start the mic session only after the SCStream capture is up so the
@@ -717,6 +719,14 @@ func run() async {
     do {
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
 
+        emit([
+            "event": "diag", "phase": "record_query",
+            "arg_window": argWindowID.map { Int($0) } as Any,
+            "arg_display": argDisplayID.map { Int($0) } as Any,
+            "no_sysaudio": argNoSysaudio, "mic": argMicUID ?? "",
+            "n_windows": content.windows.count, "n_displays": content.displays.count,
+        ])
+
         // Audio source selection. sysOn = capture system audio (default on,
         // suppressed by --no-sysaudio). micOn = capture a microphone (--mic <uid>).
         let sysOn = !argNoSysaudio
@@ -739,8 +749,13 @@ func run() async {
         if let windowID = argWindowID {
             // Window capture
             guard let window = content.windows.first(where: { $0.windowID == windowID }) else {
+                let avail = content.windows.prefix(30).map { w -> [String: Any] in
+                    ["id": w.windowID, "app": w.owningApplication?.applicationName ?? "", "title": w.title ?? "", "onScreen": w.isOnScreen]
+                }
+                emit(["event": "diag", "phase": "no_window_avail", "wanted": Int(windowID), "available": avail])
                 emitFatal("no_window", "window \(windowID) not found")
             }
+            emit(["event": "diag", "phase": "window_found", "id": Int(windowID), "title": window.title ?? "", "w": Int(window.frame.width), "h": Int(window.frame.height), "onScreen": window.isOnScreen])
             filter = SCContentFilter(desktopIndependentWindow: window)
             let (w, h) = clampDims(Int(window.frame.width), Int(window.frame.height))
             capW = w; capH = h
@@ -769,6 +784,8 @@ func run() async {
 
         cfg.width = capW
         cfg.height = capH
+
+        emit(["event": "diag", "phase": "filter_built", "w": capW, "h": capH, "capturesAudio": cfg.capturesAudio])
 
         let rec = Recorder(outURL: outURL, width: capW, height: capH, sysOn: sysOn, micOn: micOn, micUID: argMicUID)
         let stream = SCStream(filter: filter, configuration: cfg, delegate: rec)
