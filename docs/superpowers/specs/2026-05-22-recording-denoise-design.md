@@ -20,13 +20,22 @@ two audio features (the first, on-demand transcripts, shipped separately).
   `true` later, a successful denoise deletes the original and keeps only the
   cleaned file.
 - **Trigger:** manual button, same pattern as the transcript feature.
-- **Denoiser:** DeepFilterNet via the `deep_filter` Rust crate with its
-  `default-model` feature — the model weights are EMBEDDED in the crate
-  (`DfParams::default()`), so there is no separate model download or bundling
-  step. Pure Rust (tract), CPU, 48kHz. Verified: `DfTract::process(noisy:
-  ArrayView2<f32>, enh: ArrayViewMut2<f32>) -> Result<f32>` operates frame by
-  frame (`hop_size` samples per channel). Rejected: RNNoise (weaker), download
-  model on first use (unnecessary — weights are embedded).
+- **Denoiser:** RNNoise via the `nnnoiseless` crate (crates.io, pure Rust,
+  embedded model). Verified API: `DenoiseState::new() -> Box<DenoiseState>` and
+  `process_frame(&mut self, output: &mut [f32], input: &[f32]) -> f32` operating
+  on `nnnoiseless::FRAME_SIZE` (480) samples at 48kHz mono. The model weights
+  are embedded, so no download or bundling. Use `default-features = false` (the
+  default `bin` feature pulls clap/hound CLI deps we don't want).
+  **RNNoise sample convention:** samples are `f32` in the *i16 range*
+  (−32768..=32767), NOT normalized to −1..1 — read PCM16 → `f32` as raw i16
+  values, and clamp to i16 range on write.
+  - *Why not DeepFilterNet:* its inference crate (`libDF`, the `tract` +
+    `default-model` API) is **only on GitHub at 0.5.7-pre, never published to
+    crates.io** (the published `deep_filter` 0.2.5 is a dataset/DSP crate with no
+    NN). Using it would require a git dependency on a `-pre` commit plus the
+    heavy `tract` stack. Chosen to start with RNNoise (low risk, validates the
+    whole extract→denoise→mux pipeline + UI); DeepFilterNet can be swapped in
+    later behind the same `denoise_wav` interface if quality is insufficient.
 - **Channels:** downmix to 48kHz MONO for denoise; cleaned track muxed as mono.
   Voice clarity is the goal and the model is mono — simplest, good quality.
 - **Mux:** Swift sidecar `echo-scribe-screenrec` gains a `mux-audio` mode using
@@ -63,10 +72,10 @@ moment where both files are gone.
 
 ### 1. Cargo dependency
 File: `src-tauri/Cargo.toml`
-- Add `deep_filter` with the embedded-model + tract features (exact feature
-  names confirmed at implementation; expected `default-model` and `tract`). This
-  transitively pulls `ndarray`. Confirm the build links and the binary size
-  increase (~embedded model) is acceptable.
+- Add `nnnoiseless = { version = "0.5", default-features = false }`. Disabling
+  default features avoids the `bin` feature's clap/hound/dasp CLI deps; the core
+  `DenoiseState` needs no features and the RNNoise model is embedded. No model
+  download or bundling.
 
 ### 2. Denoise module
 File: `src-tauri/src/denoise/mod.rs` (new)
@@ -77,24 +86,25 @@ pub fn denoise_wav(
     progress: impl Fn(u8),
 ) -> Result<(), DenoiseError>;
 ```
-- Read the input 48kHz mono WAV into `Vec<f32>` (reuse the WAV reader logic from
-  `asr::pipeline::load_wav_16k_mono_int16`, generalized — it already parses rate
-  / channels / 16-bit PCM; factor a shared `read_wav_pcm16(path) -> (Vec<f32>,
-  rate, channels)` if clean to do so, otherwise a local reader).
-- Build `DfTract` from `DfParams::default()` + `RuntimeParams::new(1, ...)`.
-- Read `hop_size` from the model; process the samples in `hop_size`-sample
-  frames. For each frame: copy into an `Array2<f32>` shaped `[1, hop_size]`
-  (zero-pad the final partial frame), call `process`, append the enhanced
-  `hop_size` samples to the output buffer. Truncate output to the original sample
-  count.
-- Write the output as a 48kHz mono 16-bit PCM WAV (same canonical header writer
-  the Swift side uses; in Rust, write RIFF/WAVE/fmt(PCM,1ch,48000,16)/data).
+- Read the input 48kHz mono WAV into `Vec<f32>`. The samples must be in RNNoise's
+  *i16 range* (−32768..=32767), so read the 16-bit PCM and cast each `i16` to
+  `f32` AS-IS (do NOT divide by 32768). Parse the WAV header like
+  `asr::pipeline::load_wav_16k_mono_int16` does (RIFF/WAVE checks, channels@22,
+  rate@24, bits@34, scan for `data` chunk), but keep the raw i16-range f32 values.
+- `let mut state = nnnoiseless::DenoiseState::new();` (embedded model).
+- Process in `nnnoiseless::FRAME_SIZE` (480) frames: for each full frame call
+  `state.process_frame(&mut out_frame, &in_frame)`; the final partial frame is
+  zero-padded to 480 on input and the output truncated back to the real sample
+  count. Append each `out_frame` to the output buffer.
+- Write the output as a 48kHz mono 16-bit PCM WAV: clamp each `f32` to
+  `[-32768.0, 32767.0]`, round to `i16`, write canonical header
+  `RIFF/WAVE/fmt(PCM,1ch,48000,16)/data`.
 - `progress(pct)` = `frames_done * 100 / total_frames`.
-- `DenoiseError` enum: `Io`, `Wav`, `Model`, `Process`.
+- `DenoiseError` enum: `Io`, `Wav`, `Process`.
 
-Pure frame-chunking math (`window_ranges(len, hop)` already exists in
-`asr::pipeline`; either reuse via a shared helper or replicate a tiny local
-`frame_ranges`) gets a unit test.
+Pure frame-chunking math gets a unit test (a small local
+`frame_ranges(len, frame) -> Vec<(start, end)>`, mirroring the existing
+`asr::pipeline::window_ranges`, kept private to this module).
 
 ### 3. Swift sidecar
 File: `src-tauri/screenrec/main.swift`
