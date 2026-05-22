@@ -60,6 +60,12 @@ use crate::commands::{
     get_action_counter,
     reset_action_counter,
     get_common_actions,
+    start_screen_recording,
+    stop_screen_recording,
+    is_screen_recording,
+    list_recordings,
+    delete_recording,
+    reveal_recording,
     AppState,
 };
 use crate::llm::Llm;
@@ -293,6 +299,12 @@ pub fn run() {
             get_action_counter,
             reset_action_counter,
             get_common_actions,
+            start_screen_recording,
+            stop_screen_recording,
+            is_screen_recording,
+            list_recordings,
+            delete_recording,
+            reveal_recording,
         ])
         .setup(move |app| {
             // Tray.
@@ -477,6 +489,7 @@ pub fn run() {
                 event_log_root,
                 _log_guard: Mutex::new(guard_slot.take()),
                 meeting_manager,
+                active_recording: std::sync::Arc::new(std::sync::Mutex::new(None)),
             };
             app.manage(app_state);
 

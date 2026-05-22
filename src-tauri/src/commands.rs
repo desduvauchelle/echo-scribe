@@ -73,6 +73,7 @@ pub struct AppState {
     /// of `AppState` so logs flush on graceful exit — see `lib.rs::run`.
     pub _log_guard: Mutex<Option<tracing_appender::non_blocking::WorkerGuard>>,
     pub meeting_manager: Arc<crate::meeting::MeetingManager>,
+    pub active_recording: std::sync::Arc<std::sync::Mutex<Option<crate::screenrec::ScreenrecHandle>>>,
 }
 
 /// JSON-friendly mirror of [`Binding`].
@@ -2609,6 +2610,115 @@ pub fn delete_guide_template(state: State<'_, AppState>, id: String) -> Result<(
     let db = require_db(&state)?;
     db.with_conn(move |c| crate::db::guide_templates::delete_template(c, &id))
         .map_err(|e| e.to_string())
+}
+
+// ----- Screen recording commands -----
+
+#[tauri::command]
+pub fn start_screen_recording(state: State<'_, AppState>) -> Result<(), String> {
+    let mut guard = state.active_recording.lock().map_err(|_| "lock poisoned".to_string())?;
+    if guard.is_some() {
+        return Err("a recording is already in progress".into());
+    }
+    let dir = crate::screenrec::recordings_dir().map_err(|e| e.to_string())?;
+    let id = format!(
+        "rec-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|e| e.to_string())?
+            .as_millis()
+    );
+    let out_path = dir.join(format!("{id}.mp4"));
+    let handle = crate::screenrec::ScreenrecHandle::start(out_path).map_err(|e| e.to_string())?;
+    *guard = Some(handle);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn is_screen_recording(state: State<'_, AppState>) -> Result<bool, String> {
+    let guard = state.active_recording.lock().map_err(|_| "lock poisoned".to_string())?;
+    Ok(guard.is_some())
+}
+
+#[tauri::command]
+pub fn stop_screen_recording(
+    state: State<'_, AppState>,
+) -> Result<crate::db::recordings::RecordingRow, String> {
+    let handle = {
+        let mut guard = state.active_recording.lock().map_err(|_| "lock poisoned".to_string())?;
+        guard.take().ok_or("no recording in progress")?
+    };
+    let info = handle.stop()?;
+    let id = std::path::Path::new(&info.path)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("rec-unknown")
+        .to_string();
+    let row = crate::db::recordings::RecordingRow {
+        id,
+        created_at: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|e| e.to_string())?
+            .as_millis() as i64,
+        file_path: info.path.clone(),
+        duration_ms: Some(info.dur_ms),
+        width: Some(info.width),
+        height: Some(info.height),
+        size_bytes: Some(info.size),
+        source_label: Some("Entire screen".into()),
+        has_mic: false,
+        has_sysaudio: true,
+        thumb_path: if info.thumb.is_empty() { None } else { Some(info.thumb) },
+        drive_file_id: None,
+        drive_link: None,
+        upload_status: "none".into(),
+        upload_error: None,
+        exports: "[]".into(),
+    };
+    let db = require_db(&state)?;
+    db.with_conn(|c| crate::db::recordings::insert(c, &row))
+        .map_err(|e| e.to_string())?;
+    Ok(row)
+}
+
+#[tauri::command]
+pub fn list_recordings(
+    state: State<'_, AppState>,
+) -> Result<Vec<crate::db::recordings::RecordingRow>, String> {
+    let db = require_db(&state)?;
+    db.with_conn(|c| crate::db::recordings::list(c))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn delete_recording(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    let db = require_db(&state)?;
+    let row = db
+        .with_conn(|c| crate::db::recordings::get(c, &id))
+        .map_err(|e| e.to_string())?;
+    if let Some(row) = row {
+        let _ = std::fs::remove_file(&row.file_path);
+        if let Some(thumb) = &row.thumb_path {
+            let _ = std::fs::remove_file(thumb);
+        }
+    }
+    db.with_conn(|c| crate::db::recordings::delete(c, &id))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn reveal_recording(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    let db = require_db(&state)?;
+    let row = db
+        .with_conn(|c| crate::db::recordings::get(c, &id))
+        .map_err(|e| e.to_string())?
+        .ok_or("recording not found")?;
+    std::process::Command::new("open")
+        .arg("-R")
+        .arg(&row.file_path)
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[cfg(test)]
