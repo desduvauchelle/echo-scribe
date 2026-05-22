@@ -12,7 +12,6 @@ const AUTH_ENDPOINT: &str = "https://accounts.google.com/o/oauth2/v2/auth";
 const TOKEN_ENDPOINT: &str = "https://oauth2.googleapis.com/token";
 // SCOPE is used by auth_url(); no dead_code allow needed.
 const SCOPE: &str = "https://www.googleapis.com/auth/drive.file openid email";
-#[allow(dead_code)]
 const FOLDER_NAME: &str = "Echo Scribe";
 
 const KEYCHAIN_SERVICE: &str = "com.echoscribe.app";
@@ -20,6 +19,7 @@ const KEYCHAIN_ACCOUNT: &str = "google_drive_refresh_token";
 
 use std::io::{Read, Write};
 use std::net::TcpListener;
+use std::path::Path;
 
 use base64::Engine;
 use sha2::{Digest, Sha256};
@@ -252,6 +252,132 @@ pub async fn connect(client_id: &str, client_secret: &str) -> Result<Option<Stri
     store_refresh_token(&refresh)?;
     debug_assert!(!access.is_empty());
     Ok(email)
+}
+
+/// Find the "Echo Scribe" folder, creating it if absent. Returns its file id.
+#[allow(dead_code)] // TODO(phase4): consumed by upload_recording command
+pub async fn ensure_folder(access_token: &str) -> Result<String, String> {
+    let client = reqwest::Client::new();
+    let q = format!(
+        "name = '{FOLDER_NAME}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+    );
+    let resp = client
+        .get("https://www.googleapis.com/drive/v3/files")
+        .bearer_auth(access_token)
+        .query(&[("q", q.as_str()), ("spaces", "drive"), ("fields", "files(id,name)")])
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    let v: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    if let Some(id) = v
+        .get("files")
+        .and_then(|f| f.as_array())
+        .and_then(|a| a.first())
+        .and_then(|f| f.get("id"))
+        .and_then(|i| i.as_str())
+    {
+        return Ok(id.to_string());
+    }
+    let body = serde_json::json!({
+        "name": FOLDER_NAME,
+        "mimeType": "application/vnd.google-apps.folder",
+    });
+    let resp = client
+        .post("https://www.googleapis.com/drive/v3/files")
+        .bearer_auth(access_token)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    let v: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    v.get("id")
+        .and_then(|i| i.as_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| "could not create Drive folder".into())
+}
+
+/// Upload `file_path` into `folder_id` via a resumable session. Returns the new
+/// file id. v1 sends the whole file in one PUT to the session URI; the session
+/// makes a retry of that PUT safe. (Chunked resume is a future enhancement.)
+#[allow(dead_code)] // TODO(phase4): consumed by upload_recording command
+pub async fn upload_resumable(
+    access_token: &str,
+    folder_id: &str,
+    file_path: &Path,
+    name: &str,
+) -> Result<String, String> {
+    let client = reqwest::Client::new();
+    let metadata = serde_json::json!({ "name": name, "parents": [folder_id] });
+    let start = client
+        .post("https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable")
+        .bearer_auth(access_token)
+        .header("X-Upload-Content-Type", "video/mp4")
+        .json(&metadata)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !start.status().is_success() {
+        return Err(format!("upload init failed: {}", start.text().await.unwrap_or_default()));
+    }
+    let session_uri = start
+        .headers()
+        .get("location")
+        .and_then(|h| h.to_str().ok())
+        .ok_or("no resumable session URI in response")?
+        .to_string();
+
+    let bytes = tokio::fs::read(file_path).await.map_err(|e| e.to_string())?;
+    let put = client
+        .put(&session_uri)
+        .header("Content-Type", "video/mp4")
+        .body(bytes)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !put.status().is_success() {
+        return Err(format!("upload failed: {}", put.text().await.unwrap_or_default()));
+    }
+    let v: serde_json::Value = put.json().await.map_err(|e| e.to_string())?;
+    v.get("id")
+        .and_then(|i| i.as_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| "upload response missing file id".into())
+}
+
+/// Grant anyone-with-the-link reader access.
+#[allow(dead_code)] // TODO(phase4): consumed by upload_recording command
+pub async fn make_anyone_reader(access_token: &str, file_id: &str) -> Result<(), String> {
+    let client = reqwest::Client::new();
+    let body = serde_json::json!({ "role": "reader", "type": "anyone" });
+    let resp = client
+        .post(format!("https://www.googleapis.com/drive/v3/files/{file_id}/permissions"))
+        .bearer_auth(access_token)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!("set permission failed: {}", resp.text().await.unwrap_or_default()));
+    }
+    Ok(())
+}
+
+/// Read the shareable `webViewLink` for a file.
+#[allow(dead_code)] // TODO(phase4): consumed by upload_recording command
+pub async fn web_view_link(access_token: &str, file_id: &str) -> Result<String, String> {
+    let client = reqwest::Client::new();
+    let resp = client
+        .get(format!("https://www.googleapis.com/drive/v3/files/{file_id}"))
+        .bearer_auth(access_token)
+        .query(&[("fields", "webViewLink")])
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    let v: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    v.get("webViewLink")
+        .and_then(|l| l.as_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| "no webViewLink".into())
 }
 
 #[cfg(test)]
