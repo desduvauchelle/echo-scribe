@@ -207,6 +207,52 @@ if CommandLine.arguments.count > 1, CommandLine.arguments[1] == "extract-audio" 
     extractAudio(inPath: inPath, outPath: outPath)
 }
 
+// --- mode: `export --in <path> --out <path> --quality <1080|720|480>` ---
+if CommandLine.arguments.count > 1, CommandLine.arguments[1] == "export" {
+    var inPath: String?
+    var exOutPath: String?
+    var quality = "1080"
+    let a = CommandLine.arguments
+    var i = 2
+    while i < a.count {
+        if a[i] == "--in", i + 1 < a.count { inPath = a[i + 1]; i += 1 }
+        else if a[i] == "--out", i + 1 < a.count { exOutPath = a[i + 1]; i += 1 }
+        else if a[i] == "--quality", i + 1 < a.count { quality = a[i + 1]; i += 1 }
+        i += 1
+    }
+    guard let ip = inPath, let op = exOutPath else { emitFatal("args", "export needs --in and --out") }
+    let preset: String
+    switch quality {
+    case "480": preset = AVAssetExportPreset640x480
+    case "720": preset = AVAssetExportPreset1280x720
+    default:    preset = AVAssetExportPreset1920x1080
+    }
+    let asset = AVURLAsset(url: URL(fileURLWithPath: ip))
+    let outURL = URL(fileURLWithPath: op)
+    try? FileManager.default.removeItem(at: outURL)
+    guard let session = AVAssetExportSession(asset: asset, presetName: preset) else {
+        emitFatal("export", "cannot create export session for preset \(preset)")
+    }
+    session.outputURL = outURL
+    session.outputFileType = .mp4
+    let timer = DispatchSource.makeTimerSource(queue: .global())
+    timer.schedule(deadline: .now() + 0.5, repeating: 0.5)
+    timer.setEventHandler { emit(["event": "progress", "pct": Int(session.progress * 100)]) }
+    timer.resume()
+    session.exportAsynchronously {
+        timer.cancel()
+        if session.status == .completed {
+            let size = (try? FileManager.default.attributesOfItem(atPath: op)[.size] as? Int) ?? 0
+            emit(["event": "done", "path": op, "size": size])
+            exit(0)
+        } else {
+            emit(["event": "error", "kind": "export", "msg": session.error?.localizedDescription ?? "export failed"])
+            exit(1)
+        }
+    }
+    RunLoop.main.run()
+}
+
 // --- arg parsing: `record --out <path> [--display <id>] [--window <id>] [--no-sysaudio] [--mic <uid>]` ---
 var outPath: String?
 var argDisplayID: UInt32?
