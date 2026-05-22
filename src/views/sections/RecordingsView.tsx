@@ -9,6 +9,7 @@ import {
   deleteRecording,
   renameRecording,
   revealRecording,
+  transcribeRecording,
   type RecordingRow,
 } from "../../lib/api";
 
@@ -37,6 +38,8 @@ export function RecordingsView() {
   const [error, setError] = useState<string | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [nameInput, setNameInput] = useState("");
+  const [transcribing, setTranscribing] = useState(false);
+  const [progress, setProgress] = useState(0);
 
   const refresh = useCallback(async () => {
     const next = await listRecordings();
@@ -63,6 +66,18 @@ export function RecordingsView() {
       unlisten?.();
     };
   }, [refresh]);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    void listen<{ id: string; pct: number }>("transcribe-progress", (e) => {
+      if (selected && e.payload.id === selected.id) setProgress(e.payload.pct);
+    }).then((fn) => {
+      unlisten = fn;
+    });
+    return () => {
+      unlisten?.();
+    };
+  }, [selected]);
 
   const onToggle = useCallback(async () => {
     setBusy(true);
@@ -119,6 +134,21 @@ export function RecordingsView() {
     }
   }, [selected, nameInput, refresh]);
 
+  const onTranscribe = useCallback(async () => {
+    if (!selected) return;
+    setTranscribing(true);
+    setProgress(0);
+    setError(null);
+    try {
+      await transcribeRecording(selected.id);
+      await refresh();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setTranscribing(false);
+    }
+  }, [selected, refresh]);
+
   return (
     <div className="flex h-full flex-col bg-canvas text-fg">
       <div className="flex items-center justify-between border-b border-line px-6 py-4">
@@ -151,6 +181,7 @@ export function RecordingsView() {
                 onClick={() => {
                   setSelected(r);
                   setRenaming(false);
+                  setProgress(0);
                 }}
                 className={`flex w-full gap-3 border-b border-line p-3 text-left hover:bg-surface ${
                   selected?.id === r.id ? "bg-surface" : ""
@@ -239,6 +270,47 @@ export function RecordingsView() {
                 >
                   Delete
                 </button>
+              </div>
+              <div className="mt-6 border-t border-line pt-4">
+                <div className="mb-2 flex items-center justify-between">
+                  <h3 className="text-[13px] font-semibold">Transcript</h3>
+                  {selected.transcript ? (
+                    <button
+                      onClick={() => {
+                        void navigator.clipboard.writeText(selected.transcript ?? "");
+                      }}
+                      className="rounded-md border border-line px-2.5 py-1 text-[12px] hover:bg-surface"
+                    >
+                      Copy
+                    </button>
+                  ) : null}
+                </div>
+                {selected.transcript ? (
+                  selected.transcript.trim() ? (
+                    <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-fg">
+                      {selected.transcript}
+                    </p>
+                  ) : (
+                    <div className="flex items-center gap-3">
+                      <span className="text-[13px] text-muted">No speech detected.</span>
+                      <button
+                        onClick={() => void onTranscribe()}
+                        disabled={transcribing}
+                        className="rounded-md border border-line px-3 py-1.5 text-[13px] hover:bg-surface disabled:opacity-50"
+                      >
+                        Re-generate
+                      </button>
+                    </div>
+                  )
+                ) : (
+                  <button
+                    onClick={() => void onTranscribe()}
+                    disabled={transcribing}
+                    className="rounded-md bg-accent px-3 py-1.5 text-[13px] font-medium text-white disabled:opacity-50"
+                  >
+                    {transcribing ? `Transcribing… ${progress}%` : "Generate transcript"}
+                  </button>
+                )}
               </div>
             </>
           ) : (

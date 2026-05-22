@@ -910,6 +910,7 @@ export type RecordingRow = {
   upload_error: string | null;
   exports: string;
   title: string | null;
+  transcript: string | null;
 };
 
 export const startScreenRecording = (p: {
@@ -936,6 +937,8 @@ export const deleteRecording = (id: string): Promise<void> =>
   invoke("delete_recording", { id });
 export const renameRecording = (id: string, title: string): Promise<void> =>
   invoke("rename_recording", { id, title });
+export const transcribeRecording = (id: string): Promise<string> =>
+  invoke("transcribe_recording", { id });
 export const revealRecording = (id: string): Promise<void> =>
   invoke("reveal_recording", { id });
 
