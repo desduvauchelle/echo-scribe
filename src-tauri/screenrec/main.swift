@@ -105,7 +105,7 @@ func emitError(kind: String, msg: String) {
     emit(["event": "error", "kind": kind, "msg": msg])
 }
 
-func extractAudio(inPath: String, outPath: String) {
+func extractAudio(inPath: String, outPath: String, rate: Int) {
     let url = URL(fileURLWithPath: inPath)
     let asset = AVAsset(url: url)
     guard let track = asset.tracks(withMediaType: .audio).first else {
@@ -119,7 +119,7 @@ func extractAudio(inPath: String, outPath: String) {
 
     let settings: [String: Any] = [
         AVFormatIDKey: kAudioFormatLinearPCM,
-        AVSampleRateKey: 16000,
+        AVSampleRateKey: rate,
         AVNumberOfChannelsKey: 1,
         AVLinearPCMBitDepthKey: 16,
         AVLinearPCMIsFloatKey: false,
@@ -153,7 +153,7 @@ func extractAudio(inPath: String, outPath: String) {
         exit(4)
     }
 
-    let sampleRate: UInt32 = 16000
+    let sampleRate: UInt32 = UInt32(rate)
     let channels: UInt16 = 1
     let bitsPerSample: UInt16 = 16
     let byteRate = sampleRate * UInt32(channels) * UInt32(bitsPerSample / 8)
@@ -193,18 +193,91 @@ func extractAudio(inPath: String, outPath: String) {
 if CommandLine.arguments.count > 1, CommandLine.arguments[1] == "extract-audio" {
     var inPath: String?
     var outPath: String?
+    var rate = 16000
     var i = 2
     let a = CommandLine.arguments
     while i < a.count {
         if a[i] == "--in", i + 1 < a.count { inPath = a[i + 1]; i += 1 }
         else if a[i] == "--out", i + 1 < a.count { outPath = a[i + 1]; i += 1 }
+        else if a[i] == "--rate", i + 1 < a.count { rate = Int(a[i + 1]) ?? 16000; i += 1 }
         i += 1
     }
     guard let inPath, let outPath else {
         emitError(kind: "args", msg: "extract-audio requires --in and --out")
         exit(2)
     }
-    extractAudio(inPath: inPath, outPath: outPath)
+    extractAudio(inPath: inPath, outPath: outPath, rate: rate)
+}
+
+// --- mode: `mux-audio --video <mp4> --audio <wav> --out <mp4>` ---
+func muxAudio(videoPath: String, audioPath: String, outPath: String) {
+    let videoAsset = AVAsset(url: URL(fileURLWithPath: videoPath))
+    let audioAsset = AVAsset(url: URL(fileURLWithPath: audioPath))
+    guard let vTrack = videoAsset.tracks(withMediaType: .video).first else {
+        emitError(kind: "no_video", msg: "no video track in source")
+        exit(3)
+    }
+    guard let aTrack = audioAsset.tracks(withMediaType: .audio).first else {
+        emitError(kind: "no_audio", msg: "no audio track in cleaned wav")
+        exit(3)
+    }
+
+    let comp = AVMutableComposition()
+    guard let cv = comp.addMutableTrack(withMediaType: .video,
+                                        preferredTrackID: kCMPersistentTrackID_Invalid),
+          let ca = comp.addMutableTrack(withMediaType: .audio,
+                                        preferredTrackID: kCMPersistentTrackID_Invalid) else {
+        emitError(kind: "compose", msg: "failed to add composition tracks")
+        exit(4)
+    }
+    let vRange = CMTimeRange(start: .zero, duration: videoAsset.duration)
+    do {
+        try cv.insertTimeRange(vRange, of: vTrack, at: .zero)
+        cv.preferredTransform = vTrack.preferredTransform
+        let aDur = min(audioAsset.duration, videoAsset.duration)
+        try ca.insertTimeRange(CMTimeRange(start: .zero, duration: aDur), of: aTrack, at: .zero)
+    } catch {
+        emitError(kind: "compose", msg: "\(error)")
+        exit(4)
+    }
+
+    try? FileManager.default.removeItem(at: URL(fileURLWithPath: outPath))
+    guard let export = AVAssetExportSession(asset: comp,
+                                            presetName: AVAssetExportPresetHighestQuality) else {
+        emitError(kind: "export", msg: "could not create export session")
+        exit(5)
+    }
+    export.outputURL = URL(fileURLWithPath: outPath)
+    export.outputFileType = .mp4
+    let sem = DispatchSemaphore(value: 0)
+    export.exportAsynchronously { sem.signal() }
+    sem.wait()
+    if export.status == .completed {
+        emit(["event": "done", "path": outPath])
+        exit(0)
+    } else {
+        emitError(kind: "export", msg: "\(String(describing: export.error))")
+        exit(5)
+    }
+}
+
+if CommandLine.arguments.count > 1, CommandLine.arguments[1] == "mux-audio" {
+    var videoPath: String?
+    var audioPath: String?
+    var outPath: String?
+    let a = CommandLine.arguments
+    var i = 2
+    while i < a.count {
+        if a[i] == "--video", i + 1 < a.count { videoPath = a[i + 1]; i += 1 }
+        else if a[i] == "--audio", i + 1 < a.count { audioPath = a[i + 1]; i += 1 }
+        else if a[i] == "--out", i + 1 < a.count { outPath = a[i + 1]; i += 1 }
+        i += 1
+    }
+    guard let videoPath, let audioPath, let outPath else {
+        emitError(kind: "args", msg: "mux-audio requires --video --audio --out")
+        exit(2)
+    }
+    muxAudio(videoPath: videoPath, audioPath: audioPath, outPath: outPath)
 }
 
 // --- mode: `export --in <path> --out <path> --quality <1080|720|480>` ---
