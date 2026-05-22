@@ -63,6 +63,8 @@ import {
   driveDisconnect,
   getDriveClientId,
   setDriveClientCredentials,
+  getDrivePrefs,
+  setDrivePrefs,
   type DriveStatus,
   type CommonActionTemplate,
   type DailyRecapSettings as DailyRecapSettingsT,
@@ -1662,6 +1664,8 @@ function DriveSettings() {
   const [clientSecret, setClientSecret] = useState("");
   const [showSetup, setShowSetup] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [folderName, setFolderName] = useState("Echo Scribe");
+  const [makePublic, setMakePublic] = useState(true);
 
   useEffect(() => {
     void driveStatus().then(setStatus);
@@ -1669,7 +1673,19 @@ function DriveSettings() {
       setClientId(id);
       setShowByo(id.trim().length > 0);
     });
+    void getDrivePrefs().then((p) => {
+      setFolderName(p.folder_name);
+      setMakePublic(p.make_public);
+    });
   }, []);
+
+  const savePrefs = async (name: string, isPublic: boolean) => {
+    try {
+      await setDrivePrefs(name.trim() || "Echo Scribe", isPublic);
+    } catch (e) {
+      setErr(String(e));
+    }
+  };
 
   const onConnect = async () => {
     setBusy(true);
@@ -1738,6 +1754,33 @@ function DriveSettings() {
           {busy ? "Connecting…" : "Connect Drive"}
         </button>
       )}
+      <div className="flex flex-col gap-1">
+        <label className="text-[12px] text-muted">Drive folder for uploads</label>
+        <input
+          value={folderName}
+          onChange={(e) => setFolderName(e.target.value)}
+          onBlur={() => void savePrefs(folderName, makePublic)}
+          placeholder="Echo Scribe"
+          className="w-full max-w-xs rounded-md border border-line bg-canvas px-2 py-1.5 text-[13px]"
+        />
+      </div>
+      <div className="flex flex-col gap-1">
+        <label className="flex items-center gap-2 text-[12px] text-muted">
+          <input
+            type="checkbox"
+            checked={makePublic}
+            onChange={(e) => {
+              setMakePublic(e.target.checked);
+              void savePrefs(folderName, e.target.checked);
+            }}
+          />
+          Default sharing: anyone with the link can view
+        </label>
+        <span className="pl-6 text-[11px] text-muted/70">
+          Applied to each file (not the folder). Override per video when you upload.
+        </span>
+      </div>
+
       <label className="flex items-center gap-2 text-[12px] text-muted">
         <input
           type="checkbox"

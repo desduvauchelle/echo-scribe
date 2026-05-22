@@ -966,7 +966,9 @@ export const setDriveClientCredentials = (
 export const uploadRecording = (
   id: string,
   quality: "original" | "1080" | "720" | "480",
-): Promise<RecordingRow> => invoke("upload_recording", { id, quality });
+  makePublic?: boolean,
+): Promise<RecordingRow> =>
+  invoke("upload_recording", { id, quality, makePublic: makePublic ?? null });
 
 export type DrivePrefs = {
   folder_name: string;

@@ -10,7 +10,17 @@
       "Bash(sed -n '/pub fn screenrec_sysaudio/,/^    }/p' src-tauri/src/settings.rs)",
       "Bash(sed -n '/\\\\[dependencies\\\\]/,/\\\\[/p' src-tauri/Cargo.toml)",
       "Bash(grep -v \"^$\")",
-      "Bash(sed -n '/^\\\\[dependencies\\\\]/,/^\\\\[build-dependencies\\\\]/p' src-tauri/Cargo.toml | grep -iE \"reqwest|serde|tokio|uuid|tracing|keyring|security|base64|sha2|rand|url|tiny_http|webbrowser|open =\")"
+      "Bash(sed -n '/^\\\\[dependencies\\\\]/,/^\\\\[build-dependencies\\\\]/p' src-tauri/Cargo.toml | grep -iE \"reqwest|serde|tokio|uuid|tracing|keyring|security|base64|sha2|rand|url|tiny_http|webbrowser|open =\")",
+      "Bash(git checkout *)",
+      "Bash(git add *)",
+      "Bash(git commit -q -m ' *)",
+      "Bash(rg -ri \"n_ctx|4096|ctx_size|context.*window|chat_with\" src-tauri/src -l)",
+      "Bash(rg -rn \"what did i\\\\|chat_with_notes\\\\|chat_notes\\\\|notes_chat\\\\|fn.*chat\\\\|ask.*notes\\\\|n_ctx:\" src-tauri/src/commands.rs)",
+      "Bash(rg -rln \"chat\" src --type ts --type tsx -i)",
+      "Bash(rg -rln \"Echo Scribe AI\\\\|ECHO SCRIBE AI\\\\|chatWithNotes\\\\|chat_with\" src -i)",
+      "Bash(rg -rn \"GenerateRequest\\\\|n_ctx:\\\\|\\\\.generate\\(\" src-tauri/src --type rust)",
+      "Bash(rg -rln \"Echo Scribe AI\\\\|generate_chat\\\\|invoke\\(.*chat\\\\|notes\" src --glob '*.tsx' --glob '*.ts' --glob '*.svelte' -i)",
+      "Bash(rg -rn \"GenerateRequest|n_ctx:|\\\\.generate\\\\\\(\" src --type rust)"
     ],
     "additionalDirectories": [
       "/Users/denisduvauchelle/Documents/code/echo-scribe/src/lib",

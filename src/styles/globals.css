@@ -73,6 +73,18 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: 4px;
 }
 
+button:not(:disabled) {
+  transition: transform 80ms ease;
+}
+
+button:not(:disabled):active {
+  transform: scale(0.97);
+}
+
+button.no-press {
+  transform: none !important;
+}
+
 .drag-bar {
   -webkit-app-region: drag;
   background: transparent;

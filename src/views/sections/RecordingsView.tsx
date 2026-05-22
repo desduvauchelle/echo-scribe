@@ -10,7 +10,9 @@ import {
   ExternalLink,
   FileText,
   FolderOpen,
+  Globe,
   Loader,
+  Lock,
   Pencil,
   Sparkles,
   Trash2,
@@ -27,6 +29,7 @@ import {
   denoiseRecording,
   exportRecording,
   uploadRecording,
+  getDrivePrefs,
   type RecordingRow,
 } from "../../lib/api";
 
@@ -171,6 +174,97 @@ function SplitButton({
                 onClick={() => {
                   setOpen(false);
                   onSelect(o.value);
+                }}
+                className="block w-full px-3 py-1.5 text-left text-[13px] hover:bg-surface"
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+// Upload-to-Drive control: a split button whose dropdown lets the user pick
+// the file's sharing visibility (per-video override of the Settings default)
+// and the export quality. The primary click uploads at 1080p with the default
+// visibility. Visibility is applied to the file on Drive, never the folder.
+function UploadButton({
+  defaultPublic,
+  busy,
+  disabled,
+  onUpload,
+}: {
+  defaultPublic: boolean;
+  busy?: boolean;
+  disabled?: boolean;
+  onUpload: (quality: "original" | "1080" | "720" | "480", makePublic: boolean) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [isPublic, setIsPublic] = useState(defaultPublic);
+  // Re-sync when the Settings default loads/changes (defaultPublic starts stale).
+  useEffect(() => setIsPublic(defaultPublic), [defaultPublic]);
+
+  const qualities: { label: string; value: "original" | "1080" | "720" | "480" }[] = [
+    { label: "Original", value: "original" },
+    { label: "1080p", value: "1080" },
+    { label: "720p", value: "720" },
+    { label: "480p", value: "480" },
+  ];
+  const seg = (active: boolean) =>
+    `flex flex-1 items-center justify-center gap-1 rounded border px-2 py-1 text-[11px] ${
+      active ? "border-accent bg-accent/15 text-fg" : "border-line text-muted hover:bg-surface"
+    }`;
+
+  return (
+    <div className="group/tt relative flex shrink-0">
+      <button
+        aria-label="Upload to Drive"
+        onClick={() => onUpload("1080", isPublic)}
+        disabled={disabled}
+        className="grid h-8 w-8 place-items-center rounded-l-md border border-line text-fg hover:bg-surface disabled:opacity-50"
+      >
+        {busy ? <Loader size={16} className="animate-spin" /> : <CloudUpload size={16} />}
+      </button>
+      <button
+        aria-label="Upload options"
+        onClick={() => setOpen((o) => !o)}
+        disabled={disabled}
+        className="grid h-8 w-5 place-items-center rounded-r-md border border-l-0 border-line text-muted hover:bg-surface disabled:opacity-50"
+      >
+        <ChevronDown size={13} />
+      </button>
+      {open ? null : (
+        <span className="pointer-events-none absolute left-1/2 top-full z-[60] mt-1.5 -translate-x-1/2 whitespace-nowrap rounded border border-line bg-elevated px-2 py-1 text-[11px] text-fg opacity-0 shadow-lg transition-opacity duration-100 group-hover/tt:opacity-100">
+          Upload to Drive (1080p)
+        </span>
+      )}
+      {open ? (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 top-full z-50 mt-1 min-w-[170px] overflow-hidden rounded-md border border-line bg-canvas py-1 shadow-lg">
+            <div className="px-3 pb-1 pt-1 text-[10px] font-medium uppercase tracking-wide text-muted">
+              Sharing
+            </div>
+            <div className="flex gap-1 px-2 pb-2">
+              <button type="button" onClick={() => setIsPublic(true)} className={seg(isPublic)}>
+                <Globe size={12} /> Anyone
+              </button>
+              <button type="button" onClick={() => setIsPublic(false)} className={seg(!isPublic)}>
+                <Lock size={12} /> Only me
+              </button>
+            </div>
+            <div className="border-t border-line px-3 pb-1 pt-1.5 text-[10px] font-medium uppercase tracking-wide text-muted">
+              Quality
+            </div>
+            {qualities.map((o) => (
+              <button
+                key={o.value}
+                onClick={() => {
+                  setOpen(false);
+                  onUpload(o.value, isPublic);
                 }}
                 className="block w-full px-3 py-1.5 text-left text-[13px] hover:bg-surface"
               >
@@ -355,13 +449,22 @@ export function RecordingsView() {
   );
 
   const [uploading, setUploading] = useState(false);
+  // Default sharing visibility for new uploads, mirrored from Settings.
+  const [defaultPublic, setDefaultPublic] = useState(true);
+  useEffect(() => {
+    void getDrivePrefs().then((p) => setDefaultPublic(p.make_public));
+  }, []);
 
   const onUpload = useCallback(
-    async (id: string, quality: "original" | "1080" | "720" | "480") => {
+    async (
+      id: string,
+      quality: "original" | "1080" | "720" | "480",
+      makePublic: boolean,
+    ) => {
       setUploading(true);
       setError(null);
       try {
-        const updated = await uploadRecording(id, quality);
+        const updated = await uploadRecording(id, quality, makePublic);
         if (updated.drive_link) {
           await navigator.clipboard.writeText(updated.drive_link);
         }
@@ -526,23 +629,12 @@ export function RecordingsView() {
                     void onExport(selected.id, v as "1080" | "720" | "480")
                   }
                 />
-                <SplitButton
-                  title="Upload to Drive (1080p)"
-                  icon={<CloudUpload size={16} />}
+                <UploadButton
+                  defaultPublic={defaultPublic}
                   busy={uploading}
                   disabled={uploading || exporting !== null}
-                  defaultValue="1080"
-                  options={[
-                    { label: "Original", value: "original" },
-                    { label: "1080p", value: "1080" },
-                    { label: "720p", value: "720" },
-                    { label: "480p", value: "480" },
-                  ]}
-                  onSelect={(v) =>
-                    void onUpload(
-                      selected.id,
-                      v as "original" | "1080" | "720" | "480",
-                    )
+                  onUpload={(quality, makePublic) =>
+                    void onUpload(selected.id, quality, makePublic)
                   }
                 />
                 <IconButton

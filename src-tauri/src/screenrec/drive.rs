@@ -12,7 +12,6 @@ const AUTH_ENDPOINT: &str = "https://accounts.google.com/o/oauth2/v2/auth";
 const TOKEN_ENDPOINT: &str = "https://oauth2.googleapis.com/token";
 // SCOPE is used by auth_url(); no dead_code allow needed.
 const SCOPE: &str = "https://www.googleapis.com/auth/drive.file openid email";
-const FOLDER_NAME: &str = "Echo Scribe";
 
 const KEYCHAIN_SERVICE: &str = "com.echoscribe.app";
 const KEYCHAIN_ACCOUNT: &str = "google_drive_refresh_token";
@@ -310,11 +309,13 @@ pub async fn connect(client_id: &str, client_secret: &str) -> Result<Option<Stri
     Ok(email)
 }
 
-/// Find the "Echo Scribe" folder, creating it if absent. Returns its file id.
-pub async fn ensure_folder(access_token: &str) -> Result<String, String> {
+/// Find the `folder_name` folder, creating it if absent. Returns its file id.
+pub async fn ensure_folder(access_token: &str, folder_name: &str) -> Result<String, String> {
     let client = reqwest::Client::new();
+    // Escape single quotes for the Drive query string.
+    let escaped = folder_name.replace('\'', "\\'");
     let q = format!(
-        "name = '{FOLDER_NAME}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+        "name = '{escaped}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
     );
     let resp = client
         .get("https://www.googleapis.com/drive/v3/files")
@@ -340,7 +341,7 @@ pub async fn ensure_folder(access_token: &str) -> Result<String, String> {
         return Ok(id.to_string());
     }
     let body = serde_json::json!({
-        "name": FOLDER_NAME,
+        "name": folder_name,
         "mimeType": "application/vnd.google-apps.folder",
     });
     let resp = client

@@ -50,6 +50,8 @@ const KEY_DRIVE_CLIENT_ID: &str = "drive_client_id";
 const KEY_DRIVE_CLIENT_SECRET: &str = "drive_client_secret";
 const KEY_DRIVE_ACCOUNT_EMAIL: &str = "drive_account_email";
 const KEY_DRIVE_FOLDER_ID: &str = "drive_folder_id";
+const KEY_DRIVE_FOLDER_NAME: &str = "drive_folder_name";
+const KEY_DRIVE_MAKE_PUBLIC: &str = "drive_make_public";
 
 pub const DEFAULT_MEETING_SUMMARY_PROMPT: &str = "You are an expert meeting note-taker. You receive a transcript of a {duration_minutes}-minute conversation captured from {app}. The transcript labels each segment as 'You:' (the user) or 'Them:' (the other side).";
 
@@ -951,6 +953,41 @@ impl SettingsStore {
                 self.store.delete(KEY_DRIVE_FOLDER_ID);
             }
         }
+        self.store
+            .save()
+            .map_err(|e| SettingsError::Store(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Name of the Drive folder uploads go into (default "Echo Scribe").
+    pub fn drive_folder_name(&self) -> String {
+        self.store
+            .get(KEY_DRIVE_FOLDER_NAME)
+            .and_then(|v| v.as_str().map(|s| s.to_string()))
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or_else(|| "Echo Scribe".to_string())
+    }
+
+    pub fn set_drive_folder_name(&self, name: &str) -> Result<(), SettingsError> {
+        self.store
+            .set(KEY_DRIVE_FOLDER_NAME, serde_json::Value::String(name.to_string()));
+        self.store
+            .save()
+            .map_err(|e| SettingsError::Store(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Whether uploads are made anyone-with-link readable (default true).
+    pub fn drive_make_public(&self) -> bool {
+        self.store
+            .get(KEY_DRIVE_MAKE_PUBLIC)
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true)
+    }
+
+    pub fn set_drive_make_public(&self, on: bool) -> Result<(), SettingsError> {
+        self.store
+            .set(KEY_DRIVE_MAKE_PUBLIC, serde_json::Value::Bool(on));
         self.store
             .save()
             .map_err(|e| SettingsError::Store(e.to_string()))?;

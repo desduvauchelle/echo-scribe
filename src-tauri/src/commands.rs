@@ -3165,6 +3165,7 @@ pub async fn upload_recording(
     app: AppHandle,
     id: String,
     quality: String,
+    make_public: Option<bool>,
 ) -> Result<crate::db::recordings::RecordingRow, String> {
     // Gather everything needed from State up front (owned values), mirroring
     // how transcribe_recording handles the Db handle across awaits.
@@ -3180,7 +3181,8 @@ pub async fn upload_recording(
     );
     let existing_folder: Option<String> = state.settings.drive_folder_id();
     let folder_name = state.settings.drive_folder_name();
-    let make_public = state.settings.drive_make_public();
+    // Per-video override; falls back to the Settings default when not specified.
+    let make_public = make_public.unwrap_or_else(|| state.settings.drive_make_public());
 
     // Mark uploading and notify UI.
     {
@@ -3227,6 +3229,7 @@ pub async fn upload_recording(
         let file_id =
             crate::screenrec::drive::upload_resumable(&access, &folder, &upload_path, &upload_name)
                 .await?;
+        info!(target: "drive", file_id = %file_id, make_public, "setting file visibility");
         if make_public {
             crate::screenrec::drive::make_anyone_reader(&access, &file_id).await?;
         }
