@@ -186,7 +186,7 @@ impl ScreenrecHandle {
             let mut ready_reported = false;
             let mut log_file = log_path
                 .as_ref()
-                .and_then(|p| std::fs::OpenOptions::new().create(true).append(true).open(p).ok());
+                .and_then(|p| std::fs::File::create(p).ok());
             if let Some(f) = log_file.as_mut() {
                 let ts = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
