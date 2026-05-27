@@ -365,6 +365,14 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, AVCaptureAudio
     var vFailed = 0
     var aAppended = 0
     var aFailed = 0
+    // Video frames dropped *before* append to keep the writer alive: incomplete
+    // SCStream frames (status != .complete, e.g. window occluded/relayout) and
+    // frames whose pixel dimensions don't match the writer config (a mismatched
+    // append puts AVAssetWriter into .failed permanently — killing the whole
+    // recording). Logged so we can see whether drops correlate with breakage.
+    var vSkippedIncomplete = 0
+    var vSkippedDims = 0
+    var firstSkipDimsLogged = false
     var firstFailureLogged = false
     // Serializes all access to sessionStarted/startPTS/lastPTS/finished and the
     // sample-buffer appends, which arrive on multiple queues:
@@ -580,6 +588,26 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, AVCaptureAudio
             lastPTS = pts
             switch type {
             case .screen:
+                // Only append COMPLETE frames. SCStream delivers .idle/.blank
+                // frames when the window is occluded, minimized, or relaying out;
+                // appending one fails and latches the writer to .failed, which
+                // kills every subsequent frame. Skipping keeps the writer alive.
+                guard Self.frameIsComplete(sampleBuffer) else { vSkippedIncomplete += 1; break }
+                // Guard against a dimension change (window resized mid-capture):
+                // the writer is fixed at pxWidth×pxHeight, so a differently-sized
+                // pixel buffer would also latch .failed. Skip + log the first one.
+                if let pb = CMSampleBufferGetImageBuffer(sampleBuffer) {
+                    let bw = CVPixelBufferGetWidth(pb), bh = CVPixelBufferGetHeight(pb)
+                    if bw != pxWidth || bh != pxHeight {
+                        vSkippedDims += 1
+                        if !firstSkipDimsLogged {
+                            firstSkipDimsLogged = true
+                            emit(["event": "warn", "msg": "frame dim mismatch",
+                                  "buf_w": bw, "buf_h": bh, "writer_w": pxWidth, "writer_h": pxHeight])
+                        }
+                        break
+                    }
+                }
                 if videoInput.isReadyForMoreMediaData {
                     if videoInput.append(sampleBuffer) { vAppended += 1 } else { vFailed += 1; reportAppendFailure("video") }
                 }
@@ -673,6 +701,8 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, AVCaptureAudio
             "writer_error": writer.error?.localizedDescription ?? "",
             "v_appended": vAppended,
             "v_failed": vFailed,
+            "v_skipped_incomplete": vSkippedIncomplete,
+            "v_skipped_dims": vSkippedDims,
             "a_appended": aAppended,
             "a_failed": aFailed,
             "sys_frames_in": sysFramesIn,
@@ -1020,6 +1050,10 @@ func run() async {
         cfg.minimumFrameInterval = CMTime(value: 1, timescale: 30) // 30 fps
         cfg.queueDepth = 6
         cfg.showsCursor = true
+        // Keep delivered frames pinned to cfg.width×cfg.height even if the source
+        // window resizes mid-capture, so the fixed-size writer never gets an
+        // off-size buffer. The per-frame dimension guard below is the backstop.
+        cfg.scalesToFit = true
 
         let filter: SCContentFilter
         let capW: Int
@@ -1036,7 +1070,15 @@ func run() async {
             }
             emit(["event": "diag", "phase": "window_found", "id": Int(windowID), "title": window.title ?? "", "w": Int(window.frame.width), "h": Int(window.frame.height), "onScreen": window.isOnScreen])
             filter = SCContentFilter(desktopIndependentWindow: window)
-            let (w, h) = clampDims(Int(window.frame.width), Int(window.frame.height))
+            // SCWindow.frame is in POINTS but cfg.width/height are PIXELS. On a
+            // Retina (2×) display that mismatch makes ScreenCaptureKit downscale
+            // the capture to point resolution → half-res, pixelated output. Use
+            // the filter's backing-pixel scale to capture at true resolution
+            // (mirrors the display path, which already uses pixelWidth).
+            let pxScale = CGFloat(filter.pointPixelScale)
+            let rect = filter.contentRect
+            let (w, h) = clampDims(Int((rect.width * pxScale).rounded()),
+                                   Int((rect.height * pxScale).rounded()))
             capW = w; capH = h
         } else {
             // Display capture (--display <id> or first display as default)
