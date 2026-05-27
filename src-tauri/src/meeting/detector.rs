@@ -8,6 +8,19 @@ use std::time::{Duration, Instant};
 use tauri::Emitter;
 use tracing::{info, warn};
 
+/// Best-effort native desktop notification. Used to surface meeting events
+/// (auto-start, ask, failure) when no Echo Scribe window is visible — the
+/// daily log still has the full detail.
+fn notify_desktop(app: &tauri::AppHandle, title: &str, body: &str) {
+    use tauri_plugin_notification::NotificationExt;
+    let _ = app
+        .notification()
+        .builder()
+        .title(title)
+        .body(body)
+        .show();
+}
+
 /// Static registry of supported meeting apps.
 pub const REGISTRY: &[(&str, &str, bool)] = &[
     // (bundle_id, display_name, is_browser)
@@ -183,7 +196,20 @@ pub fn spawn(
                         .await
                     {
                         warn!(?e, "auto-start failed");
+                        notify_desktop(
+                            &app_handle,
+                            "Couldn't start meeting recording",
+                            &format!(
+                                "Auto-start for {} failed. See Settings → Diagnostics.",
+                                display_name
+                            ),
+                        );
                     } else {
+                        notify_desktop(
+                            &app_handle,
+                            "Recording meeting",
+                            &format!("Echo Scribe is recording your {} meeting.", display_name),
+                        );
                         spawn_end_monitor(manager.clone(), Some(app_for_monitor));
                     }
                 }
@@ -202,6 +228,11 @@ pub fn spawn(
                     // frontend dispatches `meeting_consent` on click and
                     // hides itself after 30s if no choice is made.
                     crate::overlay::show_consent_overlay(&app_handle, &frontmost, display_name);
+                    notify_desktop(
+                        &app_handle,
+                        &format!("{} meeting detected", display_name),
+                        "Open Echo Scribe to record this meeting.",
+                    );
                 }
             }
         }
