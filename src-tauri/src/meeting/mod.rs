@@ -550,7 +550,7 @@ impl MeetingManager {
             .db
             .with_conn(|conn| crate::db::projects::list_projects(conn, false))
             .unwrap_or_default();
-        let project_names: Vec<String> = existing_projects.iter().map(|p| p.name.clone()).collect();
+        let _project_names: Vec<String> = existing_projects.iter().map(|p| p.name.clone()).collect();
 
         // Refine the calendar match now that we know the actual end time.
         // Compare scores: keep whichever is higher. A second sidecar query
@@ -613,7 +613,7 @@ impl MeetingManager {
             &segments,
             active.detected_app_name.as_deref(),
             duration_ms,
-            &project_names,
+            &existing_projects,
             &start_context,
             custom_prompt.as_deref(),
         )
@@ -731,6 +731,29 @@ impl MeetingManager {
         crate::overlay::hide_recording_overlay(&self.app_handle);
         crate::overlay::hide_guide_overlay(&self.app_handle);
 
+        // Native desktop notification so the user sees the saved meeting is
+        // ready even when no Echo Scribe window is visible. Title falls back
+        // through synthesis → detected app name → generic "Meeting".
+        {
+            use tauri_plugin_notification::NotificationExt;
+            let dur_min = duration_ms / 60_000;
+            let dur_sec = (duration_ms % 60_000) / 1000;
+            let title_str = synthesis
+                .as_ref()
+                .ok()
+                .map(|s| s.suggested_title.clone())
+                .filter(|t| !t.is_empty())
+                .or_else(|| active.detected_app_name.clone())
+                .unwrap_or_else(|| "Meeting".to_string());
+            let _ = self
+                .app_handle
+                .notification()
+                .builder()
+                .title("Meeting saved")
+                .body(&format!("{} • {}m {}s", title_str, dur_min, dur_sec))
+                .show();
+        }
+
         // Step 9: Best-effort cleanup of empty meeting dir if no failed chunks.
         if failed.is_empty() {
             let _ = std::fs::remove_dir_all(self.data_dir.join("meetings").join(&id));
@@ -772,7 +795,7 @@ impl MeetingManager {
             .db
             .with_conn(|conn| crate::db::projects::list_projects(conn, false))
             .unwrap_or_default();
-        let project_names: Vec<String> = existing_projects.iter().map(|p| p.name.clone()).collect();
+        let _project_names: Vec<String> = existing_projects.iter().map(|p| p.name.clone()).collect();
 
         // Retry path: window/URL context wasn't persisted, but the
         // calendar match snapshot is — surface it back into the prompt so
@@ -793,7 +816,7 @@ impl MeetingManager {
             &segments,
             row.detected_app_name.as_deref(),
             duration_ms,
-            &project_names,
+            &existing_projects,
             &retry_context,
             custom_prompt.as_deref(),
         )
@@ -1046,6 +1069,7 @@ fn resolve_project_name(
         name: name.to_string(),
         created_at: now,
         archived_at: None,
+        ..Default::default()
     };
     crate::db::projects::insert_project(conn, &proj)?;
     tracing::info!(project_id = %pid, project_name = %name, "auto-created project from meeting");
@@ -1116,6 +1140,7 @@ mod tests {
             name: name.into(),
             created_at: "2026-05-01T00:00:00Z".into(),
             archived_at: None,
+            ..Default::default()
         }
     }
 
