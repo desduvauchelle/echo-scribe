@@ -466,7 +466,15 @@ export function RecordingsView() {
       try {
         const updated = await uploadRecording(id, quality, makePublic);
         if (updated.drive_link) {
-          await navigator.clipboard.writeText(updated.drive_link);
+          // Best-effort auto-copy. The clipboard write needs transient user
+          // activation, which the long upload await can outlive (throws
+          // NotAllowedError). Never let that mask a successful upload — the
+          // link is shown with a manual copy button after refresh.
+          try {
+            await navigator.clipboard.writeText(updated.drive_link);
+          } catch {
+            /* ignore: link still copyable from the UI */
+          }
         }
         await refresh();
       } catch (e) {
