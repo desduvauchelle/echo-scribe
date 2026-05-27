@@ -24,7 +24,7 @@ use crate::asr::registry::{self, ModelEntry};
 use crate::llm::{self, rag, GenerateRequest, Llm, LlmDownloadProgress, LlmModelEntry};
 use crate::coordinator::{self, new_state_handle, Action, CoordinatorMsg, TrayPipelineState};
 use crate::db::items::{chrono_now_iso, ItemKind};
-use crate::db::projects::Project;
+use crate::db::projects::{Project, ProjectPatch};
 use crate::db::tasks::TaskWithItem;
 use crate::db::{self, ChatMessage, ChatSession, Db, Item};
 use crate::db::chat;
@@ -741,23 +741,131 @@ pub fn list_projects(
         .map_err(|e| e.to_string())
 }
 
+#[derive(Debug, Default, Deserialize)]
+pub struct CreateProjectInput {
+    pub name: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub keywords: Option<Vec<String>>,
+    #[serde(default)]
+    pub color: Option<String>,
+    #[serde(default)]
+    pub emoji: Option<String>,
+}
+
+fn normalize_keywords(kws: Vec<String>) -> Vec<String> {
+    use std::collections::BTreeSet;
+    kws.into_iter()
+        .map(|k| k.trim().to_lowercase())
+        .filter(|k| !k.is_empty())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
 #[tauri::command]
-pub fn create_project(state: State<'_, AppState>, name: String) -> Result<Project, String> {
-    let trimmed = name.trim().to_string();
+pub fn create_project(
+    state: State<'_, AppState>,
+    input: CreateProjectInput,
+) -> Result<Project, String> {
+    let trimmed = input.name.trim().to_string();
     if trimmed.is_empty() {
-        return Err("project name cannot be empty".into());
+        return Err("Project name cannot be empty.".into());
     }
     let db = require_db(&state)?;
     let now = chrono_now_iso();
     let project = Project {
         id: ulid::Ulid::new().to_string(),
         name: trimmed,
-        created_at: now,
+        created_at: now.clone(),
         archived_at: None,
+        description: input.description.and_then(|s| {
+            let t = s.trim().to_string();
+            if t.is_empty() { None } else { Some(t) }
+        }),
+        keywords: normalize_keywords(input.keywords.unwrap_or_default()),
+        color: input.color.and_then(|s| {
+            let t = s.trim().to_string();
+            if t.is_empty() { None } else { Some(t) }
+        }),
+        emoji: input.emoji.and_then(|s| {
+            let t = s.trim().to_string();
+            if t.is_empty() { None } else { Some(t) }
+        }),
+        updated_at: Some(now),
+        export_folder: None,
     };
     let p = project.clone();
     db.with_conn(move |c| db::projects::insert_project(c, &p))
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| {
+            error!(target: "projects", error = %e, name = %project.name, "create_project failed");
+            "Couldn't create project. See Settings → Diagnostics → logs for details.".to_string()
+        })?;
+    info!(target: "projects", id = %project.id, name = %project.name, "created project");
+    Ok(project)
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateProjectInput {
+    pub id: String,
+    #[serde(flatten)]
+    pub patch: ProjectPatch,
+}
+
+#[tauri::command]
+pub fn update_project(
+    state: State<'_, AppState>,
+    input: UpdateProjectInput,
+) -> Result<Project, String> {
+    let db = require_db(&state)?;
+    let now = chrono_now_iso();
+
+    // Normalize incoming patch before persisting: trim strings, lowercase
+    // + dedupe keywords. Validation: reject empty/whitespace name (UI also
+    // guards, but defend the boundary).
+    let mut patch = input.patch.clone();
+    if let Some(n) = &patch.name {
+        let trimmed = n.trim().to_string();
+        if trimmed.is_empty() {
+            return Err("Project name cannot be empty.".into());
+        }
+        patch.name = Some(trimmed);
+    }
+    if let Some(Some(desc)) = &patch.description {
+        let trimmed = desc.trim().to_string();
+        patch.description = if trimmed.is_empty() { Some(None) } else { Some(Some(trimmed)) };
+    }
+    if let Some(Some(color)) = &patch.color {
+        let trimmed = color.trim().to_string();
+        patch.color = if trimmed.is_empty() { Some(None) } else { Some(Some(trimmed)) };
+    }
+    if let Some(Some(emoji)) = &patch.emoji {
+        let trimmed = emoji.trim().to_string();
+        patch.emoji = if trimmed.is_empty() { Some(None) } else { Some(Some(trimmed)) };
+    }
+    if let Some(kws) = patch.keywords {
+        patch.keywords = Some(normalize_keywords(kws));
+    }
+
+    let id = input.id.clone();
+    let id_for_log = id.clone();
+    db.with_conn(move |c| db::projects::update_project(c, &id, &patch, &now))
+        .map_err(|e| {
+            error!(target: "projects", error = %e, id = %id_for_log, "update_project failed");
+            "Couldn't update project. See Settings → Diagnostics → logs for details.".to_string()
+        })?;
+
+    let id2 = input.id.clone();
+    let project = db
+        .with_conn(move |c| db::projects::get_project(c, &id2))
+        .map_err(|e| {
+            error!(target: "projects", error = %e, "update_project: re-read failed");
+            "Couldn't read updated project. See logs.".to_string()
+        })?
+        .ok_or_else(|| "Project not found after update.".to_string())?;
+
+    info!(target: "projects", id = %project.id, name = %project.name, "updated project");
     Ok(project)
 }
 
@@ -767,28 +875,70 @@ pub fn rename_project(
     id: String,
     name: String,
 ) -> Result<(), String> {
-    let trimmed = name.trim();
-    if trimmed.is_empty() {
-        return Err("project name cannot be empty".into());
-    }
-    let db = require_db(&state)?;
-    db.with_conn(|c| db::projects::rename_project(c, &id, trimmed))
-        .map_err(|e| e.to_string())
+    // Kept as a thin shim over update_project so existing callers keep
+    // working. New UI should call update_project directly.
+    let patch = ProjectPatch {
+        name: Some(name),
+        ..Default::default()
+    };
+    let _ = update_project(state, UpdateProjectInput { id, patch })?;
+    Ok(())
 }
 
 #[tauri::command]
 pub fn archive_project(state: State<'_, AppState>, id: String) -> Result<(), String> {
     let db = require_db(&state)?;
     let now = chrono_now_iso();
-    db.with_conn(|c| db::projects::archive_project(c, &id, &now))
-        .map_err(|e| e.to_string())
+    let id_for_log = id.clone();
+    db.with_conn(move |c| db::projects::archive_project(c, &id, &now))
+        .map_err(|e| {
+            error!(target: "projects", error = %e, id = %id_for_log, "archive_project failed");
+            "Couldn't archive project. See Settings → Diagnostics → logs for details.".to_string()
+        })?;
+    info!(target: "projects", id = %id_for_log, "archived project");
+    Ok(())
 }
 
 #[tauri::command]
 pub fn unarchive_project(state: State<'_, AppState>, id: String) -> Result<(), String> {
     let db = require_db(&state)?;
-    db.with_conn(|c| db::projects::unarchive_project(c, &id))
-        .map_err(|e| e.to_string())
+    let id_for_log = id.clone();
+    db.with_conn(move |c| db::projects::unarchive_project(c, &id))
+        .map_err(|e| {
+            error!(target: "projects", error = %e, id = %id_for_log, "unarchive_project failed");
+            "Couldn't unarchive project. See Settings → Diagnostics → logs for details.".to_string()
+        })?;
+    info!(target: "projects", id = %id_for_log, "unarchived project");
+    Ok(())
+}
+
+#[tauri::command]
+pub fn delete_project(
+    state: State<'_, AppState>,
+    id: String,
+    reassign_to: Option<String>,
+) -> Result<(), String> {
+    let db = require_db(&state)?;
+    let id_for_log = id.clone();
+    let reassign_for_log = reassign_to.clone();
+    db.with_conn_mut(move |c| db::projects::delete_project(c, &id, reassign_to.as_deref()))
+        .map_err(|e| {
+            error!(
+                target: "projects",
+                error = %e,
+                id = %id_for_log,
+                reassign_to = ?reassign_for_log,
+                "delete_project failed"
+            );
+            "Couldn't delete project. See Settings → Diagnostics → logs for details.".to_string()
+        })?;
+    info!(
+        target: "projects",
+        id = %id_for_log,
+        reassign_to = ?reassign_for_log,
+        "deleted project"
+    );
+    Ok(())
 }
 
 #[tauri::command]
@@ -939,6 +1089,14 @@ pub fn update_item(
         .with_conn(move |c| db::items::get_item(c, &id_for_get))
         .map_err(|e| e.to_string())?
         .ok_or_else(|| "item not found after update".to_string())?;
+
+    // Re-export markdown if the item is routed to a project with an
+    // export_folder. Stable filename → overwrite. `try_export_item` is
+    // a noop for items that don't qualify (no folder, below threshold,
+    // unsupported kind such as the meeting record itself).
+    let threshold = state.settings.export_confidence_threshold();
+    crate::export::try_export_item(&db, &item, threshold);
+
     Ok(item)
 }
 
@@ -1001,6 +1159,56 @@ pub fn set_auto_file_threshold(
         .settings
         .set_auto_file_threshold(threshold)
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_export_confidence_threshold(state: State<'_, AppState>) -> f32 {
+    state.settings.export_confidence_threshold()
+}
+
+#[tauri::command]
+pub fn set_export_confidence_threshold(
+    threshold: f32,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    state
+        .settings
+        .set_export_confidence_threshold(threshold)
+        .map_err(|e| e.to_string())
+}
+
+/// Open a native folder picker and return the chosen absolute path. Returns
+/// `None` if the user cancels.
+#[tauri::command]
+pub async fn pick_export_folder(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.dialog()
+        .file()
+        .set_title("Choose export folder")
+        .pick_folder(move |path| {
+            let s = path.and_then(|p| p.as_path().map(|pp| pp.to_string_lossy().into_owned()));
+            let _ = tx.send(s);
+        });
+    rx.await.map_err(|e| e.to_string())
+}
+
+/// Backfill: re-export every non-deleted item + meeting for a project to its
+/// configured folder. No-op when the project has no folder set. Returns the
+/// number of files written. Skips items below the confidence threshold the same
+/// way the live hooks do; meetings always export when a folder is set.
+#[tauri::command]
+pub fn export_project_backfill(
+    state: State<'_, AppState>,
+    project_id: String,
+) -> Result<u32, String> {
+    let db = require_db(&state)?;
+    let settings = state.settings.clone();
+    let threshold = settings.export_confidence_threshold();
+    crate::export::backfill_project(&db, &project_id, threshold).map_err(|e| {
+        tracing::error!(target: "export", error = %e, project = %project_id, "backfill failed");
+        "Backfill failed. See Settings → Diagnostics → logs for details.".to_string()
+    })
 }
 
 #[tauri::command]
@@ -1964,7 +2172,10 @@ pub fn get_dashboard_stats(state: State<'_, AppState>) -> Result<db::stats::Dash
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
-    db.with_conn(|c| db::stats::dashboard_stats(c, now))
+    // Local UTC offset (east-positive seconds) so day boundaries use local
+    // midnight, not UTC midnight. See db::stats::dashboard_stats.
+    let tz_offset_secs = chrono::Local::now().offset().local_minus_utc() as i64;
+    db.with_conn(|c| db::stats::dashboard_stats(c, now, tz_offset_secs))
         .map_err(|e| e.to_string())
 }
 
@@ -2468,6 +2679,22 @@ pub fn get_common_actions() -> Vec<CommonActionTemplate> {
     ]
 }
 
+#[tauri::command]
+pub fn get_format_templates(state: State<'_, AppState>) -> Vec<crate::settings::FormatTemplate> {
+    state.settings.format_templates()
+}
+
+#[tauri::command]
+pub fn set_format_templates(
+    state: State<'_, AppState>,
+    templates: Vec<crate::settings::FormatTemplate>,
+) -> Result<(), String> {
+    state
+        .settings
+        .set_format_templates(&templates)
+        .map_err(|e| e.to_string())
+}
+
 // ---------------------------------------------------------------------------
 
 // Daily recap commands
@@ -2783,7 +3010,18 @@ pub fn stop_screen_recording(
     let row = stop_screen_recording_inner(&state)?;
     // Notify the frontend so RecordingsView refreshes.
     let _ = app.emit("screenrec-changed", ());
+    spawn_auto_denoise(app, row.id.clone());
     Ok(row)
+}
+
+/// Run denoise as a background task; logs but never surfaces errors to the
+/// caller (recording stop already succeeded — auto-cleanup is best-effort).
+pub(crate) fn spawn_auto_denoise(app: AppHandle, id: String) {
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) = run_denoise(app, id.clone()).await {
+            tracing::warn!(target: "denoise", recording_id = %id, %e, "auto-denoise after recording stop failed");
+        }
+    });
 }
 
 #[tauri::command]
@@ -2902,21 +3140,19 @@ pub async fn transcribe_recording(
     Ok(text)
 }
 
-/// Compile-time switch: while denoise is being validated we keep the original
-/// file and expose an Original/Cleaned toggle. Set to `true` to delete the
-/// original after a successful denoise and keep only the cleaned file.
-const DELETE_ORIGINAL_AFTER_DENOISE: bool = false;
+/// Denoise auto-runs after `stop_screen_recording`; the cleaned file replaces
+/// the original so there's no UI toggle to maintain. Kept as a const so a
+/// future regression that needs to compare original vs. cleaned can flip it.
+const DELETE_ORIGINAL_AFTER_DENOISE: bool = true;
 
 /// Denoise a recording's audio and mux it into a new cleaned MP4.
 /// Emits `denoise-progress` events `{ id, pct }` while running.
-#[tauri::command]
-pub async fn denoise_recording(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    id: String,
-) -> Result<(), String> {
+/// Used by the `denoise_recording` command and by the auto-denoise spawned
+/// after `stop_screen_recording` (both command and tray paths).
+pub(crate) async fn run_denoise(app: AppHandle, id: String) -> Result<(), String> {
     // Look up the original mp4 path; drop the DB borrow before any await.
     let orig: std::path::PathBuf = {
+        let state = app.state::<AppState>();
         let db = require_db(&state)?;
         let row = db
             .with_conn(|c| crate::db::recordings::get(c, &id))
@@ -3001,6 +3237,7 @@ pub async fn denoise_recording(
 
     // 5. Record the cleaned path.
     {
+        let state = app.state::<AppState>();
         let db = require_db(&state)?;
         db.with_conn(|c| crate::db::recordings::set_denoised_path(c, &id, Some(&clean_str)))
             .map_err(|e| e.to_string())?;
@@ -3009,6 +3246,7 @@ pub async fn denoise_recording(
     // 6. Optionally drop the original and promote the cleaned file.
     if DELETE_ORIGINAL_AFTER_DENOISE {
         let _ = std::fs::remove_file(&orig);
+        let state = app.state::<AppState>();
         let db = require_db(&state)?;
         db.with_conn(|c| crate::db::recordings::promote_denoised(c, &id, &clean_str))
             .map_err(|e| e.to_string())?;
@@ -3016,6 +3254,13 @@ pub async fn denoise_recording(
 
     cleanup(None); // remove temp wavs; keep clean_mp4
     Ok(())
+}
+
+/// Manual denoise trigger. Auto-denoise after stop covers the common case; this
+/// stays available for re-cleaning if the user needs it.
+#[tauri::command]
+pub async fn denoise_recording(app: AppHandle, id: String) -> Result<(), String> {
+    run_denoise(app, id).await
 }
 
 #[tauri::command]

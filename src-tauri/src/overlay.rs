@@ -145,6 +145,27 @@ pub fn show_transcribing_overlay(app_handle: &AppHandle<Wry>) {
     show_overlay_state(app_handle, "transcribing");
 }
 
+/// Switches the overlay to a generic "processing" state with a custom label
+/// (e.g. "Processing…", "Filing note…", "Formatting…"). Same visuals as
+/// the transcribing state — pulsing text, no waveform, no icon swap — but
+/// the label tells the user which downstream step is currently running.
+pub fn show_processing_overlay(app_handle: &AppHandle<Wry>, label: &str) {
+    if let Some(overlay) = app_handle.get_webview_window("recording_overlay") {
+        if let Some((x, y)) = calculate_overlay_position(app_handle) {
+            let _ = overlay.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
+        }
+        let _ = overlay.show();
+        let _ = overlay.set_always_on_top(true);
+        let _ = overlay.emit(
+            "show-overlay",
+            serde_json::json!({
+                "mode": "processing",
+                "label": label,
+            }),
+        );
+    }
+}
+
 /// Hides the overlay with a fade-out delay so the CSS animation can play.
 pub fn hide_recording_overlay(app_handle: &AppHandle<Wry>) {
     if let Some(overlay) = app_handle.get_webview_window("recording_overlay") {

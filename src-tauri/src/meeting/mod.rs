@@ -545,12 +545,13 @@ impl MeetingManager {
         let now = chrono::Utc::now();
         let duration_ms = (now.timestamp_millis() as u64).saturating_sub(active.started_at_ms);
 
-        // Fetch existing project names so the LLM can match against them.
+        // Fetch existing projects (with description + keywords) so the LLM
+        // can route this meeting using the same rich context the LogCapture
+        // classifier uses.
         let existing_projects = self
             .db
             .with_conn(|conn| crate::db::projects::list_projects(conn, false))
             .unwrap_or_default();
-        let _project_names: Vec<String> = existing_projects.iter().map(|p| p.name.clone()).collect();
 
         // Refine the calendar match now that we know the actual end time.
         // Compare scores: keep whichever is higher. A second sidecar query
@@ -759,8 +760,35 @@ impl MeetingManager {
             let _ = std::fs::remove_dir_all(self.data_dir.join("meetings").join(&id));
         }
 
+        // Step 10: Export to project's markdown folder if configured. Meetings
+        // bypass the confidence gate since they're user-initiated + reviewable.
+        try_export_meeting_after_finalize(&self.db, &id);
+
         Ok(id)
     }
+}
+
+/// Look up the just-finalized meeting + its item and export to disk when the
+/// item's project has an `export_folder` configured. Best-effort — failures
+/// are logged but don't propagate.
+fn try_export_meeting_after_finalize(db: &Db, meeting_id: &str) {
+    let meeting = match db.with_conn(|c| crate::db::meetings::get_meeting(c, meeting_id)) {
+        Ok(Some(m)) => m,
+        Ok(None) => return,
+        Err(e) => {
+            tracing::warn!(target: "export", error = %e, "lookup meeting for export failed");
+            return;
+        }
+    };
+    let item = match db.with_conn(|c| crate::db::items::get_item(c, meeting_id)) {
+        Ok(Some(it)) => it,
+        Ok(None) => return,
+        Err(e) => {
+            tracing::warn!(target: "export", error = %e, "lookup meeting item for export failed");
+            return;
+        }
+    };
+    crate::export::try_export_meeting(db, &meeting, &item);
 }
 
 impl MeetingManager {
@@ -795,7 +823,6 @@ impl MeetingManager {
             .db
             .with_conn(|conn| crate::db::projects::list_projects(conn, false))
             .unwrap_or_default();
-        let _project_names: Vec<String> = existing_projects.iter().map(|p| p.name.clone()).collect();
 
         // Retry path: window/URL context wasn't persisted, but the
         // calendar match snapshot is — surface it back into the prompt so
@@ -901,6 +928,7 @@ impl MeetingManager {
                     Ok(())
                 })
                 .map_err(|e| MeetingError::Db(e.to_string()))?;
+            try_export_meeting_after_finalize(&self.db, id);
         }
         Ok(())
     }

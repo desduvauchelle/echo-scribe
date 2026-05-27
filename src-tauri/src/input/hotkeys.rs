@@ -170,6 +170,43 @@ pub fn cg_keycode_to_rdev_key(code: u16) -> Option<Key> {
     })
 }
 
+/// True for the modifier keys (Shift / Control / Alt / Meta, either side).
+///
+/// Modifiers are never swallowed by the tap (see [`should_swallow`]) so that a
+/// modifier bound to one action (e.g. Right Option for voice-at-cursor) still
+/// reaches the *other* listeners' taps, letting a combo that shares that
+/// modifier (e.g. Right Option + `/` for log-capture) observe it and satisfy.
+pub fn is_modifier(key: Key) -> bool {
+    matches!(
+        key,
+        Key::ShiftLeft
+            | Key::ShiftRight
+            | Key::ControlLeft
+            | Key::ControlRight
+            | Key::Alt
+            | Key::AltGr
+            | Key::MetaLeft
+            | Key::MetaRight
+    )
+}
+
+/// Decide whether the tap should delete (swallow) this key event so it never
+/// reaches the focused app.
+///
+/// We only swallow the binding's **primary** key, and only while the binding is
+/// (or just was) satisfied — so the character/keystroke doesn't leak. We never
+/// swallow a modifier, even when it IS the primary (single-modifier bindings
+/// like bare Right Option): deleting a shared modifier would starve the other
+/// listeners' taps and break combos that build on it.
+pub fn should_swallow(
+    key: Key,
+    binding: &Binding,
+    was_satisfied: bool,
+    now_satisfied: bool,
+) -> bool {
+    key == binding.primary.0 && !is_modifier(key) && (was_satisfied || now_satisfied)
+}
+
 
 #[cfg(target_os = "macos")]
 mod macos {
@@ -330,7 +367,7 @@ mod macos {
         // We never swallow modifier keys so that shared modifiers (e.g. AltGr used
         // alone for voice-at-cursor AND as part of Option+/ for log-capture) still
         // reach the other tap, letting it observe the release and reset its state.
-        if key == binding.primary.0 && (was_satisfied || now_satisfied) {
+        if super::should_swallow(key, &binding, was_satisfied, now_satisfied) {
             return ptr::null_mut();
         }
 
@@ -427,5 +464,189 @@ mod tests {
         assert_eq!(cg_keycode_to_rdev_key(0x39), None);
     }
 
+    use super::super::binding::{Binding, ModifierKind, ModifierSide, SerKey};
+
+    /// Bare single-modifier binding (voice-at-cursor = Right Option). The shared
+    /// modifier must NOT be swallowed, otherwise the log-capture tap never sees
+    /// Right Option and `Right Option + /` can never satisfy.
+    #[test]
+    fn does_not_swallow_a_bare_modifier_primary() {
+        let voice = Binding::single(Key::AltGr); // Right Option
+        assert!(
+            !should_swallow(Key::AltGr, &voice, true, true),
+            "bare modifier primary must not be swallowed"
+        );
+    }
+
+    /// Same guarantee for a bare Right Control voice binding.
+    #[test]
+    fn does_not_swallow_bare_right_control() {
+        let voice = Binding::single(Key::ControlRight);
+        assert!(!should_swallow(Key::ControlRight, &voice, true, true));
+    }
+
+    /// A non-modifier primary (log-capture's `/`) is still swallowed so the
+    /// slash never leaks into the focused text field.
+    #[test]
+    fn swallows_non_modifier_primary_when_satisfied() {
+        let log = Binding {
+            primary: SerKey(Key::Slash),
+            modifiers: vec![(ModifierKind::Alt, ModifierSide::Right)],
+        };
+        assert!(should_swallow(Key::Slash, &log, true, true));
+        assert!(should_swallow(Key::Slash, &log, false, true)); // becoming satisfied
+        assert!(should_swallow(Key::Slash, &log, true, false)); // just released
+    }
+
+    /// Never swallow when the binding isn't (and wasn't) satisfied, nor a key
+    /// that isn't the primary.
+    #[test]
+    fn does_not_swallow_unsatisfied_or_non_primary() {
+        let log = Binding {
+            primary: SerKey(Key::Slash),
+            modifiers: vec![(ModifierKind::Alt, ModifierSide::Right)],
+        };
+        assert!(!should_swallow(Key::Slash, &log, false, false));
+        assert!(!should_swallow(Key::KeyB, &log, true, true));
+    }
+
+    #[test]
+    fn is_modifier_classifies_sides() {
+        assert!(is_modifier(Key::AltGr));
+        assert!(is_modifier(Key::ControlRight));
+        assert!(is_modifier(Key::ShiftLeft));
+        assert!(is_modifier(Key::MetaRight));
+        assert!(!is_modifier(Key::Slash));
+        assert!(!is_modifier(Key::KeyA));
+    }
+
+    // ── Multi-tap chain simulation ───────────────────────────────────────────
+    //
+    // Each listener runs its own CGEventTap. Taps fire in chain order; a tap
+    // that swallows an event (returns NULL) DELETES it, so taps later in the
+    // chain never see it. This models that interaction in pure Rust so we can
+    // regression-guard the shared-modifier collision without the FFI/runloop.
+
+    /// One tap's view of the world: its binding + the keys it has observed.
+    struct SimTap {
+        binding: Binding,
+        pressed: Vec<Key>,
+        satisfied: bool,
+    }
+
+    impl SimTap {
+        fn new(binding: Binding) -> Self {
+            Self { binding, pressed: Vec::new(), satisfied: false }
+        }
+
+        /// Mirror of `tap_callback`: update pressed set, compute transition,
+        /// decide swallow. Returns `(transition, swallow)`.
+        fn feed(&mut self, key: Key, is_press: bool) -> (Option<HotkeyEvent>, bool) {
+            if is_press {
+                if !self.pressed.contains(&key) {
+                    self.pressed.push(key);
+                }
+            } else {
+                self.pressed.retain(|k| *k != key);
+            }
+            let now = self.binding.is_satisfied_by(&self.pressed);
+            let was = self.satisfied;
+            let transition = if now && !was {
+                self.satisfied = true;
+                Some(HotkeyEvent::Pressed)
+            } else if !now && was {
+                self.satisfied = false;
+                Some(HotkeyEvent::Released)
+            } else {
+                None
+            };
+            let swallow = should_swallow(key, &self.binding, was, now);
+            (transition, swallow)
+        }
+    }
+
+    /// Run one key event through the tap chain in order. Returns the transitions
+    /// emitted, tagged by tap index, plus whether any tap swallowed the event.
+    fn run_chain(
+        taps: &mut [SimTap],
+        key: Key,
+        is_press: bool,
+    ) -> (Vec<(usize, HotkeyEvent)>, bool) {
+        let mut emitted = Vec::new();
+        let mut swallowed = false;
+        for (i, tap) in taps.iter_mut().enumerate() {
+            let (transition, swallow) = tap.feed(key, is_press);
+            if let Some(ev) = transition {
+                emitted.push((i, ev));
+            }
+            if swallow {
+                swallowed = true;
+                break; // event deleted — later taps never see it
+            }
+        }
+        (emitted, swallowed)
+    }
+
+    fn voice_binding() -> Binding {
+        Binding::single(Key::AltGr) // bare Right Option
+    }
+
+    fn log_binding() -> Binding {
+        Binding {
+            primary: SerKey(Key::Slash),
+            modifiers: vec![(ModifierKind::Alt, ModifierSide::Right)],
+        }
+    }
+
+    /// THE regression: voice = bare Right Option, notes = Right Option + `/`.
+    /// Voice tap is FIRST in chain (the ordering that broke). Pressing the
+    /// shared modifier must NOT be swallowed, so the log-capture tap still sees
+    /// it and `Right Option + /` fires LogCapture. With the old bug (swallow
+    /// the bare modifier primary) the log tap never saw Right Option and this
+    /// emitted nothing for tap 1.
+    #[test]
+    fn shared_modifier_combo_still_fires_log_capture() {
+        let mut taps = [SimTap::new(voice_binding()), SimTap::new(log_binding())];
+
+        // Press Right Option: voice (tap 0) fires Pressed; NOT swallowed.
+        let (events, swallowed) = run_chain(&mut taps, Key::AltGr, true);
+        assert_eq!(events, vec![(0, HotkeyEvent::Pressed)]);
+        assert!(!swallowed, "shared modifier must reach the log-capture tap");
+
+        // Press Slash: voice passes it through (not its primary); log (tap 1)
+        // now satisfied → fires Pressed, and swallows `/` so it can't leak.
+        let (events, swallowed) = run_chain(&mut taps, Key::Slash, true);
+        assert_eq!(events, vec![(1, HotkeyEvent::Pressed)]);
+        assert!(swallowed, "the `/` primary must be swallowed (not leak as text)");
+    }
+
+    /// Releasing the slash drops log-capture; releasing Right Option drops voice.
+    #[test]
+    fn shared_modifier_combo_releases_cleanly() {
+        let mut taps = [SimTap::new(voice_binding()), SimTap::new(log_binding())];
+        run_chain(&mut taps, Key::AltGr, true);
+        run_chain(&mut taps, Key::Slash, true);
+
+        let (events, _) = run_chain(&mut taps, Key::Slash, false);
+        assert_eq!(events, vec![(1, HotkeyEvent::Released)]);
+
+        let (events, _) = run_chain(&mut taps, Key::AltGr, false);
+        assert_eq!(events, vec![(0, HotkeyEvent::Released)]);
+    }
+
+    /// Voice-at-cursor alone (just tap Right Option) still works: fires on
+    /// press, releases on release. The bare modifier leaks to the OS, which is
+    /// harmless — Right Option alone produces no character/action.
+    #[test]
+    fn bare_modifier_voice_at_cursor_fires_alone() {
+        let mut taps = [SimTap::new(voice_binding()), SimTap::new(log_binding())];
+
+        let (events, swallowed) = run_chain(&mut taps, Key::AltGr, true);
+        assert_eq!(events, vec![(0, HotkeyEvent::Pressed)]);
+        assert!(!swallowed);
+
+        let (events, _) = run_chain(&mut taps, Key::AltGr, false);
+        assert_eq!(events, vec![(0, HotkeyEvent::Released)]);
+    }
 }
 

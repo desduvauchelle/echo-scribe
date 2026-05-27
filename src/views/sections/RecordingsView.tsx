@@ -14,7 +14,6 @@ import {
   Loader,
   Lock,
   Pencil,
-  Sparkles,
   Trash2,
 } from "lucide-react";
 import {
@@ -26,7 +25,6 @@ import {
   renameRecording,
   revealRecording,
   transcribeRecording,
-  denoiseRecording,
   exportRecording,
   uploadRecording,
   getDrivePrefs,
@@ -290,7 +288,6 @@ export function RecordingsView() {
   const [progress, setProgress] = useState(0);
   const [denoising, setDenoising] = useState(false);
   const [denoiseProgress, setDenoiseProgress] = useState(0);
-  const [showCleaned, setShowCleaned] = useState(true);
 
   const refresh = useCallback(async () => {
     const next = await listRecordings();
@@ -333,8 +330,12 @@ export function RecordingsView() {
   useEffect(() => {
     let unlisten: (() => void) | undefined;
     void listen<{ id: string; pct: number }>("denoise-progress", (e) => {
-      if (selected && e.payload.id === selected.id) {
-        setDenoiseProgress(e.payload.pct);
+      if (!selected || e.payload.id !== selected.id) return;
+      setDenoising(true);
+      setDenoiseProgress(e.payload.pct);
+      if (e.payload.pct >= 100) {
+        setDenoising(false);
+        void refresh();
       }
     }).then((fn) => {
       unlisten = fn;
@@ -342,7 +343,7 @@ export function RecordingsView() {
     return () => {
       unlisten?.();
     };
-  }, [selected]);
+  }, [selected, refresh]);
 
   const onToggle = useCallback(async () => {
     setBusy(true);
@@ -411,22 +412,6 @@ export function RecordingsView() {
       setError(String(e));
     } finally {
       setTranscribing(false);
-    }
-  }, [selected, refresh]);
-
-  const onDenoise = useCallback(async () => {
-    if (!selected) return;
-    setDenoising(true);
-    setDenoiseProgress(0);
-    setError(null);
-    try {
-      await denoiseRecording(selected.id);
-      await refresh();
-      setShowCleaned(true);
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setDenoising(false);
     }
   }, [selected, refresh]);
 
@@ -520,7 +505,6 @@ export function RecordingsView() {
                   setRenaming(false);
                   setProgress(0);
                   setDenoiseProgress(0);
-                  setShowCleaned(true);
                 }}
                 className={`flex w-full gap-3 border-b border-line p-3 text-left hover:bg-surface ${
                   selected?.id === r.id ? "bg-surface" : ""
@@ -587,31 +571,9 @@ export function RecordingsView() {
                   </IconButton>
                 </div>
               )}
-              {selected.denoised_path ? (
-                <div className="mb-2 inline-flex overflow-hidden rounded-md border border-line text-[12px]">
-                  <button
-                    onClick={() => setShowCleaned(false)}
-                    className={`px-3 py-1 ${!showCleaned ? "bg-surface font-medium" : ""}`}
-                  >
-                    Original
-                  </button>
-                  <button
-                    onClick={() => setShowCleaned(true)}
-                    className={`px-3 py-1 ${showCleaned ? "bg-surface font-medium" : ""}`}
-                  >
-                    Cleaned
-                  </button>
-                </div>
-              ) : null}
               <video
-                key={`${selected.id}-${
-                  showCleaned && selected.denoised_path ? "clean" : "orig"
-                }`}
-                src={convertFileSrc(
-                  showCleaned && selected.denoised_path
-                    ? selected.denoised_path
-                    : selected.file_path,
-                )}
+                key={selected.id}
+                src={convertFileSrc(selected.denoised_path ?? selected.file_path)}
                 controls
                 className="w-full rounded-lg bg-black"
               />
@@ -658,21 +620,6 @@ export function RecordingsView() {
                     <Loader size={16} className="animate-spin" />
                   ) : (
                     <FileText size={16} />
-                  )}
-                </IconButton>
-                <IconButton
-                  title={
-                    selected.denoised_path
-                      ? "Re-clean audio"
-                      : "Clean up audio"
-                  }
-                  onClick={() => void onDenoise()}
-                  disabled={denoising}
-                >
-                  {denoising ? (
-                    <Loader size={16} className="animate-spin" />
-                  ) : (
-                    <Sparkles size={16} />
                   )}
                 </IconButton>
                 <div className="flex-1" />

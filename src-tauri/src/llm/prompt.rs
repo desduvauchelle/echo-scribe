@@ -132,7 +132,7 @@ pub fn build_meeting_synthesis_prompt(
     flattened_transcript: &str,
     detected_app_name: Option<&str>,
     duration_minutes: u64,
-    existing_project_names: &[String],
+    existing_projects: &[crate::db::projects::Project],
     start_context: &crate::meeting::MeetingStartContext,
     custom_prompt: Option<&str>,
 ) -> (Option<String>, String) {
@@ -143,14 +143,18 @@ pub fn build_meeting_synthesis_prompt(
     // sometimes the participant list, even before reading the transcript.
     let context_block = build_start_context_block(start_context);
 
-    let project_hint = if existing_project_names.is_empty() {
+    let project_hint = if existing_projects.is_empty() {
         "If the meeting clearly relates to a specific project or initiative, set \"project_name\" to a short name for it. \
 Otherwise set it to null.".to_string()
     } else {
-        let names = existing_project_names.join("\", \"");
+        // Rich block: name + description + keywords for each project, so the
+        // LLM can route on meaning, not just name matching. Same format as
+        // the LogCapture classifier prompt — keeps routing consistent.
+        let block = crate::classifier::format_projects_for_prompt(existing_projects);
         format!(
-            "The user has these existing projects: [\"{names}\"]. \
-If the meeting clearly relates to one of them, set \"project_name\" to that exact name. \
+            "The user has these existing projects (use their description and keywords to decide which one — if any — this meeting belongs to):\n\
+{block}\n\
+If the meeting clearly relates to one of them, set \"project_name\" to that project's EXACT name from the list above. \
 If it relates to a new project not in the list, set \"project_name\" to a short name for it. \
 Otherwise set it to null."
         )

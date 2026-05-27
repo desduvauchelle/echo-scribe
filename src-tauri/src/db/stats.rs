@@ -24,15 +24,18 @@ pub struct DashboardStats {
     pub busiest_hour: Option<u8>,
 }
 
-fn period_stats(conn: &Connection, from: &str, to: &str) -> Result<PeriodStats, DbError> {
+/// `tz_mod` is a SQLite datetime modifier like `"-25200 seconds"` that shifts
+/// the UTC-stored `captured_at` into the user's local wall-clock before
+/// comparing against local-day boundaries.
+fn period_stats(conn: &Connection, from: &str, to: &str, tz_mod: &str) -> Result<PeriodStats, DbError> {
     let mut stmt = conn.prepare(
         "SELECT COUNT(*), COALESCE(SUM(LENGTH(content) - LENGTH(REPLACE(content, ' ', '')) + 1), 0)
          FROM items
          WHERE deleted_at IS NULL
-           AND captured_at >= ?1
-           AND captured_at < ?2",
+           AND datetime(captured_at, ?1) >= ?2
+           AND datetime(captured_at, ?1) < ?3",
     )?;
-    let (count, words): (i64, i64) = stmt.query_row(params![from, to], |r| {
+    let (count, words): (i64, i64) = stmt.query_row(params![tz_mod, from, to], |r| {
         Ok((r.get(0)?, r.get(1)?))
     })?;
     Ok(PeriodStats {
@@ -56,15 +59,15 @@ fn all_time_stats(conn: &Connection) -> Result<PeriodStats, DbError> {
     })
 }
 
-fn daily_counts(conn: &Connection, from: &str) -> Result<Vec<(String, u32)>, DbError> {
+fn daily_counts(conn: &Connection, from: &str, tz_mod: &str) -> Result<Vec<(String, u32)>, DbError> {
     let mut stmt = conn.prepare(
-        "SELECT SUBSTR(captured_at, 1, 10) AS day, COUNT(*)
+        "SELECT SUBSTR(datetime(captured_at, ?1), 1, 10) AS day, COUNT(*)
          FROM items
-         WHERE deleted_at IS NULL AND captured_at >= ?1
+         WHERE deleted_at IS NULL AND datetime(captured_at, ?1) >= ?2
          GROUP BY day
          ORDER BY day ASC",
     )?;
-    let rows = stmt.query_map(params![from], |r| {
+    let rows = stmt.query_map(params![tz_mod, from], |r| {
         let day: String = r.get(0)?;
         let count: i64 = r.get(1)?;
         Ok((day, count.max(0) as u32))
@@ -76,15 +79,15 @@ fn daily_counts(conn: &Connection, from: &str) -> Result<Vec<(String, u32)>, DbE
     Ok(out)
 }
 
-fn busiest_hour(conn: &Connection) -> Result<Option<u8>, DbError> {
+fn busiest_hour(conn: &Connection, tz_mod: &str) -> Result<Option<u8>, DbError> {
     let result: Result<(i64, i64), _> = conn.query_row(
-        "SELECT CAST(SUBSTR(captured_at, 12, 2) AS INTEGER) AS hr, COUNT(*) AS cnt
+        "SELECT CAST(SUBSTR(datetime(captured_at, ?1), 12, 2) AS INTEGER) AS hr, COUNT(*) AS cnt
          FROM items
          WHERE deleted_at IS NULL
          GROUP BY hr
          ORDER BY cnt DESC
          LIMIT 1",
-        [],
+        params![tz_mod],
         |r| Ok((r.get(0)?, r.get(1)?)),
     );
     match result {
@@ -171,28 +174,43 @@ fn epoch_to_date(secs: i64) -> String {
     format!("{:04}-{:02}-{:02}", y, m, d)
 }
 
-pub fn dashboard_stats(conn: &Connection, now_epoch: i64) -> Result<DashboardStats, DbError> {
-    let today = epoch_to_date(now_epoch);
+/// `tz_offset_secs` is the user's local offset from UTC in seconds (east-positive,
+/// e.g. `-25200` for PDT). All day/week/month windows, the heatmap, streaks, and
+/// busiest-hour are computed in *local* time so "Today" rolls over at local
+/// midnight rather than UTC midnight. `captured_at` is stored as UTC ISO-8601.
+pub fn dashboard_stats(
+    conn: &Connection,
+    now_epoch: i64,
+    tz_offset_secs: i64,
+) -> Result<DashboardStats, DbError> {
+    // SQLite modifier to shift UTC `captured_at` into local wall-clock.
+    let tz_mod = format!("{:+} seconds", tz_offset_secs);
+    // Local "now" for deriving local calendar dates.
+    let local_now = now_epoch + tz_offset_secs;
+
+    let today = epoch_to_date(local_now);
     let tomorrow = next_day(&today);
 
-    let week_start = epoch_to_date(now_epoch - 6 * 86_400);
-    let month_start = epoch_to_date(now_epoch - 29 * 86_400);
-    let heatmap_start = epoch_to_date(now_epoch - 89 * 86_400);
+    let week_start = epoch_to_date(local_now - 6 * 86_400);
+    let month_start = epoch_to_date(local_now - 29 * 86_400);
+    let heatmap_start = epoch_to_date(local_now - 89 * 86_400);
 
-    let today_from = format!("{today}T00:00:00Z");
-    let tomorrow_from = format!("{tomorrow}T00:00:00Z");
-    let week_from = format!("{week_start}T00:00:00Z");
-    let month_from = format!("{month_start}T00:00:00Z");
-    let heatmap_from = format!("{heatmap_start}T00:00:00Z");
+    // Bounds in local wall-clock; matches `datetime(...)` output format
+    // ("YYYY-MM-DD HH:MM:SS"), which is lexically sortable.
+    let today_from = format!("{today} 00:00:00");
+    let tomorrow_from = format!("{tomorrow} 00:00:00");
+    let week_from = format!("{week_start} 00:00:00");
+    let month_from = format!("{month_start} 00:00:00");
+    let heatmap_from = format!("{heatmap_start} 00:00:00");
 
-    let today_stats = period_stats(conn, &today_from, &tomorrow_from)?;
-    let week_stats = period_stats(conn, &week_from, &tomorrow_from)?;
-    let month_stats = period_stats(conn, &month_from, &tomorrow_from)?;
+    let today_stats = period_stats(conn, &today_from, &tomorrow_from, &tz_mod)?;
+    let week_stats = period_stats(conn, &week_from, &tomorrow_from, &tz_mod)?;
+    let month_stats = period_stats(conn, &month_from, &tomorrow_from, &tz_mod)?;
     let all_time = all_time_stats(conn)?;
 
-    let daily = daily_counts(conn, &heatmap_from)?;
+    let daily = daily_counts(conn, &heatmap_from, &tz_mod)?;
     let (current_streak, longest_streak) = compute_streaks(&daily, &today);
-    let busiest = busiest_hour(conn)?;
+    let busiest = busiest_hour(conn, &tz_mod)?;
 
     let avg_words = if all_time.transcriptions > 0 {
         all_time.words as f32 / all_time.transcriptions as f32
@@ -244,7 +262,7 @@ mod tests {
     #[test]
     fn dashboard_stats_empty_db() {
         let conn = fresh_db();
-        let stats = dashboard_stats(&conn, 1_777_593_600).unwrap();
+        let stats = dashboard_stats(&conn, 1_777_593_600, 0).unwrap();
         assert_eq!(stats.today.transcriptions, 0);
         assert_eq!(stats.week.transcriptions, 0);
         assert_eq!(stats.month.transcriptions, 0);
@@ -261,7 +279,7 @@ mod tests {
         insert_item(&conn, &make("a", "hello world", "2026-05-01T10:00:00Z")).unwrap();
         insert_item(&conn, &make("b", "one two three", "2026-05-01T14:00:00Z")).unwrap();
 
-        let stats = dashboard_stats(&conn, 1_777_593_600).unwrap();
+        let stats = dashboard_stats(&conn, 1_777_593_600, 0).unwrap();
         assert_eq!(stats.today.transcriptions, 2);
         assert_eq!(stats.today.words, 5);
         assert_eq!(stats.all_time.words, 5);
@@ -274,7 +292,7 @@ mod tests {
         insert_item(&conn, &make("b", "this week", "2026-04-28T10:00:00Z")).unwrap();
         insert_item(&conn, &make("c", "this month", "2026-04-16T10:00:00Z")).unwrap();
 
-        let stats = dashboard_stats(&conn, 1_777_593_600).unwrap();
+        let stats = dashboard_stats(&conn, 1_777_593_600, 0).unwrap();
         assert_eq!(stats.today.transcriptions, 1);
         assert_eq!(stats.week.transcriptions, 2);
         assert_eq!(stats.month.transcriptions, 3);
@@ -288,7 +306,7 @@ mod tests {
         insert_item(&conn, &item).unwrap();
         insert_item(&conn, &make("b", "kept item", "2026-05-01T10:00:00Z")).unwrap();
 
-        let stats = dashboard_stats(&conn, 1_777_593_600).unwrap();
+        let stats = dashboard_stats(&conn, 1_777_593_600, 0).unwrap();
         assert_eq!(stats.today.transcriptions, 1);
     }
 
@@ -299,7 +317,7 @@ mod tests {
         insert_item(&conn, &make("b", "b", "2026-04-30T10:00:00Z")).unwrap();
         insert_item(&conn, &make("c", "c", "2026-05-01T10:00:00Z")).unwrap();
 
-        let stats = dashboard_stats(&conn, 1_777_593_600).unwrap();
+        let stats = dashboard_stats(&conn, 1_777_593_600, 0).unwrap();
         assert_eq!(stats.current_streak, 3);
         assert_eq!(stats.longest_streak, 3);
     }
@@ -311,7 +329,7 @@ mod tests {
         insert_item(&conn, &make("b", "y", "2026-05-01T14:30:00Z")).unwrap();
         insert_item(&conn, &make("c", "z", "2026-05-01T09:00:00Z")).unwrap();
 
-        let stats = dashboard_stats(&conn, 1_777_593_600).unwrap();
+        let stats = dashboard_stats(&conn, 1_777_593_600, 0).unwrap();
         assert_eq!(stats.busiest_hour, Some(14));
     }
 
@@ -328,5 +346,27 @@ mod tests {
         assert_eq!(next_day("2026-04-30"), "2026-05-01");
         assert_eq!(prev_day("2026-05-01"), "2026-04-30");
         assert_eq!(prev_day("2026-03-01"), "2026-02-28");
+    }
+
+    #[test]
+    fn dashboard_stats_uses_local_day_boundary() {
+        let conn = fresh_db();
+        // PDT = UTC-7.
+        let offset = -7 * 3600;
+        // now = 2026-05-22T17:00:00Z = 2026-05-22 10:00 PDT (date_to_epoch is noon UTC).
+        let now = date_to_epoch("2026-05-22") + 5 * 3600;
+
+        // 2026-05-23T02:00:00Z -> 2026-05-22 19:00 PDT: TODAY locally, but TOMORROW in UTC.
+        insert_item(&conn, &make("a", "late local today", "2026-05-23T02:00:00Z")).unwrap();
+        // 2026-05-22T15:00:00Z -> 2026-05-22 08:00 PDT: today in both.
+        insert_item(&conn, &make("b", "morning today", "2026-05-22T15:00:00Z")).unwrap();
+
+        // Local: both count. (UTC/offset-0 would count only "b".)
+        let local = dashboard_stats(&conn, now, offset).unwrap();
+        assert_eq!(local.today.transcriptions, 2);
+
+        // Sanity: the buggy UTC computation would have counted only 1.
+        let utc = dashboard_stats(&conn, now, 0).unwrap();
+        assert_eq!(utc.today.transcriptions, 1);
     }
 }

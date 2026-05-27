@@ -258,6 +258,22 @@ ALTER TABLE recordings ADD COLUMN transcript TEXT;
 ALTER TABLE recordings ADD COLUMN denoised_path TEXT;
 "#,
     ),
+    (
+        17,
+        r#"
+ALTER TABLE projects ADD COLUMN description TEXT;
+ALTER TABLE projects ADD COLUMN keywords TEXT;
+ALTER TABLE projects ADD COLUMN color TEXT;
+ALTER TABLE projects ADD COLUMN emoji TEXT;
+ALTER TABLE projects ADD COLUMN updated_at TEXT;
+"#,
+    ),
+    (
+        18,
+        r#"
+ALTER TABLE projects ADD COLUMN export_folder TEXT;
+"#,
+    ),
 ];
 
 const META_TABLE_SQL: &str = r#"
@@ -319,7 +335,7 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(v, "16");
+        assert_eq!(v, "18");
     }
 
     #[test]
@@ -440,7 +456,43 @@ mod tests {
         let version: String = conn
             .query_row("SELECT value FROM schema_meta WHERE key = 'schema_version'", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(version, "16");
+        assert_eq!(version, "18");
+    }
+
+    #[test]
+    fn migration_v18_adds_project_export_folder_column() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        run_migrations(&mut conn).unwrap();
+        let cols: Vec<String> = conn
+            .prepare("PRAGMA table_info(projects)")
+            .unwrap()
+            .query_map([], |r| r.get::<_, String>(1))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        assert!(
+            cols.iter().any(|c| c == "export_folder"),
+            "projects missing export_folder column; got {cols:?}"
+        );
+    }
+
+    #[test]
+    fn migration_v17_adds_project_metadata_columns() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        run_migrations(&mut conn).unwrap();
+        let cols: Vec<String> = conn
+            .prepare("PRAGMA table_info(projects)")
+            .unwrap()
+            .query_map([], |r| r.get::<_, String>(1))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        for expected in ["description", "keywords", "color", "emoji", "updated_at"] {
+            assert!(
+                cols.iter().any(|c| c == expected),
+                "projects missing column {expected}; got {cols:?}"
+            );
+        }
     }
 
     #[test]

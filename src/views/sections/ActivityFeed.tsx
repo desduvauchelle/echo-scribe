@@ -5,12 +5,16 @@ import {
   archiveProject,
   countItemsForProject,
   listItems,
+  listRecordings,
   renameProject,
   type Item,
   type ItemKind,
   type Project,
+  type RecordingRow,
 } from "../../lib/api";
 import ItemCard from "../../components/ItemCard";
+import RecordingCard from "../../components/RecordingCard";
+import { mergeFeed, type FeedEntry } from "../../lib/feed";
 import { useActivityPanel } from "../../components/ActivityPanelContext";
 import { useToasts } from "../../components/ToastProvider";
 
@@ -25,7 +29,7 @@ type Props = {
   onProjectArchived?: () => void;
 };
 
-type KindFilter = "all" | ItemKind;
+type KindFilter = "all" | ItemKind | "recording";
 
 const PAGE_SIZE = 50;
 
@@ -36,6 +40,7 @@ export default function ActivityFeed({
   onProjectArchived,
 }: Props) {
   const [items, setItems] = useState<Item[]>([]);
+  const [recordings, setRecordings] = useState<RecordingRow[]>([]);
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -77,11 +82,25 @@ export default function ActivityFeed({
     [offset, projectId],
   );
 
+  // Recordings have no project, so they only appear in the global feed.
+  const loadRecordings = useCallback(async () => {
+    if (projectId) {
+      setRecordings([]);
+      return;
+    }
+    try {
+      setRecordings(await listRecordings());
+    } catch {
+      /* non-fatal: feed still shows items */
+    }
+  }, [projectId]);
+
   useEffect(() => {
     setItems([]);
     setOffset(0);
     setHasMore(true);
     void fetchPage("reset");
+    void loadRecordings();
     // Intentionally re-run only when filters/project change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
@@ -90,6 +109,7 @@ export default function ActivityFeed({
   useEffect(() => {
     if (refreshTick === 0) return;
     void fetchPage("reset");
+    void loadRecordings();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshTick]);
 
@@ -98,7 +118,9 @@ export default function ActivityFeed({
     const unlisteners: Array<() => void> = [];
     const subscribe = async () => {
       const handler = () => {
-        if (!cancelled) void fetchPage("reset");
+        if (cancelled) return;
+        void fetchPage("reset");
+        void loadRecordings();
       };
       const u1 = await listen("item:created", handler);
       const u2 = await listen("app:refresh", handler);
@@ -138,6 +160,7 @@ export default function ActivityFeed({
   }, [project]);
 
   const filteredItems = useMemo(() => {
+    if (kindFilter === "recording") return [];
     if (kindFilter === "all") return items;
     if (kindFilter === "transcription") {
       return items.filter(
@@ -151,6 +174,20 @@ export default function ActivityFeed({
     }
     return items.filter((i) => i.kind === kindFilter);
   }, [items, kindFilter]);
+
+  // Recordings interleave under "All" and "Recordings" (global feed only).
+  const entries = useMemo<FeedEntry[]>(() => {
+    const recs =
+      kindFilter === "all" || kindFilter === "recording" ? recordings : [];
+    return mergeFeed(filteredItems, recs);
+  }, [filteredItems, recordings, kindFilter]);
+
+  const renderEntry = (e: FeedEntry) =>
+    e.type === "item" ? (
+      <ItemCard key={e.key} item={e.item} projects={projects} />
+    ) : (
+      <RecordingCard key={e.key} rec={e.rec} />
+    );
 
   const handleRename = async () => {
     if (!project) return;
@@ -262,6 +299,7 @@ export default function ActivityFeed({
             { value: "note", label: "Note" },
             { value: "task", label: "Task" },
             { value: "meeting", label: "Meeting" },
+            { value: "recording", label: "Recording" },
           ]}
           onChange={setKindFilter}
         />
@@ -281,9 +319,9 @@ export default function ActivityFeed({
           </div>
         ) : null}
 
-        {loading && items.length === 0 ? (
+        {loading && entries.length === 0 ? (
           <SkeletonList />
-        ) : filteredItems.length === 0 ? (
+        ) : entries.length === 0 ? (
           <EmptyState
             icon={
               project ? (
@@ -293,26 +331,24 @@ export default function ActivityFeed({
               )
             }
             title={
-              project
-                ? `Nothing in “${project.name}” yet.`
-                : "No captures yet."
+              kindFilter === "recording"
+                ? "No recordings yet."
+                : project
+                  ? `Nothing in “${project.name}” yet.`
+                  : "No captures yet."
             }
             subtitle={
-              project
-                ? "Use the log capture hotkey to add to this project."
-                : "Hold the dictation hotkey to record your first thought."
+              kindFilter === "recording"
+                ? "Start a screen recording from the tray to capture one."
+                : project
+                  ? "Use the log capture hotkey to add to this project."
+                  : "Hold the dictation hotkey to record your first thought."
             }
           />
         ) : (
           <div className="flex flex-col gap-2">
-            {filteredItems.map((item) => (
-              <ItemCard
-                key={item.id}
-                item={item}
-                projects={projects}
-              />
-            ))}
-            {hasMore ? (
+            {entries.map(renderEntry)}
+            {hasMore && kindFilter !== "recording" ? (
               <div className="my-3 flex justify-center">
                 <button
                   type="button"

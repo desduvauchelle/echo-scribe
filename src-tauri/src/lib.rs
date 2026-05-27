@@ -6,6 +6,7 @@ pub mod commands;
 pub mod coordinator;
 pub mod daily_summary;
 pub mod denoise;
+pub mod export;
 pub mod meeting;
 pub mod screenrec;
 mod util;
@@ -33,7 +34,7 @@ use crate::asr::pipeline::AsrPipeline;
 use crate::asr::registry;
 use crate::commands::{
     apply_update_and_restart, archive_project, cancel_log_capture, chat_with_memory, complete_task,
-    confirm_log_capture, count_items, count_items_for_project, create_chat_session, create_project, delete_chat_session, delete_item,
+    confirm_log_capture, count_items, count_items_for_project, create_chat_session, create_project, delete_chat_session, delete_item, delete_project,
     delete_llm_model, delete_speech_model, diagnostics_log_dir, diagnostics_open_log_folder,
     diagnostics_recent_log, dismiss_update, download_llm_model, download_speech_model,
     ensure_pipeline_started_from_handle, get_active_llm_model_id, get_active_speech_model_id,
@@ -51,9 +52,11 @@ use crate::commands::{
     set_active_speech_model, set_audio_feedback_enabled, set_custom_words,
     set_asr_unload_secs, set_filler_removal_enabled, set_filler_words, set_llm_unload_secs, set_mute_while_recording,
     set_onboarding_completed, set_rebinding, set_task_deadline, show_main_window, start_pipeline,
-    test_llm_inference, unarchive_project, uncomplete_task, undo_log_capture, update_item,
+    test_llm_inference, unarchive_project, uncomplete_task, undo_log_capture, update_item, update_project,
     update_log_capture_binding, update_voice_at_cursor_binding, get_auto_file_enabled,
     set_auto_file_enabled, get_auto_file_threshold, set_auto_file_threshold,
+    get_export_confidence_threshold, set_export_confidence_threshold,
+    pick_export_folder, export_project_backfill,
     list_item_events, list_sessions_for_item, list_claude_sessions, load_claude_session,
     get_dashboard_stats,
     get_app_launcher_enabled,
@@ -61,6 +64,8 @@ use crate::commands::{
     get_action_counter,
     reset_action_counter,
     get_common_actions,
+    get_format_templates,
+    set_format_templates,
     start_screen_recording,
     stop_screen_recording,
     is_screen_recording,
@@ -225,9 +230,11 @@ pub fn run() {
             rename_chat_session,
             list_projects,
             create_project,
+            update_project,
             rename_project,
             archive_project,
             unarchive_project,
+            delete_project,
             count_items_for_project,
             list_tasks,
             complete_task,
@@ -267,6 +274,10 @@ pub fn run() {
             set_auto_file_enabled,
             get_auto_file_threshold,
             set_auto_file_threshold,
+            get_export_confidence_threshold,
+            set_export_confidence_threshold,
+            pick_export_folder,
+            export_project_backfill,
             list_item_events,
             list_sessions_for_item,
             list_claude_sessions,
@@ -316,6 +327,8 @@ pub fn run() {
             get_action_counter,
             reset_action_counter,
             get_common_actions,
+            get_format_templates,
+            set_format_templates,
             start_screen_recording,
             stop_screen_recording,
             is_screen_recording,

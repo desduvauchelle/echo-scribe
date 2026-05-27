@@ -1,5 +1,6 @@
-//! Detects when the user enters a meeting (supported app frontmost + mic in use)
-//! and monitors for meeting end (mic goes silent).
+//! Detects when the user enters a meeting (supported app frontmost OR
+//! backgrounded with an active meeting window title + mic in use) and
+//! monitors for meeting end (mic goes silent).
 
 use crate::meeting::MeetingManager;
 use crate::settings::{MeetingAppPref, SettingsStore};
@@ -19,6 +20,23 @@ fn notify_desktop(app: &tauri::AppHandle, title: &str, body: &str) {
         .title(title)
         .body(body)
         .show();
+}
+
+/// A meeting candidate produced by the per-tick detection step. Combines the
+/// signals we collect from either the frontmost-app path or the
+/// background-window-scan fallback into a single shape the gating logic can
+/// consume uniformly.
+#[derive(Debug, Clone)]
+struct MeetingCandidate {
+    bundle_id: String,
+    display_name: String,
+    is_browser: bool,
+    window_title: Option<String>,
+    browser_url: Option<String>,
+    browser_tab_title: Option<String>,
+    /// "frontmost" when the user is looking at the meeting app, "background"
+    /// when we found it via CGWindowList enumeration. Drives logging only.
+    source: &'static str,
 }
 
 /// Static registry of supported meeting apps.
@@ -95,6 +113,14 @@ pub fn spawn(
     tauri::async_runtime::spawn(async move {
         let mut mic_in_use_since: Option<Instant> = None;
         let mut interval = tokio::time::interval(Duration::from_secs(2));
+        // Transition-only diagnostic state. Logging every tick would spam
+        // the daily log file; logging only on state changes makes the
+        // detector's decisions visible without flooding.
+        let mut prev_app_in_registry: Option<String> = None;
+        let mut prev_title_ok: bool = false;
+        let mut prev_mic_active: bool = false;
+        let mut prev_browser_provider: Option<&'static str> = None;
+        let mut prev_gate_blocked: Option<&'static str> = None; // "active" | "cooldown" | None
         loop {
             interval.tick().await;
             if !settings.meeting_auto_detect() {
@@ -103,47 +129,154 @@ pub fn spawn(
             // While a meeting is active OR we're inside the post-stop cooldown
             // (synthesis still running), reset the mic timer so we don't
             // immediately re-trigger the moment the gate opens.
-            if manager.is_active().await || manager.in_cooldown() {
+            let active = manager.is_active().await;
+            let cooldown = manager.in_cooldown();
+            if active || cooldown {
+                let reason = if active { "active" } else { "cooldown" };
+                if prev_gate_blocked != Some(reason) {
+                    info!(target: "meeting_detect", reason, "detector idle: manager gate");
+                    prev_gate_blocked = Some(reason);
+                }
                 mic_in_use_since = None;
                 continue;
             }
+            if prev_gate_blocked.is_some() {
+                info!(target: "meeting_detect", "detector gate cleared, resuming checks");
+                prev_gate_blocked = None;
+            }
 
-            // Use capture_context() to get both bundle ID and window title.
+            // Use capture_context() to get the frontmost app, window title,
+            // and (if it's a browser) the active tab URL.
             let ctx = match crate::input::focus::capture_context() {
                 Some(c) => c,
                 None => continue,
             };
-            let frontmost = match ctx.bundle_id.as_deref() {
-                Some(id) => id.to_string(),
-                None => continue,
-            };
-            let Some((name, is_browser)) = lookup(&frontmost) else {
+            let frontmost = ctx.bundle_id.as_deref().map(|s| s.to_string());
+
+            // Build a candidate from the frontmost app first.
+            let mut candidate: Option<MeetingCandidate> =
+                frontmost.as_deref().and_then(|fm| {
+                    let (name, is_browser) = lookup(fm)?;
+                    Some(MeetingCandidate {
+                        bundle_id: fm.to_string(),
+                        display_name: name.to_string(),
+                        is_browser,
+                        window_title: ctx.window_title.clone(),
+                        browser_url: ctx.browser_url.clone(),
+                        browser_tab_title: ctx.browser_tab_title.clone(),
+                        source: "frontmost",
+                    })
+                });
+
+            // Fallback: scan all on-screen windows for a backgrounded native
+            // meeting app whose title says it's in a call. This is the
+            // primary path for users who dictate into another app during the
+            // meeting — Zoom is in the background, frontmost is VS Code.
+            // Browser meeting providers stay frontmost-only because their
+            // URL is only reachable via the AX browser query and that
+            // requires the browser to be frontmost.
+            if candidate.is_none() {
+                if let Some((bg_bundle, bg_name, bg_title)) = find_background_meeting_app() {
+                    candidate = Some(MeetingCandidate {
+                        bundle_id: bg_bundle,
+                        display_name: bg_name.to_string(),
+                        is_browser: false,
+                        window_title: Some(bg_title),
+                        browser_url: None,
+                        browser_tab_title: None,
+                        source: "background",
+                    });
+                }
+            }
+
+            let Some(cand) = candidate else {
+                // No meeting candidate this tick. If we had one before, log
+                // the transition out so the user can see when (e.g.) the
+                // meeting window closed entirely.
+                if let Some(prev) = prev_app_in_registry.take() {
+                    info!(
+                        target: "meeting_detect",
+                        prev_app = %prev,
+                        frontmost = ?frontmost,
+                        "no meeting candidate this tick"
+                    );
+                    prev_title_ok = false;
+                    prev_browser_provider = None;
+                }
                 continue;
             };
+
+            if prev_app_in_registry.as_deref() != Some(cand.bundle_id.as_str()) {
+                info!(
+                    target: "meeting_detect",
+                    app = %cand.bundle_id,
+                    app_name = %cand.display_name,
+                    is_browser = cand.is_browser,
+                    source = cand.source,
+                    window_title = ?cand.window_title,
+                    browser_url = ?cand.browser_url,
+                    "meeting candidate selected"
+                );
+                prev_app_in_registry = Some(cand.bundle_id.clone());
+                prev_title_ok = false;
+                prev_browser_provider = None;
+            }
 
             // For browsers, require a known meeting URL. The provider name
             // (e.g. "Google Meet") replaces the browser display name in the
             // consent overlay and meeting title.
-            let display_name: &str = if is_browser {
-                match browser_provider_name(ctx.browser_url.as_deref()) {
-                    Some(provider) => provider,
+            let display_name: String = if cand.is_browser {
+                match browser_provider_name(cand.browser_url.as_deref()) {
+                    Some(provider) => {
+                        if prev_browser_provider != Some(provider) {
+                            info!(
+                                target: "meeting_detect",
+                                app = %cand.bundle_id,
+                                provider,
+                                url = ?cand.browser_url,
+                                "browser URL matches a meeting provider"
+                            );
+                            prev_browser_provider = Some(provider);
+                        }
+                        provider.to_string()
+                    }
                     None => {
+                        if prev_browser_provider.is_some() {
+                            info!(
+                                target: "meeting_detect",
+                                app = %cand.bundle_id,
+                                url = ?cand.browser_url,
+                                "browser URL no longer matches any meeting provider"
+                            );
+                            prev_browser_provider = None;
+                        }
                         mic_in_use_since = None;
                         continue;
                     }
                 }
             } else {
-                name
+                cand.display_name.clone()
             };
 
             // For native apps, require a positive meeting signal in the
             // window title.
-            if !is_browser {
-                let title_ok = ctx
+            if !cand.is_browser {
+                let title_ok = cand
                     .window_title
                     .as_deref()
-                    .map(|t| is_meeting_window_title(&frontmost, t))
+                    .map(|t| is_meeting_window_title(&cand.bundle_id, t))
                     .unwrap_or(false);
+                if title_ok != prev_title_ok {
+                    info!(
+                        target: "meeting_detect",
+                        app = %cand.bundle_id,
+                        title_ok,
+                        source = cand.source,
+                        window_title = ?cand.window_title,
+                        "window title gate state changed"
+                    );
+                    prev_title_ok = title_ok;
+                }
                 if !title_ok {
                     mic_in_use_since = None;
                     continue;
@@ -152,6 +285,15 @@ pub fn spawn(
 
             // Mic must be running for the threshold below before we trigger.
             let mic_active = is_default_input_running();
+            if mic_active != prev_mic_active {
+                info!(
+                    target: "meeting_detect",
+                    app = %cand.bundle_id,
+                    mic_active,
+                    "default-input mic running flag changed"
+                );
+                prev_mic_active = mic_active;
+            }
             if !mic_active {
                 mic_in_use_since = None;
                 continue;
@@ -161,17 +303,44 @@ pub fn spawn(
             // strong filter); native apps need 12s to ride out audio-engine
             // warm-ups (Zoom in particular keeps the mic device "running"
             // briefly outside of calls).
-            let mic_threshold = if is_browser {
+            let mic_threshold = if cand.is_browser {
                 Duration::from_secs(5)
             } else {
                 Duration::from_secs(12)
             };
+            let just_started_gate = mic_in_use_since.is_none();
             let since = mic_in_use_since.get_or_insert(Instant::now());
+            if just_started_gate {
+                info!(
+                    target: "meeting_detect",
+                    app = %cand.bundle_id,
+                    threshold_ms = mic_threshold.as_millis() as u64,
+                    "mic gate started"
+                );
+            }
             let triggered = since.elapsed() >= mic_threshold;
 
             if !triggered {
                 continue;
             }
+            info!(
+                target: "meeting_detect",
+                app = %cand.bundle_id,
+                source = cand.source,
+                elapsed_ms = since.elapsed().as_millis() as u64,
+                "mic gate satisfied; evaluating per-app preference"
+            );
+
+            let frontmost = cand.bundle_id.clone();
+            let ctx = crate::input::focus::FocusContext {
+                pid: ctx.pid,
+                bundle_id: Some(cand.bundle_id.clone()),
+                app_name: Some(cand.display_name.clone()),
+                window_title: cand.window_title.clone(),
+                browser_url: cand.browser_url.clone(),
+                browser_tab_title: cand.browser_tab_title.clone(),
+            };
+            let display_name = display_name.as_str();
 
             // Per-app preference.
             let prefs = settings.meeting_app_prefs();
@@ -783,4 +952,103 @@ fn is_default_input_running() -> bool {
         );
         s2 == 0 && running != 0
     }
+}
+
+/// Scan all on-screen windows for a backgrounded native meeting app whose
+/// window title indicates an active meeting. Returns
+/// `(bundle_id, display_name, window_title)` on the first hit.
+///
+/// Used as a fallback when the frontmost app isn't a registered meeting
+/// app — the common case where the user is dictating to another app while
+/// in a Zoom/Teams/FaceTime call. Browsers are excluded because the URL
+/// gate needs an AX browser query that only works when the browser is
+/// frontmost.
+///
+/// Requires Screen Recording permission for `kCGWindowName` to populate
+/// (Echo Scribe already has it for the screen recorder sidecar). Without
+/// the grant, this scan silently returns `None` and detection falls back
+/// to the frontmost-only path — i.e. degrades gracefully.
+#[cfg(target_os = "macos")]
+fn find_background_meeting_app() -> Option<(String, &'static str, String)> {
+    use core_foundation::array::{CFArrayGetCount, CFArrayGetValueAtIndex};
+    use core_foundation::base::TCFType;
+    use core_foundation::dictionary::{CFDictionaryGetValueIfPresent, CFDictionaryRef};
+    use core_foundation::number::{CFNumber, CFNumberRef};
+    use core_foundation::string::{CFString, CFStringRef};
+    use core_graphics::window::{
+        copy_window_info, kCGNullWindowID, kCGWindowLayer, kCGWindowListExcludeDesktopElements,
+        kCGWindowListOptionAll, kCGWindowName, kCGWindowOwnerPID,
+    };
+    use objc2_app_kit::NSRunningApplication;
+    use std::ffi::c_void;
+
+    unsafe fn dict_get_i32(dict: CFDictionaryRef, key: CFStringRef) -> Option<i32> {
+        let mut v: *const c_void = std::ptr::null();
+        if CFDictionaryGetValueIfPresent(dict, key as *const c_void, &mut v) == 0 || v.is_null() {
+            return None;
+        }
+        let n: CFNumber = TCFType::wrap_under_get_rule(v as CFNumberRef);
+        n.to_i32()
+    }
+
+    unsafe fn dict_get_string(dict: CFDictionaryRef, key: CFStringRef) -> Option<String> {
+        let mut v: *const c_void = std::ptr::null();
+        if CFDictionaryGetValueIfPresent(dict, key as *const c_void, &mut v) == 0 || v.is_null() {
+            return None;
+        }
+        let s: CFString = TCFType::wrap_under_get_rule(v as CFStringRef);
+        Some(s.to_string())
+    }
+
+    let windows = copy_window_info(
+        kCGWindowListOptionAll | kCGWindowListExcludeDesktopElements,
+        kCGNullWindowID,
+    )?;
+    let arr_ref = windows.as_concrete_TypeRef();
+    let count = unsafe { CFArrayGetCount(arr_ref) };
+
+    for i in 0..count {
+        let dict_ref =
+            unsafe { CFArrayGetValueAtIndex(arr_ref, i) } as CFDictionaryRef;
+        if dict_ref.is_null() {
+            continue;
+        }
+        // Skip menu / dock / overlay windows. Normal app windows live at
+        // layer 0.
+        let layer = unsafe { dict_get_i32(dict_ref, kCGWindowLayer) };
+        if layer != Some(0) {
+            continue;
+        }
+        let pid = match unsafe { dict_get_i32(dict_ref, kCGWindowOwnerPID) } {
+            Some(p) if p > 0 => p,
+            _ => continue,
+        };
+        let name = match unsafe { dict_get_string(dict_ref, kCGWindowName) } {
+            Some(s) if !s.trim().is_empty() => s,
+            _ => continue,
+        };
+        let bundle_id = match NSRunningApplication::runningApplicationWithProcessIdentifier(pid)
+            .and_then(|a| a.bundleIdentifier())
+            .map(|s| s.to_string())
+        {
+            Some(b) => b,
+            None => continue,
+        };
+        let Some((display_name, is_browser)) = lookup(&bundle_id) else {
+            continue;
+        };
+        if is_browser {
+            continue;
+        }
+        if !is_meeting_window_title(&bundle_id, &name) {
+            continue;
+        }
+        return Some((bundle_id, display_name, name));
+    }
+    None
+}
+
+#[cfg(not(target_os = "macos"))]
+fn find_background_meeting_app() -> Option<(String, &'static str, String)> {
+    None
 }

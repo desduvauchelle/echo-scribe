@@ -246,12 +246,14 @@ mod tests {
             name: "Project One".to_string(),
             created_at: "2026-05-01T00:00:00Z".to_string(),
             archived_at: None,
+            ..Default::default()
         }).unwrap();
         insert_project(&conn, &Project {
             id: "proj-2".to_string(),
             name: "Project Two".to_string(),
             created_at: "2026-05-01T00:00:00Z".to_string(),
             archived_at: None,
+            ..Default::default()
         }).unwrap();
 
         let mut item_a = make_item("a", "alpha bravo meeting notes");

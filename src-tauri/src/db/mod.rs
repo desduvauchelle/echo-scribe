@@ -75,6 +75,20 @@ impl Db {
             .map_err(|_| DbError::Sqlite(rusqlite::Error::InvalidQuery))?;
         f(&guard)
     }
+
+    /// Same as `with_conn` but hands out `&mut Connection` so the closure can
+    /// open a `Transaction`. Use for operations that need atomic multi-statement
+    /// commits.
+    pub fn with_conn_mut<R>(
+        &self,
+        f: impl FnOnce(&mut Connection) -> Result<R, DbError>,
+    ) -> Result<R, DbError> {
+        let mut guard = self
+            .inner
+            .lock()
+            .map_err(|_| DbError::Sqlite(rusqlite::Error::InvalidQuery))?;
+        f(&mut guard)
+    }
 }
 
 /// Default on-disk DB path: `~/Library/Application Support/EchoScribe/echo.db`.

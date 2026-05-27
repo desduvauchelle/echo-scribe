@@ -6,16 +6,25 @@ use tracing::{debug, info, warn};
 
 use crate::commands::AppState;
 use crate::llm::{GenerateRequest, LlmError, LlmGenerator};
+use crate::settings::FormatTemplate;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct ActionCommand {
     pub is_action: bool,
-    pub action_type: Option<String>, // "launch_app" | "draft_email" | "open_url" | "increment_counter" | "reset_counter" | "show_counter"
+    pub action_type: Option<String>, // "launch_app" | "draft_email" | "open_url" | "increment_counter" | "reset_counter" | "show_counter" | "format_text"
     pub app_name: Option<String>,
     pub email_to: Option<String>,
     pub email_subject: Option<String>,
     pub email_body: Option<String>,
     pub url: Option<String>,
+    /// Matched format template id (e.g. "email", "slack"). Only set when
+    /// `action_type == "format_text"`.
+    #[serde(default)]
+    pub format_id: Option<String>,
+    /// The substring of the user's dictation that should be reformatted —
+    /// i.e. everything after the "format as X" trigger phrase.
+    #[serde(default)]
+    pub format_body: Option<String>,
     pub confidence: f32,
 }
 
@@ -31,18 +40,20 @@ pub enum ActionError {
     Settings(String),
 }
 
-const ACTION_SYSTEM_PROMPT: &str = "\
+const ACTION_SYSTEM_PROMPT_BASE: &str = "\
 You are Echo Scribe's system action classifier.
 Analyze the user's voice dictation and classify if it represents a system action/command.
 Respond ONLY with a single JSON object matching this schema:
 {
   \"is_action\": true | false,
-  \"action_type\": \"launch_app\" | \"draft_email\" | \"open_url\" | \"increment_counter\" | \"reset_counter\" | \"show_counter\" | null,
+  \"action_type\": \"launch_app\" | \"draft_email\" | \"open_url\" | \"increment_counter\" | \"reset_counter\" | \"show_counter\" | \"format_text\" | null,
   \"app_name\": \"<name of app to launch or null>\",
   \"email_to\": \"<recipient name or email address or null>\",
   \"email_subject\": \"<subject line or null>\",
   \"email_body\": \"<body content or null>\",
   \"url\": \"<url to open or null>\",
+  \"format_id\": \"<id of matched format template or null>\",
+  \"format_body\": \"<the portion of dictation that should be reformatted, or null>\",
   \"confidence\": <float between 0.0 and 1.0>
 }
 
@@ -53,19 +64,43 @@ Common templates:
 - Increment counter: 'increment counter', 'add one to counter', 'add to count'. action_type: 'increment_counter'
 - Reset counter: 'reset counter', 'clear count', 'reset action count'. action_type: 'reset_counter'
 - Show counter: 'show counter', 'how many actions', 'what is the count'. action_type: 'show_counter'
+- Format text: the user dictates a 'format as X' phrase followed by the body to reformat. action_type: 'format_text'. Set format_id to the matching template id, and format_body to the dictation text AFTER the trigger phrase (the content to be reformatted). Only use format_text if the user's dictation clearly starts with or contains a format-trigger phrase from the list below.";
 
+const ACTION_SYSTEM_PROMPT_TAIL: &str = "\n\
 Rules:
 - If the user's transcript matches any of these command intents, set is_action to true, appropriate action_type, extract details, and set confidence high (e.g. >= 0.85).
 - If it's just regular dictation (like a note, task, diary thoughts, or description), set is_action to false and all other fields to null.
+- For format_text: confidence must be >= 0.85 only when both (a) a recognised format trigger phrase appears AND (b) format_body is non-empty.
 - Respond ONLY with the raw JSON object. No surrounding markdown, no backticks, no prose.";
 
-/// Detect if the spoken transcript represents a system command action
+fn build_action_system_prompt(templates: &[FormatTemplate]) -> String {
+    let mut out = String::from(ACTION_SYSTEM_PROMPT_BASE);
+    if !templates.is_empty() {
+        out.push_str("\n\nAvailable format templates:");
+        for t in templates {
+            out.push_str(&format!(
+                "\n- id='{}' name='{}' trigger_phrases={:?}",
+                t.id, t.name, t.trigger_phrases
+            ));
+        }
+    } else {
+        out.push_str("\n\nAvailable format templates: (none configured — do not classify as format_text)");
+    }
+    out.push_str(ACTION_SYSTEM_PROMPT_TAIL);
+    out
+}
+
+/// Detect if the spoken transcript represents a system command action.
+/// `templates` is the user's configured voice format templates; their phrases
+/// are injected into the classifier system prompt so the LLM can pick one.
 pub async fn detect_action<L: LlmGenerator + ?Sized>(
     llm: &L,
     transcript: &str,
+    templates: &[FormatTemplate],
 ) -> Result<ActionCommand, ActionError> {
+    let system_prompt = build_action_system_prompt(templates);
     let req = GenerateRequest {
-        system: Some(ACTION_SYSTEM_PROMPT.to_string()),
+        system: Some(system_prompt),
         user: transcript.to_string(),
         history: Vec::new(),
         max_tokens: 256,
@@ -298,6 +333,29 @@ fn percent_encode(s: &str) -> String {
         }
     }
     encoded
+}
+
+/// Run the second-stage reformat: feed the matched template's system prompt
+/// + the user's dictation body to the LLM and return the rewritten text. On
+/// LLM failure the caller should fall back to pasting the raw dictation.
+pub async fn format_text<L: LlmGenerator + ?Sized>(
+    llm: &L,
+    template: &FormatTemplate,
+    body: &str,
+) -> Result<String, ActionError> {
+    let req = GenerateRequest {
+        system: Some(template.system_prompt.clone()),
+        user: body.to_string(),
+        history: Vec::new(),
+        max_tokens: 1024,
+        temperature: 0.3,
+        stop_strings: Vec::new(),
+        grammar_gbnf: None,
+        n_ctx: Some(4096),
+    };
+    let raw = llm.generate(req).await?;
+    let trimmed = raw.trim().to_string();
+    Ok(trimmed)
 }
 
 /// Check if the transcript starts with a command trigger word (e.g., "echo", "eco", "hecho", "ekko").

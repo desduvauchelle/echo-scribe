@@ -195,6 +195,34 @@ export type Project = {
   name: string;
   created_at: string;
   archived_at: string | null;
+  description: string | null;
+  keywords: string[];
+  color: string | null;
+  emoji: string | null;
+  updated_at: string | null;
+  /** Absolute filesystem path where high-confidence items routed to this
+   *  project are exported as markdown. `null` = export disabled. */
+  export_folder: string | null;
+};
+
+/** Partial update payload mirroring `ProjectPatch` on the Rust side.
+ *  Omit a field to leave it alone; set to null to clear; set to value to update.
+ *  `keywords` has no clear semantic — pass `[]` to empty it. */
+export type ProjectPatch = {
+  name?: string;
+  description?: string | null;
+  keywords?: string[];
+  color?: string | null;
+  emoji?: string | null;
+  export_folder?: string | null;
+};
+
+export type CreateProjectInput = {
+  name: string;
+  description?: string;
+  keywords?: string[];
+  color?: string;
+  emoji?: string;
 };
 
 export type TaskWithItem = {
@@ -273,8 +301,15 @@ export const updateItem = (input: UpdateItemInput): Promise<Item> => {
 export const listProjects = (include_archived = false): Promise<Project[]> =>
   invoke("list_projects", { includeArchived: include_archived });
 
-export const createProject = (name: string): Promise<Project> =>
-  invoke("create_project", { name });
+export const createProject = (input: CreateProjectInput | string): Promise<Project> => {
+  const payload: CreateProjectInput =
+    typeof input === "string" ? { name: input } : input;
+  return invoke("create_project", { input: payload });
+};
+
+/** Patch a project's metadata. Each field in `patch` is optional. */
+export const updateProject = (id: string, patch: ProjectPatch): Promise<Project> =>
+  invoke("update_project", { input: { id, ...patch } });
 
 export const renameProject = (id: string, name: string): Promise<void> =>
   invoke("rename_project", { id, name });
@@ -284,6 +319,14 @@ export const archiveProject = (id: string): Promise<void> =>
 
 export const unarchiveProject = (id: string): Promise<void> =>
   invoke("unarchive_project", { id });
+
+/** Hard-delete a project. `reassignTo` moves the project's items to a different
+ *  project; pass `null` to detach (items become unassigned). */
+export const deleteProject = (
+  id: string,
+  reassignTo: string | null = null,
+): Promise<void> =>
+  invoke("delete_project", { id, reassignTo });
 
 export const countItemsForProject = (id: string): Promise<number> =>
   invoke("count_items_for_project", { id });
@@ -507,6 +550,24 @@ export const getAutoFileThreshold = (): Promise<number> =>
 
 export const setAutoFileThreshold = (threshold: number): Promise<void> =>
   invoke("set_auto_file_threshold", { threshold });
+
+// ----- Markdown export (per-project folder) -----
+
+export const getExportConfidenceThreshold = (): Promise<number> =>
+  invoke("get_export_confidence_threshold");
+
+export const setExportConfidenceThreshold = (threshold: number): Promise<void> =>
+  invoke("set_export_confidence_threshold", { threshold });
+
+/** Open a native folder picker. Returns the chosen absolute path, or `null`
+ *  if the user cancels. */
+export const pickExportFolder = (): Promise<string | null> =>
+  invoke("pick_export_folder");
+
+/** Backfill: re-export every non-deleted item + meeting for a project to its
+ *  configured folder. Returns the count of files written. */
+export const exportProjectBackfill = (projectId: string): Promise<number> =>
+  invoke("export_project_backfill", { projectId });
 
 // ----- Item events (lifecycle log) -----
 
@@ -900,6 +961,22 @@ export const resetActionCounter = (): Promise<void> =>
 
 export const getCommonActions = (): Promise<CommonActionTemplate[]> =>
   invoke("get_common_actions");
+
+// ============= Voice Format Templates =============
+
+export type FormatTemplate = {
+  id: string;
+  name: string;
+  trigger_phrases: string[];
+  system_prompt: string;
+};
+
+export const getFormatTemplates = (): Promise<FormatTemplate[]> =>
+  invoke("get_format_templates");
+
+export const setFormatTemplates = (
+  templates: FormatTemplate[],
+): Promise<void> => invoke("set_format_templates", { templates });
 
 // ============= Screen Recordings =============
 

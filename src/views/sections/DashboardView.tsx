@@ -5,6 +5,7 @@ import {
   getDailySummary,
   getDashboardStats,
   listItems,
+  listRecordings,
   searchItems,
   type DailySummary,
   type DailySummarySectionItem,
@@ -12,8 +13,11 @@ import {
   type Item,
   type ItemKind,
   type Project,
+  type RecordingRow,
 } from "../../lib/api";
 import ItemCard from "../../components/ItemCard";
+import RecordingCard from "../../components/RecordingCard";
+import { mergeFeed, recordingMatches, type FeedEntry } from "../../lib/feed";
 import { useActivityPanel } from "../../components/ActivityPanelContext";
 import { SkeletonList } from "./ActivityFeed";
 import TasksView from "./TasksView";
@@ -25,7 +29,7 @@ type Props = {
   projects: Map<string, Project>;
 };
 
-type KindFilter = "all" | ItemKind;
+type KindFilter = "all" | ItemKind | "recording";
 
 function yesterdayLocalIso(): string {
   const now = new Date();
@@ -57,6 +61,7 @@ const EMPTY_LABELS: Record<Exclude<KindFilter, "all" | "task">, string> = {
   transcription: "No transcriptions yet.",
   note: "No notes yet.",
   meeting: "No meetings yet.",
+  recording: "No recordings yet.",
 };
 
 function emptyLabel(kind: KindFilter): string {
@@ -68,6 +73,7 @@ export default function DashboardView({ projects }: Props) {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [summary, setSummary] = useState<DailySummary | null>(null);
   const [items, setItems] = useState<Item[]>([]);
+  const [recordings, setRecordings] = useState<RecordingRow[]>([]);
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -89,11 +95,21 @@ export default function DashboardView({ projects }: Props) {
   const kindRef = useRef<KindFilter>(kindFilter);
   kindRef.current = kindFilter;
 
+  const loadRecordings = useCallback(async () => {
+    try {
+      setRecordings(await listRecordings());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, []);
+
   const fetchItems = useCallback(async (mode: "reset" | "append") => {
     if (mode === "append") setLoadingMore(true);
     try {
       const nextOffset = mode === "reset" ? 0 : offset;
-      const kind = kindRef.current === "all" ? undefined : kindRef.current;
+      // "all" and "recording" are not item kinds → no server-side kind filter.
+      const kf = kindRef.current;
+      const kind = kf === "all" || kf === "recording" ? undefined : kf;
       const page = await listItems({ kind, limit: PAGE_SIZE, offset: nextOffset });
       setHasMore(page.length === PAGE_SIZE);
       if (mode === "reset") {
@@ -126,12 +142,13 @@ export default function DashboardView({ projects }: Props) {
 
   useEffect(() => {
     void loadAll();
-  }, [loadAll]);
+    void loadRecordings();
+  }, [loadAll, loadRecordings]);
 
-  // Fetch items on mount and whenever the kind filter changes (Tasks uses its
-  // own embedded view, so skip the fetch there).
+  // Fetch items on mount and whenever the kind filter changes. Tasks and
+  // Recordings use their own data path, so skip the item fetch for those.
   useEffect(() => {
-    if (kindFilter === "task") return;
+    if (kindFilter === "task" || kindFilter === "recording") return;
     void fetchItems("reset");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kindFilter]);
@@ -139,6 +156,7 @@ export default function DashboardView({ projects }: Props) {
   useEffect(() => {
     if (refreshTick === 0) return;
     void fetchItems("reset");
+    void loadRecordings();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshTick]);
 
@@ -147,7 +165,9 @@ export default function DashboardView({ projects }: Props) {
     const unlisteners: Array<() => void> = [];
     void (async () => {
       const handler = () => {
-        if (!cancelled) void fetchItems("reset");
+        if (cancelled) return;
+        void fetchItems("reset");
+        void loadRecordings();
       };
       const u1 = await listen("item:created", handler);
       const u2 = await listen("app:refresh", handler);
@@ -176,7 +196,12 @@ export default function DashboardView({ projects }: Props) {
     const t = setTimeout(async () => {
       setSearching(true);
       try {
-        const kind = kindFilter === "all" ? undefined : kindFilter;
+        // Recordings aren't in the items FTS index; "all"/"recording" search the
+        // items table unfiltered and merge client-filtered recordings in render.
+        const kind =
+          kindFilter === "all" || kindFilter === "recording"
+            ? undefined
+            : kindFilter;
         const r = await searchItems(q, { kind, limit: 50 });
         setSearchResults(r);
       } catch (e) {
@@ -190,6 +215,32 @@ export default function DashboardView({ projects }: Props) {
 
   const isSearching = searchOpen && query.trim() !== "";
   const isTasks = kindFilter === "task";
+  const isRecordings = kindFilter === "recording";
+
+  // Browse feed: recordings interleave with items under "All" and "Recordings".
+  const browseEntries = useMemo(() => {
+    if (kindFilter === "recording") return mergeFeed([], recordings);
+    if (kindFilter === "all") return mergeFeed(items, recordings);
+    return mergeFeed(items, []);
+  }, [kindFilter, items, recordings]);
+
+  // Search feed: items from FTS + recordings matched client-side on title/transcript.
+  const searchEntries = useMemo(() => {
+    const q = query.trim();
+    const recs =
+      kindFilter === "all" || kindFilter === "recording"
+        ? recordings.filter((r) => recordingMatches(r, q))
+        : [];
+    const its = kindFilter === "recording" ? [] : searchResults;
+    return mergeFeed(its, recs);
+  }, [kindFilter, query, searchResults, recordings]);
+
+  const renderEntry = (e: FeedEntry) =>
+    e.type === "item" ? (
+      <ItemCard key={e.key} item={e.item} projects={projects} />
+    ) : (
+      <RecordingCard key={e.key} rec={e.rec} />
+    );
 
   const openSearch = () => {
     setSearchOpen(true);
@@ -257,6 +308,7 @@ export default function DashboardView({ projects }: Props) {
               ["note", "Notes"],
               ["task", "Tasks"],
               ["meeting", "Meetings"],
+              ["recording", "Recordings"],
             ] as [KindFilter, string][]
           ).map(([value, label]) => {
             const active = value === kindFilter;
@@ -294,32 +346,28 @@ export default function DashboardView({ projects }: Props) {
         </div>
       ) : isSearching ? (
         <div className="mt-3 flex flex-col gap-2 pb-4">
-          {searching && searchResults.length === 0 ? (
+          {searching && searchEntries.length === 0 ? (
             <SkeletonList />
-          ) : searchResults.length === 0 ? (
+          ) : searchEntries.length === 0 ? (
             <p className="rounded-lg border border-line bg-surface/40 px-4 py-6 text-center text-xs text-muted">
               No results for &ldquo;{query.trim()}&rdquo;.
             </p>
           ) : (
-            searchResults.map((item) => (
-              <ItemCard key={item.id} item={item} projects={projects} />
-            ))
+            searchEntries.map(renderEntry)
           )}
         </div>
       ) : (
         <div className="mt-3 flex flex-col gap-2 pb-4">
-          {items.length === 0 && !error && hasMore ? (
+          {browseEntries.length === 0 && !error && hasMore && !isRecordings ? (
             <SkeletonList />
-          ) : items.length === 0 ? (
+          ) : browseEntries.length === 0 ? (
             <p className="rounded-lg border border-line bg-surface/40 px-4 py-6 text-center text-xs text-muted">
               {emptyLabel(kindFilter)}
             </p>
           ) : (
             <>
-              {items.map((item) => (
-                <ItemCard key={item.id} item={item} projects={projects} />
-              ))}
-              {hasMore ? (
+              {browseEntries.map(renderEntry)}
+              {hasMore && !isRecordings ? (
                 <div className="my-3 flex justify-center">
                   <button
                     type="button"

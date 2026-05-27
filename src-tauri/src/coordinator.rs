@@ -57,17 +57,18 @@ pub enum PipelineState {
 }
 
 impl PipelineState {
-    /// Tray icon color. We collapse Recording/Processing to the legacy
-    /// `Recording`/`Processing` colors regardless of which action triggered
-    /// it; AwaitingConfirmation reuses the Processing tint (it's still
-    /// a "working on it" state from the user's perspective).
+    /// Tray icon mapping. Recording always shows the listening icon. The
+    /// Processing phase is split downstream by direct `on_state_change`
+    /// calls into Transcribing (ASR) and Thinking (LLM). This default
+    /// returns Transcribing for the brief window between Released and
+    /// the first explicit state change; AwaitingConfirmation reuses the
+    /// Thinking glyph since classification has already completed.
     pub fn tray_state(&self) -> TrayPipelineState {
         match self {
             PipelineState::Idle => TrayPipelineState::Idle,
             PipelineState::Recording(_) => TrayPipelineState::Recording,
-            PipelineState::Processing(_) | PipelineState::AwaitingConfirmation => {
-                TrayPipelineState::Processing
-            }
+            PipelineState::Processing(_) => TrayPipelineState::Transcribing,
+            PipelineState::AwaitingConfirmation => TrayPipelineState::Thinking,
         }
     }
 }
@@ -76,8 +77,12 @@ impl PipelineState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrayPipelineState {
     Idle,
+    /// Microphone active (any of the recording-mode actions).
     Recording,
-    Processing,
+    /// ASR is running on the captured audio.
+    Transcribing,
+    /// An LLM stage is running (classifier, action launcher, or format stage 2).
+    Thinking,
 }
 
 pub type StateHandle = Arc<Mutex<PipelineState>>;
@@ -240,7 +245,7 @@ pub fn spawn(
                         warn!(?action, "ignored Released: not Recording for this action");
                         continue;
                     }
-                    on_state_change(TrayPipelineState::Processing);
+                    on_state_change(TrayPipelineState::Transcribing);
                     crate::audio::mute::on_recording_stop();
                     feedback::play(Sfx::Stop);
                     crate::overlay::show_transcribing_overlay(&app);
@@ -274,12 +279,16 @@ pub fn spawn(
                                 }
                                 Ok(text) => {
                                     let text = postprocess_with_settings(&app, text);
-                                    if try_intercept_action(&app, &llm, &text, action).await {
-                                        crate::overlay::hide_recording_overlay_now(&app);
-                                        force_state(&state, PipelineState::Idle);
-                                        on_state_change(TrayPipelineState::Idle);
-                                        continue;
-                                    }
+                                    let text = match try_intercept_action(&app, &llm, &text, action).await {
+                                        InterceptOutcome::Consumed => {
+                                            crate::overlay::hide_recording_overlay_now(&app);
+                                            force_state(&state, PipelineState::Idle);
+                                            on_state_change(TrayPipelineState::Idle);
+                                            continue;
+                                        }
+                                        InterceptOutcome::Reformatted(s) => s,
+                                        InterceptOutcome::Passthrough => text,
+                                    };
                                     match action {
                                     Action::VoiceAtCursor | Action::ActionCommand => {
                                         // Phase 1 behavior: persist hidden + paste.
@@ -333,6 +342,8 @@ pub fn spawn(
                                         on_state_change(TrayPipelineState::Idle);
                                     }
                                     Action::LogCapture => {
+                                        crate::overlay::show_processing_overlay(&app, "Filing note…");
+                                        on_state_change(TrayPipelineState::Thinking);
                                         let cls = run_classifier(&llm, &text, db.as_ref(), pending_context.as_ref().map(|c| c as &_)).await;
                                         feedback::play(Sfx::Ready);
                                         crate::overlay::hide_recording_overlay(&app);
@@ -399,6 +410,7 @@ pub fn spawn(
                                                         &text,
                                                         c.confidence,
                                                     );
+                                                    try_export_persisted_item(&app, db.as_ref(), &item_id);
                                                 }
                                                 Err(e) => {
                                                     error!(?e, "log capture auto-save failed");
@@ -418,7 +430,7 @@ pub fn spawn(
                                                 }),
                                             );
                                             force_state(&state, PipelineState::AwaitingConfirmation);
-                                            on_state_change(TrayPipelineState::Processing);
+                                            on_state_change(TrayPipelineState::Thinking);
                                         }
                                     }
                                     Action::Cancel => {
@@ -489,6 +501,7 @@ pub fn spawn(
                         Ok(id) => {
                             info!(item_id = %id, "log capture persisted");
                             let _ = app.emit("item:created", ());
+                            try_export_persisted_item(&app, db.as_ref(), id);
                             if kind == crate::db::items::ItemKind::Note {
                                 use tauri_plugin_notification::NotificationExt;
                                 let preview = preview_first_chars(&content, 120);
@@ -519,6 +532,27 @@ pub fn spawn(
             }
         }
     });
+}
+
+/// Look up the just-persisted item and, if its project has an export folder
+/// and the confidence clears the user's threshold, write it as markdown.
+/// Tolerates missing settings/state (e.g. during early boot) by silently
+/// skipping.
+fn try_export_persisted_item(app: &AppHandle<Wry>, db: Option<&Db>, item_id: &str) {
+    let Some(db) = db else { return };
+    let threshold = app
+        .try_state::<crate::commands::AppState>()
+        .map(|s| s.settings.export_confidence_threshold())
+        .unwrap_or(crate::settings::DEFAULT_EXPORT_CONFIDENCE_THRESHOLD);
+    let item = match db.with_conn(|c| crate::db::items::get_item(c, item_id)) {
+        Ok(Some(it)) => it,
+        Ok(None) => return,
+        Err(e) => {
+            warn!(target: "export", error = %e, "lookup item for export failed");
+            return;
+        }
+    };
+    crate::export::try_export_item(db, &item, threshold);
 }
 
 fn transition_from_idle_to_recording(state: &StateHandle, action: Action) -> bool {
@@ -688,45 +722,61 @@ async fn run_classifier(
     classifier::classify(llm, transcript, &projects, &recents, &now, dow, focus).await
 }
 
+/// Outcome of running the action launcher against a fresh transcription.
+/// Lets the caller decide whether to drop the pipeline, paste an altered
+/// string, or paste the original text unchanged.
+pub enum InterceptOutcome {
+    /// The launcher executed an action (launch_app / draft_email / counters
+    /// / etc.). The caller should hide the overlay and return to Idle.
+    Consumed,
+    /// The LLM matched a format template; the returned string is the
+    /// reformatted body that should be pasted at the user's cursor in
+    /// place of the raw transcription.
+    Reformatted(String),
+    /// No intercept fired. Caller should use the original transcription.
+    Passthrough,
+}
+
 /// Try to detect and execute a system action from voice dictation.
-/// Returns true if an action was executed successfully.
+/// Returns an [`InterceptOutcome`] describing what the caller should do next.
 async fn try_intercept_action(
     app: &tauri::AppHandle,
     llm: &crate::llm::Llm,
     text: &str,
     action: Action,
-) -> bool {
-    let (enabled, trigger_enabled, trigger_word) = app
+) -> InterceptOutcome {
+    let (enabled, trigger_enabled, trigger_word, format_templates) = app
         .try_state::<crate::commands::AppState>()
         .map(|s| (
             s.settings.app_launcher_enabled(),
             s.settings.trigger_word_routing_enabled(),
             s.settings.action_trigger_word(),
+            s.settings.format_templates(),
         ))
-        .unwrap_or((true, true, "echo".to_string()));
+        .unwrap_or((true, true, "echo".to_string(), Vec::new()));
 
     if !enabled {
-        return false;
+        return InterceptOutcome::Passthrough;
     }
 
     let stripped_text = if action == Action::ActionCommand {
         // Dedicated Action Hotkey: bypass trigger word prefix check entirely
         let trimmed = text.trim();
         if trimmed.is_empty() {
-            return false;
+            return InterceptOutcome::Passthrough;
         }
         trimmed.to_string()
     } else if action == Action::VoiceAtCursor {
         // Prefix-Based Routing
         if !trigger_enabled {
             // Option 2 fallback bypass: standard voice typing completely bypasses LLM
-            return false;
+            return InterceptOutcome::Passthrough;
         }
 
         let text_trimmed = text.trim();
         let text_lower = text_trimmed.to_lowercase();
         let trigger_lower = trigger_word.trim().to_lowercase();
-        
+
         let mut matched_trigger = None;
         if trigger_lower == "echo" {
             for trig in &["echo", "eco", "hecho", "ekko"] {
@@ -753,21 +803,24 @@ async fn try_intercept_action(
             }
             None => {
                 // No trigger prefix found: bypass the LLM entirely (instant paste!)
-                return false;
+                return InterceptOutcome::Passthrough;
             }
         }
     } else {
         // For other actions (e.g. LogCapture), we don't intercept action commands here
-        return false;
+        return InterceptOutcome::Passthrough;
     };
 
     if stripped_text.is_empty() {
         debug!("Command text is empty; bypassing LLM");
-        return false;
+        return InterceptOutcome::Passthrough;
     }
 
-    info!("Checking dictation for action launcher intent: '{}'", stripped_text);
-    match crate::llm::action_launcher::detect_action(llm, &stripped_text).await {
+    crate::overlay::show_processing_overlay(app, "Processing…");
+    bump_tray(app, TrayPipelineState::Thinking);
+
+    info!(target: "format", "Checking dictation for action launcher intent: '{}'", stripped_text);
+    match crate::llm::action_launcher::detect_action(llm, &stripped_text, &format_templates).await {
         Ok(cmd) => {
             if cmd.is_action && cmd.confidence >= 0.75 {
                 info!(
@@ -775,6 +828,69 @@ async fn try_intercept_action(
                     confidence = cmd.confidence,
                     "Detected voice action command"
                 );
+
+                // Format-text action: stage-2 reformat then hand back the
+                // rewritten string for the caller to paste via the normal
+                // focus-restore path. On any failure here we fall back to
+                // pasting the raw transcription so dictation is never lost.
+                if cmd.action_type.as_deref() == Some("format_text") {
+                    let body = cmd
+                        .format_body
+                        .clone()
+                        .unwrap_or_else(|| stripped_text.clone());
+                    let body_trimmed = body.trim();
+                    if body_trimmed.is_empty() {
+                        warn!(target: "format", "format_text matched but body is empty; falling back to raw paste");
+                        return InterceptOutcome::Passthrough;
+                    }
+                    let template = cmd
+                        .format_id
+                        .as_deref()
+                        .and_then(|id| format_templates.iter().find(|t| t.id == id))
+                        .cloned();
+                    let Some(template) = template else {
+                        warn!(
+                            target: "format",
+                            format_id = ?cmd.format_id,
+                            "format_text matched unknown template id; falling back to raw paste"
+                        );
+                        notify_format_failure(app, "Format template not found. Pasting raw transcription instead.");
+                        return InterceptOutcome::Passthrough;
+                    };
+                    info!(
+                        target: "format",
+                        template_id = %template.id,
+                        body_chars = body_trimmed.len(),
+                        "running stage-2 format reformat"
+                    );
+                    crate::overlay::show_processing_overlay(app, "Formatting…");
+                    match crate::llm::action_launcher::format_text(llm, &template, body_trimmed).await {
+                        Ok(formatted) if !formatted.is_empty() => {
+                            info!(
+                                target: "format",
+                                template_id = %template.id,
+                                output_chars = formatted.len(),
+                                "format_text produced output"
+                            );
+                            feedback::play(Sfx::Ready);
+                            if let Some(s) = app.try_state::<crate::commands::AppState>() {
+                                let _ = s.settings.increment_action_counter();
+                            }
+                            return InterceptOutcome::Reformatted(formatted);
+                        }
+                        Ok(_) => {
+                            warn!(target: "format", "format_text produced empty output; falling back to raw paste");
+                            notify_format_failure(app, "Format produced no output. Pasting raw transcription instead.");
+                            return InterceptOutcome::Passthrough;
+                        }
+                        Err(e) => {
+                            error!(target: "format", error = %e, "format_text stage-2 failed; falling back to raw paste");
+                            notify_format_failure(app, "Format failed. Pasting raw transcription instead. See logs for details.");
+                            return InterceptOutcome::Passthrough;
+                        }
+                    }
+                }
+
                 match crate::llm::action_launcher::execute_action(app, &cmd) {
                     Ok(msg) => {
                         info!(msg, "Voice action executed successfully");
@@ -783,7 +899,7 @@ async fn try_intercept_action(
                             "message": msg,
                             "command": cmd,
                         }));
-                        
+
                         // Fire a macOS system notification
                         use tauri_plugin_notification::NotificationExt;
                         let _ = app.notification()
@@ -791,13 +907,13 @@ async fn try_intercept_action(
                             .title("Echo Scribe Action")
                             .body(&msg)
                             .show();
-                        
+
                         // Increment action counter
                         if let Some(s) = app.try_state::<crate::commands::AppState>() {
                             let _ = s.settings.increment_action_counter();
                         }
-                        
-                        return true;
+
+                        return InterceptOutcome::Consumed;
                     }
                     Err(e) => {
                         error!(error = %e, "Voice action execution failed; falling back to standard pipeline");
@@ -814,7 +930,33 @@ async fn try_intercept_action(
             warn!(error = %e, "Action classification failed; continuing standard pipeline");
         }
     }
-    false
+    InterceptOutcome::Passthrough
+}
+
+/// Bump the tray icon to the given state via the managed `AppState.tray`
+/// handle. Used by helpers (e.g. `try_intercept_action`) that don't carry
+/// the coordinator's `on_state_change` closure but still need to reflect
+/// LLM-stage transitions in the menu bar.
+fn bump_tray(app: &tauri::AppHandle, state: TrayPipelineState) {
+    if let Some(s) = app.try_state::<crate::commands::AppState>() {
+        if let Ok(tray) = s.tray.lock() {
+            tray.set_state(state);
+        }
+    }
+}
+
+/// Best-effort UI surface for a format-text failure: emits a Tauri event the
+/// frontend can toast on, plus an OS notification so the user notices when no
+/// Echo Scribe window is visible. The raw error stays in the daily log.
+fn notify_format_failure(app: &tauri::AppHandle, friendly: &str) {
+    let _ = app.emit("format:failed", friendly);
+    use tauri_plugin_notification::NotificationExt;
+    let _ = app
+        .notification()
+        .builder()
+        .title("Echo Scribe Format")
+        .body(friendly)
+        .show();
 }
 
 /// Surface a recorder-start failure to the user: emits a Tauri event for any
@@ -958,6 +1100,7 @@ fn persist_log_capture(
                 name: name.to_string(),
                 created_at: now.clone(),
                 archived_at: None,
+                ..Default::default()
             };
             db.with_conn(|c| crate::db::projects::insert_project(c, &proj))
                 .map_err(|e| format!("create project: {e}"))?;
@@ -1112,11 +1255,11 @@ mod tests {
         );
         assert_eq!(
             PipelineState::Processing(Action::VoiceAtCursor).tray_state(),
-            TrayPipelineState::Processing
+            TrayPipelineState::Transcribing
         );
         assert_eq!(
             PipelineState::AwaitingConfirmation.tray_state(),
-            TrayPipelineState::Processing
+            TrayPipelineState::Thinking
         );
     }
 }

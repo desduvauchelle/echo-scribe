@@ -28,6 +28,7 @@ const KEY_LAST_UPDATE_CHECK: &str = "last_update_check";
 const KEY_DISMISSED_UPDATE_VERSION: &str = "dismissed_update_version";
 const KEY_AUTO_FILE_ENABLED: &str = "auto_file_enabled";
 const KEY_AUTO_FILE_THRESHOLD: &str = "auto_file_threshold";
+const KEY_EXPORT_CONFIDENCE_THRESHOLD: &str = "export_confidence_threshold";
 const KEY_MEETING_AUTO_DETECT: &str = "meeting_auto_detect";
 const KEY_MEETING_APP_PREFS: &str = "meeting_app_prefs";
 const KEY_MEETING_SOFT_WARN_MIN: &str = "meeting_soft_warn_minutes";
@@ -52,8 +53,59 @@ const KEY_DRIVE_ACCOUNT_EMAIL: &str = "drive_account_email";
 const KEY_DRIVE_FOLDER_ID: &str = "drive_folder_id";
 const KEY_DRIVE_FOLDER_NAME: &str = "drive_folder_name";
 const KEY_DRIVE_MAKE_PUBLIC: &str = "drive_make_public";
+const KEY_FORMAT_TEMPLATES: &str = "format_templates";
+const KEY_FORMAT_TEMPLATES_SEEDED: &str = "format_templates_seeded";
 
 pub const DEFAULT_MEETING_SUMMARY_PROMPT: &str = "You are an expert meeting note-taker. You receive a transcript of a {duration_minutes}-minute conversation captured from {app}. The transcript labels each segment as 'You:' (the user) or 'Them:' (the other side).";
+
+/// A user-configurable voice "format template". When the user dictates with
+/// the trigger word ("echo …") or the dedicated Action hotkey and the LLM
+/// classifies the intent as `format_text`, the matched template's
+/// `system_prompt` is used to reformat the dictated body before pasting.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct FormatTemplate {
+    pub id: String,
+    pub name: String,
+    pub trigger_phrases: Vec<String>,
+    pub system_prompt: String,
+}
+
+fn default_format_templates() -> Vec<FormatTemplate> {
+    vec![
+        FormatTemplate {
+            id: "email".to_string(),
+            name: "Email".to_string(),
+            trigger_phrases: vec![
+                "format as email".to_string(),
+                "format this as an email".to_string(),
+                "make this an email".to_string(),
+                "rewrite as email".to_string(),
+                "write this as email".to_string(),
+            ],
+            system_prompt: "Rewrite the user's raw voice dictation as a clear, professional email body in the user's voice. Preserve the original meaning and all facts. Fix grammar, remove filler, and use short paragraphs. Do NOT add a subject line, greeting placeholder, or signature unless they were explicitly dictated. Output ONLY the rewritten email body — no preface, no quotes, no commentary.".to_string(),
+        },
+        FormatTemplate {
+            id: "slack".to_string(),
+            name: "Slack message".to_string(),
+            trigger_phrases: vec![
+                "format as slack".to_string(),
+                "make this a slack message".to_string(),
+                "rewrite as slack".to_string(),
+            ],
+            system_prompt: "Rewrite the user's raw voice dictation as a short, friendly Slack message. Casual tone, lowercase is fine, no formal sign-off. Keep it tight — one or two short paragraphs at most. Output ONLY the rewritten message.".to_string(),
+        },
+        FormatTemplate {
+            id: "bullets".to_string(),
+            name: "Bullet list".to_string(),
+            trigger_phrases: vec![
+                "format as bullets".to_string(),
+                "make this a bullet list".to_string(),
+                "rewrite as bullet points".to_string(),
+            ],
+            system_prompt: "Rewrite the user's raw voice dictation as a concise markdown bullet list. One idea per bullet, short phrases, no preamble. Output ONLY the bullets, nothing else.".to_string(),
+        },
+    ]
+}
 
 /// Default: morning recap notification is on.
 pub const DEFAULT_DAILY_RECAP_ENABLED: bool = true;
@@ -99,6 +151,11 @@ pub const DEFAULT_ASR_UNLOAD_SECS: u64 = 120;
 /// Default threshold above which a high-confidence classification is auto-filed
 /// without showing the review overlay.
 pub const DEFAULT_AUTO_FILE_THRESHOLD: f32 = 0.75;
+
+/// Default threshold above which classified items (notes, tasks, transcriptions)
+/// are also exported as markdown to a project's configured export folder.
+/// Meetings ignore this — they export whenever a project has a folder set.
+pub const DEFAULT_EXPORT_CONFIDENCE_THRESHOLD: f32 = 0.75;
 
 /// Errors raised by [`SettingsStore`].
 #[derive(Debug, Error)]
@@ -516,6 +573,32 @@ impl SettingsStore {
         let clamped = t.clamp(0.0, 1.0) as f64;
         self.store.set(
             KEY_AUTO_FILE_THRESHOLD,
+            serde_json::Value::from(clamped),
+        );
+        self.store
+            .save()
+            .map_err(|e| SettingsError::Store(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Threshold (0.0–1.0) for exporting classified items to a project's
+    /// configured export folder. Defaults to
+    /// [`DEFAULT_EXPORT_CONFIDENCE_THRESHOLD`]. Out-of-range stored values
+    /// are clamped.
+    pub fn export_confidence_threshold(&self) -> f32 {
+        let raw = self
+            .store
+            .get(KEY_EXPORT_CONFIDENCE_THRESHOLD)
+            .and_then(|v| v.as_f64())
+            .map(|f| f as f32)
+            .unwrap_or(DEFAULT_EXPORT_CONFIDENCE_THRESHOLD);
+        raw.clamp(0.0, 1.0)
+    }
+
+    pub fn set_export_confidence_threshold(&self, t: f32) -> Result<(), SettingsError> {
+        let clamped = t.clamp(0.0, 1.0) as f64;
+        self.store.set(
+            KEY_EXPORT_CONFIDENCE_THRESHOLD,
             serde_json::Value::from(clamped),
         );
         self.store
@@ -988,6 +1071,51 @@ impl SettingsStore {
     pub fn set_drive_make_public(&self, on: bool) -> Result<(), SettingsError> {
         self.store
             .set(KEY_DRIVE_MAKE_PUBLIC, serde_json::Value::Bool(on));
+        self.store
+            .save()
+            .map_err(|e| SettingsError::Store(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Return the user's saved voice format templates. On first run (no key
+    /// present and no prior "seeded" marker) seeds the built-in defaults and
+    /// persists them so the user has something to edit immediately.
+    pub fn format_templates(&self) -> Vec<FormatTemplate> {
+        if let Some(v) = self.store.get(KEY_FORMAT_TEMPLATES) {
+            match serde_json::from_value::<Vec<FormatTemplate>>(v) {
+                Ok(list) => return list,
+                Err(e) => {
+                    warn!(?e, "stored format_templates is invalid; falling back to defaults");
+                }
+            }
+        }
+        let seeded = self
+            .store
+            .get(KEY_FORMAT_TEMPLATES_SEEDED)
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        if seeded {
+            return Vec::new();
+        }
+        let defaults = default_format_templates();
+        if let Ok(value) = serde_json::to_value(&defaults) {
+            self.store.set(KEY_FORMAT_TEMPLATES, value);
+            self.store
+                .set(KEY_FORMAT_TEMPLATES_SEEDED, serde_json::Value::Bool(true));
+            if let Err(e) = self.store.save() {
+                warn!(?e, "failed to persist seeded format templates");
+            }
+        }
+        defaults
+    }
+
+    /// Replace the full list of format templates. Marks seeded so an empty
+    /// list isn't re-seeded with defaults on next read.
+    pub fn set_format_templates(&self, list: &[FormatTemplate]) -> Result<(), SettingsError> {
+        let value = serde_json::to_value(list)?;
+        self.store.set(KEY_FORMAT_TEMPLATES, value);
+        self.store
+            .set(KEY_FORMAT_TEMPLATES_SEEDED, serde_json::Value::Bool(true));
         self.store
             .save()
             .map_err(|e| SettingsError::Store(e.to_string()))?;

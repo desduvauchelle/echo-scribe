@@ -164,11 +164,12 @@ impl TrayHandle<Wry> {
                         std::thread::spawn(move || {
                             let st = app2.state::<AppState>();
                             match crate::commands::stop_screen_recording_inner(&st) {
-                                Ok(_) => {
+                                Ok(row) => {
                                     if let Ok(t) = st.tray.lock() {
                                         t.set_screenrec_active(false);
                                     }
                                     let _ = app2.emit("screenrec-changed", ());
+                                    crate::commands::spawn_auto_denoise(app2.clone(), row.id);
                                 }
                                 Err(e) => {
                                     tracing::warn!(%e, "tray stop screenrec failed");
@@ -318,8 +319,10 @@ fn load_icon<R: Runtime>(
         (TrayPipelineState::Idle, false) => "resources/tray_idle_dark.png",
         (TrayPipelineState::Recording, true) => "resources/tray_recording.png",
         (TrayPipelineState::Recording, false) => "resources/tray_recording_dark.png",
-        (TrayPipelineState::Processing, true) => "resources/tray_transcribing.png",
-        (TrayPipelineState::Processing, false) => "resources/tray_transcribing_dark.png",
+        (TrayPipelineState::Transcribing, true) => "resources/tray_transcribing.png",
+        (TrayPipelineState::Transcribing, false) => "resources/tray_transcribing_dark.png",
+        (TrayPipelineState::Thinking, true) => "resources/tray_thinking.png",
+        (TrayPipelineState::Thinking, false) => "resources/tray_thinking_dark.png",
     };
 
     match app.path().resolve(path, BaseDirectory::Resource) {

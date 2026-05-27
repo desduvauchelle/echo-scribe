@@ -2,39 +2,26 @@ import { listen } from "@tauri-apps/api/event";
 import React, { useEffect, useRef, useState } from "react";
 import "./RecordingOverlay.css";
 
-type OverlayState = "recording" | "log-recording" | "transcribing" | "meeting" | "action-recording";
+type OverlayState =
+  | "recording"
+  | "log-recording"
+  | "transcribing"
+  | "meeting"
+  | "action-recording"
+  | "processing";
 
 type MeetingOverlayPayload = { mode: "meeting"; app_name: string | null };
+type ProcessingOverlayPayload = { mode: "processing"; label: string };
 
-const MicrophoneIcon: React.FC = () => (
-  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-    <path
-      d="M8 1a2.5 2.5 0 0 0-2.5 2.5v4a2.5 2.5 0 0 0 5 0v-4A2.5 2.5 0 0 0 8 1Z"
-      fill="#ffe5ee"
-    />
-    <path
-      d="M4 6.5a.5.5 0 0 0-1 0v1a5 5 0 0 0 4.5 4.975V14H6a.5.5 0 0 0 0 1h4a.5.5 0 0 0 0-1H8.5v-1.525A5 5 0 0 0 13 7.5v-1a.5.5 0 0 0-1 0v1a4 4 0 0 1-8 0v-1Z"
-      fill="#ffe5ee"
-    />
-  </svg>
-);
-
-const PencilIcon: React.FC = () => (
-  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-    <path
-      d="M11.013 1.427a1.75 1.75 0 0 1 2.474 0l1.086 1.086a1.75 1.75 0 0 1 0 2.474l-8.61 8.61a.75.75 0 0 1-.37.21l-3.25.75a.75.75 0 0 1-.906-.906l.75-3.25a.75.75 0 0 1 .21-.37l8.616-8.604Zm1.414 1.06a.25.25 0 0 0-.354 0L10.811 3.75l1.439 1.44 1.263-1.263a.25.25 0 0 0 0-.354l-1.086-1.086ZM11.19 6.25 9.75 4.81 3.428 11.13l-.571 2.474 2.473-.571L11.19 6.25Z"
-      fill="#d4eeff"
-    />
-  </svg>
-);
-
-const TranscriptionIcon: React.FC = () => (
-  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-    <path
-      d="M2 3.5A1.5 1.5 0 0 1 3.5 2h9A1.5 1.5 0 0 1 14 3.5v9a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 12.5v-9Zm2 1a.5.5 0 0 0 0 1h8a.5.5 0 0 0 0-1H4Zm0 3a.5.5 0 0 0 0 1h8a.5.5 0 0 0 0-1H4Zm0 3a.5.5 0 0 0 0 1h5a.5.5 0 0 0 0-1H4Z"
-      fill="#ffe5ee"
-    />
-  </svg>
+const TrayIcon: React.FC<{ src: string; alt: string }> = ({ src, alt }) => (
+  <img
+    src={src}
+    alt={alt}
+    width={16}
+    height={16}
+    draggable={false}
+    style={{ display: "block", width: 16, height: 16 }}
+  />
 );
 
 const CancelIcon: React.FC = () => (
@@ -46,24 +33,11 @@ const CancelIcon: React.FC = () => (
   </svg>
 );
 
-const ActionIcon: React.FC = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-    <path
-      d="m3.75 13.5 10.5-11.25L12.75 9h7.5L9.75 20.25 11.25 15H3.75Z"
-      stroke="#22d3ee"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      fill="#c084fc"
-      fillOpacity="0.4"
-    />
-  </svg>
-);
-
 const RecordingOverlay: React.FC = () => {
   const [isVisible, setIsVisible] = useState(false);
   const [state, setState] = useState<OverlayState>("recording");
   const [meetingAppName, setMeetingAppName] = useState<string | null>(null);
+  const [processingLabel, setProcessingLabel] = useState<string>("Processing…");
   const [levels, setLevels] = useState<number[]>(Array(16).fill(0));
   const smoothedLevelsRef = useRef<number[]>(Array(16).fill(0));
 
@@ -75,9 +49,16 @@ const RecordingOverlay: React.FC = () => {
           setState(payload as OverlayState);
           setMeetingAppName(null);
         } else if (payload && typeof payload === "object" && "mode" in payload) {
-          const meeting = payload as MeetingOverlayPayload;
-          setState(meeting.mode);
-          setMeetingAppName(meeting.app_name);
+          const obj = payload as MeetingOverlayPayload | ProcessingOverlayPayload;
+          if (obj.mode === "processing") {
+            const proc = obj as ProcessingOverlayPayload;
+            setState("processing");
+            setProcessingLabel(proc.label || "Processing…");
+          } else {
+            const meeting = obj as MeetingOverlayPayload;
+            setState(meeting.mode);
+            setMeetingAppName(meeting.app_name);
+          }
         }
         setIsVisible(true);
       });
@@ -110,16 +91,22 @@ const RecordingOverlay: React.FC = () => {
 
   const isRecording = state === "recording" || state === "log-recording" || state === "action-recording";
   const isMeeting = state === "meeting";
+  const isProcessing = state === "processing";
 
   const getIcon = () => {
-    if (state === "log-recording") return <PencilIcon />;
-    if (state === "action-recording") return <ActionIcon />;
-    if (state === "recording" || state === "meeting") return <MicrophoneIcon />;
-    return <TranscriptionIcon />;
+    // Mirror the tray icons so the menu-bar glyph and the overlay glyph
+    // are always the same. Mode-discrimination (log/action) is conveyed via
+    // the CSS pill gradient (`log-mode`, `action-mode` classes), not the icon.
+    if (state === "processing")
+      return <TrayIcon src="/icons/tray_thinking.png" alt="Thinking" />;
+    if (state === "transcribing")
+      return <TrayIcon src="/icons/tray_transcribing.png" alt="Transcribing" />;
+    // Recording (any mode) and meeting → listening icon.
+    return <TrayIcon src="/icons/tray_recording.png" alt="Recording" />;
   };
 
   return (
-    <div className={`recording-overlay ${isVisible ? "fade-in" : ""} ${state === "log-recording" ? "log-mode" : ""} ${isMeeting ? "meeting-mode" : ""} ${state === "action-recording" ? "action-mode" : ""}`}>
+    <div className={`recording-overlay ${isVisible ? "fade-in" : ""} ${state === "log-recording" ? "log-mode" : ""} ${isMeeting ? "meeting-mode" : ""} ${state === "action-recording" ? "action-mode" : ""} ${isProcessing ? "processing-mode" : ""}`}>
       <div className="overlay-left">{getIcon()}</div>
 
       <div className="overlay-middle">
@@ -140,6 +127,9 @@ const RecordingOverlay: React.FC = () => {
         )}
         {state === "transcribing" && (
           <div className="status-text">Transcribing…</div>
+        )}
+        {isProcessing && (
+          <div className="status-text">{processingLabel}</div>
         )}
         {isMeeting && (
           <div className="status-text">

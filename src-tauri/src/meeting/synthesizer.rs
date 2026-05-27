@@ -106,7 +106,7 @@ pub async fn synthesize(
     segments: &[Segment],
     detected_app_name: Option<&str>,
     duration_ms: u64,
-    existing_project_names: &[String],
+    existing_projects: &[crate::db::projects::Project],
     start_context: &MeetingStartContext,
     custom_prompt: Option<&str>,
 ) -> Result<StoredSummary, String> {
@@ -124,7 +124,7 @@ pub async fn synthesize(
         &flattened,
         detected_app_name,
         duration_minutes,
-        existing_project_names,
+        existing_projects,
         start_context,
         custom_prompt,
     );

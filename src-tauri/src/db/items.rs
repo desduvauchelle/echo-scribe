@@ -489,6 +489,7 @@ mod tests {
                 name: "p".into(),
                 created_at: "2026-05-01T00:00:00Z".into(),
                 archived_at: None,
+                ..Default::default()
             },
         )
         .unwrap();

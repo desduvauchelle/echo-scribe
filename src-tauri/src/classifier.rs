@@ -78,7 +78,7 @@ Given the user's spoken transcript, decide whether it is a 'note' (an idea, \
 observation, or piece of context) or a 'task' (something to do). \
 Output a single JSON object EXACTLY matching this schema with no additional \
 keys, prose, or markdown:\n\
-{\n  \"kind\": \"note\" | \"task\",\n  \"project_id\": <existing project id from the list below or null>,\n  \"new_project_name\": <a short name for a NEW project if none of the existing ones fit, else null>,\n  \"tags\": [<lowercase short topical tags>],\n  \"deadline_iso\": <ISO 8601 datetime if a task has a deadline, else null>,\n  \"confidence\": <number between 0 and 1>\n}\n\nRules:\n- Pick exactly one of project_id OR new_project_name (or both null). Never both.\n- For notes (kind == \"note\"), deadline_iso MUST be null.\n- Resolve relative deadlines (\"tomorrow\", \"next Friday\") against the current time below.\n- Tags: 0-5 short lowercase topical tags (e.g. \"meeting\", \"bug\", \"idea\").\n- Output ONLY the JSON object, no surrounding text.";
+{\n  \"kind\": \"note\" | \"task\",\n  \"project_id\": <existing project id from the list below or null>,\n  \"new_project_name\": <a short name for a NEW project if none of the existing ones fit, else null>,\n  \"tags\": [<lowercase short topical tags>],\n  \"deadline_iso\": <ISO 8601 datetime if a task has a deadline, else null>,\n  \"confidence\": <number between 0 and 1>\n}\n\nRules:\n- Pick exactly one of project_id OR new_project_name (or both null). Never both.\n- For notes (kind == \"note\"), deadline_iso MUST be null.\n- Resolve relative deadlines (\"tomorrow\", \"next Friday\") against the current time below.\n- Tags: 0-5 short lowercase topical tags (e.g. \"meeting\", \"bug\", \"idea\").\n- Project routing: use each project's `description` and `keywords` to decide if the transcript belongs there. A keyword match against a noun, topic, or codename in the transcript is strong evidence for that project. The project `name` alone is rarely enough — read the description.\n- Only set `new_project_name` when no existing project is a plausible fit. Prefer reusing an existing project over creating a new one.\n- Output ONLY the JSON object, no surrounding text.";
 
 /// Classify the transcript into a [`Classification`].
 pub async fn classify<L: LlmGenerator + ?Sized>(
@@ -232,6 +232,49 @@ fn value_to_opt_string(v: serde_json::Value) -> Option<String> {
     }
 }
 
+/// Render the project list for an LLM routing prompt. Includes description
+/// and keywords (the routing signal) when present. Public so the meeting
+/// pipeline can reuse the same format — keeping routing behavior consistent
+/// across capture paths.
+pub fn format_projects_for_prompt(projects: &[Project]) -> String {
+    if projects.is_empty() {
+        return "(none yet)\n".to_string();
+    }
+    let mut out = String::with_capacity(projects.len() * 128);
+    // Cap at 20 to keep prompt bounded; sort handled by caller (DB already
+    // returns alphabetical).
+    for p in projects.iter().take(20) {
+        out.push_str("- id=");
+        out.push_str(&p.id);
+        out.push_str(" name=\"");
+        out.push_str(&p.name);
+        out.push('"');
+        if let Some(emoji) = &p.emoji {
+            if !emoji.is_empty() {
+                out.push_str(" emoji=");
+                out.push_str(emoji);
+            }
+        }
+        out.push('\n');
+        if let Some(desc) = &p.description {
+            let trimmed = desc.trim();
+            if !trimmed.is_empty() {
+                out.push_str("  description: ");
+                // Cap description to 240 chars to keep prompt size predictable.
+                let preview: String = trimmed.chars().take(240).collect();
+                out.push_str(&preview);
+                out.push('\n');
+            }
+        }
+        if !p.keywords.is_empty() {
+            out.push_str("  keywords: ");
+            out.push_str(&p.keywords.join(", "));
+            out.push('\n');
+        }
+    }
+    out
+}
+
 fn build_system_prompt(
     existing_projects: &[Project],
     recent_items: &[Item],
@@ -246,17 +289,7 @@ fn build_system_prompt(
     s.push_str(" (");
     s.push_str(now_dow);
     s.push_str(").\n\nExisting projects:\n");
-    if existing_projects.is_empty() {
-        s.push_str("(none yet)\n");
-    } else {
-        for p in existing_projects.iter().take(20) {
-            s.push_str("- id=");
-            s.push_str(&p.id);
-            s.push_str(" name=\"");
-            s.push_str(&p.name);
-            s.push_str("\"\n");
-        }
-    }
+    s.push_str(&format_projects_for_prompt(existing_projects));
     s.push_str("\nRecent captures (most recent first):\n");
     if recent_items.is_empty() {
         s.push_str("(none)\n");
@@ -380,6 +413,7 @@ mod tests {
             name: name.to_string(),
             created_at: "2026-05-01T00:00:00Z".into(),
             archived_at: None,
+            ..Default::default()
         }
     }
 
@@ -543,5 +577,64 @@ mod tests {
     fn build_system_prompt_handles_no_context() {
         let prompt = build_system_prompt(&[], &[], "2026-05-03T10:00:00Z", "Sunday", None);
         assert!(!prompt.is_empty());
+    }
+
+    #[test]
+    fn build_system_prompt_includes_description_and_keywords() {
+        let mut p = proj("p1", "Echo Scribe");
+        p.description = Some("Native macOS voice notes app, Tauri rebuild.".into());
+        p.keywords = vec!["tauri".into(), "rust".into(), "voice".into()];
+        p.emoji = Some("🎤".into());
+        let prompt = build_system_prompt(&[p], &[], "2026-05-03T10:00:00Z", "Sunday", None);
+        assert!(prompt.contains("description: Native macOS voice notes app"));
+        assert!(prompt.contains("keywords: tauri, rust, voice"));
+        assert!(prompt.contains("emoji=🎤"));
+    }
+
+    #[test]
+    fn format_projects_for_prompt_renders_empty_state() {
+        assert_eq!(format_projects_for_prompt(&[]), "(none yet)\n");
+    }
+
+    #[test]
+    fn format_projects_for_prompt_caps_description_at_240_chars() {
+        let mut p = proj("p1", "Long");
+        let long = "x".repeat(500);
+        p.description = Some(long);
+        let out = format_projects_for_prompt(&[p]);
+        let line = out
+            .lines()
+            .find(|l| l.contains("description:"))
+            .expect("description line present");
+        // "  description: " prefix + 240 x's
+        assert_eq!(line.len(), "  description: ".len() + 240);
+    }
+
+    #[tokio::test]
+    async fn classify_routes_via_keyword_match_when_two_projects() {
+        // With name+description+keywords, the model should be able to
+        // distinguish — but classify() itself just trusts the model's
+        // chosen project_id. This test verifies the prompt actually
+        // *contains* the routing signal for both candidates so any
+        // downstream model has a chance.
+        let mut p1 = proj("p1", "Acme Sales");
+        p1.description = Some("Outbound + meetings with the Acme team.".into());
+        p1.keywords = vec!["acme".into(), "john-smith".into(), "q3".into()];
+        let mut p2 = proj("p2", "Echo Scribe");
+        p2.description = Some("Voice notes app rebuild.".into());
+        p2.keywords = vec!["tauri".into(), "rust".into(), "voice".into()];
+
+        let prompt = build_system_prompt(
+            &[p1, p2],
+            &[],
+            "2026-05-03T10:00:00Z",
+            "Sunday",
+            None,
+        );
+
+        assert!(prompt.contains("Acme team"));
+        assert!(prompt.contains("Voice notes app rebuild"));
+        assert!(prompt.contains("acme, john-smith, q3"));
+        assert!(prompt.contains("tauri, rust, voice"));
     }
 }

@@ -27,6 +27,8 @@ import {
   getAudioFeedbackEnabled,
   getAutoFileEnabled,
   getAutoFileThreshold,
+  getExportConfidenceThreshold,
+  setExportConfidenceThreshold,
   getDailyRecapSettings,
   getInputDeviceSort,
   getLlmUnloadSecs,
@@ -58,6 +60,9 @@ import {
   setTriggerWordRoutingEnabled,
   getActionTriggerWord,
   setActionTriggerWord,
+  getFormatTemplates,
+  setFormatTemplates,
+  type FormatTemplate,
   driveStatus,
   driveConnect,
   driveDisconnect,
@@ -206,7 +211,72 @@ function AiTab() {
       </Section>
 
       <AutoFileSettings />
+      <ExportSettings />
     </div>
+  );
+}
+
+function ExportSettings() {
+  const [threshold, setThresholdLocal] = useState(0.75);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const v = await getExportConfidenceThreshold().catch(() => 0.75);
+      if (!cancelled) setThresholdLocal(v);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return (
+    <Section
+      title="Markdown export"
+      subtitle="When a project has an export folder configured, items routed to it are auto-saved as markdown files for use with external AI tools. Configure the folder per project in Settings → Projects."
+    >
+      <div className="flex flex-col gap-3">
+        <p className="text-xs text-muted">
+          Items export when the classifier's confidence reaches{" "}
+          <span className="font-mono">{Math.round(threshold * 100)}%</span> or
+          higher. Meetings always export when a project has a folder set.
+        </p>
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="text-muted">
+            Confidence threshold: {Math.round(threshold * 100)}%
+          </span>
+          <input
+            type="range"
+            min={0.5}
+            max={0.95}
+            step={0.05}
+            value={threshold}
+            onChange={(e) => setThresholdLocal(Number(e.target.value))}
+            onMouseUp={async (e) => {
+              const next = Number((e.target as HTMLInputElement).value);
+              try {
+                await setExportConfidenceThreshold(next);
+              } catch {
+                getExportConfidenceThreshold()
+                  .then(setThresholdLocal)
+                  .catch(() => {});
+              }
+            }}
+            onTouchEnd={async (e) => {
+              const next = Number((e.target as HTMLInputElement).value);
+              try {
+                await setExportConfidenceThreshold(next);
+              } catch {
+                getExportConfidenceThreshold()
+                  .then(setThresholdLocal)
+                  .catch(() => {});
+              }
+            }}
+            className="w-full"
+          />
+        </label>
+      </div>
+    </Section>
   );
 }
 
@@ -902,6 +972,13 @@ function GeneralTab() {
       </Section>
 
       <Section
+        title="Voice Format Templates"
+        subtitle='Say "echo, format as email …" (or use the Action hotkey) to rewrite your dictation with a custom system prompt before it gets pasted.'
+      >
+        <FormatTemplatesSection />
+      </Section>
+
+      <Section
         title="Daily recap"
         subtitle="A morning notification that summarizes yesterday's meetings, notes, and dictations."
       >
@@ -1314,6 +1391,212 @@ function AppLauncherSettingsSection() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function FormatTemplatesSection() {
+  const [templates, setTemplates] = useState<FormatTemplate[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const toasts = useToasts();
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const list = await getFormatTemplates();
+        if (!cancelled) setTemplates(list);
+      } catch (e) {
+        console.error("Failed to load format templates:", e);
+        if (!cancelled) setTemplates([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const persist = async (next: FormatTemplate[]) => {
+    setBusy(true);
+    try {
+      await setFormatTemplates(next);
+      setTemplates(next);
+      toasts.push({ tone: "success", message: "Format templates saved" });
+    } catch (e) {
+      toasts.push({
+        tone: "error",
+        message: `Couldn't save templates: ${e instanceof Error ? e.message : String(e)}`,
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const updateOne = (id: string, patch: Partial<FormatTemplate>) => {
+    if (!templates) return;
+    setTemplates(templates.map((t) => (t.id === id ? { ...t, ...patch } : t)));
+  };
+
+  const slugify = (s: string) =>
+    s
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "")
+      .slice(0, 32) || `tpl_${Date.now().toString(36)}`;
+
+  const addNew = () => {
+    if (!templates) return;
+    let base = "new_template";
+    let id = base;
+    let n = 1;
+    const taken = new Set(templates.map((t) => t.id));
+    while (taken.has(id)) {
+      id = `${base}_${n++}`;
+    }
+    const next: FormatTemplate[] = [
+      ...templates,
+      {
+        id,
+        name: "New template",
+        trigger_phrases: ["format as new"],
+        system_prompt:
+          "Rewrite the user's raw dictation in the desired style. Output ONLY the rewritten text.",
+      },
+    ];
+    setTemplates(next);
+  };
+
+  const removeOne = async (id: string) => {
+    if (!templates) return;
+    const ok = await ask("Delete this format template? This cannot be undone.", {
+      title: "Delete template",
+      kind: "warning",
+    });
+    if (!ok) return;
+    const next = templates.filter((t) => t.id !== id);
+    await persist(next);
+  };
+
+  const renameId = (oldId: string, newName: string) => {
+    if (!templates) return;
+    const newId = slugify(newName);
+    if (newId === oldId || templates.some((t) => t.id === newId)) {
+      // keep id stable if collision or unchanged; just update name
+      updateOne(oldId, { name: newName });
+      return;
+    }
+    setTemplates(
+      templates.map((t) =>
+        t.id === oldId ? { ...t, id: newId, name: newName } : t,
+      ),
+    );
+  };
+
+  if (templates === null) {
+    return <div className="text-xs text-muted">Loading templates…</div>;
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="rounded-lg border border-line/50 bg-surface-2/40 p-3">
+        <p className="text-[11px] text-muted leading-snug">
+          When your dictation starts with one of a template's trigger phrases
+          (e.g. <span className="font-mono text-fg">"echo, format as email …"</span>),
+          the rest of the sentence is rewritten through the template's system
+          prompt before it's pasted at your cursor. Works with both the "echo"
+          prefix and the dedicated Action hotkey.
+        </p>
+      </div>
+
+      {templates.length === 0 && (
+        <div className="text-xs text-muted italic">
+          No templates yet. Add one to enable voice formatting.
+        </div>
+      )}
+
+      <div className="flex flex-col gap-3">
+        {templates.map((t) => (
+          <div
+            key={t.id}
+            className="rounded-lg border border-line bg-canvas p-3 flex flex-col gap-2.5"
+          >
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={t.name}
+                onChange={(e) => renameId(t.id, e.target.value)}
+                className="flex-1 bg-surface border border-line rounded-md px-2.5 py-1 text-sm font-semibold text-fg focus:outline-none focus:border-accent"
+                placeholder="Template name"
+              />
+              <span className="font-mono text-[10px] text-muted px-1.5 py-0.5 rounded bg-surface-2 border border-line">
+                id: {t.id}
+              </span>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void removeOne(t.id)}
+                className="rounded-md border border-line bg-surface px-2.5 py-1 text-xs font-medium text-fg hover:bg-elevated hover:text-red-400 transition-colors disabled:opacity-50"
+              >
+                Delete
+              </button>
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <label className="text-[11px] font-medium text-muted">
+                Trigger phrases (comma-separated)
+              </label>
+              <input
+                type="text"
+                value={t.trigger_phrases.join(", ")}
+                onChange={(e) =>
+                  updateOne(t.id, {
+                    trigger_phrases: e.target.value
+                      .split(",")
+                      .map((p) => p.trim())
+                      .filter((p) => p.length > 0),
+                  })
+                }
+                className="bg-surface border border-line rounded-md px-2.5 py-1 text-xs text-fg focus:outline-none focus:border-accent"
+                placeholder="format as email, make this an email"
+              />
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <label className="text-[11px] font-medium text-muted">
+                System prompt
+              </label>
+              <textarea
+                value={t.system_prompt}
+                onChange={(e) =>
+                  updateOne(t.id, { system_prompt: e.target.value })
+                }
+                rows={6}
+                className="bg-surface border border-line rounded-md px-2.5 py-1.5 text-xs text-fg leading-relaxed focus:outline-none focus:border-accent font-mono resize-y"
+                placeholder="Describe how the model should rewrite the dictation. Be specific about tone, length, and what to omit."
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={addNew}
+          className="rounded-md border border-line bg-surface px-3 py-1.5 text-xs font-medium text-fg hover:bg-elevated hover:text-accent transition-colors disabled:opacity-50"
+        >
+          + Add template
+        </button>
+        <button
+          type="button"
+          disabled={busy || templates === null}
+          onClick={() => void persist(templates)}
+          className="rounded-md border border-accent/40 bg-accent/15 px-3 py-1.5 text-xs font-semibold text-accent hover:bg-accent/25 transition-colors disabled:opacity-50"
+        >
+          Save changes
+        </button>
+      </div>
     </div>
   );
 }
