@@ -1,7 +1,8 @@
 import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronRight, Search as SearchIcon, X } from "lucide-react";
+import { ChevronRight, Download, Search as SearchIcon, X } from "lucide-react";
 import {
+  exportActivity,
   getDailySummary,
   getDashboardStats,
   listItems,
@@ -15,9 +16,11 @@ import {
   type Project,
   type RecordingRow,
 } from "../../lib/api";
+import { useToasts } from "../../components/ToastProvider";
 import ItemCard from "../../components/ItemCard";
 import RecordingCard from "../../components/RecordingCard";
 import { mergeFeed, recordingMatches, type FeedEntry } from "../../lib/feed";
+import { compactNumber } from "../../lib/format";
 import { useActivityPanel } from "../../components/ActivityPanelContext";
 import { SkeletonList } from "./ActivityFeed";
 import TasksView from "./TasksView";
@@ -57,6 +60,40 @@ function formatSaved(count: number): string {
   return `${(secs / 3600).toFixed(1)}h`;
 }
 
+type ExportRangeKey = "day" | "today" | "week" | "month" | "all";
+
+const EXPORT_RANGES: { key: ExportRangeKey; label: string }[] = [
+  { key: "day", label: "Past 24 hours" },
+  { key: "today", label: "Today" },
+  { key: "week", label: "Past 7 days" },
+  { key: "month", label: "Past 30 days" },
+  { key: "all", label: "All time" },
+];
+
+/** ISO-8601 UTC lower bound for an export range; null = no bound. Seconds
+ *  precision to match the backend's captured_at format. */
+function exportSince(key: ExportRangeKey): string | null {
+  const now = new Date();
+  let start: Date;
+  switch (key) {
+    case "today":
+      start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      break;
+    case "day":
+      start = new Date(now.getTime() - 24 * 3600_000);
+      break;
+    case "week":
+      start = new Date(now.getTime() - 7 * 24 * 3600_000);
+      break;
+    case "month":
+      start = new Date(now.getTime() - 30 * 24 * 3600_000);
+      break;
+    case "all":
+      return null;
+  }
+  return start.toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+
 const EMPTY_LABELS: Record<Exclude<KindFilter, "all" | "task">, string> = {
   transcription: "No transcriptions yet.",
   note: "No notes yet.",
@@ -86,6 +123,11 @@ export default function DashboardView({ projects }: Props) {
   const [searchResults, setSearchResults] = useState<Item[]>([]);
   const [searching, setSearching] = useState(false);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportRange, setExportRange] = useState<ExportRangeKey>("day");
+  const [exporting, setExporting] = useState(false);
+  const { push: pushToast } = useToasts();
 
   const { refreshTick } = useActivityPanel();
   const yesterday = useMemo(() => yesterdayLocalIso(), []);
@@ -242,6 +284,31 @@ export default function DashboardView({ projects }: Props) {
       <RecordingCard key={e.key} rec={e.rec} />
     );
 
+  const runExport = async (format: "markdown" | "csv") => {
+    setExporting(true);
+    try {
+      const range = EXPORT_RANGES.find((r) => r.key === exportRange) ?? EXPORT_RANGES[0];
+      const res = await exportActivity({
+        since: exportSince(exportRange),
+        format,
+        rangeLabel: range.label,
+      });
+      pushToast({
+        tone: "success",
+        message: `Exported ${res.count} item${res.count === 1 ? "" : "s"} to Downloads.`,
+      });
+      setExportOpen(false);
+    } catch (e) {
+      // Backend already returns a friendly message and logs the detail.
+      pushToast({
+        tone: "error",
+        message: e instanceof Error ? e.message : String(e),
+      });
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const openSearch = () => {
     setSearchOpen(true);
     setTimeout(() => searchInputRef.current?.focus(), 0);
@@ -328,16 +395,76 @@ export default function DashboardView({ projects }: Props) {
             );
           })}
         </div>
-        {!searchOpen ? (
-          <button
-            type="button"
-            onClick={openSearch}
-            aria-label="Search"
-            className="rounded-md border border-line bg-surface p-1.5 text-muted hover:bg-elevated hover:text-fg"
-          >
-            <SearchIcon size={14} />
-          </button>
-        ) : null}
+        <div className="flex items-center gap-1.5">
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setExportOpen((o) => !o)}
+              aria-label="Export activity"
+              title="Export activity"
+              className="rounded-md border border-line bg-surface p-1.5 text-muted hover:bg-elevated hover:text-fg"
+            >
+              <Download size={14} />
+            </button>
+            {exportOpen ? (
+              <>
+                <div
+                  className="fixed inset-0 z-10"
+                  onClick={() => setExportOpen(false)}
+                />
+                <div className="absolute right-0 top-full z-20 mt-1.5 w-56 rounded-lg border border-line bg-canvas p-3 shadow-xl">
+                  <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.08em] text-muted">
+                    Export activity
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    {EXPORT_RANGES.map((r) => (
+                      <button
+                        key={r.key}
+                        type="button"
+                        onClick={() => setExportRange(r.key)}
+                        className={`rounded px-2 py-1 text-left text-xs transition-colors ${
+                          exportRange === r.key
+                            ? "bg-fg text-canvas"
+                            : "text-muted hover:bg-elevated hover:text-fg"
+                        }`}
+                      >
+                        {r.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="mt-3 flex gap-1.5">
+                    <button
+                      type="button"
+                      disabled={exporting}
+                      onClick={() => void runExport("markdown")}
+                      className="flex-1 rounded border border-line bg-surface px-2 py-1 text-xs hover:bg-elevated disabled:opacity-50"
+                    >
+                      {exporting ? "Exporting…" : "Markdown"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={exporting}
+                      onClick={() => void runExport("csv")}
+                      className="flex-1 rounded border border-line bg-surface px-2 py-1 text-xs hover:bg-elevated disabled:opacity-50"
+                    >
+                      {exporting ? "Exporting…" : "CSV"}
+                    </button>
+                  </div>
+                </div>
+              </>
+            ) : null}
+          </div>
+          {!searchOpen ? (
+            <button
+              type="button"
+              onClick={openSearch}
+              aria-label="Search"
+              className="rounded-md border border-line bg-surface p-1.5 text-muted hover:bg-elevated hover:text-fg"
+            >
+              <SearchIcon size={14} />
+            </button>
+          ) : null}
+        </div>
       </div>
 
       {isTasks ? (
@@ -398,12 +525,12 @@ export default function DashboardView({ projects }: Props) {
 function StatStrip({ stats }: { stats: DashboardStats }) {
   return (
     <div className="flex flex-wrap items-stretch gap-x-8 gap-y-3 rounded-xl border border-line bg-surface px-6 py-5">
-      <Stat label="Today" value={stats.today.transcriptions} sub={`${stats.today.words.toLocaleString()} words`} />
-      <Stat label="Week" value={stats.week.transcriptions} sub={`${stats.week.words.toLocaleString()} words`} />
+      <Stat label="Today" value={compactNumber(stats.today.transcriptions)} sub={`${compactNumber(stats.today.words)} words`} />
+      <Stat label="Week" value={compactNumber(stats.week.transcriptions)} sub={`${compactNumber(stats.week.words)} words`} />
       <Stat
         label="All time"
-        value={stats.all_time.transcriptions.toLocaleString()}
-        sub={`${stats.all_time.words.toLocaleString()} words`}
+        value={compactNumber(stats.all_time.transcriptions)}
+        sub={`${compactNumber(stats.all_time.words)} words`}
       />
       <Divider />
       <Stat

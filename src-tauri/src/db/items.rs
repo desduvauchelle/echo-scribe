@@ -186,6 +186,32 @@ pub fn list_items(
     Ok(out)
 }
 
+/// All non-deleted items captured at or after `since` (ISO-8601 UTC string;
+/// lexicographic compare is chronological). `None` = no lower bound (all time).
+/// Oldest-first so exports read chronologically.
+pub fn list_items_since(conn: &Connection, since: Option<&str>) -> Result<Vec<Item>, DbError> {
+    let mut sql = String::from(
+        "SELECT id, content, source, kind, project_id, captured_at, created_at,
+                deleted_at, confidence, classified_by, capture_context
+         FROM items WHERE deleted_at IS NULL",
+    );
+    let mut args: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+    if let Some(s) = since {
+        sql.push_str(" AND captured_at >= ?");
+        args.push(Box::new(s.to_string()));
+    }
+    sql.push_str(" ORDER BY captured_at ASC");
+
+    let mut stmt = conn.prepare(&sql)?;
+    let params_refs: Vec<&dyn rusqlite::ToSql> = args.iter().map(|b| b.as_ref()).collect();
+    let rows = stmt.query_map(params_refs.as_slice(), row_to_item)?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r?);
+    }
+    Ok(out)
+}
+
 pub fn soft_delete_item(conn: &Connection, id: &str) -> Result<(), DbError> {
     let now = chrono_now_iso();
     conn.execute(
@@ -410,6 +436,25 @@ mod tests {
         // meeting filter = kind='meeting' OR source='meeting' (meeting + its task).
         assert_eq!(sorted_ids("meeting"), vec!["m1", "m2"]);
         assert_eq!(list_items(&conn, None, Some("transcription"), 50, 0).unwrap().len(), 5);
+    }
+
+    #[test]
+    fn list_items_since_filters_and_orders_oldest_first() {
+        let conn = fresh_db();
+        insert_item(&conn, &make_item("old", "x", "2026-04-01T00:00:00Z")).unwrap();
+        insert_item(&conn, &make_item("mid", "y", "2026-05-15T00:00:00Z")).unwrap();
+        insert_item(&conn, &make_item("new", "z", "2026-06-01T00:00:00Z")).unwrap();
+        soft_delete_item(&conn, "mid").unwrap();
+
+        // No bound: everything non-deleted, oldest first.
+        let all = list_items_since(&conn, None).unwrap();
+        let ids: Vec<&str> = all.iter().map(|i| i.id.as_str()).collect();
+        assert_eq!(ids, vec!["old", "new"]);
+
+        // Bounded: inclusive lower bound.
+        let recent = list_items_since(&conn, Some("2026-06-01T00:00:00Z")).unwrap();
+        assert_eq!(recent.len(), 1);
+        assert_eq!(recent[0].id, "new");
     }
 
     #[test]

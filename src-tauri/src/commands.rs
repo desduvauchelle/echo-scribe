@@ -729,6 +729,137 @@ pub fn count_items(state: State<'_, AppState>) -> Result<u32, String> {
         .map_err(|e| e.to_string())
 }
 
+#[derive(Serialize)]
+pub struct ActivityExportOutcome {
+    pub path: String,
+    pub count: u32,
+}
+
+const EXPORT_FRIENDLY_ERR: &str =
+    "Export failed. See Settings → Diagnostics → logs for details.";
+
+/// Export all activity (transcriptions, notes, tasks, meetings) captured at or
+/// after `since` (ISO-8601 UTC; `None` = all time) as one Markdown or CSV file
+/// in the user's Downloads folder, then reveal it in Finder.
+#[tauri::command]
+pub fn export_activity(
+    state: State<'_, AppState>,
+    app: AppHandle,
+    since: Option<String>,
+    format: String,
+    range_label: Option<String>,
+) -> Result<ActivityExportOutcome, String> {
+    use crate::export::activity::{render_csv, render_markdown, ActivityEntry};
+    use std::collections::HashMap;
+
+    let ext = match format.as_str() {
+        "markdown" => "md",
+        "csv" => "csv",
+        other => {
+            error!(target: "export", format = %other, "export_activity: unknown format");
+            return Err(EXPORT_FRIENDLY_ERR.into());
+        }
+    };
+
+    let db = require_db(&state)?;
+    let items = db
+        .with_conn(|c| db::items::list_items_since(c, since.as_deref()))
+        .map_err(|e| {
+            error!(target: "export", error = %e, "export_activity: item query failed");
+            EXPORT_FRIENDLY_ERR.to_string()
+        })?;
+
+    // Resolve project names once per unique id.
+    let mut project_names: HashMap<String, String> = HashMap::new();
+    for item in &items {
+        let Some(pid) = item.project_id.as_deref() else {
+            continue;
+        };
+        if project_names.contains_key(pid) {
+            continue;
+        }
+        let name = db
+            .with_conn(|c| db::projects::get_project(c, pid))
+            .ok()
+            .flatten()
+            .map(|p| p.name);
+        if let Some(name) = name {
+            project_names.insert(pid.to_string(), name);
+        }
+    }
+
+    let mut entries = Vec::with_capacity(items.len());
+    for item in items {
+        // Meeting record = source 'meeting' with no parsed kind (the kind
+        // column stores 'meeting'); meeting-derived tasks keep kind = task.
+        let meeting = if matches!(item.source, db::items::ItemSource::Meeting)
+            && item.kind.is_none()
+        {
+            let id = item.id.clone();
+            db.with_conn(move |c| db::meetings::get_meeting(c, &id))
+                .ok()
+                .flatten()
+        } else {
+            None
+        };
+        let project_name = item
+            .project_id
+            .as_deref()
+            .and_then(|pid| project_names.get(pid).cloned());
+        entries.push(ActivityEntry {
+            item,
+            project_name,
+            meeting,
+        });
+    }
+
+    let now = chrono_now_iso();
+    let label = range_label.unwrap_or_else(|| "All time".to_string());
+    let body = match ext {
+        "csv" => render_csv(&entries),
+        _ => render_markdown(&entries, &label, &now),
+    };
+
+    let dir = app.path().download_dir().map_err(|e| {
+        error!(target: "export", error = %e, "export_activity: no Downloads dir");
+        EXPORT_FRIENDLY_ERR.to_string()
+    })?;
+    // "2026-06-11T18:04:21Z" → "2026-06-11-1804"
+    let stamp = format!(
+        "{}-{}{}",
+        now.get(0..10).unwrap_or("0000-00-00"),
+        now.get(11..13).unwrap_or("00"),
+        now.get(14..16).unwrap_or("00"),
+    );
+    let path = dir.join(format!("echo-scribe-activity-{stamp}.{ext}"));
+    std::fs::write(&path, &body).map_err(|e| {
+        error!(
+            target: "export",
+            path = %path.display(),
+            error = %e,
+            "export_activity: write failed"
+        );
+        EXPORT_FRIENDLY_ERR.to_string()
+    })?;
+
+    info!(
+        target: "export",
+        path = %path.display(),
+        count = entries.len(),
+        format = %format,
+        since = since.as_deref().unwrap_or("(all time)"),
+        "exported activity"
+    );
+
+    // Best-effort reveal in Finder; the export itself already succeeded.
+    let _ = std::process::Command::new("open").arg("-R").arg(&path).spawn();
+
+    Ok(ActivityExportOutcome {
+        path: path.to_string_lossy().into_owned(),
+        count: entries.len() as u32,
+    })
+}
+
 // ----- Project commands -----
 
 #[tauri::command]

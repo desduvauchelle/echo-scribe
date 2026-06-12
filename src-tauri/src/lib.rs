@@ -56,7 +56,7 @@ use crate::commands::{
     update_log_capture_binding, update_voice_at_cursor_binding, get_auto_file_enabled,
     set_auto_file_enabled, get_auto_file_threshold, set_auto_file_threshold,
     get_export_confidence_threshold, set_export_confidence_threshold,
-    pick_export_folder, export_project_backfill,
+    pick_export_folder, export_project_backfill, export_activity,
     list_item_events, list_sessions_for_item, list_claude_sessions, load_claude_session,
     get_dashboard_stats,
     get_app_launcher_enabled,
@@ -216,6 +216,7 @@ pub fn run() {
             search_items,
             delete_item,
             count_items,
+            export_activity,
             list_llm_models,
             download_llm_model,
             get_active_llm_model_id,
@@ -441,6 +442,44 @@ pub fn run() {
                 let asr = Arc::clone(&asr);
                 tauri::async_runtime::spawn(async move {
                     asr.spawn_unloader();
+                });
+            }
+            // Periodic memory sampler. Logs current RSS + per-engine
+            // loaded/idle state every 30 s so we can see, from the log,
+            // whether high resident memory is (a) a still-loaded model,
+            // (b) the allocator not returning pages after unload, or (c)
+            // something else entirely. Target `mem` so it's grep-friendly:
+            // `grep '\[mem\]' echo-scribe.log`.
+            {
+                let llm_sampler = Arc::clone(&llm);
+                let asr_sampler = Arc::clone(&asr);
+                tauri::async_runtime::spawn(async move {
+                    use std::time::Duration;
+                    let mut interval =
+                        tokio::time::interval(Duration::from_secs(30));
+                    interval.tick().await; // skip the immediate tick; log a startup baseline first
+                    info!(
+                        target: "mem",
+                        rss_mib = crate::util::rss::current_rss_mib(),
+                        peak_mib = crate::util::rss::max_rss_bytes() / (1024 * 1024),
+                        "[mem] startup baseline"
+                    );
+                    loop {
+                        interval.tick().await;
+                        let rss_mib = crate::util::rss::current_rss_mib();
+                        let peak_mib =
+                            crate::util::rss::max_rss_bytes() / (1024 * 1024);
+                        info!(
+                            target: "mem",
+                            rss_mib,
+                            peak_mib,
+                            asr_loaded = asr_sampler.is_loaded(),
+                            llm_loaded = llm_sampler.is_loaded(),
+                            asr_idle_s = asr_sampler.idle_for().as_secs(),
+                            llm_idle_s = llm_sampler.idle_for().as_secs(),
+                            "[mem] sample"
+                        );
+                    }
                 });
             }
 

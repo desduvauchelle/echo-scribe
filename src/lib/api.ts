@@ -262,6 +262,22 @@ export const searchItems = (
 export const deleteItem = (id: string): Promise<void> =>
   invoke("delete_item", { id });
 
+export type ActivityExportOutcome = { path: string; count: number };
+
+/** Export all activity (transcriptions, notes, tasks, meetings) captured at or
+ *  after `since` (ISO-8601 UTC; null = all time) to a Markdown or CSV file in
+ *  ~/Downloads. The backend reveals the file in Finder on success. */
+export const exportActivity = (args: {
+  since: string | null;
+  format: "markdown" | "csv";
+  rangeLabel: string;
+}): Promise<ActivityExportOutcome> =>
+  invoke("export_activity", {
+    since: args.since,
+    format: args.format,
+    rangeLabel: args.rangeLabel,
+  });
+
 export const restoreItem = (id: string): Promise<void> =>
   invoke("restore_item", { id });
 

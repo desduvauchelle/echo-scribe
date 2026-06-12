@@ -15,6 +15,8 @@
 //! (`notes/`, `tasks/`, `transcriptions/`, `meetings/`). Filename is derived
 //! from `id` for stability across edits: same id → same filename → overwrite.
 
+pub mod activity;
+
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
