@@ -48,6 +48,28 @@ export function shortDate(iso: string, nowMs = Date.now()): string {
   return d.toLocaleDateString(undefined, opts);
 }
 
+/** Compact number: 1234 → "1.2K", 1_500_000 → "1.5M", 2_000_000_000 → "2B".
+ *  Values < 1000 render as-is. Trailing ".0" is stripped (1000 → "1K"). */
+export function compactNumber(n: number): string {
+  if (!Number.isFinite(n)) return String(n);
+  const abs = Math.abs(n);
+  const sign = n < 0 ? "-" : "";
+  const tiers: Array<[number, string]> = [
+    [1e12, "T"],
+    [1e9, "B"],
+    [1e6, "M"],
+    [1e3, "K"],
+  ];
+  for (const [base, suffix] of tiers) {
+    if (abs >= base) {
+      const v = abs / base;
+      const s = v >= 100 ? v.toFixed(0) : v >= 10 ? v.toFixed(1) : v.toFixed(1);
+      return `${sign}${s.replace(/\.0$/, "")}${suffix}`;
+    }
+  }
+  return `${sign}${abs}`;
+}
+
 /** Convert an ISO timestamp to the value format used by an
  *  <input type="date"> control. Returns "" if invalid. */
 export function isoToDateInput(iso: string | null | undefined): string {

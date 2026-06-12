@@ -21,6 +21,7 @@ use super::downloader::{is_downloaded, model_dir};
 use super::parakeet::{EngineError, ParakeetEngine};
 use super::registry::ModelEntry;
 use crate::audio::resample::resample_to_16k_mono;
+use crate::util::rss::current_rss_mib;
 
 #[derive(Debug, Error)]
 pub enum AsrError {
@@ -116,9 +117,42 @@ impl AsrPipeline {
         }
         if let Ok(mut guard) = self.engine.lock() {
             if guard.is_some() {
-                info!(idle_secs = idle_for.as_secs(), "unloading idle ASR engine to free memory");
+                let rss_before_mib = current_rss_mib();
+                info!(
+                    target: "mem",
+                    idle_secs = idle_for.as_secs(),
+                    rss_mib_before = rss_before_mib,
+                    "[mem] unloading idle ASR engine"
+                );
                 *guard = None;
+                drop(guard);
+                let rss_after_mib = current_rss_mib();
+                info!(
+                    target: "mem",
+                    rss_mib_after = rss_after_mib,
+                    freed_mib = rss_before_mib.saturating_sub(rss_after_mib),
+                    "[mem] ASR engine dropped"
+                );
             }
+        }
+    }
+
+    /// True if the ONNX engine is currently resident in memory. Best-effort —
+    /// returns false if the engine slot is contended (a load or unload is in
+    /// flight). Used by the memory sampler to log loaded/unloaded state.
+    pub fn is_loaded(&self) -> bool {
+        match self.engine.try_lock() {
+            Ok(g) => g.is_some(),
+            Err(_) => false,
+        }
+    }
+
+    /// Seconds since the last successful transcription. Used by the memory
+    /// sampler to correlate RSS with idleness. Returns 0 on lock contention.
+    pub fn idle_for(&self) -> Duration {
+        match self.last_used.lock() {
+            Ok(g) => g.elapsed(),
+            Err(_) => Duration::ZERO,
         }
     }
 
@@ -182,9 +216,24 @@ impl AsrPipeline {
                 Err(_) => return,
             };
             if guard.is_none() {
-                info!(path = %model_path.display(), "pre-loading Parakeet engine (optimistic warm-up)");
+                let rss_before_mib = current_rss_mib();
+                info!(
+                    target: "mem",
+                    path = %model_path.display(),
+                    rss_mib_before = rss_before_mib,
+                    "[mem] pre-loading Parakeet engine (optimistic warm-up)"
+                );
                 match ParakeetEngine::load(&model_path) {
-                    Ok(eng) => *guard = Some(eng),
+                    Ok(eng) => {
+                        *guard = Some(eng);
+                        let rss_after_mib = current_rss_mib();
+                        info!(
+                            target: "mem",
+                            rss_mib_after = rss_after_mib,
+                            load_mib = rss_after_mib.saturating_sub(rss_before_mib),
+                            "[mem] Parakeet engine loaded (warm-up)"
+                        );
+                    }
                     Err(e) => warn!(error = ?e, "warm-up load failed; will retry on transcribe"),
                 }
             }
@@ -247,9 +296,22 @@ impl AsrPipeline {
         let text = tokio::task::spawn_blocking(move || -> Result<String, AsrError> {
             let mut guard = engine_slot.lock().map_err(|_| AsrError::Join)?;
             if guard.is_none() {
-                info!(path = %model_path.display(), "lazy-loading Parakeet engine");
+                let rss_before_mib = current_rss_mib();
+                info!(
+                    target: "mem",
+                    path = %model_path.display(),
+                    rss_mib_before = rss_before_mib,
+                    "[mem] lazy-loading Parakeet engine"
+                );
                 let eng = ParakeetEngine::load(&model_path)?;
                 *guard = Some(eng);
+                let rss_after_mib = current_rss_mib();
+                info!(
+                    target: "mem",
+                    rss_mib_after = rss_after_mib,
+                    load_mib = rss_after_mib.saturating_sub(rss_before_mib),
+                    "[mem] Parakeet engine loaded (lazy)"
+                );
             }
             let eng = guard.as_mut().expect("engine just loaded");
             let text = eng.transcribe(&resampled)?;

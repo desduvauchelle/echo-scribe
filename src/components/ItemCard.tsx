@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { CheckSquare, Mic, StickyNote } from "lucide-react";
+import { Check, CheckSquare, Copy, Mic, StickyNote } from "lucide-react";
 import type { Item, Project } from "../lib/api";
 import { listTagsForItem } from "../lib/api";
 import { relativeTime } from "../lib/format";
@@ -126,14 +126,35 @@ export default function ItemCard({
           ))}
         </div>
       </div>
-      {rightSlot ? (
-        <div
-          className="flex shrink-0 flex-col items-end gap-1"
-          onClick={(e) => e.stopPropagation()}
-        >
-          {rightSlot}
-        </div>
-      ) : null}
+      <div
+        className="flex shrink-0 flex-col items-end gap-1"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {isVoice ? <CopyContentButton value={item.content} /> : null}
+        {rightSlot}
+      </div>
+    </button>
+  );
+}
+
+function CopyContentButton({ value }: { value: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      aria-label="Copy transcription"
+      title="Copy transcription"
+      onClick={(e) => {
+        e.stopPropagation();
+        void navigator.clipboard.writeText(value);
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1200);
+      }}
+      className={`grid h-7 w-7 place-items-center rounded-md border opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100 hover:bg-elevated ${
+        copied ? "border-green-500/40 text-green-500 opacity-100" : "border-line text-muted"
+      }`}
+    >
+      {copied ? <Check size={13} /> : <Copy size={13} />}
     </button>
   );
 }

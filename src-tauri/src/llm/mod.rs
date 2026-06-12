@@ -35,6 +35,8 @@ pub use downloader::{
 pub use engine::{EngineError, GenerateRequest, LlmEngine};
 pub use registry::{LlmModelEntry, LlmModelFile};
 
+use crate::util::rss::current_rss_mib;
+
 /// Abstraction for one-shot LLM generation. Implemented by [`Llm`] for the
 /// production path; mocked in classifier tests so we don't need a real model
 /// loaded to exercise validation/parsing.
@@ -142,10 +144,42 @@ impl Llm {
         }
         let mut guard = self.engine.lock().await;
         if guard.is_some() {
-            info!(idle_secs = idle_for.as_secs(), "unloading idle llm engine");
+            let rss_before_mib = current_rss_mib();
+            info!(
+                target: "mem",
+                idle_secs = idle_for.as_secs(),
+                rss_mib_before = rss_before_mib,
+                "[mem] unloading idle llm engine"
+            );
             *guard = None;
+            drop(guard);
+            let rss_after_mib = current_rss_mib();
+            info!(
+                target: "mem",
+                rss_mib_after = rss_after_mib,
+                freed_mib = rss_before_mib.saturating_sub(rss_after_mib),
+                "[mem] llm engine dropped"
+            );
         }
         Ok(())
+    }
+
+    /// True if the GGUF engine is currently resident in memory. Best-effort:
+    /// returns false on lock contention (load or generation in flight).
+    pub fn is_loaded(&self) -> bool {
+        match self.engine.try_lock() {
+            Ok(g) => g.is_some(),
+            Err(_) => false,
+        }
+    }
+
+    /// Seconds since the last completed generation. Returns 0 on lock
+    /// contention. Pairs with [`is_loaded`] for the memory sampler.
+    pub fn idle_for(&self) -> Duration {
+        match self.last_used.lock() {
+            Ok(g) => g.elapsed(),
+            Err(_) => Duration::ZERO,
+        }
     }
 
     /// Activate `entry`. Drops any cached engine so the next `generate` call
@@ -208,9 +242,23 @@ impl Llm {
         let text = tokio::task::spawn_blocking(move || -> Result<String, LlmError> {
             let mut guard = engine_slot.blocking_lock();
             if guard.is_none() {
-                info!(path = %model_path.display(), n_ctx, "lazy-loading llama engine");
+                let rss_before_mib = current_rss_mib();
+                info!(
+                    target: "mem",
+                    path = %model_path.display(),
+                    n_ctx,
+                    rss_mib_before = rss_before_mib,
+                    "[mem] lazy-loading llama engine"
+                );
                 let eng = LlmEngine::load(&model_path, n_ctx)?;
                 *guard = Some(eng);
+                let rss_after_mib = current_rss_mib();
+                info!(
+                    target: "mem",
+                    rss_mib_after = rss_after_mib,
+                    load_mib = rss_after_mib.saturating_sub(rss_before_mib),
+                    "[mem] llama engine loaded"
+                );
             }
             let eng = guard.as_ref().expect("engine just loaded");
             let out = eng.generate(req)?;
