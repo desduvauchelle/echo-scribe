@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
+  deleteLlmModel,
   downloadLlmModel,
   listLlmModels,
   setActiveLlmModel,
@@ -22,6 +23,142 @@ function formatBytes(bytes: number): string {
 }
 
 type DownloadState = { bytes_downloaded: number; bytes_total: number };
+
+function TrashIcon() {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M3 6h18" />
+      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+      <path d="M10 11v6M14 11v6" />
+      <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+    </svg>
+  );
+}
+
+type CardProps = {
+  model: LlmModelStatus;
+  downloading: DownloadState | null;
+  downloadError: string | null;
+  busy: boolean;
+  onDownload: () => void;
+  onActivate: () => void;
+  onDelete: () => void;
+};
+
+function ModelCard({
+  model,
+  downloading,
+  downloadError,
+  busy,
+  onDownload,
+  onActivate,
+  onDelete,
+}: CardProps) {
+  const isDownloading = downloading !== null && !model.downloaded;
+  const disabled = !model.supported;
+  return (
+    <div
+      title={disabled ? "Not yet supported" : undefined}
+      className={`flex items-center justify-between gap-4 rounded-lg border border-line bg-surface p-4 ${
+        disabled ? "cursor-not-allowed opacity-50" : ""
+      }`}
+    >
+      <div className="min-w-0 flex-1">
+        <div className="text-sm">
+          <span className="font-semibold">{model.size_label}</span>
+          <span className="text-muted"> — {model.display_name}</span>
+        </div>
+        <div className="mt-0.5 text-xs text-muted">
+          {model.family} · {formatBytes(model.size_bytes)} · {model.context_length} ctx
+        </div>
+        {isDownloading && downloading ? (
+          <div className="mt-2">
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-elevated">
+              <div
+                className="h-full bg-fg transition-all"
+                style={{
+                  width: `${
+                    downloading.bytes_total > 0
+                      ? Math.min(
+                          100,
+                          Math.round(
+                            (downloading.bytes_downloaded /
+                              downloading.bytes_total) *
+                              100,
+                          ),
+                        )
+                      : 0
+                  }%`,
+                }}
+              />
+            </div>
+            <div className="mt-1 text-[11px] text-muted">
+              {formatBytes(downloading.bytes_downloaded)} /{" "}
+              {formatBytes(downloading.bytes_total)}
+            </div>
+          </div>
+        ) : null}
+        {downloadError && !isDownloading ? (
+          <p className="mt-2 text-xs text-danger">
+            Download failed: {downloadError}
+          </p>
+        ) : null}
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        {!model.supported ? (
+          <span className="inline-flex items-center rounded-full bg-elevated px-2 py-0.5 text-xs text-muted">
+            Unavailable
+          </span>
+        ) : isDownloading ? (
+          <span className="text-xs text-muted">Downloading…</span>
+        ) : model.downloaded && model.active ? (
+          <span className="inline-flex items-center rounded-full bg-success/15 px-2 py-0.5 text-xs text-success">
+            Active
+          </span>
+        ) : model.downloaded ? (
+          <>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={onDelete}
+              className="inline-flex items-center gap-1 text-xs text-muted transition-colors hover:text-danger disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <TrashIcon />
+              Delete
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={onActivate}
+              className="rounded border border-line px-3 py-1 text-xs hover:bg-elevated disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Use this model
+            </button>
+          </>
+        ) : (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onDownload}
+            className="rounded-md bg-accent px-3 py-1 text-xs font-semibold text-canvas hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Download
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export default function LlmModelPicker() {
   const [models, setModels] = useState<LlmModelStatus[]>([]);
@@ -146,101 +283,85 @@ export default function LlmModelPicker() {
     }
   };
 
+  const handleDelete = async (model: LlmModelStatus) => {
+    setBusyId(model.id);
+    try {
+      await deleteLlmModel(model.id);
+      await refresh();
+    } catch (e) {
+      setErrors((prev) => ({
+        ...prev,
+        [model.id]: e instanceof Error ? e.message : String(e),
+      }));
+    } finally {
+      setBusyId((cur) => (cur === model.id ? null : cur));
+    }
+  };
+
   if (loadError && models.length === 0) {
     return (
       <p className="text-xs text-warning">
-        Couldn’t load LLM models: {loadError}
+        Couldn't load LLM models: {loadError}
       </p>
     );
   }
 
+  const downloaded = models.filter((m) => m.downloaded);
+  const available = models.filter((m) => !m.downloaded);
+  const totalBytes = downloaded.reduce((sum, m) => sum + (m.size_bytes || 0), 0);
+
   return (
-    <div className="flex flex-col gap-3">
-      {models.map((model) => {
-        const dl = downloads[model.id];
-        const isDownloading = dl !== undefined && !model.downloaded;
-        const downloadErr = errors[model.id];
-        const disabled = !model.supported;
-        return (
-          <div
-            key={model.id}
-            title={disabled ? "Not yet supported" : undefined}
-            className={`flex items-center justify-between gap-4 rounded-lg border border-line bg-surface p-4 ${
-              disabled ? "cursor-not-allowed opacity-50" : ""
-            }`}
-          >
-            <div className="min-w-0 flex-1">
-              <div className="text-sm">
-                <span className="font-semibold">{model.size_label}</span>
-                <span className="text-muted"> — {model.display_name}</span>
-              </div>
-              <div className="mt-0.5 text-xs text-muted">
-                {model.family} · {formatBytes(model.size_bytes)} · {model.context_length} ctx
-              </div>
-              {isDownloading ? (
-                <div className="mt-2">
-                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-elevated">
-                    <div
-                      className="h-full bg-fg transition-all"
-                      style={{
-                        width: `${
-                          dl.bytes_total > 0
-                            ? Math.min(
-                                100,
-                                Math.round(
-                                  (dl.bytes_downloaded / dl.bytes_total) * 100,
-                                ),
-                              )
-                            : 0
-                        }%`,
-                      }}
-                    />
-                  </div>
-                  <div className="mt-1 text-[11px] text-muted">
-                    {formatBytes(dl.bytes_downloaded)} / {formatBytes(dl.bytes_total)}
-                  </div>
-                </div>
-              ) : null}
-              {downloadErr && !isDownloading ? (
-                <p className="mt-2 text-xs text-danger">
-                  Download failed: {downloadErr}
-                </p>
-              ) : null}
-            </div>
-            <div className="flex shrink-0 items-center">
-              {!model.supported ? (
-                <span className="inline-flex items-center rounded-full bg-elevated px-2 py-0.5 text-xs text-muted">
-                  Unavailable
-                </span>
-              ) : isDownloading ? (
-                <span className="text-xs text-muted">Downloading…</span>
-              ) : model.downloaded && model.active ? (
-                <span className="inline-flex items-center rounded-full bg-success/15 px-2 py-0.5 text-xs text-success">
-                  Active
-                </span>
-              ) : model.downloaded ? (
-                <button
-                  type="button"
-                  disabled={busyId === model.id}
-                  onClick={() => void handleActivate(model)}
-                  className="rounded border border-line px-3 py-1 text-xs hover:bg-elevated disabled:opacity-50"
-                >
-                  Use this model
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  disabled={busyId === model.id}
-                  onClick={() => void handleDownload(model)}
-                  className="rounded-md bg-accent px-3 py-1 text-xs font-semibold text-canvas hover:bg-accent-hover disabled:opacity-50"
-                >
-                  Download
-                </button>
-              )}
-            </div>
+    <div className="flex flex-col gap-5">
+      {downloaded.length > 0 ? (
+        <section className="space-y-2">
+          <div className="flex items-center justify-between">
+            <h4 className="text-xs font-medium uppercase tracking-[0.08em] text-muted">
+              Downloaded models
+            </h4>
+            {totalBytes > 0 ? (
+              <span className="text-[11px] text-muted">
+                {formatBytes(totalBytes)} on disk
+              </span>
+            ) : null}
           </div>
-        );
-      })}
+          <div className="flex flex-col gap-3">
+            {downloaded.map((model) => (
+              <ModelCard
+                key={model.id}
+                model={model}
+                downloading={downloads[model.id] ?? null}
+                downloadError={errors[model.id] ?? null}
+                busy={busyId === model.id}
+                onDownload={() => void handleDownload(model)}
+                onActivate={() => void handleActivate(model)}
+                onDelete={() => void handleDelete(model)}
+              />
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {available.length > 0 ? (
+        <section className="space-y-2">
+          <h4 className="text-xs font-medium uppercase tracking-[0.08em] text-muted">
+            Available to download
+          </h4>
+          <div className="flex flex-col gap-3">
+            {available.map((model) => (
+              <ModelCard
+                key={model.id}
+                model={model}
+                downloading={downloads[model.id] ?? null}
+                downloadError={errors[model.id] ?? null}
+                busy={busyId === model.id}
+                onDownload={() => void handleDownload(model)}
+                onActivate={() => void handleActivate(model)}
+                onDelete={() => void handleDelete(model)}
+              />
+            ))}
+          </div>
+        </section>
+      ) : null}
     </div>
   );
 }
