@@ -331,6 +331,58 @@ fn rand_seed() -> u32 {
 mod tests {
     use super::*;
 
+    /// Shared prompt for the MLX-vs-GGUF spike. Use the SAME text on the MLX
+    /// side (`mlx_lm.generate --prompt ...`) so prefill sizes match.
+    const BENCH_PROMPT: &str = "Write a detailed, multi-paragraph explanation \
+of how on-device speech-to-text systems work, covering audio capture, feature \
+extraction, acoustic modeling, and decoding. Aim for at least 400 words.";
+
+    /// GGUF decode-throughput baseline for the MLX-vs-llama.cpp spike.
+    /// Ignored by default (loads a multi-GB model). Run with:
+    ///   cargo test --release --lib llm::engine::tests::bench_gguf_gemma4_e2b -- --ignored --nocapture
+    /// The `llm generate timing` line prints n_prompt / n_decoded / prefill_ms / decode_tok_s.
+    #[test]
+    #[ignore]
+    fn bench_gguf_gemma4_e2b() {
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter("llm_bench=info")
+            .with_test_writer()
+            .try_init();
+
+        let entry = crate::llm::registry::lookup("gemma-4-e2b-it-q4_k_m")
+            .expect("gemma-4-e2b-it-q4_k_m must be in the registry");
+        if !crate::llm::is_downloaded(&entry) {
+            println!("gemma-4-e2b-it-q4_k_m not downloaded; skipping benchmark.");
+            return;
+        }
+        let model_path =
+            crate::llm::model_file_path(&entry).expect("model file path should exist");
+        let engine = LlmEngine::load(&model_path, 16384).expect("model should load");
+
+        // Warm-up so weight fault-in / Metal pipeline build doesn't skew timing.
+        let _ = engine.generate(GenerateRequest {
+            user: "Say hello.".to_string(),
+            max_tokens: 8,
+            n_ctx: Some(2048),
+            ..Default::default()
+        });
+
+        // Timed run: stops cleared so it generates the full 256-token budget.
+        let out = engine
+            .generate(GenerateRequest {
+                system: Some("You are a helpful writing assistant.".to_string()),
+                user: BENCH_PROMPT.to_string(),
+                history: Vec::new(),
+                max_tokens: 256,
+                temperature: 0.7,
+                stop_strings: Vec::new(),
+                grammar_gbnf: None,
+                n_ctx: Some(4096),
+            })
+            .expect("generation should succeed");
+        assert!(!out.is_empty(), "benchmark generation produced no output");
+    }
+
     // ── GenerateRequest::default ──────────────────────────────────────────
 
     #[test]
