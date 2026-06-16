@@ -91,3 +91,18 @@ export function dateInputToIso(value: string): string | null {
   if (Number.isNaN(d.getTime())) return null;
   return d.toISOString();
 }
+
+/** Human-readable byte size: 1536 → "1.5 KB", 3_400_000_000 → "3.2 GB".
+ *  Returns "" for non-positive values. */
+export function formatBytes(bytes: number): string {
+  if (bytes <= 0) return "";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let value = bytes;
+  let i = 0;
+  while (value >= 1024 && i < units.length - 1) {
+    value /= 1024;
+    i++;
+  }
+  const fixed = value >= 100 || i === 0 ? value.toFixed(0) : value.toFixed(1);
+  return `${fixed} ${units[i]}`;
+}
