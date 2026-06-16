@@ -21,6 +21,7 @@
 use std::num::NonZeroU32;
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Instant;
 
 use llama_cpp_2::context::params::{LlamaContextParams, KvCacheType};
 use llama_cpp_2::llama_backend::LlamaBackend;
@@ -138,6 +139,8 @@ impl LlmEngine {
             return Err(EngineError::Request("max_tokens must be > 0".into()));
         }
 
+        let t_start = Instant::now();
+
         // Gemma 4 uses <|turn> to open a turn and <turn|> to close it.
         // <turn|> is also registered as an EOG token so is_eog_token() catches
         // it mid-loop, but we also add both as stop strings as a text-level
@@ -231,6 +234,9 @@ impl LlmEngine {
         ctx.decode(&mut batch)
             .map_err(|e| EngineError::Decode(format!("prefill decode: {e}")))?;
 
+        let prefill_ms = t_start.elapsed().as_millis() as u64;
+        let t_decode_start = Instant::now();
+
         // Build sampler chain. Order matters — temperature applies last
         // before the dist sampler picks a token.
         let mut samplers = Vec::with_capacity(4);
@@ -288,6 +294,21 @@ impl LlmEngine {
             n_cur += 1;
             n_decoded += 1;
         }
+
+        let decode_secs = t_decode_start.elapsed().as_secs_f64();
+        let decode_tok_s = if decode_secs > 0.0 {
+            n_decoded as f64 / decode_secs
+        } else {
+            0.0
+        };
+        info!(
+            target: "llm_bench",
+            n_prompt,
+            n_decoded,
+            prefill_ms,
+            decode_tok_s,
+            "llm generate timing"
+        );
 
         Ok(strip_trailing_stops(&output, &req.stop_strings))
     }
