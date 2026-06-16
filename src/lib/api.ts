@@ -380,6 +380,8 @@ export type LlmModelStatus = {
   downloaded: boolean;
   active: boolean;
   supported: boolean;
+  disk_bytes: number;
+  incomplete: boolean;
 };
 
 export const listLlmModels = (): Promise<LlmModelStatus[]> =>

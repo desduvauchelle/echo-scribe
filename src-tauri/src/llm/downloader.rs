@@ -80,6 +80,32 @@ pub fn is_downloaded(entry: &LlmModelEntry) -> bool {
     entry.files.iter().all(|f| dir.join(&f.name).is_file())
 }
 
+/// Sum of the sizes of all regular files directly inside `dir`. Returns 0 if
+/// the directory is absent or unreadable.
+fn dir_bytes(dir: &Path) -> u64 {
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return 0;
+    };
+    rd.flatten()
+        .filter_map(|e| e.metadata().ok())
+        .filter(|m| m.is_file())
+        .map(|m| m.len())
+        .sum()
+}
+
+/// Bytes currently on disk in this model's directory — includes completed
+/// files AND any leftover `.partial` from an interrupted download.
+pub fn disk_bytes(entry: &LlmModelEntry) -> u64 {
+    dir_bytes(&model_dir(entry))
+}
+
+/// True when the model's directory holds bytes but the model is NOT fully
+/// downloaded — i.e. an interrupted/orphaned download (e.g. a stray
+/// `.partial`) occupying disk the user should be able to reclaim.
+pub fn has_incomplete_download(entry: &LlmModelEntry) -> bool {
+    !is_downloaded(entry) && disk_bytes(entry) > 0
+}
+
 pub async fn download_model<F>(
     entry: &LlmModelEntry,
     target_dir: &Path,
@@ -205,6 +231,18 @@ fn hex_lower(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dir_bytes_sums_files_and_is_zero_when_missing() {
+        let tmp = std::env::temp_dir().join("echoscribe_llm_dir_bytes_test");
+        let _ = std::fs::remove_dir_all(&tmp);
+        assert_eq!(dir_bytes(&tmp), 0, "missing dir reports 0 bytes");
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::fs::write(tmp.join("model.gguf.partial"), vec![0u8; 1000]).unwrap();
+        std::fs::write(tmp.join("notes.txt"), vec![0u8; 24]).unwrap();
+        assert_eq!(dir_bytes(&tmp), 1024, "sums all files including .partial");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
 
     #[test]
     fn storage_dir_is_under_data_dir() {

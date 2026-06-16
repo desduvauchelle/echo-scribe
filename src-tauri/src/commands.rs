@@ -1625,6 +1625,11 @@ pub struct LlmModelStatus {
     pub downloaded: bool,
     pub active: bool,
     pub supported: bool,
+    /// Bytes currently on disk for this model (includes any `.partial`).
+    pub disk_bytes: u64,
+    /// Dir has bytes on disk but the model isn't fully downloaded — an
+    /// interrupted/orphaned download the user can reclaim.
+    pub incomplete: bool,
 }
 
 fn llm_status_for(entry: &LlmModelEntry, active_id: Option<&str>) -> LlmModelStatus {
@@ -1638,6 +1643,8 @@ fn llm_status_for(entry: &LlmModelEntry, active_id: Option<&str>) -> LlmModelSta
         downloaded: llm::is_downloaded(entry),
         active: active_id.map(|a| a == entry.id).unwrap_or(false),
         supported: llm::registry::is_supported(entry),
+        disk_bytes: llm::disk_bytes(entry),
+        incomplete: llm::has_incomplete_download(entry),
     }
 }
 

@@ -29,8 +29,8 @@ use tokio::sync::{Mutex, RwLock};
 use tracing::{info, warn};
 
 pub use downloader::{
-    is_downloaded, model_dir, model_file_path, model_storage_dir, LlmDownloadError,
-    LlmDownloadProgress,
+    disk_bytes, has_incomplete_download, is_downloaded, model_dir, model_file_path,
+    model_storage_dir, LlmDownloadError, LlmDownloadProgress,
 };
 pub use engine::{EngineError, GenerateRequest, LlmEngine};
 pub use registry::{LlmModelEntry, LlmModelFile};

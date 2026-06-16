@@ -8,42 +8,10 @@ import {
   type DownloadProgress,
   type LlmModelStatus,
 } from "../lib/api";
-
-function formatBytes(bytes: number): string {
-  if (bytes <= 0) return "";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  let value = bytes;
-  let i = 0;
-  while (value >= 1024 && i < units.length - 1) {
-    value /= 1024;
-    i++;
-  }
-  const fixed = value >= 100 || i === 0 ? value.toFixed(0) : value.toFixed(1);
-  return `${fixed} ${units[i]}`;
-}
+import { formatBytes } from "../lib/format";
+import { TrashIcon } from "./icons";
 
 type DownloadState = { bytes_downloaded: number; bytes_total: number };
-
-function TrashIcon() {
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M3 6h18" />
-      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-      <path d="M10 11v6M14 11v6" />
-      <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
-    </svg>
-  );
-}
 
 type CardProps = {
   model: LlmModelStatus;
@@ -81,6 +49,11 @@ function ModelCard({
         <div className="mt-0.5 text-xs text-muted">
           {model.family} · {formatBytes(model.size_bytes)} · {model.context_length} ctx
         </div>
+        {model.incomplete && !isDownloading ? (
+          <div className="mt-1 text-[11px] text-warning">
+            Incomplete download · {formatBytes(model.disk_bytes)} on disk
+          </div>
+        ) : null}
         {isDownloading && downloading ? (
           <div className="mt-2">
             <div className="h-1.5 w-full overflow-hidden rounded-full bg-elevated">
@@ -143,6 +116,26 @@ function ModelCard({
               className="rounded border border-line px-3 py-1 text-xs hover:bg-elevated disabled:cursor-not-allowed disabled:opacity-50"
             >
               Use this model
+            </button>
+          </>
+        ) : model.incomplete ? (
+          <>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={onDelete}
+              className="inline-flex items-center gap-1 text-xs text-muted transition-colors hover:text-danger disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <TrashIcon />
+              Remove
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={onDownload}
+              className="rounded-md bg-accent px-3 py-1 text-xs font-semibold text-canvas hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Download
             </button>
           </>
         ) : (
@@ -308,7 +301,7 @@ export default function LlmModelPicker() {
 
   const downloaded = models.filter((m) => m.downloaded);
   const available = models.filter((m) => !m.downloaded);
-  const totalBytes = downloaded.reduce((sum, m) => sum + (m.size_bytes || 0), 0);
+  const totalBytes = downloaded.reduce((sum, m) => sum + (m.disk_bytes || 0), 0);
 
   return (
     <div className="flex flex-col gap-5">
