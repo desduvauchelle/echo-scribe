@@ -29,6 +29,10 @@ const KEY_DISMISSED_UPDATE_VERSION: &str = "dismissed_update_version";
 const KEY_AUTO_FILE_ENABLED: &str = "auto_file_enabled";
 const KEY_AUTO_FILE_THRESHOLD: &str = "auto_file_threshold";
 const KEY_EXPORT_CONFIDENCE_THRESHOLD: &str = "export_confidence_threshold";
+const KEY_PROJECT_AUTO_TAGGING_ENABLED: &str = "project_auto_tagging_enabled";
+const KEY_PROJECT_AUTO_TAGGING_INTERVAL_MINUTES: &str = "project_auto_tagging_interval_minutes";
+const KEY_PROJECT_AUTO_TAGGING_BATCH_SIZE: &str = "project_auto_tagging_batch_size";
+const KEY_PROJECT_AUTO_TAGGING_OPPORTUNISTIC: &str = "project_auto_tagging_opportunistic";
 const KEY_MEETING_AUTO_DETECT: &str = "meeting_auto_detect";
 const KEY_MEETING_APP_PREFS: &str = "meeting_app_prefs";
 const KEY_MEETING_SOFT_WARN_MIN: &str = "meeting_soft_warn_minutes";
@@ -156,6 +160,10 @@ pub const DEFAULT_AUTO_FILE_THRESHOLD: f32 = 0.75;
 /// are also exported as markdown to a project's configured export folder.
 /// Meetings ignore this — they export whenever a project has a folder set.
 pub const DEFAULT_EXPORT_CONFIDENCE_THRESHOLD: f32 = 0.75;
+pub const DEFAULT_PROJECT_AUTO_TAGGING_ENABLED: bool = true;
+pub const DEFAULT_PROJECT_AUTO_TAGGING_INTERVAL_MINUTES: u64 = 60;
+pub const DEFAULT_PROJECT_AUTO_TAGGING_BATCH_SIZE: u32 = 25;
+pub const DEFAULT_PROJECT_AUTO_TAGGING_OPPORTUNISTIC: bool = true;
 
 /// Errors raised by [`SettingsStore`].
 #[derive(Debug, Error)]
@@ -192,7 +200,10 @@ impl SettingsStore {
             Some(value) => match serde_json::from_value::<Binding>(value) {
                 Ok(b) => b,
                 Err(e) => {
-                    warn!(?e, "stored voice_at_cursor_binding is invalid; falling back to default");
+                    warn!(
+                        ?e,
+                        "stored voice_at_cursor_binding is invalid; falling back to default"
+                    );
                     default_binding()
                 }
             },
@@ -214,16 +225,18 @@ impl SettingsStore {
     /// been chosen yet (first run).
     pub fn speech_model_id(&self) -> Option<String> {
         self.store.get(KEY_SPEECH_MODEL_ID).and_then(|v| {
-            v.as_str().map(|s| s.to_string()).or_else(|| {
-                serde_json::from_value::<String>(v).ok()
-            })
+            v.as_str()
+                .map(|s| s.to_string())
+                .or_else(|| serde_json::from_value::<String>(v).ok())
         })
     }
 
     /// Persist the active speech model id.
     pub fn set_speech_model_id(&self, id: &str) -> Result<(), SettingsError> {
-        self.store
-            .set(KEY_SPEECH_MODEL_ID, serde_json::Value::String(id.to_string()));
+        self.store.set(
+            KEY_SPEECH_MODEL_ID,
+            serde_json::Value::String(id.to_string()),
+        );
         self.store
             .save()
             .map_err(|e| SettingsError::Store(e.to_string()))?;
@@ -257,7 +270,10 @@ impl SettingsStore {
             Some(value) => match serde_json::from_value::<Binding>(value) {
                 Ok(b) => b,
                 Err(e) => {
-                    warn!(?e, "stored log_capture_binding is invalid; falling back to default");
+                    warn!(
+                        ?e,
+                        "stored log_capture_binding is invalid; falling back to default"
+                    );
                     default_log_capture_binding()
                 }
             },
@@ -282,7 +298,10 @@ impl SettingsStore {
             Some(value) => match serde_json::from_value::<Binding>(value) {
                 Ok(b) => b,
                 Err(e) => {
-                    warn!(?e, "stored action_binding is invalid; falling back to default");
+                    warn!(
+                        ?e,
+                        "stored action_binding is invalid; falling back to default"
+                    );
                     default_action_binding()
                 }
             },
@@ -310,8 +329,10 @@ impl SettingsStore {
 
     /// Setter for whether prefix trigger routing is enabled
     pub fn set_trigger_word_routing_enabled(&self, on: bool) -> Result<(), SettingsError> {
-        self.store
-            .set(KEY_TRIGGER_WORD_ROUTING_ENABLED, serde_json::Value::Bool(on));
+        self.store.set(
+            KEY_TRIGGER_WORD_ROUTING_ENABLED,
+            serde_json::Value::Bool(on),
+        );
         self.store
             .save()
             .map_err(|e| SettingsError::Store(e.to_string()))?;
@@ -332,8 +353,10 @@ impl SettingsStore {
 
     /// Setter for the action trigger word prefix
     pub fn set_action_trigger_word(&self, word: &str) -> Result<(), SettingsError> {
-        self.store
-            .set(KEY_ACTION_TRIGGER_WORD, serde_json::Value::String(word.trim().to_lowercase()));
+        self.store.set(
+            KEY_ACTION_TRIGGER_WORD,
+            serde_json::Value::String(word.trim().to_lowercase()),
+        );
         self.store
             .save()
             .map_err(|e| SettingsError::Store(e.to_string()))?;
@@ -471,10 +494,8 @@ impl SettingsStore {
     }
 
     pub fn set_llm_unload_secs(&self, secs: u64) -> Result<(), SettingsError> {
-        self.store.set(
-            KEY_LLM_UNLOAD_SECS,
-            serde_json::Value::Number(secs.into()),
-        );
+        self.store
+            .set(KEY_LLM_UNLOAD_SECS, serde_json::Value::Number(secs.into()));
         self.store
             .save()
             .map_err(|e| SettingsError::Store(e.to_string()))?;
@@ -492,10 +513,8 @@ impl SettingsStore {
     }
 
     pub fn set_asr_unload_secs(&self, secs: u64) -> Result<(), SettingsError> {
-        self.store.set(
-            KEY_ASR_UNLOAD_SECS,
-            serde_json::Value::Number(secs.into()),
-        );
+        self.store
+            .set(KEY_ASR_UNLOAD_SECS, serde_json::Value::Number(secs.into()));
         self.store
             .save()
             .map_err(|e| SettingsError::Store(e.to_string()))?;
@@ -571,10 +590,8 @@ impl SettingsStore {
 
     pub fn set_auto_file_threshold(&self, t: f32) -> Result<(), SettingsError> {
         let clamped = t.clamp(0.0, 1.0) as f64;
-        self.store.set(
-            KEY_AUTO_FILE_THRESHOLD,
-            serde_json::Value::from(clamped),
-        );
+        self.store
+            .set(KEY_AUTO_FILE_THRESHOLD, serde_json::Value::from(clamped));
         self.store
             .save()
             .map_err(|e| SettingsError::Store(e.to_string()))?;
@@ -593,6 +610,47 @@ impl SettingsStore {
             .map(|f| f as f32)
             .unwrap_or(DEFAULT_EXPORT_CONFIDENCE_THRESHOLD);
         raw.clamp(0.0, 1.0)
+    }
+
+    pub fn project_auto_tagging_enabled(&self) -> bool {
+        self.store
+            .get(KEY_PROJECT_AUTO_TAGGING_ENABLED)
+            .and_then(|v| v.as_bool())
+            .unwrap_or(DEFAULT_PROJECT_AUTO_TAGGING_ENABLED)
+    }
+
+    pub fn set_project_auto_tagging_enabled(&self, enabled: bool) -> Result<(), SettingsError> {
+        self.store.set(
+            KEY_PROJECT_AUTO_TAGGING_ENABLED,
+            serde_json::Value::Bool(enabled),
+        );
+        self.store
+            .save()
+            .map_err(|e| SettingsError::Store(e.to_string()))?;
+        Ok(())
+    }
+
+    pub fn project_auto_tagging_interval_minutes(&self) -> u64 {
+        self.store
+            .get(KEY_PROJECT_AUTO_TAGGING_INTERVAL_MINUTES)
+            .and_then(|v| v.as_u64())
+            .unwrap_or(DEFAULT_PROJECT_AUTO_TAGGING_INTERVAL_MINUTES)
+            .clamp(15, 24 * 60)
+    }
+
+    pub fn project_auto_tagging_batch_size(&self) -> u32 {
+        self.store
+            .get(KEY_PROJECT_AUTO_TAGGING_BATCH_SIZE)
+            .and_then(|v| v.as_u64())
+            .unwrap_or(DEFAULT_PROJECT_AUTO_TAGGING_BATCH_SIZE as u64)
+            .clamp(1, 100) as u32
+    }
+
+    pub fn project_auto_tagging_opportunistic(&self) -> bool {
+        self.store
+            .get(KEY_PROJECT_AUTO_TAGGING_OPPORTUNISTIC)
+            .and_then(|v| v.as_bool())
+            .unwrap_or(DEFAULT_PROJECT_AUTO_TAGGING_OPPORTUNISTIC)
     }
 
     pub fn set_export_confidence_threshold(&self, t: f32) -> Result<(), SettingsError> {
@@ -651,8 +709,10 @@ impl SettingsStore {
     }
 
     pub fn set_meeting_soft_warn_min(&self, n: u32) -> Result<(), SettingsError> {
-        self.store
-            .set(KEY_MEETING_SOFT_WARN_MIN, serde_json::Value::Number(n.into()));
+        self.store.set(
+            KEY_MEETING_SOFT_WARN_MIN,
+            serde_json::Value::Number(n.into()),
+        );
         self.store
             .save()
             .map_err(|e| SettingsError::Store(e.to_string()))?;
@@ -668,8 +728,10 @@ impl SettingsStore {
     }
 
     pub fn set_meeting_hard_cap_min(&self, n: u32) -> Result<(), SettingsError> {
-        self.store
-            .set(KEY_MEETING_HARD_CAP_MIN, serde_json::Value::Number(n.into()));
+        self.store.set(
+            KEY_MEETING_HARD_CAP_MIN,
+            serde_json::Value::Number(n.into()),
+        );
         self.store
             .save()
             .map_err(|e| SettingsError::Store(e.to_string()))?;
@@ -801,8 +863,10 @@ impl SettingsStore {
     }
 
     pub fn set_daily_recap_include_weekends(&self, on: bool) -> Result<(), SettingsError> {
-        self.store
-            .set(KEY_DAILY_RECAP_INCLUDE_WEEKENDS, serde_json::Value::Bool(on));
+        self.store.set(
+            KEY_DAILY_RECAP_INCLUDE_WEEKENDS,
+            serde_json::Value::Bool(on),
+        );
         self.store
             .save()
             .map_err(|e| SettingsError::Store(e.to_string()))?;
@@ -897,8 +961,10 @@ impl SettingsStore {
     }
 
     pub fn set_meeting_summary_prompt(&self, prompt: &str) -> Result<(), SettingsError> {
-        self.store
-            .set(KEY_MEETING_SUMMARY_PROMPT, serde_json::Value::String(prompt.to_string()));
+        self.store.set(
+            KEY_MEETING_SUMMARY_PROMPT,
+            serde_json::Value::String(prompt.to_string()),
+        );
         self.store
             .save()
             .map_err(|e| SettingsError::Store(e.to_string()))?;
@@ -965,8 +1031,10 @@ impl SettingsStore {
     }
 
     pub fn set_drive_client_id(&self, id: &str) -> Result<(), SettingsError> {
-        self.store
-            .set(KEY_DRIVE_CLIENT_ID, serde_json::Value::String(id.to_string()));
+        self.store.set(
+            KEY_DRIVE_CLIENT_ID,
+            serde_json::Value::String(id.to_string()),
+        );
         self.store
             .save()
             .map_err(|e| SettingsError::Store(e.to_string()))?;
@@ -982,8 +1050,10 @@ impl SettingsStore {
     }
 
     pub fn set_drive_client_secret(&self, secret: &str) -> Result<(), SettingsError> {
-        self.store
-            .set(KEY_DRIVE_CLIENT_SECRET, serde_json::Value::String(secret.to_string()));
+        self.store.set(
+            KEY_DRIVE_CLIENT_SECRET,
+            serde_json::Value::String(secret.to_string()),
+        );
         self.store
             .save()
             .map_err(|e| SettingsError::Store(e.to_string()))?;
@@ -1052,8 +1122,10 @@ impl SettingsStore {
     }
 
     pub fn set_drive_folder_name(&self, name: &str) -> Result<(), SettingsError> {
-        self.store
-            .set(KEY_DRIVE_FOLDER_NAME, serde_json::Value::String(name.to_string()));
+        self.store.set(
+            KEY_DRIVE_FOLDER_NAME,
+            serde_json::Value::String(name.to_string()),
+        );
         self.store
             .save()
             .map_err(|e| SettingsError::Store(e.to_string()))?;
@@ -1085,7 +1157,10 @@ impl SettingsStore {
             match serde_json::from_value::<Vec<FormatTemplate>>(v) {
                 Ok(list) => return list,
                 Err(e) => {
-                    warn!(?e, "stored format_templates is invalid; falling back to defaults");
+                    warn!(
+                        ?e,
+                        "stored format_templates is invalid; falling back to defaults"
+                    );
                 }
             }
         }
@@ -1175,7 +1250,10 @@ mod auto_file_tests {
         assert!(!DEFAULT_DAILY_RECAP_INCLUDE_WEEKENDS);
         assert_eq!(KEY_DAILY_RECAP_ENABLED, "daily_recap_enabled");
         assert_eq!(KEY_DAILY_RECAP_DELIVER_HOUR, "daily_recap_deliver_hour");
-        assert_eq!(KEY_DAILY_RECAP_INCLUDE_WEEKENDS, "daily_recap_include_weekends");
+        assert_eq!(
+            KEY_DAILY_RECAP_INCLUDE_WEEKENDS,
+            "daily_recap_include_weekends"
+        );
     }
 
     #[test]

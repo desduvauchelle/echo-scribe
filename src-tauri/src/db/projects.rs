@@ -28,6 +28,18 @@ pub struct Project {
     /// project are exported as markdown. `None` = export disabled.
     #[serde(default)]
     pub export_folder: Option<String>,
+    #[serde(default)]
+    pub routing_aliases: Vec<String>,
+    #[serde(default)]
+    pub routing_app_hints: Vec<String>,
+    #[serde(default)]
+    pub routing_url_hints: Vec<String>,
+    #[serde(default)]
+    pub routing_window_hints: Vec<String>,
+    #[serde(default)]
+    pub routing_positive_examples: Vec<String>,
+    #[serde(default)]
+    pub routing_negative_examples: Vec<String>,
 }
 
 /// Partial update payload for `update_project`. Each field follows the
@@ -49,6 +61,18 @@ pub struct ProjectPatch {
     pub emoji: Option<Option<String>>,
     #[serde(default, with = "double_option")]
     pub export_folder: Option<Option<String>>,
+    #[serde(default)]
+    pub routing_aliases: Option<Vec<String>>,
+    #[serde(default)]
+    pub routing_app_hints: Option<Vec<String>>,
+    #[serde(default)]
+    pub routing_url_hints: Option<Vec<String>>,
+    #[serde(default)]
+    pub routing_window_hints: Option<Vec<String>>,
+    #[serde(default)]
+    pub routing_positive_examples: Option<Vec<String>>,
+    #[serde(default)]
+    pub routing_negative_examples: Option<Vec<String>>,
 }
 
 mod double_option {
@@ -63,6 +87,10 @@ mod double_option {
 }
 
 fn parse_keywords(raw: Option<String>) -> Vec<String> {
+    parse_json_vec(raw)
+}
+
+fn parse_json_vec(raw: Option<String>) -> Vec<String> {
     match raw {
         Some(s) if !s.trim().is_empty() => {
             serde_json::from_str::<Vec<String>>(&s).unwrap_or_default()
@@ -73,6 +101,12 @@ fn parse_keywords(raw: Option<String>) -> Vec<String> {
 
 fn row_to_project(row: &Row<'_>) -> rusqlite::Result<Project> {
     let kw_raw: Option<String> = row.get("keywords").ok();
+    let routing_aliases_raw: Option<String> = row.get("routing_aliases").ok();
+    let routing_app_hints_raw: Option<String> = row.get("routing_app_hints").ok();
+    let routing_url_hints_raw: Option<String> = row.get("routing_url_hints").ok();
+    let routing_window_hints_raw: Option<String> = row.get("routing_window_hints").ok();
+    let routing_positive_examples_raw: Option<String> = row.get("routing_positive_examples").ok();
+    let routing_negative_examples_raw: Option<String> = row.get("routing_negative_examples").ok();
     Ok(Project {
         id: row.get("id")?,
         name: row.get("name")?,
@@ -84,16 +118,34 @@ fn row_to_project(row: &Row<'_>) -> rusqlite::Result<Project> {
         emoji: row.get("emoji").ok(),
         updated_at: row.get("updated_at").ok(),
         export_folder: row.get("export_folder").ok(),
+        routing_aliases: parse_json_vec(routing_aliases_raw),
+        routing_app_hints: parse_json_vec(routing_app_hints_raw),
+        routing_url_hints: parse_json_vec(routing_url_hints_raw),
+        routing_window_hints: parse_json_vec(routing_window_hints_raw),
+        routing_positive_examples: parse_json_vec(routing_positive_examples_raw),
+        routing_negative_examples: parse_json_vec(routing_negative_examples_raw),
     })
 }
 
-const SELECT_COLS: &str = "id, name, created_at, archived_at, description, keywords, color, emoji, updated_at, export_folder";
+const SELECT_COLS: &str = "id, name, created_at, archived_at, description, keywords, color, emoji, updated_at, export_folder, routing_aliases, routing_app_hints, routing_url_hints, routing_window_hints, routing_positive_examples, routing_negative_examples";
 
 pub fn insert_project(conn: &Connection, p: &Project) -> Result<(), DbError> {
     let keywords_json = serde_json::to_string(&p.keywords).unwrap_or_else(|_| "[]".to_string());
+    let routing_aliases_json =
+        serde_json::to_string(&p.routing_aliases).unwrap_or_else(|_| "[]".to_string());
+    let routing_app_hints_json =
+        serde_json::to_string(&p.routing_app_hints).unwrap_or_else(|_| "[]".to_string());
+    let routing_url_hints_json =
+        serde_json::to_string(&p.routing_url_hints).unwrap_or_else(|_| "[]".to_string());
+    let routing_window_hints_json =
+        serde_json::to_string(&p.routing_window_hints).unwrap_or_else(|_| "[]".to_string());
+    let routing_positive_examples_json =
+        serde_json::to_string(&p.routing_positive_examples).unwrap_or_else(|_| "[]".to_string());
+    let routing_negative_examples_json =
+        serde_json::to_string(&p.routing_negative_examples).unwrap_or_else(|_| "[]".to_string());
     conn.execute(
-        "INSERT INTO projects(id, name, created_at, archived_at, description, keywords, color, emoji, updated_at, export_folder)
-         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        "INSERT INTO projects(id, name, created_at, archived_at, description, keywords, color, emoji, updated_at, export_folder, routing_aliases, routing_app_hints, routing_url_hints, routing_window_hints, routing_positive_examples, routing_negative_examples)
+         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
         params![
             p.id,
             p.name,
@@ -105,6 +157,12 @@ pub fn insert_project(conn: &Connection, p: &Project) -> Result<(), DbError> {
             p.emoji,
             p.updated_at,
             p.export_folder,
+            routing_aliases_json,
+            routing_app_hints_json,
+            routing_url_hints_json,
+            routing_window_hints_json,
+            routing_positive_examples_json,
+            routing_negative_examples_json,
         ],
     )?;
     Ok(())
@@ -142,9 +200,7 @@ pub fn get_project(conn: &Connection, id: &str) -> Result<Option<Project>, DbErr
 /// (modulo case). Used for get-or-create so a capture routed to an existing
 /// project name reuses it instead of hitting the UNIQUE constraint.
 pub fn get_project_by_name(conn: &Connection, name: &str) -> Result<Option<Project>, DbError> {
-    let sql = format!(
-        "SELECT {SELECT_COLS} FROM projects WHERE name = ?1 COLLATE NOCASE LIMIT 1"
-    );
+    let sql = format!("SELECT {SELECT_COLS} FROM projects WHERE name = ?1 COLLATE NOCASE LIMIT 1");
     let mut stmt = conn.prepare(&sql)?;
     let mut rows = stmt.query(params![name])?;
     if let Some(row) = rows.next()? {
@@ -196,6 +252,42 @@ pub fn update_project(
     if let Some(folder_opt) = &patch.export_folder {
         sets.push(format!("export_folder = ?{}", sets.len() + 1));
         vals.push(Box::new(folder_opt.clone()));
+    }
+    if let Some(v) = &patch.routing_aliases {
+        sets.push(format!("routing_aliases = ?{}", sets.len() + 1));
+        vals.push(Box::new(
+            serde_json::to_string(v).unwrap_or_else(|_| "[]".to_string()),
+        ));
+    }
+    if let Some(v) = &patch.routing_app_hints {
+        sets.push(format!("routing_app_hints = ?{}", sets.len() + 1));
+        vals.push(Box::new(
+            serde_json::to_string(v).unwrap_or_else(|_| "[]".to_string()),
+        ));
+    }
+    if let Some(v) = &patch.routing_url_hints {
+        sets.push(format!("routing_url_hints = ?{}", sets.len() + 1));
+        vals.push(Box::new(
+            serde_json::to_string(v).unwrap_or_else(|_| "[]".to_string()),
+        ));
+    }
+    if let Some(v) = &patch.routing_window_hints {
+        sets.push(format!("routing_window_hints = ?{}", sets.len() + 1));
+        vals.push(Box::new(
+            serde_json::to_string(v).unwrap_or_else(|_| "[]".to_string()),
+        ));
+    }
+    if let Some(v) = &patch.routing_positive_examples {
+        sets.push(format!("routing_positive_examples = ?{}", sets.len() + 1));
+        vals.push(Box::new(
+            serde_json::to_string(v).unwrap_or_else(|_| "[]".to_string()),
+        ));
+    }
+    if let Some(v) = &patch.routing_negative_examples {
+        sets.push(format!("routing_negative_examples = ?{}", sets.len() + 1));
+        vals.push(Box::new(
+            serde_json::to_string(v).unwrap_or_else(|_| "[]".to_string()),
+        ));
     }
 
     if sets.is_empty() {
@@ -302,6 +394,12 @@ mod tests {
             emoji: None,
             updated_at: None,
             export_folder: None,
+            routing_aliases: Vec::new(),
+            routing_app_hints: Vec::new(),
+            routing_url_hints: Vec::new(),
+            routing_window_hints: Vec::new(),
+            routing_positive_examples: Vec::new(),
+            routing_negative_examples: Vec::new(),
         }
     }
 
@@ -311,7 +409,11 @@ mod tests {
         insert_project(&c, &make("1", "zeta")).unwrap();
         insert_project(&c, &make("2", "Alpha")).unwrap();
         insert_project(&c, &make("3", "beta")).unwrap();
-        let names: Vec<_> = list_projects(&c, false).unwrap().into_iter().map(|p| p.name).collect();
+        let names: Vec<_> = list_projects(&c, false)
+            .unwrap()
+            .into_iter()
+            .map(|p| p.name)
+            .collect();
         assert_eq!(names, vec!["Alpha", "beta", "zeta"]);
     }
 
@@ -334,7 +436,10 @@ mod tests {
             get_project_by_name(&c, "echo scribe").unwrap().unwrap().id,
             "1"
         );
-        assert_eq!(get_project_by_name(&c, "Echo Scribe").unwrap().unwrap().id, "1");
+        assert_eq!(
+            get_project_by_name(&c, "Echo Scribe").unwrap().unwrap().id,
+            "1"
+        );
         assert!(get_project_by_name(&c, "Nonexistent").unwrap().is_none());
     }
 
@@ -365,6 +470,33 @@ mod tests {
     }
 
     #[test]
+    fn insert_and_read_back_routing_profile() {
+        let c = fresh();
+        let mut p = make("1", "LiveCase");
+        p.routing_aliases = vec!["livecase".into(), "hbsp".into()];
+        p.routing_app_hints = vec!["Code".into()];
+        p.routing_url_hints = vec!["hbsp.harvard.edu".into()];
+        p.routing_window_hints = vec!["livecaseplus".into()];
+        p.routing_positive_examples = vec!["update the HBSP proof section".into()];
+        p.routing_negative_examples = vec!["generic source-code case statement".into()];
+        insert_project(&c, &p).unwrap();
+
+        let got = get_project(&c, "1").unwrap().unwrap();
+        assert_eq!(got.routing_aliases, vec!["livecase", "hbsp"]);
+        assert_eq!(got.routing_app_hints, vec!["Code"]);
+        assert_eq!(got.routing_url_hints, vec!["hbsp.harvard.edu"]);
+        assert_eq!(got.routing_window_hints, vec!["livecaseplus"]);
+        assert_eq!(
+            got.routing_positive_examples,
+            vec!["update the HBSP proof section"]
+        );
+        assert_eq!(
+            got.routing_negative_examples,
+            vec!["generic source-code case statement"]
+        );
+    }
+
+    #[test]
     fn update_project_partial_patches_apply() {
         let c = fresh();
         insert_project(&c, &make("1", "alpha")).unwrap();
@@ -375,6 +507,12 @@ mod tests {
             color: Some(Some("#000000".into())),
             emoji: Some(Some("✨".into())),
             export_folder: Some(Some("/tmp/notes".into())),
+            routing_aliases: None,
+            routing_app_hints: None,
+            routing_url_hints: None,
+            routing_window_hints: None,
+            routing_positive_examples: None,
+            routing_negative_examples: None,
         };
         update_project(&c, "1", &patch, "2026-05-26T10:00:00Z").unwrap();
         let got = get_project(&c, "1").unwrap().unwrap();
@@ -402,6 +540,12 @@ mod tests {
             color: Some(None),
             emoji: Some(None),
             export_folder: Some(None),
+            routing_aliases: None,
+            routing_app_hints: None,
+            routing_url_hints: None,
+            routing_window_hints: None,
+            routing_positive_examples: None,
+            routing_negative_examples: None,
         };
         update_project(&c, "1", &patch, "2026-05-26T10:00:00Z").unwrap();
         let got = get_project(&c, "1").unwrap().unwrap();
@@ -436,7 +580,9 @@ mod tests {
         delete_project(&mut c, "p1", Some("p2")).unwrap();
         assert!(get_project(&c, "p1").unwrap().is_none());
         let pid: Option<String> = c
-            .query_row("SELECT project_id FROM items WHERE id = 'i1'", [], |r| r.get(0))
+            .query_row("SELECT project_id FROM items WHERE id = 'i1'", [], |r| {
+                r.get(0)
+            })
             .unwrap();
         assert_eq!(pid.as_deref(), Some("p2"));
     }
@@ -454,7 +600,9 @@ mod tests {
         delete_project(&mut c, "p1", None).unwrap();
         assert!(get_project(&c, "p1").unwrap().is_none());
         let pid: Option<String> = c
-            .query_row("SELECT project_id FROM items WHERE id = 'i1'", [], |r| r.get(0))
+            .query_row("SELECT project_id FROM items WHERE id = 'i1'", [], |r| {
+                r.get(0)
+            })
             .unwrap();
         assert_eq!(pid, None);
     }

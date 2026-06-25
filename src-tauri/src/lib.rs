@@ -5,21 +5,22 @@ pub mod classifier;
 pub mod commands;
 pub mod coordinator;
 pub mod daily_summary;
-pub mod denoise;
-pub mod export;
-pub mod meeting;
-pub mod screenrec;
-mod util;
 pub mod db;
+pub mod denoise;
 pub mod event_log;
+pub mod export;
 pub mod input;
 pub mod llm;
+pub mod meeting;
 pub mod overlay;
 pub mod permissions;
+pub mod project_tagger;
+pub mod screenrec;
 pub mod settings;
 pub(crate) mod temporal;
 pub mod ui;
 pub mod updater;
+mod util;
 
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, RwLock};
@@ -34,64 +35,44 @@ use crate::asr::pipeline::AsrPipeline;
 use crate::asr::registry;
 use crate::commands::{
     apply_update_and_restart, archive_project, cancel_log_capture, chat_with_memory, complete_task,
-    confirm_log_capture, count_items, count_items_for_project, create_chat_session, create_project, delete_chat_session, delete_item, delete_project,
-    delete_llm_model, delete_speech_model, diagnostics_log_dir, diagnostics_open_log_folder,
+    confirm_log_capture, count_items, count_items_for_project, create_chat_session, create_project,
+    delete_chat_session, delete_item, delete_llm_model, delete_project, delete_recording,
+    delete_speech_model, denoise_recording, diagnostics_log_dir, diagnostics_open_log_folder,
     diagnostics_recent_log, dismiss_update, download_llm_model, download_speech_model,
-    ensure_pipeline_started_from_handle, get_active_llm_model_id, get_active_speech_model_id,
-    get_asr_unload_secs, get_audio_feedback_enabled, get_custom_words, get_default_filler_words,
-    get_filler_removal_enabled, get_filler_words, get_llm_unload_secs, get_log_capture_binding,
-    get_action_binding, update_action_binding, get_trigger_word_routing_enabled,
-    set_trigger_word_routing_enabled, get_action_trigger_word, set_action_trigger_word,
-    get_mute_while_recording, get_onboarding_completed, get_voice_at_cursor_binding,
-    get_item, is_pipeline_running, list_chat_sessions, list_items, list_llm_models, list_projects, list_speech_models,
-    list_tags_for_item, list_tasks, load_chat_messages, open_accessibility_settings, open_microphone_settings,
-    open_calendar_settings, open_screen_recording_settings, permissions_status,
-    prompt_accessibility_access, prompt_calendar_access, rename_chat_session,
-    rename_project, request_microphone_access, request_screen_recording_access,
-    reset_onboarding_and_quit, reset_tcc_and_quit, restore_item, search_items, set_active_llm_model,
-    set_active_speech_model, set_audio_feedback_enabled, set_custom_words,
-    set_asr_unload_secs, set_filler_removal_enabled, set_filler_words, set_llm_unload_secs, set_mute_while_recording,
-    set_onboarding_completed, set_rebinding, set_task_deadline, show_main_window, start_pipeline,
-    test_llm_inference, unarchive_project, uncomplete_task, undo_log_capture, update_item, update_project,
-    update_log_capture_binding, update_voice_at_cursor_binding, get_auto_file_enabled,
-    set_auto_file_enabled, get_auto_file_threshold, set_auto_file_threshold,
-    get_export_confidence_threshold, set_export_confidence_threshold,
-    pick_export_folder, export_project_backfill, export_activity,
-    list_item_events, list_sessions_for_item, list_claude_sessions, load_claude_session,
-    get_dashboard_stats,
-    get_app_launcher_enabled,
-    set_app_launcher_enabled,
-    get_action_counter,
-    reset_action_counter,
-    get_common_actions,
-    get_format_templates,
-    set_format_templates,
-    start_screen_recording,
-    stop_screen_recording,
-    is_screen_recording,
-    list_recordings,
-    delete_recording,
-    rename_recording,
-    transcribe_recording,
-    denoise_recording,
-    reveal_recording,
-    export_recording,
-    list_screen_sources,
-    get_screenrec_audio_prefs,
-    set_screenrec_audio_prefs,
-    open_screenrec_setup,
-    drive_status,
-    drive_connect,
-    drive_disconnect,
-    get_drive_client_id,
-    set_drive_client_credentials,
-    get_drive_prefs,
-    set_drive_prefs,
-    upload_recording,
-    AppState,
+    drive_connect, drive_disconnect, drive_status, ensure_pipeline_started_from_handle,
+    export_activity, export_project_backfill, export_recording, get_action_binding,
+    get_action_counter, get_action_trigger_word, get_active_llm_model_id,
+    get_active_speech_model_id, get_app_launcher_enabled, get_asr_unload_secs,
+    get_audio_feedback_enabled, get_auto_file_enabled, get_auto_file_threshold, get_common_actions,
+    get_custom_words, get_dashboard_stats, get_default_filler_words, get_drive_client_id,
+    get_drive_prefs, get_export_confidence_threshold, get_filler_removal_enabled, get_filler_words,
+    get_format_templates, get_item, get_llm_unload_secs, get_log_capture_binding,
+    get_mute_while_recording, get_onboarding_completed, get_project_auto_tagging_enabled,
+    get_screenrec_audio_prefs, get_trigger_word_routing_enabled, get_voice_at_cursor_binding,
+    is_pipeline_running, is_screen_recording, list_chat_sessions, list_claude_sessions,
+    list_item_events, list_items, list_llm_models, list_projects, list_recordings,
+    list_screen_sources, list_sessions_for_item, list_speech_models, list_tags_for_item,
+    list_tasks, load_chat_messages, load_claude_session, open_accessibility_settings,
+    open_calendar_settings, open_microphone_settings, open_screen_recording_settings,
+    open_screenrec_setup, permissions_status, pick_export_folder, project_tagger_backfill,
+    project_tagger_status, prompt_accessibility_access, prompt_calendar_access,
+    rename_chat_session, rename_project, rename_recording, request_microphone_access,
+    request_screen_recording_access, reset_action_counter, reset_onboarding_and_quit,
+    reset_tcc_and_quit, restore_item, reveal_recording, run_project_tagger_deterministic_once,
+    run_project_tagger_llm_once, search_items, set_action_trigger_word, set_active_llm_model,
+    set_active_speech_model, set_app_launcher_enabled, set_asr_unload_secs,
+    set_audio_feedback_enabled, set_auto_file_enabled, set_auto_file_threshold, set_custom_words,
+    set_drive_client_credentials, set_drive_prefs, set_export_confidence_threshold,
+    set_filler_removal_enabled, set_filler_words, set_format_templates, set_llm_unload_secs,
+    set_mute_while_recording, set_onboarding_completed, set_project_auto_tagging_enabled,
+    set_rebinding, set_screenrec_audio_prefs, set_task_deadline, set_trigger_word_routing_enabled,
+    show_main_window, start_pipeline, start_screen_recording, stop_screen_recording,
+    test_llm_inference, transcribe_recording, unarchive_project, uncomplete_task, undo_log_capture,
+    update_action_binding, update_item, update_log_capture_binding, update_project,
+    update_voice_at_cursor_binding, upload_recording, AppState,
 };
-use crate::llm::Llm;
 use crate::db::Db;
+use crate::llm::Llm;
 use crate::settings::SettingsStore;
 use crate::ui::tray::TrayHandle;
 
@@ -277,6 +258,12 @@ pub fn run() {
             set_auto_file_threshold,
             get_export_confidence_threshold,
             set_export_confidence_threshold,
+            get_project_auto_tagging_enabled,
+            set_project_auto_tagging_enabled,
+            project_tagger_status,
+            project_tagger_backfill,
+            run_project_tagger_deterministic_once,
+            run_project_tagger_llm_once,
             pick_export_folder,
             export_project_backfill,
             list_item_events,
@@ -389,7 +376,9 @@ pub fn run() {
             // fully downloaded. If the saved id is missing from the registry
             // (e.g. a model was renamed between releases), fall back to any
             // downloaded model so the user doesn't have to re-download.
-            let asr = Arc::new(AsrPipeline::new(std::time::Duration::from_secs(settings.asr_unload_secs())));
+            let asr = Arc::new(AsrPipeline::new(std::time::Duration::from_secs(
+                settings.asr_unload_secs(),
+            )));
             {
                 let saved_id = settings
                     .speech_model_id()
@@ -455,8 +444,7 @@ pub fn run() {
                 let asr_sampler = Arc::clone(&asr);
                 tauri::async_runtime::spawn(async move {
                     use std::time::Duration;
-                    let mut interval =
-                        tokio::time::interval(Duration::from_secs(30));
+                    let mut interval = tokio::time::interval(Duration::from_secs(30));
                     interval.tick().await; // skip the immediate tick; log a startup baseline first
                     info!(
                         target: "mem",
@@ -467,8 +455,7 @@ pub fn run() {
                     loop {
                         interval.tick().await;
                         let rss_mib = crate::util::rss::current_rss_mib();
-                        let peak_mib =
-                            crate::util::rss::max_rss_bytes() / (1024 * 1024);
+                        let peak_mib = crate::util::rss::max_rss_bytes() / (1024 * 1024);
                         info!(
                             target: "mem",
                             rss_mib,
@@ -521,9 +508,7 @@ pub fn run() {
                 .path()
                 .app_data_dir()
                 .unwrap_or_else(|_| std::path::PathBuf::from("/tmp/EchoScribe"));
-            let meeting_db = db
-                .clone()
-                .expect("db must be open for meeting manager");
+            let meeting_db = db.clone().expect("db must be open for meeting manager");
             let meeting_manager = crate::meeting::MeetingManager::new(
                 Arc::clone(&asr),
                 Arc::clone(&llm),
@@ -542,10 +527,7 @@ pub fn run() {
                 );
                 if !orphans.is_empty() {
                     crate::meeting::finalize_orphans_as_failed(db_ref, &orphans);
-                    let _ = app.emit(
-                        "meetings-recovered",
-                        serde_json::json!({"ids": orphans}),
-                    );
+                    let _ = app.emit("meetings-recovered", serde_json::json!({"ids": orphans}));
                 }
             }
 
@@ -558,6 +540,11 @@ pub fn run() {
                 app.handle().clone(),
             );
 
+            let project_tagger_db = db.clone();
+            let project_tagger_llm = Arc::clone(&llm);
+            let project_tagger_settings = settings.clone();
+            let pipeline_state = crate::coordinator::new_state_handle();
+
             let app_state = AppState {
                 tray: Arc::clone(&tray),
                 settings,
@@ -568,6 +555,7 @@ pub fn run() {
                 paused_hotkeys: Arc::clone(&paused_hotkeys),
                 rebinding,
                 coord_tx: Mutex::new(None),
+                pipeline_state: Arc::clone(&pipeline_state),
                 asr: Arc::clone(&asr),
                 llm: Arc::clone(&llm),
                 db,
@@ -577,6 +565,13 @@ pub fn run() {
                 active_recording: std::sync::Arc::new(std::sync::Mutex::new(None)),
             };
             app.manage(app_state);
+
+            crate::project_tagger::spawn_worker(
+                project_tagger_db,
+                project_tagger_llm,
+                project_tagger_settings,
+                pipeline_state,
+            );
 
             // Daily recap scheduler — fires once per day at the user-configured hour.
             crate::daily_summary::scheduler::spawn(app.handle().clone());

@@ -586,6 +586,7 @@ mod tests {
             emoji: None,
             updated_at: None,
             export_folder: folder.map(|s| s.to_string()),
+            ..Default::default()
         }
     }
 

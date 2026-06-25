@@ -13,18 +13,19 @@ use std::sync::{Arc, Mutex};
 use rusqlite::Connection;
 use thiserror::Error;
 
-pub mod items;
-pub mod projects;
-pub mod schema;
 pub mod chat;
+pub mod daily_summaries;
 pub mod events;
+pub mod guide_templates;
+pub mod items;
+pub mod meetings;
+pub mod project_tag_jobs;
+pub mod projects;
+pub mod recordings;
+pub mod schema;
 pub mod search;
 pub mod stats;
-pub mod meetings;
 pub mod tasks;
-pub mod daily_summaries;
-pub mod guide_templates;
-pub mod recordings;
 
 pub use chat::{ChatMessage, ChatSession};
 pub use items::{Item, ItemKind, ItemSource};
@@ -68,7 +69,10 @@ impl Db {
 
     /// Run a closure against the underlying connection. Locks the mutex for
     /// the duration of the closure — keep work short.
-    pub fn with_conn<R>(&self, f: impl FnOnce(&Connection) -> Result<R, DbError>) -> Result<R, DbError> {
+    pub fn with_conn<R>(
+        &self,
+        f: impl FnOnce(&Connection) -> Result<R, DbError>,
+    ) -> Result<R, DbError> {
         let guard = self
             .inner
             .lock()

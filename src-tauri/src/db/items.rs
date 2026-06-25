@@ -262,6 +262,24 @@ pub fn update_item(
     Ok(())
 }
 
+pub fn apply_classification(
+    conn: &Connection,
+    id: &str,
+    project_id: &str,
+    confidence: f32,
+    classified_by: &str,
+) -> Result<(), DbError> {
+    conn.execute(
+        "UPDATE items
+            SET project_id = ?1,
+                confidence = ?2,
+                classified_by = ?3
+          WHERE id = ?4 AND deleted_at IS NULL",
+        params![project_id, confidence as f64, classified_by, id],
+    )?;
+    Ok(())
+}
+
 pub fn replace_tags(conn: &Connection, item_id: &str, tags: &[String]) -> Result<(), DbError> {
     conn.execute("DELETE FROM item_tags WHERE item_id = ?1", params![item_id])?;
     for t in tags {

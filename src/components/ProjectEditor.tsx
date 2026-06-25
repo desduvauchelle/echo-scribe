@@ -48,6 +48,16 @@ export default function ProjectEditor({
   const [color, setColor] = useState<string | null>(project?.color ?? null);
   const [keywordsInput, setKeywordsInput] = useState("");
   const [keywords, setKeywords] = useState<string[]>(project?.keywords ?? []);
+  const [aliases, setAliases] = useState<string[]>(project?.routing_aliases ?? []);
+  const [appHints, setAppHints] = useState<string[]>(project?.routing_app_hints ?? []);
+  const [urlHints, setUrlHints] = useState<string[]>(project?.routing_url_hints ?? []);
+  const [windowHints, setWindowHints] = useState<string[]>(project?.routing_window_hints ?? []);
+  const [positiveExamplesText, setPositiveExamplesText] = useState(
+    (project?.routing_positive_examples ?? []).join("\n"),
+  );
+  const [negativeExamplesText, setNegativeExamplesText] = useState(
+    (project?.routing_negative_examples ?? []).join("\n"),
+  );
   const [exportFolder, setExportFolder] = useState<string | null>(
     project?.export_folder ?? null,
   );
@@ -100,6 +110,12 @@ export default function ProjectEditor({
     }
   };
 
+  const lines = (text: string) =>
+    text
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean);
+
   const handleSave = async () => {
     const trimmedName = name.trim();
     if (!trimmedName) {
@@ -123,6 +139,12 @@ export default function ProjectEditor({
           color: color || null,
           emoji: emoji.trim() || null,
           export_folder: exportFolder || null,
+          routing_aliases: aliases,
+          routing_app_hints: appHints,
+          routing_url_hints: urlHints,
+          routing_window_hints: windowHints,
+          routing_positive_examples: lines(positiveExamplesText),
+          routing_negative_examples: lines(negativeExamplesText),
         });
         onSaved(updated);
       } else {
@@ -132,6 +154,12 @@ export default function ProjectEditor({
           keywords: finalKeywords,
           color: color || undefined,
           emoji: emoji.trim() || undefined,
+          routing_aliases: aliases,
+          routing_app_hints: appHints,
+          routing_url_hints: urlHints,
+          routing_window_hints: windowHints,
+          routing_positive_examples: lines(positiveExamplesText),
+          routing_negative_examples: lines(negativeExamplesText),
         });
         // Create endpoint doesn't accept export_folder; if one was chosen,
         // immediately patch the new project to set it.
@@ -328,6 +356,59 @@ export default function ProjectEditor({
         </span>
       </div>
 
+      <div className="flex flex-col gap-3 border-t border-line pt-3">
+        <div>
+          <h4 className="text-xs font-semibold text-fg">Routing</h4>
+        </div>
+        <RoutingChipEditor
+          label="Aliases"
+          values={aliases}
+          onChange={setAliases}
+          placeholder="livecase, hbsp, case simulation"
+          lowercase
+        />
+        <RoutingChipEditor
+          label="App hints"
+          values={appHints}
+          onChange={setAppHints}
+          placeholder="Code, Google Chrome"
+        />
+        <RoutingChipEditor
+          label="URL hints"
+          values={urlHints}
+          onChange={setUrlHints}
+          placeholder="hbsp.harvard.edu, github.com/desduvauchelle/echo-scribe"
+          lowercase
+        />
+        <RoutingChipEditor
+          label="Window hints"
+          values={windowHints}
+          onChange={setWindowHints}
+          placeholder="echo-scribe, livecaseplus"
+          lowercase
+        />
+        <label className="flex flex-col gap-1 text-xs text-muted">
+          Positive examples
+          <textarea
+            value={positiveExamplesText}
+            onChange={(e) => setPositiveExamplesText(e.target.value)}
+            rows={3}
+            placeholder="One capture example per line"
+            className="rounded-md border border-line bg-canvas px-3 py-2 text-sm focus:border-accent focus:outline-none"
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-xs text-muted">
+          Negative examples
+          <textarea
+            value={negativeExamplesText}
+            onChange={(e) => setNegativeExamplesText(e.target.value)}
+            rows={2}
+            placeholder="Phrases that should not route here"
+            className="rounded-md border border-line bg-canvas px-3 py-2 text-sm focus:border-accent focus:outline-none"
+          />
+        </label>
+      </div>
+
       <div className="flex flex-col gap-1 text-xs text-muted">
         Color
         <div className="flex items-center gap-2">
@@ -447,6 +528,74 @@ export default function ProjectEditor({
   );
 }
 
+function RoutingChipEditor({
+  label,
+  values,
+  onChange,
+  placeholder,
+  lowercase = false,
+}: {
+  label: string;
+  values: string[];
+  onChange: (values: string[]) => void;
+  placeholder: string;
+  lowercase?: boolean;
+}) {
+  const [input, setInput] = useState("");
+
+  const normalize = (raw: string) => {
+    const trimmed = raw.trim();
+    return lowercase ? trimmed.toLowerCase() : trimmed;
+  };
+  const add = (raw: string) => {
+    const next = normalize(raw);
+    if (!next || values.includes(next)) return;
+    onChange([...values, next]);
+    setInput("");
+  };
+  const remove = (value: string) => onChange(values.filter((v) => v !== value));
+
+  return (
+    <div className="flex flex-col gap-1 text-xs text-muted">
+      {label}
+      <div className="flex flex-wrap gap-1 rounded-md border border-line bg-canvas px-2 py-1.5">
+        {values.map((value) => (
+          <span
+            key={value}
+            className="inline-flex items-center gap-1 rounded-full bg-elevated px-2 py-0.5 text-xs text-fg"
+          >
+            {value}
+            <button
+              type="button"
+              onClick={() => remove(value)}
+              className="text-faint hover:text-danger"
+              aria-label={`Remove ${value}`}
+            >
+              ×
+            </button>
+          </span>
+        ))}
+        <input
+          type="text"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === ",") {
+              e.preventDefault();
+              add(input);
+            } else if (e.key === "Backspace" && input === "" && values.length > 0) {
+              remove(values[values.length - 1]);
+            }
+          }}
+          onBlur={() => input.trim() && add(input)}
+          placeholder={values.length === 0 ? placeholder : ""}
+          className="flex-1 min-w-32 bg-transparent text-sm focus:outline-none"
+        />
+      </div>
+    </div>
+  );
+}
+
 /** Reusable badge showing a project's emoji + colored dot + name. Used wherever
  *  a project chip appears (item cards, filters, etc.). */
 export function ProjectBadge({
@@ -474,4 +623,3 @@ export function ProjectBadge({
     </span>
   );
 }
-

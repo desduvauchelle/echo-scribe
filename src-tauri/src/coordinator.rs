@@ -633,6 +633,11 @@ fn persist_capture(
                 let _ = db.with_conn(|c| {
                     crate::db::events::insert_event(c, &id_for_event, "created", Some("via voice_at_cursor"))
                 });
+                let id_for_tag = id.clone();
+                let now_for_tag = now.clone();
+                let _ = db.with_conn(|c| {
+                    crate::db::project_tag_jobs::enqueue(c, &id_for_tag, &now_for_tag)
+                });
                 let _ = app.emit("item:created", ());
             }
             Err(e) => {
@@ -1263,4 +1268,3 @@ mod tests {
         );
     }
 }
-

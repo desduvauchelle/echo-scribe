@@ -68,7 +68,14 @@ import {
   setActionTriggerWord,
   getFormatTemplates,
   setFormatTemplates,
+  getProjectAutoTaggingEnabled,
+  setProjectAutoTaggingEnabled,
+  projectTaggerStatus,
+  projectTaggerBackfill,
+  runProjectTaggerDeterministicOnce,
+  runProjectTaggerLlmOnce,
   type FormatTemplate,
+  type ProjectTaggerStatus,
   driveStatus,
   driveConnect,
   driveDisconnect,
@@ -291,6 +298,7 @@ function LogCapturePage() {
       </Section>
 
       <AutoFileSettings />
+      <ProjectAutoTaggingSettings />
       <ExportSettings />
     </div>
   );
@@ -404,6 +412,111 @@ function ExportSettings() {
             className="w-full"
           />
         </label>
+      </div>
+    </Section>
+  );
+}
+
+function ProjectAutoTaggingSettings() {
+  const toasts = useToasts();
+  const [enabled, setEnabled] = useState(true);
+  const [status, setStatus] = useState<ProjectTaggerStatus | null>(null);
+  const [busy, setBusy] = useState<"backfill" | "router" | "llm" | null>(null);
+
+  const refresh = async () => {
+    const [enabledValue, statusValue] = await Promise.all([
+      getProjectAutoTaggingEnabled().catch(() => true),
+      projectTaggerStatus().catch(() => null),
+    ]);
+    setEnabled(enabledValue);
+    setStatus(statusValue);
+  };
+
+  useEffect(() => {
+    void refresh();
+  }, []);
+
+  const run = async (kind: "backfill" | "router" | "llm") => {
+    setBusy(kind);
+    try {
+      if (kind === "backfill") {
+        const n = await projectTaggerBackfill({ source: "voice_at_cursor", limit: 500 });
+        toasts.push({ tone: "success", message: `Queued ${n} transcription${n === 1 ? "" : "s"} for tagging.` });
+      } else if (kind === "router") {
+        const s = await runProjectTaggerDeterministicOnce();
+        toasts.push({ tone: "success", message: `Router assigned ${s.assigned} of ${s.scanned} queued item${s.scanned === 1 ? "" : "s"}.` });
+      } else {
+        const s = await runProjectTaggerLlmOnce();
+        toasts.push({ tone: "success", message: `Local AI assigned ${s.assigned} of ${s.scanned} queued item${s.scanned === 1 ? "" : "s"}.` });
+      }
+      await refresh();
+    } catch (e) {
+      toasts.push({
+        tone: "error",
+        message: `Project tagging failed: ${e instanceof Error ? e.message : String(e)}`,
+      });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <Section
+      title="Project auto-tagging"
+      subtitle="Organize direct dictations later in batches so the local AI model does not load after every paste."
+    >
+      <div className="flex flex-col gap-3">
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={enabled}
+            onChange={async (e) => {
+              const next = e.target.checked;
+              setEnabled(next);
+              try {
+                await setProjectAutoTaggingEnabled(next);
+                await refresh();
+              } catch {
+                setEnabled(!next);
+              }
+            }}
+          />
+          Enable deferred project tagging
+        </label>
+        {status && (
+          <div className="grid grid-cols-2 gap-2 text-xs text-muted sm:grid-cols-4">
+            <span>Pending: <span className="font-mono text-fg">{status.pending}</span></span>
+            <span>Deferred: <span className="font-mono text-fg">{status.deferred}</span></span>
+            <span>Done: <span className="font-mono text-fg">{status.done}</span></span>
+            <span>Failed: <span className="font-mono text-fg">{status.failed}</span></span>
+          </div>
+        )}
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={busy !== null}
+            onClick={() => void run("backfill")}
+            className="rounded-md border border-line px-3 py-1 text-xs hover:bg-elevated disabled:opacity-50"
+          >
+            {busy === "backfill" ? "Queueing..." : "Queue unassigned dictations"}
+          </button>
+          <button
+            type="button"
+            disabled={busy !== null}
+            onClick={() => void run("router")}
+            className="rounded-md border border-line px-3 py-1 text-xs hover:bg-elevated disabled:opacity-50"
+          >
+            {busy === "router" ? "Running..." : "Run keyword router"}
+          </button>
+          <button
+            type="button"
+            disabled={busy !== null || status?.llm_ready === false}
+            onClick={() => void run("llm")}
+            className="rounded-md border border-line px-3 py-1 text-xs hover:bg-elevated disabled:opacity-50"
+          >
+            {busy === "llm" ? "Running..." : "Run local AI batch"}
+          </button>
+        </div>
       </div>
     </Section>
   );

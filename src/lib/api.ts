@@ -203,6 +203,12 @@ export type Project = {
   /** Absolute filesystem path where high-confidence items routed to this
    *  project are exported as markdown. `null` = export disabled. */
   export_folder: string | null;
+  routing_aliases: string[];
+  routing_app_hints: string[];
+  routing_url_hints: string[];
+  routing_window_hints: string[];
+  routing_positive_examples: string[];
+  routing_negative_examples: string[];
 };
 
 /** Partial update payload mirroring `ProjectPatch` on the Rust side.
@@ -215,14 +221,44 @@ export type ProjectPatch = {
   color?: string | null;
   emoji?: string | null;
   export_folder?: string | null;
+  routing_aliases?: string[];
+  routing_app_hints?: string[];
+  routing_url_hints?: string[];
+  routing_window_hints?: string[];
+  routing_positive_examples?: string[];
+  routing_negative_examples?: string[];
 };
 
 export type CreateProjectInput = {
   name: string;
   description?: string;
   keywords?: string[];
+  routing_aliases?: string[];
+  routing_app_hints?: string[];
+  routing_url_hints?: string[];
+  routing_window_hints?: string[];
+  routing_positive_examples?: string[];
+  routing_negative_examples?: string[];
   color?: string;
   emoji?: string;
+};
+
+export type ProjectTaggerStatus = {
+  enabled: boolean;
+  pending: number;
+  deferred: number;
+  done: number;
+  failed: number;
+  llm_ready: boolean;
+  deterministic_batch_size: number;
+  interval_minutes: number;
+};
+
+export type ProjectTaggerRunSummary = {
+  scanned: number;
+  assigned: number;
+  deferred: number;
+  failed: number;
 };
 
 export type TaskWithItem = {
@@ -346,6 +382,34 @@ export const deleteProject = (
 
 export const countItemsForProject = (id: string): Promise<number> =>
   invoke("count_items_for_project", { id });
+
+export const getProjectAutoTaggingEnabled = (): Promise<boolean> =>
+  invoke("get_project_auto_tagging_enabled");
+
+export const setProjectAutoTaggingEnabled = (enabled: boolean): Promise<void> =>
+  invoke("set_project_auto_tagging_enabled", { enabled });
+
+export const projectTaggerStatus = (): Promise<ProjectTaggerStatus> =>
+  invoke("project_tagger_status");
+
+export const projectTaggerBackfill = (args: {
+  source?: ItemSource;
+  limit?: number;
+} = {}): Promise<number> =>
+  invoke("project_tagger_backfill", {
+    source: args.source ?? "voice_at_cursor",
+    limit: args.limit ?? 500,
+  });
+
+export const runProjectTaggerDeterministicOnce = (
+  limit?: number,
+): Promise<ProjectTaggerRunSummary> =>
+  invoke("run_project_tagger_deterministic_once", { limit: limit ?? null });
+
+export const runProjectTaggerLlmOnce = (
+  limit?: number,
+): Promise<ProjectTaggerRunSummary> =>
+  invoke("run_project_tagger_llm_once", { limit: limit ?? null });
 
 export const listTasks = (args: {
   include_completed?: boolean;
@@ -1101,4 +1165,3 @@ export const setScreenrecAudioPrefs = (prefs: ScreenrecAudioPrefs): Promise<void
   invoke("set_screenrec_audio_prefs", { prefs });
 export const openScreenrecSetup = (): Promise<void> =>
   invoke("open_screenrec_setup");
-

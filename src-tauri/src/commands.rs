@@ -21,18 +21,20 @@ use tracing::{error, info};
 use crate::asr::downloader::{self, DownloadProgress};
 use crate::asr::pipeline::AsrPipeline;
 use crate::asr::registry::{self, ModelEntry};
-use crate::llm::{self, rag, GenerateRequest, Llm, LlmDownloadProgress, LlmModelEntry};
-use crate::coordinator::{self, new_state_handle, Action, CoordinatorMsg, TrayPipelineState};
+use crate::coordinator::{self, Action, CoordinatorMsg, StateHandle, TrayPipelineState};
+use crate::db::chat;
 use crate::db::items::{chrono_now_iso, ItemKind};
 use crate::db::projects::{Project, ProjectPatch};
 use crate::db::tasks::TaskWithItem;
 use crate::db::{self, ChatMessage, ChatSession, Db, Item};
-use crate::db::chat;
-use crate::temporal::extract_date_window;
-use crate::input::binding::{code_from_key, key_from_code, Binding, ModifierKind, ModifierSide, SerKey};
+use crate::input::binding::{
+    code_from_key, key_from_code, Binding, ModifierKind, ModifierSide, SerKey,
+};
 use crate::input::hotkeys::{spawn_listener, HotkeyEvent};
+use crate::llm::{self, rag, GenerateRequest, Llm, LlmDownloadProgress, LlmModelEntry};
 use crate::permissions::{self, MicAccessOutcome, PermissionsStatus, SettingsPane};
 use crate::settings::SettingsStore;
+use crate::temporal::extract_date_window;
 use crate::ui::tray::TrayHandle;
 
 /// Metadata captured at recording-start time so `stop_screen_recording` can
@@ -69,6 +71,7 @@ pub struct AppState {
     /// confirmation messages for LogCapture. Populated on first
     /// `start_pipeline`.
     pub coord_tx: Mutex<Option<UnboundedSender<CoordinatorMsg>>>,
+    pub pipeline_state: StateHandle,
     pub asr: Arc<AsrPipeline>,
     pub llm: Arc<Llm>,
     /// On-disk SQLite handle. `None` only if DB initialization failed at
@@ -81,7 +84,9 @@ pub struct AppState {
     /// of `AppState` so logs flush on graceful exit — see `lib.rs::run`.
     pub _log_guard: Mutex<Option<tracing_appender::non_blocking::WorkerGuard>>,
     pub meeting_manager: Arc<crate::meeting::MeetingManager>,
-    pub active_recording: std::sync::Arc<std::sync::Mutex<Option<(crate::screenrec::ScreenrecHandle, RecordingMeta)>>>,
+    pub active_recording: std::sync::Arc<
+        std::sync::Mutex<Option<(crate::screenrec::ScreenrecHandle, RecordingMeta)>>,
+    >,
 }
 
 /// JSON-friendly mirror of [`Binding`].
@@ -126,7 +131,9 @@ impl TryFrom<JsBinding> for Binding {
                 "Alt" => ModifierKind::Alt,
                 "Meta" => ModifierKind::Meta,
                 other => {
-                    return Err(BindingConversionError::UnknownModifierKind(other.to_string()))
+                    return Err(BindingConversionError::UnknownModifierKind(
+                        other.to_string(),
+                    ))
                 }
             };
             let side = match m.side.as_str() {
@@ -134,7 +141,9 @@ impl TryFrom<JsBinding> for Binding {
                 "Right" => ModifierSide::Right,
                 "Either" => ModifierSide::Either,
                 other => {
-                    return Err(BindingConversionError::UnknownModifierSide(other.to_string()))
+                    return Err(BindingConversionError::UnknownModifierSide(
+                        other.to_string(),
+                    ))
                 }
             };
             modifiers.push((kind, side));
@@ -248,7 +257,9 @@ pub fn update_voice_at_cursor_binding(
     state: State<'_, AppState>,
     binding: JsBinding,
 ) -> Result<(), String> {
-    let parsed: Binding = binding.try_into().map_err(|e: BindingConversionError| e.to_string())?;
+    let parsed: Binding = binding
+        .try_into()
+        .map_err(|e: BindingConversionError| e.to_string())?;
     state
         .settings
         .set_voice_at_cursor_binding(parsed.clone())
@@ -302,10 +313,7 @@ pub fn get_action_binding(state: State<'_, AppState>) -> JsBinding {
 }
 
 #[tauri::command]
-pub fn update_action_binding(
-    state: State<'_, AppState>,
-    binding: JsBinding,
-) -> Result<(), String> {
+pub fn update_action_binding(state: State<'_, AppState>, binding: JsBinding) -> Result<(), String> {
     let parsed: Binding = binding
         .try_into()
         .map_err(|e: BindingConversionError| e.to_string())?;
@@ -343,10 +351,7 @@ pub fn get_action_trigger_word(state: State<'_, AppState>) -> String {
 }
 
 #[tauri::command]
-pub fn set_action_trigger_word(
-    state: State<'_, AppState>,
-    word: String,
-) -> Result<(), String> {
+pub fn set_action_trigger_word(state: State<'_, AppState>, word: String) -> Result<(), String> {
     state
         .settings
         .set_action_trigger_word(&word)
@@ -404,7 +409,9 @@ pub fn cancel_log_capture(state: State<'_, AppState>) -> Result<(), String> {
         .coord_tx
         .lock()
         .map_err(|_| "coord_tx lock poisoned".to_string())?;
-    let tx = slot.as_ref().ok_or_else(|| "pipeline not started".to_string())?;
+    let tx = slot
+        .as_ref()
+        .ok_or_else(|| "pipeline not started".to_string())?;
     tx.send(CoordinatorMsg::CancelLogCapture)
         .map_err(|e| e.to_string())?;
     Ok(())
@@ -474,10 +481,7 @@ pub fn get_active_speech_model_id(state: State<'_, AppState>) -> String {
 }
 
 #[tauri::command]
-pub fn set_active_speech_model(
-    state: State<'_, AppState>,
-    id: String,
-) -> Result<(), String> {
+pub fn set_active_speech_model(state: State<'_, AppState>, id: String) -> Result<(), String> {
     let entry = registry::lookup(&id)
         .ok_or_else(|| format!("unknown speech model id: {id}"))?
         .clone();
@@ -520,8 +524,7 @@ pub async fn download_speech_model(
 
 #[tauri::command]
 pub fn delete_speech_model(id: String) -> Result<(), String> {
-    let entry = registry::lookup(&id)
-        .ok_or_else(|| format!("unknown speech model id: {id}"))?;
+    let entry = registry::lookup(&id).ok_or_else(|| format!("unknown speech model id: {id}"))?;
     let dir = downloader::model_dir(entry);
     if dir.is_dir() {
         std::fs::remove_dir_all(&dir).map_err(|e| e.to_string())?;
@@ -563,9 +566,21 @@ pub fn ensure_pipeline_started(state: &AppState, app: &AppHandle) {
     let (lc_tx, mut lc_rx) = mpsc::unbounded_channel::<HotkeyEvent>();
     let (ac_tx, mut ac_rx) = mpsc::unbounded_channel::<HotkeyEvent>();
 
-    spawn_listener(Arc::clone(&state.binding), vac_tx, Arc::clone(&state.rebinding));
-    spawn_listener(Arc::clone(&state.log_capture_binding), lc_tx, Arc::clone(&state.rebinding));
-    spawn_listener(Arc::clone(&state.action_binding), ac_tx, Arc::clone(&state.rebinding));
+    spawn_listener(
+        Arc::clone(&state.binding),
+        vac_tx,
+        Arc::clone(&state.rebinding),
+    );
+    spawn_listener(
+        Arc::clone(&state.log_capture_binding),
+        lc_tx,
+        Arc::clone(&state.rebinding),
+    );
+    spawn_listener(
+        Arc::clone(&state.action_binding),
+        ac_tx,
+        Arc::clone(&state.rebinding),
+    );
 
     // Adapter tasks: tag + forward into the coordinator channel. We use
     // `tokio::spawn` rather than a dedicated thread because these are pure
@@ -610,7 +625,7 @@ pub fn ensure_pipeline_started(state: &AppState, app: &AppHandle) {
         });
     }
 
-    let pipeline_state = new_state_handle();
+    let pipeline_state = Arc::clone(&state.pipeline_state);
     let tray_for_state = Arc::clone(&state.tray);
     let asr = Arc::clone(&state.asr);
     let llm = Arc::clone(&state.llm);
@@ -672,9 +687,7 @@ fn require_db(state: &AppState) -> Result<&Db, String> {
 }
 
 fn clamp_limit(limit: Option<u32>) -> u32 {
-    limit
-        .unwrap_or(DEFAULT_ITEM_LIMIT)
-        .clamp(1, MAX_ITEM_LIMIT)
+    limit.unwrap_or(DEFAULT_ITEM_LIMIT).clamp(1, MAX_ITEM_LIMIT)
 }
 
 #[tauri::command]
@@ -688,8 +701,10 @@ pub fn list_items(
     let db = require_db(&state)?;
     let limit = clamp_limit(limit);
     let offset = offset.unwrap_or(0);
-    db.with_conn(|c| db::items::list_items(c, project_id.as_deref(), kind.as_deref(), limit, offset))
-        .map_err(|e| e.to_string())
+    db.with_conn(|c| {
+        db::items::list_items(c, project_id.as_deref(), kind.as_deref(), limit, offset)
+    })
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -735,8 +750,7 @@ pub struct ActivityExportOutcome {
     pub count: u32,
 }
 
-const EXPORT_FRIENDLY_ERR: &str =
-    "Export failed. See Settings → Diagnostics → logs for details.";
+const EXPORT_FRIENDLY_ERR: &str = "Export failed. See Settings → Diagnostics → logs for details.";
 
 /// Export all activity (transcriptions, notes, tasks, meetings) captured at or
 /// after `since` (ISO-8601 UTC; `None` = all time) as one Markdown or CSV file
@@ -792,16 +806,15 @@ pub fn export_activity(
     for item in items {
         // Meeting record = source 'meeting' with no parsed kind (the kind
         // column stores 'meeting'); meeting-derived tasks keep kind = task.
-        let meeting = if matches!(item.source, db::items::ItemSource::Meeting)
-            && item.kind.is_none()
-        {
-            let id = item.id.clone();
-            db.with_conn(move |c| db::meetings::get_meeting(c, &id))
-                .ok()
-                .flatten()
-        } else {
-            None
-        };
+        let meeting =
+            if matches!(item.source, db::items::ItemSource::Meeting) && item.kind.is_none() {
+                let id = item.id.clone();
+                db.with_conn(move |c| db::meetings::get_meeting(c, &id))
+                    .ok()
+                    .flatten()
+            } else {
+                None
+            };
         let project_name = item
             .project_id
             .as_deref()
@@ -852,7 +865,10 @@ pub fn export_activity(
     );
 
     // Best-effort reveal in Finder; the export itself already succeeded.
-    let _ = std::process::Command::new("open").arg("-R").arg(&path).spawn();
+    let _ = std::process::Command::new("open")
+        .arg("-R")
+        .arg(&path)
+        .spawn();
 
     Ok(ActivityExportOutcome {
         path: path.to_string_lossy().into_owned(),
@@ -880,15 +896,39 @@ pub struct CreateProjectInput {
     #[serde(default)]
     pub keywords: Option<Vec<String>>,
     #[serde(default)]
+    pub routing_aliases: Option<Vec<String>>,
+    #[serde(default)]
+    pub routing_app_hints: Option<Vec<String>>,
+    #[serde(default)]
+    pub routing_url_hints: Option<Vec<String>>,
+    #[serde(default)]
+    pub routing_window_hints: Option<Vec<String>>,
+    #[serde(default)]
+    pub routing_positive_examples: Option<Vec<String>>,
+    #[serde(default)]
+    pub routing_negative_examples: Option<Vec<String>>,
+    #[serde(default)]
     pub color: Option<String>,
     #[serde(default)]
     pub emoji: Option<String>,
 }
 
 fn normalize_keywords(kws: Vec<String>) -> Vec<String> {
+    normalize_string_list(kws, true)
+}
+
+fn normalize_string_list(values: Vec<String>, lowercase: bool) -> Vec<String> {
     use std::collections::BTreeSet;
-    kws.into_iter()
-        .map(|k| k.trim().to_lowercase())
+    values
+        .into_iter()
+        .map(|v| {
+            let t = v.trim();
+            if lowercase {
+                t.to_lowercase()
+            } else {
+                t.to_string()
+            }
+        })
         .filter(|k| !k.is_empty())
         .collect::<BTreeSet<_>>()
         .into_iter()
@@ -913,19 +953,49 @@ pub fn create_project(
         archived_at: None,
         description: input.description.and_then(|s| {
             let t = s.trim().to_string();
-            if t.is_empty() { None } else { Some(t) }
+            if t.is_empty() {
+                None
+            } else {
+                Some(t)
+            }
         }),
         keywords: normalize_keywords(input.keywords.unwrap_or_default()),
         color: input.color.and_then(|s| {
             let t = s.trim().to_string();
-            if t.is_empty() { None } else { Some(t) }
+            if t.is_empty() {
+                None
+            } else {
+                Some(t)
+            }
         }),
         emoji: input.emoji.and_then(|s| {
             let t = s.trim().to_string();
-            if t.is_empty() { None } else { Some(t) }
+            if t.is_empty() {
+                None
+            } else {
+                Some(t)
+            }
         }),
         updated_at: Some(now),
         export_folder: None,
+        routing_aliases: normalize_string_list(input.routing_aliases.unwrap_or_default(), true),
+        routing_app_hints: normalize_string_list(
+            input.routing_app_hints.unwrap_or_default(),
+            false,
+        ),
+        routing_url_hints: normalize_string_list(input.routing_url_hints.unwrap_or_default(), true),
+        routing_window_hints: normalize_string_list(
+            input.routing_window_hints.unwrap_or_default(),
+            true,
+        ),
+        routing_positive_examples: normalize_string_list(
+            input.routing_positive_examples.unwrap_or_default(),
+            false,
+        ),
+        routing_negative_examples: normalize_string_list(
+            input.routing_negative_examples.unwrap_or_default(),
+            false,
+        ),
     };
     let p = project.clone();
     db.with_conn(move |c| db::projects::insert_project(c, &p))
@@ -965,18 +1035,48 @@ pub fn update_project(
     }
     if let Some(Some(desc)) = &patch.description {
         let trimmed = desc.trim().to_string();
-        patch.description = if trimmed.is_empty() { Some(None) } else { Some(Some(trimmed)) };
+        patch.description = if trimmed.is_empty() {
+            Some(None)
+        } else {
+            Some(Some(trimmed))
+        };
     }
     if let Some(Some(color)) = &patch.color {
         let trimmed = color.trim().to_string();
-        patch.color = if trimmed.is_empty() { Some(None) } else { Some(Some(trimmed)) };
+        patch.color = if trimmed.is_empty() {
+            Some(None)
+        } else {
+            Some(Some(trimmed))
+        };
     }
     if let Some(Some(emoji)) = &patch.emoji {
         let trimmed = emoji.trim().to_string();
-        patch.emoji = if trimmed.is_empty() { Some(None) } else { Some(Some(trimmed)) };
+        patch.emoji = if trimmed.is_empty() {
+            Some(None)
+        } else {
+            Some(Some(trimmed))
+        };
     }
     if let Some(kws) = patch.keywords {
         patch.keywords = Some(normalize_keywords(kws));
+    }
+    if let Some(v) = patch.routing_aliases {
+        patch.routing_aliases = Some(normalize_string_list(v, true));
+    }
+    if let Some(v) = patch.routing_app_hints {
+        patch.routing_app_hints = Some(normalize_string_list(v, false));
+    }
+    if let Some(v) = patch.routing_url_hints {
+        patch.routing_url_hints = Some(normalize_string_list(v, true));
+    }
+    if let Some(v) = patch.routing_window_hints {
+        patch.routing_window_hints = Some(normalize_string_list(v, true));
+    }
+    if let Some(v) = patch.routing_positive_examples {
+        patch.routing_positive_examples = Some(normalize_string_list(v, false));
+    }
+    if let Some(v) = patch.routing_negative_examples {
+        patch.routing_negative_examples = Some(normalize_string_list(v, false));
     }
 
     let id = input.id.clone();
@@ -1001,11 +1101,7 @@ pub fn update_project(
 }
 
 #[tauri::command]
-pub fn rename_project(
-    state: State<'_, AppState>,
-    id: String,
-    name: String,
-) -> Result<(), String> {
+pub fn rename_project(state: State<'_, AppState>, id: String, name: String) -> Result<(), String> {
     // Kept as a thin shim over update_project so existing callers keep
     // working. New UI should call update_project directly.
     let patch = ProjectPatch {
@@ -1073,10 +1169,7 @@ pub fn delete_project(
 }
 
 #[tauri::command]
-pub fn count_items_for_project(
-    state: State<'_, AppState>,
-    id: String,
-) -> Result<u32, String> {
+pub fn count_items_for_project(state: State<'_, AppState>, id: String) -> Result<u32, String> {
     let db = require_db(&state)?;
     db.with_conn(|c| db::projects::count_items_for_project(c, &id))
         .map_err(|e| e.to_string())
@@ -1154,10 +1247,7 @@ where
 }
 
 #[tauri::command]
-pub fn update_item(
-    state: State<'_, AppState>,
-    args: UpdateItemArgs,
-) -> Result<Item, String> {
+pub fn update_item(state: State<'_, AppState>, args: UpdateItemArgs) -> Result<Item, String> {
     let db = require_db(&state)?;
     let kind_arg: Option<Option<ItemKind>> = match args.kind.as_deref() {
         None => None,
@@ -1172,8 +1262,7 @@ pub fn update_item(
     let tags_arg = args.tags.clone();
 
     db.with_conn(move |c| {
-        let project_ref: Option<Option<&str>> =
-            project_arg.as_ref().map(|inner| inner.as_deref());
+        let project_ref: Option<Option<&str>> = project_arg.as_ref().map(|inner| inner.as_deref());
         db::items::update_item(
             c,
             &id_for_db,
@@ -1200,7 +1289,8 @@ pub fn update_item(
         } else {
             format!("kind set to {kind_val}")
         };
-        let _ = db.with_conn(move |c| db::events::insert_event(c, &id_ev, "kind_changed", Some(&detail)));
+        let _ = db
+            .with_conn(move |c| db::events::insert_event(c, &id_ev, "kind_changed", Some(&detail)));
     }
     if let Some(ref proj) = args.project_id {
         let id_ev = args.id.clone();
@@ -1208,7 +1298,9 @@ pub fn update_item(
             Some(pid) => format!("assigned to project {pid}"),
             None => "removed from project".to_string(),
         };
-        let _ = db.with_conn(move |c| db::events::insert_event(c, &id_ev, "project_changed", Some(&detail)));
+        let _ = db.with_conn(move |c| {
+            db::events::insert_event(c, &id_ev, "project_changed", Some(&detail))
+        });
     }
     if args.tags.is_some() {
         let id_ev = args.id.clone();
@@ -1266,10 +1358,7 @@ pub fn get_auto_file_enabled(state: State<'_, AppState>) -> bool {
 }
 
 #[tauri::command]
-pub fn set_auto_file_enabled(
-    enabled: bool,
-    state: State<'_, AppState>,
-) -> Result<(), String> {
+pub fn set_auto_file_enabled(enabled: bool, state: State<'_, AppState>) -> Result<(), String> {
     state
         .settings
         .set_auto_file_enabled(enabled)
@@ -1282,10 +1371,7 @@ pub fn get_auto_file_threshold(state: State<'_, AppState>) -> f32 {
 }
 
 #[tauri::command]
-pub fn set_auto_file_threshold(
-    threshold: f32,
-    state: State<'_, AppState>,
-) -> Result<(), String> {
+pub fn set_auto_file_threshold(threshold: f32, state: State<'_, AppState>) -> Result<(), String> {
     state
         .settings
         .set_auto_file_threshold(threshold)
@@ -1305,6 +1391,107 @@ pub fn set_export_confidence_threshold(
     state
         .settings
         .set_export_confidence_threshold(threshold)
+        .map_err(|e| e.to_string())
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ProjectTaggerStatus {
+    pub enabled: bool,
+    pub pending: u32,
+    pub deferred: u32,
+    pub done: u32,
+    pub failed: u32,
+    pub llm_ready: bool,
+    pub deterministic_batch_size: u32,
+    pub interval_minutes: u64,
+}
+
+#[tauri::command]
+pub fn get_project_auto_tagging_enabled(state: State<'_, AppState>) -> bool {
+    state.settings.project_auto_tagging_enabled()
+}
+
+#[tauri::command]
+pub fn set_project_auto_tagging_enabled(
+    enabled: bool,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    state
+        .settings
+        .set_project_auto_tagging_enabled(enabled)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn project_tagger_status(state: State<'_, AppState>) -> Result<ProjectTaggerStatus, String> {
+    let db = require_db(&state)?;
+    let counts = db
+        .with_conn(crate::db::project_tag_jobs::counts)
+        .map_err(|e| e.to_string())?;
+    Ok(ProjectTaggerStatus {
+        enabled: state.settings.project_auto_tagging_enabled(),
+        pending: counts.pending,
+        deferred: counts.deferred,
+        done: counts.done,
+        failed: counts.failed,
+        llm_ready: state.llm.ready(),
+        deterministic_batch_size: state.settings.project_auto_tagging_batch_size(),
+        interval_minutes: state.settings.project_auto_tagging_interval_minutes(),
+    })
+}
+
+#[tauri::command]
+pub fn project_tagger_backfill(
+    state: State<'_, AppState>,
+    source: Option<String>,
+    limit: Option<u32>,
+) -> Result<u32, String> {
+    let db = require_db(&state)?;
+    let source = match source.as_deref() {
+        None | Some("voice_at_cursor") => Some(crate::db::items::ItemSource::VoiceAtCursor),
+        Some("log_capture") => Some(crate::db::items::ItemSource::LogCapture),
+        Some("meeting") => Some(crate::db::items::ItemSource::Meeting),
+        Some(other) => return Err(format!("invalid source: {other}")),
+    };
+    let now = chrono_now_iso();
+    db.with_conn(|c| {
+        crate::db::project_tag_jobs::enqueue_backfill(c, source, limit.unwrap_or(500), &now)
+    })
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn run_project_tagger_deterministic_once(
+    state: State<'_, AppState>,
+    limit: Option<u32>,
+) -> Result<crate::project_tagger::ProjectTaggerRunSummary, String> {
+    let db = require_db(&state)?;
+    let now = chrono_now_iso();
+    db.with_conn(|c| {
+        crate::project_tagger::run_deterministic_batch(
+            c,
+            limit.unwrap_or_else(|| state.settings.project_auto_tagging_batch_size()),
+            &now,
+        )
+    })
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn run_project_tagger_llm_once(
+    state: State<'_, AppState>,
+    limit: Option<u32>,
+) -> Result<crate::project_tagger::ProjectTaggerRunSummary, String> {
+    if !state.llm.ready() {
+        return Err("No local AI model is ready for project tagging.".into());
+    }
+    let db = require_db(&state)?.clone();
+    let llm = Arc::clone(&state.llm);
+    let now = chrono_now_iso();
+    let dow = crate::classifier::dow_from_iso(&now).to_string();
+    let limit = limit.unwrap_or_else(|| state.settings.project_auto_tagging_batch_size());
+    crate::project_tagger::run_llm_batch_db(&db, llm.as_ref(), limit, &now, &dow)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -1410,8 +1597,12 @@ pub fn list_claude_sessions() -> Result<Vec<ClaudeSessionSummary>, String> {
                                 } else if let Some(arr) = msg.as_array() {
                                     arr.iter()
                                         .filter_map(|item| {
-                                            if item.get("type").and_then(|t| t.as_str()) == Some("text") {
-                                                item.get("text").and_then(|t| t.as_str()).map(|s| s.to_string())
+                                            if item.get("type").and_then(|t| t.as_str())
+                                                == Some("text")
+                                            {
+                                                item.get("text")
+                                                    .and_then(|t| t.as_str())
+                                                    .map(|s| s.to_string())
                                             } else {
                                                 None
                                             }
@@ -1488,7 +1679,9 @@ pub fn load_claude_session(session_id: String) -> Result<Vec<ClaudeSessionMessag
                     arr.iter()
                         .filter_map(|item| {
                             if item.get("type").and_then(|t| t.as_str()) == Some("text") {
-                                item.get("text").and_then(|t| t.as_str()).map(|s| s.to_string())
+                                item.get("text")
+                                    .and_then(|t| t.as_str())
+                                    .map(|s| s.to_string())
                             } else {
                                 None
                             }
@@ -1548,9 +1741,7 @@ fn claude_sessions_dir() -> Option<std::path::PathBuf> {
 #[tauri::command]
 pub async fn reset_onboarding_and_quit(app: AppHandle) -> Result<(), String> {
     use tauri_plugin_store::StoreExt;
-    let store = app
-        .store("settings.json")
-        .map_err(|e| e.to_string())?;
+    let store = app.store("settings.json").map_err(|e| e.to_string())?;
     store.clear();
     store.save().map_err(|e| e.to_string())?;
     // Spawn a delayed exit so the command's reply has time to flush.
@@ -1708,8 +1899,7 @@ pub async fn download_llm_model(
 
 #[tauri::command]
 pub fn delete_llm_model(id: String) -> Result<(), String> {
-    let entry = llm::registry::lookup(&id)
-        .ok_or_else(|| format!("unknown llm model id: {id}"))?;
+    let entry = llm::registry::lookup(&id).ok_or_else(|| format!("unknown llm model id: {id}"))?;
     let dir = llm::model_dir(entry);
     if dir.is_dir() {
         std::fs::remove_dir_all(&dir).map_err(|e| e.to_string())?;
@@ -1725,10 +1915,7 @@ pub fn get_audio_feedback_enabled(state: State<'_, AppState>) -> bool {
 }
 
 #[tauri::command]
-pub fn set_audio_feedback_enabled(
-    state: State<'_, AppState>,
-    enabled: bool,
-) -> Result<(), String> {
+pub fn set_audio_feedback_enabled(state: State<'_, AppState>, enabled: bool) -> Result<(), String> {
     state
         .settings
         .set_audio_feedback_enabled(enabled)
@@ -1743,10 +1930,7 @@ pub fn get_mute_while_recording(state: State<'_, AppState>) -> bool {
 }
 
 #[tauri::command]
-pub fn set_mute_while_recording(
-    state: State<'_, AppState>,
-    enabled: bool,
-) -> Result<(), String> {
+pub fn set_mute_while_recording(state: State<'_, AppState>, enabled: bool) -> Result<(), String> {
     state
         .settings
         .set_mute_while_recording(enabled)
@@ -1761,10 +1945,7 @@ pub fn get_filler_removal_enabled(state: State<'_, AppState>) -> bool {
 }
 
 #[tauri::command]
-pub fn set_filler_removal_enabled(
-    state: State<'_, AppState>,
-    enabled: bool,
-) -> Result<(), String> {
+pub fn set_filler_removal_enabled(state: State<'_, AppState>, enabled: bool) -> Result<(), String> {
     state
         .settings
         .set_filler_removal_enabled(enabled)
@@ -1811,10 +1992,7 @@ pub fn get_onboarding_completed(state: State<'_, AppState>) -> bool {
 }
 
 #[tauri::command]
-pub fn set_onboarding_completed(
-    state: State<'_, AppState>,
-    completed: bool,
-) -> Result<(), String> {
+pub fn set_onboarding_completed(state: State<'_, AppState>, completed: bool) -> Result<(), String> {
     state
         .settings
         .set_onboarding_completed(completed)
@@ -1988,10 +2166,7 @@ pub fn load_chat_messages(
 }
 
 #[tauri::command]
-pub fn delete_chat_session(
-    state: State<'_, AppState>,
-    session_id: String,
-) -> Result<(), String> {
+pub fn delete_chat_session(state: State<'_, AppState>, session_id: String) -> Result<(), String> {
     let db = require_db(&state)?;
     db.with_conn(|c| chat::delete_session(c, &session_id))
         .map_err(|e| e.to_string())
@@ -2074,7 +2249,8 @@ pub async fn chat_with_memory(
 ) -> Result<ChatReply, String> {
     if !state.llm.ready() {
         return Ok(ChatReply {
-            reply: "No local AI model is loaded. Please download one in Settings → AI Model.".to_string(),
+            reply: "No local AI model is loaded. Please download one in Settings → AI Model."
+                .to_string(),
             sources: Vec::new(),
         });
     }
@@ -2266,10 +2442,7 @@ pub fn get_llm_unload_secs(state: State<'_, AppState>) -> u64 {
 }
 
 #[tauri::command]
-pub fn set_llm_unload_secs(
-    state: State<'_, AppState>,
-    secs: u64,
-) -> Result<(), String> {
+pub fn set_llm_unload_secs(state: State<'_, AppState>, secs: u64) -> Result<(), String> {
     state
         .settings
         .set_llm_unload_secs(secs)
@@ -2286,10 +2459,7 @@ pub fn get_asr_unload_secs(state: State<'_, AppState>) -> u64 {
 }
 
 #[tauri::command]
-pub fn set_asr_unload_secs(
-    state: State<'_, AppState>,
-    secs: u64,
-) -> Result<(), String> {
+pub fn set_asr_unload_secs(state: State<'_, AppState>, secs: u64) -> Result<(), String> {
     state
         .settings
         .set_asr_unload_secs(secs)
@@ -2303,7 +2473,9 @@ pub fn set_asr_unload_secs(
 // ----- Dashboard analytics -----
 
 #[tauri::command]
-pub fn get_dashboard_stats(state: State<'_, AppState>) -> Result<db::stats::DashboardStats, String> {
+pub fn get_dashboard_stats(
+    state: State<'_, AppState>,
+) -> Result<db::stats::DashboardStats, String> {
     let db = require_db(&state)?;
     use std::time::{SystemTime, UNIX_EPOCH};
     let now = SystemTime::now()
@@ -2322,9 +2494,7 @@ pub fn get_dashboard_stats(state: State<'_, AppState>) -> Result<db::stats::Dash
 // ============================================================================
 
 #[tauri::command]
-pub async fn start_meeting_manual(
-    state: tauri::State<'_, AppState>,
-) -> Result<String, String> {
+pub async fn start_meeting_manual(state: tauri::State<'_, AppState>) -> Result<String, String> {
     // Capture frontmost context so manual-start meetings also get the
     // window-title / URL / tab-title hint in the synthesis prompt.
     let start_context = capture_meeting_start_context();
@@ -2386,17 +2556,17 @@ pub async fn start_guided_session(
 }
 
 #[tauri::command]
-pub async fn guide_set_mode(
-    state: tauri::State<'_, AppState>,
-    mode: String,
-) -> Result<(), String> {
+pub async fn guide_set_mode(state: tauri::State<'_, AppState>, mode: String) -> Result<(), String> {
     let m = crate::meeting::guidance::Mode::parse(&mode)
         .ok_or_else(|| format!("unknown guide mode: {mode}"))?;
     if let Some(engine) = state.meeting_manager.guide_engine().await {
         engine.set_mode(m);
     }
     // Persist for next session even when no engine is active.
-    state.settings.set_guide_overlay_mode(m).map_err(|e| e.to_string())
+    state
+        .settings
+        .set_guide_overlay_mode(m)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -2421,9 +2591,7 @@ pub async fn guide_end(state: tauri::State<'_, AppState>) -> Result<String, Stri
 }
 
 #[tauri::command]
-pub async fn stop_meeting(
-    state: tauri::State<'_, AppState>,
-) -> Result<String, String> {
+pub async fn stop_meeting(state: tauri::State<'_, AppState>) -> Result<String, String> {
     state
         .meeting_manager
         .stop()
@@ -2432,9 +2600,7 @@ pub async fn stop_meeting(
 }
 
 #[tauri::command]
-pub async fn is_meeting_active(
-    state: tauri::State<'_, AppState>,
-) -> Result<bool, String> {
+pub async fn is_meeting_active(state: tauri::State<'_, AppState>) -> Result<bool, String> {
     Ok(state.meeting_manager.is_active().await)
 }
 
@@ -2596,10 +2762,7 @@ pub fn set_meeting_summary_prompt(
 }
 
 #[tauri::command]
-pub fn set_meeting_auto_detect(
-    state: tauri::State<'_, AppState>,
-    on: bool,
-) -> Result<(), String> {
+pub fn set_meeting_auto_detect(state: tauri::State<'_, AppState>, on: bool) -> Result<(), String> {
     state
         .settings
         .set_meeting_auto_detect(on)
@@ -2682,10 +2845,7 @@ pub async fn match_meeting_calendar(
 }
 
 #[tauri::command]
-pub fn delete_meeting(
-    state: tauri::State<'_, AppState>,
-    id: String,
-) -> Result<(), String> {
+pub fn delete_meeting(state: tauri::State<'_, AppState>, id: String) -> Result<(), String> {
     let db = state.db.as_ref().ok_or("db unavailable")?;
     db.with_conn(move |conn| {
         crate::db::meetings::delete_meeting(conn, &id)?;
@@ -2734,10 +2894,7 @@ pub fn get_input_device_sort(state: State<'_, AppState>) -> String {
 }
 
 #[tauri::command]
-pub fn set_input_device_sort(
-    state: State<'_, AppState>,
-    sort: String,
-) -> Result<(), String> {
+pub fn set_input_device_sort(state: State<'_, AppState>, sort: String) -> Result<(), String> {
     let parsed = match sort.as_str() {
         "last_used" => crate::settings::InputDeviceSort::LastUsed,
         "alphabetical" => crate::settings::InputDeviceSort::Alphabetical,
@@ -2756,7 +2913,10 @@ pub fn get_app_launcher_enabled(state: State<'_, AppState>) -> bool {
 
 #[tauri::command]
 pub fn set_app_launcher_enabled(state: State<'_, AppState>, enabled: bool) -> Result<(), String> {
-    state.settings.set_app_launcher_enabled(enabled).map_err(|e| e.to_string())
+    state
+        .settings
+        .set_app_launcher_enabled(enabled)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -2766,7 +2926,10 @@ pub fn get_action_counter(state: State<'_, AppState>) -> u32 {
 
 #[tauri::command]
 pub fn reset_action_counter(state: State<'_, AppState>) -> Result<(), String> {
-    state.settings.set_action_counter(0).map_err(|e| e.to_string())
+    state
+        .settings
+        .set_action_counter(0)
+        .map_err(|e| e.to_string())
 }
 
 #[derive(serde::Serialize)]
@@ -2800,10 +2963,7 @@ pub fn get_common_actions() -> Vec<CommonActionTemplate> {
         CommonActionTemplate {
             category: "Web Browsing".to_string(),
             description: "Navigate directly to websites in your default browser".to_string(),
-            voice_phrases: vec![
-                "open google".to_string(),
-                "go to github.com".to_string(),
-            ],
+            voice_phrases: vec!["open google".to_string(), "go to github.com".to_string()],
         },
         CommonActionTemplate {
             category: "Persistent Counter".to_string(),
@@ -2839,9 +2999,7 @@ pub fn set_format_templates(
 // ---------------------------------------------------------------------------
 
 use crate::daily_summary::{generate_for_date, DEFAULT_LLM_MODEL_ID};
-use crate::db::daily_summaries::{
-    self as daily_summaries_db, DailySummaryRow, SummaryStatus,
-};
+use crate::db::daily_summaries::{self as daily_summaries_db, DailySummaryRow, SummaryStatus};
 
 #[derive(serde::Serialize)]
 pub struct DailySummaryDto {
@@ -2867,10 +3025,8 @@ fn to_dto(row: DailySummaryRow) -> DailySummaryDto {
         narrative: row.narrative,
         sections: serde_json::from_str(&row.sections_json)
             .unwrap_or(serde_json::Value::Object(Default::default())),
-        source_meeting_ids: serde_json::from_str(&row.source_meeting_ids_json)
-            .unwrap_or_default(),
-        source_item_ids: serde_json::from_str(&row.source_item_ids_json)
-            .unwrap_or_default(),
+        source_meeting_ids: serde_json::from_str(&row.source_meeting_ids_json).unwrap_or_default(),
+        source_item_ids: serde_json::from_str(&row.source_item_ids_json).unwrap_or_default(),
         model_version: row.model_version,
     }
 }
@@ -2935,9 +3091,7 @@ pub fn daily_recap_settings_get(state: State<'_, AppState>) -> DailyRecapSetting
 }
 
 #[tauri::command]
-pub fn daily_recap_notification_permission_status(
-    app: tauri::AppHandle,
-) -> Result<bool, String> {
+pub fn daily_recap_notification_permission_status(app: tauri::AppHandle) -> Result<bool, String> {
     use tauri_plugin_notification::{NotificationExt, PermissionState};
     let state = app
         .notification()
@@ -3025,7 +3179,13 @@ pub fn update_guide_template(
     let now = chrono_now_iso();
     db.with_conn(move |c| {
         crate::db::guide_templates::update_template(
-            c, &id, &trimmed, &description, &goal, &notes, &now,
+            c,
+            &id,
+            &trimmed,
+            &description,
+            &goal,
+            &notes,
+            &now,
         )
     })
     .map_err(|e| e.to_string())
@@ -3050,7 +3210,10 @@ pub fn start_screen_recording(
     sysaudio: bool,
     source_label: String,
 ) -> Result<(), String> {
-    let mut guard = state.active_recording.lock().map_err(|_| "lock poisoned".to_string())?;
+    let mut guard = state
+        .active_recording
+        .lock()
+        .map_err(|_| "lock poisoned".to_string())?;
     if guard.is_some() {
         return Err("a recording is already in progress".into());
     }
@@ -3087,7 +3250,10 @@ pub fn start_screen_recording(
 
 #[tauri::command]
 pub fn is_screen_recording(state: State<'_, AppState>) -> Result<bool, String> {
-    let guard = state.active_recording.lock().map_err(|_| "lock poisoned".to_string())?;
+    let guard = state
+        .active_recording
+        .lock()
+        .map_err(|_| "lock poisoned".to_string())?;
     Ok(guard.is_some())
 }
 
@@ -3097,7 +3263,10 @@ pub fn stop_screen_recording_inner(
     state: &AppState,
 ) -> Result<crate::db::recordings::RecordingRow, String> {
     let (handle, meta) = {
-        let mut guard = state.active_recording.lock().map_err(|_| "lock poisoned".to_string())?;
+        let mut guard = state
+            .active_recording
+            .lock()
+            .map_err(|_| "lock poisoned".to_string())?;
         guard.take().ok_or("no recording in progress")?
     };
     let info = handle.stop()?;
@@ -3120,7 +3289,11 @@ pub fn stop_screen_recording_inner(
         source_label: Some(meta.source_label),
         has_mic: meta.has_mic,
         has_sysaudio: meta.has_sysaudio,
-        thumb_path: if info.thumb.is_empty() { None } else { Some(info.thumb) },
+        thumb_path: if info.thumb.is_empty() {
+            None
+        } else {
+            Some(info.thumb)
+        },
         drive_file_id: None,
         drive_link: None,
         upload_status: "none".into(),
@@ -3130,7 +3303,10 @@ pub fn stop_screen_recording_inner(
         transcript: None,
         denoised_path: None,
     };
-    let db = state.db.as_ref().ok_or_else(|| "database not available".to_string())?;
+    let db = state
+        .db
+        .as_ref()
+        .ok_or_else(|| "database not available".to_string())?;
     db.with_conn(|c| crate::db::recordings::insert(c, &row))
         .map_err(|e| e.to_string())?;
     // Flip tray icon back to idle.
@@ -3338,7 +3514,10 @@ pub(crate) async fn run_denoise(app: AppHandle, id: String) -> Result<(), String
     let out_wav_c = out_wav.clone();
     let denoise = tokio::task::spawn_blocking(move || {
         crate::denoise::denoise_wav(&src_wav_c, &out_wav_c, move |pct| {
-            let _ = app_p.emit("denoise-progress", serde_json::json!({ "id": id_p, "pct": pct }));
+            let _ = app_p.emit(
+                "denoise-progress",
+                serde_json::json!({ "id": id_p, "pct": pct }),
+            );
         })
     })
     .await
@@ -3477,7 +3656,9 @@ pub struct ScreenrecAudioPrefs {
 }
 
 #[tauri::command]
-pub fn get_screenrec_audio_prefs(state: State<'_, AppState>) -> Result<ScreenrecAudioPrefs, String> {
+pub fn get_screenrec_audio_prefs(
+    state: State<'_, AppState>,
+) -> Result<ScreenrecAudioPrefs, String> {
     Ok(ScreenrecAudioPrefs {
         sysaudio: state.settings.screenrec_sysaudio(),
         mic_enabled: state.settings.screenrec_mic_enabled(),
@@ -3486,10 +3667,22 @@ pub fn get_screenrec_audio_prefs(state: State<'_, AppState>) -> Result<Screenrec
 }
 
 #[tauri::command]
-pub fn set_screenrec_audio_prefs(state: State<'_, AppState>, prefs: ScreenrecAudioPrefs) -> Result<(), String> {
-    state.settings.set_screenrec_sysaudio(prefs.sysaudio).map_err(|e| e.to_string())?;
-    state.settings.set_screenrec_mic_enabled(prefs.mic_enabled).map_err(|e| e.to_string())?;
-    state.settings.set_screenrec_mic_device(prefs.mic_device).map_err(|e| e.to_string())?;
+pub fn set_screenrec_audio_prefs(
+    state: State<'_, AppState>,
+    prefs: ScreenrecAudioPrefs,
+) -> Result<(), String> {
+    state
+        .settings
+        .set_screenrec_sysaudio(prefs.sysaudio)
+        .map_err(|e| e.to_string())?;
+    state
+        .settings
+        .set_screenrec_mic_enabled(prefs.mic_enabled)
+        .map_err(|e| e.to_string())?;
+    state
+        .settings
+        .set_screenrec_mic_device(prefs.mic_device)
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -3530,14 +3723,23 @@ pub async fn drive_connect(state: State<'_, AppState>) -> Result<DriveStatus, St
         .settings
         .set_drive_account_email(email.as_deref())
         .map_err(|e| e.to_string())?;
-    Ok(DriveStatus { connected: true, email })
+    Ok(DriveStatus {
+        connected: true,
+        email,
+    })
 }
 
 #[tauri::command]
 pub fn drive_disconnect(state: State<'_, AppState>) -> Result<(), String> {
     crate::screenrec::drive::delete_refresh_token()?;
-    state.settings.set_drive_account_email(None).map_err(|e| e.to_string())?;
-    state.settings.set_drive_folder_id(None).map_err(|e| e.to_string())?;
+    state
+        .settings
+        .set_drive_account_email(None)
+        .map_err(|e| e.to_string())?;
+    state
+        .settings
+        .set_drive_folder_id(None)
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -3552,8 +3754,14 @@ pub fn set_drive_client_credentials(
     client_id: String,
     client_secret: String,
 ) -> Result<(), String> {
-    state.settings.set_drive_client_id(&client_id).map_err(|e| e.to_string())?;
-    state.settings.set_drive_client_secret(&client_secret).map_err(|e| e.to_string())?;
+    state
+        .settings
+        .set_drive_client_id(&client_id)
+        .map_err(|e| e.to_string())?;
+    state
+        .settings
+        .set_drive_client_secret(&client_secret)
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -3588,7 +3796,10 @@ pub fn set_drive_prefs(
         .map_err(|e| e.to_string())?;
     // Folder renamed → drop the cached id so the next upload resolves/creates it.
     if prev != folder_name {
-        state.settings.set_drive_folder_id(None).map_err(|e| e.to_string())?;
+        state
+            .settings
+            .set_drive_folder_id(None)
+            .map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -3633,7 +3844,11 @@ pub async fn upload_recording(
         std::path::PathBuf::from(&row.file_path)
     } else {
         let src = std::path::PathBuf::from(&row.file_path);
-        let stem = src.file_stem().and_then(|s| s.to_str()).unwrap_or("rec").to_string();
+        let stem = src
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("rec")
+            .to_string();
         let dir = crate::screenrec::recordings_dir().map_err(|e| e.to_string())?;
         let out = dir.join(format!("{stem}-{quality}.mp4"));
         let q = quality.clone();
@@ -3692,8 +3907,7 @@ pub async fn upload_recording(
         Err(e) => {
             // Full technical detail to the log; a short, friendly message to the UI.
             error!(target: "drive", error = %e, "Drive upload failed");
-            let friendly =
-                "Upload to Drive failed. See Settings → Diagnostics → logs for details.";
+            let friendly = "Upload to Drive failed. See Settings → Diagnostics → logs for details.";
             {
                 let db = require_db(&state)?;
                 db.with_conn(|c| {
@@ -3769,7 +3983,12 @@ mod tests {
     #[test]
     fn build_rag_query_extracts_long_words() {
         let q = build_rag_query("what did I say about the project meeting yesterday");
-        assert!(q.contains("\"about\"") || q.contains("\"project\"") || q.contains("\"meeting\"") || q.contains("\"yesterday\""));
+        assert!(
+            q.contains("\"about\"")
+                || q.contains("\"project\"")
+                || q.contains("\"meeting\"")
+                || q.contains("\"yesterday\"")
+        );
         assert!(!q.contains("\"did\""));
         assert!(!q.contains("\"the\""));
     }

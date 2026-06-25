@@ -6,7 +6,7 @@
 //! `schema_meta(key TEXT PRIMARY KEY, value TEXT)` table. Re-running on a
 //! fully-migrated DB is a no-op.
 
-use rusqlite::{Connection, params};
+use rusqlite::{params, Connection};
 
 use super::DbError;
 
@@ -274,6 +274,34 @@ ALTER TABLE projects ADD COLUMN updated_at TEXT;
 ALTER TABLE projects ADD COLUMN export_folder TEXT;
 "#,
     ),
+    (
+        19,
+        r#"
+CREATE TABLE IF NOT EXISTS project_tag_jobs (
+  item_id TEXT PRIMARY KEY REFERENCES items(id) ON DELETE CASCADE,
+  status TEXT NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  next_run_at TEXT,
+  last_error TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_project_tag_jobs_status_next_run
+  ON project_tag_jobs(status, next_run_at);
+"#,
+    ),
+    (
+        20,
+        r#"
+ALTER TABLE projects ADD COLUMN routing_aliases TEXT;
+ALTER TABLE projects ADD COLUMN routing_app_hints TEXT;
+ALTER TABLE projects ADD COLUMN routing_url_hints TEXT;
+ALTER TABLE projects ADD COLUMN routing_window_hints TEXT;
+ALTER TABLE projects ADD COLUMN routing_positive_examples TEXT;
+ALTER TABLE projects ADD COLUMN routing_negative_examples TEXT;
+"#,
+    ),
 ];
 
 const META_TABLE_SQL: &str = r#"
@@ -335,7 +363,7 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(v, "18");
+        assert_eq!(v, "20");
     }
 
     #[test]
@@ -368,7 +396,15 @@ mod tests {
             .unwrap()
             .map(|r| r.unwrap())
             .collect();
-        for expected in ["id", "name", "description", "goal", "notes", "created_at", "updated_at"] {
+        for expected in [
+            "id",
+            "name",
+            "description",
+            "goal",
+            "notes",
+            "created_at",
+            "updated_at",
+        ] {
             assert!(
                 tcols.iter().any(|c| c == expected),
                 "guide_templates missing column {expected}; got {tcols:?}"
@@ -403,17 +439,24 @@ mod tests {
             .unwrap()
             .map(|r| r.unwrap())
             .collect();
-        assert!(cols.iter().any(|c| c == "confidence"), "missing confidence column; got {:?}", cols);
-        assert!(cols.iter().any(|c| c == "classified_by"), "missing classified_by column; got {:?}", cols);
+        assert!(
+            cols.iter().any(|c| c == "confidence"),
+            "missing confidence column; got {:?}",
+            cols
+        );
+        assert!(
+            cols.iter().any(|c| c == "classified_by"),
+            "missing classified_by column; got {:?}",
+            cols
+        );
     }
 
     #[test]
     fn migration_v6_adds_capture_context() {
         let mut conn = Connection::open_in_memory().unwrap();
         run_migrations(&mut conn).unwrap();
-        conn.execute_batch(
-            "SELECT capture_context FROM items LIMIT 0"
-        ).expect("capture_context column should exist after migration v6");
+        conn.execute_batch("SELECT capture_context FROM items LIMIT 0")
+            .expect("capture_context column should exist after migration v6");
     }
 
     #[test]
@@ -454,9 +497,13 @@ mod tests {
         assert_eq!(count, 2);
 
         let version: String = conn
-            .query_row("SELECT value FROM schema_meta WHERE key = 'schema_version'", [], |r| r.get(0))
+            .query_row(
+                "SELECT value FROM schema_meta WHERE key = 'schema_version'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
-        assert_eq!(version, "18");
+        assert_eq!(version, "20");
     }
 
     #[test]

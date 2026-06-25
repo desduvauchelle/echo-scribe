@@ -41,7 +41,7 @@ async fn test_detect_action_success() {
         requests: Arc::new(Mutex::new(vec![])),
     };
 
-    let cmd = detect_action(&mock, "open Slack").await.unwrap();
+    let cmd = detect_action(&mock, "open Slack", &[]).await.unwrap();
 
     assert!(cmd.is_action);
     assert_eq!(cmd.action_type, Some("launch_app".to_string()));
@@ -76,7 +76,7 @@ Hope that helps!"#;
         requests: Arc::new(Mutex::new(vec![])),
     };
 
-    let cmd = detect_action(&mock, "go to google").await.unwrap();
+    let cmd = detect_action(&mock, "go to google", &[]).await.unwrap();
 
     assert!(cmd.is_action);
     assert_eq!(cmd.action_type, Some("open_url".to_string()));
@@ -106,7 +106,7 @@ async fn test_detect_action_retry_logic() {
         requests: Arc::new(Mutex::new(vec![])),
     };
 
-    let cmd = detect_action(&mock, "some random voice dictation").await.unwrap();
+    let cmd = detect_action(&mock, "some random voice dictation", &[]).await.unwrap();
 
     assert!(!cmd.is_action);
     assert_eq!(cmd.action_type, None);
@@ -128,7 +128,7 @@ async fn test_detect_action_failed_twice_returns_error() {
         requests: Arc::new(Mutex::new(vec![])),
     };
 
-    let err = detect_action(&mock, "open Slack").await.unwrap_err();
+    let err = detect_action(&mock, "open Slack", &[]).await.unwrap_err();
     assert!(err.to_string().contains("json parsing failed"));
 }
 
@@ -178,4 +178,3 @@ fn test_strip_trigger_prefix() {
     assert_eq!(strip_trigger_prefix("re-echo the command"), None);
     assert_eq!(strip_trigger_prefix("my hecho is done"), None);
 }
-
