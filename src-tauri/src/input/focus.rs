@@ -288,17 +288,24 @@ pub fn restore(ctx: &FocusContext) -> bool {
     app.activateWithOptions(opts)
 }
 
+#[cfg(target_os = "macos")]
+fn should_restore_captured_element(
+    frontmost_pid_before_restore: Option<i32>,
+    captured_pid: i32,
+    element_captured: bool,
+) -> bool {
+    element_captured && frontmost_pid_before_restore != Some(captured_pid)
+}
+
 /// Restore focus before paste. Strategy:
-///   1. If the AX element is still alive, set `kAXFocusedAttribute=true` on it.
-///      That routes focus to the exact UI element the user was on — bypassing
-///      NSApp's last-key-window heuristic, which is what makes paste land in
-///      the *previous* field of multi-window apps.
-///   2. If the captured app is not currently frontmost, also call
-///      `activateWithOptions` to bring the app forward. Skipped when the
-///      captured pid is already frontmost (e.g. dictating into Echo Scribe
-///      itself), because re-activating a same-app pid can shuffle key-window
-///      ordering and is the common-case regression source.
-///   3. If AX restore fails, fall back to `activateWithOptions` only.
+///   1. If the captured app is not currently frontmost, call
+///      `activateWithOptions` to bring the app forward.
+///   2. For that cross-app return path, restore the captured AX element so
+///      multi-window apps route paste to the field that started dictation.
+///   3. If the captured app is already frontmost, do not reapply the captured
+///      AX element. The AX snapshot can be stale after a recent click or UI
+///      re-render; in that case forcing it back is what makes paste land in a
+///      previously focused field despite a visible caret elsewhere.
 #[cfg(target_os = "macos")]
 pub fn restore_focus(ctx: &FocusContext, element: Option<&FocusElement>) -> RestoreOutcome {
     let frontmost = current_frontmost_pid();
@@ -321,10 +328,20 @@ pub fn restore_focus(ctx: &FocusContext, element: Option<&FocusElement>) -> Rest
         }
     }
 
+    let should_restore_element =
+        should_restore_captured_element(frontmost, ctx.pid, element.is_some());
     let (ax_set, ax_error) = match element {
-        Some(el) => {
+        Some(el) if should_restore_element => {
             let code = el.restore();
             (code == 0, Some(code))
+        }
+        Some(_) => {
+            tracing::info!(
+                pid = ctx.pid,
+                frontmost_pid_before = ?frontmost,
+                "skipping captured AX element restore because target app is already frontmost"
+            );
+            (false, None)
         }
         None => (false, None),
     };
@@ -542,6 +559,22 @@ mod tests {
         let outcome = restore_focus(&ctx, None);
         assert!(!outcome.activated_app);
         assert!(!outcome.ax_focused);
+    }
+
+    #[test]
+    fn does_not_restore_captured_ax_element_when_target_app_is_already_frontmost() {
+        assert!(
+            !should_restore_captured_element(Some(42), 42, true),
+            "a captured AX element can be stale; if the app is already frontmost, keep the visible caret"
+        );
+    }
+
+    #[test]
+    fn restores_captured_ax_element_when_returning_to_a_background_app() {
+        assert!(
+            should_restore_captured_element(Some(7), 42, true),
+            "cross-app dictation still needs the captured element after app activation"
+        );
     }
 
     #[test]

@@ -2,9 +2,15 @@ import { useEffect, useState } from "react";
 import {
   ArrowLeft,
   Mic,
+  NotebookPen,
   Phone,
+  Zap,
+  WandSparkles,
   Settings as SettingsIcon,
   Sparkles,
+  Cloud,
+  FolderKanban,
+  ShieldCheck,
   Wrench,
   X,
   Info,
@@ -79,72 +85,163 @@ import {
 import { useToasts } from "../components/ToastProvider";
 import { ask } from "@tauri-apps/plugin-dialog";
 
-type Tab = "voice" | "ai" | "meetings" | "general" | "advanced";
+type PageId =
+  | "dictation"
+  | "logcapture"
+  | "meetings"
+  | "actions"
+  | "templates"
+  | "language-model"
+  | "general"
+  | "drive"
+  | "projects"
+  | "permissions"
+  | "diagnostics";
 
-const TABS: { id: Tab; label: string; icon: LucideIcon }[] = [
-  { id: "voice", label: "Voice", icon: Mic },
-  { id: "ai", label: "AI", icon: Sparkles },
-  { id: "meetings", label: "Meetings", icon: Phone },
-  { id: "general", label: "General", icon: SettingsIcon },
-  { id: "advanced", label: "Advanced", icon: Wrench },
+type NavItem = { id: PageId; label: string; icon: LucideIcon };
+type NavGroup = { label: string; items: NavItem[] };
+
+const NAV_GROUPS: NavGroup[] = [
+  {
+    label: "Capture",
+    items: [
+      { id: "dictation", label: "Dictation", icon: Mic },
+      { id: "logcapture", label: "Log Capture", icon: NotebookPen },
+      { id: "meetings", label: "Meetings", icon: Phone },
+    ],
+  },
+  {
+    label: "Automation",
+    items: [
+      { id: "actions", label: "Actions", icon: Zap },
+      { id: "templates", label: "Templates", icon: WandSparkles },
+    ],
+  },
+  {
+    label: "System",
+    items: [
+      { id: "language-model", label: "Language Model", icon: Sparkles },
+      { id: "general", label: "General", icon: SettingsIcon },
+      { id: "drive", label: "Google Drive", icon: Cloud },
+      { id: "projects", label: "Projects", icon: FolderKanban },
+      { id: "permissions", label: "Permissions", icon: ShieldCheck },
+      { id: "diagnostics", label: "Diagnostics", icon: Wrench },
+    ],
+  },
 ];
+
+const PAGE_DESC: Record<PageId, string> = {
+  dictation:
+    "Speech-to-text at your cursor — model, microphone, hotkey, and cleanup.",
+  logcapture:
+    "Capture a thought, idea, or task by voice, then file and export it.",
+  meetings: "Detect calls, summarize transcripts, and set recording limits.",
+  actions:
+    "Run app launches, links, emails, and counters straight from your voice.",
+  templates:
+    "Rewrite dictation into emails, lists, or any style before it's pasted.",
+  "language-model":
+    "The local Gemma model that powers classification, summaries, and actions.",
+  general: "Sounds, recording behavior, daily recap, and startup.",
+  drive: "Upload screen recordings to Google Drive and share them with a link.",
+  projects: "Rename, archive, and organize your projects.",
+  permissions: "Microphone, accessibility, and screen-recording access.",
+  diagnostics: "Inspect logs and reset the app if something breaks.",
+};
+
+const PAGES: Record<PageId, () => React.ReactElement> = {
+  dictation: DictationPage,
+  logcapture: LogCapturePage,
+  meetings: MeetingsPage,
+  actions: ActionsPage,
+  templates: TemplatesPage,
+  "language-model": LanguageModelPage,
+  general: GeneralPage,
+  drive: DrivePage,
+  projects: ProjectsPage,
+  permissions: PermissionsPage,
+  diagnostics: DiagnosticsPage,
+};
 
 type Props = {
   onBack: () => void;
 };
 
 export default function Settings({ onBack }: Props) {
-  const [tab, setTab] = useState<Tab>("voice");
+  const [page, setPage] = useState<PageId>("dictation");
+  const activeItem = NAV_GROUPS.flatMap((g) => g.items).find(
+    (i) => i.id === page,
+  )!;
+  const ActivePage = PAGES[page];
 
   return (
-    <div className="flex min-h-full items-start justify-center bg-canvas px-6 py-12 text-fg">
-      <div className="relative w-full max-w-[640px] rounded-xl border border-line bg-surface p-6 shadow-xl shadow-black/40">
+    <div className="min-h-full bg-canvas px-4 py-8 text-fg">
+      <div className="mx-auto flex w-full max-w-[900px] flex-col">
         <button
           type="button"
           onClick={onBack}
-          className="mb-4 inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-line px-2.5 py-1 text-xs text-muted transition-colors hover:bg-elevated hover:text-fg"
+          className="mb-4 inline-flex cursor-pointer items-center gap-1.5 self-start rounded-md border border-line px-2.5 py-1 text-xs text-muted transition-colors hover:bg-elevated hover:text-fg"
         >
           <ArrowLeft size={12} strokeWidth={2} />
           Back
         </button>
 
-        {/* Tab bar */}
-        <div className="flex gap-1 rounded-lg border border-line bg-canvas p-1">
-          {TABS.map(({ id, label, icon: Icon }) => {
-            const active = tab === id;
-            return (
-              <button
-                key={id}
-                type="button"
-                onClick={() => setTab(id)}
-                className={[
-                  "flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-md py-1.5 text-xs font-semibold transition-colors",
-                  active
-                    ? "bg-accent-soft text-accent"
-                    : "text-faint hover:bg-elevated hover:text-muted",
-                ].join(" ")}
-              >
-                <Icon size={12} strokeWidth={2} />
-                {label}
-              </button>
-            );
-          })}
-        </div>
+        <div className="flex items-start gap-5">
+          {/* Left sidebar */}
+          <nav className="sticky top-4 w-[200px] shrink-0 rounded-xl border border-line bg-surface p-3 shadow-lg shadow-black/30">
+            <div className="flex flex-col gap-4">
+              {NAV_GROUPS.map((group) => (
+                <div key={group.label} className="flex flex-col gap-0.5">
+                  <div className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-faint">
+                    {group.label}
+                  </div>
+                  {group.items.map(({ id, label, icon: Icon }) => {
+                    const active = page === id;
+                    return (
+                      <button
+                        key={id}
+                        type="button"
+                        onClick={() => setPage(id)}
+                        className={[
+                          "flex cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-[13px] font-medium transition-colors",
+                          active
+                            ? "bg-accent-soft text-accent"
+                            : "text-muted hover:bg-elevated hover:text-fg",
+                        ].join(" ")}
+                      >
+                        <Icon
+                          size={14}
+                          strokeWidth={2}
+                          className={active ? "text-accent" : "text-faint"}
+                        />
+                        <span className="truncate">{label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          </nav>
 
-        {/* Tab panels */}
-        <div className="mt-6">
-          {tab === "voice" && <VoiceTab />}
-          {tab === "ai" && <AiTab />}
-          {tab === "meetings" && <MeetingsTab />}
-          {tab === "general" && <GeneralTab />}
-          {tab === "advanced" && <AdvancedTab />}
+          {/* Content panel */}
+          <div className="min-w-0 flex-1 rounded-xl border border-line bg-surface p-6 shadow-lg shadow-black/30">
+            <header className="mb-6 border-b border-line pb-4">
+              <h1 className="text-[15px] font-semibold tracking-tight text-fg">
+                {activeItem.label}
+              </h1>
+              <p className="mt-1 text-xs leading-relaxed text-muted">
+                {PAGE_DESC[page]}
+              </p>
+            </header>
+            <ActivePage />
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-function VoiceTab() {
+function DictationPage() {
   return (
     <div className="flex flex-col gap-8">
       <SpeechModelPicker />
@@ -164,16 +261,6 @@ function VoiceTab() {
       </Section>
 
       <Section
-        title="Log capture hotkey"
-        subtitle="Hold this key combination to capture a thought, idea, or task — classified locally and saved to your log."
-      >
-        <HotkeyRebinder
-          load={getLogCaptureBinding}
-          save={updateLogCaptureBinding}
-        />
-      </Section>
-
-      <Section
         title="Transcription"
         subtitle="Clean up speech-to-text output before it's pasted or saved."
       >
@@ -190,12 +277,31 @@ function VoiceTab() {
   );
 }
 
-function AiTab() {
+function LogCapturePage() {
+  return (
+    <div className="flex flex-col gap-8">
+      <Section
+        title="Log capture hotkey"
+        subtitle="Hold this key combination to capture a thought, idea, or task — classified locally and saved to your log."
+      >
+        <HotkeyRebinder
+          load={getLogCaptureBinding}
+          save={updateLogCaptureBinding}
+        />
+      </Section>
+
+      <AutoFileSettings />
+      <ExportSettings />
+    </div>
+  );
+}
+
+function LanguageModelPage() {
   return (
     <div className="flex flex-col gap-8">
       <Section
         title="Language model"
-        subtitle="Local Gemma model used for log-capture classification."
+        subtitle="Local Gemma model used for log-capture classification, meeting summaries, voice actions, and formatting."
       >
         <LlmModelPicker />
         <div className="mt-4">
@@ -209,9 +315,32 @@ function AiTab() {
       >
         <LlmUnloadTimeoutSelect />
       </Section>
+    </div>
+  );
+}
 
-      <AutoFileSettings />
-      <ExportSettings />
+function ActionsPage() {
+  return (
+    <div className="flex flex-col gap-8">
+      <Section
+        title="Voice commands & app launcher"
+        subtitle="Detect command actions inside your voice dictations to launch applications, open links, compose emails, and manage counters."
+      >
+        <AppLauncherSettingsSection />
+      </Section>
+    </div>
+  );
+}
+
+function TemplatesPage() {
+  return (
+    <div className="flex flex-col gap-8">
+      <Section
+        title="Voice format templates"
+        subtitle='Say "echo, format as email …" (or use the Action hotkey) to rewrite your dictation with a custom system prompt before it gets pasted.'
+      >
+        <FormatTemplatesSection />
+      </Section>
     </div>
   );
 }
@@ -746,7 +875,7 @@ function SummaryPromptModal({
   );
 }
 
-function MeetingsTab() {
+function MeetingsPage() {
   const [settings, setSettings] = useState<{
     auto_detect: boolean;
     app_prefs: Record<string, "always" | "ask" | "never">;
@@ -947,7 +1076,7 @@ function MeetingsTab() {
   );
 }
 
-function GeneralTab() {
+function GeneralPage() {
   return (
     <div className="flex flex-col gap-8">
       <Section
@@ -965,31 +1094,10 @@ function GeneralTab() {
       </Section>
 
       <Section
-        title="Voice Commands & App Launcher"
-        subtitle="Detect command actions inside your voice dictations to launch applications, open links, compose emails, and manage counters."
-      >
-        <AppLauncherSettingsSection />
-      </Section>
-
-      <Section
-        title="Voice Format Templates"
-        subtitle='Say "echo, format as email …" (or use the Action hotkey) to rewrite your dictation with a custom system prompt before it gets pasted.'
-      >
-        <FormatTemplatesSection />
-      </Section>
-
-      <Section
         title="Daily recap"
         subtitle="A morning notification that summarizes yesterday's meetings, notes, and dictations."
       >
         <DailyRecapSection />
-      </Section>
-
-      <Section
-        title="Google Drive"
-        subtitle="Upload screen recordings to Drive and get an anyone-with-the-link share URL. The app only sees files it creates (scope drive.file)."
-      >
-        <DriveSettings />
       </Section>
 
       <Section
@@ -998,7 +1106,39 @@ function GeneralTab() {
       >
         <StartAtLoginToggle />
       </Section>
+    </div>
+  );
+}
 
+function DrivePage() {
+  return (
+    <div className="flex flex-col gap-8">
+      <Section
+        title="Google Drive"
+        subtitle="Upload screen recordings to Drive and get an anyone-with-the-link share URL. The app only sees files it creates (scope drive.file)."
+      >
+        <DriveSettings />
+      </Section>
+    </div>
+  );
+}
+
+function ProjectsPage() {
+  return (
+    <div className="flex flex-col gap-8">
+      <Section
+        title="Projects"
+        subtitle="Rename, archive, or unarchive projects."
+      >
+        <ProjectManager />
+      </Section>
+    </div>
+  );
+}
+
+function PermissionsPage() {
+  return (
+    <div className="flex flex-col gap-8">
       <Section
         title="Permissions"
         subtitle="Re-grant microphone or accessibility access if something feels broken. Reset & quit clears macOS's TCC grants for both services so the next launch re-prompts cleanly."
@@ -1009,13 +1149,9 @@ function GeneralTab() {
   );
 }
 
-function AdvancedTab() {
+function DiagnosticsPage() {
   return (
     <div className="flex flex-col gap-8">
-      <Section title="Projects" subtitle="Rename, archive, or unarchive projects.">
-        <ProjectManager />
-      </Section>
-
       <Section
         title="Diagnostics"
         subtitle="Inspect the rolling crash log Echo Scribe writes to your home folder."
