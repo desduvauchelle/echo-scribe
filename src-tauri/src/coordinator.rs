@@ -197,6 +197,8 @@ pub fn spawn(
                             bundle = ?s.bundle_id,
                             app = ?s.app_name,
                             window = ?s.window_title,
+                            content = ?s.content_title,
+                            content_source = ?s.content_source,
                             ax_element_role = ?pending_focus_element.as_ref().and_then(|e| e.role().map(|r| r.to_string())),
                             "captured frontmost app + AX focus"
                         );
@@ -595,6 +597,9 @@ fn serialise_context(ctx: &crate::input::focus::FocusContext) -> Option<String> 
         "window_title":      ctx.window_title,
         "browser_url":       ctx.browser_url,
         "browser_tab_title": ctx.browser_tab_title,
+        "content_title":     ctx.content_title,
+        "content_url":       ctx.content_url,
+        "content_source":    ctx.content_source,
         "bundle_id":         ctx.bundle_id,
     }))
     .ok()

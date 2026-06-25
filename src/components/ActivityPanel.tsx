@@ -599,6 +599,9 @@ function MetadataSection({ item }: { item: Item }) {
     { label: "Source", value: humanSource(item.source) },
     { label: "App", value: ctx?.app_name },
     { label: "Window", value: ctx?.window_title },
+    { label: "Content", value: ctx?.content_title },
+    { label: "Content URL", value: ctx?.content_url },
+    { label: "Content source", value: ctx?.content_source },
     { label: "Browser tab", value: ctx?.browser_tab_title },
     { label: "URL", value: ctx?.browser_url },
     { label: "Bundle ID", value: ctx?.bundle_id },
@@ -1245,4 +1248,3 @@ function ActionsSection({
     </div>
   );
 }
-

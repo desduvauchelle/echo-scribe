@@ -339,6 +339,9 @@ pub fn spawn(
                 window_title: cand.window_title.clone(),
                 browser_url: cand.browser_url.clone(),
                 browser_tab_title: cand.browser_tab_title.clone(),
+                content_title: cand.browser_tab_title.clone(),
+                content_url: cand.browser_url.clone(),
+                content_source: cand.browser_tab_title.as_ref().map(|_| "browser_tab".into()),
             };
             let display_name = display_name.as_str();
 

@@ -177,6 +177,9 @@ export type ParsedCaptureContext = {
   window_title?: string | null;
   browser_url?: string | null;
   browser_tab_title?: string | null;
+  content_title?: string | null;
+  content_url?: string | null;
+  content_source?: string | null;
 };
 
 export function parseCaptureContext(raw: string | null | undefined): ParsedCaptureContext | null {

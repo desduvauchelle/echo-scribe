@@ -467,6 +467,8 @@ fn context_text(focus: Option<&FocusContext>) -> String {
         ctx.window_title.as_deref(),
         ctx.browser_url.as_deref(),
         ctx.browser_tab_title.as_deref(),
+        ctx.content_title.as_deref(),
+        ctx.content_url.as_deref(),
     ]
     .into_iter()
     .flatten()
@@ -563,9 +565,34 @@ mod tests {
             window_title: Some("coordinator.rs - echo-scribe".into()),
             browser_url: None,
             browser_tab_title: None,
+            content_title: None,
+            content_url: None,
+            content_source: None,
         };
 
         let result = super::route_deterministically("Fix the queue worker.", Some(&ctx), &[echo]);
+
+        assert_eq!(result.project_id.as_deref(), Some("p1"));
+    }
+
+    #[test]
+    fn deterministic_router_uses_generic_content_title_hints() {
+        let mut livecase = project("p1", "LiveCase", &[]);
+        livecase.routing_window_hints = vec!["livecaseplus-server".into()];
+        let ctx = FocusContext {
+            pid: 1,
+            bundle_id: Some("com.openai.codex".into()),
+            app_name: Some("Codex".into()),
+            window_title: Some("Codex".into()),
+            browser_url: None,
+            browser_tab_title: None,
+            content_title: Some("Investigate prompt templates - livecaseplus-server".into()),
+            content_url: None,
+            content_source: Some("ax_web_area".into()),
+        };
+
+        let result =
+            super::route_deterministically("Make this a bit more robust.", Some(&ctx), &[livecase]);
 
         assert_eq!(result.project_id.as_deref(), Some("p1"));
     }

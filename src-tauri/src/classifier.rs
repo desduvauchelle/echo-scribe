@@ -332,6 +332,16 @@ fn build_system_prompt(
                 s.push('\n');
             }
         }
+        if let Some(ref title) = ctx.content_title {
+            s.push_str("- Content: ");
+            s.push_str(title);
+            s.push('\n');
+        }
+        if let Some(ref url) = ctx.content_url {
+            s.push_str("- Content URL: ");
+            s.push_str(url);
+            s.push('\n');
+        }
     }
     s
 }
@@ -566,11 +576,19 @@ mod tests {
             window_title: Some("Inbox — Gmail".into()),
             browser_url: Some("https://mail.google.com/".into()),
             browser_tab_title: Some("Inbox (12) — gmail.com".into()),
+            content_title: Some("Important customer thread".into()),
+            content_url: Some("https://mail.google.com/mail/u/0/#inbox/abc".into()),
+            content_source: Some("browser_tab".into()),
         };
         let prompt = build_system_prompt(&[], &[], "2026-05-03T10:00:00Z", "Sunday", Some(&ctx));
         assert!(prompt.contains("Google Chrome"), "app_name missing from prompt");
         assert!(prompt.contains("Inbox — Gmail"), "window_title missing from prompt");
         assert!(prompt.contains("https://mail.google.com/"), "browser_url missing from prompt");
+        assert!(prompt.contains("Important customer thread"), "content_title missing from prompt");
+        assert!(
+            prompt.contains("https://mail.google.com/mail/u/0/#inbox/abc"),
+            "content_url missing from prompt"
+        );
     }
 
     #[test]

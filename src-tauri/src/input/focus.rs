@@ -33,6 +33,19 @@ pub struct FocusContext {
     /// `browser_url`. `None` outside browsers or on AppleScript failure.
     #[serde(default)]
     pub browser_tab_title: Option<String>,
+    /// Best-effort specific title for the current page, document, tab, or
+    /// high-level content surface. This is deliberately separate from
+    /// `window_title`: many apps expose only the app name as the window title,
+    /// while a focused web area, selected tab, or document attribute contains
+    /// the useful project/page title.
+    #[serde(default)]
+    pub content_title: Option<String>,
+    /// Best-effort URL or document path for the current content surface.
+    #[serde(default)]
+    pub content_url: Option<String>,
+    /// Diagnostic source for `content_title`/`content_url`.
+    #[serde(default)]
+    pub content_source: Option<String>,
 }
 
 /// Opaque handle to the AX UI element that had keyboard focus at capture
@@ -84,6 +97,13 @@ pub fn capture_context() -> Option<FocusContext> {
     let browser_tab_title = bundle_id
         .as_deref()
         .and_then(capture_browser_tab_title_macos);
+    let (content_title, content_url, content_source) = capture_content_metadata_macos(
+        pid,
+        app_name.as_deref(),
+        window_title.as_deref(),
+        browser_tab_title.as_deref(),
+        browser_url.as_deref(),
+    );
 
     Some(FocusContext {
         pid,
@@ -92,6 +112,9 @@ pub fn capture_context() -> Option<FocusContext> {
         window_title,
         browser_url,
         browser_tab_title,
+        content_title,
+        content_url,
+        content_source,
     })
 }
 
@@ -472,6 +495,312 @@ fn capture_browser_tab_title_macos(bundle_id: &str) -> Option<String> {
     run_osascript_with_timeout(script)
 }
 
+/// Derive a more specific content title/URL than the app-level window title.
+///
+/// Priority order:
+/// 1. Browser tab title/URL, already acquired through app-specific safe paths.
+/// 2. Focused window AX attributes such as AXDocument, AXURL, AXDescription.
+/// 3. Focused high-level element attributes, excluding text-entry values.
+/// 4. A bounded shallow scan for selected tabs and web/document areas.
+#[cfg(target_os = "macos")]
+fn capture_content_metadata_macos(
+    pid: i32,
+    app_name: Option<&str>,
+    window_title: Option<&str>,
+    browser_tab_title: Option<&str>,
+    browser_url: Option<&str>,
+) -> (Option<String>, Option<String>, Option<String>) {
+    if let Some(title) = normalize_content_candidate(browser_tab_title, app_name, window_title) {
+        return (
+            Some(title),
+            browser_url.and_then(normalize_url_candidate),
+            Some("browser_tab".to_string()),
+        );
+    }
+
+    let Some(window) = focused_window_element_macos(pid) else {
+        return (None, None, None);
+    };
+
+    if let Some(found) =
+        inspect_ax_element_for_content(&window, app_name, window_title, "ax_window", false)
+    {
+        return found;
+    }
+
+    if let Some(focused) = focused_ui_element_macos(pid) {
+        if let Some(found) = inspect_ax_element_for_content(
+            &focused,
+            app_name,
+            window_title,
+            "ax_focused_element",
+            false,
+        ) {
+            return found;
+        }
+    }
+
+    scan_ax_children_for_content(&window, app_name, window_title).unwrap_or((None, None, None))
+}
+
+#[cfg(target_os = "macos")]
+fn focused_window_element_macos(pid: i32) -> Option<CFRetained<AXUIElement>> {
+    use objc2_core_foundation::{CFString, CFType};
+    use std::ptr::NonNull;
+
+    let ax_focused_window = CFString::from_str("AXFocusedWindow");
+    unsafe {
+        let app_el = AXUIElement::new_application(pid as pid_t);
+        let _ = app_el.set_messaging_timeout(0.1);
+        let mut raw: *const CFType = std::ptr::null();
+        let err = app_el.copy_attribute_value(
+            &ax_focused_window,
+            NonNull::new(&mut raw as *mut *const CFType)?,
+        );
+        if err.0 != 0 || raw.is_null() {
+            return None;
+        }
+        CFRetained::from_raw(NonNull::new(raw as *mut AXUIElement)?).into()
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn focused_ui_element_macos(pid: i32) -> Option<CFRetained<AXUIElement>> {
+    use objc2_core_foundation::{CFString, CFType};
+    use std::ptr::NonNull;
+
+    let ax_focused_ui = CFString::from_str("AXFocusedUIElement");
+    unsafe {
+        let app_el = AXUIElement::new_application(pid as pid_t);
+        let _ = app_el.set_messaging_timeout(0.1);
+        let mut raw: *const CFType = std::ptr::null();
+        let err =
+            app_el.copy_attribute_value(&ax_focused_ui, NonNull::new(&mut raw as *mut *const CFType)?);
+        if err.0 != 0 || raw.is_null() {
+            return None;
+        }
+        CFRetained::from_raw(NonNull::new(raw as *mut AXUIElement)?).into()
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn inspect_ax_element_for_content(
+    element: &AXUIElement,
+    app_name: Option<&str>,
+    window_title: Option<&str>,
+    source: &str,
+    allow_text_value: bool,
+) -> Option<(Option<String>, Option<String>, Option<String>)> {
+    let role = copy_ax_string_attribute(element, "AXRole");
+    let title = copy_ax_string_attribute(element, "AXTitle")
+        .or_else(|| copy_ax_string_attribute(element, "AXDescription"))
+        .or_else(|| copy_ax_string_attribute(element, "AXDocument"))
+        .and_then(|s| normalize_content_candidate(Some(&s), app_name, window_title));
+    let title = title.or_else(|| {
+        if allow_text_value && is_high_signal_role(role.as_deref()) {
+            copy_ax_string_attribute(element, "AXValue")
+                .and_then(|s| normalize_content_candidate(Some(&s), app_name, window_title))
+        } else {
+            None
+        }
+    });
+    let url = copy_ax_url_like_attribute(element, "AXURL")
+        .or_else(|| copy_ax_url_like_attribute(element, "AXDocument"))
+        .and_then(|s| normalize_url_candidate(&s));
+
+    if title.is_some() || url.is_some() {
+        Some((title, url, Some(source.to_string())))
+    } else {
+        None
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn scan_ax_children_for_content(
+    root: &AXUIElement,
+    app_name: Option<&str>,
+    window_title: Option<&str>,
+) -> Option<(Option<String>, Option<String>, Option<String>)> {
+    use objc2_core_foundation::Type;
+
+    let mut stack = vec![root.retain()];
+    let mut visited = 0usize;
+
+    while let Some(element) = stack.pop() {
+        visited += 1;
+        if visited > 40 {
+            break;
+        }
+
+        let role = copy_ax_string_attribute(&element, "AXRole");
+        if is_high_signal_role(role.as_deref()) {
+            if let Some(found) = inspect_ax_element_for_content(
+                &element,
+                app_name,
+                window_title,
+                role.as_deref().unwrap_or("ax_child"),
+                false,
+            ) {
+                return Some(found);
+            }
+        }
+
+        if stack.len() < 40 {
+            stack.extend(copy_ax_children(&element).into_iter().take(12));
+        }
+    }
+
+    None
+}
+
+#[cfg(target_os = "macos")]
+fn is_high_signal_role(role: Option<&str>) -> bool {
+    matches!(
+        role,
+        Some("AXWebArea")
+            | Some("AXTabGroup")
+            | Some("AXTab")
+            | Some("AXDocument")
+            | Some("AXGroup")
+            | Some("AXScrollArea")
+    )
+}
+
+#[cfg(target_os = "macos")]
+fn copy_ax_string_attribute(element: &AXUIElement, attr: &str) -> Option<String> {
+    use objc2_core_foundation::{CFString, CFType};
+    use std::ptr::NonNull;
+
+    let attr = CFString::from_str(attr);
+    unsafe {
+        let _ = element.set_messaging_timeout(0.05);
+        let mut raw: *const CFType = std::ptr::null();
+        let err = element.copy_attribute_value(&attr, NonNull::new(&mut raw as *mut *const CFType)?);
+        if err.0 != 0 || raw.is_null() {
+            return None;
+        }
+        let value: CFRetained<CFType> = CFRetained::from_raw(NonNull::new(raw as *mut CFType)?);
+        value
+            .downcast::<CFString>()
+            .ok()
+            .map(|s| s.to_string())
+            .and_then(|s| normalize_raw_string(&s))
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn copy_ax_url_like_attribute(element: &AXUIElement, attr: &str) -> Option<String> {
+    use objc2_core_foundation::{CFString, CFType, CFURL};
+    use std::ptr::NonNull;
+
+    let attr = CFString::from_str(attr);
+    unsafe {
+        let _ = element.set_messaging_timeout(0.05);
+        let mut raw: *const CFType = std::ptr::null();
+        let err = element.copy_attribute_value(&attr, NonNull::new(&mut raw as *mut *const CFType)?);
+        if err.0 != 0 || raw.is_null() {
+            return None;
+        }
+        let value: CFRetained<CFType> = CFRetained::from_raw(NonNull::new(raw as *mut CFType)?);
+        match value.downcast::<CFString>() {
+            Ok(s) => normalize_raw_string(&s.to_string()),
+            Err(value) => value
+                .downcast::<CFURL>()
+                .ok()
+                .and_then(|u| {
+                    #[allow(deprecated)]
+                    {
+                        objc2_core_foundation::CFURLGetString(&u).map(|s| s.to_string())
+                    }
+                })
+                .and_then(|s| normalize_raw_string(&s)),
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn copy_ax_children(element: &AXUIElement) -> Vec<CFRetained<AXUIElement>> {
+    use objc2_core_foundation::{CFArray, CFString, CFType};
+    use std::ptr::NonNull;
+
+    let attr = CFString::from_str("AXChildren");
+    unsafe {
+        let _ = element.set_messaging_timeout(0.05);
+        let mut raw: *const CFType = std::ptr::null();
+        let err = element.copy_attribute_value(
+            &attr,
+            NonNull::new(&mut raw as *mut *const CFType).expect("local out pointer"),
+        );
+        if err.0 != 0 || raw.is_null() {
+            return Vec::new();
+        }
+        let value: CFRetained<CFType> = match NonNull::new(raw as *mut CFType) {
+            Some(ptr) => CFRetained::from_raw(ptr),
+            None => return Vec::new(),
+        };
+        let Ok(array) = value.downcast::<CFArray>() else {
+            return Vec::new();
+        };
+        let array: CFRetained<CFArray<AXUIElement>> =
+            CFRetained::cast_unchecked::<CFArray<AXUIElement>>(array);
+        array.iter().take(12).collect()
+    }
+}
+
+fn normalize_content_candidate(
+    candidate: Option<&str>,
+    app_name: Option<&str>,
+    window_title: Option<&str>,
+) -> Option<String> {
+    let s = normalize_raw_string(candidate?)?;
+    if s.chars().count() > 240 {
+        return None;
+    }
+    let s_l = s.to_lowercase();
+    let generic = ["home", "untitled", "new tab", "start page", "settings"];
+    if generic.iter().any(|g| s_l == *g) {
+        return None;
+    }
+    if app_name
+        .and_then(normalize_raw_string)
+        .map(|app| app.eq_ignore_ascii_case(&s))
+        .unwrap_or(false)
+    {
+        return None;
+    }
+    if window_title
+        .and_then(normalize_raw_string)
+        .map(|title| title.eq_ignore_ascii_case(&s))
+        .unwrap_or(false)
+    {
+        return None;
+    }
+    Some(s)
+}
+
+fn normalize_url_candidate(candidate: &str) -> Option<String> {
+    let s = normalize_raw_string(candidate)?;
+    let s_l = s.to_lowercase();
+    if s_l.starts_with("http://")
+        || s_l.starts_with("https://")
+        || s_l.starts_with("file://")
+        || s.starts_with('/')
+    {
+        Some(s)
+    } else {
+        None
+    }
+}
+
+fn normalize_raw_string(candidate: &str) -> Option<String> {
+    let s = candidate.split_whitespace().collect::<Vec<_>>().join(" ");
+    if s.is_empty() || s == "missing value" {
+        None
+    } else {
+        Some(s)
+    }
+}
+
 /// Run an AppleScript with a 500 ms deadline. Returns trimmed stdout on
 /// success, `None` on timeout/failure/empty/"missing value".
 #[cfg(target_os = "macos")]
@@ -542,6 +871,9 @@ mod tests {
             window_title: None,
             browser_url: None,
             browser_tab_title: None,
+            content_title: None,
+            content_url: None,
+            content_source: None,
         };
         assert!(!restore(&ctx));
     }
@@ -555,6 +887,9 @@ mod tests {
             window_title: None,
             browser_url: None,
             browser_tab_title: None,
+            content_title: None,
+            content_url: None,
+            content_source: None,
         };
         let outcome = restore_focus(&ctx, None);
         assert!(!outcome.activated_app);
