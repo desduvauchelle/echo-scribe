@@ -3,7 +3,9 @@
 //! Two passes, applied in order:
 //! 1. **Filler removal** — strips configurable filler words/phrases ("uh",
 //!    "um", "you know", etc.) using word-boundary regex-style matching.
-//! 2. **Custom-word correction** — for each user-supplied "custom word",
+//! 2. **Duplicate cleanup** — collapses common adjacent ASR repeats ("and and",
+//!    "the the the") and short stutters ("sh sh sh").
+//! 3. **Custom-word correction** — for each user-supplied "custom word",
 //!    replaces any token in the transcript within edit-distance 1 (or 2 for
 //!    longer words) with the canonical spelling. Letter-only tokens only —
 //!    we never touch numbers or punctuation.
@@ -16,8 +18,8 @@ use strsim::levenshtein;
 
 /// Default fillers used when the user hasn't customized the list.
 pub const DEFAULT_FILLERS: &[&str] = &[
-    "uh", "um", "umm", "uhh", "er", "erm", "ah", "ahh", "hmm", "mm", "mmm",
-    "you know", "i mean", "sort of", "kind of", "like",
+    "uh", "um", "umm", "uhh", "er", "erm", "ah", "ahh", "hmm", "mm", "mmm", "you know", "i mean",
+    "sort of", "kind of", "like",
 ];
 
 /// Strip filler words from `text`. Matching is case-insensitive and respects
@@ -121,6 +123,139 @@ fn cleanup_whitespace_and_punct(s: &str) -> String {
     fixed
 }
 
+/// Collapse adjacent duplicate words that are highly likely to be ASR artifacts.
+/// Only repeats separated by whitespace are touched, so punctuation-separated
+/// emphasis such as "no, no" stays intact.
+pub fn collapse_repeated_tokens(text: &str) -> String {
+    if text.is_empty() {
+        return text.to_string();
+    }
+
+    let tokens = token_spans(text);
+    if tokens.len() < 2 {
+        return text.to_string();
+    }
+
+    let mut remove = vec![false; text.len()];
+    let mut prev_token: Option<(usize, usize, String)> = None;
+
+    for (start, end, norm) in tokens {
+        let duplicate = prev_token
+            .as_ref()
+            .map(|(_, prev_end, prev_norm)| {
+                prev_norm == &norm
+                    && text[*prev_end..start].chars().all(char::is_whitespace)
+                    && should_collapse_duplicate(&norm)
+            })
+            .unwrap_or(false);
+
+        if duplicate {
+            for b in remove.iter_mut().take(end).skip(start) {
+                *b = true;
+            }
+        }
+        prev_token = Some((start, end, norm));
+    }
+
+    let mut out = String::with_capacity(text.len());
+    for (idx, ch) in text.char_indices() {
+        if !remove[idx] {
+            out.push(ch);
+        }
+    }
+    cleanup_whitespace_and_punct(&out)
+}
+
+fn token_spans(text: &str) -> Vec<(usize, usize, String)> {
+    let mut tokens = Vec::new();
+    let mut start: Option<usize> = None;
+    let mut end = 0usize;
+
+    for (idx, ch) in text.char_indices() {
+        if ch.is_alphabetic() || ch == '\'' {
+            if start.is_none() {
+                start = Some(idx);
+            }
+            end = idx + ch.len_utf8();
+        } else if let Some(s) = start.take() {
+            tokens.push((s, end, text[s..end].to_lowercase()));
+        }
+    }
+    if let Some(s) = start {
+        tokens.push((s, end, text[s..end].to_lowercase()));
+    }
+
+    tokens
+}
+
+fn should_collapse_duplicate(token: &str) -> bool {
+    if token.len() <= 2 && token != "no" {
+        return true;
+    }
+    matches!(
+        token,
+        "a" | "an"
+            | "and"
+            | "are"
+            | "as"
+            | "be"
+            | "been"
+            | "but"
+            | "can"
+            | "could"
+            | "did"
+            | "do"
+            | "does"
+            | "for"
+            | "from"
+            | "had"
+            | "has"
+            | "have"
+            | "he"
+            | "her"
+            | "here"
+            | "him"
+            | "his"
+            | "i"
+            | "if"
+            | "in"
+            | "is"
+            | "it"
+            | "it's"
+            | "my"
+            | "of"
+            | "on"
+            | "or"
+            | "our"
+            | "she"
+            | "so"
+            | "some"
+            | "that"
+            | "the"
+            | "their"
+            | "them"
+            | "then"
+            | "there"
+            | "they"
+            | "this"
+            | "to"
+            | "was"
+            | "we"
+            | "were"
+            | "what"
+            | "when"
+            | "where"
+            | "which"
+            | "who"
+            | "why"
+            | "will"
+            | "with"
+            | "would"
+            | "you"
+            | "your"
+    )
+}
+
 /// Replace tokens in `text` with their canonical form when they're a near-
 /// match for one of the supplied `custom_words`. Useful for proper nouns the
 /// ASR model doesn't know ("antoine" → "Antoine", "amandeen" → "Amandine").
@@ -190,7 +325,8 @@ fn best_match_or_keep(token: &str, canonicals: &[&str]) -> String {
 /// Convenience: run both passes in the canonical order.
 pub fn postprocess(text: &str, fillers: &[String], custom_words: &[String]) -> String {
     let stripped = strip_fillers(text, fillers);
-    apply_custom_words(&stripped, custom_words)
+    let deduped = collapse_repeated_tokens(&stripped);
+    apply_custom_words(&deduped, custom_words)
 }
 
 #[cfg(test)]
@@ -266,6 +402,38 @@ mod tests {
         let custom = vec!["Antoine".to_string()];
         let out = postprocess("uh antoine, you know, said hello", &fillers, &custom);
         assert_eq!(out, "Antoine, said hello");
+    }
+
+    #[test]
+    fn postprocess_collapses_duplicate_connector_words() {
+        let out = postprocess(
+            "We are reviewing the budget and and the timeline.",
+            &[],
+            &[],
+        );
+        assert_eq!(out, "We are reviewing the budget and the timeline.");
+    }
+
+    #[test]
+    fn postprocess_collapses_long_duplicate_runs() {
+        let out = postprocess(
+            "I selected the d the the the the the latest model.",
+            &[],
+            &[],
+        );
+        assert_eq!(out, "I selected the d the latest model.");
+    }
+
+    #[test]
+    fn postprocess_collapses_short_stutters() {
+        let out = postprocess("It should never sh sh sh show that.", &[], &[]);
+        assert_eq!(out, "It should never sh show that.");
+    }
+
+    #[test]
+    fn postprocess_keeps_emphatic_repetition() {
+        let out = postprocess("This is very very important.", &[], &[]);
+        assert_eq!(out, "This is very very important.");
     }
 
     #[test]

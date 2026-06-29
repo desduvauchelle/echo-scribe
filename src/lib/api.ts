@@ -15,6 +15,19 @@ export type PermissionsStatus = {
   calendars: boolean;
 };
 
+export type PlatformCapabilities = {
+  direct_voice_capture: boolean;
+  local_database: boolean;
+  meeting_auto_detect: boolean;
+  system_audio_capture: boolean;
+  calendar_matching: boolean;
+  screen_recording: boolean;
+  bundle_self_update: boolean;
+};
+
+export const platformCapabilities = (): Promise<PlatformCapabilities> =>
+  invoke("platform_capabilities");
+
 export const permissionsStatus = (): Promise<PermissionsStatus> =>
   invoke("permissions_status");
 

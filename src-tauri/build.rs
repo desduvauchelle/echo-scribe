@@ -11,7 +11,9 @@ use std::path::PathBuf;
 ///      runtime path zero-IO.
 fn main() {
     // Build the Swift sidecars in release mode only (not during cargo check/test).
-    if std::env::var("PROFILE").as_deref() == Ok("release") {
+    let profile = std::env::var("PROFILE").unwrap_or_default();
+    let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    if profile == "release" && target_os == "macos" {
         let syscap = std::process::Command::new("bash")
             .arg("../scripts/build-syscap.sh")
             .status()

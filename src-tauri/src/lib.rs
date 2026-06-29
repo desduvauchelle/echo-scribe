@@ -13,6 +13,7 @@ pub mod input;
 pub mod llm;
 pub mod meeting;
 pub mod overlay;
+pub mod platform;
 pub mod permissions;
 pub mod project_tagger;
 pub mod screenrec;
@@ -68,8 +69,8 @@ use crate::commands::{
     set_rebinding, set_screenrec_audio_prefs, set_task_deadline, set_trigger_word_routing_enabled,
     show_main_window, start_pipeline, start_screen_recording, stop_screen_recording,
     test_llm_inference, transcribe_recording, unarchive_project, uncomplete_task, undo_log_capture,
-    update_action_binding, update_item, update_log_capture_binding, update_project,
-    update_voice_at_cursor_binding, upload_recording, AppState,
+    platform_capabilities, update_action_binding, update_item, update_log_capture_binding,
+    update_project, update_voice_at_cursor_binding, upload_recording, AppState,
 };
 use crate::db::Db;
 use crate::llm::Llm;
@@ -165,6 +166,7 @@ pub fn run() {
         ))
         .invoke_handler(tauri::generate_handler![
             permissions_status,
+            platform_capabilities,
             open_microphone_settings,
             open_accessibility_settings,
             open_screen_recording_settings,
@@ -356,6 +358,9 @@ pub fn run() {
 
             // One-shot log so the user (and us, when debugging) can see
             // which apps have a sticky `Always`/`Never` pref.
+            let capabilities = crate::platform::Capabilities::current();
+            info!(?capabilities, "platform capabilities");
+
             let prefs_for_log = settings.meeting_app_prefs();
             if !prefs_for_log.is_empty() {
                 tracing::info!(?prefs_for_log, "loaded meeting app prefs");
@@ -534,11 +539,15 @@ pub fn run() {
             // Spawn the meeting detector loop (NSWorkspace polling + CoreAudio).
             // Cloning settings here is cheap (Arc-backed). The spawn returns
             // immediately and the loop tracks frontmost-app changes for life.
-            crate::meeting::detector::spawn(
-                Arc::clone(&meeting_manager),
-                settings.clone(),
-                app.handle().clone(),
-            );
+            if capabilities.meeting_auto_detect {
+                crate::meeting::detector::spawn(
+                    Arc::clone(&meeting_manager),
+                    settings.clone(),
+                    app.handle().clone(),
+                );
+            } else {
+                info!("meeting auto-detect unavailable on this platform");
+            }
 
             let project_tagger_db = db.clone();
             let project_tagger_llm = Arc::clone(&llm);
@@ -626,7 +635,9 @@ pub fn run() {
             crate::overlay::create_recording_overlay(&app.handle().clone());
             crate::overlay::create_consent_overlay(&app.handle().clone());
             crate::overlay::create_guide_overlay(&app.handle().clone());
-            crate::overlay::create_screenrec_setup(&app.handle().clone());
+            if capabilities.screen_recording {
+                crate::overlay::create_screenrec_setup(&app.handle().clone());
+            }
 
             // If permissions are already green at startup AND a model is
             // ready, auto-start the pipeline so returning users don't need to
@@ -647,7 +658,7 @@ pub fn run() {
             }
 
             // Spawn background update checker (polls GitHub every 24 h).
-            {
+            if capabilities.bundle_self_update {
                 let handle = app.handle().clone();
                 crate::updater::spawn_updater(handle);
             }

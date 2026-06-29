@@ -60,7 +60,7 @@
     "macOS": {
       "minimumSystemVersion": "14.0",
       "infoPlist": "Info.plist",
-      "signingIdentity": "C985C7ED86CE02D998B394A554991B78D4687B2A",
+      "signingIdentity": "-",
       "entitlements": "Entitlements.plist"
     }
   },

@@ -10,6 +10,13 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
   exit 1
 fi
 
+for tool in curl tar osascript pkill xattr open; do
+  if ! command -v "$tool" >/dev/null 2>&1; then
+    echo "Error: required macOS tool '$tool' was not found." >&2
+    exit 1
+  fi
+done
+
 # Detect architecture
 ARCH="$(uname -m)"
 if [[ "$ARCH" == "arm64" ]]; then
@@ -23,22 +30,22 @@ fi
 
 echo "Installing Echo Scribe..."
 
-# Fetch latest release tag
-LATEST=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
-  | python3 -c "import sys,json; print(json.load(sys.stdin)['tag_name'])")
-
-if [[ -z "$LATEST" ]]; then
-  echo "Error: Could not fetch latest release. Check your internet connection." >&2
-  exit 1
+INSTALL_PREFIX=()
+if [[ ! -w "/Applications" ]]; then
+  if ! command -v sudo >/dev/null 2>&1; then
+    echo "Error: /Applications is not writable and sudo is not available." >&2
+    exit 1
+  fi
+  echo "Administrator permission is required to install to /Applications."
+  sudo -v
+  INSTALL_PREFIX=(sudo)
 fi
-
-echo "Latest version: $LATEST"
 
 # Download to a temp dir (cleaned up on exit)
 WORK_DIR="$(mktemp -d)"
 trap 'rm -rf "$WORK_DIR"' EXIT
 
-DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${LATEST}/${ASSET}"
+DOWNLOAD_URL="https://github.com/${REPO}/releases/latest/download/${ASSET}"
 echo "Downloading $ASSET..."
 curl -fsSL "$DOWNLOAD_URL" -o "$WORK_DIR/$ASSET"
 
@@ -51,7 +58,7 @@ sleep 1
 # Remove old installation
 if [[ -d "/Applications/$APP_BUNDLE" ]]; then
   echo "Removing old installation..."
-  rm -rf "/Applications/$APP_BUNDLE"
+  "${INSTALL_PREFIX[@]}" rm -rf "/Applications/$APP_BUNDLE"
 fi
 
 # Extract
@@ -63,14 +70,10 @@ if [[ -z "$APP_SRC" ]]; then
   exit 1
 fi
 echo "Installing to /Applications/..."
-if [[ ! -w "/Applications" ]]; then
-  echo "Error: /Applications is not writable. Try running with sudo." >&2
-  exit 1
-fi
-cp -R "$APP_SRC" /Applications/
+"${INSTALL_PREFIX[@]}" cp -R "$APP_SRC" /Applications/
 
 # Strip quarantine so Gatekeeper doesn't block the unsigned app
-xattr -dr com.apple.quarantine "/Applications/$APP_BUNDLE" 2>/dev/null || true
+"${INSTALL_PREFIX[@]}" xattr -dr com.apple.quarantine "/Applications/$APP_BUNDLE" 2>/dev/null || true
 
 # Launch
 open "/Applications/$APP_BUNDLE"

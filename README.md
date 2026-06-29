@@ -72,6 +72,10 @@ curl -fsSL https://raw.githubusercontent.com/desduvauchelle/echo-scribe/main/ins
 
 The script installs to `/Applications/`, handles macOS security permissions, and works on both Apple Silicon and Intel. To update, run the same command again.
 
+Echo Scribe also checks GitHub Releases in the background. When a newer release has been downloaded, the app shows a restart banner and replaces the app bundle on restart while preserving your local data in `~/Library/Application Support/EchoScribe/`.
+
+The public build is ad-hoc signed, not Developer ID notarized. The installer and updater remove the quarantine flag after downloading so macOS should not show the "developer cannot be verified" block for installs done through this command.
+
 ---
 
 ## Requirements
@@ -79,6 +83,13 @@ The script installs to `/Applications/`, handles macOS security permissions, and
 - macOS 14 or later
 - Apple Silicon (M1/M2/M3/M4) or Intel Mac
 - ~2 GB disk space for AI models (downloaded on first use)
+
+## Windows
+
+Echo Scribe does not currently have a working Windows build or installer. The
+repo is built around macOS-specific capture, permission, sidecar, and local AI
+runtime pieces. See [docs/WINDOWS.md](docs/WINDOWS.md) for the current support
+status and the validation checklist for a future Windows port.
 
 ---
 

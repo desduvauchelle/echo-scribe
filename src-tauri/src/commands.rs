@@ -89,6 +89,11 @@ pub struct AppState {
     >,
 }
 
+#[tauri::command]
+pub fn platform_capabilities() -> crate::platform::Capabilities {
+    crate::platform::Capabilities::current()
+}
+
 /// JSON-friendly mirror of [`Binding`].
 ///
 /// `primary` is the DOM `KeyboardEvent.code` string (e.g. `"ControlRight"`).
