@@ -282,6 +282,13 @@ impl FocusElement {
     }
 }
 
+#[cfg(not(target_os = "macos"))]
+impl FocusElement {
+    pub fn role(&self) -> Option<&str> {
+        None
+    }
+}
+
 /// Returns the pid of the currently-frontmost application.
 #[cfg(target_os = "macos")]
 pub fn current_frontmost_pid() -> Option<i32> {

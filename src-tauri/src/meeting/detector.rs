@@ -917,6 +917,7 @@ mod tests {
 }
 
 /// CoreAudio `kAudioDevicePropertyDeviceIsRunningSomewhere` on the default input device.
+#[cfg(target_os = "macos")]
 fn is_default_input_running() -> bool {
     use coreaudio_sys::*;
     unsafe {
@@ -955,6 +956,11 @@ fn is_default_input_running() -> bool {
         );
         s2 == 0 && running != 0
     }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn is_default_input_running() -> bool {
+    false
 }
 
 /// Scan all on-screen windows for a backgrounded native meeting app whose

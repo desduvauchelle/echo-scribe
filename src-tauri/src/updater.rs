@@ -142,6 +142,7 @@ async fn download_and_stage(version: &str) -> bool {
 /// Write a helper shell script, launch it detached, then exit the process.
 /// The script waits for the app to exit, replaces the bundle, strips quarantine,
 /// relaunches, and self-deletes.
+#[cfg(target_os = "macos")]
 pub fn launch_update_helper() {
     let staging = match staging_app_path() {
         Some(p) if p.exists() => p,
@@ -182,6 +183,11 @@ pub fn launch_update_helper() {
     }
 
     std::process::exit(0);
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn launch_update_helper() {
+    warn!("self-update restart is only supported on macOS");
 }
 
 pub async fn check_and_download(app: &AppHandle) {
