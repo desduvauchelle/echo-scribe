@@ -62,7 +62,7 @@ Dictate code comments, documentation drafts, TODO items, or feature ideas withou
 
 ---
 
-## Install
+## Install on macOS
 
 Open Terminal (Cmd+Space, type "Terminal", press Enter) and paste:
 
@@ -78,18 +78,26 @@ The public build is ad-hoc signed, not Developer ID notarized. The installer and
 
 ---
 
-## Requirements
+## macOS requirements
 
 - macOS 14 or later
 - Apple Silicon (M1/M2/M3/M4) or Intel Mac
 - ~2 GB disk space for AI models (downloaded on first use)
 
-## Windows
+## Install on Windows
 
-Echo Scribe does not currently have a working Windows build or installer. The
-repo is built around macOS-specific capture, permission, sidecar, and local AI
-runtime pieces. See [docs/WINDOWS.md](docs/WINDOWS.md) for the current support
-status and the validation checklist for a future Windows port.
+Windows support is currently a development build, published from GitHub Actions.
+
+Download the latest green Windows build:
+
+[Echo Scribe Windows build](https://github.com/desduvauchelle/echo-scribe/actions/workflows/windows.yml)
+
+Open the latest successful run, download the `echo-scribe-windows` artifact,
+unzip it, and run the `*-setup.exe` installer.
+
+Windows may show a SmartScreen warning because this development build is not
+code signed yet. Some capture features are still macOS-only; see
+[docs/WINDOWS.md](docs/WINDOWS.md) for current Windows support status.
 
 ---
 
