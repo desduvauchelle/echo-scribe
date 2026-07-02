@@ -1,6 +1,7 @@
 pub mod asr;
 pub mod audio;
 pub mod calendar;
+pub mod chat_memory;
 pub mod classifier;
 pub mod commands;
 pub mod coordinator;
