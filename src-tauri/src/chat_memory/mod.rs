@@ -1,6 +1,7 @@
 //! Builds and maintains the embedding index over history items + summaries.
 
 pub mod chunk;
+pub mod indexer;
 pub mod source;
 
 /// One thing to be embedded: a raw item or a rendered summary.
