@@ -2,6 +2,7 @@
 //! orchestrator that loads/unloads it. Mirrors the `llm` module's lifecycle.
 
 pub mod catalog;
+pub mod engine;
 pub mod math;
 
 /// The embedding model id (matches `embed-models.json`).
@@ -18,4 +19,22 @@ pub fn document_prompt(text: &str) -> String {
 
 pub fn query_prompt(text: &str) -> String {
     format!("task: search result | query: {text}")
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum EmbedError {
+    #[error("embedding model not downloaded: {0}")]
+    NotDownloaded(String),
+    #[error("backend init failed: {0}")]
+    Backend(String),
+    #[error("model load failed: {0}")]
+    Load(String),
+    #[error("context init failed: {0}")]
+    Context(String),
+    #[error("tokenize failed: {0}")]
+    Tokenize(String),
+    #[error("decode failed: {0}")]
+    Decode(String),
+    #[error("read embeddings failed: {0}")]
+    Embeddings(String),
 }
