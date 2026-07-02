@@ -38,7 +38,8 @@ use crate::commands::{
     apply_update_and_restart, archive_project, cancel_log_capture, chat_with_memory, complete_task,
     confirm_log_capture, count_items, count_items_for_project, create_chat_session, create_project, delete_chat_session, delete_item, delete_project,
     delete_llm_model, delete_speech_model, diagnostics_log_dir, diagnostics_open_log_folder,
-    diagnostics_recent_log, dismiss_update, download_llm_model, download_speech_model,
+    diagnostics_recent_log, dismiss_update, download_embedding_model, download_llm_model, download_speech_model,
+    embedding_index_status,
     ensure_pipeline_started_from_handle, get_active_llm_model_id, get_active_speech_model_id,
     get_asr_unload_secs, get_audio_feedback_enabled, get_custom_words, get_default_filler_words,
     get_filler_removal_enabled, get_filler_words, get_llm_unload_secs, get_log_capture_binding,
@@ -354,6 +355,8 @@ pub fn run() {
             get_drive_prefs,
             set_drive_prefs,
             upload_recording,
+            download_embedding_model,
+            embedding_index_status,
         ])
         .setup(move |app| {
             // Tray.

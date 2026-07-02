@@ -1102,3 +1102,18 @@ export const setScreenrecAudioPrefs = (prefs: ScreenrecAudioPrefs): Promise<void
 export const openScreenrecSetup = (): Promise<void> =>
   invoke("open_screenrec_setup");
 
+// --- Embedding index (chat memory v2) ---
+
+export const downloadEmbeddingModel = (): Promise<void> =>
+  invoke("download_embedding_model");
+
+export interface EmbeddingIndexStatus {
+  model_downloaded: boolean;
+  embeddings: number;
+  indexed_sources: number;
+  total_sources: number;
+}
+
+export const getEmbeddingIndexStatus = (): Promise<EmbeddingIndexStatus> =>
+  invoke("embedding_index_status");
+

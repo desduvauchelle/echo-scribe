@@ -3713,6 +3713,57 @@ pub async fn upload_recording(
         .ok_or_else(|| "recording vanished".to_string())
 }
 
+/// Download the embedding model (user-triggered). Emits
+/// `embed-model-download-progress` events; the background indexer picks up
+/// once the file exists on disk.
+#[tauri::command]
+pub async fn download_embedding_model(app: AppHandle) -> Result<(), String> {
+    let entry = crate::embed::catalog::model();
+    let dir = crate::llm::downloader::model_dir(entry);
+    let app_for_cb = app.clone();
+    crate::llm::downloader::download_model(entry, &dir, move |p| {
+        let _ = app_for_cb.emit("embed-model-download-progress", p);
+    })
+    .await
+    .map_err(|e| {
+        tracing::error!(target: "embed", error = %e, "embedding model download failed");
+        "Embedding model download failed. See Settings → Diagnostics → logs for details.".to_string()
+    })?;
+    tracing::info!(target: "embed", "embedding model downloaded");
+    Ok(())
+}
+
+#[derive(serde::Serialize)]
+pub struct EmbeddingIndexStatus {
+    pub model_downloaded: bool,
+    pub embeddings: i64,
+    pub indexed_sources: i64,
+    pub total_sources: i64,
+}
+
+/// Report embedding-index progress for the Settings UI / chat banner.
+#[tauri::command]
+pub fn embedding_index_status(
+    state: State<'_, AppState>,
+) -> Result<EmbeddingIndexStatus, String> {
+    let db = require_db(&state)?;
+    db.with_conn(|c| {
+        let embeddings = crate::db::embeddings::count_embeddings(c)?;
+        let indexed_sources = crate::db::embeddings::count_indexed_sources(c)?;
+        let docs = crate::chat_memory::source::collect_source_docs(c)?;
+        Ok(EmbeddingIndexStatus {
+            model_downloaded: crate::embed::catalog::is_downloaded(),
+            embeddings,
+            indexed_sources,
+            total_sources: docs.len() as i64,
+        })
+    })
+    .map_err(|e: crate::db::DbError| {
+        tracing::error!(target: "embed", error = %e, "embedding_index_status failed");
+        "Could not read index status.".to_string()
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
