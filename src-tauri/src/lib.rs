@@ -6,6 +6,7 @@ pub mod commands;
 pub mod coordinator;
 pub mod daily_summary;
 pub mod denoise;
+pub mod embed;
 pub mod export;
 pub mod meeting;
 pub mod screenrec;
