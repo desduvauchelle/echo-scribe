@@ -71,6 +71,7 @@ pub struct AppState {
     pub coord_tx: Mutex<Option<UnboundedSender<CoordinatorMsg>>>,
     pub asr: Arc<AsrPipeline>,
     pub llm: Arc<Llm>,
+    pub embedder: Arc<crate::embed::Embedder>,
     /// On-disk SQLite handle. `None` only if DB initialization failed at
     /// startup (in which case persistence is disabled but Phase 1 behavior
     /// still works — paste-at-cursor must never be blocked by DB issues).

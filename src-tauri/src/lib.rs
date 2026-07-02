@@ -439,6 +439,14 @@ pub fn run() {
                     llm.spawn_unloader();
                 });
             }
+            // Embedding model: built once, lazy-loaded on first use, idle-unloaded.
+            let embedder = crate::embed::Embedder::new(std::time::Duration::from_secs(180));
+            {
+                let embedder = Arc::clone(&embedder);
+                tauri::async_runtime::spawn(async move {
+                    embedder.spawn_unloader();
+                });
+            }
             {
                 let asr = Arc::clone(&asr);
                 tauri::async_runtime::spawn(async move {
@@ -454,6 +462,7 @@ pub fn run() {
             {
                 let llm_sampler = Arc::clone(&llm);
                 let asr_sampler = Arc::clone(&asr);
+                let embed_sampler = Arc::clone(&embedder);
                 tauri::async_runtime::spawn(async move {
                     use std::time::Duration;
                     let mut interval =
@@ -478,6 +487,8 @@ pub fn run() {
                             llm_loaded = llm_sampler.is_loaded(),
                             asr_idle_s = asr_sampler.idle_for().as_secs(),
                             llm_idle_s = llm_sampler.idle_for().as_secs(),
+                            embed_loaded = embed_sampler.is_loaded(),
+                            embed_idle_s = embed_sampler.idle_for().as_secs(),
                             "[mem] sample"
                         );
                     }
@@ -571,6 +582,7 @@ pub fn run() {
                 coord_tx: Mutex::new(None),
                 asr: Arc::clone(&asr),
                 llm: Arc::clone(&llm),
+                embedder: Arc::clone(&embedder),
                 db,
                 event_log_root,
                 _log_guard: Mutex::new(guard_slot.take()),
