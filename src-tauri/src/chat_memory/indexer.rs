@@ -164,6 +164,40 @@ pub fn index_pending(
     Ok(stats)
 }
 
+/// Spawn the background indexing loop. Ticks periodically; when the embedding
+/// model is present, indexes any pending sources. Cheap when nothing changed.
+pub fn spawn(app: tauri::AppHandle) {
+    use tauri::Manager;
+    tauri::async_runtime::spawn(async move {
+        // Small initial delay so startup isn't competing with model loads.
+        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+        loop {
+            interval.tick().await;
+
+            let (db, embedder) = {
+                let state = app.state::<crate::commands::AppState>();
+                (state.db.clone(), std::sync::Arc::clone(&state.embedder))
+            };
+            let Some(db) = db else { continue };
+            if !crate::embed::catalog::is_downloaded() {
+                continue; // user hasn't downloaded the embedding model yet
+            }
+
+            let model_id = crate::embed::EMBED_MODEL_ID.to_string();
+            let res = tokio::task::spawn_blocking(move || {
+                index_pending(&db, embedder.as_ref(), &model_id)
+            })
+            .await;
+            match res {
+                Ok(Ok(_stats)) => {}
+                Ok(Err(e)) => tracing::error!(target: "index", error = %e, "indexer pass failed"),
+                Err(e) => tracing::error!(target: "index", error = %e, "indexer task join failed"),
+            }
+        }
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
