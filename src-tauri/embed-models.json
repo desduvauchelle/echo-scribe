@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "_comment": "Text-embedding model registry. EmbeddingGemma-300m (Q8_0 GGUF) from the official ggml-org (llama.cpp) repo. Native dim 768; we use the first 256 dims (Matryoshka) after L2-normalization. Input context 2048. sha256 PLACEHOLDER => downloader skips verification. size_bytes measured via HTTP HEAD on 2026-06-16.",
+  "models": [
+    {
+      "id": "embeddinggemma-300m-q8",
+      "display_name": "EmbeddingGemma 300m (Q8_0)",
+      "family": "embeddinggemma",
+      "size_label": "318 MB",
+      "size_bytes": 333590944,
+      "context_length": 2048,
+      "is_default": true,
+      "supported": true,
+      "files": [
+        {
+          "name": "embeddinggemma-300M-Q8_0.gguf",
+          "url": "https://huggingface.co/ggml-org/embeddinggemma-300M-GGUF/resolve/main/embeddinggemma-300M-Q8_0.gguf",
+          "sha256": "PLACEHOLDER",
+          "size_bytes": 333590944
+        }
+      ]
+    }
+  ]
+}
