@@ -274,6 +274,37 @@ ALTER TABLE projects ADD COLUMN updated_at TEXT;
 ALTER TABLE projects ADD COLUMN export_folder TEXT;
 "#,
     ),
+    (
+        19,
+        r#"
+CREATE TABLE IF NOT EXISTS embeddings (
+  id            TEXT PRIMARY KEY,
+  source_kind   TEXT NOT NULL,
+  source_id     TEXT NOT NULL,
+  passage_idx   INTEGER NOT NULL,
+  passage_text  TEXT NOT NULL,
+  vec           BLOB NOT NULL,
+  dim           INTEGER NOT NULL,
+  model_id      TEXT NOT NULL,
+  project_id    TEXT,
+  captured_at   TEXT NOT NULL,
+  content_hash  TEXT NOT NULL,
+  created_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_emb_source   ON embeddings(source_kind, source_id);
+CREATE INDEX IF NOT EXISTS idx_emb_captured ON embeddings(captured_at DESC);
+CREATE INDEX IF NOT EXISTS idx_emb_project  ON embeddings(project_id);
+
+CREATE TABLE IF NOT EXISTS embedding_index_state (
+  source_kind   TEXT NOT NULL,
+  source_id     TEXT NOT NULL,
+  content_hash  TEXT NOT NULL,
+  model_id      TEXT NOT NULL,
+  indexed_at    TEXT NOT NULL,
+  PRIMARY KEY (source_kind, source_id)
+);
+"#,
+    ),
 ];
 
 const META_TABLE_SQL: &str = r#"
@@ -335,7 +366,21 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(v, "18");
+        assert_eq!(v, "19");
+    }
+
+    #[test]
+    fn migration_v19_creates_embedding_tables() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        run_migrations(&mut conn).unwrap();
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('embeddings','embedding_index_state')",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 2);
     }
 
     #[test]
@@ -456,7 +501,7 @@ mod tests {
         let version: String = conn
             .query_row("SELECT value FROM schema_meta WHERE key = 'schema_version'", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(version, "18");
+        assert_eq!(version, "19");
     }
 
     #[test]
