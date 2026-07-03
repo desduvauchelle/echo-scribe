@@ -62,6 +62,8 @@ import {
   getCommonActions,
   getActionBinding,
   updateActionBinding,
+  getEditSelectionBinding,
+  updateEditSelectionBinding,
   getTriggerWordRoutingEnabled,
   setTriggerWordRoutingEnabled,
   getActionTriggerWord,
@@ -1477,6 +1479,22 @@ function AppLauncherSettingsSection() {
               <HotkeyRebinder
                 load={getActionBinding}
                 save={updateActionBinding}
+              />
+            </div>
+          </div>
+
+          {/* Edit selection: voice-rewrite highlighted text in place */}
+          <div className="border border-line rounded-lg p-4 bg-surface/30 flex flex-col gap-3">
+            <div>
+              <span className="text-xs font-semibold text-fg block">Edit Selection Hotkey</span>
+              <span className="text-[11px] text-muted block mt-0.5">
+                Highlight text in any app, hold this hotkey, and speak an instruction (e.g. "make this more concise", "translate to French"). The local model rewrites the selection in place.
+              </span>
+            </div>
+            <div className="mt-1">
+              <HotkeyRebinder
+                load={getEditSelectionBinding}
+                save={updateEditSelectionBinding}
               />
             </div>
           </div>

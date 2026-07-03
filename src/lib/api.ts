@@ -60,6 +60,12 @@ export const getActionBinding = (): Promise<JsBinding> =>
 export const updateActionBinding = (binding: JsBinding): Promise<void> =>
   invoke("update_action_binding", { binding });
 
+export const getEditSelectionBinding = (): Promise<JsBinding> =>
+  invoke("get_edit_selection_binding");
+
+export const updateEditSelectionBinding = (binding: JsBinding): Promise<void> =>
+  invoke("update_edit_selection_binding", { binding });
+
 export const getTriggerWordRoutingEnabled = (): Promise<boolean> =>
   invoke("get_trigger_word_routing_enabled");
 
