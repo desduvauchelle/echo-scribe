@@ -1013,15 +1013,40 @@ export const updateGuideTemplate = (
 export const deleteGuideTemplate = (id: string): Promise<void> =>
   invoke("delete_guide_template", { id });
 
-export const startGuidedSession = (templateId: string): Promise<string> =>
-  invoke("start_guided_session", { templateId });
+export const attachGuide = (templateId: string): Promise<string> =>
+  invoke("attach_guide", { templateId });
 
-export const guideSetMode = (mode: "auto" | "on_demand"): Promise<void> =>
-  invoke("guide_set_mode", { mode });
+export const detachGuide = (sessionId: string): Promise<void> =>
+  invoke("detach_guide", { sessionId });
 
-export const guideTriggerNow = (): Promise<void> => invoke("guide_trigger_now");
+export const guideSetMode = (
+  sessionId: string,
+  mode: "auto" | "on_demand",
+): Promise<void> => invoke("guide_set_mode", { sessionId, mode });
 
-export const guideEnd = (): Promise<string> => invoke("guide_end");
+export const guideTriggerNow = (sessionId: string): Promise<void> =>
+  invoke("guide_trigger_now", { sessionId });
+
+export type TranscriptSegment = {
+  speaker: "you" | "them";
+  start_ms: number;
+  end_ms: number;
+  text: string;
+};
+
+export const getLiveTranscript = (): Promise<TranscriptSegment[]> =>
+  invoke("get_live_transcript");
+
+export const showMeetingHud = (
+  focus?: "transcript" | "guides",
+): Promise<void> => invoke("show_meeting_hud", { focus: focus ?? null });
+
+export const saveHudFrame = (
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+): Promise<void> => invoke("save_hud_frame", { x, y, w, h });
 
 export type GuideKeyPoint = {
   id: string;
@@ -1029,7 +1054,17 @@ export type GuideKeyPoint = {
   status: "covered" | "partial" | "open" | string;
 };
 
+export type GuideInit = {
+  sessionId: string;
+  slot: number;
+  templateName: string;
+  goal: string;
+  mode: "auto" | "on_demand";
+};
+
 export type GuideUpdate = {
+  sessionId: string;
+  slot: number;
   meetingId: string;
   templateName?: string;
   goal?: string;

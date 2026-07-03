@@ -5,7 +5,7 @@ import {
   isMeetingActive,
   listGuideTemplates,
   listMeetings,
-  startGuidedSession,
+  attachGuide,
   startMeetingManual,
   stopMeeting,
   type GuideTemplate,
@@ -115,7 +115,7 @@ export function MeetingsView() {
       setBusy(true);
       setPickerOpen(false);
       try {
-        await startGuidedSession(templateId);
+        await attachGuide(templateId);
         await refreshActive();
       } catch (e) {
         toasts.push({
