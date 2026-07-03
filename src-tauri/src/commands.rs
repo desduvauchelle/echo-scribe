@@ -55,6 +55,7 @@ pub struct AppState {
     pub binding: Arc<RwLock<Binding>>,
     pub log_capture_binding: Arc<RwLock<Binding>>,
     pub action_binding: Arc<RwLock<Binding>>,
+    pub edit_selection_binding: Arc<RwLock<Binding>>,
     pub hotkey_started: AtomicBool,
     /// When `true`, the coordinator drops Pressed/Released events. Toggled
     /// from the tray menu (Pause/Resume hotkeys). The hotkey listeners stay
@@ -323,6 +324,36 @@ pub fn update_action_binding(
 }
 
 #[tauri::command]
+pub fn get_edit_selection_binding(state: State<'_, AppState>) -> JsBinding {
+    let b = state
+        .edit_selection_binding
+        .read()
+        .map(|g| g.clone())
+        .unwrap_or_else(|_| crate::settings::default_edit_selection_binding());
+    b.into()
+}
+
+#[tauri::command]
+pub fn update_edit_selection_binding(
+    state: State<'_, AppState>,
+    binding: JsBinding,
+) -> Result<(), String> {
+    let parsed: Binding = binding
+        .try_into()
+        .map_err(|e: BindingConversionError| e.to_string())?;
+    state
+        .settings
+        .set_edit_selection_binding(parsed.clone())
+        .map_err(|e| e.to_string())?;
+    let mut guard = state
+        .edit_selection_binding
+        .write()
+        .map_err(|_| "edit_selection_binding lock poisoned".to_string())?;
+    *guard = parsed;
+    Ok(())
+}
+
+#[tauri::command]
 pub fn get_trigger_word_routing_enabled(state: State<'_, AppState>) -> bool {
     state.settings.trigger_word_routing_enabled()
 }
@@ -563,10 +594,12 @@ pub fn ensure_pipeline_started(state: &AppState, app: &AppHandle) {
     let (vac_tx, mut vac_rx) = mpsc::unbounded_channel::<HotkeyEvent>();
     let (lc_tx, mut lc_rx) = mpsc::unbounded_channel::<HotkeyEvent>();
     let (ac_tx, mut ac_rx) = mpsc::unbounded_channel::<HotkeyEvent>();
+    let (es_tx, mut es_rx) = mpsc::unbounded_channel::<HotkeyEvent>();
 
     spawn_listener(Arc::clone(&state.binding), vac_tx, Arc::clone(&state.rebinding));
     spawn_listener(Arc::clone(&state.log_capture_binding), lc_tx, Arc::clone(&state.rebinding));
     spawn_listener(Arc::clone(&state.action_binding), ac_tx, Arc::clone(&state.rebinding));
+    spawn_listener(Arc::clone(&state.edit_selection_binding), es_tx, Arc::clone(&state.rebinding));
 
     // Adapter tasks: tag + forward into the coordinator channel. We use
     // `tokio::spawn` rather than a dedicated thread because these are pure
@@ -603,6 +636,19 @@ pub fn ensure_pipeline_started(state: &AppState, app: &AppHandle) {
             while let Some(ev) = ac_rx.recv().await {
                 if coord_tx
                     .send(CoordinatorMsg::Hotkey(Action::ActionCommand, ev))
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        });
+    }
+    {
+        let coord_tx = coord_tx.clone();
+        tauri::async_runtime::spawn(async move {
+            while let Some(ev) = es_rx.recv().await {
+                if coord_tx
+                    .send(CoordinatorMsg::Hotkey(Action::EditSelection, ev))
                     .is_err()
                 {
                     break;

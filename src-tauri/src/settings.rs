@@ -12,6 +12,7 @@ const STORE_FILENAME: &str = "settings.json";
 const KEY_VOICE_AT_CURSOR_BINDING: &str = "voice_at_cursor_binding";
 const KEY_LOG_CAPTURE_BINDING: &str = "log_capture_binding";
 const KEY_ACTION_BINDING: &str = "action_binding";
+const KEY_EDIT_SELECTION_BINDING: &str = "edit_selection_binding";
 const KEY_TRIGGER_WORD_ROUTING_ENABLED: &str = "trigger_word_routing_enabled";
 const KEY_ACTION_TRIGGER_WORD: &str = "action_trigger_word";
 const KEY_SPEECH_MODEL_ID: &str = "speech_model_id";
@@ -294,6 +295,31 @@ impl SettingsStore {
     pub fn set_action_binding(&self, b: Binding) -> Result<(), SettingsError> {
         let value = serde_json::to_value(&b)?;
         self.store.set(KEY_ACTION_BINDING, value);
+        self.store
+            .save()
+            .map_err(|e| SettingsError::Store(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Returns the configured edit-selection binding, or the default
+    /// (`Right Option + E`) if none is stored or invalid.
+    pub fn edit_selection_binding(&self) -> Binding {
+        match self.store.get(KEY_EDIT_SELECTION_BINDING) {
+            Some(value) => match serde_json::from_value::<Binding>(value) {
+                Ok(b) => b,
+                Err(e) => {
+                    warn!(?e, "stored edit_selection_binding is invalid; falling back to default");
+                    default_edit_selection_binding()
+                }
+            },
+            None => default_edit_selection_binding(),
+        }
+    }
+
+    /// Persist the edit-selection binding.
+    pub fn set_edit_selection_binding(&self, b: Binding) -> Result<(), SettingsError> {
+        let value = serde_json::to_value(&b)?;
+        self.store.set(KEY_EDIT_SELECTION_BINDING, value);
         self.store
             .save()
             .map_err(|e| SettingsError::Store(e.to_string()))?;
@@ -1142,6 +1168,14 @@ pub fn default_action_binding() -> Binding {
     }
 }
 
+/// The default edit-selection binding: Right Option + E.
+pub fn default_edit_selection_binding() -> Binding {
+    Binding {
+        primary: SerKey(Key::KeyE),
+        modifiers: vec![(ModifierKind::Alt, ModifierSide::Right)],
+    }
+}
+
 #[cfg(test)]
 mod updater_tests {
     use super::*;
@@ -1182,5 +1216,74 @@ mod auto_file_tests {
     fn app_launcher_constants_are_correct() {
         assert_eq!(KEY_APP_LAUNCHER_ENABLED, "app_launcher_enabled");
         assert_eq!(KEY_ACTION_COUNTER, "action_counter");
+    }
+}
+
+#[cfg(test)]
+mod edit_selection_binding_tests {
+    use super::*;
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+
+    /// Minimal stand-in for [`SettingsStore`] used only in unit tests.
+    ///
+    /// `SettingsStore`'s only constructor (`SettingsStore::load`) requires a
+    /// live `tauri::AppHandle`, and this crate doesn't enable tauri's `test`
+    /// feature or have any mock-app test infrastructure elsewhere. This type
+    /// mirrors `SettingsStore`'s public get/set/save shape (an in-memory
+    /// key-value map standing in for the on-disk JSON store) so the
+    /// edit-selection binding round-trip can be exercised without a Tauri
+    /// runtime. It intentionally implements only what this test needs.
+    struct TestStore {
+        values: RefCell<HashMap<String, serde_json::Value>>,
+    }
+
+    impl TestStore {
+        fn new() -> Self {
+            Self {
+                values: RefCell::new(HashMap::new()),
+            }
+        }
+
+        fn get(&self, key: &str) -> Option<serde_json::Value> {
+            self.values.borrow().get(key).cloned()
+        }
+
+        fn set(&self, key: &str, value: serde_json::Value) {
+            self.values.borrow_mut().insert(key.to_string(), value);
+        }
+
+        /// Mirrors `SettingsStore::edit_selection_binding`.
+        fn edit_selection_binding(&self) -> Binding {
+            match self.get(KEY_EDIT_SELECTION_BINDING) {
+                Some(value) => match serde_json::from_value::<Binding>(value) {
+                    Ok(b) => b,
+                    Err(_) => default_edit_selection_binding(),
+                },
+                None => default_edit_selection_binding(),
+            }
+        }
+
+        /// Mirrors `SettingsStore::set_edit_selection_binding`.
+        fn set_edit_selection_binding(&self, b: Binding) -> Result<(), SettingsError> {
+            let value = serde_json::to_value(&b)?;
+            self.set(KEY_EDIT_SELECTION_BINDING, value);
+            Ok(())
+        }
+    }
+
+    fn test_store() -> TestStore {
+        TestStore::new()
+    }
+
+    #[test]
+    fn edit_selection_binding_round_trips_and_defaults() {
+        let store = test_store(); // same helper the other binding tests use
+        // Default when unset.
+        assert_eq!(store.edit_selection_binding(), default_edit_selection_binding());
+        // Round-trip a custom binding.
+        let custom = Binding::single(Key::F8);
+        store.set_edit_selection_binding(custom.clone()).unwrap();
+        assert_eq!(store.edit_selection_binding(), custom);
     }
 }

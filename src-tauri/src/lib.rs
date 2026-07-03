@@ -43,7 +43,9 @@ use crate::commands::{
     ensure_pipeline_started_from_handle, get_active_llm_model_id, get_active_speech_model_id,
     get_asr_unload_secs, get_audio_feedback_enabled, get_custom_words, get_default_filler_words,
     get_filler_removal_enabled, get_filler_words, get_llm_unload_secs, get_log_capture_binding,
-    get_action_binding, update_action_binding, get_trigger_word_routing_enabled,
+    get_action_binding, update_action_binding,
+    get_edit_selection_binding, update_edit_selection_binding,
+    get_trigger_word_routing_enabled,
     set_trigger_word_routing_enabled, get_action_trigger_word, set_action_trigger_word,
     get_mute_while_recording, get_onboarding_completed, get_voice_at_cursor_binding,
     get_item, is_pipeline_running, list_chat_sessions, list_items, list_llm_models, list_projects, list_speech_models,
@@ -201,6 +203,8 @@ pub fn run() {
             update_log_capture_binding,
             get_action_binding,
             update_action_binding,
+            get_edit_selection_binding,
+            update_edit_selection_binding,
             get_trigger_word_routing_enabled,
             set_trigger_word_routing_enabled,
             get_action_trigger_word,
@@ -385,6 +389,8 @@ pub fn run() {
             let log_capture_binding = Arc::new(RwLock::new(initial_log_binding));
             let initial_action_binding = settings.action_binding();
             let action_binding = Arc::new(RwLock::new(initial_action_binding));
+            let initial_edit_selection_binding = settings.edit_selection_binding();
+            let edit_selection_binding = Arc::new(RwLock::new(initial_edit_selection_binding));
 
             // Migrate any legacy model dirs (renames between releases) before
             // we ask the registry which models are downloaded.
@@ -580,6 +586,7 @@ pub fn run() {
                 binding,
                 log_capture_binding,
                 action_binding,
+                edit_selection_binding,
                 hotkey_started: AtomicBool::new(false),
                 paused_hotkeys: Arc::clone(&paused_hotkeys),
                 rebinding,
