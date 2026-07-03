@@ -24,6 +24,26 @@ const TrayIcon: React.FC<{ src: string; alt: string }> = ({ src, alt }) => (
   />
 );
 
+const TranscriptIcon: React.FC = () => (
+  <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+    <path
+      d="M2 2.5h8M2 5h8M2 7.5h5"
+      stroke="#d4eeff"
+      strokeWidth="1.2"
+      strokeLinecap="round"
+    />
+  </svg>
+);
+
+const GuideIcon: React.FC = () => (
+  <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+    <path
+      d="M6 1.5l1.2 2.8L10 5.5 7.2 6.7 6 9.5 4.8 6.7 2 5.5l2.8-1.2L6 1.5Z"
+      fill="#ffe5ee"
+    />
+  </svg>
+);
+
 const CancelIcon: React.FC = () => (
   <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
     <path
@@ -152,17 +172,41 @@ const RecordingOverlay: React.FC = () => {
           </button>
         )}
         {isMeeting && (
-          <button
-            className="cancel-button"
-            onClick={() => {
-              import("@tauri-apps/api/core").then(({ invoke }) =>
-                invoke("stop_meeting").catch(() => {}),
-              );
-            }}
-            title="Stop meeting"
-          >
-            <CancelIcon />
-          </button>
+          <>
+            <button
+              className="hud-button"
+              onClick={() => {
+                import("@tauri-apps/api/core").then(({ invoke }) =>
+                  invoke("show_meeting_hud", { focus: "transcript" }).catch(() => {}),
+                );
+              }}
+              title="Live transcript"
+            >
+              <TranscriptIcon />
+            </button>
+            <button
+              className="hud-button"
+              onClick={() => {
+                import("@tauri-apps/api/core").then(({ invoke }) =>
+                  invoke("show_meeting_hud", { focus: "guides" }).catch(() => {}),
+                );
+              }}
+              title="Guided templates"
+            >
+              <GuideIcon />
+            </button>
+            <button
+              className="cancel-button"
+              onClick={() => {
+                import("@tauri-apps/api/core").then(({ invoke }) =>
+                  invoke("stop_meeting").catch(() => {}),
+                );
+              }}
+              title="Stop meeting"
+            >
+              <CancelIcon />
+            </button>
+          </>
         )}
       </div>
     </div>

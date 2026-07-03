@@ -1,6 +1,6 @@
 .recording-overlay {
   height: 36px;
-  width: 172px;
+  width: 100vw;
   display: grid;
   grid-template-columns: auto 1fr auto;
   align-items: center;
@@ -108,5 +108,28 @@
 }
 
 .cancel-button:active {
+  transform: scale(0.95);
+}
+
+.hud-button {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: transparent;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color 150ms ease-out, transform 100ms ease-out;
+  flex-shrink: 0;
+}
+
+.hud-button:hover {
+  background: #ffffff22;
+  transform: scale(1.05);
+}
+
+.hud-button:active {
   transform: scale(0.95);
 }
