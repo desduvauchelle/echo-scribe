@@ -4,6 +4,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   attachGuide,
   detachGuide,
+  getActiveGuides,
   getLiveTranscript,
   guideSetMode,
   guideTriggerNow,
@@ -75,6 +76,28 @@ export default function MeetingHud() {
       .catch(() => {/* no active meeting — leave empty */});
   }, []);
 
+  const backfillGuides = useCallback(() => {
+    getActiveGuides()
+      .then((list) => {
+        setSessions((prev) => {
+          const next = { ...prev };
+          for (const g of list) {
+            next[g.sessionId] = {
+              sessionId: g.sessionId,
+              slot: g.slot,
+              templateName: g.templateName,
+              goal: g.goal,
+              mode: g.mode,
+              keyPoints: prev[g.sessionId]?.keyPoints ?? [],
+              collapsed: prev[g.sessionId]?.collapsed ?? false,
+            };
+          }
+          return next;
+        });
+      })
+      .catch(() => {/* no active meeting */});
+  }, []);
+
   // Event wiring.
   useEffect(() => {
     const unlisteners: Promise<UnlistenFn>[] = [
@@ -142,6 +165,7 @@ export default function MeetingHud() {
           backfillTranscript();
         } else if (e.payload.focus === "guides") {
           setPickerOpen(true);
+          backfillGuides();
           listGuideTemplates().then(setTemplates).catch(() => setTemplates([]));
         }
       }),
@@ -156,15 +180,18 @@ export default function MeetingHud() {
       listen<{ id: string; status: string }>("meeting-status", (e) => {
         if (["transcribing", "summarizing", "complete"].includes(e.payload.status)) {
           setSessions({});
+          setCards([]);
+          setSegments([]);
           setPickerOpen(false);
         }
       }),
     ];
     backfillTranscript();
+    backfillGuides();
     return () => {
       unlisteners.forEach((p) => p.then((u) => u()));
     };
-  }, [backfillTranscript]);
+  }, [backfillTranscript, backfillGuides]);
 
   // Persist the window frame (debounced) whenever the user moves/resizes.
   useEffect(() => {
@@ -217,7 +244,12 @@ export default function MeetingHud() {
         await attachGuide(templateId);
         setPickerOpen(false);
       } catch (err) {
-        showToast(String(err));
+        const msg = String(err);
+        const friendly =
+          msg.includes("Two guides") || msg.includes("No meeting")
+            ? msg
+            : "Couldn't add guide. See Settings → Diagnostics → logs.";
+        showToast(friendly);
       }
     },
     [showToast],
@@ -235,7 +267,10 @@ export default function MeetingHud() {
     const next = s.mode === "auto" ? "on_demand" : "auto";
     try {
       await guideSetMode(s.sessionId, next);
-      setSessions((prev) => ({ ...prev, [s.sessionId]: { ...s, mode: next } }));
+      setSessions((prev) => {
+        const cur = prev[s.sessionId];
+        return cur ? { ...prev, [s.sessionId]: { ...cur, mode: next } } : prev;
+      });
     } catch {
       /* swallow */
     }

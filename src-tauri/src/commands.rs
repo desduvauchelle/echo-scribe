@@ -2589,6 +2589,13 @@ pub async fn get_live_transcript(
 }
 
 #[tauri::command]
+pub async fn get_active_guides(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<serde_json::Value>, String> {
+    Ok(state.meeting_manager.active_guides_snapshot().await)
+}
+
+#[tauri::command]
 pub fn show_meeting_hud(app: tauri::AppHandle, focus: Option<String>) {
     crate::overlay::show_meeting_hud(&app, focus.as_deref());
 }

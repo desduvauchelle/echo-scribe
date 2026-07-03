@@ -314,6 +314,7 @@ pub fn run() {
             commands::attach_guide,
             commands::detach_guide,
             commands::get_live_transcript,
+            commands::get_active_guides,
             commands::show_meeting_hud,
             commands::save_hud_frame,
             get_app_launcher_enabled,

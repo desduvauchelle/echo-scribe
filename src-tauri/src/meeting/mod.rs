@@ -233,6 +233,37 @@ impl MeetingManager {
             .unwrap_or_default()
     }
 
+    /// Snapshot of active guide sessions in HUD `guide-init` payload shape.
+    /// Lets the HUD recover state on (re)mount instead of depending on
+    /// having been alive when `guide-init` fired.
+    pub async fn active_guides_snapshot(&self) -> Vec<serde_json::Value> {
+        self.state
+            .lock()
+            .await
+            .as_ref()
+            .map(|a| {
+                a.guide_engines
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .map(|e| {
+                        let t = e.template_snapshot();
+                        serde_json::json!({
+                            "sessionId": e.session_id(),
+                            "slot": e.slot(),
+                            "templateName": t.name,
+                            "goal": t.goal,
+                            "mode": match e.mode() {
+                                crate::meeting::guidance::Mode::Auto => "auto",
+                                crate::meeting::guidance::Mode::OnDemand => "on_demand",
+                            },
+                        })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
     /// Attach a guide template to the active meeting. Caps at two concurrent
     /// guides. Seeds the new engine with the recent transcript, persists the
     /// template snapshot on the meeting row, shows the HUD, and (in Auto

@@ -1040,6 +1040,9 @@ export type TranscriptSegment = {
 export const getLiveTranscript = (): Promise<TranscriptSegment[]> =>
   invoke("get_live_transcript");
 
+export const getActiveGuides = (): Promise<GuideInit[]> =>
+  invoke("get_active_guides");
+
 export const showMeetingHud = (
   focus?: "transcript" | "guides",
 ): Promise<void> => invoke("show_meeting_hud", { focus: focus ?? null });

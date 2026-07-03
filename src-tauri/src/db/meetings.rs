@@ -144,7 +144,15 @@ pub fn append_guide_template_snapshot(
     let mut arr = match current.as_deref().map(serde_json::from_str::<serde_json::Value>) {
         Some(Ok(serde_json::Value::Array(a))) => a,
         Some(Ok(v @ serde_json::Value::Object(_))) => vec![v],
-        _ => Vec::new(),
+        Some(Ok(other)) => {
+            tracing::warn!(target: "guide", item_id, kind = %other.to_string().chars().take(40).collect::<String>(), "existing guide_template_json neither array nor object; discarding");
+            Vec::new()
+        }
+        Some(Err(e)) => {
+            tracing::warn!(target: "guide", item_id, error = %e, "existing guide_template_json unparseable; discarding");
+            Vec::new()
+        }
+        None => Vec::new(),
     };
     arr.push(snapshot.clone());
     conn.execute(
