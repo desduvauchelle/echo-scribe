@@ -260,6 +260,7 @@ pub fn spawn(
                         error!(?e, ?action, "failed to start recorder; returning to Idle");
                         crate::overlay::hide_recording_overlay(&app);
                         force_state(&state, PipelineState::Idle);
+                        pending_selection = None;
                         on_state_change(TrayPipelineState::Idle);
                         if matches!(action, Action::LogCapture) {
                             let _ = app.emit("log_capture:cancelled", ());
@@ -311,6 +312,7 @@ pub fn spawn(
                                     }
                                     crate::overlay::hide_recording_overlay(&app);
                                     force_state(&state, PipelineState::Idle);
+                                    pending_selection = None;
                                     on_state_change(TrayPipelineState::Idle);
                                 }
                                 Ok(text) => {
