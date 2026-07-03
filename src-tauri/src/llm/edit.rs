@@ -82,15 +82,13 @@ fn strip_code_fence(s: &str) -> Option<&str> {
 
 /// Strip a single matching pair of ASCII wrapping quotes/backticks.
 fn strip_wrapping_quotes(s: &str) -> &str {
-    if s.len() >= 2 {
-        let bytes = s.as_bytes();
-        let first = bytes[0] as char;
-        let last = bytes[s.len() - 1] as char;
-        if (first == '"' && last == '"')
-            || (first == '\'' && last == '\'')
-            || (first == '`' && last == '`')
+    let mut chars = s.chars();
+    if let (Some(first), Some(last)) = (chars.next(), chars.next_back()) {
+        if first == last
+            && matches!(first, '"' | '\'' | '`')
+            && s.len() > first.len_utf8()
         {
-            return &s[1..s.len() - 1];
+            return &s[first.len_utf8()..s.len() - last.len_utf8()];
         }
     }
     s
@@ -102,7 +100,7 @@ fn strip_leading_preamble(s: &str) -> &str {
         let (first, rest) = s.split_at(nl);
         let f = first.trim().to_lowercase();
         let looks_like_preamble = f.ends_with(':')
-            && f.len() <= 60
+            && f.chars().count() <= 60
             && ["sure", "here", "here's", "certainly", "okay", "ok", "revised", "result", "output"]
                 .iter()
                 .any(|w| f.starts_with(w));
@@ -173,5 +171,16 @@ mod tests {
         let llm = MockLlm("Revised.");
         let raw = run(&llm, "make it shorter", "This is a long sentence.").await.unwrap();
         assert_eq!(raw, "Revised.");
+    }
+
+    #[test]
+    fn sanitizer_is_utf8_safe_on_multibyte_content() {
+        // ASCII quotes wrapping a multibyte body → quotes stripped, body intact.
+        assert_eq!(
+            sanitize_edit_output("\"café résumé\"", "cafe").as_deref(),
+            Some("café résumé")
+        );
+        // Multibyte first/last char (not a quote) → passes through untouched, no panic.
+        assert_eq!(sanitize_edit_output("café", "x").as_deref(), Some("café"));
     }
 }
