@@ -132,7 +132,6 @@ impl TrayHandle<Wry> {
                                         .as_ref()
                                         .and_then(|c| c.browser_tab_title.clone()),
                                     calendar_match: None,
-                                    guide_template: None,
                                 }
                             };
                             match manager.clone().start(None, None, start_ctx).await {

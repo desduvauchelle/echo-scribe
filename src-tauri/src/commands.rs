@@ -2526,7 +2526,6 @@ fn capture_meeting_start_context() -> crate::meeting::MeetingStartContext {
         browser_url: ctx.as_ref().and_then(|c| c.browser_url.clone()),
         browser_tab_title: ctx.as_ref().and_then(|c| c.browser_tab_title.clone()),
         calendar_match: None,
-        guide_template: None,
     }
 }
 
@@ -2546,8 +2545,7 @@ pub async fn start_guided_session(
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("guide template {template_id} not found"))?;
 
-    let mut start_context = capture_meeting_start_context();
-    start_context.guide_template = Some(template);
+    let start_context = capture_meeting_start_context();
 
     let id = state
         .meeting_manager
@@ -2555,16 +2553,22 @@ pub async fn start_guided_session(
         .start(None, None, start_context)
         .await
         .map_err(|e| e.to_string())?;
+    state.meeting_manager.attach_guide(template).await?;
 
     crate::meeting::detector::spawn_end_monitor(state.meeting_manager.clone(), None);
     Ok(id)
 }
 
+// NOTE: guide_set_mode/guide_trigger_now still operate on "the" (first)
+// attached engine — Task 5 rewires these to take an explicit `session_id`
+// (via `guide_engine_by_id`) now that a meeting can carry up to two guides.
+// Kept compiling here via `transcript_snapshot`'s sibling lookup so this
+// commit doesn't leave the crate broken between Task 4 and Task 5.
 #[tauri::command]
 pub async fn guide_set_mode(state: tauri::State<'_, AppState>, mode: String) -> Result<(), String> {
     let m = crate::meeting::guidance::Mode::parse(&mode)
         .ok_or_else(|| format!("unknown guide mode: {mode}"))?;
-    if let Some(engine) = state.meeting_manager.guide_engine().await {
+    if let Some(engine) = state.meeting_manager.first_guide_engine().await {
         engine.set_mode(m);
     }
     // Persist for next session even when no engine is active.
@@ -2576,7 +2580,7 @@ pub async fn guide_set_mode(state: tauri::State<'_, AppState>, mode: String) -> 
 
 #[tauri::command]
 pub async fn guide_trigger_now(state: tauri::State<'_, AppState>) -> Result<(), String> {
-    if let Some(engine) = state.meeting_manager.guide_engine().await {
+    if let Some(engine) = state.meeting_manager.first_guide_engine().await {
         engine.fire_cycle();
         Ok(())
     } else {

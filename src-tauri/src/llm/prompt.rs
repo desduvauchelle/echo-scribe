@@ -428,7 +428,6 @@ mod tests {
             browser_url: Some("https://meet.google.com/abc-defg-hij".into()),
             browser_tab_title: Some("Meeting – Alice, Bob".into()),
             calendar_match: None,
-            guide_template: None,
         };
         let (_sys, user) =
             build_meeting_synthesis_prompt("You: hi\n", Some("Zoom"), 30, &[], &ctx, None);
@@ -520,7 +519,6 @@ mod tests {
             browser_url: None,
             browser_tab_title: Some("Echo Scribe — pricing".into()),
             calendar_match: None,
-            guide_template: None,
         };
         let (_sys, user) =
             build_meeting_synthesis_prompt("You: hi\n", None, 1, &[], &ctx, None);
