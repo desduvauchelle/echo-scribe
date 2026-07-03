@@ -307,10 +307,9 @@ impl MeetingManager {
             crate::meeting::guidance::Mode::Auto => "auto",
             crate::meeting::guidance::Mode::OnDemand => "on_demand",
         };
-        // Task 6 swaps these two lines for show_meeting_hud + emit_guide_init.
-        crate::overlay::show_guide_overlay(&self.app_handle, &template.name, &template.goal, mode_str);
-        let _ = self.app_handle.emit(
-            "guide-init",
+        crate::overlay::show_meeting_hud(&self.app_handle, Some("guides"));
+        crate::overlay::emit_guide_init(
+            &self.app_handle,
             serde_json::json!({
                 "sessionId": session_id,
                 "slot": engine.slot(),
@@ -841,7 +840,7 @@ impl MeetingManager {
             serde_json::json!({"id": id}),
         );
         crate::overlay::hide_recording_overlay(&self.app_handle);
-        crate::overlay::hide_guide_overlay(&self.app_handle);
+        crate::overlay::hide_meeting_hud(&self.app_handle);
 
         // Native desktop notification so the user sees the saved meeting is
         // ready even when no Echo Scribe window is visible. Title falls back

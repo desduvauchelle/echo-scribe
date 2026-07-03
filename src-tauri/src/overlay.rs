@@ -3,6 +3,7 @@ use tauri::webview::WebviewWindowBuilder;
 use tracing::{debug, error};
 
 const OVERLAY_WIDTH: f64 = 172.0;
+const MEETING_OVERLAY_WIDTH: f64 = 236.0;
 const OVERLAY_HEIGHT: f64 = 36.0;
 /// Distance from the bottom of the screen.
 const OVERLAY_BOTTOM_OFFSET: f64 = 80.0;
@@ -19,7 +20,7 @@ const CONSENT_OVERLAY_MARGIN: f64 = 24.0;
 /// recording/transcribing status. It floats at the bottom-center of the
 /// primary monitor.
 pub fn create_recording_overlay(app_handle: &AppHandle<Wry>) {
-    let (x, y) = match calculate_overlay_position(app_handle) {
+    let (x, y) = match calculate_overlay_position(app_handle, OVERLAY_WIDTH) {
         Some(pos) => pos,
         None => {
             debug!("failed to determine overlay position; skipping overlay creation");
@@ -72,8 +73,9 @@ fn calculate_consent_overlay_position(app_handle: &AppHandle<Wry>) -> Option<(f6
     Some((x, y))
 }
 
-/// Returns (x, y) in logical coordinates for bottom-center placement.
-fn calculate_overlay_position(app_handle: &AppHandle<Wry>) -> Option<(f64, f64)> {
+/// Returns (x, y) in logical coordinates for bottom-center placement of a
+/// pill with the given logical `width`.
+fn calculate_overlay_position(app_handle: &AppHandle<Wry>, width: f64) -> Option<(f64, f64)> {
     let monitor = app_handle.primary_monitor().ok().flatten()?;
     let scale = monitor.scale_factor();
     let monitor_x = monitor.position().x as f64 / scale;
@@ -81,7 +83,7 @@ fn calculate_overlay_position(app_handle: &AppHandle<Wry>) -> Option<(f64, f64)>
     let monitor_width = monitor.size().width as f64 / scale;
     let monitor_height = monitor.size().height as f64 / scale;
 
-    let x = monitor_x + (monitor_width - OVERLAY_WIDTH) / 2.0;
+    let x = monitor_x + (monitor_width - width) / 2.0;
     let y = monitor_y + monitor_height - OVERLAY_HEIGHT - OVERLAY_BOTTOM_OFFSET;
     Some((x, y))
 }
@@ -89,10 +91,14 @@ fn calculate_overlay_position(app_handle: &AppHandle<Wry>) -> Option<(f64, f64)>
 fn show_overlay_state(app_handle: &AppHandle<Wry>, state: &str) {
     if let Some(overlay) = app_handle.get_webview_window("recording_overlay") {
         // Re-position in case the user moved monitors.
-        if let Some((x, y)) = calculate_overlay_position(app_handle) {
+        if let Some((x, y)) = calculate_overlay_position(app_handle, OVERLAY_WIDTH) {
             let _ = overlay.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
         }
         let _ = overlay.show();
+        let _ = overlay.set_size(tauri::Size::Logical(tauri::LogicalSize {
+            width: OVERLAY_WIDTH,
+            height: OVERLAY_HEIGHT,
+        }));
         // The overlay must never become the key window — if it does, Cmd+V
         // lands here instead of the user's target app. On macOS, showing a
         // window can make it key even if it was created with focused(false).
@@ -108,10 +114,14 @@ fn show_overlay_state(app_handle: &AppHandle<Wry>, state: &str) {
 /// modes) so the frontend can pick up the contextual app name.
 pub fn show_meeting_overlay(app_handle: &AppHandle<Wry>, detected_app_name: Option<&str>) {
     if let Some(overlay) = app_handle.get_webview_window("recording_overlay") {
-        if let Some((x, y)) = calculate_overlay_position(app_handle) {
+        if let Some((x, y)) = calculate_overlay_position(app_handle, MEETING_OVERLAY_WIDTH) {
             let _ = overlay.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
         }
         let _ = overlay.show();
+        let _ = overlay.set_size(tauri::Size::Logical(tauri::LogicalSize {
+            width: MEETING_OVERLAY_WIDTH,
+            height: OVERLAY_HEIGHT,
+        }));
         let _ = overlay.set_always_on_top(true);
         let _ = overlay.emit(
             "show-overlay",
@@ -151,10 +161,14 @@ pub fn show_transcribing_overlay(app_handle: &AppHandle<Wry>) {
 /// the label tells the user which downstream step is currently running.
 pub fn show_processing_overlay(app_handle: &AppHandle<Wry>, label: &str) {
     if let Some(overlay) = app_handle.get_webview_window("recording_overlay") {
-        if let Some((x, y)) = calculate_overlay_position(app_handle) {
+        if let Some((x, y)) = calculate_overlay_position(app_handle, OVERLAY_WIDTH) {
             let _ = overlay.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
         }
         let _ = overlay.show();
+        let _ = overlay.set_size(tauri::Size::Logical(tauri::LogicalSize {
+            width: OVERLAY_WIDTH,
+            height: OVERLAY_HEIGHT,
+        }));
         let _ = overlay.set_always_on_top(true);
         let _ = overlay.emit(
             "show-overlay",
@@ -265,48 +279,73 @@ pub fn emit_levels(app_handle: &AppHandle<Wry>, levels: &[f32]) {
     }
 }
 
-const GUIDE_OVERLAY_WIDTH: f64 = 280.0;
-const GUIDE_OVERLAY_HEIGHT: f64 = 280.0;
-/// Vertical gap (logical px) between the recording overlay's top edge and the
-/// guide HUD's bottom edge. Keeps both visible without overlap.
-const GUIDE_OVERLAY_GAP_ABOVE_RECORDING: f64 = 12.0;
+const HUD_MIN_WIDTH: f64 = 300.0;
+const HUD_MIN_HEIGHT: f64 = 240.0;
+const HUD_DEFAULT_WIDTH: f64 = 340.0;
+const HUD_DEFAULT_HEIGHT: f64 = 440.0;
+/// Vertical gap (logical px) between the recording pill's top edge and the
+/// HUD's bottom edge in the default position.
+const HUD_GAP_ABOVE_RECORDING: f64 = 12.0;
 
-/// Position the guide HUD just above the recording overlay (bottom-center).
-/// The recording overlay's top edge sits at `logical_h - OVERLAY_HEIGHT -
-/// OVERLAY_BOTTOM_OFFSET`; we place the HUD's top above that with a gap.
-/// Returns LOGICAL coordinates (Tauri's `.position(x, y)` interprets them
-/// as logical pixels).
-fn calculate_guide_overlay_position(app_handle: &AppHandle<Wry>) -> Option<(f64, f64)> {
+/// Default slot: bottom-center, just above the recording pill.
+fn calculate_hud_default_position(app_handle: &AppHandle<Wry>) -> Option<(f64, f64)> {
     let monitor = app_handle.primary_monitor().ok().flatten()?;
     let size = monitor.size();
     let scale = monitor.scale_factor();
     let logical_w = size.width as f64 / scale;
     let logical_h = size.height as f64 / scale;
-    let x = ((logical_w - GUIDE_OVERLAY_WIDTH) / 2.0).max(0.0);
+    let x = ((logical_w - HUD_DEFAULT_WIDTH) / 2.0).max(0.0);
     let recording_top = logical_h - OVERLAY_HEIGHT - OVERLAY_BOTTOM_OFFSET;
-    let y = (recording_top - GUIDE_OVERLAY_GAP_ABOVE_RECORDING - GUIDE_OVERLAY_HEIGHT).max(0.0);
+    let y = (recording_top - HUD_GAP_ABOVE_RECORDING - HUD_DEFAULT_HEIGHT).max(0.0);
     Some((x, y))
 }
 
-/// Build the guide-overlay webview window. Idempotent (no-op if already
-/// created). Mirrors `create_recording_overlay` flags: transparent,
-/// decorations off, always-on-top, never focused/in-taskbar.
-pub fn create_guide_overlay(app_handle: &AppHandle<Wry>) {
+/// The user's persisted HUD frame, if it's still (mostly) on the primary
+/// monitor. A stale frame from an unplugged display must not strand the
+/// HUD off-screen — in that case fall back to the default slot.
+fn restored_hud_frame(app_handle: &AppHandle<Wry>) -> Option<(f64, f64, f64, f64)> {
+    let settings = crate::settings::SettingsStore::load(app_handle).ok()?;
+    let v = settings.guide_overlay_frame()?;
+    let x = v.get("x")?.as_f64()?;
+    let y = v.get("y")?.as_f64()?;
+    let w = v.get("w")?.as_f64()?.max(HUD_MIN_WIDTH);
+    let h = v.get("h")?.as_f64()?.max(HUD_MIN_HEIGHT);
+    let monitor = app_handle.primary_monitor().ok().flatten()?;
+    let scale = monitor.scale_factor();
+    let mw = monitor.size().width as f64 / scale;
+    let mh = monitor.size().height as f64 / scale;
+    let on_screen = x > -w + 40.0 && x < mw - 40.0 && y >= 0.0 && y < mh - 40.0;
+    if !on_screen {
+        tracing::info!(target: "hud", x, y, "persisted HUD frame off-screen; using default position");
+        return None;
+    }
+    Some((x, y, w, h))
+}
+
+/// Build the Meeting HUD webview window (hidden). Keeps the historical
+/// window label "guide_overlay" so capabilities/default.json (and therefore
+/// TCC state) is untouched. Idempotent.
+pub fn create_meeting_hud(app_handle: &AppHandle<Wry>) {
     if app_handle.get_webview_window("guide_overlay").is_some() {
-        tracing::info!("guide overlay already exists; skipping create");
+        tracing::info!(target: "hud", "meeting HUD already exists; skipping create");
         return;
     }
-    let (x, y) = calculate_guide_overlay_position(app_handle).unwrap_or((200.0, 200.0));
-    tracing::info!(x, y, "creating guide overlay window (above recording overlay)");
+    let (x, y, w, h) = restored_hud_frame(app_handle)
+        .or_else(|| {
+            calculate_hud_default_position(app_handle)
+                .map(|(x, y)| (x, y, HUD_DEFAULT_WIDTH, HUD_DEFAULT_HEIGHT))
+        })
+        .unwrap_or((200.0, 200.0, HUD_DEFAULT_WIDTH, HUD_DEFAULT_HEIGHT));
     match WebviewWindowBuilder::new(
         app_handle,
         "guide_overlay",
-        tauri::WebviewUrl::App("src/guide-overlay/index.html".into()),
+        tauri::WebviewUrl::App("src/meeting-hud/index.html".into()),
     )
-    .title("Guide")
+    .title("Meeting HUD")
     .position(x, y)
-    .inner_size(GUIDE_OVERLAY_WIDTH, GUIDE_OVERLAY_HEIGHT)
-    .resizable(false)
+    .inner_size(w, h)
+    .min_inner_size(HUD_MIN_WIDTH, HUD_MIN_HEIGHT)
+    .resizable(true)
     .shadow(false)
     .maximizable(false)
     .minimizable(false)
@@ -320,66 +359,54 @@ pub fn create_guide_overlay(app_handle: &AppHandle<Wry>) {
     .visible(false)
     .build()
     {
-        Ok(_) => tracing::info!("guide overlay window created (hidden)"),
-        Err(e) => tracing::error!(?e, "failed to create guide overlay window"),
+        Ok(_) => tracing::info!(target: "hud", "meeting HUD window created (hidden)"),
+        Err(e) => tracing::error!(target: "hud", ?e, "failed to create meeting HUD window"),
     }
 }
 
-/// Show the guide HUD and emit `guide-init` so the React component can render
-/// its shell (template name + goal + "waiting…" indicator) BEFORE the first
-/// LLM cycle completes — otherwise the window is visible but blank-transparent
-/// until the engine emits its first `guide-update`, which the user perceives
-/// as the HUD "not appearing".
-pub fn show_guide_overlay(
-    app_handle: &AppHandle<Wry>,
-    template_name: &str,
-    goal: &str,
-    mode: &str,
-) {
-    // Always re-position before showing so a previously-dragged HUD snaps back
-    // to the above-recording slot for the new session.
-    if let Some((x, y)) = calculate_guide_overlay_position(app_handle) {
-        if let Some(w) = app_handle.get_webview_window("guide_overlay") {
+/// Show the Meeting HUD, restoring the user's last frame (or the default
+/// above-pill slot), and tell the frontend which section to focus
+/// ("transcript" | "guides").
+pub fn show_meeting_hud(app_handle: &AppHandle<Wry>, focus: Option<&str>) {
+    if app_handle.get_webview_window("guide_overlay").is_none() {
+        tracing::warn!(target: "hud", "show_meeting_hud: window missing — building now");
+        create_meeting_hud(app_handle);
+    }
+    if let Some(w) = app_handle.get_webview_window("guide_overlay") {
+        if let Some((x, y, wd, ht)) = restored_hud_frame(app_handle) {
+            let _ = w.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
+            let _ = w.set_size(tauri::Size::Logical(tauri::LogicalSize { width: wd, height: ht }));
+        } else if let Some((x, y)) = calculate_hud_default_position(app_handle) {
             let _ = w.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
         }
-    }
-    if let Some(w) = app_handle.get_webview_window("guide_overlay") {
-        tracing::info!(%template_name, %mode, "show_guide_overlay: showing + emitting init");
         if let Err(e) = w.show() {
-            tracing::error!(?e, "guide overlay show failed");
+            tracing::error!(target: "hud", ?e, "meeting HUD show failed");
         }
-        if let Err(e) = w.set_always_on_top(true) {
-            tracing::error!(?e, "guide overlay set_always_on_top failed");
-        }
-        let init = serde_json::json!({
-            "templateName": template_name,
-            "goal": goal,
-            "mode": mode,
-        });
-        if let Err(e) = w.emit("guide-init", init) {
-            tracing::error!(?e, "guide overlay emit guide-init failed");
-        }
-    } else {
-        tracing::warn!("show_guide_overlay: window MISSING — building now");
-        create_guide_overlay(app_handle);
-        if let Some(w) = app_handle.get_webview_window("guide_overlay") {
-            let _ = w.show();
-            let _ = w.set_always_on_top(true);
-            let init = serde_json::json!({
-                "templateName": template_name,
-                "goal": goal,
-                "mode": mode,
-            });
-            let _ = w.emit("guide-init", init);
-        } else {
-            tracing::error!("guide overlay STILL missing after rebuild attempt");
+        // Never let the HUD become key (same rationale as recording_overlay).
+        let _ = w.set_always_on_top(true);
+        if let Some(f) = focus {
+            if let Err(e) = w.emit("hud-focus", serde_json::json!({ "focus": f })) {
+                tracing::warn!(target: "hud", ?e, "hud-focus emit failed");
+            }
         }
     }
 }
 
-pub fn hide_guide_overlay(app_handle: &AppHandle<Wry>) {
+pub fn hide_meeting_hud(app_handle: &AppHandle<Wry>) {
     if let Some(w) = app_handle.get_webview_window("guide_overlay") {
         let _ = w.hide();
+    }
+}
+
+/// Emit `guide-init` to the HUD so a newly-attached guide renders its shell
+/// before the first LLM cycle completes.
+pub fn emit_guide_init(app_handle: &AppHandle<Wry>, payload: serde_json::Value) {
+    if let Some(w) = app_handle.get_webview_window("guide_overlay") {
+        if let Err(e) = w.emit("guide-init", payload) {
+            tracing::error!(target: "hud", ?e, "guide-init emit failed");
+        }
+    } else {
+        let _ = app_handle.emit("guide-init", payload);
     }
 }
 

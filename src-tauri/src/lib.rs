@@ -638,7 +638,7 @@ pub fn run() {
             // triggers a recording).
             crate::overlay::create_recording_overlay(&app.handle().clone());
             crate::overlay::create_consent_overlay(&app.handle().clone());
-            crate::overlay::create_guide_overlay(&app.handle().clone());
+            crate::overlay::create_meeting_hud(&app.handle().clone());
 
             // Seed builtin guide templates exactly once. The settings flag —
             // not INSERT OR IGNORE — is what lets a user's deletion of a

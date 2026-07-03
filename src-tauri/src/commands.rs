@@ -2589,9 +2589,8 @@ pub async fn get_live_transcript(
 }
 
 #[tauri::command]
-pub fn show_meeting_hud(app: tauri::AppHandle, _focus: Option<String>) {
-    // Task 6 replaces this shim with overlay::show_meeting_hud
-    crate::overlay::show_guide_overlay(&app, "", "", "auto");
+pub fn show_meeting_hud(app: tauri::AppHandle, focus: Option<String>) {
+    crate::overlay::show_meeting_hud(&app, focus.as_deref());
 }
 
 /// Persist the HUD's logical frame so the next show restores the user's
