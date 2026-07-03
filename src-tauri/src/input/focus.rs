@@ -225,15 +225,15 @@ pub fn capture_focused_element(_pid: i32) -> Option<FocusElement> {
 pub fn capture_selection(element: Option<&FocusElement>) -> Option<SelectionSnapshot> {
     if let Some(el) = element {
         if let Some(text) = el.selected_text() {
-            tracing::info!(chars = text.len(), "capture_selection: via AXSelectedText");
+            tracing::info!(target: "edit", chars = text.len(), "capture_selection: via AXSelectedText");
             return Some(SelectionSnapshot { text, method: SelectionMethod::Ax });
         }
     }
     if let Some(text) = crate::input::paste::capture_selection_via_copy() {
-        tracing::info!(chars = text.len(), "capture_selection: via Cmd+C fallback");
+        tracing::info!(target: "edit", chars = text.len(), "capture_selection: via Cmd+C fallback");
         return Some(SelectionSnapshot { text, method: SelectionMethod::Copy });
     }
-    tracing::info!("capture_selection: no selection found (AX empty + clipboard unchanged)");
+    tracing::info!(target: "edit", "capture_selection: no selection found (AX empty + clipboard unchanged)");
     None
 }
 

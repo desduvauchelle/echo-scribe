@@ -518,6 +518,7 @@ pub fn spawn(
                                     }
                                     crate::overlay::hide_recording_overlay(&app);
                                     force_state(&state, PipelineState::Idle);
+                                    pending_selection = None;
                                     on_state_change(TrayPipelineState::Idle);
                                 }
                             }
@@ -530,6 +531,7 @@ pub fn spawn(
                             }
                             crate::overlay::hide_recording_overlay(&app);
                             force_state(&state, PipelineState::Idle);
+                            pending_selection = None;
                             on_state_change(TrayPipelineState::Idle);
                         }
                     }

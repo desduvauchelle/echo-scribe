@@ -148,13 +148,13 @@ pub fn capture_selection_via_copy() -> Option<String> {
     let mut clipboard = match Clipboard::new() {
         Ok(c) => c,
         Err(e) => {
-            warn!(?e, "capture_selection_via_copy: clipboard unavailable");
+            warn!(target: "edit", ?e, "capture_selection_via_copy: clipboard unavailable");
             return None;
         }
     };
     let before = clipboard.get_text().ok();
     if let Err(e) = synthesize_cmd_c() {
-        warn!(?e, "capture_selection_via_copy: Cmd+C synthesis failed");
+        warn!(target: "edit", ?e, "capture_selection_via_copy: Cmd+C synthesis failed");
         return None;
     }
     // Give the frontmost app time to service the copy and write the pasteboard.
@@ -164,7 +164,7 @@ pub fn capture_selection_via_copy() -> Option<String> {
     // Best-effort restore of the user's original clipboard.
     if let Some(orig) = before {
         if let Err(e) = clipboard.set_text(&orig) {
-            warn!(?e, "capture_selection_via_copy: failed to restore clipboard");
+            warn!(target: "edit", ?e, "capture_selection_via_copy: failed to restore clipboard");
         }
     }
     result
