@@ -208,17 +208,6 @@ impl MeetingManager {
         self.state.lock().await.as_ref().map(|a| a.item_id.clone())
     }
 
-    /// Transitional helper for the not-yet-session-scoped `guide_set_mode` /
-    /// `guide_trigger_now` commands (Task 5 replaces both call sites with
-    /// `guide_engine_by_id(session_id)` and removes this method).
-    pub async fn first_guide_engine(&self) -> Option<crate::meeting::guidance::GuidanceEngine> {
-        self.state
-            .lock()
-            .await
-            .as_ref()
-            .and_then(|a| a.guide_engines.lock().unwrap().first().cloned())
-    }
-
     /// Engine lookup by guide session id (HUD commands).
     pub async fn guide_engine_by_id(
         &self,

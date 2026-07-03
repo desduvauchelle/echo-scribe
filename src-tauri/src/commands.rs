@@ -2559,19 +2559,69 @@ pub async fn start_guided_session(
     Ok(id)
 }
 
-// NOTE: guide_set_mode/guide_trigger_now still operate on "the" (first)
-// attached engine — Task 5 rewires these to take an explicit `session_id`
-// (via `guide_engine_by_id`) now that a meeting can carry up to two guides.
-// Kept compiling here via `transcript_snapshot`'s sibling lookup so this
-// commit doesn't leave the crate broken between Task 4 and Task 5.
 #[tauri::command]
-pub async fn guide_set_mode(state: tauri::State<'_, AppState>, mode: String) -> Result<(), String> {
+pub async fn attach_guide(
+    state: tauri::State<'_, AppState>,
+    template_id: String,
+) -> Result<String, String> {
+    let db = state.db.as_ref().ok_or("db unavailable")?;
+    let tid = template_id.clone();
+    let template = db
+        .with_conn(move |c| crate::db::guide_templates::get_template(c, &tid))
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("guide template {template_id} not found"))?;
+    state.meeting_manager.attach_guide(template).await
+}
+
+#[tauri::command]
+pub async fn detach_guide(
+    state: tauri::State<'_, AppState>,
+    session_id: String,
+) -> Result<(), String> {
+    state.meeting_manager.detach_guide(&session_id).await
+}
+
+#[tauri::command]
+pub async fn get_live_transcript(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<crate::meeting::Segment>, String> {
+    Ok(state.meeting_manager.transcript_snapshot().await)
+}
+
+#[tauri::command]
+pub fn show_meeting_hud(app: tauri::AppHandle, _focus: Option<String>) {
+    // Task 6 replaces this shim with overlay::show_meeting_hud
+    crate::overlay::show_guide_overlay(&app, "", "", "auto");
+}
+
+/// Persist the HUD's logical frame so the next show restores the user's
+/// size/position instead of snapping back to the default slot.
+#[tauri::command]
+pub fn save_hud_frame(
+    state: tauri::State<'_, AppState>,
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+) -> Result<(), String> {
+    state
+        .settings
+        .set_guide_overlay_frame(serde_json::json!({ "x": x, "y": y, "w": w, "h": h }))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn guide_set_mode(
+    state: tauri::State<'_, AppState>,
+    session_id: String,
+    mode: String,
+) -> Result<(), String> {
     let m = crate::meeting::guidance::Mode::parse(&mode)
         .ok_or_else(|| format!("unknown guide mode: {mode}"))?;
-    if let Some(engine) = state.meeting_manager.first_guide_engine().await {
+    if let Some(engine) = state.meeting_manager.guide_engine_by_id(&session_id).await {
         engine.set_mode(m);
     }
-    // Persist for next session even when no engine is active.
+    // Persist as the default for future sessions even if the engine is gone.
     state
         .settings
         .set_guide_overlay_mode(m)
@@ -2579,24 +2629,17 @@ pub async fn guide_set_mode(state: tauri::State<'_, AppState>, mode: String) -> 
 }
 
 #[tauri::command]
-pub async fn guide_trigger_now(state: tauri::State<'_, AppState>) -> Result<(), String> {
-    if let Some(engine) = state.meeting_manager.first_guide_engine().await {
-        engine.fire_cycle();
-        Ok(())
-    } else {
-        Err("no active guided session".into())
+pub async fn guide_trigger_now(
+    state: tauri::State<'_, AppState>,
+    session_id: String,
+) -> Result<(), String> {
+    match state.meeting_manager.guide_engine_by_id(&session_id).await {
+        Some(engine) => {
+            engine.fire_cycle();
+            Ok(())
+        }
+        None => Err("no active guide session".into()),
     }
-}
-
-#[tauri::command]
-pub async fn guide_end(state: tauri::State<'_, AppState>) -> Result<String, String> {
-    // "End" from the HUD is just a stop for the current meeting. We reuse
-    // the standard stop path so transcript + summary still produce.
-    state
-        .meeting_manager
-        .stop()
-        .await
-        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
