@@ -275,7 +275,9 @@ ALTER TABLE projects ADD COLUMN export_folder TEXT;
 "#,
     ),
     (
-        19,
+        // NOTE: 19 and 20 are claimed by concurrent branches (project auto-tagging /
+        // session links). Numbered 21 so this actually runs on DBs already at v20.
+        21,
         r#"
 CREATE TABLE IF NOT EXISTS embeddings (
   id            TEXT PRIMARY KEY,
@@ -366,11 +368,11 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(v, "19");
+        assert_eq!(v, "21");
     }
 
     #[test]
-    fn migration_v19_creates_embedding_tables() {
+    fn migration_v21_creates_embedding_tables() {
         let mut conn = Connection::open_in_memory().unwrap();
         run_migrations(&mut conn).unwrap();
         let count: i64 = conn
@@ -501,7 +503,7 @@ mod tests {
         let version: String = conn
             .query_row("SELECT value FROM schema_meta WHERE key = 'schema_version'", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(version, "19");
+        assert_eq!(version, "21");
     }
 
     #[test]

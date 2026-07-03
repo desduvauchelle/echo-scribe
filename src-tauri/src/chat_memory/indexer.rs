@@ -261,4 +261,59 @@ mod tests {
         assert_eq!(s.sources_indexed, 1);
         assert_eq!(embeddings::count_embeddings(&c).unwrap(), 1);
     }
+
+    /// Diagnostic (real data): index a sample of a COPY of the live echo.db
+    /// with the real embedder, proving the full pipeline end-to-end without
+    /// touching the installed app or the real DB. Skips if DB/model absent.
+    ///   cargo test --lib chat_memory::indexer::tests::backfill_real_db_sample -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn backfill_real_db_sample() {
+        let home = std::env::var("HOME").unwrap();
+        let src = format!("{home}/Library/Application Support/EchoScribe/echo.db");
+        if !std::path::Path::new(&src).exists() {
+            eprintln!("SKIP: real echo.db not found");
+            return;
+        }
+        if !crate::embed::catalog::is_downloaded() {
+            eprintln!("SKIP: embedding model not downloaded");
+            return;
+        }
+
+        let tmp = std::env::temp_dir().join("echo_backfill_diag.db");
+        let _ = std::fs::remove_file(&tmp);
+        std::fs::copy(&src, &tmp).unwrap();
+        let mut conn = Connection::open(&tmp).unwrap();
+        crate::db::schema::run_migrations(&mut conn).unwrap();
+
+        let all = collect_source_docs(&conn).unwrap();
+        let sample_n = 40.min(all.len());
+        let sample: Vec<SourceDoc> = all.iter().take(sample_n).cloned().collect();
+        let kinds: std::collections::BTreeMap<&str, usize> =
+            all.iter().fold(std::collections::BTreeMap::new(), |mut m, d| {
+                *m.entry(d.source_kind).or_insert(0) += 1;
+                m
+            });
+        eprintln!("real source docs: {} total {:?}; embedding first {}", all.len(), kinds, sample_n);
+
+        let embedder = crate::embed::Embedder::new(std::time::Duration::from_secs(60));
+        let stats =
+            index_docs(&mut conn, &sample, &*embedder, crate::embed::EMBED_MODEL_ID).unwrap();
+        eprintln!(
+            "indexed={} skipped={} passages_written={}",
+            stats.sources_indexed, stats.sources_skipped, stats.passages_written
+        );
+        assert!(stats.passages_written > 0, "expected passages from real data");
+
+        let total = embeddings::count_embeddings(&conn).unwrap();
+        let rows = embeddings::fetch_by_source(&conn, sample[0].source_kind, &sample[0].source_id)
+            .unwrap();
+        assert!(!rows.is_empty());
+        assert_eq!(rows[0].vec.len(), crate::embed::EMBED_DIM, "stored dim must be 256");
+        eprintln!(
+            "embeddings table: {} rows; first source '{}' ({}) -> {} passages, dim={}",
+            total, sample[0].source_id, sample[0].source_kind, rows.len(), rows[0].vec.len()
+        );
+        let _ = std::fs::remove_file(&tmp);
+    }
 }
