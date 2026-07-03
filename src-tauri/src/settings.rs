@@ -1222,68 +1222,23 @@ mod auto_file_tests {
 #[cfg(test)]
 mod edit_selection_binding_tests {
     use super::*;
-    use std::cell::RefCell;
-    use std::collections::HashMap;
 
-    /// Minimal stand-in for [`SettingsStore`] used only in unit tests.
-    ///
-    /// `SettingsStore`'s only constructor (`SettingsStore::load`) requires a
-    /// live `tauri::AppHandle`, and this crate doesn't enable tauri's `test`
-    /// feature or have any mock-app test infrastructure elsewhere. This type
-    /// mirrors `SettingsStore`'s public get/set/save shape (an in-memory
-    /// key-value map standing in for the on-disk JSON store) so the
-    /// edit-selection binding round-trip can be exercised without a Tauri
-    /// runtime. It intentionally implements only what this test needs.
-    struct TestStore {
-        values: RefCell<HashMap<String, serde_json::Value>>,
-    }
-
-    impl TestStore {
-        fn new() -> Self {
-            Self {
-                values: RefCell::new(HashMap::new()),
-            }
-        }
-
-        fn get(&self, key: &str) -> Option<serde_json::Value> {
-            self.values.borrow().get(key).cloned()
-        }
-
-        fn set(&self, key: &str, value: serde_json::Value) {
-            self.values.borrow_mut().insert(key.to_string(), value);
-        }
-
-        /// Mirrors `SettingsStore::edit_selection_binding`.
-        fn edit_selection_binding(&self) -> Binding {
-            match self.get(KEY_EDIT_SELECTION_BINDING) {
-                Some(value) => match serde_json::from_value::<Binding>(value) {
-                    Ok(b) => b,
-                    Err(_) => default_edit_selection_binding(),
-                },
-                None => default_edit_selection_binding(),
-            }
-        }
-
-        /// Mirrors `SettingsStore::set_edit_selection_binding`.
-        fn set_edit_selection_binding(&self, b: Binding) -> Result<(), SettingsError> {
-            let value = serde_json::to_value(&b)?;
-            self.set(KEY_EDIT_SELECTION_BINDING, value);
-            Ok(())
-        }
-    }
-
-    fn test_store() -> TestStore {
-        TestStore::new()
+    #[test]
+    fn default_edit_selection_binding_is_right_option_e() {
+        let b = default_edit_selection_binding();
+        assert_eq!(b.primary, SerKey(Key::KeyE));
+        assert_eq!(b.modifiers, vec![(ModifierKind::Alt, ModifierSide::Right)]);
     }
 
     #[test]
-    fn edit_selection_binding_round_trips_and_defaults() {
-        let store = test_store(); // same helper the other binding tests use
-        // Default when unset.
-        assert_eq!(store.edit_selection_binding(), default_edit_selection_binding());
-        // Round-trip a custom binding.
-        let custom = Binding::single(Key::F8);
-        store.set_edit_selection_binding(custom.clone()).unwrap();
-        assert_eq!(store.edit_selection_binding(), custom);
+    fn edit_selection_binding_serde_round_trips() {
+        // The store getter/setter persist a Binding as JSON and read it back.
+        // Verify the default binding survives that exact serialize -> deserialize
+        // cycle (this also guards that its keys have DOM-code mappings, so the
+        // real setter can never panic on serialization).
+        let b = default_edit_selection_binding();
+        let json = serde_json::to_value(&b).expect("binding serializes");
+        let back: Binding = serde_json::from_value(json).expect("binding deserializes");
+        assert_eq!(b, back);
     }
 }
