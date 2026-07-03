@@ -65,6 +65,32 @@ impl std::fmt::Debug for FocusElement {
 #[derive(Debug)]
 pub struct FocusElement;
 
+#[cfg(not(target_os = "macos"))]
+impl FocusElement {
+    pub fn selected_text(&self) -> Option<String> {
+        None
+    }
+    pub fn replace_selected_text(&self, _text: &str) -> i32 {
+        -1
+    }
+}
+
+/// How a text selection was captured.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SelectionMethod {
+    /// Read directly via the Accessibility `AXSelectedText` attribute.
+    Ax,
+    /// Read by synthesizing Cmd+C and reading the clipboard.
+    Copy,
+}
+
+/// A captured text selection plus how it was obtained.
+#[derive(Debug, Clone)]
+pub struct SelectionSnapshot {
+    pub text: String,
+    pub method: SelectionMethod,
+}
+
 /// Capture the frontmost application plus window/browser context.
 /// Best-effort: never panics; missing fields are `None`.
 #[cfg(target_os = "macos")]
@@ -192,6 +218,30 @@ pub fn capture_focused_element(_pid: i32) -> Option<FocusElement> {
     None
 }
 
+/// Capture the current text selection: try the Accessibility `AXSelectedText`
+/// attribute first (clean, no clipboard side effects), then fall back to a
+/// synthetic Cmd+C + clipboard read. Returns `None` when nothing is selected.
+#[cfg(target_os = "macos")]
+pub fn capture_selection(element: Option<&FocusElement>) -> Option<SelectionSnapshot> {
+    if let Some(el) = element {
+        if let Some(text) = el.selected_text() {
+            tracing::info!(chars = text.len(), "capture_selection: via AXSelectedText");
+            return Some(SelectionSnapshot { text, method: SelectionMethod::Ax });
+        }
+    }
+    if let Some(text) = crate::input::paste::capture_selection_via_copy() {
+        tracing::info!(chars = text.len(), "capture_selection: via Cmd+C fallback");
+        return Some(SelectionSnapshot { text, method: SelectionMethod::Copy });
+    }
+    tracing::info!("capture_selection: no selection found (AX empty + clipboard unchanged)");
+    None
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn capture_selection(_element: Option<&FocusElement>) -> Option<SelectionSnapshot> {
+    None
+}
+
 #[cfg(target_os = "macos")]
 impl FocusElement {
     pub fn role(&self) -> Option<&str> {
@@ -255,6 +305,48 @@ impl FocusElement {
                 "FocusElement::restore fallback element.set(AXFocused=true)"
             );
             err2.0
+        }
+    }
+
+    /// Read the element's current selection via `AXSelectedText`. Returns
+    /// `None` when the attribute is unsupported or empty. Raw (no whitespace
+    /// normalization) so we never alter the user's text.
+    pub fn selected_text(&self) -> Option<String> {
+        use objc2_core_foundation::{CFString, CFType};
+        use std::ptr::NonNull;
+        let attr = CFString::from_str("AXSelectedText");
+        unsafe {
+            let _ = self.element.set_messaging_timeout(0.2);
+            let mut raw: *const CFType = std::ptr::null();
+            let out = NonNull::new(&mut raw as *mut *const CFType)?;
+            let err = self.element.copy_attribute_value(&attr, out);
+            if err.0 != 0 || raw.is_null() {
+                return None;
+            }
+            let value: CFRetained<CFType> = CFRetained::from_raw(NonNull::new(raw as *mut CFType)?);
+            let s = value.downcast::<CFString>().ok().map(|s| s.to_string())?;
+            if s.is_empty() { None } else { Some(s) }
+        }
+    }
+
+    /// Replace the element's current selection in place by setting
+    /// `AXSelectedText`. Returns the raw `AXError` (0 = success). Works in apps
+    /// that expose a settable `AXSelectedText` (most native/Cocoa text fields);
+    /// callers fall back to Cmd+V paste when this returns non-zero.
+    pub fn replace_selected_text(&self, text: &str) -> i32 {
+        use objc2_core_foundation::CFString;
+        let attr = CFString::from_str("AXSelectedText");
+        let value = CFString::from_str(text);
+        unsafe {
+            let _ = self.element.set_messaging_timeout(0.5);
+            let err = self.element.set_attribute_value(&attr, value.as_ref());
+            tracing::info!(
+                pid = self.pid,
+                ax_error = err.0,
+                chars = text.len(),
+                "FocusElement::replace_selected_text set(AXSelectedText)"
+            );
+            err.0
         }
     }
 }
