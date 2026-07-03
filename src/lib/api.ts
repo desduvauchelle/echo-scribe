@@ -1013,6 +1013,9 @@ export const updateGuideTemplate = (
 export const deleteGuideTemplate = (id: string): Promise<void> =>
   invoke("delete_guide_template", { id });
 
+export const startGuidedSession = (templateId: string): Promise<string> =>
+  invoke("start_guided_session", { templateId });
+
 export const attachGuide = (templateId: string): Promise<string> =>
   invoke("attach_guide", { templateId });
 
