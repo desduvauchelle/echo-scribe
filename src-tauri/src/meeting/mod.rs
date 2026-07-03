@@ -335,6 +335,8 @@ impl MeetingManager {
                 _ => crate::meeting::guidance::Mode::Auto,
             };
             let engine = crate::meeting::guidance::GuidanceEngine::new(
+                uuid::Uuid::new_v4().to_string(),
+                0,
                 id.clone(),
                 template,
                 self.llm.clone(),

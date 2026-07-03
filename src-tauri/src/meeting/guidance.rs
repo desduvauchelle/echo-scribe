@@ -61,10 +61,49 @@ pub struct GuidanceResponse {
 /// Token budget for the rolling transcript window passed to the LLM. Chosen
 /// well below the synthesizer's 18 KB so the guidance prompt stays compact
 /// and each cycle stays fast.
-const ROLLING_BYTES: usize = 4_000;
+pub(crate) const ROLLING_BYTES: usize = 4_000;
 
 /// `max_tokens` for one guidance cycle — small JSON only.
 const GUIDANCE_MAX_TOKENS: usize = 384;
+
+/// Suffix of `s` at most `max` bytes long, aligned to a char boundary and —
+/// when possible — to the start of a line so seeded context never opens
+/// mid-sentence.
+pub fn tail_bytes(s: &str, max: usize) -> &str {
+    if s.len() <= max {
+        return s;
+    }
+    let mut start = s.len() - max;
+    while !s.is_char_boundary(start) {
+        start += 1;
+    }
+    match s[start..].find('\n') {
+        Some(i) if start + i + 1 < s.len() => &s[start + i + 1..],
+        _ => &s[start..],
+    }
+}
+
+/// Flatten transcript history into the same "speaker: text" line format the
+/// live ingest path uses, bounded to the most recent `max_bytes`.
+pub fn seed_text_from_history(history: &[crate::meeting::Segment], max_bytes: usize) -> String {
+    let mut out = String::new();
+    for seg in history {
+        let tag = match seg.speaker {
+            crate::meeting::Speaker::You => "you",
+            crate::meeting::Speaker::Them => "them",
+        };
+        out.push_str(tag);
+        out.push_str(": ");
+        out.push_str(seg.text.trim());
+        out.push('\n');
+    }
+    tail_bytes(&out, max_bytes).to_string()
+}
+
+/// Lowest color-slot (0 or 1) not taken by an active guide.
+pub fn next_free_slot(used: &[u8]) -> u8 {
+    if used.contains(&0) { 1 } else { 0 }
+}
 
 /// The engine owned by an active `ActiveMeeting`. Cheap to clone; internal
 /// state is shared via `Arc<Mutex<...>>`.
@@ -74,6 +113,8 @@ pub struct GuidanceEngine {
 }
 
 struct Inner {
+    session_id: String,
+    slot: u8,
     meeting_id: String,
     template: GuideTemplate,
     llm: Arc<Llm>,
@@ -100,6 +141,8 @@ struct State {
 
 impl GuidanceEngine {
     pub fn new(
+        session_id: String,
+        slot: u8,
         meeting_id: String,
         template: GuideTemplate,
         llm: Arc<Llm>,
@@ -108,6 +151,8 @@ impl GuidanceEngine {
     ) -> Self {
         Self {
             inner: Arc::new(Inner {
+                session_id,
+                slot,
                 meeting_id,
                 template,
                 llm,
@@ -117,6 +162,14 @@ impl GuidanceEngine {
                 state: Mutex::new(State::default()),
             }),
         }
+    }
+
+    pub fn session_id(&self) -> &str {
+        &self.inner.session_id
+    }
+
+    pub fn slot(&self) -> u8 {
+        self.inner.slot
     }
 
     pub fn meeting_id(&self) -> &str {
@@ -170,6 +223,12 @@ impl GuidanceEngine {
     /// Snapshot of the rolling window (test + UI inspection).
     pub fn rolling_snapshot(&self) -> String {
         self.inner.state.lock().unwrap().rolling.clone()
+    }
+
+    /// Replace the rolling window wholesale — used to seed a guide attached
+    /// mid-meeting with the recent transcript so its first cycle has context.
+    pub fn seed_rolling(&self, text: String) {
+        self.inner.state.lock().unwrap().rolling = text;
     }
 
     /// Run one cycle. Returns immediately if a cycle is already in flight
@@ -306,6 +365,8 @@ fn isolate_json_object(s: &str) -> Option<String> {
 
 fn emit_update(inner: &Inner, resp: &GuidanceResponse) {
     let payload = serde_json::json!({
+        "sessionId": inner.session_id,
+        "slot": inner.slot,
         "meetingId": inner.meeting_id,
         "templateName": inner.template.name,
         "goal": inner.template.goal,
@@ -382,5 +443,41 @@ mod tests {
             serde_json::from_str(r#"{"suggestions":["x"]}"#).unwrap();
         assert_eq!(r.suggestions, vec!["x".to_string()]);
         assert!(r.key_points.is_empty());
+    }
+
+    #[test]
+    fn tail_bytes_returns_whole_string_when_small() {
+        assert_eq!(tail_bytes("abc", 10), "abc");
+    }
+
+    #[test]
+    fn tail_bytes_truncates_to_line_boundary() {
+        let s = "one\ntwo\nthree\n";
+        // max 9 bytes → suffix "wo\nthree\n" → skip to after first newline → "three\n"
+        assert_eq!(tail_bytes(s, 9), "three\n");
+    }
+
+    #[test]
+    fn tail_bytes_is_char_boundary_safe() {
+        let s = "aaaa日本語テキスト";
+        let out = tail_bytes(s, 7);
+        assert!(out.len() <= 7);
+        assert!(s.ends_with(out));
+    }
+
+    #[test]
+    fn seed_text_builds_speaker_tagged_lines() {
+        let history = vec![
+            crate::meeting::Segment { speaker: crate::meeting::Speaker::You, start_ms: 0, end_ms: 1, text: " hello ".into() },
+            crate::meeting::Segment { speaker: crate::meeting::Speaker::Them, start_ms: 1, end_ms: 2, text: "hi".into() },
+        ];
+        assert_eq!(seed_text_from_history(&history, 4000), "you: hello\nthem: hi\n");
+    }
+
+    #[test]
+    fn next_free_slot_picks_lowest() {
+        assert_eq!(next_free_slot(&[]), 0);
+        assert_eq!(next_free_slot(&[0]), 1);
+        assert_eq!(next_free_slot(&[1]), 0);
     }
 }
