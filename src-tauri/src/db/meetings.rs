@@ -124,6 +124,36 @@ pub fn update_guide_template(
     Ok(())
 }
 
+/// Append one guide-template snapshot to the meeting's `guide_template_json`.
+/// The column stores a JSON array; a legacy single-object value (pre-HUD
+/// meetings) is upgraded to a one-element array before appending. Unparseable
+/// existing content is discarded rather than propagated.
+pub fn append_guide_template_snapshot(
+    conn: &Connection,
+    item_id: &str,
+    snapshot: &serde_json::Value,
+) -> Result<(), DbError> {
+    let current: Option<String> = conn
+        .query_row(
+            "SELECT guide_template_json FROM meetings WHERE item_id = ?1",
+            [item_id],
+            |r| r.get(0),
+        )
+        .optional()?
+        .flatten();
+    let mut arr = match current.as_deref().map(serde_json::from_str::<serde_json::Value>) {
+        Some(Ok(serde_json::Value::Array(a))) => a,
+        Some(Ok(v @ serde_json::Value::Object(_))) => vec![v],
+        _ => Vec::new(),
+    };
+    arr.push(snapshot.clone());
+    conn.execute(
+        "UPDATE meetings SET guide_template_json = ?1 WHERE item_id = ?2",
+        params![serde_json::Value::Array(arr).to_string(), item_id],
+    )?;
+    Ok(())
+}
+
 pub fn update_status(conn: &Connection, item_id: &str, status: MeetingStatus) -> Result<(), DbError> {
     conn.execute(
         "UPDATE meetings SET status = ?1 WHERE item_id = ?2",
@@ -214,6 +244,38 @@ mod tests {
         conn
     }
 
+    fn fresh() -> Connection {
+        let mut conn = Connection::open_in_memory().unwrap();
+        run_migrations(&mut conn).unwrap();
+        conn
+    }
+
+    fn insert_test_meeting(conn: &Connection, id: &str) {
+        conn.execute(
+            "INSERT INTO items (id, content, source, kind, captured_at, created_at)
+             VALUES (?1, 'Test Meeting', 'meeting', 'meeting', '2026-05-03T00:00:00Z', '2026-05-03T00:00:00Z')",
+            [id],
+        ).unwrap();
+        let row = MeetingRow {
+            item_id: id.into(),
+            started_at: "2026-05-03T00:00:00Z".into(),
+            ended_at: None,
+            duration_ms: None,
+            detected_app: None,
+            detected_app_name: None,
+            status: "recording".into(),
+            transcript_json: None,
+            summary_json: None,
+            user_notes: None,
+            failed_chunk_count: 0,
+            mic_only: false,
+            calendar_match_json: None,
+            guide_template_json: None,
+            project_name: None,
+        };
+        insert_meeting(conn, &row).unwrap();
+    }
+
     fn sample() -> MeetingRow {
         MeetingRow {
             item_id: "m-1".into(),
@@ -300,5 +362,37 @@ mod tests {
         assert_eq!(got.duration_ms, Some(1_800_000));
         assert_eq!(got.status, "complete");
         assert_eq!(got.transcript_json.as_deref(), Some(r#"{"segments":[]}"#));
+    }
+
+    #[test]
+    fn append_snapshot_starts_array() {
+        let c = fresh();
+        insert_test_meeting(&c, "m1");
+        append_guide_template_snapshot(&c, "m1", &serde_json::json!({"id": "t1"})).unwrap();
+        let row = get_meeting(&c, "m1").unwrap().unwrap();
+        let v: serde_json::Value = serde_json::from_str(&row.guide_template_json.unwrap()).unwrap();
+        assert_eq!(v, serde_json::json!([{"id": "t1"}]));
+    }
+
+    #[test]
+    fn append_snapshot_upgrades_legacy_object() {
+        let c = fresh();
+        insert_test_meeting(&c, "m1");
+        update_guide_template(&c, "m1", Some(r#"{"id":"legacy"}"#)).unwrap();
+        append_guide_template_snapshot(&c, "m1", &serde_json::json!({"id": "t2"})).unwrap();
+        let row = get_meeting(&c, "m1").unwrap().unwrap();
+        let v: serde_json::Value = serde_json::from_str(&row.guide_template_json.unwrap()).unwrap();
+        assert_eq!(v, serde_json::json!([{"id": "legacy"}, {"id": "t2"}]));
+    }
+
+    #[test]
+    fn append_snapshot_appends_to_existing_array() {
+        let c = fresh();
+        insert_test_meeting(&c, "m1");
+        append_guide_template_snapshot(&c, "m1", &serde_json::json!({"id": "a"})).unwrap();
+        append_guide_template_snapshot(&c, "m1", &serde_json::json!({"id": "b"})).unwrap();
+        let row = get_meeting(&c, "m1").unwrap().unwrap();
+        let v: serde_json::Value = serde_json::from_str(&row.guide_template_json.unwrap()).unwrap();
+        assert_eq!(v.as_array().unwrap().len(), 2);
     }
 }
