@@ -18,7 +18,7 @@ export default defineConfig({
         main: resolve(__dirname, "index.html"),
         overlay: resolve(__dirname, "src/overlay/index.html"),
         consent: resolve(__dirname, "src/consent-overlay/index.html"),
-        guide: resolve(__dirname, "src/guide-overlay/index.html"),
+        "meeting-hud": resolve(__dirname, "src/meeting-hud/index.html"),
         "screenrec-setup": resolve(__dirname, "src/screenrec-setup/index.html"),
       },
     },

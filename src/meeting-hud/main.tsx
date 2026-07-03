@@ -1,10 +1,10 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import GuideOverlay from "./GuideOverlay";
-import "./GuideOverlay.css";
+import MeetingHud from "./MeetingHud";
+import "./MeetingHud.css";
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    <GuideOverlay />
+    <MeetingHud />
   </React.StrictMode>,
 );
