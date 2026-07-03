@@ -19,6 +19,7 @@ const KEY_LLM_MODEL_ID: &str = "llm_model_id";
 const KEY_AUDIO_FEEDBACK_ENABLED: &str = "audio_feedback_enabled";
 const KEY_MUTE_WHILE_RECORDING: &str = "mute_while_recording";
 const KEY_ONBOARDING_COMPLETED: &str = "onboarding_completed";
+const KEY_BUILTIN_TEMPLATES_SEEDED: &str = "builtin_templates_seeded_v1";
 const KEY_FILLER_REMOVAL_ENABLED: &str = "filler_removal_enabled";
 const KEY_FILLER_WORDS: &str = "filler_words";
 const KEY_CUSTOM_WORDS: &str = "custom_words";
@@ -419,6 +420,28 @@ impl SettingsStore {
     pub fn set_onboarding_completed(&self, on: bool) -> Result<(), SettingsError> {
         self.store
             .set(KEY_ONBOARDING_COMPLETED, serde_json::Value::Bool(on));
+        self.store
+            .save()
+            .map_err(|e| SettingsError::Store(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Whether the five built-in guide templates have already been seeded
+    /// into the DB at least once. Defaults to `false`. This flag — not
+    /// `INSERT OR IGNORE` alone — is what lets a user's deletion of a
+    /// builtin template stick across subsequent launches.
+    pub fn builtin_templates_seeded(&self) -> bool {
+        self.store
+            .get(KEY_BUILTIN_TEMPLATES_SEEDED)
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+    }
+
+    /// Mark the built-in guide templates as seeded (called after a
+    /// successful `seed_builtin_templates` at startup).
+    pub fn set_builtin_templates_seeded(&self, on: bool) -> Result<(), SettingsError> {
+        self.store
+            .set(KEY_BUILTIN_TEMPLATES_SEEDED, serde_json::Value::Bool(on));
         self.store
             .save()
             .map_err(|e| SettingsError::Store(e.to_string()))?;

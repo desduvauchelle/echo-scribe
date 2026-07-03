@@ -635,6 +635,33 @@ pub fn run() {
             crate::overlay::create_recording_overlay(&app.handle().clone());
             crate::overlay::create_consent_overlay(&app.handle().clone());
             crate::overlay::create_guide_overlay(&app.handle().clone());
+
+            // Seed builtin guide templates exactly once. The settings flag —
+            // not INSERT OR IGNORE — is what lets a user's deletion of a
+            // builtin stick across launches.
+            {
+                let st = app.state::<AppState>();
+                if let Some(db) = st.db.clone() {
+                    let settings = st.settings.clone();
+                    if !settings.builtin_templates_seeded() {
+                        let now = chrono::Utc::now().to_rfc3339();
+                        match db.with_conn(move |c| {
+                            crate::db::guide_templates::seed_builtin_templates(c, &now)
+                        }) {
+                            Ok(n) => {
+                                tracing::info!(target: "guide", inserted = n, "seeded builtin guide templates");
+                                if let Err(e) = settings.set_builtin_templates_seeded(true) {
+                                    tracing::warn!(target: "guide", ?e, "failed to persist builtin-seed flag");
+                                }
+                            }
+                            Err(e) => {
+                                tracing::warn!(target: "guide", ?e, "builtin template seeding failed");
+                            }
+                        }
+                    }
+                }
+            }
+
             if capabilities.screen_recording {
                 crate::overlay::create_screenrec_setup(&app.handle().clone());
             }
