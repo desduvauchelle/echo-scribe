@@ -1184,6 +1184,23 @@ export const exportRecording = (
   quality: "1080" | "720" | "480",
 ): Promise<RecordingRow> => invoke("export_recording", { id, quality });
 
+/** Raw recorded-input events JSONL for a recording (for auto-zoom). Rejects when
+ *  the recording has no events file / it's unreadable — callers treat a
+ *  rejection as "render without zoom", not a hard error. */
+export const readRecordingEvents = (id: string): Promise<string> =>
+  invoke("read_recording_events", { id });
+
+/** Persist a frontend-rendered MP4. The bytes ride as the raw IPC body (no
+ *  JSON number-array copy); the id travels in the `x-recording-id` header —
+ *  see the `save_rendered_recording` Rust command. Returns the updated row. */
+export const saveRenderedRecording = (
+  id: string,
+  bytes: Uint8Array,
+): Promise<RecordingRow> =>
+  invoke("save_rendered_recording", bytes, {
+    headers: { "x-recording-id": id },
+  });
+
 export type DriveStatus = {
   connected: boolean;
   email: string | null;

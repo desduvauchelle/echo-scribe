@@ -15,6 +15,7 @@ import {
   Loader,
   Lock,
   Pencil,
+  Sparkles,
   Trash2,
 } from "lucide-react";
 import {
@@ -27,10 +28,21 @@ import {
   revealRecording,
   transcribeRecording,
   exportRecording,
+  readRecordingEvents,
+  saveRenderedRecording,
   uploadRecording,
   getDrivePrefs,
   type RecordingRow,
 } from "../../lib/api";
+import { renderRecording, type RenderProgress } from "../../lib/render/renderPipeline";
+import type { Appearance } from "../../lib/render/compositor";
+
+/** Hardcoded M1 render appearance (background + padding + rounded corners). */
+const M1_APPEARANCE: Appearance = {
+  padding: 96,
+  cornerRadius: 16,
+  background: { type: "gradient", from: "#1e3a5f", to: "#0f1b2d" },
+};
 
 function displayName(r: RecordingRow): string {
   return r.title?.trim() || r.source_label || "Recording";
@@ -449,6 +461,52 @@ export function RecordingsView() {
     [refresh],
   );
 
+  // "Render (beta)" — re-encode with background + auto-zoom via WebCodecs.
+  const [rendering, setRendering] = useState(false);
+  const [renderProgress, setRenderProgress] = useState<RenderProgress | null>(null);
+
+  const onRender = useCallback(
+    async (r: RecordingRow) => {
+      setRendering(true);
+      setRenderProgress({ phase: "decode", pct: 0 });
+      setError(null);
+      try {
+        // Events file drives auto-zoom; a missing/unreadable one is fine —
+        // render without zoom rather than failing the whole export.
+        let eventsJsonl: string | null = null;
+        if (r.events_path) {
+          try {
+            eventsJsonl = await readRecordingEvents(r.id);
+          } catch (e) {
+            console.warn("[render] no events for recording; rendering without zoom", e);
+          }
+        }
+
+        const bytes = await renderRecording({
+          fileUrl: convertFileSrc(r.denoised_path ?? r.file_path),
+          eventsJsonl,
+          durationMs: r.duration_ms ?? 0,
+          appearance: M1_APPEARANCE,
+          onProgress: setRenderProgress,
+        });
+
+        await saveRenderedRecording(r.id, bytes);
+        await refresh();
+        toasts.push({ tone: "success", message: "Render complete." });
+      } catch (e) {
+        console.error("[render] failed", e);
+        toasts.push({
+          tone: "error",
+          message: "Render failed. See Settings → Diagnostics → logs for details.",
+        });
+      } finally {
+        setRendering(false);
+        setRenderProgress(null);
+      }
+    },
+    [refresh, toasts],
+  );
+
   const [uploading, setUploading] = useState(false);
   // Default sharing visibility for new uploads, mirrored from Settings.
   const [defaultPublic, setDefaultPublic] = useState(true);
@@ -638,6 +696,17 @@ export function RecordingsView() {
                     <FileText size={16} />
                   )}
                 </IconButton>
+                <IconButton
+                  title="Re-renders with background + auto-zoom. No audio yet."
+                  onClick={() => void onRender(selected)}
+                  disabled={rendering || exporting !== null || uploading}
+                >
+                  {rendering ? (
+                    <Loader size={16} className="animate-spin" />
+                  ) : (
+                    <Sparkles size={16} />
+                  )}
+                </IconButton>
                 <div className="flex-1" />
                 <IconButton
                   title="Delete"
@@ -659,6 +728,16 @@ export function RecordingsView() {
               {transcribing ? (
                 <div className="mt-2 text-[12px] text-muted">
                   Transcribing… {progress}%
+                </div>
+              ) : null}
+              {rendering && renderProgress ? (
+                <div className="mt-2 text-[12px] text-muted">
+                  {renderProgress.phase === "decode"
+                    ? "Rendering (decoding)"
+                    : renderProgress.phase === "encode"
+                      ? "Rendering (encoding)"
+                      : "Rendering (finalizing)"}
+                  … {renderProgress.pct}%
                 </div>
               ) : null}
               {denoising ? (

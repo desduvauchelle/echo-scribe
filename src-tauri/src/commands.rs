@@ -3748,6 +3748,111 @@ pub fn export_recording(
         .ok_or_else(|| "recording vanished".to_string())
 }
 
+/// Return the raw recorded-input events JSONL text for a recording, so the
+/// frontend render pipeline can build the auto-zoom timeline. Returns an `Err`
+/// (never panics) when the recording has no events path, or the file is
+/// missing/unreadable — the UI treats any error as "render without zoom".
+#[tauri::command]
+pub fn read_recording_events(state: State<'_, AppState>, id: String) -> Result<String, String> {
+    let db = require_db(&state)?;
+    let row = db
+        .with_conn(|c| crate::db::recordings::get(c, &id))
+        .map_err(|e| e.to_string())?
+        .ok_or("recording not found")?;
+
+    let events_path = match row.events_path {
+        Some(p) if !p.is_empty() => p,
+        _ => {
+            tracing::warn!(target: "screenrec", rec = %id, "no events_path recorded; rendering without zoom");
+            return Err("no recorded input events for this recording".into());
+        }
+    };
+
+    match std::fs::read_to_string(&events_path) {
+        Ok(text) => {
+            info!(target: "screenrec", rec = %id, path = %events_path, bytes = text.len(), "read recording events");
+            Ok(text)
+        }
+        Err(e) => {
+            tracing::warn!(target: "screenrec", rec = %id, path = %events_path, error = %e, "failed to read events file; rendering without zoom");
+            Err(format!("could not read events file: {e}"))
+        }
+    }
+}
+
+/// Persist a frontend-rendered MP4 for a recording. The bytes are passed as the
+/// raw IPC body (`InvokeBody::Raw`) — the least-copy transfer this Tauri version
+/// supports; the recording id rides in the `x-recording-id` header. Writes
+/// `<id>.rendered.mp4` into the recordings dir and merges a single
+/// `{"quality":"rendered","path":...,"size":...}` entry into the row's exports
+/// JSON (replacing any prior "rendered" entry rather than duplicating).
+#[tauri::command]
+pub fn save_rendered_recording(
+    state: State<'_, AppState>,
+    request: tauri::ipc::Request<'_>,
+) -> Result<crate::db::recordings::RecordingRow, String> {
+    let id = request
+        .headers()
+        .get("x-recording-id")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string())
+        .ok_or_else(|| {
+            error!(target: "screenrec", "save_rendered_recording missing x-recording-id header");
+            "internal error: missing recording id".to_string()
+        })?;
+
+    let bytes: &[u8] = match request.body() {
+        tauri::ipc::InvokeBody::Raw(b) => b.as_slice(),
+        tauri::ipc::InvokeBody::Json(_) => {
+            error!(target: "screenrec", rec = %id, "save_rendered_recording received JSON body, expected raw bytes");
+            return Err("internal error: rendered bytes not received".to_string());
+        }
+    };
+    if bytes.is_empty() {
+        error!(target: "screenrec", rec = %id, "save_rendered_recording received empty body");
+        return Err("render produced no data".to_string());
+    }
+
+    let db = require_db(&state)?;
+    let row = db
+        .with_conn(|c| crate::db::recordings::get(c, &id))
+        .map_err(|e| e.to_string())?
+        .ok_or("recording not found")?;
+
+    let dir = crate::screenrec::recordings_dir().map_err(|e| {
+        error!(target: "screenrec", rec = %id, error = %e, "recordings_dir failed");
+        "could not locate the recordings folder".to_string()
+    })?;
+    let out = dir.join(format!("{id}.rendered.mp4"));
+
+    std::fs::write(&out, bytes).map_err(|e| {
+        error!(target: "screenrec", rec = %id, path = %out.display(), error = %e, "failed to write rendered mp4");
+        format!("could not save the rendered video: {e}")
+    })?;
+    let size = bytes.len() as u64;
+    info!(target: "screenrec", rec = %id, path = %out.display(), size, "saved rendered mp4");
+
+    let out_path = out.to_string_lossy().to_string();
+    let mut exports: Vec<serde_json::Value> =
+        serde_json::from_str(&row.exports).unwrap_or_default();
+    exports.retain(|e| e.get("quality").and_then(|q| q.as_str()) != Some("rendered"));
+    exports.push(serde_json::json!({
+        "quality": "rendered",
+        "path": out_path,
+        "size": size,
+    }));
+    let exports_json = serde_json::to_string(&exports).map_err(|e| e.to_string())?;
+    db.with_conn(|c| crate::db::recordings::update_exports(c, &id, &exports_json))
+        .map_err(|e| {
+            error!(target: "screenrec", rec = %id, error = %e, "update_exports failed after render");
+            e.to_string()
+        })?;
+
+    db.with_conn(|c| crate::db::recordings::get(c, &id))
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "recording vanished".to_string())
+}
+
 #[tauri::command]
 pub fn open_screenrec_setup(app: AppHandle) -> Result<(), String> {
     crate::overlay::show_screenrec_setup(&app);
