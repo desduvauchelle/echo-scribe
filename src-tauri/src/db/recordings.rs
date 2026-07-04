@@ -27,6 +27,9 @@ pub struct RecordingRow {
     pub transcript: Option<String>,
     /// Path to the denoised MP4 (separate file). `None` until cleaned.
     pub denoised_path: Option<String>,
+    /// Path to the recorded input-events JSONL sidecar file. `None` if the
+    /// sidecar didn't report one (e.g. the no-frames abort path).
+    pub events_path: Option<String>,
 }
 
 pub fn insert(conn: &Connection, r: &RecordingRow) -> Result<(), DbError> {
@@ -35,8 +38,8 @@ pub fn insert(conn: &Connection, r: &RecordingRow) -> Result<(), DbError> {
             id, created_at, file_path, duration_ms, width, height, size_bytes,
             source_label, has_mic, has_sysaudio, thumb_path, drive_file_id,
             drive_link, upload_status, upload_error, exports, title, transcript,
-            denoised_path
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
+            denoised_path, events_path
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
         params![
             r.id,
             r.created_at,
@@ -57,6 +60,7 @@ pub fn insert(conn: &Connection, r: &RecordingRow) -> Result<(), DbError> {
             r.title,
             r.transcript,
             r.denoised_path,
+            r.events_path,
         ],
     )?;
     Ok(())
@@ -67,7 +71,7 @@ pub fn list(conn: &Connection) -> Result<Vec<RecordingRow>, DbError> {
         "SELECT id, created_at, file_path, duration_ms, width, height, size_bytes,
                 source_label, has_mic, has_sysaudio, thumb_path, drive_file_id,
                 drive_link, upload_status, upload_error, exports, title, transcript,
-                denoised_path
+                denoised_path, events_path
          FROM recordings
          ORDER BY created_at DESC",
     )?;
@@ -82,7 +86,7 @@ pub fn get(conn: &Connection, id: &str) -> Result<Option<RecordingRow>, DbError>
         "SELECT id, created_at, file_path, duration_ms, width, height, size_bytes,
                 source_label, has_mic, has_sysaudio, thumb_path, drive_file_id,
                 drive_link, upload_status, upload_error, exports, title, transcript,
-                denoised_path
+                denoised_path, events_path
          FROM recordings WHERE id = ?1",
         [id],
         row_to_recording,
@@ -191,6 +195,7 @@ fn row_to_recording(row: &rusqlite::Row<'_>) -> rusqlite::Result<RecordingRow> {
         title: row.get(16)?,
         transcript: row.get(17)?,
         denoised_path: row.get(18)?,
+        events_path: row.get(19)?,
     })
 }
 
@@ -226,6 +231,7 @@ mod tests {
             title: None,
             transcript: None,
             denoised_path: None,
+            events_path: None,
         }
     }
 
@@ -316,6 +322,17 @@ mod tests {
         update_exports(&conn, "rec-1", json).unwrap();
         let got = get(&conn, "rec-1").unwrap().unwrap();
         assert_eq!(got.exports, json);
+    }
+
+    #[test]
+    fn events_path_round_trip() {
+        let conn = setup();
+        let mut r = sample();
+        r.id = "rec-ev".into();
+        r.events_path = Some("/r/rec-ev.events.jsonl".into());
+        insert(&conn, &r).unwrap();
+        let got = get(&conn, "rec-ev").unwrap().unwrap();
+        assert_eq!(got.events_path.as_deref(), Some("/r/rec-ev.events.jsonl"));
     }
 
     #[test]

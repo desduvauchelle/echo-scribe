@@ -1145,6 +1145,7 @@ export type RecordingRow = {
   title: string | null;
   transcript: string | null;
   denoised_path: string | null;
+  events_path: string | null;
 };
 
 export const startScreenRecording = (p: {

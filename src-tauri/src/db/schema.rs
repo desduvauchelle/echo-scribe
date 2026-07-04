@@ -335,6 +335,12 @@ CREATE TABLE IF NOT EXISTS embedding_index_state (
 );
 "#,
     ),
+    (
+        22,
+        r#"
+ALTER TABLE recordings ADD COLUMN events_path TEXT;
+"#,
+    ),
 ];
 
 const META_TABLE_SQL: &str = r#"
@@ -396,7 +402,7 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(v, "21");
+        assert_eq!(v, "22");
     }
 
     #[test]
@@ -550,7 +556,7 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(version, "21");
+        assert_eq!(version, "22");
     }
 
     #[test]

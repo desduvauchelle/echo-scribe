@@ -151,6 +151,11 @@ pub struct StoppedInfo {
     pub height: i64,
     pub size: i64,
     pub thumb: String,
+    /// Path to the input-events JSONL sidecar file, if the sidecar recorded
+    /// one. `None` when the field is missing or empty (e.g. the no-frames
+    /// abort path, which emits a header-only file with `n_events: 0` but may
+    /// omit `events` entirely).
+    pub events_path: Option<String>,
 }
 
 /// Parse one line of sidecar stderr JSON into a `StoppedInfo`, if it is the
@@ -160,6 +165,11 @@ pub fn parse_stopped(line: &str) -> Option<StoppedInfo> {
     if val.get("event")?.as_str()? != "stopped" {
         return None;
     }
+    let events_path = val
+        .get("events")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
     Some(StoppedInfo {
         path: val.get("path")?.as_str()?.to_string(),
         dur_ms: val.get("dur_ms").and_then(|v| v.as_i64()).unwrap_or(0),
@@ -167,6 +177,7 @@ pub fn parse_stopped(line: &str) -> Option<StoppedInfo> {
         height: val.get("height").and_then(|v| v.as_i64()).unwrap_or(0),
         size: val.get("size").and_then(|v| v.as_i64()).unwrap_or(0),
         thumb: val.get("thumb").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        events_path,
     })
 }
 
@@ -300,8 +311,15 @@ impl ScreenrecHandle {
     pub fn start(out_path: PathBuf, params: RecordParams) -> Result<Self, String> {
         let bin = resolve_binary().map_err(|e| e.to_string())?;
         info!(path = %bin.display(), out = %out_path.display(), "spawning screenrec");
+        // Derive the events sidecar path from `out_path`: same directory,
+        // same stem, `.events.jsonl` suffix (e.g. `<id>.mp4` -> `<id>.events.jsonl`).
+        let events_path = out_path.with_extension("").with_extension("events.jsonl");
         let mut cmd = Command::new(&bin);
-        cmd.arg("record").arg("--out").arg(&out_path);
+        cmd.arg("record")
+            .arg("--out")
+            .arg(&out_path)
+            .arg("--events")
+            .arg(&events_path);
         // Source selection: window takes priority over display.
         if let Some(wid) = params.window_id {
             cmd.arg("--window").arg(wid.to_string());
@@ -441,6 +459,20 @@ mod tests {
         assert!(parse_stopped(r#"{"event":"ready"}"#).is_none());
         assert!(parse_stopped(r#"{"event":"heartbeat","ts":1.0}"#).is_none());
         assert!(parse_stopped("not json").is_none());
+    }
+
+    #[test]
+    fn parse_stopped_extracts_events_path() {
+        let line = r#"{"event":"stopped","path":"/r/a.mp4","dur_ms":5000,"width":100,"height":100,"size":1,"thumb":"","events":"/r/a.events.jsonl","n_events":42,"n_clicks":3}"#;
+        let info = parse_stopped(line).unwrap();
+        assert_eq!(info.events_path.as_deref(), Some("/r/a.events.jsonl"));
+    }
+
+    #[test]
+    fn parse_stopped_events_optional() {
+        let line = r#"{"event":"stopped","path":"/r/a.mp4","dur_ms":5000,"width":100,"height":100,"size":1,"thumb":""}"#;
+        let info = parse_stopped(line).unwrap();
+        assert_eq!(info.events_path, None);
     }
 
     #[test]

@@ -3395,6 +3395,7 @@ pub fn stop_screen_recording_inner(
         title: None,
         transcript: None,
         denoised_path: None,
+        events_path: info.events_path.clone(),
     };
     let db = state
         .db
@@ -3457,6 +3458,16 @@ pub fn delete_recording(state: State<'_, AppState>, id: String) -> Result<(), St
         let _ = std::fs::remove_file(&row.file_path);
         if let Some(thumb) = &row.thumb_path {
             let _ = std::fs::remove_file(thumb);
+        }
+        if let Some(events) = &row.events_path {
+            match std::fs::remove_file(events) {
+                Ok(()) => {
+                    info!(target: "screenrec", recording_id = %id, path = %events, "deleted events file")
+                }
+                Err(e) => {
+                    tracing::warn!(target: "screenrec", recording_id = %id, path = %events, %e, "failed to delete events file")
+                }
+            }
         }
     }
     db.with_conn(|c| crate::db::recordings::delete(c, &id))
