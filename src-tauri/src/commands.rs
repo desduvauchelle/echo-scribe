@@ -3696,6 +3696,12 @@ pub(crate) async fn run_denoise(app: AppHandle, id: String) -> Result<(), String
     }
 
     cleanup(None); // remove temp wavs; keep clean_mp4
+    // Denoise swapped the file on disk (original deleted, cleaned promoted). Tell
+    // the UI so it re-fetches the row and reloads the player off the new path —
+    // otherwise the <video> is left pointing at the now-deleted original and
+    // shows a broken/"not playable" state. `denoise-progress` alone is not a
+    // reliable completion signal (its final tick may not land exactly at 100).
+    let _ = app.emit("screenrec-changed", ());
     Ok(())
 }
 

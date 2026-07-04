@@ -646,7 +646,11 @@ export function RecordingsView() {
                 </div>
               )}
               <video
-                key={selected.id}
+                // Key on the resolved path, not the id: auto-denoise swaps the
+                // file (original → cleaned) under the same recording id, and an
+                // errored <video> only recovers on remount. Keying on the path
+                // forces a fresh load when the path changes.
+                key={selected.denoised_path ?? selected.file_path}
                 src={convertFileSrc(selected.denoised_path ?? selected.file_path)}
                 controls
                 className="w-full rounded-lg bg-black"
