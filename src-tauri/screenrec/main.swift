@@ -332,6 +332,7 @@ var argDisplayID: UInt32?
 var argWindowID: UInt32?
 var argNoSysaudio: Bool = false
 var argMicUID: String?
+var argEventsPath: String?
 do {
     let args = CommandLine.arguments
     var i = 1
@@ -341,6 +342,7 @@ do {
         else if args[i] == "--window", i + 1 < args.count { argWindowID = UInt32(args[i + 1]); i += 1 }
         else if args[i] == "--no-sysaudio" { argNoSysaudio = true }
         else if args[i] == "--mic", i + 1 < args.count { argMicUID = args[i + 1]; i += 1 }
+        else if args[i] == "--events", i + 1 < args.count { argEventsPath = args[i + 1]; i += 1 }
         i += 1
     }
 }
@@ -420,6 +422,12 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, AVCaptureAudio
 
     // --- mic capture (AVCaptureSession) ---
     var captureSession: AVCaptureSession?
+
+    // --- input-event metadata capture (Task 3) ---
+    // Records global mouse/keyboard events to a JSONL sidecar file. Timestamps
+    // are ms offsets from the first appended video frame's PTS, so they align
+    // with video time exactly. Nil when --events was not passed.
+    var events: InputEventRecorder?
 
     // Diagnostic counters for the new audio paths.
     var sysFramesIn = 0
@@ -584,6 +592,9 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, AVCaptureAudio
                 startPTS = pts
                 writer.startSession(atSourceTime: pts)
                 sessionStarted = true
+                // Anchor input-event timestamps to the first video frame's PTS
+                // (same host clock family as the SCStream sample-buffer PTS).
+                events?.markFirstFrame(ptsSeconds: CMTimeGetSeconds(pts))
             }
             lastPTS = pts
             switch type {
@@ -675,6 +686,11 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, AVCaptureAudio
             stateQ.sync { drainMixerLocked(flush: true) }
         }
 
+        // Stop the input-event monitors, resolve pending timestamps, and write
+        // the JSONL sidecar. Done once here so both stopped-event paths (the
+        // no-frames path and the normal path) can report the same result.
+        let ev = events?.finish()
+
         let (started, lpts, spts) = stateQ.sync { (sessionStarted, lastPTS, startPTS) }
 
         // No frames were ever written (e.g. permission denied before first
@@ -689,6 +705,9 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, AVCaptureAudio
                 "height": pxHeight,
                 "size": 0,
                 "thumb": "",
+                "events": ev?.path ?? "",
+                "n_events": ev?.nEvents ?? 0,
+                "n_clicks": ev?.nClicks ?? 0,
             ])
             exit(exitCode)
         }
@@ -734,6 +753,9 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, AVCaptureAudio
                 "height": self.pxHeight,
                 "size": size,
                 "thumb": thumb,
+                "events": ev?.path ?? "",
+                "n_events": ev?.nEvents ?? 0,
+                "n_clicks": ev?.nClicks ?? 0,
             ])
             exit(exitCode)
         }
@@ -1058,6 +1080,11 @@ func run() async {
         let filter: SCContentFilter
         let capW: Int
         let capH: Int
+        // Capture geometry in POINTS (top-left origin, global coords) plus the
+        // point→pixel scale, recorded in the input-event JSONL header so the
+        // editor can map global-point event coords into video pixels.
+        var captureRectPoints: CGRect = .zero
+        var pxScaleForEvents: Double = 1.0
 
         if let windowID = argWindowID {
             // Window capture
@@ -1080,6 +1107,10 @@ func run() async {
             let (w, h) = clampDims(Int((rect.width * pxScale).rounded()),
                                    Int((rect.height * pxScale).rounded()))
             capW = w; capH = h
+            // SCWindow.frame is the window's on-screen rect in points (top-left
+            // origin, global). Use it so event coords map to the captured window.
+            captureRectPoints = window.frame
+            pxScaleForEvents = Double(pxScale)
         } else {
             // Display capture (--display <id> or first display as default)
             let excluded = content.applications.filter { $0.bundleIdentifier == OWN_BUNDLE_ID }
@@ -1101,6 +1132,11 @@ func run() async {
             let mode = CGDisplayCopyDisplayMode(display.displayID)
             let (w, h) = clampDims(mode?.pixelWidth ?? display.width, mode?.pixelHeight ?? display.height)
             capW = w; capH = h
+            // SCDisplay.frame is the display's rect in points (top-left origin,
+            // global). Derive the point→pixel scale from the native pixel width.
+            captureRectPoints = display.frame
+            let pointsW = Double(display.width)
+            pxScaleForEvents = pointsW > 0 ? Double(mode?.pixelWidth ?? display.width) / pointsW : 1.0
         }
 
         cfg.width = capW
@@ -1109,6 +1145,22 @@ func run() async {
         emit(["event": "diag", "phase": "filter_built", "w": capW, "h": capH, "capturesAudio": cfg.capturesAudio])
 
         let rec = Recorder(outURL: outURL, width: capW, height: capH, sysOn: sysOn, micOn: micOn, micUID: argMicUID)
+
+        // Input-event metadata capture (Task 3). When --events is set, record
+        // global mouse/keyboard events to a JSONL sidecar for post effects
+        // (auto-zoom, keystroke overlay, cursor effects). Timestamps are anchored
+        // to the first video frame's PTS via rec.events?.markFirstFrame(...).
+        if let eventsPath = argEventsPath {
+            let evRec = InputEventRecorder(
+                outURL: URL(fileURLWithPath: eventsPath),
+                captureKind: argWindowID != nil ? "window" : "display",
+                captureRect: captureRectPoints,
+                pxScale: pxScaleForEvents
+            )
+            evRec.start()
+            rec.events = evRec
+        }
+
         let stream = SCStream(filter: filter, configuration: cfg, delegate: rec)
         rec.stream = stream
         Pinned.shared.recorder = rec
