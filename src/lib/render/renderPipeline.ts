@@ -269,8 +269,15 @@ export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8A
   const totalFrames = chunks.length;
   let decodedCount = 0;
   let encodedFrames = 0;
+  // Frames the decoder has emitted and we've made a keep/drop decision on —
+  // used as the encode-phase progress numerator so 60fps sources (which drop
+  // ~half their decoded frames under the TARGET_FPS filter below) don't stall
+  // visually at ~50% while encodedFrames lags behind totalFrames.
+  let processedFrames = 0;
   const minFrameIntervalUs = 1_000_000 / TARGET_FPS;
   let lastEmittedUs = -Infinity;
+  /** Backpressure stall guard: abort if the encode/decode queues make zero forward progress for this long. */
+  const BACKPRESSURE_STALL_MS = 30_000;
 
   const decodeDone = new Promise<void>((resolveDecode, rejectDecode) => {
     const decoder = new VideoDecoder({
@@ -280,6 +287,8 @@ export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8A
           // Frame pacing: drop frames that arrive faster than TARGET_FPS.
           if (frame.timestamp - lastEmittedUs < minFrameIntervalUs - 1) {
             frame.close();
+            processedFrames++;
+            onProgress({ phase: "encode", pct: Math.min(99, Math.round((processedFrames / totalFrames) * 100)) });
             return;
           }
           lastEmittedUs = frame.timestamp;
@@ -296,7 +305,8 @@ export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8A
           encoder.encode(outFrame, { keyFrame });
           outFrame.close();
           encodedFrames++;
-          onProgress({ phase: "encode", pct: Math.min(99, Math.round((encodedFrames / totalFrames) * 100)) });
+          processedFrames++;
+          onProgress({ phase: "encode", pct: Math.min(99, Math.round((processedFrames / totalFrames) * 100)) });
         } catch (e) {
           rejectDecode(e);
         }
@@ -309,10 +319,18 @@ export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8A
     void (async () => {
       try {
         for (const chunk of chunks) {
-          // Backpressure: don't let either queue balloon (memory).
+          // Backpressure: don't let either queue balloon (memory). Guard against an
+          // indefinite stall (e.g. a wedged encoder that never drains) with a wall-clock
+          // timeout rather than spinning forever.
+          const stallStartedAt = Date.now();
           while (encoder.encodeQueueSize >= MAX_ENCODE_QUEUE || decoder.decodeQueueSize >= MAX_ENCODE_QUEUE) {
             await new Promise((r) => setTimeout(r, 1));
             if (encodeError) throw encodeError;
+            if (Date.now() - stallStartedAt > BACKPRESSURE_STALL_MS) {
+              throw new Error(
+                `Render stalled: encoder/decoder queues made no progress for ${BACKPRESSURE_STALL_MS / 1000}s (encodeQueueSize=${encoder.encodeQueueSize}, decodeQueueSize=${decoder.decodeQueueSize}).`,
+              );
+            }
           }
           decoder.decode(chunk);
           decodedCount++;
