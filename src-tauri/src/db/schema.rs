@@ -302,6 +302,39 @@ ALTER TABLE projects ADD COLUMN routing_positive_examples TEXT;
 ALTER TABLE projects ADD COLUMN routing_negative_examples TEXT;
 "#,
     ),
+    (
+        // NOTE: 19 and 20 are claimed by concurrent branches (project auto-tagging /
+        // session links). Numbered 21 so this actually runs on DBs already at v20.
+        21,
+        r#"
+CREATE TABLE IF NOT EXISTS embeddings (
+  id            TEXT PRIMARY KEY,
+  source_kind   TEXT NOT NULL,
+  source_id     TEXT NOT NULL,
+  passage_idx   INTEGER NOT NULL,
+  passage_text  TEXT NOT NULL,
+  vec           BLOB NOT NULL,
+  dim           INTEGER NOT NULL,
+  model_id      TEXT NOT NULL,
+  project_id    TEXT,
+  captured_at   TEXT NOT NULL,
+  content_hash  TEXT NOT NULL,
+  created_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_emb_source   ON embeddings(source_kind, source_id);
+CREATE INDEX IF NOT EXISTS idx_emb_captured ON embeddings(captured_at DESC);
+CREATE INDEX IF NOT EXISTS idx_emb_project  ON embeddings(project_id);
+
+CREATE TABLE IF NOT EXISTS embedding_index_state (
+  source_kind   TEXT NOT NULL,
+  source_id     TEXT NOT NULL,
+  content_hash  TEXT NOT NULL,
+  model_id      TEXT NOT NULL,
+  indexed_at    TEXT NOT NULL,
+  PRIMARY KEY (source_kind, source_id)
+);
+"#,
+    ),
 ];
 
 const META_TABLE_SQL: &str = r#"
@@ -363,7 +396,21 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(v, "20");
+        assert_eq!(v, "21");
+    }
+
+    #[test]
+    fn migration_v21_creates_embedding_tables() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        run_migrations(&mut conn).unwrap();
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('embeddings','embedding_index_state')",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 2);
     }
 
     #[test]
@@ -503,7 +550,7 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(version, "20");
+        assert_eq!(version, "21");
     }
 
     #[test]

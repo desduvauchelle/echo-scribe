@@ -14,6 +14,7 @@
 //!    during idle stretches between voice captures.
 
 pub mod downloader;
+pub mod edit;
 pub mod engine;
 pub mod prompt;
 pub mod rag;

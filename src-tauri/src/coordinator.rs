@@ -23,6 +23,8 @@ pub enum Action {
     VoiceAtCursor,
     ActionCommand,
     LogCapture,
+    /// Voice-edit the current text selection in place ("Command Mode").
+    EditSelection,
     /// Reserved for Phase 4+: cancel an in-flight capture (e.g. via Esc).
     /// Currently a no-op stub — the wiring is in place but we don't bind it
     /// to anything yet.
@@ -140,6 +142,8 @@ pub fn spawn(
         // than re-activating the app fixes "paste lands in previous field"
         // bugs in multi-window apps where NSApp picks the wrong NSWindow.
         let mut pending_focus_element: Option<FocusElement> = None;
+        // Selection captured at EditSelection press time (text + capture method).
+        let mut pending_selection: Option<focus::SelectionSnapshot> = None;
 
         // Set up audio level callback to feed the overlay waveform.
         {
@@ -203,6 +207,37 @@ pub fn spawn(
                             "captured frontmost app + AX focus"
                         );
                     }
+                    // EditSelection needs a live selection. Capture it now (the
+                    // selection is active and the overlay hasn't stolen focus),
+                    // and abort cleanly if there's nothing to edit — before we
+                    // start the mic or show any recording UI.
+                    if action == Action::EditSelection {
+                        match focus::capture_selection(pending_focus_element.as_ref()) {
+                            Some(sel) if crate::llm::edit::within_length_limit(&sel.text) => {
+                                info!(chars = sel.text.len(), method = ?sel.method, "edit selection captured");
+                                pending_selection = Some(sel);
+                            }
+                            Some(sel) => {
+                                warn!(chars = sel.text.len(), "edit selection too long; aborting");
+                                notify_edit_failure(&app, "Selection too long to edit (max ~1000 words).");
+                                pending_context = None;
+                                pending_focus_element = None;
+                                force_state(&state, PipelineState::Idle);
+                                on_state_change(TrayPipelineState::Idle);
+                                continue;
+                            }
+                            None => {
+                                info!("edit selection: nothing selected; showing hint");
+                                feedback::play(Sfx::Stop);
+                                let _ = app.emit("edit:hint", "Select text first, then hold the Edit hotkey.");
+                                pending_context = None;
+                                pending_focus_element = None;
+                                force_state(&state, PipelineState::Idle);
+                                on_state_change(TrayPipelineState::Idle);
+                                continue;
+                            }
+                        }
+                    }
                     on_state_change(TrayPipelineState::Recording);
                     crate::audio::mute::on_recording_start();
                     feedback::play(Sfx::Start);
@@ -210,6 +245,7 @@ pub fn spawn(
                         Action::VoiceAtCursor => crate::overlay::show_recording_overlay(&app),
                         Action::ActionCommand => crate::overlay::show_action_recording_overlay(&app),
                         Action::LogCapture => crate::overlay::show_log_recording_overlay(&app),
+                        Action::EditSelection => crate::overlay::show_action_recording_overlay(&app),
                         _ => {}
                     }
                     if matches!(action, Action::LogCapture) {
@@ -226,6 +262,7 @@ pub fn spawn(
                         error!(?e, ?action, "failed to start recorder; returning to Idle");
                         crate::overlay::hide_recording_overlay(&app);
                         force_state(&state, PipelineState::Idle);
+                        pending_selection = None;
                         on_state_change(TrayPipelineState::Idle);
                         if matches!(action, Action::LogCapture) {
                             let _ = app.emit("log_capture:cancelled", ());
@@ -277,9 +314,25 @@ pub fn spawn(
                                     }
                                     crate::overlay::hide_recording_overlay(&app);
                                     force_state(&state, PipelineState::Idle);
+                                    pending_selection = None;
                                     on_state_change(TrayPipelineState::Idle);
                                 }
                                 Ok(text) => {
+                                    if matches!(action, Action::EditSelection) {
+                                        run_edit_selection(
+                                            &app,
+                                            &llm,
+                                            &text,
+                                            pending_selection.take(),
+                                            pending_focus_element.take(),
+                                            pending_context.take(),
+                                        )
+                                        .await;
+                                        crate::overlay::hide_recording_overlay_now(&app);
+                                        force_state(&state, PipelineState::Idle);
+                                        on_state_change(TrayPipelineState::Idle);
+                                        continue;
+                                    }
                                     let text = postprocess_with_settings(&app, text);
                                     let text = match try_intercept_action(&app, &llm, &text, action).await {
                                         InterceptOutcome::Consumed => {
@@ -435,6 +488,13 @@ pub fn spawn(
                                             on_state_change(TrayPipelineState::Thinking);
                                         }
                                     }
+                                    Action::EditSelection => {
+                                        // Handled above via the early `continue`;
+                                        // this arm keeps the match exhaustive.
+                                        crate::overlay::hide_recording_overlay(&app);
+                                        force_state(&state, PipelineState::Idle);
+                                        on_state_change(TrayPipelineState::Idle);
+                                    }
                                     Action::Cancel => {
                                         crate::overlay::hide_recording_overlay(&app);
                                         force_state(&state, PipelineState::Idle);
@@ -460,6 +520,7 @@ pub fn spawn(
                                     }
                                     crate::overlay::hide_recording_overlay(&app);
                                     force_state(&state, PipelineState::Idle);
+                                    pending_selection = None;
                                     on_state_change(TrayPipelineState::Idle);
                                 }
                             }
@@ -472,6 +533,7 @@ pub fn spawn(
                             }
                             crate::overlay::hide_recording_overlay(&app);
                             force_state(&state, PipelineState::Idle);
+                            pending_selection = None;
                             on_state_change(TrayPipelineState::Idle);
                         }
                     }
@@ -943,6 +1005,97 @@ async fn try_intercept_action(
     InterceptOutcome::Passthrough
 }
 
+/// Orchestrate a voice edit of the captured selection: run the local LLM edit
+/// pass, sanitize the output, and apply it — via AX write-back when the
+/// selection was captured through AX, otherwise by restoring focus and pasting
+/// over the still-active selection. Every failure leaves the text untouched and
+/// surfaces a friendly message.
+async fn run_edit_selection(
+    app: &AppHandle<Wry>,
+    llm: &crate::llm::Llm,
+    instruction: &str,
+    selection: Option<crate::input::focus::SelectionSnapshot>,
+    element: Option<FocusElement>,
+    ctx: Option<FocusContext>,
+) {
+    let Some(selection) = selection else {
+        warn!(target: "edit", "no captured selection at apply time");
+        notify_edit_failure(app, "Nothing was selected — text left unchanged.");
+        return;
+    };
+    let instruction = instruction.trim();
+    if instruction.is_empty() {
+        info!(target: "edit", "empty instruction; aborting");
+        notify_edit_failure(app, "Didn't catch an instruction — text left unchanged.");
+        return;
+    }
+    if !llm.ready() {
+        warn!(target: "edit", "no LLM model active");
+        notify_edit_failure(app, "Load a language model in Settings to use Edit Selection.");
+        return;
+    }
+
+    crate::overlay::show_processing_overlay(app, "Editing selection…");
+    bump_tray(app, TrayPipelineState::Thinking);
+
+    let raw = match crate::llm::edit::run(llm, instruction, &selection.text).await {
+        Ok(r) => r,
+        Err(e) => {
+            error!(target: "edit", error = %e, "edit LLM generation failed");
+            notify_edit_failure(app, "Couldn't apply that edit — text left unchanged.");
+            return;
+        }
+    };
+    let Some(result) = crate::llm::edit::sanitize_edit_output(&raw, &selection.text) else {
+        warn!(target: "edit", raw = %raw, "edit output rejected by sanitizer; leaving text unchanged");
+        notify_edit_failure(app, "Couldn't apply that edit — text left unchanged.");
+        return;
+    };
+
+    // Apply: AX write-back first (clean, no keystrokes), else Cmd+V paste.
+    let applied_via_ax = selection.method == crate::input::focus::SelectionMethod::Ax
+        && element
+            .as_ref()
+            .map(|el| el.replace_selected_text(&result) == 0)
+            .unwrap_or(false);
+
+    if !applied_via_ax {
+        if let Some(ctx) = ctx.as_ref() {
+            let outcome = crate::input::focus::restore_focus(ctx, element.as_ref());
+            info!(target: "edit", same_app = outcome.same_app, activated = outcome.activated_app, "restored focus before edit paste");
+            let settle_ms = if outcome.same_app { 60 } else { 250 };
+            std::thread::sleep(std::time::Duration::from_millis(settle_ms));
+        }
+        if let Err(e) = crate::input::paste::paste_at_cursor(&result) {
+            error!(target: "edit", error = %e, "edit paste failed");
+            let _ = app.emit("asr:error", format!("Paste failed: {e}"));
+            return;
+        }
+    }
+
+    feedback::play(Sfx::Ready);
+    info!(
+        target: "edit",
+        method = ?selection.method,
+        via_ax = applied_via_ax,
+        out_chars = result.len(),
+        "applied selection edit"
+    );
+}
+
+/// Friendly surface for an edit-selection failure: in-app event + OS
+/// notification when the main window is hidden. Raw detail stays in the log.
+fn notify_edit_failure(app: &AppHandle<Wry>, friendly: &str) {
+    let _ = app.emit("edit:failed", friendly);
+    use tauri_plugin_notification::NotificationExt;
+    let _ = app
+        .notification()
+        .builder()
+        .title("Echo Scribe Edit")
+        .body(friendly)
+        .show();
+}
+
 /// Bump the tray icon to the given state via the managed `AppState.tray`
 /// handle. Used by helpers (e.g. `try_intercept_action`) that don't carry
 /// the coordinator's `on_state_change` closure but still need to reflect
@@ -1254,6 +1407,18 @@ mod tests {
         );
         force_state(&s, PipelineState::Idle);
         assert_eq!(*s.lock().unwrap(), PipelineState::Idle);
+    }
+
+    #[test]
+    fn edit_selection_runs_through_the_state_machine() {
+        let s = new_state_handle();
+        assert!(transition_from_idle_to_recording(&s, Action::EditSelection));
+        assert_eq!(*s.lock().unwrap(), PipelineState::Recording(Action::EditSelection));
+        assert!(transition_from_recording_to_processing(&s, Action::EditSelection));
+        assert_eq!(*s.lock().unwrap(), PipelineState::Processing(Action::EditSelection));
+        // A mismatched action must not drive this one.
+        force_state(&s, PipelineState::Recording(Action::EditSelection));
+        assert!(!transition_from_recording_to_processing(&s, Action::VoiceAtCursor));
     }
 
     #[test]

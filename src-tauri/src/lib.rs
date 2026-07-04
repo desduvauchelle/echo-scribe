@@ -1,10 +1,12 @@
 pub mod asr;
 pub mod audio;
 pub mod calendar;
+pub mod chat_memory;
 pub mod classifier;
 pub mod commands;
 pub mod coordinator;
 pub mod daily_summary;
+pub mod embed;
 pub mod db;
 pub mod denoise;
 pub mod event_log;
@@ -36,6 +38,8 @@ use crate::asr::pipeline::AsrPipeline;
 use crate::asr::registry;
 use crate::commands::{
     apply_update_and_restart, archive_project, cancel_log_capture, chat_with_memory, complete_task,
+    download_embedding_model, embedding_index_status,
+    get_edit_selection_binding, update_edit_selection_binding,
     confirm_log_capture, count_items, count_items_for_project, create_chat_session, create_project,
     delete_chat_session, delete_item, delete_llm_model, delete_project, delete_recording,
     delete_speech_model, denoise_recording, diagnostics_log_dir, diagnostics_open_log_folder,
@@ -181,6 +185,8 @@ pub fn run() {
             update_log_capture_binding,
             get_action_binding,
             update_action_binding,
+            get_edit_selection_binding,
+            update_edit_selection_binding,
             get_trigger_word_routing_enabled,
             set_trigger_word_routing_enabled,
             get_action_trigger_word,
@@ -346,6 +352,8 @@ pub fn run() {
             get_drive_prefs,
             set_drive_prefs,
             upload_recording,
+            download_embedding_model,
+            embedding_index_status,
         ])
         .setup(move |app| {
             // Tray.
@@ -377,6 +385,8 @@ pub fn run() {
             let log_capture_binding = Arc::new(RwLock::new(initial_log_binding));
             let initial_action_binding = settings.action_binding();
             let action_binding = Arc::new(RwLock::new(initial_action_binding));
+            let initial_edit_selection_binding = settings.edit_selection_binding();
+            let edit_selection_binding = Arc::new(RwLock::new(initial_edit_selection_binding));
 
             // Migrate any legacy model dirs (renames between releases) before
             // we ask the registry which models are downloaded.
@@ -437,6 +447,14 @@ pub fn run() {
                     llm.spawn_unloader();
                 });
             }
+            // Embedding model: built once, lazy-loaded on first use, idle-unloaded.
+            let embedder = crate::embed::Embedder::new(std::time::Duration::from_secs(180));
+            {
+                let embedder = Arc::clone(&embedder);
+                tauri::async_runtime::spawn(async move {
+                    embedder.spawn_unloader();
+                });
+            }
             {
                 let asr = Arc::clone(&asr);
                 tauri::async_runtime::spawn(async move {
@@ -452,6 +470,7 @@ pub fn run() {
             {
                 let llm_sampler = Arc::clone(&llm);
                 let asr_sampler = Arc::clone(&asr);
+                let embed_sampler = Arc::clone(&embedder);
                 tauri::async_runtime::spawn(async move {
                     use std::time::Duration;
                     let mut interval = tokio::time::interval(Duration::from_secs(30));
@@ -474,6 +493,8 @@ pub fn run() {
                             llm_loaded = llm_sampler.is_loaded(),
                             asr_idle_s = asr_sampler.idle_for().as_secs(),
                             llm_idle_s = llm_sampler.idle_for().as_secs(),
+                            embed_loaded = embed_sampler.is_loaded(),
+                            embed_idle_s = embed_sampler.idle_for().as_secs(),
                             "[mem] sample"
                         );
                     }
@@ -565,6 +586,7 @@ pub fn run() {
                 binding,
                 log_capture_binding,
                 action_binding,
+                edit_selection_binding,
                 hotkey_started: AtomicBool::new(false),
                 paused_hotkeys: Arc::clone(&paused_hotkeys),
                 rebinding,
@@ -572,6 +594,7 @@ pub fn run() {
                 pipeline_state: Arc::clone(&pipeline_state),
                 asr: Arc::clone(&asr),
                 llm: Arc::clone(&llm),
+                embedder: Arc::clone(&embedder),
                 db,
                 event_log_root,
                 _log_guard: Mutex::new(guard_slot.take()),
@@ -589,6 +612,10 @@ pub fn run() {
 
             // Daily recap scheduler — fires once per day at the user-configured hour.
             crate::daily_summary::scheduler::spawn(app.handle().clone());
+
+            // Chat-memory embedding indexer — backfills + incrementally indexes
+            // history into the vector store once the embedding model is present.
+            crate::chat_memory::indexer::spawn(app.handle().clone());
 
             // Wire tray menu events that need access to the managed state
             // (e.g. Pause/Resume toggling). The TrayHandle exposes a

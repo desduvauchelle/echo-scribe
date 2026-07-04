@@ -128,6 +128,78 @@ fn synthesize_cmd_v() -> Result<(), PasteError> {
     Ok(())
 }
 
+/// Pure decision helper: given the clipboard text before and after a synthetic
+/// Cmd+C, return the selected text — or `None` if the clipboard did not change
+/// (which we treat as "nothing was selected"). Kept pure so it is unit-testable
+/// without a live app.
+pub fn selection_from_clipboard_delta(before: Option<&str>, after: Option<&str>) -> Option<String> {
+    match after {
+        Some(a) if !a.is_empty() && Some(a) != before => Some(a.to_string()),
+        _ => None,
+    }
+}
+
+/// Fallback selection capture: synthesize Cmd+C, read the clipboard, then
+/// restore the user's original clipboard. Returns the selected text, or `None`
+/// if nothing changed / the copy failed. macOS-only.
+#[cfg(target_os = "macos")]
+pub fn capture_selection_via_copy() -> Option<String> {
+    use arboard::Clipboard;
+    let mut clipboard = match Clipboard::new() {
+        Ok(c) => c,
+        Err(e) => {
+            warn!(target: "edit", ?e, "capture_selection_via_copy: clipboard unavailable");
+            return None;
+        }
+    };
+    let before = clipboard.get_text().ok();
+    if let Err(e) = synthesize_cmd_c() {
+        warn!(target: "edit", ?e, "capture_selection_via_copy: Cmd+C synthesis failed");
+        return None;
+    }
+    // Give the frontmost app time to service the copy and write the pasteboard.
+    thread::sleep(Duration::from_millis(120));
+    let after = clipboard.get_text().ok();
+    let result = selection_from_clipboard_delta(before.as_deref(), after.as_deref());
+    // Best-effort restore of the user's original clipboard.
+    if let Some(orig) = before {
+        if let Err(e) = clipboard.set_text(&orig) {
+            warn!(target: "edit", ?e, "capture_selection_via_copy: failed to restore clipboard");
+        }
+    }
+    result
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn capture_selection_via_copy() -> Option<String> {
+    None
+}
+
+/// Synthesize Cmd+C via CoreGraphics (same deterministic approach as
+/// [`synthesize_cmd_v`], with the Command flag set directly on the keydown).
+#[cfg(target_os = "macos")]
+fn synthesize_cmd_c() -> Result<(), PasteError> {
+    use core_graphics::event::{CGEvent, CGEventFlags, CGEventTapLocation};
+    use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
+
+    let source = CGEventSource::new(CGEventSourceStateID::Private)
+        .map_err(|_| PasteError::Keystroke("failed to create CGEventSource".into()))?;
+
+    // kVK_ANSI_C = 8
+    let c_down = CGEvent::new_keyboard_event(source.clone(), 8, true)
+        .map_err(|_| PasteError::Keystroke("failed to create C keydown event".into()))?;
+    c_down.set_flags(CGEventFlags::CGEventFlagCommand);
+    c_down.post(CGEventTapLocation::Session);
+
+    thread::sleep(Duration::from_millis(20));
+
+    let c_up = CGEvent::new_keyboard_event(source, 8, false)
+        .map_err(|_| PasteError::Keystroke("failed to create C keyup event".into()))?;
+    c_up.post(CGEventTapLocation::Session);
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -164,5 +236,20 @@ mod tests {
 
         // Cap is always enforced.
         assert_eq!(restore_delay_ms(usize::MAX), RESTORE_DELAY_MAX_MS);
+    }
+
+    #[test]
+    fn clipboard_delta_detects_new_selection() {
+        // Selection changed the clipboard → that's the selection.
+        assert_eq!(
+            selection_from_clipboard_delta(Some("old"), Some("selected text")),
+            Some("selected text".to_string())
+        );
+        // Nothing selected → Cmd+C leaves clipboard unchanged → None.
+        assert_eq!(selection_from_clipboard_delta(Some("old"), Some("old")), None);
+        // Empty after → None.
+        assert_eq!(selection_from_clipboard_delta(Some("old"), Some("")), None);
+        // Previously-empty clipboard, now populated → Some.
+        assert_eq!(selection_from_clipboard_delta(None, Some("x")), Some("x".to_string()));
     }
 }

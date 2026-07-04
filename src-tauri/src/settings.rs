@@ -12,6 +12,7 @@ const STORE_FILENAME: &str = "settings.json";
 const KEY_VOICE_AT_CURSOR_BINDING: &str = "voice_at_cursor_binding";
 const KEY_LOG_CAPTURE_BINDING: &str = "log_capture_binding";
 const KEY_ACTION_BINDING: &str = "action_binding";
+const KEY_EDIT_SELECTION_BINDING: &str = "edit_selection_binding";
 const KEY_TRIGGER_WORD_ROUTING_ENABLED: &str = "trigger_word_routing_enabled";
 const KEY_ACTION_TRIGGER_WORD: &str = "action_trigger_word";
 const KEY_SPEECH_MODEL_ID: &str = "speech_model_id";
@@ -314,6 +315,31 @@ impl SettingsStore {
     pub fn set_action_binding(&self, b: Binding) -> Result<(), SettingsError> {
         let value = serde_json::to_value(&b)?;
         self.store.set(KEY_ACTION_BINDING, value);
+        self.store
+            .save()
+            .map_err(|e| SettingsError::Store(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Returns the configured edit-selection binding, or the default
+    /// (`Right Option + E`) if none is stored or invalid.
+    pub fn edit_selection_binding(&self) -> Binding {
+        match self.store.get(KEY_EDIT_SELECTION_BINDING) {
+            Some(value) => match serde_json::from_value::<Binding>(value) {
+                Ok(b) => b,
+                Err(e) => {
+                    warn!(?e, "stored edit_selection_binding is invalid; falling back to default");
+                    default_edit_selection_binding()
+                }
+            },
+            None => default_edit_selection_binding(),
+        }
+    }
+
+    /// Persist the edit-selection binding.
+    pub fn set_edit_selection_binding(&self, b: Binding) -> Result<(), SettingsError> {
+        let value = serde_json::to_value(&b)?;
+        self.store.set(KEY_EDIT_SELECTION_BINDING, value);
         self.store
             .save()
             .map_err(|e| SettingsError::Store(e.to_string()))?;
@@ -1240,6 +1266,14 @@ pub fn default_action_binding() -> Binding {
     }
 }
 
+/// The default edit-selection binding: Right Option + E.
+pub fn default_edit_selection_binding() -> Binding {
+    Binding {
+        primary: SerKey(Key::KeyE),
+        modifiers: vec![(ModifierKind::Alt, ModifierSide::Right)],
+    }
+}
+
 #[cfg(test)]
 mod updater_tests {
     use super::*;
@@ -1283,5 +1317,29 @@ mod auto_file_tests {
     fn app_launcher_constants_are_correct() {
         assert_eq!(KEY_APP_LAUNCHER_ENABLED, "app_launcher_enabled");
         assert_eq!(KEY_ACTION_COUNTER, "action_counter");
+    }
+}
+
+#[cfg(test)]
+mod edit_selection_binding_tests {
+    use super::*;
+
+    #[test]
+    fn default_edit_selection_binding_is_right_option_e() {
+        let b = default_edit_selection_binding();
+        assert_eq!(b.primary, SerKey(Key::KeyE));
+        assert_eq!(b.modifiers, vec![(ModifierKind::Alt, ModifierSide::Right)]);
+    }
+
+    #[test]
+    fn edit_selection_binding_serde_round_trips() {
+        // The store getter/setter persist a Binding as JSON and read it back.
+        // Verify the default binding survives that exact serialize -> deserialize
+        // cycle (this also guards that its keys have DOM-code mappings, so the
+        // real setter can never panic on serialization).
+        let b = default_edit_selection_binding();
+        let json = serde_json::to_value(&b).expect("binding serializes");
+        let back: Binding = serde_json::from_value(json).expect("binding deserializes");
+        assert_eq!(b, back);
     }
 }

@@ -26,6 +26,7 @@ pub mod schema;
 pub mod search;
 pub mod stats;
 pub mod tasks;
+pub mod embeddings;
 
 pub use chat::{ChatMessage, ChatSession};
 pub use items::{Item, ItemKind, ItemSource};

@@ -73,6 +73,12 @@ export const getActionBinding = (): Promise<JsBinding> =>
 export const updateActionBinding = (binding: JsBinding): Promise<void> =>
   invoke("update_action_binding", { binding });
 
+export const getEditSelectionBinding = (): Promise<JsBinding> =>
+  invoke("get_edit_selection_binding");
+
+export const updateEditSelectionBinding = (binding: JsBinding): Promise<void> =>
+  invoke("update_edit_selection_binding", { binding });
+
 export const getTriggerWordRoutingEnabled = (): Promise<boolean> =>
   invoke("get_trigger_word_routing_enabled");
 
@@ -1222,3 +1228,18 @@ export const setScreenrecAudioPrefs = (prefs: ScreenrecAudioPrefs): Promise<void
   invoke("set_screenrec_audio_prefs", { prefs });
 export const openScreenrecSetup = (): Promise<void> =>
   invoke("open_screenrec_setup");
+
+// --- Embedding index (chat memory v2) ---
+
+export const downloadEmbeddingModel = (): Promise<void> =>
+  invoke("download_embedding_model");
+
+export interface EmbeddingIndexStatus {
+  model_downloaded: boolean;
+  embeddings: number;
+  indexed_sources: number;
+  total_sources: number;
+}
+
+export const getEmbeddingIndexStatus = (): Promise<EmbeddingIndexStatus> =>
+  invoke("embedding_index_status");
