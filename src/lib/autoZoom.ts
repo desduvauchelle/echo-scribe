@@ -98,6 +98,9 @@ export function parseEventsJsonl(text: string): { header: EventsHeader | null; e
     const obj = parsed as Record<string, unknown>;
 
     if (obj.k === "header") {
+      // Sidecar contract: the header is line 1 (written first in InputEventRecorder.init).
+      // We don't assert position here — if multiple header lines appear (malformed
+      // file), last-wins, and a missing header leaves `header` null for the caller.
       header = parsed as EventsHeader;
     } else if (isValidRecEvent(obj)) {
       events.push(obj);

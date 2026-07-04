@@ -1107,9 +1107,15 @@ func run() async {
             let (w, h) = clampDims(Int((rect.width * pxScale).rounded()),
                                    Int((rect.height * pxScale).rounded()))
             capW = w; capH = h
-            // SCWindow.frame is the window's on-screen rect in points (top-left
-            // origin, global). Use it so event coords map to the captured window.
-            captureRectPoints = window.frame
+            // Use filter.contentRect (NOT window.frame) as the events-header
+            // rect: it is the exact rect the capture pixels come from, in the
+            // same points/global-top-left space as SCWindow.frame but without
+            // window.frame's shadow/content-inset origin+size offsets. Those
+            // offsets shift AND resize the frame vs. the captured content, so
+            // click normalization (x - rect.x)/rect.w must use contentRect to
+            // land the zoom on the clicked region. capW/capH above are derived
+            // from this same rect, so the mapping is internally consistent.
+            captureRectPoints = rect
             pxScaleForEvents = Double(pxScale)
         } else {
             // Display capture (--display <id> or first display as default)

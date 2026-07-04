@@ -156,6 +156,12 @@ pub struct StoppedInfo {
     /// abort path, which emits a header-only file with `n_events: 0` but may
     /// omit `events` entirely).
     pub events_path: Option<String>,
+    /// Total input events recorded (moves, clicks, scrolls, keys). `None` when
+    /// the sidecar omits the field (older binaries / non-events runs). M3 will
+    /// persist these; for now they're logged at the stop boundary.
+    pub n_events: Option<i64>,
+    /// Click-down events recorded (subset of `n_events`). `None` when absent.
+    pub n_clicks: Option<i64>,
 }
 
 /// Parse one line of sidecar stderr JSON into a `StoppedInfo`, if it is the
@@ -178,6 +184,8 @@ pub fn parse_stopped(line: &str) -> Option<StoppedInfo> {
         size: val.get("size").and_then(|v| v.as_i64()).unwrap_or(0),
         thumb: val.get("thumb").and_then(|v| v.as_str()).unwrap_or("").to_string(),
         events_path,
+        n_events: val.get("n_events").and_then(|v| v.as_i64()),
+        n_clicks: val.get("n_clicks").and_then(|v| v.as_i64()),
     })
 }
 
@@ -313,6 +321,8 @@ impl ScreenrecHandle {
         info!(path = %bin.display(), out = %out_path.display(), "spawning screenrec");
         // Derive the events sidecar path from `out_path`: same directory,
         // same stem, `.events.jsonl` suffix (e.g. `<id>.mp4` -> `<id>.events.jsonl`).
+        // Assumes the id stem is dot-free (our ids are `rec-<millis>`); a stem
+        // with a dot would have its trailing segment stripped by with_extension.
         let events_path = out_path.with_extension("").with_extension("events.jsonl");
         let mut cmd = Command::new(&bin);
         cmd.arg("record")
@@ -473,6 +483,23 @@ mod tests {
         let line = r#"{"event":"stopped","path":"/r/a.mp4","dur_ms":5000,"width":100,"height":100,"size":1,"thumb":""}"#;
         let info = parse_stopped(line).unwrap();
         assert_eq!(info.events_path, None);
+    }
+
+    #[test]
+    fn parse_stopped_extracts_event_counts() {
+        let line = r#"{"event":"stopped","path":"/r/a.mp4","dur_ms":5000,"width":100,"height":100,"size":1,"thumb":"","events":"/r/a.events.jsonl","n_events":42,"n_clicks":3}"#;
+        let info = parse_stopped(line).unwrap();
+        assert_eq!(info.n_events, Some(42));
+        assert_eq!(info.n_clicks, Some(3));
+    }
+
+    #[test]
+    fn parse_stopped_event_counts_optional() {
+        // Older sidecar / no-events run omits n_events and n_clicks entirely.
+        let line = r#"{"event":"stopped","path":"/r/a.mp4","dur_ms":5000,"width":100,"height":100,"size":1,"thumb":""}"#;
+        let info = parse_stopped(line).unwrap();
+        assert_eq!(info.n_events, None);
+        assert_eq!(info.n_clicks, None);
     }
 
     #[test]

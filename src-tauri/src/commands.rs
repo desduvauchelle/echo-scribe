@@ -3363,6 +3363,7 @@ pub fn stop_screen_recording_inner(
         guard.take().ok_or("no recording in progress")?
     };
     let info = handle.stop()?;
+    info!(target: "screenrec", n_events = ?info.n_events, n_clicks = ?info.n_clicks, "recording stopped with input events");
     let id = std::path::Path::new(&info.path)
         .file_stem()
         .and_then(|s| s.to_str())
@@ -3455,9 +3456,23 @@ pub fn delete_recording(state: State<'_, AppState>, id: String) -> Result<(), St
         .with_conn(|c| crate::db::recordings::get(c, &id))
         .map_err(|e| e.to_string())?;
     if let Some(row) = row {
-        let _ = std::fs::remove_file(&row.file_path);
+        match std::fs::remove_file(&row.file_path) {
+            Ok(()) => {
+                info!(target: "screenrec", recording_id = %id, path = %row.file_path, "deleted recording file")
+            }
+            Err(e) => {
+                tracing::warn!(target: "screenrec", recording_id = %id, path = %row.file_path, %e, "failed to delete recording file")
+            }
+        }
         if let Some(thumb) = &row.thumb_path {
-            let _ = std::fs::remove_file(thumb);
+            match std::fs::remove_file(thumb) {
+                Ok(()) => {
+                    info!(target: "screenrec", recording_id = %id, path = %thumb, "deleted thumbnail file")
+                }
+                Err(e) => {
+                    tracing::warn!(target: "screenrec", recording_id = %id, path = %thumb, %e, "failed to delete thumbnail file")
+                }
+            }
         }
         if let Some(events) = &row.events_path {
             match std::fs::remove_file(events) {
