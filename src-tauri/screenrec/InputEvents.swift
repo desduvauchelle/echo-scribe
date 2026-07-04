@@ -19,6 +19,12 @@ final class InputEventRecorder {
 
     init(outURL: URL, captureKind: String, captureRect: CGRect, pxScale: Double) {
         self.outURL = outURL
+        // AppKit global coords anchor at the PRIMARY screen's bottom-left (+y up);
+        // CG/SCDisplay/SCWindow frames anchor at the primary's top-left (+y down).
+        // `primaryHeight - appKitY` is the canonical AppKit→CG global conversion and
+        // is valid for points on ANY display, not just the primary — both spaces
+        // mirror around the primary screen's top edge. screens.first is the primary
+        // (origin (0,0) in AppKit space) by AppKit contract.
         self.screenHPoints = Double(NSScreen.screens.first?.frame.height ?? 0)
         let header: [String: Any] = [
             "k": "header", "v": 1,
@@ -90,6 +96,7 @@ final class InputEventRecorder {
         let x = Double(loc.x), y = topLeftY(Double(loc.y))
         switch ev.type {
         case .mouseMoved, .leftMouseDragged, .rightMouseDragged:
+            // Main-thread only: NSEvent global monitor callbacks arrive on the main thread; lastMoveAt has a single writer.
             if host - lastMoveAt < 1.0 / 60.0 { return } // throttle to ~60 Hz
             lastMoveAt = host
             record(["k": "move", "x": x, "y": y], hostTime: host)
@@ -125,13 +132,19 @@ final class InputEventRecorder {
         var result: (String?, Int, Int) = (nil, 0, 0)
         queue.sync {
             drainPending()
+            // If the first video frame never arrived, drainPending() never stamped
+            // any pending events and the file below is header-only. Report zero
+            // counts in that case so they agree with the (empty) file content —
+            // the file is the source of truth, not the raw record() tally.
+            let reportedEvents = firstFramePTS == nil ? 0 : nEvents
+            let reportedClicks = firstFramePTS == nil ? 0 : nClicks
             let text = lines.joined(separator: "\n") + "\n"
             do {
                 try text.write(to: outURL, atomically: true, encoding: .utf8)
-                result = (outURL.path, nEvents, nClicks)
+                result = (outURL.path, reportedEvents, reportedClicks)
             } catch {
                 emit(["event": "warn", "kind": "events_write", "msg": error.localizedDescription])
-                result = (nil, nEvents, nClicks)
+                result = (nil, reportedEvents, reportedClicks)
             }
         }
         return result
