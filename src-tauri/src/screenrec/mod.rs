@@ -43,17 +43,68 @@ pub fn parse_sources(stdout: &str) -> Result<Sources, String> {
     serde_json::from_str::<Sources>(stdout.trim()).map_err(|e| e.to_string())
 }
 
-/// Invoke the sidecar with `--list-sources` and parse the result.
+/// Build a user-facing message from a failed `--list-sources` run. The raw
+/// sidecar detail is logged by the caller; the returned string is safe to show
+/// in the UI (short, human, no JSON/stack traces).
+fn list_sources_error(stderr: &str) -> String {
+    // The sidecar emits its failure reason on stderr as
+    // `{"event":"error","kind":"list_sources","msg":"..."}`. Pull the msg out
+    // and special-case the Screen Recording permission denial, which is by far
+    // the most common cause (e.g. after the app bundle is replaced).
+    let sidecar_msg = stderr.lines().rev().find_map(|line| {
+        let val: serde_json::Value = serde_json::from_str(line.trim()).ok()?;
+        if val.get("event").and_then(|v| v.as_str()) == Some("error") {
+            val.get("msg").and_then(|v| v.as_str()).map(|s| s.to_string())
+        } else {
+            None
+        }
+    });
+    if let Some(msg) = &sidecar_msg {
+        let low = msg.to_lowercase();
+        if low.contains("tcc") || low.contains("declined") || low.contains("permission") {
+            return "Screen Recording permission is needed to list windows and displays. \
+                    Enable Echo Scribe in System Settings → Privacy & Security → Screen Recording, \
+                    then fully quit and reopen Echo Scribe."
+                .to_string();
+        }
+    }
+    "Couldn't list screens and windows. See Settings → Diagnostics → logs for details.".to_string()
+}
+
+/// Invoke the sidecar with `--list-sources` and parse the result. On failure
+/// (non-zero exit, empty output, or unparseable JSON) the sidecar's stderr is
+/// captured and logged, and a friendly message is returned — never the raw
+/// serde/`EOF` parse error.
 pub fn list_sources() -> Result<Sources, String> {
     let bin = resolve_binary().map_err(|e| e.to_string())?;
     let out = Command::new(&bin)
         .arg("--list-sources")
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .output()
-        .map_err(|e| e.to_string())?;
-    let text = String::from_utf8_lossy(&out.stdout);
-    parse_sources(&text)
+        .map_err(|e| {
+            warn!(target: "screenrec", error = %e, "failed to spawn --list-sources");
+            "Couldn't start the screen-recording helper. See Settings → Diagnostics → logs for details.".to_string()
+        })?;
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    if !out.status.success() || stdout.trim().is_empty() {
+        warn!(target: "screenrec", status = ?out.status.code(), stderr = %stderr.trim(),
+              "--list-sources failed");
+        return Err(list_sources_error(&stderr));
+    }
+    match parse_sources(&stdout) {
+        Ok(s) => {
+            info!(target: "screenrec", displays = s.displays.len(), windows = s.windows.len(),
+                  "listed screen sources");
+            Ok(s)
+        }
+        Err(e) => {
+            warn!(target: "screenrec", error = %e, stderr = %stderr.trim(),
+                  "failed to parse --list-sources output");
+            Err(list_sources_error(&stderr))
+        }
+    }
 }
 
 /// Extract a recording's audio track to a mono WAV at `out_wav`, resampled to
@@ -508,6 +559,25 @@ mod tests {
         let got = parse_sources(s).unwrap();
         assert_eq!(got.displays.len(), 1);
         assert_eq!(got.windows[0].app, "Safari");
+    }
+
+    #[test]
+    fn list_sources_error_detects_permission_denial() {
+        // Exactly what the sidecar writes on stderr when Screen Recording is
+        // not granted (observed live).
+        let stderr = r#"{"event":"error","kind":"list_sources","msg":"The user declined TCCs for application, window, display capture"}"#;
+        let msg = list_sources_error(stderr);
+        assert!(msg.contains("Screen Recording permission"), "got: {msg}");
+        assert!(msg.contains("System Settings"), "got: {msg}");
+    }
+
+    #[test]
+    fn list_sources_error_generic_when_no_structured_error() {
+        // Empty stderr (e.g. the helper died before emitting) -> generic,
+        // never a raw serde/EOF error, and not the permission message.
+        let msg = list_sources_error("");
+        assert!(msg.contains("See Settings → Diagnostics"), "got: {msg}");
+        assert!(!msg.contains("Screen Recording permission"), "got: {msg}");
     }
 
     #[test]
