@@ -52,6 +52,12 @@ jobs:
       - name: Build syscap sidecar
         run: bash scripts/build-syscap.sh
 
+      - name: Build screenrec sidecar
+        run: bash scripts/build-screenrec.sh
+
+      - name: Build calmatch sidecar
+        run: bash scripts/build-calmatch.sh
+
       - name: Build app bundle
         run: bun tauri build --bundles app
 
