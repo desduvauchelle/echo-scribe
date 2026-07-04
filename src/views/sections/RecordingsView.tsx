@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { useToasts } from "../../components/ToastProvider";
 import {
   Check,
   ChevronDown,
@@ -288,6 +289,7 @@ export function RecordingsView() {
   const [progress, setProgress] = useState(0);
   const [denoising, setDenoising] = useState(false);
   const [denoiseProgress, setDenoiseProgress] = useState(0);
+  const toasts = useToasts();
 
   const refresh = useCallback(async () => {
     const next = await listRecordings();
@@ -344,6 +346,20 @@ export function RecordingsView() {
       unlisten?.();
     };
   }, [selected, refresh]);
+
+  // Auto-denoise runs in the background after recording stop; surface
+  // failures as a toast (full detail is in the Rust log).
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    void listen<{ id: string; message: string }>("denoise-failed", (e) => {
+      toasts.push({ tone: "error", message: e.payload.message });
+    }).then((fn) => {
+      unlisten = fn;
+    });
+    return () => {
+      unlisten?.();
+    };
+  }, [toasts]);
 
   const onToggle = useCallback(async () => {
     setBusy(true);

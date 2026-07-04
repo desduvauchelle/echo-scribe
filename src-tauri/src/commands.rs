@@ -3421,12 +3421,19 @@ pub fn stop_screen_recording(
     Ok(row)
 }
 
-/// Run denoise as a background task; logs but never surfaces errors to the
-/// caller (recording stop already succeeded — auto-cleanup is best-effort).
+/// Run denoise as a background task. Full error detail goes to the log;
+/// the frontend gets a `denoise-failed` event with a friendly message.
 pub(crate) fn spawn_auto_denoise(app: AppHandle, id: String) {
     tauri::async_runtime::spawn(async move {
-        if let Err(e) = run_denoise(app, id.clone()).await {
+        if let Err(e) = run_denoise(app.clone(), id.clone()).await {
             tracing::warn!(target: "denoise", recording_id = %id, %e, "auto-denoise after recording stop failed");
+            let _ = app.emit(
+                "denoise-failed",
+                serde_json::json!({
+                    "id": id,
+                    "message": "Audio cleanup failed — the original recording is untouched. See Settings → Diagnostics → logs for details.",
+                }),
+            );
         }
     });
 }
