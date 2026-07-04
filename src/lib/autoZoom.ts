@@ -39,9 +39,45 @@ const DEFAULT_OPTIONS: AutoZoomOptions = {
   minBlockMs: 2000,
 };
 
+const isFiniteNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+
+/**
+ * Validates that a parsed JSON object has the required shape for its `k`
+ * (event kind) before it's trusted as a RecEvent. This exists because a
+ * structurally-valid-JSON line with the wrong/missing fields (e.g. a `down`
+ * missing x/y) would otherwise be pushed through unchecked: the missing
+ * fields become `undefined`/NaN, which silently survive the bounds check in
+ * generateAutoZoom (NaN comparisons are always false) and corrupt centroid
+ * math downstream. Kept minimal and kind-specific per the event union.
+ */
+function isValidRecEvent(obj: Record<string, unknown>): obj is RecEvent {
+  if (!isFiniteNum(obj.t)) return false;
+  switch (obj.k) {
+    case "move":
+      return isFiniteNum(obj.x) && isFiniteNum(obj.y);
+    case "down":
+    case "up":
+      return (
+        (obj.b === "l" || obj.b === "r" || obj.b === "o") &&
+        isFiniteNum(obj.x) &&
+        isFiniteNum(obj.y)
+      );
+    case "scroll":
+      return (
+        isFiniteNum(obj.x) && isFiniteNum(obj.y) && isFiniteNum(obj.dx) && isFiniteNum(obj.dy)
+      );
+    case "key":
+      return isFiniteNum(obj.code) && Array.isArray(obj.mods);
+    default:
+      return false;
+  }
+}
+
 /**
  * Parses recorded-events JSONL (header line + one event per line) into a
- * typed header + event array. Blank lines and unparsable lines are skipped.
+ * typed header + event array. Blank lines, unparsable lines, and
+ * shape-invalid events (right kind, missing/non-numeric required fields) are
+ * skipped.
  */
 export function parseEventsJsonl(text: string): { header: EventsHeader | null; events: RecEvent[] } {
   let header: EventsHeader | null = null;
@@ -63,8 +99,8 @@ export function parseEventsJsonl(text: string): { header: EventsHeader | null; e
 
     if (obj.k === "header") {
       header = parsed as EventsHeader;
-    } else {
-      events.push(parsed as RecEvent);
+    } else if (isValidRecEvent(obj)) {
+      events.push(obj);
     }
   }
 
@@ -93,6 +129,10 @@ export function generateAutoZoom(
   const options: AutoZoomOptions = { ...DEFAULT_OPTIONS, ...opts };
 
   // Step 1: take `down` events only (any button). No clicks -> no zoom.
+  // Manual loop (not .filter + Extract<>) is deliberate: Extract<RecEvent,
+  // { k: "down" }> fails to narrow the "down" | "up" literal union under this
+  // repo's tsc config (produces `never`), which broke `bun run build` even
+  // though bun's test runner doesn't type-check and so didn't catch it.
   const downEvents: Array<{ t: number; k: "down" | "up"; b: "l" | "r" | "o"; x: number; y: number }> = [];
   for (const e of events) {
     if (e.k === "down") downEvents.push(e);
@@ -133,9 +173,29 @@ export function generateAutoZoom(
   const centerLo = 0.5 / options.scale;
   const centerHi = 1 - 0.5 / options.scale;
 
-  type BlockWithWeight = ZoomBlock & { clickCount: number };
+  // Internal-only accumulator: carries RAW (unclamped) weighted-coordinate
+  // sums and click counts through construction and merging. The viewport
+  // clamp is applied exactly once, when a final ZoomBlock is emitted, so a
+  // merge always re-centers on the true click distribution rather than on
+  // already-clamped per-block centers (see Finding 1 in the M1 review).
+  type BlockAccum = {
+    startMs: number;
+    endMs: number;
+    sumX: number; // sum of raw normalized click x, across all clicks in the (merged) block
+    sumY: number;
+    clickCount: number;
+  };
 
-  const blocks: BlockWithWeight[] = clusters.map((cluster) => {
+  const toZoomBlock = (b: BlockAccum): ZoomBlock => ({
+    startMs: b.startMs,
+    endMs: b.endMs,
+    cx: clamp01(b.sumX / b.clickCount, centerLo, centerHi),
+    cy: clamp01(b.sumY / b.clickCount, centerLo, centerHi),
+    scale: options.scale,
+    mode: "auto",
+  });
+
+  const blocks: BlockAccum[] = clusters.map((cluster) => {
     const firstT = cluster.clicks[0].t;
     const lastT = cluster.clicks[cluster.clicks.length - 1].t;
 
@@ -167,45 +227,38 @@ export function generateAutoZoom(
       endMs = Math.min(durationMs, endMs + growEnd);
     }
 
-    const cx = clamp01(cluster.centroidX, centerLo, centerHi);
-    const cy = clamp01(cluster.centroidY, centerLo, centerHi);
+    let sumX = 0;
+    let sumY = 0;
+    for (const c of cluster.clicks) {
+      sumX += c.nx;
+      sumY += c.ny;
+    }
 
     return {
       startMs,
       endMs,
-      cx,
-      cy,
-      scale: options.scale,
-      mode: "auto",
+      sumX,
+      sumY,
       clickCount: cluster.clicks.length,
     };
   });
 
-  // Step 5: merge blocks that overlap or touch after expansion
-  // (weighted-by-click-count centroid for the merged center, re-clamped).
-  const merged: BlockWithWeight[] = [];
+  // Step 5: merge blocks that overlap or touch after expansion. Merged
+  // center is the weighted-by-click-count centroid of RAW click coordinates
+  // (raw sums simply add across merges), clamped once at emission below —
+  // NOT a re-average of each block's already-clamped center.
+  const merged: BlockAccum[] = [];
   for (const block of blocks) {
     const prev = merged[merged.length - 1];
     if (prev && block.startMs <= prev.endMs) {
-      const totalClicks = prev.clickCount + block.clickCount;
-      const cx = clamp01(
-        (prev.cx * prev.clickCount + block.cx * block.clickCount) / totalClicks,
-        centerLo,
-        centerHi,
-      );
-      const cy = clamp01(
-        (prev.cy * prev.clickCount + block.cy * block.clickCount) / totalClicks,
-        centerLo,
-        centerHi,
-      );
       prev.endMs = Math.max(prev.endMs, block.endMs);
-      prev.cx = cx;
-      prev.cy = cy;
-      prev.clickCount = totalClicks;
+      prev.sumX += block.sumX;
+      prev.sumY += block.sumY;
+      prev.clickCount += block.clickCount;
     } else {
       merged.push({ ...block });
     }
   }
 
-  return merged.map(({ clickCount: _clickCount, ...block }) => block);
+  return merged.map(toZoomBlock);
 }
