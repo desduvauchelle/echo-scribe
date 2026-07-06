@@ -341,6 +341,14 @@ CREATE TABLE IF NOT EXISTS embedding_index_state (
 ALTER TABLE recordings ADD COLUMN events_path TEXT;
 "#,
     ),
+    (
+        23,
+        r#"
+ALTER TABLE recordings ADD COLUMN project_json TEXT;
+ALTER TABLE recordings ADD COLUMN webcam_path TEXT;
+ALTER TABLE recordings ADD COLUMN cursor_hidden INTEGER NOT NULL DEFAULT 0;
+"#,
+    ),
 ];
 
 const META_TABLE_SQL: &str = r#"
@@ -402,7 +410,7 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(v, "22");
+        assert_eq!(v, "23");
     }
 
     #[test]
@@ -556,7 +564,7 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(version, "22");
+        assert_eq!(version, "23");
     }
 
     #[test]
@@ -591,6 +599,25 @@ mod tests {
             assert!(
                 cols.iter().any(|c| c == expected),
                 "projects missing column {expected}; got {cols:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn migration_v23_adds_project_webcam_cursor_columns() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        run_migrations(&mut conn).unwrap();
+        let cols: Vec<String> = conn
+            .prepare("PRAGMA table_info(recordings)")
+            .unwrap()
+            .query_map([], |r| r.get::<_, String>(1))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        for expected in ["project_json", "webcam_path", "cursor_hidden"] {
+            assert!(
+                cols.iter().any(|c| c == expected),
+                "recordings missing column {expected}; got {cols:?}"
             );
         }
     }

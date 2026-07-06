@@ -1146,6 +1146,9 @@ export type RecordingRow = {
   transcript: string | null;
   denoised_path: string | null;
   events_path: string | null;
+  project_json: string | null;
+  webcam_path: string | null;
+  cursor_hidden: boolean;
 };
 
 export const startScreenRecording = (p: {
@@ -1154,6 +1157,8 @@ export const startScreenRecording = (p: {
   mic_device?: string | null;
   sysaudio: boolean;
   source_label: string;
+  hide_cursor?: boolean | null;
+  camera_uid?: string | null;
 }): Promise<void> =>
   invoke("start_screen_recording", {
     displayId: p.display_id ?? null,
@@ -1161,6 +1166,8 @@ export const startScreenRecording = (p: {
     micDevice: p.mic_device ?? null,
     sysaudio: p.sysaudio,
     sourceLabel: p.source_label,
+    hideCursor: p.hide_cursor ?? null,
+    cameraUid: p.camera_uid ?? null,
   });
 export const stopScreenRecording = (): Promise<RecordingRow> =>
   invoke("stop_screen_recording");
@@ -1189,6 +1196,19 @@ export const exportRecording = (
  *  rejection as "render without zoom", not a hard error. */
 export const readRecordingEvents = (id: string): Promise<string> =>
   invoke("read_recording_events", { id });
+
+/** Opaque editor-project settings JSON (see `src/lib/editorProject.ts`).
+ *  `null` means editor defaults; parse with `parseProject`, never JSON.parse
+ *  directly since the stored value may be absent or stale. */
+export const getRecordingProject = (id: string): Promise<string | null> =>
+  invoke("get_recording_project", { id });
+
+/** Persist a recording's editor-project settings JSON verbatim. */
+export const setRecordingProject = (
+  id: string,
+  projectJson: string,
+): Promise<void> =>
+  invoke("set_recording_project", { id, projectJson });
 
 /** Persist a frontend-rendered MP4. The bytes ride as the raw IPC body (no
  *  JSON number-array copy); the id travels in the `x-recording-id` header —
@@ -1238,6 +1258,12 @@ export type WindowSource = { id: number; app: string; title: string; width: numb
 export type ScreenSources = { displays: DisplaySource[]; windows: WindowSource[] };
 export const listScreenSources = (): Promise<ScreenSources> =>
   invoke("list_screen_sources");
+
+export type CameraSource = { uid: string; name: string };
+export type Cameras = { cameras: CameraSource[] };
+/** Rejects until the sidecar ships `--list-cameras` (Task 7) — treat a
+ *  rejection as "no cameras available", not a hard error. */
+export const listCameras = (): Promise<Cameras> => invoke("list_cameras");
 
 export type ScreenrecAudioPrefs = { sysaudio: boolean; mic_enabled: boolean; mic_device: string };
 export const getScreenrecAudioPrefs = (): Promise<ScreenrecAudioPrefs> =>

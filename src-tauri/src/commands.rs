@@ -43,6 +43,9 @@ pub struct RecordingMeta {
     pub source_label: String,
     pub has_mic: bool,
     pub has_sysaudio: bool,
+    /// Whether `start()` was called with `--hide-cursor`. Persisted on stop
+    /// from this call-time value, not from anything the sidecar reports.
+    pub cursor_hidden: bool,
 }
 
 /// Application-wide state shared by all Tauri commands.
@@ -3302,6 +3305,8 @@ pub fn start_screen_recording(
     mic_device: Option<String>,
     sysaudio: bool,
     source_label: String,
+    hide_cursor: Option<bool>,
+    camera_uid: Option<String>,
 ) -> Result<(), String> {
     let mut guard = state
         .active_recording
@@ -3319,17 +3324,21 @@ pub fn start_screen_recording(
             .as_millis()
     );
     let out_path = dir.join(format!("{id}.mp4"));
+    let hide_cursor = hide_cursor.unwrap_or(false);
     let params = crate::screenrec::RecordParams {
         display_id,
         window_id,
         mic_device: mic_device.clone(),
         sysaudio,
+        hide_cursor,
+        camera_uid: camera_uid.clone(),
     };
     let handle = crate::screenrec::ScreenrecHandle::start(out_path, params)?;
     let meta = RecordingMeta {
         source_label,
         has_mic: mic_device.is_some(),
         has_sysaudio: sysaudio,
+        cursor_hidden: hide_cursor,
     };
     *guard = Some((handle, meta));
     // Flip tray icon to red and update menu label.
@@ -3397,6 +3406,9 @@ pub fn stop_screen_recording_inner(
         transcript: None,
         denoised_path: None,
         events_path: info.events_path.clone(),
+        project_json: None,
+        webcam_path: info.webcam_path.clone(),
+        cursor_hidden: meta.cursor_hidden,
     };
     let db = state
         .db
@@ -3481,6 +3493,16 @@ pub fn delete_recording(state: State<'_, AppState>, id: String) -> Result<(), St
                 }
                 Err(e) => {
                     tracing::warn!(target: "screenrec", recording_id = %id, path = %events, %e, "failed to delete events file")
+                }
+            }
+        }
+        if let Some(webcam) = &row.webcam_path {
+            match std::fs::remove_file(webcam) {
+                Ok(()) => {
+                    info!(target: "screenrec", recording_id = %id, path = %webcam, "deleted webcam file")
+                }
+                Err(e) => {
+                    tracing::warn!(target: "screenrec", recording_id = %id, path = %webcam, %e, "failed to delete webcam file")
                 }
             }
         }
@@ -3801,6 +3823,34 @@ pub fn read_recording_events(state: State<'_, AppState>, id: String) -> Result<S
     }
 }
 
+/// Fetch a recording's opaque editor-project settings JSON (see
+/// `src/lib/editorProject.ts`). `None` means editor defaults — Rust never
+/// parses this field, it's TS-side owned.
+#[tauri::command]
+pub fn get_recording_project(state: State<'_, AppState>, id: String) -> Result<Option<String>, String> {
+    let db = require_db(&state)?;
+    let row = db
+        .with_conn(|c| crate::db::recordings::get(c, &id))
+        .map_err(|e| e.to_string())?
+        .ok_or("recording not found")?;
+    info!(target: "screenrec", rec = %id, present = row.project_json.is_some(), "read recording project");
+    Ok(row.project_json)
+}
+
+/// Persist a recording's editor-project settings JSON verbatim (opaque TEXT).
+#[tauri::command]
+pub fn set_recording_project(
+    state: State<'_, AppState>,
+    id: String,
+    project_json: String,
+) -> Result<(), String> {
+    let db = require_db(&state)?;
+    db.with_conn(|c| crate::db::recordings::set_project_json(c, &id, &project_json))
+        .map_err(|e| e.to_string())?;
+    info!(target: "screenrec", rec = %id, bytes = project_json.len(), "saved recording project");
+    Ok(())
+}
+
 /// Persist a frontend-rendered MP4 for a recording. The bytes are passed as the
 /// raw IPC body (`InvokeBody::Raw`) — the least-copy transfer this Tauri version
 /// supports; the recording id rides in the `x-recording-id` header. Writes
@@ -3883,6 +3933,14 @@ pub fn open_screenrec_setup(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub fn list_screen_sources() -> Result<crate::screenrec::Sources, String> {
     crate::screenrec::list_sources()
+}
+
+/// List available cameras for webcam recording. NOTE: the sidecar does not
+/// implement `--list-cameras` yet (Task 7) — until then this always returns
+/// the friendly error from `list_cameras_error`, which is expected.
+#[tauri::command]
+pub fn list_cameras() -> Result<crate::screenrec::Cameras, String> {
+    crate::screenrec::list_cameras()
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]

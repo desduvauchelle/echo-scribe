@@ -38,6 +38,22 @@ pub struct Sources {
     pub windows: Vec<WindowSource>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CameraSource {
+    pub uid: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct Cameras {
+    pub cameras: Vec<CameraSource>,
+}
+
+/// Parse the JSON stdout of `--list-cameras` into [`Cameras`].
+pub fn parse_cameras(stdout: &str) -> Result<Cameras, String> {
+    serde_json::from_str::<Cameras>(stdout.trim()).map_err(|e| e.to_string())
+}
+
 /// Parse the JSON stdout of `--list-sources` into [`Sources`].
 pub fn parse_sources(stdout: &str) -> Result<Sources, String> {
     serde_json::from_str::<Sources>(stdout.trim()).map_err(|e| e.to_string())
@@ -103,6 +119,67 @@ pub fn list_sources() -> Result<Sources, String> {
             warn!(target: "screenrec", error = %e, stderr = %stderr.trim(),
                   "failed to parse --list-sources output");
             Err(list_sources_error(&stderr))
+        }
+    }
+}
+
+/// Build a user-facing message from a failed `--list-cameras` run. Mirrors
+/// `list_sources_error`: raw sidecar detail is logged by the caller, this
+/// string is safe to show in the UI.
+fn list_cameras_error(stderr: &str) -> String {
+    let sidecar_msg = stderr.lines().rev().find_map(|line| {
+        let val: serde_json::Value = serde_json::from_str(line.trim()).ok()?;
+        if val.get("event").and_then(|v| v.as_str()) == Some("error") {
+            val.get("msg").and_then(|v| v.as_str()).map(|s| s.to_string())
+        } else {
+            None
+        }
+    });
+    if let Some(msg) = &sidecar_msg {
+        let low = msg.to_lowercase();
+        if low.contains("tcc") || low.contains("declined") || low.contains("permission") {
+            return "Camera permission is needed to list webcams. \
+                    Enable Echo Scribe in System Settings → Privacy & Security → Camera, \
+                    then fully quit and reopen Echo Scribe."
+                .to_string();
+        }
+    }
+    "Couldn't list cameras. See Settings → Diagnostics → logs for details.".to_string()
+}
+
+/// Invoke the sidecar with `--list-cameras` and parse the result. On failure
+/// (non-zero exit, empty output, or unparseable JSON) the sidecar's stderr is
+/// captured and logged, and a friendly message is returned — never the raw
+/// serde/`EOF` parse error. NOTE: the sidecar does not implement
+/// `--list-cameras` yet (Task 7); until then this always returns the
+/// friendly error, which is expected.
+pub fn list_cameras() -> Result<Cameras, String> {
+    let bin = resolve_binary().map_err(|e| e.to_string())?;
+    let out = Command::new(&bin)
+        .arg("--list-cameras")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|e| {
+            warn!(target: "screenrec", error = %e, "failed to spawn --list-cameras");
+            "Couldn't start the screen-recording helper. See Settings → Diagnostics → logs for details.".to_string()
+        })?;
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    if !out.status.success() || stdout.trim().is_empty() {
+        warn!(target: "screenrec", status = ?out.status.code(), stderr = %stderr.trim(),
+              "--list-cameras failed");
+        return Err(list_cameras_error(&stderr));
+    }
+    match parse_cameras(&stdout) {
+        Ok(c) => {
+            info!(target: "screenrec", cameras = c.cameras.len(), "listed cameras");
+            Ok(c)
+        }
+        Err(e) => {
+            warn!(target: "screenrec", error = %e, stderr = %stderr.trim(),
+                  "failed to parse --list-cameras output");
+            Err(list_cameras_error(&stderr))
         }
     }
 }
@@ -213,6 +290,14 @@ pub struct StoppedInfo {
     pub n_events: Option<i64>,
     /// Click-down events recorded (subset of `n_events`). `None` when absent.
     pub n_clicks: Option<i64>,
+    /// Path to the recorded webcam MP4 sidecar file, if a camera was
+    /// selected for this recording. `None` when the field is missing or
+    /// empty (no `--camera` was passed to `start()`).
+    pub webcam_path: Option<String>,
+    /// Host-clock delta (ms) between the webcam file's start and the first
+    /// main-capture frame; consumers shift the webcam timeline by this
+    /// amount. `None` when the sidecar omits the field (no webcam recorded).
+    pub webcam_offset_ms: Option<i64>,
 }
 
 /// Parse one line of sidecar stderr JSON into a `StoppedInfo`, if it is the
@@ -227,6 +312,11 @@ pub fn parse_stopped(line: &str) -> Option<StoppedInfo> {
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string());
+    let webcam_path = val
+        .get("webcam")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
     Some(StoppedInfo {
         path: val.get("path")?.as_str()?.to_string(),
         dur_ms: val.get("dur_ms").and_then(|v| v.as_i64()).unwrap_or(0),
@@ -237,6 +327,8 @@ pub fn parse_stopped(line: &str) -> Option<StoppedInfo> {
         events_path,
         n_events: val.get("n_events").and_then(|v| v.as_i64()),
         n_clicks: val.get("n_clicks").and_then(|v| v.as_i64()),
+        webcam_path,
+        webcam_offset_ms: val.get("webcam_offset_ms").and_then(|v| v.as_i64()),
     })
 }
 
@@ -352,6 +444,13 @@ pub struct RecordParams {
     pub mic_device: Option<String>,
     /// Whether to capture system audio. Defaults to `true`.
     pub sysaudio: bool,
+    /// Hide the system cursor during capture (`--hide-cursor`). Defaults to
+    /// `false` so an unset value produces the exact same spawn as before
+    /// this field existed.
+    pub hide_cursor: bool,
+    /// Camera device uid to record alongside the main capture (`--camera
+    /// <uid>`). `None` means no webcam recording (identical spawn to today).
+    pub camera_uid: Option<String>,
 }
 
 /// A running screen recording. Holds the child process and the path it is
@@ -393,6 +492,15 @@ impl ScreenrecHandle {
         }
         if let Some(ref uid) = params.mic_device {
             cmd.arg("--mic").arg(uid);
+        }
+        // Cursor + webcam flags: only appended when set, so a default
+        // false/None call produces the exact same spawn as before these
+        // params existed (the sidecar doesn't implement them yet).
+        if params.hide_cursor {
+            cmd.arg("--hide-cursor");
+        }
+        if let Some(ref uid) = params.camera_uid {
+            cmd.arg("--camera").arg(uid);
         }
         let mut child = cmd
             .stdout(Stdio::null())
@@ -554,6 +662,31 @@ mod tests {
     }
 
     #[test]
+    fn parse_stopped_extracts_webcam_fields() {
+        let line = r#"{"event":"stopped","path":"/r/a.mp4","dur_ms":5000,"width":100,"height":100,"size":1,"thumb":"","webcam":"/r/a.webcam.mp4","webcam_offset_ms":120}"#;
+        let info = parse_stopped(line).unwrap();
+        assert_eq!(info.webcam_path.as_deref(), Some("/r/a.webcam.mp4"));
+        assert_eq!(info.webcam_offset_ms, Some(120));
+    }
+
+    #[test]
+    fn parse_stopped_webcam_fields_absent() {
+        // No --camera was passed to start(): sidecar omits both fields entirely.
+        let line = r#"{"event":"stopped","path":"/r/a.mp4","dur_ms":5000,"width":100,"height":100,"size":1,"thumb":""}"#;
+        let info = parse_stopped(line).unwrap();
+        assert_eq!(info.webcam_path, None);
+        assert_eq!(info.webcam_offset_ms, None);
+    }
+
+    #[test]
+    fn parse_stopped_webcam_path_empty_string_is_none() {
+        // Sidecar reports the key but with an empty value (no webcam file produced).
+        let line = r#"{"event":"stopped","path":"/r/a.mp4","dur_ms":5000,"width":100,"height":100,"size":1,"thumb":"","webcam":""}"#;
+        let info = parse_stopped(line).unwrap();
+        assert_eq!(info.webcam_path, None);
+    }
+
+    #[test]
     fn parse_sources_reads_displays_and_windows() {
         let s = r#"{"displays":[{"id":1,"width":3840,"height":2160,"label":"Display 1"}],"windows":[{"id":42,"app":"Safari","title":"x","width":800,"height":600}]}"#;
         let got = parse_sources(s).unwrap();
@@ -578,6 +711,39 @@ mod tests {
         let msg = list_sources_error("");
         assert!(msg.contains("See Settings → Diagnostics"), "got: {msg}");
         assert!(!msg.contains("Screen Recording permission"), "got: {msg}");
+    }
+
+    #[test]
+    fn parse_cameras_reads_uid_and_name() {
+        let s = r#"{"cameras":[{"uid":"abc-123","name":"FaceTime HD Camera"}]}"#;
+        let got = parse_cameras(s).unwrap();
+        assert_eq!(got.cameras.len(), 1);
+        assert_eq!(got.cameras[0].uid, "abc-123");
+        assert_eq!(got.cameras[0].name, "FaceTime HD Camera");
+    }
+
+    #[test]
+    fn parse_cameras_empty_list() {
+        let s = r#"{"cameras":[]}"#;
+        let got = parse_cameras(s).unwrap();
+        assert!(got.cameras.is_empty());
+    }
+
+    #[test]
+    fn list_cameras_error_detects_permission_denial() {
+        let stderr = r#"{"event":"error","kind":"list_cameras","msg":"The user declined TCCs for camera capture"}"#;
+        let msg = list_cameras_error(stderr);
+        assert!(msg.contains("Camera permission"), "got: {msg}");
+        assert!(msg.contains("System Settings"), "got: {msg}");
+    }
+
+    #[test]
+    fn list_cameras_error_generic_when_no_structured_error() {
+        // Expected until Task 7 ships --list-cameras: sidecar doesn't
+        // recognize the flag yet, so stderr is empty/generic.
+        let msg = list_cameras_error("");
+        assert!(msg.contains("See Settings → Diagnostics"), "got: {msg}");
+        assert!(!msg.contains("Camera permission"), "got: {msg}");
     }
 
     #[test]

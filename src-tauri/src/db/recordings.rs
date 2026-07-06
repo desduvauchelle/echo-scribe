@@ -30,6 +30,16 @@ pub struct RecordingRow {
     /// Path to the recorded input-events JSONL sidecar file. `None` if the
     /// sidecar didn't report one (e.g. the no-frames abort path).
     pub events_path: Option<String>,
+    /// Opaque `EditorProject` JSON (see `src/lib/editorProject.ts`). `None` =
+    /// editor defaults. Rust never parses this — it's TS-side owned.
+    pub project_json: Option<String>,
+    /// Path to the recorded webcam MP4 sidecar file (video-only H.264).
+    /// `None` if no camera was selected for this recording.
+    pub webcam_path: Option<String>,
+    /// Whether the system cursor was hidden during capture (`--hide-cursor`
+    /// was passed to `start()`). Reflects the value `start()` was called
+    /// with, not anything reported by the `stopped` event.
+    pub cursor_hidden: bool,
 }
 
 pub fn insert(conn: &Connection, r: &RecordingRow) -> Result<(), DbError> {
@@ -38,8 +48,8 @@ pub fn insert(conn: &Connection, r: &RecordingRow) -> Result<(), DbError> {
             id, created_at, file_path, duration_ms, width, height, size_bytes,
             source_label, has_mic, has_sysaudio, thumb_path, drive_file_id,
             drive_link, upload_status, upload_error, exports, title, transcript,
-            denoised_path, events_path
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
+            denoised_path, events_path, project_json, webcam_path, cursor_hidden
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)",
         params![
             r.id,
             r.created_at,
@@ -61,6 +71,9 @@ pub fn insert(conn: &Connection, r: &RecordingRow) -> Result<(), DbError> {
             r.transcript,
             r.denoised_path,
             r.events_path,
+            r.project_json,
+            r.webcam_path,
+            r.cursor_hidden as i64,
         ],
     )?;
     Ok(())
@@ -71,7 +84,7 @@ pub fn list(conn: &Connection) -> Result<Vec<RecordingRow>, DbError> {
         "SELECT id, created_at, file_path, duration_ms, width, height, size_bytes,
                 source_label, has_mic, has_sysaudio, thumb_path, drive_file_id,
                 drive_link, upload_status, upload_error, exports, title, transcript,
-                denoised_path, events_path
+                denoised_path, events_path, project_json, webcam_path, cursor_hidden
          FROM recordings
          ORDER BY created_at DESC",
     )?;
@@ -86,7 +99,7 @@ pub fn get(conn: &Connection, id: &str) -> Result<Option<RecordingRow>, DbError>
         "SELECT id, created_at, file_path, duration_ms, width, height, size_bytes,
                 source_label, has_mic, has_sysaudio, thumb_path, drive_file_id,
                 drive_link, upload_status, upload_error, exports, title, transcript,
-                denoised_path, events_path
+                denoised_path, events_path, project_json, webcam_path, cursor_hidden
          FROM recordings WHERE id = ?1",
         [id],
         row_to_recording,
@@ -174,6 +187,16 @@ pub fn promote_denoised(conn: &Connection, id: &str, cleaned_path: &str) -> Resu
     Ok(())
 }
 
+/// Store the editor project settings JSON (opaque TEXT; TS is the schema
+/// owner — see `src/lib/editorProject.ts`).
+pub fn set_project_json(conn: &Connection, id: &str, json: &str) -> Result<(), DbError> {
+    conn.execute(
+        "UPDATE recordings SET project_json = ?1 WHERE id = ?2",
+        params![json, id],
+    )?;
+    Ok(())
+}
+
 fn row_to_recording(row: &rusqlite::Row<'_>) -> rusqlite::Result<RecordingRow> {
     Ok(RecordingRow {
         id: row.get(0)?,
@@ -196,6 +219,9 @@ fn row_to_recording(row: &rusqlite::Row<'_>) -> rusqlite::Result<RecordingRow> {
         transcript: row.get(17)?,
         denoised_path: row.get(18)?,
         events_path: row.get(19)?,
+        project_json: row.get(20)?,
+        webcam_path: row.get(21)?,
+        cursor_hidden: row.get::<_, i64>(22)? != 0,
     })
 }
 
@@ -232,6 +258,9 @@ mod tests {
             transcript: None,
             denoised_path: None,
             events_path: None,
+            project_json: None,
+            webcam_path: None,
+            cursor_hidden: false,
         }
     }
 
@@ -333,6 +362,47 @@ mod tests {
         insert(&conn, &r).unwrap();
         let got = get(&conn, "rec-ev").unwrap().unwrap();
         assert_eq!(got.events_path.as_deref(), Some("/r/rec-ev.events.jsonl"));
+    }
+
+    #[test]
+    fn project_webcam_cursor_round_trip() {
+        let conn = setup();
+        let mut r = sample();
+        r.id = "rec-proj".into();
+        r.project_json = Some(r#"{"v":1,"trim":null}"#.into());
+        r.webcam_path = Some("/r/rec-proj.webcam.mp4".into());
+        r.cursor_hidden = true;
+        insert(&conn, &r).unwrap();
+        let got = get(&conn, "rec-proj").unwrap().unwrap();
+        assert_eq!(got.project_json.as_deref(), Some(r#"{"v":1,"trim":null}"#));
+        assert_eq!(got.webcam_path.as_deref(), Some("/r/rec-proj.webcam.mp4"));
+        assert!(got.cursor_hidden);
+    }
+
+    #[test]
+    fn project_webcam_cursor_default_when_absent() {
+        let conn = setup();
+        let mut r = sample();
+        r.id = "rec-defaults".into();
+        insert(&conn, &r).unwrap();
+        let got = get(&conn, "rec-defaults").unwrap().unwrap();
+        assert_eq!(got.project_json, None);
+        assert_eq!(got.webcam_path, None);
+        assert!(!got.cursor_hidden);
+    }
+
+    #[test]
+    fn set_project_json_round_trip() {
+        let conn = setup();
+        insert(&conn, &sample()).unwrap();
+        assert_eq!(get(&conn, "rec-1").unwrap().unwrap().project_json, None);
+
+        let json = r#"{"v":1,"trim":{"startMs":0,"endMs":5000}}"#;
+        set_project_json(&conn, "rec-1", json).unwrap();
+        assert_eq!(
+            get(&conn, "rec-1").unwrap().unwrap().project_json.as_deref(),
+            Some(json)
+        );
     }
 
     #[test]
