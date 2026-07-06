@@ -480,7 +480,11 @@ export function EditorView({
       };
       v.addEventListener("seeked", onSeeked);
       const wv = webcamVideoRef.current;
-      if (wv) {
+      // Skip registering the webcam's one-shot listener when hardSyncWebcam
+      // was a no-op (target ~= current currentTime): with nothing to seek to,
+      // "seeked" never fires and the listener would otherwise leak until
+      // component teardown (it's only ever removed by firing or unmount).
+      if (wv && Math.abs(wv.currentTime - webcamTargetTime(t)) >= 0.01) {
         const onWebcamSeeked = () => {
           renderFrame();
           wv.removeEventListener("seeked", onWebcamSeeked);
@@ -488,7 +492,7 @@ export function EditorView({
         wv.addEventListener("seeked", onWebcamSeeked);
       }
     }
-  }, [renderFrame, hardSyncWebcam]);
+  }, [renderFrame, hardSyncWebcam, webcamTargetTime]);
 
   // ---- Appearance updaters ------------------------------------------------
   const setPadding = (padding: number) =>

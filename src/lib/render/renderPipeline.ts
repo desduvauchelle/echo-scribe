@@ -402,11 +402,21 @@ class WebcamSource {
       if (this.buf.length >= WebcamSource.MAX_BUFFERED) break;
       // Decoder-queue backpressure: wait for it to drain before feeding more.
       let guard = 0;
+      let stalled = false;
       while (this.decoder.decodeQueueSize >= WebcamSource.MAX_DECODE_QUEUE && !this.failed) {
         await new Promise((r) => setTimeout(r, 1));
-        if (++guard > 5000) break; // ~5s hard cap; never wedge the render
+        if (++guard > 5000) {
+          stalled = true; // ~5s hard cap; never wedge the render
+          break;
+        }
       }
       if (this.failed) return;
+      // The queue never drained within the cap — skip decoding this chunk for
+      // now rather than pushing further past MAX_DECODE_QUEUE (which would
+      // defeat the point of the guard). Re-check on the next pumpTo() call
+      // instead of spinning here; the outer while's timestamp condition still
+      // governs when pumping stops altogether.
+      if (stalled) break;
       this.decoder.decode(this.chunks[this.nextChunk++]);
       // Let the decoder surface output for the chunks fed so far.
       await new Promise((r) => setTimeout(r, 0));

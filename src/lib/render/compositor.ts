@@ -407,14 +407,33 @@ function drawBackground(
   ctx.fillRect(0, 0, outW, outH);
 }
 
-/** Natural width of a decoded image source (0 if unknown). */
-function imgWidth(src: CanvasImageSource): number {
-  const s = src as { width?: number; videoWidth?: number };
-  return s.videoWidth || s.width || 0;
+/** Natural width of a decoded image source (0 if unknown).
+ *
+ * Checks, in order: `videoWidth` (HTMLVideoElement — the preview path),
+ * `displayWidth` (WebCodecs `VideoFrame` — the export path; this is the
+ * frame's dimensions after any rotation/aspect adjustment), `codedWidth`
+ * (`VideoFrame` fallback — the raw decoded buffer size), then `width`
+ * (HTMLImageElement / ImageBitmap / OffscreenCanvas). Exported so its
+ * VideoFrame-shaped-input behavior is directly unit-testable without a real
+ * decoder (see tests/compositor.test.ts).
+ */
+export function imgWidth(src: CanvasImageSource): number {
+  const s = src as {
+    width?: number;
+    videoWidth?: number;
+    displayWidth?: number;
+    codedWidth?: number;
+  };
+  return s.videoWidth || s.displayWidth || s.codedWidth || s.width || 0;
 }
-function imgHeight(src: CanvasImageSource): number {
-  const s = src as { height?: number; videoHeight?: number };
-  return s.videoHeight || s.height || 0;
+export function imgHeight(src: CanvasImageSource): number {
+  const s = src as {
+    height?: number;
+    videoHeight?: number;
+    displayHeight?: number;
+    codedHeight?: number;
+  };
+  return s.videoHeight || s.displayHeight || s.codedHeight || s.height || 0;
 }
 
 /** Draw the padded + rounded + zoomed source frame into the inner area. */

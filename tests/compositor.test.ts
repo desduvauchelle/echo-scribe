@@ -5,6 +5,8 @@ import {
   cursorStateAt,
   cursorDrawScale,
   coverCrop,
+  imgWidth,
+  imgHeight,
   type CursorSample,
 } from "../src/lib/render/compositor";
 import type { ZoomBlock, EventsHeader } from "../src/lib/autoZoom";
@@ -139,6 +141,87 @@ describe("coverCrop", () => {
   test("degenerate dimensions fall back to the full source rect", () => {
     expect(coverCrop(0, 100, 10, 10)).toEqual({ sx: 0, sy: 0, sw: 0, sh: 100 });
     expect(coverCrop(100, 100, 0, 10)).toEqual({ sx: 0, sy: 0, sw: 100, sh: 100 });
+  });
+});
+
+describe("imgWidth / imgHeight", () => {
+  // Regression for M2 Task 8 finding 1: WebCodecs `VideoFrame` (what the
+  // export path's WebcamSource feeds into the webcam-draw code) exposes
+  // `displayWidth`/`displayHeight` (and `codedWidth`/`codedHeight`), NOT
+  // `videoWidth`/`width` like an HTMLVideoElement or HTMLImageElement. If
+  // imgWidth/imgHeight don't check those fields, they return 0 for a
+  // VideoFrame, and the webcam PiP silently falls back to a stretched draw
+  // instead of the intended cover-crop.
+
+  test("HTMLVideoElement shape (videoWidth/videoHeight) is read", () => {
+    const shim = { videoWidth: 1280, videoHeight: 720 } as unknown as CanvasImageSource;
+    expect(imgWidth(shim)).toBe(1280);
+    expect(imgHeight(shim)).toBe(720);
+  });
+
+  test("VideoFrame shape (displayWidth/displayHeight only) is read — the export path", () => {
+    // A minimal shim mirroring exactly what a decoded WebCodecs VideoFrame
+    // exposes for sizing: no videoWidth/width, only display*/coded*.
+    const shim = {
+      displayWidth: 1920,
+      displayHeight: 1080,
+      codedWidth: 1920,
+      codedHeight: 1080,
+    } as unknown as CanvasImageSource;
+    expect(imgWidth(shim)).toBe(1920);
+    expect(imgHeight(shim)).toBe(1080);
+  });
+
+  test("VideoFrame shape falls back to codedWidth/codedHeight when display* is absent", () => {
+    const shim = { codedWidth: 640, codedHeight: 480 } as unknown as CanvasImageSource;
+    expect(imgWidth(shim)).toBe(640);
+    expect(imgHeight(shim)).toBe(480);
+  });
+
+  test("HTMLImageElement/ImageBitmap shape (width/height) is read", () => {
+    const shim = { width: 300, height: 150 } as unknown as CanvasImageSource;
+    expect(imgWidth(shim)).toBe(300);
+    expect(imgHeight(shim)).toBe(150);
+  });
+
+  test("unknown shape returns 0 for both", () => {
+    const shim = {} as unknown as CanvasImageSource;
+    expect(imgWidth(shim)).toBe(0);
+    expect(imgHeight(shim)).toBe(0);
+  });
+
+  test("behavioral: a VideoFrame-shaped webcam source drives coverCrop (aspect-fill), not a stretch fallback", () => {
+    // This mirrors the real decision in drawCompositeV2: `iw > 0 && ih > 0`
+    // picks coverCrop; otherwise it falls back to a plain stretch. Before the
+    // fix, a VideoFrame-shaped source (display*/coded* only, no
+    // videoWidth/width) measured 0×0 here and would have taken the stretch
+    // branch — this asserts it now takes the crop branch, with correct math.
+    const webcamFrame = {
+      displayWidth: 1280,
+      displayHeight: 720,
+      codedWidth: 1280,
+      codedHeight: 720,
+    } as unknown as CanvasImageSource;
+
+    const iw = imgWidth(webcamFrame);
+    const ih = imgHeight(webcamFrame);
+    expect(iw).toBeGreaterThan(0);
+    expect(ih).toBeGreaterThan(0);
+
+    // Destination is a circular PiP rect (square, e.g. 200x200) — same as the
+    // "circle" shape branch in drawCompositeV2.
+    const dstW = 200;
+    const dstH = 200;
+    const usesCoverCrop = iw > 0 && ih > 0;
+    expect(usesCoverCrop).toBe(true);
+
+    const c = coverCrop(iw, ih, dstW, dstH);
+    // 16:9 source into a 1:1 dest crops the sides, keeping full height, and
+    // the sampled rect must carry the destination's aspect ratio (i.e. NOT a
+    // stretch of the full untouched 1280x720 source into 200x200).
+    expect(c.sh).toBeCloseTo(720);
+    expect(c.sw).toBeCloseTo(720);
+    expect(c.sw / c.sh).toBeCloseTo(dstW / dstH);
   });
 });
 
