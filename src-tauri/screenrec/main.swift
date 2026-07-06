@@ -1189,7 +1189,9 @@ func run() async {
 
 if #available(macOS 14.0, *) {
     Task { await run() }
-    RunLoop.main.run()
+    // Global NSEvent monitors (InputEvents.swift) require AppKit's event loop —
+    // a bare RunLoop.main.run() registers the monitors but never delivers events.
+    app.run()
 } else {
     emitFatal("os", "macOS 14 or newer required")
 }
