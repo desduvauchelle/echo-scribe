@@ -71,6 +71,11 @@ export function EditorView({
   const projectRef = useRef(project);
   projectRef.current = project;
   const saveTimer = useRef<number | null>(null);
+  // Mirrors `loaded` for the true-unmount flush effect below, which must read
+  // refs only (it can't close over the `loaded` state without re-running on
+  // every change, which is exactly the bug this ref avoids).
+  const loadedRef = useRef(loaded);
+  loadedRef.current = loaded;
 
   const src = convertFileSrc(recording.denoised_path ?? recording.file_path);
 
@@ -173,11 +178,15 @@ export function EditorView({
     return () => cancelAnimationFrame(id);
   }, [project, playing, renderFrame, loaded]);
 
-  // Debounced persist on any project change (after the initial load).
+  // Debounced persist on any project change (after the initial load). Plain
+  // debounce semantics: the cleanup only clears the pending timer (it runs on
+  // every dep change, not just unmount, so it must never flush — see the
+  // true-unmount effect below for the flush).
   useEffect(() => {
     if (!loaded) return;
     if (saveTimer.current !== null) window.clearTimeout(saveTimer.current);
     saveTimer.current = window.setTimeout(() => {
+      saveTimer.current = null;
       void setRecordingProject(recording.id, JSON.stringify(project)).catch(() => {
         toasts.push({
           tone: "error",
@@ -186,25 +195,32 @@ export function EditorView({
       });
     }, SAVE_DEBOUNCE_MS);
     return () => {
-      if (saveTimer.current !== null) {
-        // A save was pending — clearing the timer means it will never fire,
-        // so flush the latest project synchronously (fire-and-forget) instead
-        // of losing the edit. `loaded` gates this so an unmount before the
-        // initial load ever resolved can't write defaults over a real saved
-        // project. Clearing the timer first also means this can't double-save
-        // once the remount from Finding 2 (key={recording.id}) creates a
-        // fresh EditorView instance.
-        window.clearTimeout(saveTimer.current);
-        saveTimer.current = null;
-        void setRecordingProject(recording.id, JSON.stringify(projectRef.current)).catch(() => {
-          toasts.push({
-            tone: "error",
-            message: "Couldn't save editor settings. See Settings → Diagnostics → logs.",
-          });
-        });
-      }
+      if (saveTimer.current !== null) window.clearTimeout(saveTimer.current);
     };
   }, [project, loaded, recording.id, toasts]);
+
+  // Flush any pending debounced save on true unmount only (empty deps means
+  // this cleanup runs exactly once). Reads refs exclusively — loadedRef and
+  // projectRef mirror the latest state without retriggering this effect, and
+  // `recording.id` is safe to capture directly in the closure because it's
+  // constant for the lifetime of this component instance (RecordingsView
+  // remounts a fresh EditorView via `key={selected.id}` whenever the
+  // recording changes, so this instance never sees a different id).
+  useEffect(() => {
+    return () => {
+      if (!loadedRef.current) return;
+      if (saveTimer.current === null) return;
+      window.clearTimeout(saveTimer.current);
+      saveTimer.current = null;
+      void setRecordingProject(recording.id, JSON.stringify(projectRef.current)).catch(() => {
+        toasts.push({
+          tone: "error",
+          message: "Couldn't save editor settings. See Settings → Diagnostics → logs.",
+        });
+      });
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const togglePlay = useCallback(() => {
     const v = videoRef.current;
