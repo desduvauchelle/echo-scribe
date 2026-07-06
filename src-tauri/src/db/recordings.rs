@@ -40,6 +40,11 @@ pub struct RecordingRow {
     /// was passed to `start()`). Reflects the value `start()` was called
     /// with, not anything reported by the `stopped` event.
     pub cursor_hidden: bool,
+    /// Host-clock delta in milliseconds: webcam file start time minus the
+    /// first main-recording frame's timestamp. Used to sync the webcam
+    /// overlay against the main track in the editor. `None` if no webcam
+    /// was recorded or the sidecar didn't report an offset.
+    pub webcam_offset_ms: Option<i64>,
 }
 
 pub fn insert(conn: &Connection, r: &RecordingRow) -> Result<(), DbError> {
@@ -48,8 +53,9 @@ pub fn insert(conn: &Connection, r: &RecordingRow) -> Result<(), DbError> {
             id, created_at, file_path, duration_ms, width, height, size_bytes,
             source_label, has_mic, has_sysaudio, thumb_path, drive_file_id,
             drive_link, upload_status, upload_error, exports, title, transcript,
-            denoised_path, events_path, project_json, webcam_path, cursor_hidden
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)",
+            denoised_path, events_path, project_json, webcam_path, cursor_hidden,
+            webcam_offset_ms
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)",
         params![
             r.id,
             r.created_at,
@@ -74,6 +80,7 @@ pub fn insert(conn: &Connection, r: &RecordingRow) -> Result<(), DbError> {
             r.project_json,
             r.webcam_path,
             r.cursor_hidden as i64,
+            r.webcam_offset_ms,
         ],
     )?;
     Ok(())
@@ -84,7 +91,8 @@ pub fn list(conn: &Connection) -> Result<Vec<RecordingRow>, DbError> {
         "SELECT id, created_at, file_path, duration_ms, width, height, size_bytes,
                 source_label, has_mic, has_sysaudio, thumb_path, drive_file_id,
                 drive_link, upload_status, upload_error, exports, title, transcript,
-                denoised_path, events_path, project_json, webcam_path, cursor_hidden
+                denoised_path, events_path, project_json, webcam_path, cursor_hidden,
+                webcam_offset_ms
          FROM recordings
          ORDER BY created_at DESC",
     )?;
@@ -99,7 +107,8 @@ pub fn get(conn: &Connection, id: &str) -> Result<Option<RecordingRow>, DbError>
         "SELECT id, created_at, file_path, duration_ms, width, height, size_bytes,
                 source_label, has_mic, has_sysaudio, thumb_path, drive_file_id,
                 drive_link, upload_status, upload_error, exports, title, transcript,
-                denoised_path, events_path, project_json, webcam_path, cursor_hidden
+                denoised_path, events_path, project_json, webcam_path, cursor_hidden,
+                webcam_offset_ms
          FROM recordings WHERE id = ?1",
         [id],
         row_to_recording,
@@ -222,6 +231,7 @@ fn row_to_recording(row: &rusqlite::Row<'_>) -> rusqlite::Result<RecordingRow> {
         project_json: row.get(20)?,
         webcam_path: row.get(21)?,
         cursor_hidden: row.get::<_, i64>(22)? != 0,
+        webcam_offset_ms: row.get(23)?,
     })
 }
 
@@ -261,6 +271,7 @@ mod tests {
             project_json: None,
             webcam_path: None,
             cursor_hidden: false,
+            webcam_offset_ms: None,
         }
     }
 
@@ -372,11 +383,13 @@ mod tests {
         r.project_json = Some(r#"{"v":1,"trim":null}"#.into());
         r.webcam_path = Some("/r/rec-proj.webcam.mp4".into());
         r.cursor_hidden = true;
+        r.webcam_offset_ms = Some(-350);
         insert(&conn, &r).unwrap();
         let got = get(&conn, "rec-proj").unwrap().unwrap();
         assert_eq!(got.project_json.as_deref(), Some(r#"{"v":1,"trim":null}"#));
         assert_eq!(got.webcam_path.as_deref(), Some("/r/rec-proj.webcam.mp4"));
         assert!(got.cursor_hidden);
+        assert_eq!(got.webcam_offset_ms, Some(-350));
     }
 
     #[test]
@@ -389,6 +402,7 @@ mod tests {
         assert_eq!(got.project_json, None);
         assert_eq!(got.webcam_path, None);
         assert!(!got.cursor_hidden);
+        assert_eq!(got.webcam_offset_ms, None);
     }
 
     #[test]

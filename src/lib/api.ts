@@ -1149,6 +1149,7 @@ export type RecordingRow = {
   project_json: string | null;
   webcam_path: string | null;
   cursor_hidden: boolean;
+  webcam_offset_ms: number | null;
 };
 
 export const startScreenRecording = (p: {

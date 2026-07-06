@@ -3409,6 +3409,7 @@ pub fn stop_screen_recording_inner(
         project_json: None,
         webcam_path: info.webcam_path.clone(),
         cursor_hidden: meta.cursor_hidden,
+        webcam_offset_ms: info.webcam_offset_ms,
     };
     let db = state
         .db

@@ -347,6 +347,7 @@ ALTER TABLE recordings ADD COLUMN events_path TEXT;
 ALTER TABLE recordings ADD COLUMN project_json TEXT;
 ALTER TABLE recordings ADD COLUMN webcam_path TEXT;
 ALTER TABLE recordings ADD COLUMN cursor_hidden INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE recordings ADD COLUMN webcam_offset_ms INTEGER;
 "#,
     ),
 ];
@@ -614,7 +615,12 @@ mod tests {
             .unwrap()
             .map(|r| r.unwrap())
             .collect();
-        for expected in ["project_json", "webcam_path", "cursor_hidden"] {
+        for expected in [
+            "project_json",
+            "webcam_path",
+            "cursor_hidden",
+            "webcam_offset_ms",
+        ] {
             assert!(
                 cols.iter().any(|c| c == expected),
                 "recordings missing column {expected}; got {cols:?}"
