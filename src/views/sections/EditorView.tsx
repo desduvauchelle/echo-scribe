@@ -18,12 +18,15 @@ import {
   parseProject,
   type Background,
   type EditorProject,
+  type WebcamSettings,
   PADDING_MAX,
   PADDING_MIN,
   CORNER_MAX,
   CORNER_MIN,
   CURSOR_SCALE_MIN,
   CURSOR_SCALE_MAX,
+  WEBCAM_SIZE_MIN,
+  WEBCAM_SIZE_MAX,
 } from "../../lib/editorProject";
 import { renderRecording, type RenderProgress } from "../../lib/render/renderPipeline";
 import {
@@ -98,6 +101,8 @@ export function EditorView({
   const [exportedRevealId, setExportedRevealId] = useState<string | null>(null);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  // Second hidden <video> for the webcam file, time-synced to the main video.
+  const webcamVideoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const bgImageRef = useRef<HTMLImageElement | null>(null);
   // Latest project in a ref so the rAF loop always reads current appearance
@@ -115,6 +120,12 @@ export function EditorView({
   loadedRef.current = loaded;
 
   const src = convertFileSrc(recording.denoised_path ?? recording.file_path);
+  // Webcam preview/export source + clock offset. Convention (settled by review
+  // derivation): `webcamTime = mainTime + offsetMs`, where
+  //   offsetMs = firstMainFramePTS − webcamStart   (`recordings.webcam_offset_ms`).
+  // Normally positive; null on the row → 0.
+  const webcamSrc = recording.webcam_path ? convertFileSrc(recording.webcam_path) : null;
+  const webcamOffsetMs = recording.webcam_offset_ms ?? 0;
 
   // Synthetic cursor is only available when the recording was captured with the
   // system cursor hidden AND we have an input-event track to reconstruct it
@@ -132,6 +143,10 @@ export function EditorView({
   const cursorLoadedForRef = useRef<string | null>(null);
   const [cursorEventsReady, setCursorEventsReady] = useState(false);
 
+  // Whether this recording was captured with a webcam (a `.webcam.mp4` exists).
+  // Gates the whole webcam editor section and the preview/export overlay.
+  const webcamAvailable = !!recording.webcam_path;
+
   // Load persisted project on open (tolerant parse → always valid). Reset
   // `loaded` up front whenever the recording changes so the debounced-save
   // effect below can't fire with stale project state from the previous
@@ -142,13 +157,21 @@ export function EditorView({
     setLoaded(false);
     void getRecordingProject(recording.id).then((json) => {
       if (cancelled) return;
-      setProject(parseProject(json));
+      const parsed = parseProject(json);
+      // Initialize webcam defaults the first time we open a recording that HAS
+      // a webcam file but whose persisted project has no webcam settings yet
+      // (parseProject leaves `webcam` null for a stale/absent field). Default:
+      // shown, circle bubble, bottom-right, 20% width.
+      if (webcamAvailable && parsed.webcam === null) {
+        parsed.webcam = { show: true, shape: "circle", corner: "br", sizeFrac: 0.2 };
+      }
+      setProject(parsed);
       setLoaded(true);
     });
     return () => {
       cancelled = true;
     };
-  }, [recording.id]);
+  }, [recording.id, webcamAvailable]);
 
   // Keep a decoded background image in sync with the project background path.
   const bgPath =
@@ -248,6 +271,22 @@ export function EditorView({
     // time driving the cursor is just the video's currentTime.
     const cursor = cursorOverlayAt(video.currentTime * 1000);
     const pxScale = cursorHeaderRef.current?.capture.px_scale ?? 1;
+    // Webcam overlay: feed the hidden webcam <video> as the frame source when
+    // it's decodable (readyState >= 2 = HAVE_CURRENT_DATA) and the project is
+    // showing it. The webcam element's currentTime is kept ≈ main + offset by
+    // the sync effect below; here we just draw whatever frame it's parked on.
+    // The compositor no-ops gracefully on a not-ready frame, but we gate on
+    // readyState anyway to avoid drawing a blank/black bubble on first paint.
+    const wv = webcamVideoRef.current;
+    const webcam: OverlayState["webcam"] =
+      p.webcam?.show && wv && wv.readyState >= 2 && wv.videoWidth > 0
+        ? {
+            frame: wv,
+            shape: p.webcam.shape,
+            corner: p.webcam.corner,
+            sizeFrac: p.webcam.sizeFrac,
+          }
+        : null;
     drawCompositeV2(
       ctx,
       video,
@@ -257,11 +296,43 @@ export function EditorView({
       vh,
       appearance,
       { cx: 0.5, cy: 0.5, scale: 1 },
-      { cursor, webcam: null },
+      { cursor, webcam },
       cursorDrawScale(p.cursor.scale, pxScale),
       bgImageRef.current,
     );
   }, [cursorOverlayAt]);
+
+  // Webcam preview time-sync. The webcam element should sit at
+  //   webcamTime = mainTime + offsetMs   (offset = firstMainFramePTS − webcamStart).
+  // `hardSyncWebcam` snaps its currentTime on discrete events (seek/play/pause);
+  // the rAF loop only drift-corrects (below) when the gap exceeds a threshold —
+  // setting currentTime every frame stutters playback, so we avoid it.
+  const WEBCAM_DRIFT_TOLERANCE_S = 0.15; // 150ms
+
+  /** Target webcam currentTime (s) for a given main time (s), clamped into the
+   *  webcam element's own duration. */
+  const webcamTargetTime = useCallback(
+    (mainSec: number): number => {
+      const wv = webcamVideoRef.current;
+      let t = mainSec + webcamOffsetMs / 1000;
+      if (t < 0) t = 0;
+      if (wv && Number.isFinite(wv.duration) && wv.duration > 0) {
+        t = Math.min(t, wv.duration);
+      }
+      return t;
+    },
+    [webcamOffsetMs],
+  );
+
+  /** Hard-snap the webcam element to the main time (seek/play/pause events). */
+  const hardSyncWebcam = useCallback(
+    (mainSec: number) => {
+      const wv = webcamVideoRef.current;
+      if (!wv) return;
+      wv.currentTime = webcamTargetTime(mainSec);
+    },
+    [webcamTargetTime],
+  );
 
   // Drive continuous frames while playing. When a trim is set, playback is
   // clamped to [startMs, endMs]: reaching endMs pauses (no loop) rather than
@@ -277,10 +348,23 @@ export function EditorView({
         if (v.currentTime >= endSec) {
           v.pause();
           v.currentTime = endSec;
+          webcamVideoRef.current?.pause();
+          hardSyncWebcam(endSec);
           setPlaying(false);
           setCurrent(endSec);
           renderFrame();
           return;
+        }
+      }
+      // Drift-correct the webcam only when it has slipped past tolerance — a
+      // per-frame currentTime write would stutter its decode.
+      if (v) {
+        const wv = webcamVideoRef.current;
+        if (wv && wv.readyState >= 1) {
+          const target = webcamTargetTime(v.currentTime);
+          if (Math.abs(wv.currentTime - target) > WEBCAM_DRIFT_TOLERANCE_S) {
+            wv.currentTime = target;
+          }
         }
       }
       renderFrame();
@@ -289,7 +373,7 @@ export function EditorView({
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [playing, renderFrame]);
+  }, [playing, renderFrame, hardSyncWebcam, webcamTargetTime]);
 
   // Re-render a single frame whenever appearance changes while paused (so slider
   // moves show up immediately), the background image finished loading, or the
@@ -348,6 +432,7 @@ export function EditorView({
   const togglePlay = useCallback(() => {
     const v = videoRef.current;
     if (!v) return;
+    const wv = webcamVideoRef.current;
     if (v.paused) {
       // If currentTime is outside the trim window (before start, at/after
       // end, or stale from a previous trim edit), jump to start before
@@ -361,13 +446,17 @@ export function EditorView({
           setCurrent(startSec);
         }
       }
+      // Snap the webcam to the (possibly-jumped) start, then mirror play.
+      hardSyncWebcam(v.currentTime);
       void v.play();
+      if (wv) void wv.play().catch(() => {});
       setPlaying(true);
     } else {
       v.pause();
+      wv?.pause();
       setPlaying(false);
     }
-  }, []);
+  }, [hardSyncWebcam]);
 
   const onScrub = useCallback((t: number) => {
     const v = videoRef.current;
@@ -378,17 +467,28 @@ export function EditorView({
     const trim = projectRef.current.trim;
     if (trim) t = Math.min(Math.max(t, trim.startMs / 1000), trim.endMs / 1000);
     v.currentTime = t;
+    hardSyncWebcam(t);
     setCurrent(t);
     // Draw the sought frame once the seek settles. If playing, the rAF loop
-    // already redraws every frame, so only wire a one-shot when paused.
+    // already redraws every frame, so only wire a one-shot when paused. Redraw
+    // on BOTH the main-video seek settling and the webcam seek settling, so a
+    // webcam frame that decodes slightly later than the main frame still shows.
     if (v.paused) {
       const onSeeked = () => {
         renderFrame();
         v.removeEventListener("seeked", onSeeked);
       };
       v.addEventListener("seeked", onSeeked);
+      const wv = webcamVideoRef.current;
+      if (wv) {
+        const onWebcamSeeked = () => {
+          renderFrame();
+          wv.removeEventListener("seeked", onWebcamSeeked);
+        };
+        wv.addEventListener("seeked", onWebcamSeeked);
+      }
     }
-  }, [renderFrame]);
+  }, [renderFrame, hardSyncWebcam]);
 
   // ---- Appearance updaters ------------------------------------------------
   const setPadding = (padding: number) =>
@@ -403,6 +503,19 @@ export function EditorView({
     setProject((p) => ({ ...p, cursor: { ...p.cursor, enabled } }));
   const setCursorScale = (scale: number) =>
     setProject((p) => ({ ...p, cursor: { ...p.cursor, scale } }));
+
+  // ---- Webcam updaters ----------------------------------------------------
+  // Each updater merges onto the existing webcam settings, falling back to the
+  // defaults if `webcam` is somehow still null (shouldn't happen once the load
+  // effect has initialized it for a webcam recording, but keeps updates safe).
+  const WEBCAM_DEFAULTS: WebcamSettings = {
+    show: true,
+    shape: "circle",
+    corner: "br",
+    sizeFrac: 0.2,
+  };
+  const setWebcam = (patch: Partial<WebcamSettings>) =>
+    setProject((p) => ({ ...p, webcam: { ...WEBCAM_DEFAULTS, ...(p.webcam ?? {}), ...patch } }));
 
   // ---- Trim ---------------------------------------------------------------
   // Effective trim window in ms — null means "full range" throughout.
@@ -558,6 +671,11 @@ export function EditorView({
         durationMs,
         project: proj,
         bgImage,
+        // Webcam overlay: only when the recording HAS a webcam file AND the
+        // (snapshotted) project is showing it. The pipeline treats any webcam
+        // demux/decode failure as non-fatal (renders without the overlay).
+        webcamUrl: webcamSrc && proj.webcam?.show ? webcamSrc : null,
+        webcamOffsetMs,
         onProgress: (p) => {
           setExportPhase(p.phase);
           setExportPct(p.pct);
@@ -584,7 +702,7 @@ export function EditorView({
       setExportPhase(null);
       setExportPct(0);
     }
-  }, [recording.id, recording.events_path, cursorAvailable, src, duration, toasts]);
+  }, [recording.id, recording.events_path, cursorAvailable, src, webcamSrc, webcamOffsetMs, duration, toasts]);
 
   const exportLabel =
     exportPhase === "decode"
@@ -657,8 +775,32 @@ export function EditorView({
               requestAnimationFrame(renderFrame);
             }}
             onLoadedData={() => requestAnimationFrame(renderFrame)}
-            onEnded={() => setPlaying(false)}
+            onEnded={() => {
+              setPlaying(false);
+              webcamVideoRef.current?.pause();
+            }}
           />
+          {/* Hidden webcam video; muted, time-synced to the main video and fed
+              as the overlay bubble frame. Only mounted when the recording has
+              a webcam file. */}
+          {webcamSrc ? (
+            <video
+              ref={webcamVideoRef}
+              key={webcamSrc}
+              src={webcamSrc}
+              muted
+              playsInline
+              className="hidden"
+              onLoadedMetadata={() => {
+                // Park the webcam at the main video's current time so the first
+                // preview paint shows the right frame.
+                const v = videoRef.current;
+                if (v) hardSyncWebcam(v.currentTime);
+                requestAnimationFrame(renderFrame);
+              }}
+              onLoadedData={() => requestAnimationFrame(renderFrame)}
+            />
+          ) : null}
           <div className="mt-3 flex items-center gap-3">
             <button
               onClick={togglePlay}
@@ -921,6 +1063,89 @@ export function EditorView({
               </p>
             ) : null}
           </div>
+
+          {/* Webcam section: only rendered when the recording was captured with
+              a camera (a `.webcam.mp4` exists). Controls the corner-anchored
+              PiP bubble drawn over the composite in preview + export. */}
+          {webcamAvailable ? (
+            <>
+              <h3 className="mb-4 mt-6 border-t border-line pt-4 text-[13px] font-semibold">
+                Webcam
+              </h3>
+              <label className="mb-3 flex cursor-pointer items-center gap-2 text-[13px]">
+                <input
+                  type="checkbox"
+                  checked={project.webcam?.show ?? false}
+                  onChange={(e) => setWebcam({ show: e.target.checked })}
+                  className="accent-accent"
+                />
+                Show camera
+              </label>
+
+              {/* Shape: circle / rounded. */}
+              <div className="mb-1 text-[12px] text-muted">Shape</div>
+              <div className="mb-4 flex gap-2">
+                <button
+                  className={seg(project.webcam?.shape === "circle")}
+                  disabled={!project.webcam?.show}
+                  onClick={() => setWebcam({ shape: "circle" })}
+                >
+                  Circle
+                </button>
+                <button
+                  className={seg(project.webcam?.shape === "rounded")}
+                  disabled={!project.webcam?.show}
+                  onClick={() => setWebcam({ shape: "rounded" })}
+                >
+                  Rounded
+                </button>
+              </div>
+
+              {/* Corner: 2×2 grid mirroring on-screen placement. */}
+              <div className="mb-1 text-[12px] text-muted">Position</div>
+              <div className="mb-4 grid grid-cols-2 gap-2">
+                {(
+                  [
+                    ["tl", "Top left"],
+                    ["tr", "Top right"],
+                    ["bl", "Bottom left"],
+                    ["br", "Bottom right"],
+                  ] as const
+                ).map(([corner, label]) => (
+                  <button
+                    key={corner}
+                    className={`rounded-md border px-3 py-1.5 text-[12px] font-medium ${
+                      project.webcam?.corner === corner
+                        ? "border-accent bg-accent/15 text-fg"
+                        : "border-line text-muted hover:bg-surface"
+                    } disabled:opacity-50`}
+                    disabled={!project.webcam?.show}
+                    onClick={() => setWebcam({ corner })}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Size: fraction of output width. */}
+              <label className="mb-1 flex items-center justify-between text-[12px] text-muted">
+                <span>Size</span>
+                <span className="tabular-nums text-fg">
+                  {Math.round((project.webcam?.sizeFrac ?? 0.2) * 100)}%
+                </span>
+              </label>
+              <input
+                type="range"
+                min={WEBCAM_SIZE_MIN}
+                max={WEBCAM_SIZE_MAX}
+                step={0.01}
+                value={project.webcam?.sizeFrac ?? 0.2}
+                disabled={!project.webcam?.show}
+                onChange={(e) => setWebcam({ sizeFrac: Number(e.target.value) })}
+                className="mb-2 w-full accent-accent disabled:opacity-50"
+              />
+            </>
+          ) : null}
         </div>
       </div>
     </div>

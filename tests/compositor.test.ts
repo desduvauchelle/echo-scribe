@@ -4,6 +4,7 @@ import {
   webcamRect,
   cursorStateAt,
   cursorDrawScale,
+  coverCrop,
   type CursorSample,
 } from "../src/lib/render/compositor";
 import type { ZoomBlock, EventsHeader } from "../src/lib/autoZoom";
@@ -82,6 +83,62 @@ describe("webcamRect", () => {
     // both remain margin-anchored at the corner
     expect(big.x + big.w).toBeCloseTo(OUT_W - MARGIN);
     expect(small.x + small.w).toBeCloseTo(OUT_W - MARGIN);
+  });
+});
+
+describe("coverCrop", () => {
+  test("wide source into a square dst crops the sides, keeps full height", () => {
+    // 1280×720 (16:9) into a 1:1 mask → sample a centered 720×720 square.
+    const c = coverCrop(1280, 720, 200, 200);
+    expect(c.sh).toBeCloseTo(720); // full height sampled
+    expect(c.sw).toBeCloseTo(720); // square crop
+    expect(c.sx).toBeCloseTo((1280 - 720) / 2); // centered horizontally
+    expect(c.sy).toBeCloseTo(0);
+  });
+
+  test("wide source into a 4:3 dst crops the sides", () => {
+    // 1280×720 (16:9) into 4:3 → sample full height, width = 720 * 4/3 = 960.
+    const c = coverCrop(1280, 720, 400, 300);
+    expect(c.sh).toBeCloseTo(720);
+    expect(c.sw).toBeCloseTo(960);
+    expect(c.sx).toBeCloseTo((1280 - 960) / 2); // 160
+    expect(c.sy).toBeCloseTo(0);
+  });
+
+  test("tall source into a square dst crops top/bottom, keeps full width", () => {
+    // 480×640 (3:4 portrait) into 1:1 → sample a centered 480×480 square.
+    const c = coverCrop(480, 640, 200, 200);
+    expect(c.sw).toBeCloseTo(480); // full width sampled
+    expect(c.sh).toBeCloseTo(480); // square crop
+    expect(c.sx).toBeCloseTo(0);
+    expect(c.sy).toBeCloseTo((640 - 480) / 2); // centered vertically
+  });
+
+  test("matching aspect samples the whole source (no crop)", () => {
+    const c = coverCrop(640, 480, 400, 300); // both 4:3
+    expect(c.sx).toBeCloseTo(0);
+    expect(c.sy).toBeCloseTo(0);
+    expect(c.sw).toBeCloseTo(640);
+    expect(c.sh).toBeCloseTo(480);
+  });
+
+  test("the crop rect stays within the source bounds", () => {
+    for (const [sw, sh] of [[1920, 1080], [720, 1280], [1000, 1000]] as const) {
+      for (const [dw, dh] of [[200, 200], [400, 300], [100, 400]] as const) {
+        const c = coverCrop(sw, sh, dw, dh);
+        expect(c.sx).toBeGreaterThanOrEqual(-1e-6);
+        expect(c.sy).toBeGreaterThanOrEqual(-1e-6);
+        expect(c.sx + c.sw).toBeLessThanOrEqual(sw + 1e-6);
+        expect(c.sy + c.sh).toBeLessThanOrEqual(sh + 1e-6);
+        // Cropped rect must carry the destination's aspect ratio.
+        expect(c.sw / c.sh).toBeCloseTo(dw / dh);
+      }
+    }
+  });
+
+  test("degenerate dimensions fall back to the full source rect", () => {
+    expect(coverCrop(0, 100, 10, 10)).toEqual({ sx: 0, sy: 0, sw: 0, sh: 100 });
+    expect(coverCrop(100, 100, 0, 10)).toEqual({ sx: 0, sy: 0, sw: 100, sh: 100 });
   });
 });
 

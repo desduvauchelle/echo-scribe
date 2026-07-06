@@ -177,6 +177,47 @@ function clickAgeAt(tMs: number, downs: CursorSample[]): number | null {
 const WEBCAM_MARGIN = 24;
 
 /**
+ * Cover-fit ("aspect-fill") source-rect math: the largest centered
+ * sub-rectangle of a `srcW`×`srcH` image that has the destination's aspect
+ * ratio, so drawing it into `dstW`×`dstH` fills the destination with no
+ * letterboxing and no stretching (the overflowing axis is center-cropped).
+ *
+ * Returns `{sx, sy, sw, sh}` — the source rectangle to sample. Feed it to
+ * `ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dstW, dstH)`.
+ *
+ * This is the inverse framing of the background cover-fit (which scales the
+ * whole image up and crops in *destination* space); here we crop in *source*
+ * space instead, which keeps the webcam draw a single `drawImage` inside a
+ * clip path without needing an extra transform. Pure math.
+ *
+ * Degenerate inputs (any dimension ≤ 0) fall back to the full source rect.
+ */
+export function coverCrop(
+  srcW: number,
+  srcH: number,
+  dstW: number,
+  dstH: number,
+): { sx: number; sy: number; sw: number; sh: number } {
+  if (srcW <= 0 || srcH <= 0 || dstW <= 0 || dstH <= 0) {
+    return { sx: 0, sy: 0, sw: srcW, sh: srcH };
+  }
+  const srcAspect = srcW / srcH;
+  const dstAspect = dstW / dstH;
+  if (srcAspect > dstAspect) {
+    // Source is wider than the destination → crop the sides (sample full height).
+    const sh = srcH;
+    const sw = srcH * dstAspect;
+    const sx = (srcW - sw) / 2;
+    return { sx, sy: 0, sw, sh };
+  }
+  // Source is taller than (or equal to) the destination → crop top/bottom.
+  const sw = srcW;
+  const sh = srcW / dstAspect;
+  const sy = (srcH - sh) / 2;
+  return { sx: 0, sy, sw, sh };
+}
+
+/**
  * Corner-anchored placement rect for the webcam picture-in-picture, in output
  * pixels. Width is `sizeFrac * outW`; height derives from the shape's aspect:
  *   - `circle`  → 1:1 (square; the caller masks it to a circle)
@@ -607,15 +648,17 @@ export function drawCompositeV2(
       roundedRectPath(ctx, wx, wy, r.w, r.h, 16);
     }
     ctx.clip();
-    // Cover-fit the webcam frame into the PiP rect.
+    // Aspect-fill the webcam frame into the PiP rect: crop the source (a
+    // 16:9-ish camera frame) to the mask's aspect (1:1 circle / 4:3 rounded)
+    // and draw it edge-to-edge — center-cropped, never stretched.
     const iw = imgWidth(overlay.webcam.frame);
     const ih = imgHeight(overlay.webcam.frame);
     if (iw > 0 && ih > 0) {
-      const s = Math.max(r.w / iw, r.h / ih);
-      const fw = iw * s;
-      const fh = ih * s;
-      ctx.drawImage(overlay.webcam.frame, wx + (r.w - fw) / 2, wy + (r.h - fh) / 2, fw, fh);
+      const c = coverCrop(iw, ih, r.w, r.h);
+      ctx.drawImage(overlay.webcam.frame, c.sx, c.sy, c.sw, c.sh, wx, wy, r.w, r.h);
     } else {
+      // Frame with unknown intrinsic size (e.g. a not-yet-decoded VideoFrame) —
+      // fall back to a plain stretch into the rect rather than dropping it.
       ctx.drawImage(overlay.webcam.frame, wx, wy, r.w, r.h);
     }
     ctx.restore();
