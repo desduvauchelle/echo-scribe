@@ -115,6 +115,41 @@ function parseWebcam(v: unknown, fallback: WebcamSettings | null): WebcamSetting
   };
 }
 
+/** Minimum trim length in milliseconds — the timeline handles can't be
+ *  dragged closer together than this. */
+export const TRIM_MIN_LENGTH_MS = 500;
+
+/** Normalize a trim range against a clip duration: clamps both ends into
+ *  [0, durationMs], fixes inverted ordering, widens degenerate/too-short
+ *  ranges out to `TRIM_MIN_LENGTH_MS` (preferring to push `endMs` later,
+ *  falling back to pulling `startMs` earlier if that would overflow the
+ *  duration), and rounds both values to integers. Returns `null` when
+ *  `trim` is `null`, or when `durationMs` is too short to fit the minimum
+ *  length at all. Pure — never mutates its argument. */
+export function clampTrim(
+  trim: { startMs: number; endMs: number } | null,
+  durationMs: number,
+): { startMs: number; endMs: number } | null {
+  if (trim === null) return null;
+  if (durationMs < TRIM_MIN_LENGTH_MS) return null;
+
+  let start = Math.min(trim.startMs, trim.endMs);
+  let end = Math.max(trim.startMs, trim.endMs);
+
+  start = clamp(start, 0, durationMs);
+  end = clamp(end, 0, durationMs);
+
+  if (end - start < TRIM_MIN_LENGTH_MS) {
+    end = start + TRIM_MIN_LENGTH_MS;
+    if (end > durationMs) {
+      end = durationMs;
+      start = end - TRIM_MIN_LENGTH_MS;
+    }
+  }
+
+  return { startMs: Math.round(start), endMs: Math.round(end) };
+}
+
 /** Tolerant parse: merges valid fields from `json` onto `defaultProject()`.
  *  Any missing/malformed field keeps its default. Never throws. */
 export function parseProject(json: string | null): EditorProject {
