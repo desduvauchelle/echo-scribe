@@ -88,6 +88,15 @@ function parseBackground(v: unknown, fallback: Background): Background {
   }
 }
 
+/** Parse a `trim` field from persisted JSON. Normalizes the pair so callers
+ *  always get *ordering*- and *sign*-invariant data (start <= end, both >= 0,
+ *  both integers) straight out of parsing — even if the stored JSON has an
+ *  inverted or out-of-range pair (e.g. hand-edited, from an older buggy
+ *  write, or a stale project). This does NOT enforce the 500ms minimum
+ *  length or clamp against a clip's duration — that's inherently unknown at
+ *  parse time. Callers that need a fully valid trim for a known duration
+ *  must still call `clampTrim(trim, durationMs)` at time of use (e.g. on
+ *  metadata load, or before export). */
 function parseTrim(v: unknown): EditorProject["trim"] {
   if (!isObject(v)) return null;
   const { startMs, endMs } = v;
@@ -97,7 +106,12 @@ function parseTrim(v: unknown): EditorProject["trim"] {
     typeof endMs === "number" &&
     Number.isFinite(endMs)
   ) {
-    return { startMs, endMs };
+    const a = Math.max(0, startMs);
+    const b = Math.max(0, endMs);
+    return {
+      startMs: Math.round(Math.min(a, b)),
+      endMs: Math.round(Math.max(a, b)),
+    };
   }
   return null;
 }

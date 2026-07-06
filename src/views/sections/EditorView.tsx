@@ -363,8 +363,18 @@ export function EditorView({
       if (!handle) return;
       const ms = msFromClientX(e.clientX);
       const currentTrim = projectRef.current.trim ?? { startMs: 0, endMs: durationMsRef.current };
+      // If the dragged handle's new position crosses over its sibling, swap
+      // which handle we consider "dragged" so the pointer keeps controlling
+      // the handle under it after clampTrim's min/max sort flips start/end —
+      // otherwise the visual handle sticks at the crossover point.
+      if (handle === "start" && ms > currentTrim.endMs) {
+        dragHandleRef.current = "end";
+      } else if (handle === "end" && ms < currentTrim.startMs) {
+        dragHandleRef.current = "start";
+      }
+      const activeHandle = dragHandleRef.current;
       const next =
-        handle === "start"
+        activeHandle === "start"
           ? { startMs: ms, endMs: currentTrim.endMs }
           : { startMs: currentTrim.startMs, endMs: ms };
       setTrim(next);

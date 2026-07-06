@@ -105,6 +105,16 @@ describe("parseProject — tolerant", () => {
     expect(bad.trim).toBeNull();
   });
 
+  test("inverted trim pair comes back ordered", () => {
+    const p = parseProject(JSON.stringify({ trim: { startMs: 8000, endMs: 2000 } }));
+    expect(p.trim).toEqual({ startMs: 2000, endMs: 8000 });
+  });
+
+  test("negative trim start clamps to 0", () => {
+    const p = parseProject(JSON.stringify({ trim: { startMs: -500, endMs: 3000 } }));
+    expect(p.trim).toEqual({ startMs: 0, endMs: 3000 });
+  });
+
   test("cursor scale clamped to 1..3", () => {
     expect(parseProject(JSON.stringify({ cursor: { scale: 99 } })).cursor.scale).toBe(3);
     expect(parseProject(JSON.stringify({ cursor: { scale: 0 } })).cursor.scale).toBe(1);
