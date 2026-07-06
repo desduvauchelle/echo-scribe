@@ -17,6 +17,7 @@ import {
   Pencil,
   Sparkles,
   Trash2,
+  Wand2,
 } from "lucide-react";
 import {
   isScreenRecording,
@@ -36,6 +37,7 @@ import {
 } from "../../lib/api";
 import { renderRecording, type RenderProgress } from "../../lib/render/renderPipeline";
 import type { Appearance } from "../../lib/render/compositor";
+import { EditorView } from "./EditorView";
 
 /** Hardcoded M1 render appearance (background + padding + rounded corners). */
 const M1_APPEARANCE: Appearance = {
@@ -294,6 +296,11 @@ export function RecordingsView() {
   const [recording, setRecording] = useState(false);
   const [busy, setBusy] = useState(false);
   const [selected, setSelected] = useState<RecordingRow | null>(null);
+  // Detail-pane mode: "detail" = player + actions, "edit" = full editor. Kept
+  // in RecordingsView (rather than a top-level route) so the recordings list
+  // stays visible and selection state is shared — the least-invasive fit given
+  // App.tsx only routes at the checking/onboarding/main/settings level.
+  const [mode, setMode] = useState<"detail" | "edit">("detail");
   const [error, setError] = useState<string | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [nameInput, setNameInput] = useState("");
@@ -576,6 +583,7 @@ export function RecordingsView() {
                 key={r.id}
                 onClick={() => {
                   setSelected(r);
+                  setMode("detail");
                   setRenaming(false);
                   setProgress(0);
                   setDenoiseProgress(0);
@@ -608,7 +616,9 @@ export function RecordingsView() {
         </div>
 
         <div className="flex flex-1 flex-col overflow-y-auto p-6">
-          {selected ? (
+          {selected && mode === "edit" ? (
+            <EditorView recording={selected} onBack={() => setMode("detail")} />
+          ) : selected ? (
             <>
               {renaming ? (
                 <div className="mb-3 flex items-center gap-2">
@@ -710,6 +720,9 @@ export function RecordingsView() {
                   ) : (
                     <Sparkles size={16} />
                   )}
+                </IconButton>
+                <IconButton title="Edit appearance" onClick={() => setMode("edit")}>
+                  <Wand2 size={16} />
                 </IconButton>
                 <div className="flex-1" />
                 <IconButton

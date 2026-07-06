@@ -1211,6 +1211,15 @@ export const setRecordingProject = (
 ): Promise<void> =>
   invoke("set_recording_project", { id, projectJson });
 
+/** Copy a user-picked image into the recordings dir as `<id>.bg.<ext>` and
+ *  return its absolute path, for use as an editor background. Rejects (with a
+ *  friendly message) on a missing file or unsupported extension. */
+export const importEditorBackground = (
+  id: string,
+  srcPath: string,
+): Promise<string> =>
+  invoke("import_editor_background", { id, srcPath });
+
 /** Persist a frontend-rendered MP4. The bytes ride as the raw IPC body (no
  *  JSON number-array copy); the id travels in the `x-recording-id` header —
  *  see the `save_rendered_recording` Rust command. Returns the updated row. */

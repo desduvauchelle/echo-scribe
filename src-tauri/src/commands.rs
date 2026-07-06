@@ -3852,6 +3852,64 @@ pub fn set_recording_project(
     Ok(())
 }
 
+/// Allowed image extensions for a custom editor background (lower-cased, no dot).
+const EDITOR_BG_EXTS: [&str; 4] = ["png", "jpg", "jpeg", "webp"];
+
+/// Validate a source path for use as an editor background image and return its
+/// lower-cased extension. Pure/testable: checks the extension allowlist only
+/// (existence/file-type are checked at the command boundary with real IO).
+fn editor_bg_extension(src_path: &str) -> Result<String, String> {
+    let ext = std::path::Path::new(src_path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .ok_or_else(|| "image has no file extension".to_string())?;
+    if EDITOR_BG_EXTS.contains(&ext.as_str()) {
+        Ok(ext)
+    } else {
+        Err(format!(
+            "unsupported image type .{ext} (use PNG, JPG, JPEG, or WebP)"
+        ))
+    }
+}
+
+/// Copy a user-picked image into the recordings dir as `<id>.bg.<ext>` so it can
+/// be referenced by an editor project's `background: {type:"image", path}`.
+/// Validates the source exists, is a file, and has an allowed extension.
+/// Returns the absolute destination path. Friendly errors; full detail logged.
+#[tauri::command]
+pub fn import_editor_background(id: String, src_path: String) -> Result<String, String> {
+    let ext = editor_bg_extension(&src_path).map_err(|e| {
+        error!(target: "screenrec", rec = %id, path = %src_path, error = %e, "import_editor_background: bad extension");
+        e
+    })?;
+
+    let src = std::path::Path::new(&src_path);
+    let meta = std::fs::metadata(src).map_err(|e| {
+        error!(target: "screenrec", rec = %id, path = %src_path, error = %e, "import_editor_background: source missing/unreadable");
+        "Could not read the selected image. See Settings → Diagnostics → logs for details.".to_string()
+    })?;
+    if !meta.is_file() {
+        error!(target: "screenrec", rec = %id, path = %src_path, "import_editor_background: source is not a file");
+        return Err("The selected path is not a file.".to_string());
+    }
+
+    let dir = crate::screenrec::recordings_dir().map_err(|e| {
+        error!(target: "screenrec", rec = %id, error = %e, "import_editor_background: recordings_dir failed");
+        "Could not locate the recordings folder.".to_string()
+    })?;
+    let dest = dir.join(format!("{id}.bg.{ext}"));
+
+    std::fs::copy(src, &dest).map_err(|e| {
+        error!(target: "screenrec", rec = %id, from = %src_path, to = %dest.display(), error = %e, "import_editor_background: copy failed");
+        "Could not import the background image. See Settings → Diagnostics → logs for details.".to_string()
+    })?;
+
+    let out = dest.to_string_lossy().to_string();
+    info!(target: "screenrec", rec = %id, path = %out, bytes = meta.len(), "imported editor background");
+    Ok(out)
+}
+
 /// Persist a frontend-rendered MP4 for a recording. The bytes are passed as the
 /// raw IPC body (`InvokeBody::Raw`) — the least-copy transfer this Tauri version
 /// supports; the recording id rides in the `x-recording-id` header. Writes
@@ -4291,6 +4349,19 @@ mod tests {
         assert_eq!(key_from_code(""), None);
         assert_eq!(key_from_code("NotARealCode"), None);
         assert_eq!(key_from_code("F30"), None);
+    }
+
+    #[test]
+    fn editor_bg_extension_allowlist() {
+        // Allowed extensions, case-insensitive, normalized to lower-case.
+        assert_eq!(editor_bg_extension("/a/b/photo.png").unwrap(), "png");
+        assert_eq!(editor_bg_extension("/a/b/photo.JPG").unwrap(), "jpg");
+        assert_eq!(editor_bg_extension("/a/b/photo.jpeg").unwrap(), "jpeg");
+        assert_eq!(editor_bg_extension("/a/b/photo.WEBP").unwrap(), "webp");
+        // Rejected: wrong type, no extension.
+        assert!(editor_bg_extension("/a/b/movie.mp4").is_err());
+        assert!(editor_bg_extension("/a/b/doc.gif").is_err());
+        assert!(editor_bg_extension("/a/b/noext").is_err());
     }
 
     #[test]
