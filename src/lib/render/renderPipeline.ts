@@ -20,7 +20,8 @@
 import { createFile, DataStream, MP4BoxBuffer, type Sample } from "mp4box";
 import { ArrayBufferTarget, Muxer } from "mp4-muxer";
 import { generateAutoZoom, parseEventsJsonl, type ZoomBlock } from "../autoZoom";
-import { drawComposite, zoomStateAt, type Appearance } from "./compositor";
+import { clampTrim, type EditorProject } from "../editorProject";
+import { drawCompositeV2, zoomStateAt, type Appearance } from "./compositor";
 
 export type RenderProgress = { phase: "decode" | "encode" | "mux"; pct: number };
 
@@ -30,9 +31,40 @@ export type RenderRecordingOpts = {
   /** Raw events JSONL text, or null → render without zoom. */
   eventsJsonl: string | null;
   durationMs: number;
-  appearance: Appearance;
+  /** The editor project: appearance (padding/corner/background) drives the
+   *  composite, and `trim` restricts which source frames are rendered. */
+  project: EditorProject;
+  /** Decoded background image when `project.appearance.background.type ===
+   *  "image"`, else null. Loaded by the caller (via convertFileSrc) so the
+   *  pipeline stays free of Tauri/DOM-image I/O and remains testable. */
+  bgImage: CanvasImageSource | null;
   onProgress: (p: RenderProgress) => void;
 };
+
+/** The applied trim window in SOURCE-time ms. `startMs`=0 / `endMs`=durationMs
+ *  when the project has no trim. */
+export type TrimWindow = { startMs: number; endMs: number };
+
+/** Small leading-edge tolerance (µs) so a frame whose timestamp rounds a hair
+ *  before `startMs` (timescale rounding) is still kept. */
+const TRIM_EPSILON_US = 1;
+
+/**
+ * Whether a decoded source frame at SOURCE presentation time `tsSourceUs` (µs)
+ * falls inside the kept trim window `[startMs, endMs)` (ms). Half-open on the
+ * end so the frame exactly at `endMs` is excluded — consistent with the Rust
+ * `trim_wav_samples` sample-range convention, keeping audio/video the same
+ * length. A tiny epsilon on the leading edge absorbs timescale rounding.
+ *
+ * Pure; the input is SOURCE time by design — trim decisions and zoom lookup
+ * both key off source time, and only the emitted output timestamp is
+ * re-anchored to t0 (see the decode loop).
+ */
+export function frameInTrimWindow(tsSourceUs: number, trim: TrimWindow): boolean {
+  const startUs = trim.startMs * 1000;
+  const endUs = trim.endMs * 1000;
+  return tsSourceUs >= startUs - TRIM_EPSILON_US && tsSourceUs < endUs;
+}
 
 /** Output frame rate. Source frames above this are dropped down to it. */
 const TARGET_FPS = 30;
@@ -212,7 +244,8 @@ function outputSize(
  * turns it into an inline "% " display.
  */
 export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8Array> {
-  const { fileUrl, eventsJsonl, durationMs, appearance, onProgress } = opts;
+  const { fileUrl, eventsJsonl, durationMs, project, bgImage, onProgress } = opts;
+  const appearance: Appearance = project.appearance;
 
   // --- Fetch source bytes ---
   onProgress({ phase: "decode", pct: 0 });
@@ -222,7 +255,19 @@ export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8A
   }
   const srcBytes = await resp.arrayBuffer();
 
+  // --- Trim window (SOURCE-time ms) ---
+  // clampTrim normalizes/clamps against the real duration; null → full length.
+  const clamped = clampTrim(project.trim, durationMs);
+  const trim: TrimWindow = clamped ?? { startMs: 0, endMs: durationMs };
+
   // --- Zoom timeline (optional) ---
+  // NOTE: auto-zoom blocks are generated in SOURCE time (against the full,
+  // un-trimmed timeline), so `zoomStateAt` MUST be queried with each frame's
+  // SOURCE timestamp — never the re-anchored output time. If we passed
+  // output-time here, a trim that lops off the first N seconds would shift
+  // every zoom block earlier by N seconds and desync the pan/zoom from the
+  // content it was computed for. So: trim-skip decisions and zoom lookup both
+  // use `tMsSource`; only the *emitted* frame timestamp is re-anchored to t0.
   let zoomBlocks: ZoomBlock[] = [];
   if (eventsJsonl) {
     try {
@@ -283,7 +328,20 @@ export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8A
     const decoder = new VideoDecoder({
       output: (frame) => {
         try {
-          const tMs = frame.timestamp / 1000;
+          // `frame.timestamp` is the SOURCE presentation time (µs). Use it for
+          // BOTH the trim-skip decision and the zoom lookup; only the emitted
+          // output frame's timestamp is re-anchored to the trim start below.
+          const tsSourceUs = frame.timestamp;
+          const tMsSource = tsSourceUs / 1000;
+
+          // Trim: drop frames outside the kept [startMs, endMs) window.
+          if (!frameInTrimWindow(tsSourceUs, trim)) {
+            frame.close();
+            processedFrames++;
+            onProgress({ phase: "encode", pct: Math.min(99, Math.round((processedFrames / totalFrames) * 100)) });
+            return;
+          }
+
           // Frame pacing: drop frames that arrive faster than TARGET_FPS.
           if (frame.timestamp - lastEmittedUs < minFrameIntervalUs - 1) {
             frame.close();
@@ -293,10 +351,26 @@ export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8A
           }
           lastEmittedUs = frame.timestamp;
 
-          const zoom = zoomBlocks.length ? zoomStateAt(tMs, zoomBlocks) : { cx: 0.5, cy: 0.5, scale: 1 };
-          drawComposite(ctx, frame, frame.displayWidth, frame.displayHeight, outW, outH, appearance, zoom);
+          const zoom = zoomBlocks.length ? zoomStateAt(tMsSource, zoomBlocks) : { cx: 0.5, cy: 0.5, scale: 1 };
+          // Overlays (cursor/webcam) are Tasks 6/8 — pass null for now.
+          drawCompositeV2(
+            ctx,
+            frame,
+            frame.displayWidth,
+            frame.displayHeight,
+            outW,
+            outH,
+            appearance,
+            zoom,
+            { cursor: null, webcam: null },
+            project.cursor.scale,
+            bgImage,
+          );
           frame.close();
 
+          // Re-anchor: the first KEPT frame becomes t0; CFR from there. Output
+          // timeline is independent of the source trim offset so the muxed mp4
+          // starts at 0 with no leading gap.
           const outFrame = new VideoFrame(canvas, {
             timestamp: Math.round(encodedFrames * minFrameIntervalUs),
             duration: Math.round(minFrameIntervalUs),

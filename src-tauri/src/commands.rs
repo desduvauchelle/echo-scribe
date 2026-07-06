@@ -3919,15 +3919,59 @@ pub fn import_editor_background(
     Ok(out)
 }
 
-/// Persist a frontend-rendered MP4 for a recording. The bytes are passed as the
-/// raw IPC body (`InvokeBody::Raw`) — the least-copy transfer this Tauri version
-/// supports; the recording id rides in the `x-recording-id` header. Writes
-/// `<id>.rendered.mp4` into the recordings dir and merges a single
-/// `{"quality":"rendered","path":...,"size":...}` entry into the row's exports
-/// JSON (replacing any prior "rendered" entry rather than duplicating).
+/// Merge (replace-not-duplicate) a single `{"quality":"rendered",...}` entry
+/// into a recording's exports JSON and return the refreshed row. Shared tail of
+/// `finalize_rendered_recording`.
+fn record_rendered_export(
+    db: &crate::db::Db,
+    id: &str,
+    existing_exports: &str,
+    out_path: &str,
+    size: u64,
+) -> Result<crate::db::recordings::RecordingRow, String> {
+    let mut exports: Vec<serde_json::Value> =
+        serde_json::from_str(existing_exports).unwrap_or_default();
+    exports.retain(|e| e.get("quality").and_then(|q| q.as_str()) != Some("rendered"));
+    exports.push(serde_json::json!({
+        "quality": "rendered",
+        "path": out_path,
+        "size": size,
+    }));
+    let exports_json = serde_json::to_string(&exports).map_err(|e| e.to_string())?;
+    db.with_conn(|c| crate::db::recordings::update_exports(c, id, &exports_json))
+        .map_err(|e| {
+            error!(target: "screenrec", rec = %id, error = %e, "update_exports failed after render");
+            e.to_string()
+        })?;
+    db.with_conn(|c| crate::db::recordings::get(c, id))
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "recording vanished".to_string())
+}
+
+/// Finalize an editor export: take the frontend's video-only WebCodecs render
+/// (raw IPC body) and mux the recording's (trim-aligned) soundtrack back in,
+/// writing `<id>.rendered.mp4`.
+///
+/// The bytes ride as the raw IPC body (`InvokeBody::Raw`) — least-copy transfer;
+/// the recording id + optional trim window ride in headers:
+///   - `x-recording-id`   (required) — DB-gates the operation
+///   - `x-trim-start-ms`  (optional) — absent/empty = no trim (full audio)
+///   - `x-trim-end-ms`    (optional) — absent/empty = no trim (full audio)
+///
+/// Flow (mirrors `run_denoise`'s staged temp-file orchestration; every failure
+/// path cleans up ALL temps):
+///   1. DB-gate the id; write the render bytes to a temp `<id>.render-vid.mp4`.
+///   2. `extract_audio_at` (48kHz mono) from the row's playable file
+///      (`denoised_path ?? file_path`).
+///        - `no_audio` → skip mux entirely, promote the temp video to
+///          `<id>.rendered.mp4` (never fail the export for missing audio).
+///   3. If a trim window is present, `trim_wav_samples` the extracted WAV to the
+///      kept `[start, end)` range so the audio lines up with the trimmed video.
+///   4. `mux_audio(temp video, wav, <id>.rendered.mp4)`.
+///   5. Merge the "rendered" exports entry (replace-not-duplicate).
 #[tauri::command]
-pub fn save_rendered_recording(
-    state: State<'_, AppState>,
+pub async fn finalize_rendered_recording(
+    app: AppHandle,
     request: tauri::ipc::Request<'_>,
 ) -> Result<crate::db::recordings::RecordingRow, String> {
     let id = request
@@ -3936,60 +3980,174 @@ pub fn save_rendered_recording(
         .and_then(|v| v.to_str().ok())
         .map(|s| s.to_string())
         .ok_or_else(|| {
-            error!(target: "screenrec", "save_rendered_recording missing x-recording-id header");
+            error!(target: "screenrec", "finalize_rendered_recording missing x-recording-id header");
             "internal error: missing recording id".to_string()
         })?;
 
-    let bytes: &[u8] = match request.body() {
-        tauri::ipc::InvokeBody::Raw(b) => b.as_slice(),
+    // Optional trim window. Absent/empty header → None (no trim).
+    let parse_trim_header = |name: &str| -> Option<u64> {
+        request
+            .headers()
+            .get(name)
+            .and_then(|v| v.to_str().ok())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .and_then(|s| s.parse::<u64>().ok())
+    };
+    let trim = match (
+        parse_trim_header("x-trim-start-ms"),
+        parse_trim_header("x-trim-end-ms"),
+    ) {
+        (Some(s), Some(e)) if e > s => Some((s, e)),
+        _ => None,
+    };
+
+    // Copy the render bytes out of the borrowed request before any await.
+    let bytes: Vec<u8> = match request.body() {
+        tauri::ipc::InvokeBody::Raw(b) => b.to_vec(),
         tauri::ipc::InvokeBody::Json(_) => {
-            error!(target: "screenrec", rec = %id, "save_rendered_recording received JSON body, expected raw bytes");
+            error!(target: "screenrec", rec = %id, "finalize_rendered_recording received JSON body, expected raw bytes");
             return Err("internal error: rendered bytes not received".to_string());
         }
     };
     if bytes.is_empty() {
-        error!(target: "screenrec", rec = %id, "save_rendered_recording received empty body");
+        error!(target: "screenrec", rec = %id, "finalize_rendered_recording received empty body");
         return Err("render produced no data".to_string());
     }
 
-    let db = require_db(&state)?;
-    let row = db
-        .with_conn(|c| crate::db::recordings::get(c, &id))
-        .map_err(|e| e.to_string())?
-        .ok_or("recording not found")?;
+    // DB-gate: look up the row (playable file + existing exports); drop the DB
+    // borrow before any await.
+    let (playable, existing_exports): (std::path::PathBuf, String) = {
+        let state = app.state::<AppState>();
+        let db = require_db(&state)?;
+        let row = db
+            .with_conn(|c| crate::db::recordings::get(c, &id))
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| {
+                error!(target: "screenrec", rec = %id, "finalize: recording not found");
+                "recording not found".to_string()
+            })?;
+        let playable = row.denoised_path.clone().unwrap_or(row.file_path.clone());
+        (std::path::PathBuf::from(playable), row.exports)
+    };
 
     let dir = crate::screenrec::recordings_dir().map_err(|e| {
-        error!(target: "screenrec", rec = %id, error = %e, "recordings_dir failed");
+        error!(target: "screenrec", rec = %id, error = %e, "finalize: recordings_dir failed");
         "could not locate the recordings folder".to_string()
     })?;
+    let temp_vid = dir.join(format!("{id}.render-vid.mp4"));
+    let wav_full = dir.join(format!("{id}.render-audio.wav"));
+    let wav_trim = dir.join(format!("{id}.render-audio-trim.wav"));
     let out = dir.join(format!("{id}.rendered.mp4"));
 
-    std::fs::write(&out, bytes).map_err(|e| {
-        error!(target: "screenrec", rec = %id, path = %out.display(), error = %e, "failed to write rendered mp4");
-        format!("could not save the rendered video: {e}")
+    // Cleanup helper: remove every temp we might have created. `out` is the
+    // final product and is never cleaned here.
+    let cleanup = || {
+        let _ = std::fs::remove_file(&temp_vid);
+        let _ = std::fs::remove_file(&wav_full);
+        let _ = std::fs::remove_file(&wav_trim);
+    };
+
+    // 1. Write the render bytes to the temp video file.
+    let vid_size = bytes.len() as u64;
+    if let Err(e) = std::fs::write(&temp_vid, &bytes) {
+        error!(target: "screenrec", rec = %id, path = %temp_vid.display(), error = %e, "finalize: failed to write temp render mp4");
+        cleanup();
+        return Err(format!("could not save the rendered video: {e}"));
+    }
+    info!(target: "screenrec", rec = %id, size = vid_size, has_trim = trim.is_some(), "finalize: wrote temp render video");
+
+    // 2. Extract 48kHz mono audio from the recording's playable file.
+    let playable_c = playable.clone();
+    let wav_full_c = wav_full.clone();
+    let extract = tokio::task::spawn_blocking(move || {
+        crate::screenrec::extract_audio_at(&playable_c, &wav_full_c, 48_000)
+    })
+    .await
+    .map_err(|_| {
+        cleanup();
+        "audio extraction task panicked".to_string()
     })?;
-    let size = bytes.len() as u64;
-    info!(target: "screenrec", rec = %id, path = %out.display(), size, "saved rendered mp4");
 
-    let out_path = out.to_string_lossy().to_string();
-    let mut exports: Vec<serde_json::Value> =
-        serde_json::from_str(&row.exports).unwrap_or_default();
-    exports.retain(|e| e.get("quality").and_then(|q| q.as_str()) != Some("rendered"));
-    exports.push(serde_json::json!({
-        "quality": "rendered",
-        "path": out_path,
-        "size": size,
-    }));
-    let exports_json = serde_json::to_string(&exports).map_err(|e| e.to_string())?;
-    db.with_conn(|c| crate::db::recordings::update_exports(c, &id, &exports_json))
-        .map_err(|e| {
-            error!(target: "screenrec", rec = %id, error = %e, "update_exports failed after render");
-            e.to_string()
+    // 2a. No audio track → keep it a video-only export. Promote temp video.
+    if let Err(e) = extract {
+        if e == "no_audio" {
+            info!(target: "screenrec", rec = %id, "finalize: recording has no audio; saving video-only render");
+            if let Err(e) = std::fs::rename(&temp_vid, &out) {
+                error!(target: "screenrec", rec = %id, error = %e, "finalize: failed to promote video-only render");
+                cleanup();
+                return Err("could not save the rendered video. See Settings → Diagnostics → logs for details.".to_string());
+            }
+            cleanup();
+            let out_path = out.to_string_lossy().to_string();
+            info!(target: "screenrec", rec = %id, path = %out_path, size = vid_size, "finalize: saved video-only render");
+            let state = app.state::<AppState>();
+            let db = require_db(&state)?;
+            return record_rendered_export(db, &id, &existing_exports, &out_path, vid_size);
+        }
+        error!(target: "screenrec", rec = %id, error = %e, "finalize: audio extraction failed");
+        cleanup();
+        return Err("could not prepare the recording's audio. See Settings → Diagnostics → logs for details.".to_string());
+    }
+    info!(target: "screenrec", rec = %id, "finalize: extracted audio");
+
+    // 3. Optionally trim the WAV to the kept window so audio aligns with video.
+    let audio_for_mux = if let Some((start_ms, end_ms)) = trim {
+        let wav_full_c = wav_full.clone();
+        let wav_trim_c = wav_trim.clone();
+        let trimmed = tokio::task::spawn_blocking(move || {
+            crate::screenrec::trim_wav_samples(&wav_full_c, &wav_trim_c, start_ms, end_ms)
+        })
+        .await
+        .map_err(|_| {
+            cleanup();
+            "audio trim task panicked".to_string()
         })?;
+        if let Err(e) = trimmed {
+            error!(target: "screenrec", rec = %id, start_ms, end_ms, error = %e, "finalize: WAV trim failed");
+            cleanup();
+            return Err("could not trim the recording's audio. See Settings → Diagnostics → logs for details.".to_string());
+        }
+        info!(target: "screenrec", rec = %id, start_ms, end_ms, "finalize: trimmed audio to window");
+        wav_trim.clone()
+    } else {
+        wav_full.clone()
+    };
 
-    db.with_conn(|c| crate::db::recordings::get(c, &id))
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| "recording vanished".to_string())
+    // 4. Mux the (possibly trimmed) audio into the render video → out.
+    let temp_vid_c = temp_vid.clone();
+    let audio_c = audio_for_mux.clone();
+    let out_c = out.clone();
+    let mux = tokio::task::spawn_blocking(move || {
+        crate::screenrec::mux_audio(&temp_vid_c, &audio_c, &out_c)
+    })
+    .await
+    .map_err(|_| {
+        cleanup();
+        "audio mux task panicked".to_string()
+    })?;
+    if let Err(e) = mux {
+        error!(target: "screenrec", rec = %id, error = %e, "finalize: audio mux failed");
+        cleanup();
+        return Err("could not attach audio to the rendered video. See Settings → Diagnostics → logs for details.".to_string());
+    }
+
+    // 5. Verify the muxed output before touching the DB.
+    let final_size = match std::fs::metadata(&out) {
+        Ok(m) if m.len() > 0 => m.len(),
+        _ => {
+            error!(target: "screenrec", rec = %id, "finalize: mux produced an empty/missing file");
+            cleanup();
+            return Err("the rendered video could not be finalized. See Settings → Diagnostics → logs for details.".to_string());
+        }
+    };
+    cleanup(); // muxed `out` written; temps no longer needed
+    let out_path = out.to_string_lossy().to_string();
+    info!(target: "screenrec", rec = %id, path = %out_path, size = final_size, "finalize: saved rendered mp4 with audio");
+
+    let state = app.state::<AppState>();
+    let db = require_db(&state)?;
+    record_rendered_export(db, &id, &existing_exports, &out_path, final_size)
 }
 
 #[tauri::command]

@@ -236,6 +236,101 @@ pub fn extract_audio(mp4: &std::path::Path, out_wav: &std::path::Path) -> Result
     extract_audio_at(mp4, out_wav, 16_000)
 }
 
+/// Copy a millisecond sub-range `[start_ms, end_ms)` of a 16-bit PCM mono WAV
+/// (`wav_in`) into a fresh WAV (`wav_out`), preserving the sample rate. Pure
+/// file→file sample-range copy — no resampling, no channel changes.
+///
+/// Used by `finalize_rendered_recording` to align the muxed soundtrack with an
+/// editor trim: `extract_audio_at` gives the full-length 48kHz mono WAV, then
+/// this slices out the kept window so the audio starts/ends with the trimmed
+/// video.
+///
+/// Semantics:
+///   - `start_ms`/`end_ms` are clamped to `[0, total_ms]`; if `end_ms <=
+///     start_ms` after clamping (or `start_ms` is at/after the end of the
+///     data), returns an error rather than writing a zero-length file.
+///   - A range covering the whole clip copies every sample verbatim.
+///   - The input must be 16-bit PCM mono; other formats are rejected (callers
+///     always pass `extract_audio_at(.., 48_000)` output, which is mono 16-bit).
+pub fn trim_wav_samples(
+    wav_in: &std::path::Path,
+    wav_out: &std::path::Path,
+    start_ms: u64,
+    end_ms: u64,
+) -> Result<(), String> {
+    let mut bytes = Vec::new();
+    {
+        use std::io::Read;
+        std::fs::File::open(wav_in)
+            .and_then(|mut f| f.read_to_end(&mut bytes))
+            .map_err(|e| format!("could not read WAV: {e}"))?;
+    }
+    if bytes.len() < 44 || &bytes[0..4] != b"RIFF" || &bytes[8..12] != b"WAVE" {
+        return Err("not a WAV file".into());
+    }
+    let channels = u16::from_le_bytes(bytes[22..24].try_into().unwrap());
+    let sample_rate = u32::from_le_bytes(bytes[24..28].try_into().unwrap());
+    let bits = u16::from_le_bytes(bytes[34..36].try_into().unwrap());
+    if bits != 16 {
+        return Err(format!("expected 16-bit PCM WAV, got {bits}-bit"));
+    }
+    if channels != 1 {
+        return Err(format!("expected mono WAV, got {channels} channels"));
+    }
+    // Find the `data` chunk (skip any chunks between `fmt ` and `data`).
+    let mut pos = 12;
+    let (data_off, data_len) = loop {
+        if pos + 8 > bytes.len() {
+            return Err("no data chunk in WAV".into());
+        }
+        let id = &bytes[pos..pos + 4];
+        let sz = u32::from_le_bytes(bytes[pos + 4..pos + 8].try_into().unwrap()) as usize;
+        if id == b"data" {
+            break (pos + 8, sz.min(bytes.len() - (pos + 8)));
+        }
+        pos += 8 + sz + (sz & 1); // chunks are word-aligned
+    };
+
+    // Total sample frames (2 bytes/sample, mono → 1 sample per frame).
+    let total_samples = data_len / 2;
+    let sr = sample_rate as u64;
+
+    // ms → sample index (round to nearest sample), clamped into range.
+    let ms_to_sample = |ms: u64| -> usize {
+        let s = (ms.saturating_mul(sr) + 500) / 1000; // round to nearest
+        (s.min(total_samples as u64)) as usize
+    };
+    let start_s = ms_to_sample(start_ms);
+    let end_s = ms_to_sample(end_ms);
+    if end_s <= start_s {
+        return Err(format!(
+            "trim range is empty (start_ms={start_ms}, end_ms={end_ms}, samples={total_samples})"
+        ));
+    }
+
+    let slice = &bytes[data_off + start_s * 2..data_off + end_s * 2];
+    let out_data_len = slice.len() as u32;
+    let byte_rate = sample_rate * channels as u32 * 2;
+    let block_align = channels * 2;
+    let mut out = Vec::with_capacity(44 + out_data_len as usize);
+    out.extend_from_slice(b"RIFF");
+    out.extend_from_slice(&(36 + out_data_len).to_le_bytes());
+    out.extend_from_slice(b"WAVE");
+    out.extend_from_slice(b"fmt ");
+    out.extend_from_slice(&16u32.to_le_bytes());
+    out.extend_from_slice(&1u16.to_le_bytes()); // PCM
+    out.extend_from_slice(&channels.to_le_bytes());
+    out.extend_from_slice(&sample_rate.to_le_bytes());
+    out.extend_from_slice(&byte_rate.to_le_bytes());
+    out.extend_from_slice(&block_align.to_le_bytes());
+    out.extend_from_slice(&16u16.to_le_bytes()); // bits
+    out.extend_from_slice(b"data");
+    out.extend_from_slice(&out_data_len.to_le_bytes());
+    out.extend_from_slice(slice);
+
+    std::fs::write(wav_out, &out).map_err(|e| format!("could not write trimmed WAV: {e}"))
+}
+
 /// Mux a cleaned audio WAV into the original video, writing a new mp4.
 pub fn mux_audio(
     video: &std::path::Path,
@@ -758,5 +853,108 @@ mod tests {
     fn parse_export_done_ignores_other_events() {
         assert!(parse_export_done(r#"{"event":"progress","pct":50}"#).is_none());
         assert!(parse_export_done("not json").is_none());
+    }
+
+    // ---- trim_wav_samples ------------------------------------------------
+
+    /// Build a 16-bit PCM mono WAV in a temp file at `sample_rate` with the
+    /// given samples, returning its path. Uses a unique name per call.
+    fn write_test_wav(name: &str, sample_rate: u32, samples: &[i16]) -> PathBuf {
+        let data_len = (samples.len() * 2) as u32;
+        let byte_rate = sample_rate * 2;
+        let mut out = Vec::with_capacity(44 + data_len as usize);
+        out.extend_from_slice(b"RIFF");
+        out.extend_from_slice(&(36 + data_len).to_le_bytes());
+        out.extend_from_slice(b"WAVE");
+        out.extend_from_slice(b"fmt ");
+        out.extend_from_slice(&16u32.to_le_bytes());
+        out.extend_from_slice(&1u16.to_le_bytes());
+        out.extend_from_slice(&1u16.to_le_bytes());
+        out.extend_from_slice(&sample_rate.to_le_bytes());
+        out.extend_from_slice(&byte_rate.to_le_bytes());
+        out.extend_from_slice(&2u16.to_le_bytes());
+        out.extend_from_slice(&16u16.to_le_bytes());
+        out.extend_from_slice(b"data");
+        out.extend_from_slice(&data_len.to_le_bytes());
+        for &s in samples {
+            out.extend_from_slice(&s.to_le_bytes());
+        }
+        let p = std::env::temp_dir().join(format!(
+            "es-trimtest-{name}-{}.wav",
+            std::process::id()
+        ));
+        std::fs::write(&p, &out).unwrap();
+        p
+    }
+
+    /// Read the `data`-chunk samples back out of a mono 16-bit WAV.
+    fn read_test_wav_samples(path: &Path) -> Vec<i16> {
+        let bytes = std::fs::read(path).unwrap();
+        let mut pos = 12;
+        loop {
+            let id = &bytes[pos..pos + 4];
+            let sz = u32::from_le_bytes(bytes[pos + 4..pos + 8].try_into().unwrap()) as usize;
+            if id == b"data" {
+                let off = pos + 8;
+                return bytes[off..off + sz]
+                    .chunks_exact(2)
+                    .map(|b| i16::from_le_bytes([b[0], b[1]]))
+                    .collect();
+            }
+            pos += 8 + sz + (sz & 1);
+        }
+    }
+
+    #[test]
+    fn trim_wav_full_range_equals_input() {
+        // 1000 samples @ 1000 Hz = exactly 1000 ms. Full-range copy is identity.
+        let samples: Vec<i16> = (0..1000).map(|i| (i % 100) as i16).collect();
+        let src = write_test_wav("full-in", 1000, &samples);
+        let dst = write_test_wav("full-out", 1000, &[]);
+        trim_wav_samples(&src, &dst, 0, 1000).unwrap();
+        assert_eq!(read_test_wav_samples(&dst), samples);
+        let _ = std::fs::remove_file(&src);
+        let _ = std::fs::remove_file(&dst);
+    }
+
+    #[test]
+    fn trim_wav_midrange_slice_length() {
+        // 1000 samples @ 1000 Hz. Slice [200ms, 700ms) → samples 200..700 = 500.
+        let samples: Vec<i16> = (0..1000).map(|i| i as i16).collect();
+        let src = write_test_wav("mid-in", 1000, &samples);
+        let dst = write_test_wav("mid-out", 1000, &[]);
+        trim_wav_samples(&src, &dst, 200, 700).unwrap();
+        let got = read_test_wav_samples(&dst);
+        assert_eq!(got.len(), 500);
+        assert_eq!(got[0], 200);
+        assert_eq!(got[499], 699);
+        let _ = std::fs::remove_file(&src);
+        let _ = std::fs::remove_file(&dst);
+    }
+
+    #[test]
+    fn trim_wav_start_beyond_data_errors() {
+        let samples: Vec<i16> = (0..500).map(|i| i as i16).collect(); // 500 ms
+        let src = write_test_wav("beyond-in", 1000, &samples);
+        let dst = write_test_wav("beyond-out", 1000, &[]);
+        // start_ms (600) is past the 500ms of data → empty range → error.
+        let err = trim_wav_samples(&src, &dst, 600, 900).unwrap_err();
+        assert!(err.contains("empty"), "got: {err}");
+        let _ = std::fs::remove_file(&src);
+        let _ = std::fs::remove_file(&dst);
+    }
+
+    #[test]
+    fn trim_wav_end_clamped_to_total() {
+        // end_ms past the clip is clamped to the data end, not an error.
+        let samples: Vec<i16> = (0..800).map(|i| i as i16).collect(); // 800 ms
+        let src = write_test_wav("clamp-in", 1000, &samples);
+        let dst = write_test_wav("clamp-out", 1000, &[]);
+        trim_wav_samples(&src, &dst, 300, 5000).unwrap();
+        let got = read_test_wav_samples(&dst);
+        assert_eq!(got.len(), 500); // 300..800
+        assert_eq!(got[0], 300);
+        let _ = std::fs::remove_file(&src);
+        let _ = std::fs::remove_file(&dst);
     }
 }

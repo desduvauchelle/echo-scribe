@@ -1220,16 +1220,24 @@ export const importEditorBackground = (
 ): Promise<string> =>
   invoke("import_editor_background", { id, srcPath });
 
-/** Persist a frontend-rendered MP4. The bytes ride as the raw IPC body (no
- *  JSON number-array copy); the id travels in the `x-recording-id` header —
- *  see the `save_rendered_recording` Rust command. Returns the updated row. */
-export const saveRenderedRecording = (
+/** Finalize an editor export: hand the frontend's video-only render bytes to
+ *  Rust, which muxes the recording's (trim-aligned) audio back in and writes
+ *  `<id>.rendered.mp4`. Bytes ride as the raw IPC body (no JSON number-array
+ *  copy); the id + optional trim window travel in headers. Pass
+ *  `trimStartMs`/`trimEndMs` (SOURCE-time ms) to align the soundtrack to a
+ *  trim, or omit both for full-length audio. Returns the updated row. */
+export const finalizeRenderedRecording = (
   id: string,
   bytes: Uint8Array,
-): Promise<RecordingRow> =>
-  invoke("save_rendered_recording", bytes, {
-    headers: { "x-recording-id": id },
-  });
+  trim?: { startMs: number; endMs: number } | null,
+): Promise<RecordingRow> => {
+  const headers: Record<string, string> = { "x-recording-id": id };
+  if (trim) {
+    headers["x-trim-start-ms"] = String(Math.round(trim.startMs));
+    headers["x-trim-end-ms"] = String(Math.round(trim.endMs));
+  }
+  return invoke("finalize_rendered_recording", bytes, { headers });
+};
 
 export type DriveStatus = {
   connected: boolean;

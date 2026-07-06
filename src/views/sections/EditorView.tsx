@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
-import { ArrowLeft, Loader, Pause, Play, RotateCcw } from "lucide-react";
+import { ArrowLeft, Download, FolderOpen, Loader, Pause, Play, RotateCcw } from "lucide-react";
 import { useToasts } from "../../components/ToastProvider";
 import {
   getRecordingProject,
   setRecordingProject,
   importEditorBackground,
+  readRecordingEvents,
+  finalizeRenderedRecording,
+  revealRecording,
   type RecordingRow,
 } from "../../lib/api";
 import {
@@ -20,6 +23,7 @@ import {
   CORNER_MAX,
   CORNER_MIN,
 } from "../../lib/editorProject";
+import { renderRecording, type RenderProgress } from "../../lib/render/renderPipeline";
 import { drawCompositeV2, type Appearance } from "../../lib/render/compositor";
 
 const SAVE_DEBOUNCE_MS = 500;
@@ -74,6 +78,14 @@ export function EditorView({
   const [duration, setDuration] = useState(0);
   const [current, setCurrent] = useState(0);
   const [importing, setImporting] = useState(false);
+  // Export state: `phase` is the render pipeline phase, or "finalizing" while
+  // the Rust command muxes audio, or null when idle.
+  const [exportPhase, setExportPhase] = useState<
+    RenderProgress["phase"] | "finalizing" | null
+  >(null);
+  const [exportPct, setExportPct] = useState(0);
+  // Path to the just-exported mp4 (for the Reveal-in-Finder affordance).
+  const [exportedRevealId, setExportedRevealId] = useState<string | null>(null);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -412,6 +424,86 @@ export function EditorView({
     }
   }, [recording.id, toasts]);
 
+  // ---- Export -------------------------------------------------------------
+  const exporting = exportPhase !== null;
+
+  const onExport = useCallback(async () => {
+    setExportPhase("decode");
+    setExportPct(0);
+    setExportedRevealId(null);
+    try {
+      // Snapshot the current project so mid-export slider moves don't affect
+      // the render.
+      const proj = projectRef.current;
+
+      // Events file drives auto-zoom; missing/unreadable is fine (no zoom).
+      let eventsJsonl: string | null = null;
+      if (recording.events_path) {
+        try {
+          eventsJsonl = await readRecordingEvents(recording.id);
+        } catch (e) {
+          console.warn("[export] no events; rendering without zoom", e);
+        }
+      }
+
+      // Decode the background image (if any) outside the pipeline so it stays
+      // testable and free of DOM-image I/O.
+      let bgImage: CanvasImageSource | null = null;
+      if (proj.appearance.background.type === "image") {
+        try {
+          bgImage = await loadImage(convertFileSrc(proj.appearance.background.path));
+        } catch (e) {
+          console.warn("[export] background image failed to load; using fallback", e);
+        }
+      }
+
+      const durationMs = Math.round((durationMsRef.current || duration * 1000) || 0);
+
+      const bytes = await renderRecording({
+        fileUrl: src,
+        eventsJsonl,
+        durationMs,
+        project: proj,
+        bgImage,
+        onProgress: (p) => {
+          setExportPhase(p.phase);
+          setExportPct(p.pct);
+        },
+      });
+
+      // Rust muxes the (trim-aligned) audio back in. The trim window is
+      // SOURCE-time ms; clamp against the real duration so the audio slice
+      // matches the frames the pipeline kept.
+      setExportPhase("finalizing");
+      setExportPct(100);
+      const clamped = clampTrim(proj.trim, durationMs);
+      await finalizeRenderedRecording(recording.id, bytes, clamped);
+
+      setExportedRevealId(recording.id);
+      toasts.push({ tone: "success", message: "Export complete." });
+    } catch (e) {
+      console.error("[export] failed", e);
+      toasts.push({
+        tone: "error",
+        message: "Export failed. See Settings → Diagnostics → logs for details.",
+      });
+    } finally {
+      setExportPhase(null);
+      setExportPct(0);
+    }
+  }, [recording.id, recording.events_path, src, duration, toasts]);
+
+  const exportLabel =
+    exportPhase === "decode"
+      ? "Decoding"
+      : exportPhase === "encode"
+        ? "Encoding"
+        : exportPhase === "mux"
+          ? "Finalizing video"
+          : exportPhase === "finalizing"
+            ? "Finalizing audio"
+            : null;
+
   const seg = (active: boolean) =>
     `flex-1 rounded-md border px-3 py-1.5 text-[12px] font-medium ${
       active ? "border-accent bg-accent/15 text-fg" : "border-line text-muted hover:bg-surface"
@@ -422,13 +514,34 @@ export function EditorView({
       <div className="mb-3 flex items-center gap-2">
         <button
           onClick={onBack}
-          className="flex items-center gap-1.5 rounded-md border border-line px-2.5 py-1.5 text-[13px] hover:bg-surface"
+          disabled={exporting}
+          className="flex items-center gap-1.5 rounded-md border border-line px-2.5 py-1.5 text-[13px] hover:bg-surface disabled:opacity-50"
         >
           <ArrowLeft size={15} /> Back
         </button>
         <h2 className="min-w-0 flex-1 truncate text-[15px] font-semibold">
           Edit · {recording.title?.trim() || recording.source_label || "Recording"}
         </h2>
+        {exportedRevealId && !exporting ? (
+          <button
+            onClick={() => void revealRecording(exportedRevealId)}
+            className="flex items-center gap-1.5 rounded-md border border-line px-2.5 py-1.5 text-[13px] hover:bg-surface"
+          >
+            <FolderOpen size={15} /> Reveal in Finder
+          </button>
+        ) : null}
+        <button
+          onClick={() => void onExport()}
+          disabled={exporting || !loaded}
+          className="flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-[13px] font-medium text-white disabled:opacity-50"
+        >
+          {exporting ? (
+            <Loader size={15} className="animate-spin" />
+          ) : (
+            <Download size={15} />
+          )}
+          {exporting ? `${exportLabel}… ${exportPct}%` : "Export"}
+        </button>
       </div>
 
       <div className="flex min-h-0 flex-1 gap-4">
