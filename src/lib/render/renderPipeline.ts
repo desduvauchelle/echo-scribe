@@ -19,9 +19,21 @@
 
 import { createFile, DataStream, MP4BoxBuffer, type Sample } from "mp4box";
 import { ArrayBufferTarget, Muxer } from "mp4-muxer";
-import { generateAutoZoom, parseEventsJsonl, type ZoomBlock } from "../autoZoom";
+import {
+  generateAutoZoom,
+  parseEventsJsonl,
+  type EventsHeader,
+  type ZoomBlock,
+} from "../autoZoom";
 import { clampTrim, type EditorProject } from "../editorProject";
-import { drawCompositeV2, zoomStateAt, type Appearance } from "./compositor";
+import {
+  cursorDrawScale,
+  cursorStateAt,
+  drawCompositeV2,
+  zoomStateAt,
+  type Appearance,
+  type CursorSample,
+} from "./compositor";
 
 export type RenderProgress = { phase: "decode" | "encode" | "mux"; pct: number };
 
@@ -269,15 +281,36 @@ export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8A
   // content it was computed for. So: trim-skip decisions and zoom lookup both
   // use `tMsSource`; only the *emitted* frame timestamp is re-anchored to t0.
   let zoomBlocks: ZoomBlock[] = [];
+  // Synthetic-cursor overlay data (Task 6): when the project has the cursor
+  // enabled AND the events parsed, keep the header + pre-split move/down
+  // samples so the per-frame draw below can look up the cursor state at each
+  // frame's SOURCE time (same source-time rule as the zoom lookup).
+  let cursorHeader: EventsHeader | null = null;
+  const cursorMoves: CursorSample[] = [];
+  const cursorDowns: CursorSample[] = [];
   if (eventsJsonl) {
     try {
       const { header, events } = parseEventsJsonl(eventsJsonl);
-      if (header) zoomBlocks = generateAutoZoom(header, events, durationMs);
+      if (header) {
+        zoomBlocks = generateAutoZoom(header, events, durationMs);
+        if (project.cursor.enabled) {
+          cursorHeader = header;
+          for (const e of events) {
+            if (e.k === "move") cursorMoves.push({ t: e.t, x: e.x, y: e.y });
+            else if (e.k === "down") cursorDowns.push({ t: e.t, x: e.x, y: e.y });
+          }
+        }
+      }
     } catch (e) {
       // Non-fatal: render without zoom rather than failing the whole export.
       console.warn("[render] auto-zoom generation failed; rendering without zoom", e);
     }
   }
+  const drawCursor = project.cursor.enabled && cursorHeader !== null && cursorMoves.length > 0;
+  const cursorScale = cursorDrawScale(
+    project.cursor.scale,
+    cursorHeader?.capture.px_scale ?? 1,
+  );
 
   // --- Demux ---
   const { chunks, decoderConfig, codedWidth, codedHeight } = await demux(srcBytes);
@@ -352,7 +385,12 @@ export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8A
           lastEmittedUs = frame.timestamp;
 
           const zoom = zoomBlocks.length ? zoomStateAt(tMsSource, zoomBlocks) : { cx: 0.5, cy: 0.5, scale: 1 };
-          // Overlays (cursor/webcam) are Tasks 6/8 — pass null for now.
+          // Synthetic cursor overlay, looked up at SOURCE time (same rule as
+          // zoom: trim re-anchoring must not shift the cursor track). Webcam
+          // overlay is Task 8 — still null.
+          const cursor = drawCursor
+            ? cursorStateAt(tMsSource, cursorMoves, cursorDowns, cursorHeader!)
+            : null;
           drawCompositeV2(
             ctx,
             frame,
@@ -362,8 +400,8 @@ export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8A
             outH,
             appearance,
             zoom,
-            { cursor: null, webcam: null },
-            project.cursor.scale,
+            { cursor, webcam: null },
+            cursorScale,
             bgImage,
           );
           frame.close();

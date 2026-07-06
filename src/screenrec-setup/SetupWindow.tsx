@@ -32,6 +32,10 @@ const SetupWindow: React.FC = () => {
   const [micDevice, setMicDevice] = useState("");
   const [inputDevices, setInputDevices] = useState<InputDevice[]>([]);
 
+  // Cursor state: hide the system cursor during capture so the editor can draw
+  // a synthetic (enlarged) cursor from the input-event track. Default OFF.
+  const [hideCursor, setHideCursor] = useState(false);
+
   const [starting, setStarting] = useState(false);
 
   useEffect(() => {
@@ -48,6 +52,7 @@ const SetupWindow: React.FC = () => {
         setInputDevices(devices);
         setSysaudio(prefs.sysaudio);
         setMicEnabled(prefs.mic_enabled);
+        setHideCursor(prefs.hide_cursor);
         // Use saved mic device, or fall back to first available device
         const savedDevice = prefs.mic_device;
         if (savedDevice) {
@@ -68,11 +73,12 @@ const SetupWindow: React.FC = () => {
     setStartError(null);
     setStarting(true);
     try {
-      // Persist audio prefs
+      // Persist audio + cursor prefs
       await setScreenrecAudioPrefs({
         sysaudio,
         mic_enabled: micEnabled,
         mic_device: micDevice,
+        hide_cursor: hideCursor,
       });
 
       // Build source label
@@ -91,6 +97,7 @@ const SetupWindow: React.FC = () => {
         mic_device: micEnabled && micDevice ? micDevice : null,
         sysaudio,
         source_label: sourceLabel,
+        hide_cursor: hideCursor,
       });
 
       await getCurrentWindow().hide();
@@ -263,6 +270,26 @@ const SetupWindow: React.FC = () => {
               )}
             </div>
           )}
+        </section>
+
+        {/* Cursor section */}
+        <section style={styles.section}>
+          <label style={styles.sectionLabel}>Cursor</label>
+          <label style={styles.toggleRow}>
+            <input
+              type="checkbox"
+              style={styles.checkbox}
+              checked={hideCursor}
+              onChange={(e) => setHideCursor(e.target.checked)}
+            />
+            <span style={styles.toggleLabel}>
+              Enhance cursor in editor (hides the system cursor while recording)
+            </span>
+          </label>
+          <p style={styles.hintText}>
+            Records without the system cursor so the editor can draw a larger,
+            stylized cursor with click effects.
+          </p>
         </section>
 
         {/* Inline error */}
@@ -473,6 +500,12 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: "12px",
     color: "var(--color-muted)",
     fontStyle: "italic",
+  },
+  hintText: {
+    margin: "2px 0 0 22px",
+    fontSize: "11px",
+    lineHeight: 1.4,
+    color: "var(--color-muted)",
   },
   loadingText: {
     margin: "auto",

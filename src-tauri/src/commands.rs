@@ -4174,6 +4174,11 @@ pub struct ScreenrecAudioPrefs {
     pub sysaudio: bool,
     pub mic_enabled: bool,
     pub mic_device: String,
+    // `#[serde(default)]` so prefs objects written before this field existed
+    // (and any partial payload from an older frontend) deserialize cleanly to
+    // `false` instead of erroring on the missing key.
+    #[serde(default)]
+    pub hide_cursor: bool,
 }
 
 #[tauri::command]
@@ -4184,6 +4189,7 @@ pub fn get_screenrec_audio_prefs(
         sysaudio: state.settings.screenrec_sysaudio(),
         mic_enabled: state.settings.screenrec_mic_enabled(),
         mic_device: state.settings.screenrec_mic_device(),
+        hide_cursor: state.settings.screenrec_hide_cursor(),
     })
 }
 
@@ -4203,6 +4209,10 @@ pub fn set_screenrec_audio_prefs(
     state
         .settings
         .set_screenrec_mic_device(prefs.mic_device)
+        .map_err(|e| e.to_string())?;
+    state
+        .settings
+        .set_screenrec_hide_cursor(prefs.hide_cursor)
         .map_err(|e| e.to_string())?;
     Ok(())
 }

@@ -53,6 +53,7 @@ const KEY_MEETING_SUMMARY_PROMPT: &str = "meeting_summary_prompt";
 const KEY_SCREENREC_SYSAUDIO: &str = "screenrec_sysaudio";
 const KEY_SCREENREC_MIC_ENABLED: &str = "screenrec_mic_enabled";
 const KEY_SCREENREC_MIC_DEVICE: &str = "screenrec_mic_device";
+const KEY_SCREENREC_HIDE_CURSOR: &str = "screenrec_hide_cursor";
 const KEY_DRIVE_CLIENT_ID: &str = "drive_client_id";
 const KEY_DRIVE_CLIENT_SECRET: &str = "drive_client_secret";
 const KEY_DRIVE_ACCOUNT_EMAIL: &str = "drive_account_email";
@@ -1065,6 +1066,25 @@ impl SettingsStore {
     pub fn set_screenrec_mic_device(&self, device: String) -> Result<(), SettingsError> {
         self.store
             .set(KEY_SCREENREC_MIC_DEVICE, serde_json::Value::String(device));
+        self.store
+            .save()
+            .map_err(|e| SettingsError::Store(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Whether to hide the system cursor during screen recordings (so the editor
+    /// can composite a synthetic cursor from the input-event track). Defaults to
+    /// `false` — recordings keep the real cursor unless the user opts in.
+    pub fn screenrec_hide_cursor(&self) -> bool {
+        self.store
+            .get(KEY_SCREENREC_HIDE_CURSOR)
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+    }
+
+    pub fn set_screenrec_hide_cursor(&self, on: bool) -> Result<(), SettingsError> {
+        self.store
+            .set(KEY_SCREENREC_HIDE_CURSOR, serde_json::Value::Bool(on));
         self.store
             .save()
             .map_err(|e| SettingsError::Store(e.to_string()))?;

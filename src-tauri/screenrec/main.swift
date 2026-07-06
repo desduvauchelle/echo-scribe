@@ -333,6 +333,7 @@ var argWindowID: UInt32?
 var argNoSysaudio: Bool = false
 var argMicUID: String?
 var argEventsPath: String?
+var argHideCursor: Bool = false
 do {
     let args = CommandLine.arguments
     var i = 1
@@ -343,6 +344,10 @@ do {
         else if args[i] == "--no-sysaudio" { argNoSysaudio = true }
         else if args[i] == "--mic", i + 1 < args.count { argMicUID = args[i + 1]; i += 1 }
         else if args[i] == "--events", i + 1 < args.count { argEventsPath = args[i + 1]; i += 1 }
+        // Hide the system cursor from the capture. Used by the editor's
+        // synthetic-cursor feature: the recording is captured cursor-free and a
+        // stylized cursor is composited from the input-event track instead.
+        else if args[i] == "--hide-cursor" { argHideCursor = true }
         i += 1
     }
 }
@@ -1055,6 +1060,7 @@ func run() async {
             "arg_window": argWindowID.map { Int($0) } as Any,
             "arg_display": argDisplayID.map { Int($0) } as Any,
             "no_sysaudio": argNoSysaudio, "mic": argMicUID ?? "",
+            "hide_cursor": argHideCursor,
             "n_windows": content.windows.count, "n_displays": content.displays.count,
         ])
 
@@ -1071,7 +1077,9 @@ func run() async {
         cfg.channelCount = 2
         cfg.minimumFrameInterval = CMTime(value: 1, timescale: 30) // 30 fps
         cfg.queueDepth = 6
-        cfg.showsCursor = true
+        // Show the system cursor by default; --hide-cursor suppresses it so the
+        // editor can composite a synthetic cursor from the input-event track.
+        cfg.showsCursor = !argHideCursor
         // Keep delivered frames pinned to cfg.width×cfg.height even if the source
         // window resizes mid-capture, so the fixed-size writer never gets an
         // off-size buffer. The per-frame dimension guard below is the backstop.

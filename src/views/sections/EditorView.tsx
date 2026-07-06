@@ -22,9 +22,19 @@ import {
   PADDING_MIN,
   CORNER_MAX,
   CORNER_MIN,
+  CURSOR_SCALE_MIN,
+  CURSOR_SCALE_MAX,
 } from "../../lib/editorProject";
 import { renderRecording, type RenderProgress } from "../../lib/render/renderPipeline";
-import { drawCompositeV2, type Appearance } from "../../lib/render/compositor";
+import {
+  cursorDrawScale,
+  cursorStateAt,
+  drawCompositeV2,
+  type Appearance,
+  type CursorSample,
+  type OverlayState,
+} from "../../lib/render/compositor";
+import { parseEventsJsonl, type EventsHeader } from "../../lib/autoZoom";
 
 const SAVE_DEBOUNCE_MS = 500;
 
@@ -106,6 +116,22 @@ export function EditorView({
 
   const src = convertFileSrc(recording.denoised_path ?? recording.file_path);
 
+  // Synthetic cursor is only available when the recording was captured with the
+  // system cursor hidden AND we have an input-event track to reconstruct it
+  // from. Otherwise the cursor section is disabled (the real cursor is already
+  // baked into the video, so drawing a second one would double it up).
+  const cursorAvailable = recording.cursor_hidden && !!recording.events_path;
+
+  // Parsed input-event data for the synthetic cursor, loaded once when the
+  // cursor section is available and enabled. Kept in refs so the rAF loop reads
+  // the latest without re-subscribing; `cursorHeaderRef` null = not yet loaded
+  // (or unavailable), which makes the overlay a no-op.
+  const cursorHeaderRef = useRef<EventsHeader | null>(null);
+  const cursorMovesRef = useRef<CursorSample[]>([]);
+  const cursorDownsRef = useRef<CursorSample[]>([]);
+  const cursorLoadedForRef = useRef<string | null>(null);
+  const [cursorEventsReady, setCursorEventsReady] = useState(false);
+
   // Load persisted project on open (tolerant parse → always valid). Reset
   // `loaded` up front whenever the recording changes so the debounced-save
   // effect below can't fire with stale project state from the previous
@@ -147,6 +173,56 @@ export function EditorView({
     };
   }, [bgPath]);
 
+  // Load + parse the input-event track once when the synthetic cursor becomes
+  // relevant (available AND enabled). Splitting moves/downs here keeps the rAF
+  // loop's per-frame work to a binary search. Guarded by `cursorLoadedForRef`
+  // so we fetch at most once per recording.
+  const cursorEnabled = project.cursor.enabled;
+  useEffect(() => {
+    if (!cursorAvailable || !cursorEnabled) return;
+    if (cursorLoadedForRef.current === recording.id) return;
+    cursorLoadedForRef.current = recording.id;
+    let cancelled = false;
+    void readRecordingEvents(recording.id)
+      .then((text) => {
+        if (cancelled) return;
+        const { header, events } = parseEventsJsonl(text);
+        if (!header) return;
+        const moves: CursorSample[] = [];
+        const downs: CursorSample[] = [];
+        for (const e of events) {
+          if (e.k === "move") moves.push({ t: e.t, x: e.x, y: e.y });
+          else if (e.k === "down") downs.push({ t: e.t, x: e.x, y: e.y });
+        }
+        cursorHeaderRef.current = header;
+        cursorMovesRef.current = moves;
+        cursorDownsRef.current = downs;
+        setCursorEventsReady(true);
+      })
+      .catch((e) => {
+        // Non-fatal: the preview just falls back to no synthetic cursor. Allow
+        // a retry on a later enable by clearing the guard.
+        cursorLoadedForRef.current = null;
+        console.warn("[editor] cursor events failed to load", e);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [cursorAvailable, cursorEnabled, recording.id]);
+
+  // Compute the synthetic-cursor overlay for a given SOURCE time (ms). Returns
+  // null unless the cursor is available, enabled, and the events are loaded.
+  const cursorOverlayAt = useCallback(
+    (tMsSource: number): OverlayState["cursor"] => {
+      const p = projectRef.current;
+      if (!p.cursor.enabled || !cursorAvailable) return null;
+      const header = cursorHeaderRef.current;
+      if (!header) return null;
+      return cursorStateAt(tMsSource, cursorMovesRef.current, cursorDownsRef.current, header);
+    },
+    [cursorAvailable],
+  );
+
   // rAF render loop: draw the current video frame through drawCompositeV2 at
   // whatever appearance is current. Runs whenever the video is playing OR when
   // a control changed while paused (we always request one more frame on state
@@ -168,6 +244,10 @@ export function EditorView({
       cornerRadius: p.appearance.cornerRadius,
       background: p.appearance.background,
     };
+    // The preview uses identity zoom (no auto-zoom applied live), so the source
+    // time driving the cursor is just the video's currentTime.
+    const cursor = cursorOverlayAt(video.currentTime * 1000);
+    const pxScale = cursorHeaderRef.current?.capture.px_scale ?? 1;
     drawCompositeV2(
       ctx,
       video,
@@ -177,11 +257,11 @@ export function EditorView({
       vh,
       appearance,
       { cx: 0.5, cy: 0.5, scale: 1 },
-      { cursor: null, webcam: null },
-      p.cursor.scale,
+      { cursor, webcam: null },
+      cursorDrawScale(p.cursor.scale, pxScale),
       bgImageRef.current,
     );
-  }, []);
+  }, [cursorOverlayAt]);
 
   // Drive continuous frames while playing. When a trim is set, playback is
   // clamped to [startMs, endMs]: reaching endMs pauses (no loop) rather than
@@ -212,12 +292,14 @@ export function EditorView({
   }, [playing, renderFrame]);
 
   // Re-render a single frame whenever appearance changes while paused (so slider
-  // moves show up immediately) or the background image finished loading.
+  // moves show up immediately), the background image finished loading, or the
+  // cursor event track just became ready (so the synthetic cursor appears
+  // without needing a scrub).
   useEffect(() => {
     if (playing) return;
     const id = requestAnimationFrame(renderFrame);
     return () => cancelAnimationFrame(id);
-  }, [project, playing, renderFrame, loaded]);
+  }, [project, playing, renderFrame, loaded, cursorEventsReady]);
 
   // Debounced persist on any project change (after the initial load). Plain
   // debounce semantics: the cleanup only clears the pending timer (it runs on
@@ -315,6 +397,12 @@ export function EditorView({
     setProject((p) => ({ ...p, appearance: { ...p.appearance, cornerRadius } }));
   const setBackground = (background: Background) =>
     setProject((p) => ({ ...p, appearance: { ...p.appearance, background } }));
+
+  // ---- Cursor updaters ----------------------------------------------------
+  const setCursorEnabled = (enabled: boolean) =>
+    setProject((p) => ({ ...p, cursor: { ...p.cursor, enabled } }));
+  const setCursorScale = (scale: number) =>
+    setProject((p) => ({ ...p, cursor: { ...p.cursor, scale } }));
 
   // ---- Trim ---------------------------------------------------------------
   // Effective trim window in ms — null means "full range" throughout.
@@ -433,8 +521,13 @@ export function EditorView({
     setExportedRevealId(null);
     try {
       // Snapshot the current project so mid-export slider moves don't affect
-      // the render.
-      const proj = projectRef.current;
+      // the render. Force-disable the synthetic cursor when the recording
+      // doesn't support it (real cursor baked in / no events) so a stale
+      // project flag can't double-draw a cursor at export.
+      const projSnapshot = projectRef.current;
+      const proj: EditorProject = cursorAvailable
+        ? projSnapshot
+        : { ...projSnapshot, cursor: { ...projSnapshot.cursor, enabled: false } };
 
       // Events file drives auto-zoom; missing/unreadable is fine (no zoom).
       let eventsJsonl: string | null = null;
@@ -491,7 +584,7 @@ export function EditorView({
       setExportPhase(null);
       setExportPct(0);
     }
-  }, [recording.id, recording.events_path, src, duration, toasts]);
+  }, [recording.id, recording.events_path, cursorAvailable, src, duration, toasts]);
 
   const exportLabel =
     exportPhase === "decode"
@@ -781,6 +874,53 @@ export function EditorView({
               </button>
             </div>
           ) : null}
+
+          {/* Cursor section: only actionable when the recording was captured
+              with the system cursor hidden AND has an event track. Otherwise
+              disabled with an explanatory tooltip (title). */}
+          <h3 className="mb-4 mt-6 border-t border-line pt-4 text-[13px] font-semibold">
+            Cursor
+          </h3>
+          <div
+            title={
+              cursorAvailable
+                ? undefined
+                : "Record with 'Enhance cursor' to enable"
+            }
+            className={cursorAvailable ? "" : "opacity-50"}
+          >
+            <label className="mb-3 flex cursor-pointer items-center gap-2 text-[13px]">
+              <input
+                type="checkbox"
+                checked={project.cursor.enabled}
+                disabled={!cursorAvailable}
+                onChange={(e) => setCursorEnabled(e.target.checked)}
+                className="accent-accent"
+              />
+              Show enhanced cursor
+            </label>
+            <label className="mb-1 flex items-center justify-between text-[12px] text-muted">
+              <span>Size</span>
+              <span className="tabular-nums text-fg">
+                ×{project.cursor.scale.toFixed(1)}
+              </span>
+            </label>
+            <input
+              type="range"
+              min={CURSOR_SCALE_MIN}
+              max={CURSOR_SCALE_MAX}
+              step={0.1}
+              value={project.cursor.scale}
+              disabled={!cursorAvailable || !project.cursor.enabled}
+              onChange={(e) => setCursorScale(Number(e.target.value))}
+              className="mb-2 w-full accent-accent disabled:opacity-50"
+            />
+            {!cursorAvailable ? (
+              <p className="text-[11px] leading-snug text-muted">
+                Record with &lsquo;Enhance cursor&rsquo; to enable
+              </p>
+            ) : null}
+          </div>
         </div>
       </div>
     </div>

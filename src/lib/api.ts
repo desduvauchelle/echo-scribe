@@ -1283,7 +1283,12 @@ export type Cameras = { cameras: CameraSource[] };
  *  rejection as "no cameras available", not a hard error. */
 export const listCameras = (): Promise<Cameras> => invoke("list_cameras");
 
-export type ScreenrecAudioPrefs = { sysaudio: boolean; mic_enabled: boolean; mic_device: string };
+export type ScreenrecAudioPrefs = {
+  sysaudio: boolean;
+  mic_enabled: boolean;
+  mic_device: string;
+  hide_cursor: boolean;
+};
 export const getScreenrecAudioPrefs = (): Promise<ScreenrecAudioPrefs> =>
   invoke("get_screenrec_audio_prefs");
 export const setScreenrecAudioPrefs = (prefs: ScreenrecAudioPrefs): Promise<void> =>
