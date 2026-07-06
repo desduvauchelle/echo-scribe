@@ -150,9 +150,7 @@ fn list_cameras_error(stderr: &str) -> String {
 /// Invoke the sidecar with `--list-cameras` and parse the result. On failure
 /// (non-zero exit, empty output, or unparseable JSON) the sidecar's stderr is
 /// captured and logged, and a friendly message is returned — never the raw
-/// serde/`EOF` parse error. NOTE: the sidecar does not implement
-/// `--list-cameras` yet (Task 7); until then this always returns the
-/// friendly error, which is expected.
+/// serde/`EOF` parse error.
 pub fn list_cameras() -> Result<Cameras, String> {
     let bin = resolve_binary().map_err(|e| e.to_string())?;
     let out = Command::new(&bin)
@@ -834,8 +832,8 @@ mod tests {
 
     #[test]
     fn list_cameras_error_generic_when_no_structured_error() {
-        // Expected until Task 7 ships --list-cameras: sidecar doesn't
-        // recognize the flag yet, so stderr is empty/generic.
+        // Empty stderr (helper died before emitting) -> generic message,
+        // never a raw serde/EOF error, and not the permission message.
         let msg = list_cameras_error("");
         assert!(msg.contains("See Settings → Diagnostics"), "got: {msg}");
         assert!(!msg.contains("Camera permission"), "got: {msg}");

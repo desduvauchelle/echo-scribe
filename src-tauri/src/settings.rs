@@ -54,6 +54,7 @@ const KEY_SCREENREC_SYSAUDIO: &str = "screenrec_sysaudio";
 const KEY_SCREENREC_MIC_ENABLED: &str = "screenrec_mic_enabled";
 const KEY_SCREENREC_MIC_DEVICE: &str = "screenrec_mic_device";
 const KEY_SCREENREC_HIDE_CURSOR: &str = "screenrec_hide_cursor";
+const KEY_SCREENREC_CAMERA_UID: &str = "screenrec_camera_uid";
 const KEY_DRIVE_CLIENT_ID: &str = "drive_client_id";
 const KEY_DRIVE_CLIENT_SECRET: &str = "drive_client_secret";
 const KEY_DRIVE_ACCOUNT_EMAIL: &str = "drive_account_email";
@@ -1085,6 +1086,25 @@ impl SettingsStore {
     pub fn set_screenrec_hide_cursor(&self, on: bool) -> Result<(), SettingsError> {
         self.store
             .set(KEY_SCREENREC_HIDE_CURSOR, serde_json::Value::Bool(on));
+        self.store
+            .save()
+            .map_err(|e| SettingsError::Store(e.to_string()))?;
+        Ok(())
+    }
+
+    /// UID of the camera to record alongside screen recordings, or empty string
+    /// when webcam recording is disabled. Mirrors `screenrec_mic_device`: the
+    /// stored value is a plain device UID string, and empty means "off".
+    pub fn screenrec_camera_uid(&self) -> String {
+        self.store
+            .get(KEY_SCREENREC_CAMERA_UID)
+            .and_then(|v| v.as_str().map(String::from))
+            .unwrap_or_default()
+    }
+
+    pub fn set_screenrec_camera_uid(&self, uid: String) -> Result<(), SettingsError> {
+        self.store
+            .set(KEY_SCREENREC_CAMERA_UID, serde_json::Value::String(uid));
         self.store
             .save()
             .map_err(|e| SettingsError::Store(e.to_string()))?;

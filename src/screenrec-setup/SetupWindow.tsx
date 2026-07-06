@@ -4,12 +4,14 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import {
   listScreenSources,
   listInputDevices,
+  listCameras,
   getScreenrecAudioPrefs,
   setScreenrecAudioPrefs,
   startScreenRecording,
   type DisplaySource,
   type WindowSource,
   type InputDevice,
+  type CameraSource,
 } from "../lib/api";
 
 type SourceKind = "screen" | "window";
@@ -36,6 +38,16 @@ const SetupWindow: React.FC = () => {
   // a synthetic (enlarged) cursor from the input-event track. Default OFF.
   const [hideCursor, setHideCursor] = useState(false);
 
+  // Camera state: record a webcam alongside the capture. Enabled = a device
+  // uid is selected (the persisted pref is the uid itself; "" = off). Camera
+  // enumeration can fail independently (e.g. camera permission) without
+  // breaking the rest of the setup window — the error renders inline and the
+  // checkbox stays disabled.
+  const [cameraEnabled, setCameraEnabled] = useState(false);
+  const [cameraUid, setCameraUid] = useState("");
+  const [cameras, setCameras] = useState<CameraSource[]>([]);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+
   const [starting, setStarting] = useState(false);
 
   useEffect(() => {
@@ -60,25 +72,47 @@ const SetupWindow: React.FC = () => {
         } else if (devices.length > 0) {
           setMicDevice(devices[0].name);
         }
+        // Saved camera uid = camera was on last time. The device select
+        // falls back to the first listed camera if the saved one is gone.
+        if (prefs.camera_uid) {
+          setCameraEnabled(true);
+          setCameraUid(prefs.camera_uid);
+        }
       })
       .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
+
+    // Cameras load separately: a rejection (permission / helper failure) must
+    // not take down the whole setup window. The rejection is already a
+    // friendly message from the Rust side.
+    listCameras()
+      .then((c) => setCameras(c.cameras))
+      .catch((e) => setCameraError(String(e)));
   }, []);
 
   const handleCancel = async () => {
     await getCurrentWindow().hide();
   };
 
+  // The uid actually recorded with: only when the camera is enabled AND the
+  // selected (or first available) device exists in the current list.
+  const effectiveCameraUid = (() => {
+    if (!cameraEnabled || cameras.length === 0) return "";
+    if (cameras.some((c) => c.uid === cameraUid)) return cameraUid;
+    return cameras[0].uid;
+  })();
+
   const handleStart = async () => {
     setStartError(null);
     setStarting(true);
     try {
-      // Persist audio + cursor prefs
+      // Persist audio + cursor + camera prefs ("" = camera off)
       await setScreenrecAudioPrefs({
         sysaudio,
         mic_enabled: micEnabled,
         mic_device: micDevice,
         hide_cursor: hideCursor,
+        camera_uid: effectiveCameraUid,
       });
 
       // Build source label
@@ -98,6 +132,7 @@ const SetupWindow: React.FC = () => {
         sysaudio,
         source_label: sourceLabel,
         hide_cursor: hideCursor,
+        camera_uid: effectiveCameraUid || null,
       });
 
       await getCurrentWindow().hide();
@@ -292,6 +327,59 @@ const SetupWindow: React.FC = () => {
           </p>
         </section>
 
+        {/* Camera section */}
+        <section style={styles.section}>
+          <label style={styles.sectionLabel}>Camera</label>
+          <label
+            style={{
+              ...styles.toggleRow,
+              ...(cameraError || cameras.length === 0
+                ? styles.toggleRowDisabled
+                : {}),
+            }}
+          >
+            <input
+              type="checkbox"
+              style={styles.checkbox}
+              checked={cameraEnabled}
+              disabled={cameraError !== null || cameras.length === 0}
+              onChange={(e) => {
+                setCameraEnabled(e.target.checked);
+                // First enable with nothing selected: default to first camera.
+                if (e.target.checked && !cameraUid && cameras.length > 0) {
+                  setCameraUid(cameras[0].uid);
+                }
+              }}
+            />
+            <span style={styles.toggleLabel}>
+              Record webcam (shown as an overlay in the editor)
+            </span>
+          </label>
+
+          {/* Friendly camera-listing error, inline like the sources error */}
+          {cameraError && <p style={styles.errorText}>{cameraError}</p>}
+          {!cameraError && cameras.length === 0 && (
+            <p style={styles.emptyText}>No cameras found</p>
+          )}
+
+          {/* Camera device select (only when enabled) */}
+          {cameraEnabled && !cameraError && cameras.length > 0 && (
+            <div style={styles.micSelectWrapper}>
+              <select
+                style={styles.select}
+                value={effectiveCameraUid}
+                onChange={(e) => setCameraUid(e.target.value)}
+              >
+                {cameras.map((c) => (
+                  <option key={c.uid} value={c.uid}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+        </section>
+
         {/* Inline error */}
         {startError && (
           <p style={styles.errorText}>{startError}</p>
@@ -479,6 +567,10 @@ const styles: Record<string, React.CSSProperties> = {
     cursor: "pointer",
     userSelect: "none",
     marginBottom: "4px",
+  },
+  toggleRowDisabled: {
+    opacity: 0.45,
+    cursor: "not-allowed",
   },
   checkbox: {
     accentColor: "var(--color-accent)",

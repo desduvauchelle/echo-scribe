@@ -4161,9 +4161,9 @@ pub fn list_screen_sources() -> Result<crate::screenrec::Sources, String> {
     crate::screenrec::list_sources()
 }
 
-/// List available cameras for webcam recording. NOTE: the sidecar does not
-/// implement `--list-cameras` yet (Task 7) — until then this always returns
-/// the friendly error from `list_cameras_error`, which is expected.
+/// List available cameras for webcam recording via the sidecar's
+/// `--list-cameras`. On failure returns the friendly message from
+/// `list_cameras_error` (raw detail is logged).
 #[tauri::command]
 pub fn list_cameras() -> Result<crate::screenrec::Cameras, String> {
     crate::screenrec::list_cameras()
@@ -4179,6 +4179,10 @@ pub struct ScreenrecAudioPrefs {
     // `false` instead of erroring on the missing key.
     #[serde(default)]
     pub hide_cursor: bool,
+    // UID of the selected webcam, or empty string when webcam recording is off.
+    // `#[serde(default)]` for the same forward/backward-compat reason as above.
+    #[serde(default)]
+    pub camera_uid: String,
 }
 
 #[tauri::command]
@@ -4190,6 +4194,7 @@ pub fn get_screenrec_audio_prefs(
         mic_enabled: state.settings.screenrec_mic_enabled(),
         mic_device: state.settings.screenrec_mic_device(),
         hide_cursor: state.settings.screenrec_hide_cursor(),
+        camera_uid: state.settings.screenrec_camera_uid(),
     })
 }
 
@@ -4213,6 +4218,10 @@ pub fn set_screenrec_audio_prefs(
     state
         .settings
         .set_screenrec_hide_cursor(prefs.hide_cursor)
+        .map_err(|e| e.to_string())?;
+    state
+        .settings
+        .set_screenrec_camera_uid(prefs.camera_uid)
         .map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -4526,6 +4535,34 @@ mod tests {
         assert_eq!(key_from_code(""), None);
         assert_eq!(key_from_code("NotARealCode"), None);
         assert_eq!(key_from_code("F30"), None);
+    }
+
+    #[test]
+    fn screenrec_audio_prefs_serde_defaults() {
+        // A prefs blob written before camera_uid/hide_cursor existed must still
+        // deserialize cleanly (both #[serde(default)]) so upgrading users don't
+        // hit an error on the missing keys.
+        let old = r#"{"sysaudio":true,"mic_enabled":false,"mic_device":"Mic X"}"#;
+        let prefs: ScreenrecAudioPrefs = serde_json::from_str(old).expect("old prefs deserialize");
+        assert!(prefs.sysaudio);
+        assert!(!prefs.mic_enabled);
+        assert_eq!(prefs.mic_device, "Mic X");
+        assert!(!prefs.hide_cursor);
+        assert_eq!(prefs.camera_uid, "");
+
+        // Full round-trip with camera_uid set survives serialize -> deserialize.
+        let full = ScreenrecAudioPrefs {
+            sysaudio: false,
+            mic_enabled: true,
+            mic_device: "Mic Y".into(),
+            hide_cursor: true,
+            camera_uid: "cam-uid-123".into(),
+        };
+        let json = serde_json::to_string(&full).unwrap();
+        let back: ScreenrecAudioPrefs = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.camera_uid, "cam-uid-123");
+        assert!(back.hide_cursor);
+        assert_eq!(back.mic_device, "Mic Y");
     }
 
     #[test]

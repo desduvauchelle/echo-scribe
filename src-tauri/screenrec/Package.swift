@@ -8,7 +8,7 @@ let package = Package(
         .executableTarget(
             name: "echo-scribe-screenrec",
             path: ".",
-            sources: ["main.swift", "InputEvents.swift"]
+            sources: ["main.swift", "InputEvents.swift", "Webcam.swift"]
         )
     ]
 )

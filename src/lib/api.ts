@@ -1279,8 +1279,9 @@ export const listScreenSources = (): Promise<ScreenSources> =>
 
 export type CameraSource = { uid: string; name: string };
 export type Cameras = { cameras: CameraSource[] };
-/** Rejects until the sidecar ships `--list-cameras` (Task 7) — treat a
- *  rejection as "no cameras available", not a hard error. */
+/** Enumerate webcams via the sidecar's `--list-cameras`. Rejects with a
+ *  friendly message on failure — treat a rejection as "no cameras available",
+ *  not a hard error. */
 export const listCameras = (): Promise<Cameras> => invoke("list_cameras");
 
 export type ScreenrecAudioPrefs = {
@@ -1288,6 +1289,8 @@ export type ScreenrecAudioPrefs = {
   mic_enabled: boolean;
   mic_device: string;
   hide_cursor: boolean;
+  /** UID of the webcam to record alongside the capture; "" = webcam off. */
+  camera_uid: string;
 };
 export const getScreenrecAudioPrefs = (): Promise<ScreenrecAudioPrefs> =>
   invoke("get_screenrec_audio_prefs");

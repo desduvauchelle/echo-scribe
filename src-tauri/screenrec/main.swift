@@ -100,6 +100,35 @@ if CommandLine.arguments.contains("--list-sources") {
     }
 }
 
+// --- mode: `--list-cameras` ---
+// Enumerate video-capture devices for the webcam picker. Enumeration itself does
+// NOT require the Camera TCC grant (that's only needed to actually open a
+// device for capture), so this succeeds even before the user has approved the
+// prompt. We still degrade cleanly if the discovery API throws.
+if CommandLine.arguments.contains("--list-cameras") {
+    if #available(macOS 14.0, *) {
+        // .builtInWideAngleCamera: 10.15+, .external: 14.0+, .continuityCamera: 14.0+
+        // (iPhone-as-webcam). All valid on the macOS 14 floor.
+        let discovery = AVCaptureDevice.DiscoverySession(
+            deviceTypes: [.builtInWideAngleCamera, .external, .continuityCamera],
+            mediaType: .video,
+            position: .unspecified
+        )
+        var cameras: [[String: Any]] = []
+        for d in discovery.devices {
+            cameras.append(["uid": d.uniqueID, "name": d.localizedName])
+        }
+        let out: [String: Any] = ["cameras": cameras]
+        guard let data = try? JSONSerialization.data(withJSONObject: out) else {
+            emitFatal("list_cameras", "failed to serialize camera list")
+        }
+        FileHandle.standardOutput.write(data)
+        exit(0)
+    } else {
+        emitFatal("os", "macOS 14+ required")
+    }
+}
+
 // --- mode: `extract-audio --in <mp4> --out <wav>` ---
 func emitError(kind: String, msg: String) {
     emit(["event": "error", "kind": kind, "msg": msg])
@@ -334,6 +363,7 @@ var argNoSysaudio: Bool = false
 var argMicUID: String?
 var argEventsPath: String?
 var argHideCursor: Bool = false
+var argCameraUID: String?
 do {
     let args = CommandLine.arguments
     var i = 1
@@ -348,6 +378,10 @@ do {
         // synthetic-cursor feature: the recording is captured cursor-free and a
         // stylized cursor is composited from the input-event track instead.
         else if args[i] == "--hide-cursor" { argHideCursor = true }
+        // Record a webcam alongside the main capture to `<out-stem>.webcam.mp4`.
+        // Video-only (mic is already in the main mix); failures degrade to a
+        // warn event and the recording continues without a webcam file.
+        else if args[i] == "--camera", i + 1 < args.count { argCameraUID = args[i + 1]; i += 1 }
         i += 1
     }
 }
@@ -433,6 +467,13 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, AVCaptureAudio
     // are ms offsets from the first appended video frame's PTS, so they align
     // with video time exactly. Nil when --events was not passed.
     var events: InputEventRecorder?
+
+    // --- webcam capture (Task 7) ---
+    // Records a standalone video-only webcam file alongside the main capture.
+    // Its own AVCaptureSession + host-clock offset; nil when --camera was not
+    // passed or the device couldn't be opened (degraded gracefully). Runs
+    // independently of stateQ so it can never stall the main video/audio path.
+    var webcam: WebcamRecorder?
 
     // Diagnostic counters for the new audio paths.
     var sysFramesIn = 0
@@ -600,6 +641,8 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, AVCaptureAudio
                 // Anchor input-event timestamps to the first video frame's PTS
                 // (same host clock family as the SCStream sample-buffer PTS).
                 events?.markFirstFrame(ptsSeconds: CMTimeGetSeconds(pts))
+                // Same anchor for the webcam offset: firstMainFrameHostSeconds.
+                webcam?.markMainFirstFrame(ptsSeconds: CMTimeGetSeconds(pts))
             }
             lastPTS = pts
             switch type {
@@ -696,6 +739,12 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, AVCaptureAudio
         // no-frames path and the normal path) can report the same result.
         let ev = events?.finish()
 
+        // Stop the webcam + wait (bounded) for its file to finalize. Done once
+        // here so both stopped-event paths report the same webcam/offset. When
+        // no webcam was configured this is ("", 0) and both fields are emitted
+        // as empty/zero (Rust treats ""→None and omitted→None identically).
+        let wc: (path: String, offsetMs: Int) = webcam?.finalize() ?? (path: "", offsetMs: 0)
+
         let (started, lpts, spts) = stateQ.sync { (sessionStarted, lastPTS, startPTS) }
 
         // No frames were ever written (e.g. permission denied before first
@@ -713,6 +762,8 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, AVCaptureAudio
                 "events": ev?.path ?? "",
                 "n_events": ev?.nEvents ?? 0,
                 "n_clicks": ev?.nClicks ?? 0,
+                "webcam": wc.path,
+                "webcam_offset_ms": wc.offsetMs,
             ])
             exit(exitCode)
         }
@@ -761,6 +812,8 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, AVCaptureAudio
                 "events": ev?.path ?? "",
                 "n_events": ev?.nEvents ?? 0,
                 "n_clicks": ev?.nClicks ?? 0,
+                "webcam": wc.path,
+                "webcam_offset_ms": wc.offsetMs,
             ])
             exit(exitCode)
         }
@@ -1060,7 +1113,7 @@ func run() async {
             "arg_window": argWindowID.map { Int($0) } as Any,
             "arg_display": argDisplayID.map { Int($0) } as Any,
             "no_sysaudio": argNoSysaudio, "mic": argMicUID ?? "",
-            "hide_cursor": argHideCursor,
+            "hide_cursor": argHideCursor, "camera": argCameraUID ?? "",
             "n_windows": content.windows.count, "n_displays": content.displays.count,
         ])
 
@@ -1173,6 +1226,20 @@ func run() async {
             )
             evRec.start()
             rec.events = evRec
+        }
+
+        // Webcam capture (Task 7). When --camera is set, record a standalone
+        // video-only webcam file to `<out-stem>.webcam.mp4`. Started BEFORE the
+        // SCStream capture so the webcam is already rolling when the first main
+        // frame lands (the offset is computed against that first frame). If the
+        // device can't be opened WebcamRecorder returns nil (a warn was already
+        // emitted) and we record with no webcam — never failing the recording.
+        if let cameraUID = argCameraUID {
+            let webcamURL = outURL.deletingPathExtension().appendingPathExtension("webcam.mp4")
+            if let wc = WebcamRecorder(webcamURL: webcamURL, uid: cameraUID) {
+                wc.start()
+                rec.webcam = wc
+            }
         }
 
         let stream = SCStream(filter: filter, configuration: cfg, delegate: rec)
