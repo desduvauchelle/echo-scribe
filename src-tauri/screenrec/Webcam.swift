@@ -19,22 +19,48 @@ import CoreMedia
 ///     which is also host-clock-based — the same family the input-event
 ///     recorder anchors to.
 ///
-/// Threading: `didStartRecordingTo` and `didFinishRecordingTo` arrive on the
-/// delegate queue we create below. `firstMainFramePTS` is written once from the
-/// main Recorder's stateQ. A dedicated lock (`stateLock`) guards every shared
+/// Threading: `AVCaptureMovieFileOutput` has no API to pin its recording
+/// delegate to a queue we choose — `didStartRecordingTo`/`didFinishRecordingTo`
+/// arrive wherever AVFoundation decides to deliver them. We established
+/// empirically (small standalone harnesses against the real camera + SDK, not
+/// just reading docs) that `didFinishRecordingTo` fires synchronously, inline,
+/// on whatever thread calls `stopRecording()` — so the delegate callback runs
+/// on the SAME thread that's about to block waiting for it. `finalize()` can
+/// itself be invoked from the sidecar's main queue (SIGTERM handler,
+/// `didStopWithError`), so calling `stopRecording()` + `finishSem.wait()`
+/// straight off the caller's thread risks a main-thread self-deadlock if that
+/// caller is main.
+///
+/// Naively hopping to a dedicated queue via `finalizeQ.sync { … }` does NOT
+/// fix this: GCD is free to (and empirically does, verified with a standalone
+/// harness) run a `sync` block inline on the calling thread when the target
+/// queue is otherwise idle, so `stopRecording()` would still execute on main.
+/// The fix that actually forces the call off the caller's thread is
+/// `finalizeQ.async { … }` paired with a plain `DispatchSemaphore.wait()` on
+/// the caller side: `async` is verified (same harness) to always run on a
+/// separate GCD worker thread, and blocking the caller on an *outer* semaphore
+/// (signalled once the async block finishes) never requires the caller's own
+/// thread to execute anything, so it's safe to park regardless of which
+/// thread that is. `firstMainFramePTS` is written once from the main
+/// Recorder's stateQ. A dedicated lock (`stateLock`) guards every shared
 /// scalar so the offset read at finalize can't race the delegate callbacks.
 /// The design is intentionally isolated from the Recorder's `stateQ` so the
 /// webcam can never stall or deadlock the main video/audio path.
 @available(macOS 14.0, *)
 final class WebcamRecorder: NSObject, AVCaptureFileOutputRecordingDelegate {
     let webcamURL: URL
-    private let requestedUID: String
 
     private let session = AVCaptureSession()
     private let movieOutput = AVCaptureMovieFileOutput()
 
-    // AVCaptureFileOutput delivers its recording-delegate callbacks on an
-    // internal queue; stateLock makes the handoff to finalize() safe.
+    // Dedicated serial queue that owns stopRecording() + the bounded finish
+    // wait in finalize(), so that work never runs on the caller's thread (which
+    // may be the sidecar's main queue — see the threading note above).
+    private let finalizeQ = DispatchQueue(label: "webcam-finalize")
+
+    // AVCaptureFileOutput delivers its recording-delegate callbacks on
+    // whatever thread called start/stopRecording; stateLock makes the handoff
+    // to finalize() safe regardless.
     private let stateLock = NSLock()
     // Host-clock seconds when the movie file actually began recording.
     private var webcamStartHostSeconds: Double?
@@ -50,7 +76,6 @@ final class WebcamRecorder: NSObject, AVCaptureFileOutputRecordingDelegate {
     /// callers then proceed WITHOUT a webcam so the recording never breaks.
     init?(webcamURL: URL, uid: String) {
         self.webcamURL = webcamURL
-        self.requestedUID = uid
         super.init()
 
         // Match the camera by uniqueID (what --list-cameras emits). Fall back to
@@ -156,6 +181,14 @@ final class WebcamRecorder: NSObject, AVCaptureFileOutputRecordingDelegate {
     /// `offsetMs` is 0 when the timing couldn't be determined. Never hangs: the
     /// finish wait is capped at ~3s, after which we report the file anyway if it
     /// exists on disk.
+    ///
+    /// Callers may invoke this from any thread, including the sidecar's main
+    /// queue (SIGTERM handler / `didStopWithError` both do). `stopRecording()`
+    /// and the bounded `finishSem.wait()` run inside a `finalizeQ.async` block
+    /// (never `.sync` — see the threading note atop this file for why `.sync`
+    /// doesn't guarantee a thread hop). The caller here blocks on a separate
+    /// `doneSem`, which is just a park-and-wait: it needs no thread of its own
+    /// to make progress, so it's safe to block on from main.
     func finalize() -> (path: String, offsetMs: Int) {
         let wasStarted: Bool = {
             stateLock.lock(); defer { stateLock.unlock() }
@@ -163,12 +196,23 @@ final class WebcamRecorder: NSObject, AVCaptureFileOutputRecordingDelegate {
         }()
         guard wasStarted else { return ("", 0) }
 
-        if movieOutput.isRecording {
-            movieOutput.stopRecording()
-            // Bounded wait for didFinishRecordingTo. If it times out we still
-            // report the file if it landed on disk.
-            _ = finishSem.wait(timeout: .now() + 3.0)
+        let doneSem = DispatchSemaphore(value: 0)
+        finalizeQ.async { [self] in
+            if movieOutput.isRecording {
+                movieOutput.stopRecording()
+                // Bounded wait for didFinishRecordingTo. If it times out we
+                // still report the file if it landed on disk. This wait
+                // always executes on a finalizeQ worker thread (never the
+                // original caller's thread — see the threading note above).
+                _ = finishSem.wait(timeout: .now() + 3.0)
+            }
+            doneSem.signal()
         }
+        // Bounded from this side too, defensively: finalizeQ's own wait is
+        // already capped at 3s, so this should return almost immediately
+        // after it does. The extra margin only guards against the
+        // (never-observed) case of async dispatch itself stalling.
+        _ = doneSem.wait(timeout: .now() + 4.0)
         session.stopRunning()
 
         let (startHost, mainPTS, finished): (Double?, Double?, Bool) = {
