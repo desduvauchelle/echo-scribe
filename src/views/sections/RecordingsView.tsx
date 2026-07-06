@@ -617,7 +617,7 @@ export function RecordingsView() {
 
         <div className="flex flex-1 flex-col overflow-y-auto p-6">
           {selected && mode === "edit" ? (
-            <EditorView recording={selected} onBack={() => setMode("detail")} />
+            <EditorView key={selected.id} recording={selected} onBack={() => setMode("detail")} />
           ) : selected ? (
             <>
               {renaming ? (

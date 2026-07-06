@@ -3878,7 +3878,16 @@ fn editor_bg_extension(src_path: &str) -> Result<String, String> {
 /// Validates the source exists, is a file, and has an allowed extension.
 /// Returns the absolute destination path. Friendly errors; full detail logged.
 #[tauri::command]
-pub fn import_editor_background(id: String, src_path: String) -> Result<String, String> {
+pub fn import_editor_background(
+    state: State<'_, AppState>,
+    id: String,
+    src_path: String,
+) -> Result<String, String> {
+    let db = require_db(&state)?;
+    db.with_conn(|c| crate::db::recordings::get(c, &id))
+        .map_err(|e| e.to_string())?
+        .ok_or("recording not found")?;
+
     let ext = editor_bg_extension(&src_path).map_err(|e| {
         error!(target: "screenrec", rec = %id, path = %src_path, error = %e, "import_editor_background: bad extension");
         e

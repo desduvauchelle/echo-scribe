@@ -74,9 +74,14 @@ export function EditorView({
 
   const src = convertFileSrc(recording.denoised_path ?? recording.file_path);
 
-  // Load persisted project on open (tolerant parse → always valid).
+  // Load persisted project on open (tolerant parse → always valid). Reset
+  // `loaded` up front whenever the recording changes so the debounced-save
+  // effect below can't fire with stale project state from the previous
+  // recording before this load resolves (belt-and-suspenders alongside the
+  // `key={recording.id}` remount in RecordingsView).
   useEffect(() => {
     let cancelled = false;
+    setLoaded(false);
     void getRecordingProject(recording.id).then((json) => {
       if (cancelled) return;
       setProject(parseProject(json));
@@ -181,7 +186,23 @@ export function EditorView({
       });
     }, SAVE_DEBOUNCE_MS);
     return () => {
-      if (saveTimer.current !== null) window.clearTimeout(saveTimer.current);
+      if (saveTimer.current !== null) {
+        // A save was pending — clearing the timer means it will never fire,
+        // so flush the latest project synchronously (fire-and-forget) instead
+        // of losing the edit. `loaded` gates this so an unmount before the
+        // initial load ever resolved can't write defaults over a real saved
+        // project. Clearing the timer first also means this can't double-save
+        // once the remount from Finding 2 (key={recording.id}) creates a
+        // fresh EditorView instance.
+        window.clearTimeout(saveTimer.current);
+        saveTimer.current = null;
+        void setRecordingProject(recording.id, JSON.stringify(projectRef.current)).catch(() => {
+          toasts.push({
+            tone: "error",
+            message: "Couldn't save editor settings. See Settings → Diagnostics → logs.",
+          });
+        });
+      }
     };
   }, [project, loaded, recording.id, toasts]);
 
