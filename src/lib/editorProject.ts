@@ -7,6 +7,8 @@
 // `EditorProject` by merging known-good fields onto `defaultProject()`. It
 // never throws — the editor must always have something sane to render.
 
+import type { ZoomBlock } from "./autoZoom";
+
 export type Background =
   | { type: "solid"; color: string }
   | { type: "gradient"; from: string; to: string }
@@ -18,6 +20,23 @@ export type WebcamSettings = {
   corner: "br" | "bl" | "tr" | "tl";
   sizeFrac: number; // 0.1..0.35 of output width
 };
+
+/** Zoom mode: "auto" derives blocks from recorded clicks at render time
+ *  (blocks stays null); "custom" holds hand-edited/materialized blocks;
+ *  "off" disables zoom entirely (blocks stays null). */
+export type ZoomMode = "auto" | "custom" | "off";
+
+export type ZoomSettings = {
+  mode: ZoomMode;
+  blocks: ZoomBlock[] | null; // non-null only when mode === "custom"
+};
+
+/** A speed-ramp segment over source (pre-speed) time. Non-overlapping;
+ *  rate clamped to [0.5, 4] in 0.25 steps by the editor UI (clampSpeedRanges
+ *  enforces the bound; step granularity is a UI concern only). */
+export type SpeedRange = { startMs: number; endMs: number; rate: number };
+
+export type KeystrokeSettings = { enabled: boolean; allKeys: boolean };
 
 /** Output canvas aspect-ratio preset. `auto` = the canvas is exactly the frame
  *  plus padding (the legacy look); the fixed presets wrap that in a canvas of
@@ -38,6 +57,9 @@ export type EditorProject = {
   };
   cursor: { enabled: boolean; scale: number }; // scale 1..3
   webcam: WebcamSettings | null; // null when recording has no webcam file
+  zoom: ZoomSettings;
+  speed: SpeedRange[];
+  keystrokes: KeystrokeSettings;
 };
 
 // Bounds shared with the UI sliders and the compositor.
@@ -49,6 +71,10 @@ export const CURSOR_SCALE_MIN = 1;
 export const CURSOR_SCALE_MAX = 3;
 export const WEBCAM_SIZE_MIN = 0.1;
 export const WEBCAM_SIZE_MAX = 0.35;
+export const SPEED_RATE_MIN = 0.5;
+export const SPEED_RATE_MAX = 4;
+
+const ZOOM_MODE_VALUES: readonly ZoomMode[] = ["auto", "custom", "off"];
 
 /** The default appearance — matches the hard-coded M1 render look so the editor
  *  opens on the same visual an un-edited recording would render with. */
@@ -64,6 +90,9 @@ export function defaultProject(): EditorProject {
     },
     cursor: { enabled: false, scale: 1.5 },
     webcam: null,
+    zoom: { mode: "auto", blocks: null },
+    speed: [],
+    keystrokes: { enabled: false, allKeys: false },
   };
 }
 
@@ -147,6 +176,79 @@ function parseWebcam(v: unknown, fallback: WebcamSettings | null): WebcamSetting
   };
 }
 
+/** A known zoom mode, else "auto" (tolerant: unknown strings, non-strings,
+ *  and missing all resolve to auto — same pattern as parseAspect). */
+function parseZoomMode(v: unknown): ZoomMode {
+  return typeof v === "string" && (ZOOM_MODE_VALUES as readonly string[]).includes(v)
+    ? (v as ZoomMode)
+    : "auto";
+}
+
+/** Shape-checks a single persisted zoom block. Doesn't validate id — a
+ *  missing id is legal (fresh auto blocks don't have one yet). */
+function isValidZoomBlock(v: unknown): v is ZoomBlock {
+  if (!isObject(v)) return false;
+  return (
+    typeof v.startMs === "number" &&
+    Number.isFinite(v.startMs) &&
+    typeof v.endMs === "number" &&
+    Number.isFinite(v.endMs) &&
+    typeof v.cx === "number" &&
+    Number.isFinite(v.cx) &&
+    typeof v.cy === "number" &&
+    Number.isFinite(v.cy) &&
+    typeof v.scale === "number" &&
+    Number.isFinite(v.scale) &&
+    (v.mode === "auto" || v.mode === "manual")
+  );
+}
+
+/** Parses the `zoom` field. Unknown mode -> "auto". `blocks` is tolerant:
+ *  a non-array (or absent) value becomes `null`, and shape-invalid entries
+ *  are dropped from an array. Per the data contract, blocks are only ever
+ *  materialized when `mode === "custom"` — any other mode forces `blocks`
+ *  back to `null` on parse, even if the stored JSON has a stale array. */
+function parseZoom(v: unknown, fallback: ZoomSettings): ZoomSettings {
+  if (!isObject(v)) return fallback;
+  const mode = parseZoomMode(v.mode);
+  if (mode !== "custom") return { mode, blocks: null };
+
+  if (!Array.isArray(v.blocks)) return { mode, blocks: null };
+  const blocks = v.blocks.filter(isValidZoomBlock);
+  return { mode, blocks };
+}
+
+/** Shape-checks a single persisted speed range (rate bound is enforced by
+ *  clampSpeedRanges at time-of-use, not here — parse only validates shape). */
+function isValidSpeedRange(v: unknown): v is SpeedRange {
+  if (!isObject(v)) return false;
+  return (
+    typeof v.startMs === "number" &&
+    Number.isFinite(v.startMs) &&
+    typeof v.endMs === "number" &&
+    Number.isFinite(v.endMs) &&
+    typeof v.rate === "number" &&
+    Number.isFinite(v.rate)
+  );
+}
+
+/** Parses the `speed` field: non-array (or absent) -> `[]`; shape-invalid
+ *  entries are dropped, valid ones kept in their original order. */
+function parseSpeed(v: unknown): SpeedRange[] {
+  if (!Array.isArray(v)) return [];
+  return v.filter(isValidSpeedRange);
+}
+
+/** Parses the `keystrokes` field: missing/non-object -> default; individual
+ *  non-boolean fields fall back to their default value. */
+function parseKeystrokes(v: unknown, fallback: KeystrokeSettings): KeystrokeSettings {
+  if (!isObject(v)) return fallback;
+  return {
+    enabled: typeof v.enabled === "boolean" ? v.enabled : fallback.enabled,
+    allKeys: typeof v.allKeys === "boolean" ? v.allKeys : fallback.allKeys,
+  };
+}
+
 /** Minimum trim length in milliseconds — the timeline handles can't be
  *  dragged closer together than this. */
 export const TRIM_MIN_LENGTH_MS = 500;
@@ -217,5 +319,52 @@ export function parseProject(json: string | null): EditorProject {
       scale: clamp(num(cursor.scale, base.cursor.scale), CURSOR_SCALE_MIN, CURSOR_SCALE_MAX),
     },
     webcam: parseWebcam(raw.webcam, base.webcam),
+    zoom: parseZoom(raw.zoom, base.zoom),
+    speed: parseSpeed(raw.speed),
+    keystrokes: parseKeystrokes(raw.keystrokes, base.keystrokes),
   };
+}
+
+/** Sorts, clamps, and de-overlaps a list of speed ranges against a clip
+ *  duration. Pure — never mutates its argument. Order of operations:
+ *
+ *  1. Sort by `startMs` ascending.
+ *  2. Clamp both `startMs` and `endMs` into `[0, durationMs]`.
+ *  3. Drop any range where `endMs <= startMs` after clamping (degenerate or
+ *     fully out-of-bounds) — unlike `parseTrim`, this does NOT reorder an
+ *     inverted pair; it drops it.
+ *  4. Walk the (now-sorted) survivors left to right, dropping any range
+ *     that starts before the previous kept range's `endMs` (overlap) —
+ *     the earlier range always wins. Ranges that merely touch
+ *     (`startMs === prev.endMs`) are not an overlap and both are kept.
+ *  5. Clamp `rate` into `[SPEED_RATE_MIN, SPEED_RATE_MAX]`.
+ *  6. Round `startMs`/`endMs` to integers.
+ */
+export function clampSpeedRanges(ranges: SpeedRange[], durationMs: number): SpeedRange[] {
+  const sorted = [...ranges].sort((a, b) => a.startMs - b.startMs);
+
+  const clamped: SpeedRange[] = [];
+  for (const r of sorted) {
+    const start = clamp(r.startMs, 0, durationMs);
+    const end = clamp(r.endMs, 0, durationMs);
+    if (end <= start) continue;
+    clamped.push({
+      startMs: start,
+      endMs: end,
+      rate: clamp(r.rate, SPEED_RATE_MIN, SPEED_RATE_MAX),
+    });
+  }
+
+  const kept: SpeedRange[] = [];
+  for (const r of clamped) {
+    const prev = kept[kept.length - 1];
+    if (prev && r.startMs < prev.endMs) continue; // overlap: earlier range wins
+    kept.push(r);
+  }
+
+  return kept.map((r) => ({
+    startMs: Math.round(r.startMs),
+    endMs: Math.round(r.endMs),
+    rate: r.rate,
+  }));
 }

@@ -45,6 +45,13 @@ pub struct RecordingRow {
     /// overlay against the main track in the editor. `None` if no webcam
     /// was recorded or the sidecar didn't report an offset.
     pub webcam_offset_ms: Option<i64>,
+    /// Total input events recorded (moves, clicks, scrolls, keys), from the
+    /// sidecar's `stopped` event. `None` when the sidecar omitted the field
+    /// (older binaries / non-events runs). Lets the editor gate zoom/keystroke
+    /// UI sections without reading the events sidecar file.
+    pub n_events: Option<i64>,
+    /// Click-down events recorded (subset of `n_events`). `None` when absent.
+    pub n_clicks: Option<i64>,
 }
 
 pub fn insert(conn: &Connection, r: &RecordingRow) -> Result<(), DbError> {
@@ -54,8 +61,8 @@ pub fn insert(conn: &Connection, r: &RecordingRow) -> Result<(), DbError> {
             source_label, has_mic, has_sysaudio, thumb_path, drive_file_id,
             drive_link, upload_status, upload_error, exports, title, transcript,
             denoised_path, events_path, project_json, webcam_path, cursor_hidden,
-            webcam_offset_ms
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)",
+            webcam_offset_ms, n_events, n_clicks
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)",
         params![
             r.id,
             r.created_at,
@@ -81,6 +88,8 @@ pub fn insert(conn: &Connection, r: &RecordingRow) -> Result<(), DbError> {
             r.webcam_path,
             r.cursor_hidden as i64,
             r.webcam_offset_ms,
+            r.n_events,
+            r.n_clicks,
         ],
     )?;
     Ok(())
@@ -92,7 +101,7 @@ pub fn list(conn: &Connection) -> Result<Vec<RecordingRow>, DbError> {
                 source_label, has_mic, has_sysaudio, thumb_path, drive_file_id,
                 drive_link, upload_status, upload_error, exports, title, transcript,
                 denoised_path, events_path, project_json, webcam_path, cursor_hidden,
-                webcam_offset_ms
+                webcam_offset_ms, n_events, n_clicks
          FROM recordings
          ORDER BY created_at DESC",
     )?;
@@ -108,7 +117,7 @@ pub fn get(conn: &Connection, id: &str) -> Result<Option<RecordingRow>, DbError>
                 source_label, has_mic, has_sysaudio, thumb_path, drive_file_id,
                 drive_link, upload_status, upload_error, exports, title, transcript,
                 denoised_path, events_path, project_json, webcam_path, cursor_hidden,
-                webcam_offset_ms
+                webcam_offset_ms, n_events, n_clicks
          FROM recordings WHERE id = ?1",
         [id],
         row_to_recording,
@@ -232,6 +241,8 @@ fn row_to_recording(row: &rusqlite::Row<'_>) -> rusqlite::Result<RecordingRow> {
         webcam_path: row.get(21)?,
         cursor_hidden: row.get::<_, i64>(22)? != 0,
         webcam_offset_ms: row.get(23)?,
+        n_events: row.get(24)?,
+        n_clicks: row.get(25)?,
     })
 }
 
@@ -272,6 +283,8 @@ mod tests {
             webcam_path: None,
             cursor_hidden: false,
             webcam_offset_ms: None,
+            n_events: None,
+            n_clicks: None,
         }
     }
 
@@ -403,6 +416,30 @@ mod tests {
         assert_eq!(got.webcam_path, None);
         assert!(!got.cursor_hidden);
         assert_eq!(got.webcam_offset_ms, None);
+    }
+
+    #[test]
+    fn n_events_n_clicks_round_trip() {
+        let conn = setup();
+        let mut r = sample();
+        r.id = "rec-events-count".into();
+        r.n_events = Some(142);
+        r.n_clicks = Some(17);
+        insert(&conn, &r).unwrap();
+        let got = get(&conn, "rec-events-count").unwrap().unwrap();
+        assert_eq!(got.n_events, Some(142));
+        assert_eq!(got.n_clicks, Some(17));
+    }
+
+    #[test]
+    fn n_events_n_clicks_default_when_absent() {
+        let conn = setup();
+        let mut r = sample();
+        r.id = "rec-events-absent".into();
+        insert(&conn, &r).unwrap();
+        let got = get(&conn, "rec-events-absent").unwrap().unwrap();
+        assert_eq!(got.n_events, None);
+        assert_eq!(got.n_clicks, None);
     }
 
     #[test]

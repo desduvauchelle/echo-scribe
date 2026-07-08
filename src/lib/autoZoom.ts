@@ -18,7 +18,11 @@ export type ZoomBlock = {
   // zoom center in normalized capture coords (0..1 relative to capture.rect)
   cx: number; cy: number;
   scale: number;           // e.g. 2.0
-  mode: "auto";
+  mode: "auto" | "manual";
+  // Stable key for UI editing. Absent for freshly-generated auto blocks;
+  // assigned (`z1, z2, …`) when a project's zoom is materialized into
+  // `mode: "custom"` for hand-editing (see editorProject.ts).
+  id?: string;
 };
 
 export type AutoZoomOptions = {

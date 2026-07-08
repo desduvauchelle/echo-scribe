@@ -372,6 +372,17 @@ CREATE INDEX idx_guide_runs_meeting  ON meeting_guide_runs(meeting_id);
 CREATE INDEX idx_guide_runs_template ON meeting_guide_runs(template_id);
 "#,
     ),
+    (
+        // NOTE: 24 is claimed by concurrent WIP (guide-template-review's
+        // meeting_guide_runs table, uncommitted in this working tree at the
+        // time this was written). Numbered 25 so this actually runs on DBs
+        // already at v24 — see migration 21's note for the same pattern.
+        25,
+        r#"
+ALTER TABLE recordings ADD COLUMN n_events INTEGER;
+ALTER TABLE recordings ADD COLUMN n_clicks INTEGER;
+"#,
+    ),
 ];
 
 const META_TABLE_SQL: &str = r#"
@@ -433,7 +444,7 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(v, "24");
+        assert_eq!(v, "25");
     }
 
     #[test]
@@ -587,7 +598,7 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(version, "24");
+        assert_eq!(version, "25");
     }
 
     #[test]
@@ -705,6 +716,25 @@ mod tests {
             "error", "generated_at", "created_at",
         ] {
             assert!(cols.iter().any(|c| c == expected), "missing column {expected}; got {cols:?}");
+        }
+    }
+
+    #[test]
+    fn migration_v25_adds_n_events_and_n_clicks_columns() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        run_migrations(&mut conn).unwrap();
+        let cols: Vec<String> = conn
+            .prepare("PRAGMA table_info(recordings)")
+            .unwrap()
+            .query_map([], |r| r.get::<_, String>(1))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        for expected in ["n_events", "n_clicks"] {
+            assert!(
+                cols.iter().any(|c| c == expected),
+                "recordings missing column {expected}; got {cols:?}"
+            );
         }
     }
 }

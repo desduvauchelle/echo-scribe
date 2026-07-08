@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { clampTrim, defaultProject, parseProject } from "../src/lib/editorProject";
+import { clampSpeedRanges, clampTrim, defaultProject, parseProject } from "../src/lib/editorProject";
 
 describe("defaultProject", () => {
   test("has v=1 and sane appearance defaults", () => {
@@ -19,6 +19,13 @@ describe("defaultProject", () => {
     expect(p.cursor.scale).toBeGreaterThanOrEqual(1);
     // webcam default null when no webcam file
     expect(p.webcam).toBeNull();
+  });
+
+  test("zoom/speed/keystrokes defaults present", () => {
+    const p = defaultProject();
+    expect(p.zoom).toEqual({ mode: "auto", blocks: null });
+    expect(p.speed).toEqual([]);
+    expect(p.keystrokes).toEqual({ enabled: false, allKeys: false });
   });
 
   test("returns a fresh object each call (no shared mutable state)", () => {
@@ -158,6 +165,210 @@ describe("parseProject — tolerant", () => {
   });
 });
 
+describe("parseProject — zoom", () => {
+  test("missing zoom -> default (mode auto, blocks null)", () => {
+    const p = parseProject(JSON.stringify({ appearance: { padding: 20 } }));
+    expect(p.zoom).toEqual({ mode: "auto", blocks: null });
+  });
+
+  test("valid custom mode with blocks survives", () => {
+    const blocks = [
+      { startMs: 0, endMs: 1000, cx: 0.5, cy: 0.5, scale: 2, mode: "manual" as const, id: "z1" },
+    ];
+    const p = parseProject(JSON.stringify({ zoom: { mode: "custom", blocks } }));
+    expect(p.zoom).toEqual({ mode: "custom", blocks });
+  });
+
+  test("unknown mode falls back to auto (tolerant)", () => {
+    expect(parseProject(JSON.stringify({ zoom: { mode: "bogus" } })).zoom.mode).toBe("auto");
+    expect(parseProject(JSON.stringify({ zoom: { mode: 42 } })).zoom.mode).toBe("auto");
+    expect(parseProject(JSON.stringify({ zoom: { mode: null } })).zoom.mode).toBe("auto");
+  });
+
+  test("mode off is preserved", () => {
+    expect(parseProject(JSON.stringify({ zoom: { mode: "off" } })).zoom.mode).toBe("off");
+  });
+
+  test("non-array blocks -> null", () => {
+    expect(
+      parseProject(JSON.stringify({ zoom: { mode: "custom", blocks: "nope" } })).zoom.blocks,
+    ).toBeNull();
+    expect(
+      parseProject(JSON.stringify({ zoom: { mode: "custom", blocks: {} } })).zoom.blocks,
+    ).toBeNull();
+  });
+
+  test("blocks forced to null when mode is not custom, even if array is present", () => {
+    const blocks = [
+      { startMs: 0, endMs: 1000, cx: 0.5, cy: 0.5, scale: 2, mode: "auto" as const },
+    ];
+    expect(
+      parseProject(JSON.stringify({ zoom: { mode: "auto", blocks } })).zoom.blocks,
+    ).toBeNull();
+    expect(
+      parseProject(JSON.stringify({ zoom: { mode: "off", blocks } })).zoom.blocks,
+    ).toBeNull();
+  });
+});
+
+describe("parseProject — speed", () => {
+  test("missing speed -> default empty array", () => {
+    expect(parseProject(JSON.stringify({ appearance: { padding: 20 } })).speed).toEqual([]);
+  });
+
+  test("non-array speed -> default empty array", () => {
+    expect(parseProject(JSON.stringify({ speed: "nope" })).speed).toEqual([]);
+    expect(parseProject(JSON.stringify({ speed: {} })).speed).toEqual([]);
+  });
+
+  test("valid ranges survive", () => {
+    const ranges = [
+      { startMs: 0, endMs: 1000, rate: 2 },
+      { startMs: 2000, endMs: 3000, rate: 0.5 },
+    ];
+    expect(parseProject(JSON.stringify({ speed: ranges })).speed).toEqual(ranges);
+  });
+
+  test("shape-invalid entries are dropped, valid ones kept", () => {
+    const p = parseProject(
+      JSON.stringify({
+        speed: [
+          { startMs: 0, endMs: 1000, rate: 2 },
+          { startMs: "x", endMs: 1000, rate: 2 },
+          { startMs: 0, rate: 2 },
+          { startMs: 0, endMs: 1000 },
+          "garbage",
+          null,
+          { startMs: 500, endMs: 1500, rate: 1.5 },
+        ],
+      }),
+    );
+    expect(p.speed).toEqual([
+      { startMs: 0, endMs: 1000, rate: 2 },
+      { startMs: 500, endMs: 1500, rate: 1.5 },
+    ]);
+  });
+});
+
+describe("parseProject — keystrokes", () => {
+  test("missing keystrokes -> default", () => {
+    expect(parseProject(JSON.stringify({ appearance: { padding: 20 } })).keystrokes).toEqual({
+      enabled: false,
+      allKeys: false,
+    });
+  });
+
+  test("valid keystrokes survive", () => {
+    expect(
+      parseProject(JSON.stringify({ keystrokes: { enabled: true, allKeys: true } })).keystrokes,
+    ).toEqual({ enabled: true, allKeys: true });
+  });
+
+  test("non-boolean fields fall back to defaults", () => {
+    expect(
+      parseProject(JSON.stringify({ keystrokes: { enabled: "yes", allKeys: 1 } })).keystrokes,
+    ).toEqual({ enabled: false, allKeys: false });
+  });
+});
+
+describe("clampSpeedRanges", () => {
+  test("empty input -> empty output", () => {
+    expect(clampSpeedRanges([], 10000)).toEqual([]);
+  });
+
+  test("single valid range passes through unchanged", () => {
+    expect(clampSpeedRanges([{ startMs: 1000, endMs: 2000, rate: 2 }], 10000)).toEqual([
+      { startMs: 1000, endMs: 2000, rate: 2 },
+    ]);
+  });
+
+  test("sorts ranges by startMs", () => {
+    const out = clampSpeedRanges(
+      [
+        { startMs: 5000, endMs: 6000, rate: 2 },
+        { startMs: 0, endMs: 1000, rate: 2 },
+      ],
+      10000,
+    );
+    expect(out).toEqual([
+      { startMs: 0, endMs: 1000, rate: 2 },
+      { startMs: 5000, endMs: 6000, rate: 2 },
+    ]);
+  });
+
+  test("clamps start/end into [0, durationMs]", () => {
+    expect(clampSpeedRanges([{ startMs: -500, endMs: 2000, rate: 2 }], 10000)).toEqual([
+      { startMs: 0, endMs: 2000, rate: 2 },
+    ]);
+    expect(clampSpeedRanges([{ startMs: 8000, endMs: 20000, rate: 2 }], 10000)).toEqual([
+      { startMs: 8000, endMs: 10000, rate: 2 },
+    ]);
+  });
+
+  test("drops ranges with endMs<=startMs after clamping", () => {
+    // fully out of bounds — clamps to a zero-length range, dropped.
+    expect(clampSpeedRanges([{ startMs: 20000, endMs: 30000, rate: 2 }], 10000)).toEqual([]);
+    // inverted before clamp — after clamp still endMs<=startMs is NOT auto-fixed
+    // (this function drops, unlike parseTrim which reorders).
+    expect(clampSpeedRanges([{ startMs: 5000, endMs: 5000, rate: 2 }], 10000)).toEqual([]);
+  });
+
+  test("drops overlapping ranges, keeping the earlier one", () => {
+    const out = clampSpeedRanges(
+      [
+        { startMs: 0, endMs: 2000, rate: 2 },
+        { startMs: 1000, endMs: 3000, rate: 3 },
+      ],
+      10000,
+    );
+    expect(out).toEqual([{ startMs: 0, endMs: 2000, rate: 2 }]);
+  });
+
+  test("touching (non-overlapping) ranges are both kept", () => {
+    const out = clampSpeedRanges(
+      [
+        { startMs: 0, endMs: 2000, rate: 2 },
+        { startMs: 2000, endMs: 3000, rate: 3 },
+      ],
+      10000,
+    );
+    expect(out).toEqual([
+      { startMs: 0, endMs: 2000, rate: 2 },
+      { startMs: 2000, endMs: 3000, rate: 3 },
+    ]);
+  });
+
+  test("clamps rate to [0.5, 4]", () => {
+    expect(clampSpeedRanges([{ startMs: 0, endMs: 1000, rate: 99 }], 10000)).toEqual([
+      { startMs: 0, endMs: 1000, rate: 4 },
+    ]);
+    expect(clampSpeedRanges([{ startMs: 0, endMs: 1000, rate: 0.01 }], 10000)).toEqual([
+      { startMs: 0, endMs: 1000, rate: 0.5 },
+    ]);
+  });
+
+  test("rounds start/end to integers", () => {
+    expect(clampSpeedRanges([{ startMs: 100.6, endMs: 999.4, rate: 2 }], 10000)).toEqual([
+      { startMs: 101, endMs: 999, rate: 2 },
+    ]);
+  });
+
+  test("multiple overlaps resolved left-to-right (earliest wins each time)", () => {
+    const out = clampSpeedRanges(
+      [
+        { startMs: 0, endMs: 5000, rate: 2 },
+        { startMs: 1000, endMs: 2000, rate: 3 },
+        { startMs: 6000, endMs: 7000, rate: 4 },
+      ],
+      10000,
+    );
+    expect(out).toEqual([
+      { startMs: 0, endMs: 5000, rate: 2 },
+      { startMs: 6000, endMs: 7000, rate: 4 },
+    ]);
+  });
+});
+
 describe("clampTrim", () => {
   test("null passthrough", () => {
     expect(clampTrim(null, 10000)).toBeNull();
@@ -242,6 +453,14 @@ describe("round-trip stability", () => {
         corner: "bl" as const,
         sizeFrac: 0.25,
       },
+      zoom: {
+        mode: "custom" as const,
+        blocks: [
+          { startMs: 0, endMs: 1000, cx: 0.5, cy: 0.5, scale: 2, mode: "manual" as const, id: "z1" },
+        ],
+      },
+      speed: [{ startMs: 0, endMs: 1000, rate: 2 }],
+      keystrokes: { enabled: true, allKeys: true },
     };
     const once = parseProject(JSON.stringify(full));
     const twice = parseProject(JSON.stringify(once));

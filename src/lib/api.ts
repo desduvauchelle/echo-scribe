@@ -1158,6 +1158,8 @@ export type RecordingRow = {
   webcam_path: string | null;
   cursor_hidden: boolean;
   webcam_offset_ms: number | null;
+  n_events: number | null;
+  n_clicks: number | null;
 };
 
 export const startScreenRecording = (p: {
