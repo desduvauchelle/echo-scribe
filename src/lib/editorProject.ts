@@ -19,12 +19,21 @@ export type WebcamSettings = {
   sizeFrac: number; // 0.1..0.35 of output width
 };
 
+/** Output canvas aspect-ratio preset. `auto` = the canvas is exactly the frame
+ *  plus padding (the legacy look); the fixed presets wrap that in a canvas of
+ *  the named aspect with the recording centered and the short axis letterboxed.
+ *  Mirrors `AspectPreset` in `render/compositor.ts` (kept in sync). */
+export type AspectPreset = "auto" | "16:9" | "9:16" | "1:1" | "4:3";
+
+const ASPECT_VALUES: readonly AspectPreset[] = ["auto", "16:9", "9:16", "1:1", "4:3"];
+
 export type EditorProject = {
   v: 1;
   trim: { startMs: number; endMs: number } | null; // null = full length
   appearance: {
     padding: number; // 0..256 px output-space
     cornerRadius: number; // 0..64 px
+    aspect: AspectPreset; // output aspect; "auto" = frame + padding
     background: Background;
   };
   cursor: { enabled: boolean; scale: number }; // scale 1..3
@@ -50,6 +59,7 @@ export function defaultProject(): EditorProject {
     appearance: {
       padding: 96,
       cornerRadius: 16,
+      aspect: "auto",
       background: { type: "gradient", from: "#1e3a5f", to: "#0f1b2d" },
     },
     cursor: { enabled: false, scale: 1.5 },
@@ -68,6 +78,14 @@ function clamp(n: number, lo: number, hi: number): number {
 /** A finite number, else the fallback. */
 function num(v: unknown, fallback: number): number {
   return typeof v === "number" && Number.isFinite(v) ? v : fallback;
+}
+
+/** A known aspect preset, else "auto" (tolerant: unknown strings, non-strings,
+ *  and missing all resolve to auto). */
+function parseAspect(v: unknown): AspectPreset {
+  return typeof v === "string" && (ASPECT_VALUES as readonly string[]).includes(v)
+    ? (v as AspectPreset)
+    : "auto";
 }
 
 function parseBackground(v: unknown, fallback: Background): Background {
@@ -191,6 +209,7 @@ export function parseProject(json: string | null): EditorProject {
         CORNER_MIN,
         CORNER_MAX,
       ),
+      aspect: parseAspect(appearance.aspect),
       background: parseBackground(appearance.background, base.appearance.background),
     },
     cursor: {

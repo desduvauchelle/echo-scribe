@@ -12,14 +12,164 @@
 
 import type { ZoomBlock, EventsHeader } from "../autoZoom";
 
+/** Output aspect-ratio preset. `auto` = canvas is exactly the frame + padding
+ *  (the legacy look). The fixed presets wrap that content box in a canvas of the
+ *  named aspect, centering the box and letterboxing the short axis. */
+export type AspectPreset = "auto" | "16:9" | "9:16" | "1:1" | "4:3";
+
 export type Appearance = {
   padding: number; // px in OUTPUT space (uniform inset around the video)
   cornerRadius: number; // px, applied to the video frame's corners
+  aspect: AspectPreset; // output canvas aspect; "auto" = frame + padding
   background:
     | { type: "solid"; color: string }
     | { type: "gradient"; from: string; to: string }
     | { type: "image"; path: string };
 };
+
+/** Cap on the output canvas' long edge (px). Mirrors renderPipeline's encoder
+ *  guard; a 5K capture would otherwise blow up encode time/memory. */
+const MAX_LONG_EDGE = 3840;
+
+/** The resolved output geometry for one recording: the encoder canvas size plus
+ *  the rectangle inside it where the (padded) source frame is drawn. All
+ *  overlay/zoom/cursor math positions relative to the CONTENT rect; `webcamRect`
+ *  is the one exception (canvas-anchored — see its doc). */
+export type OutputLayout = {
+  outW: number;
+  outH: number;
+  contentX: number;
+  contentY: number;
+  contentW: number;
+  contentH: number;
+};
+
+/** Round `n` down to the nearest even integer (encoders require even dims). */
+function even(n: number): number {
+  const r = Math.round(n);
+  return r - (r % 2);
+}
+
+/** Target width/height ratio for a fixed aspect preset (w / h). */
+function aspectRatio(aspect: Exclude<AspectPreset, "auto">): number {
+  switch (aspect) {
+    case "16:9":
+      return 16 / 9;
+    case "9:16":
+      return 9 / 16;
+    case "1:1":
+      return 1;
+    case "4:3":
+      return 4 / 3;
+  }
+}
+
+/**
+ * Resolve the output canvas size and the content rect (where the padded frame
+ * is drawn) for a given source frame, padding, and aspect preset. Pure.
+ *
+ * Semantics:
+ *   - The **content box** is the frame plus `padding` on every side:
+ *     `(frameW + 2p) × (frameH + 2p)`. The frame itself sits inside it inset by
+ *     `p` — so the returned `contentX/contentY` fold in both the box's position
+ *     and that padding inset.
+ *   - `"auto"`: the canvas IS the content box (legacy behavior). Content rect =
+ *     `(p, p, outW - 2p, outH - 2p)` — byte-for-byte the old
+ *     `drawFrameLayer` inset, so `auto` composites are pixel-identical to the
+ *     pre-aspect pipeline.
+ *   - Fixed aspect: the canvas is the **smallest rect of the target aspect that
+ *     contains the content box**; the box is centered inside it. Whichever axis
+ *     has slack gets the letterbox band (a 16:9 canvas around a tallish window
+ *     ⇒ extra left/right; around a wide-short window ⇒ extra top/bottom). The
+ *     frame stays inset by `p` within the (centered) box.
+ *
+ * Long-edge cap: if the canvas' long edge exceeds `MAX_LONG_EDGE`, the ENTIRE
+ * layout — canvas, content box, centering bands, AND padding — is scaled by
+ * `k = MAX_LONG_EDGE / longEdge`. So the returned `contentW/contentH` shrink by
+ * `k` and the padding gaps shrink to `padding*k` (documented decision: padding
+ * scales with the cap, it is not held nominal). The composition is visually
+ * identical, just at a smaller pixel resolution.
+ *
+ * `outW/outH` are rounded down to even integers (encoder requirement).
+ */
+export function outputLayout(
+  frameW: number,
+  frameH: number,
+  padding: number,
+  aspect: AspectPreset,
+): OutputLayout {
+  const p = Math.max(0, padding);
+  const boxW = frameW + 2 * p; // content-box (frame + padding) dimensions
+  const boxH = frameH + 2 * p;
+
+  // Unrounded canvas size + the content box's top-left within it.
+  let canvasW: number;
+  let canvasH: number;
+  let boxX: number;
+  let boxY: number;
+
+  if (aspect === "auto") {
+    canvasW = boxW;
+    canvasH = boxH;
+    boxX = 0;
+    boxY = 0;
+  } else {
+    const target = aspectRatio(aspect); // w / h
+    const boxAspect = boxH > 0 ? boxW / boxH : target;
+    if (boxAspect > target) {
+      // Box is wider than the target → width drives; grow height to match.
+      canvasW = boxW;
+      canvasH = boxW / target;
+    } else {
+      // Box is taller (or equal) → height drives; grow width to match.
+      canvasH = boxH;
+      canvasW = boxH * target;
+    }
+    boxX = (canvasW - boxW) / 2;
+    boxY = (canvasH - boxH) / 2;
+  }
+
+  // Content rect (the frame) = box position + the padding inset.
+  let contentX = boxX + p;
+  let contentY = boxY + p;
+  let contentW = frameW;
+  let contentH = frameH;
+
+  // Long-edge cap: scale the whole layout down uniformly so the composition is
+  // preserved (padding included) at a capped resolution.
+  const longEdge = Math.max(canvasW, canvasH);
+  const capped = longEdge > MAX_LONG_EDGE;
+  if (capped) {
+    const k = MAX_LONG_EDGE / longEdge;
+    canvasW *= k;
+    canvasH *= k;
+    contentX *= k;
+    contentY *= k;
+    contentW *= k;
+    contentH *= k;
+  }
+
+  const outW = even(canvasW);
+  const outH = even(canvasH);
+
+  // "auto" must be byte-for-byte the legacy pipeline: the old `drawFrameLayer`
+  // computed the content rect as `(pad, pad, outW - 2*pad, outH - 2*pad)` using
+  // the NOMINAL padding against the even-rounded canvas — even under the cap
+  // (legacy scaled outW/outH by k but left padding nominal). Reproduce exactly,
+  // so no existing auto-mode composite changes by a single pixel.
+  if (aspect === "auto") {
+    return {
+      outW,
+      outH,
+      contentX: p,
+      contentY: p,
+      contentW: outW - 2 * p,
+      contentH: outH - 2 * p,
+    };
+  }
+
+  return { outW, outH, contentX, contentY, contentW, contentH };
+}
 
 // ---- Overlay contracts (cursor + webcam) --------------------------------
 // Tasks 6/8 populate these; Task 3 accepts them but only draws a layer when it
@@ -436,22 +586,30 @@ export function imgHeight(src: CanvasImageSource): number {
   return s.videoHeight || s.displayHeight || s.codedHeight || s.height || 0;
 }
 
+/** The content rect (where the padded source frame is drawn) for this frame +
+ *  appearance, in the canvas' pixel space. Centralized so `drawFrameLayer`, the
+ *  cursor overlay, and the webcam mapping all share the identical rect. */
+function contentRect(
+  frameW: number,
+  frameH: number,
+  appearance: Appearance,
+): { dx: number; dy: number; dw: number; dh: number } {
+  const L = outputLayout(frameW, frameH, appearance.padding, appearance.aspect);
+  return { dx: L.contentX, dy: L.contentY, dw: Math.max(0, L.contentW), dh: Math.max(0, L.contentH) };
+}
+
 /** Draw the padded + rounded + zoomed source frame into the inner area. */
 function drawFrameLayer(
   ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
   frame: CanvasImageSource,
   frameW: number,
   frameH: number,
-  outW: number,
-  outH: number,
+  _outW: number,
+  _outH: number,
   appearance: Appearance,
   zoom: ZoomState,
 ): void {
-  const pad = appearance.padding;
-  const dx = pad;
-  const dy = pad;
-  const dw = Math.max(0, outW - 2 * pad);
-  const dh = Math.max(0, outH - 2 * pad);
+  const { dx, dy, dw, dh } = contentRect(frameW, frameH, appearance);
   if (dw <= 0 || dh <= 0) return;
 
   // Source sub-rectangle (zoom): sample 1/scale of the source, centered on
@@ -572,9 +730,11 @@ export function cursorDrawScale(cursorScale: number, pxScale: number): number {
  *      `overlay.cursor` is non-null.
  *   4. Webcam PiP (masked circle / rounded-rect, corner-anchored) — only when
  *      `overlay.webcam` is non-null.
- * Overlays are drawn INSIDE the padded frame area, so they track the video.
- * With both overlays null this is pixel-identical to `drawComposite` (aside
- * from image-background support).
+ * The cursor overlay is drawn inside the CONTENT rect (the drawn frame) so it
+ * tracks the video under any aspect/letterbox. The webcam PiP is corner-anchored
+ * to the CANVAS (it may sit in the letterbox band — Screen-Studio-like). With
+ * both overlays null this is pixel-identical to `drawComposite` (aside from
+ * image-background support).
  *
  * `cursorScale` is the FINAL glyph draw scale (base size × user 1..3 × the
  * recording's px_scale) — compute it with `cursorDrawScale(...)` so the preview
@@ -596,11 +756,9 @@ export function drawCompositeV2(
   drawBackground(ctx, appearance.background, outW, outH, bgImage);
   drawFrameLayer(ctx, frame, frameW, frameH, outW, outH, appearance, zoom);
 
-  const pad = appearance.padding;
-  const dx = pad;
-  const dy = pad;
-  const dw = Math.max(0, outW - 2 * pad);
-  const dh = Math.max(0, outH - 2 * pad);
+  // Cursor + webcam overlays position relative to the CONTENT rect (the drawn
+  // frame), not the full canvas — so a letterboxed aspect doesn't shift them.
+  const { dx, dy, dw, dh } = contentRect(frameW, frameH, appearance);
   if (dw <= 0 || dh <= 0) return;
 
   // 3. Cursor overlay. `overlay.cursor` is in normalized capture space; map it
@@ -651,13 +809,16 @@ export function drawCompositeV2(
     }
   }
 
-  // 4. Webcam PiP, corner-anchored inside the padded frame area.
+  // 4. Webcam PiP, corner-anchored to the CANVAS (not the content rect). With a
+  //    letterboxed aspect the bubble may sit in the letterbox band, flush to the
+  //    canvas corner — matching Screen Studio (the webcam is a canvas-level
+  //    overlay, independent of where the recording is centered). In "auto" the
+  //    canvas IS the content box, so this is unchanged from before.
   if (overlay.webcam) {
     const shape = overlay.webcam.shape;
-    // webcamRect is computed in the inner (padded) coordinate space.
-    const r = webcamRect(dw, dh, overlay.webcam.corner, overlay.webcam.sizeFrac, shape);
-    const wx = dx + r.x;
-    const wy = dy + r.y;
+    const r = webcamRect(outW, outH, overlay.webcam.corner, overlay.webcam.sizeFrac, shape);
+    const wx = r.x;
+    const wy = r.y;
     ctx.save();
     if (shape === "circle") {
       ctx.beginPath();

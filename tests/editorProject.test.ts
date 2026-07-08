@@ -115,6 +115,22 @@ describe("parseProject — tolerant", () => {
     expect(p.trim).toEqual({ startMs: 0, endMs: 3000 });
   });
 
+  test("aspect defaults to auto and survives valid values", () => {
+    expect(defaultProject().appearance.aspect).toBe("auto");
+    for (const a of ["auto", "16:9", "9:16", "1:1", "4:3"] as const) {
+      const p = parseProject(JSON.stringify({ appearance: { aspect: a } }));
+      expect(p.appearance.aspect).toBe(a);
+    }
+  });
+
+  test("unknown aspect falls back to auto (tolerant)", () => {
+    expect(parseProject(JSON.stringify({ appearance: { aspect: "21:9" } })).appearance.aspect).toBe("auto");
+    expect(parseProject(JSON.stringify({ appearance: { aspect: 169 } })).appearance.aspect).toBe("auto");
+    expect(parseProject(JSON.stringify({ appearance: { aspect: null } })).appearance.aspect).toBe("auto");
+    // missing → default auto
+    expect(parseProject(JSON.stringify({ appearance: { padding: 20 } })).appearance.aspect).toBe("auto");
+  });
+
   test("cursor scale clamped to 1..3", () => {
     expect(parseProject(JSON.stringify({ cursor: { scale: 99 } })).cursor.scale).toBe(3);
     expect(parseProject(JSON.stringify({ cursor: { scale: 0 } })).cursor.scale).toBe(1);
@@ -216,6 +232,7 @@ describe("round-trip stability", () => {
       appearance: {
         padding: 120,
         cornerRadius: 24,
+        aspect: "16:9" as const,
         background: { type: "image" as const, path: "/abs/bg.jpg" },
       },
       cursor: { enabled: true, scale: 2 },

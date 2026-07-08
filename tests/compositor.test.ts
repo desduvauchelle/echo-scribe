@@ -7,11 +7,223 @@ import {
   coverCrop,
   imgWidth,
   imgHeight,
+  outputLayout,
   type CursorSample,
 } from "../src/lib/render/compositor";
 import type { ZoomBlock, EventsHeader } from "../src/lib/autoZoom";
 
 const block: ZoomBlock = { startMs: 2000, endMs: 6000, cx: 0.3, cy: 0.7, scale: 2, mode: "auto" };
+
+describe("outputLayout", () => {
+  const isEven = (n: number) => n % 2 === 0;
+
+  describe("auto (backwards-compatible)", () => {
+    test("canvas = frame + 2*padding; content at (p, p) sized (frameW, frameH)", () => {
+      // 1920+192=2112 and 1080+192=1272 are both even, so no rounding bite: the
+      // content rect is exactly the frame.
+      const L = outputLayout(1920, 1080, 96, "auto");
+      expect(L.outW).toBe(1920 + 2 * 96); // 2112
+      expect(L.outH).toBe(1080 + 2 * 96); // 1272
+      expect(L.contentX).toBe(96);
+      expect(L.contentY).toBe(96);
+      expect(L.contentW).toBe(1920);
+      expect(L.contentH).toBe(1080);
+    });
+
+    test("zero padding: canvas equals the frame, content fills it", () => {
+      const L = outputLayout(1280, 720, 0, "auto");
+      expect(L.outW).toBe(1280);
+      expect(L.outH).toBe(720);
+      expect(L.contentX).toBe(0);
+      expect(L.contentY).toBe(0);
+      expect(L.contentW).toBe(1280);
+      expect(L.contentH).toBe(720);
+    });
+
+    test("auto is exactly the legacy outputSize math (source + 2*padding, even)", () => {
+      // The legacy renderPipeline.outputSize did: outW = srcW + 2p, outH = srcH
+      // + 2p, then even-rounding. auto must reproduce that byte-for-byte.
+      for (const [w, h, p] of [
+        [1920, 1080, 96],
+        [1710, 1069, 37], // odd dims + odd padding → even rounding must bite
+        [800, 600, 0],
+      ] as const) {
+        const L = outputLayout(w, h, p, "auto");
+        let ew = w + 2 * p;
+        let eh = h + 2 * p;
+        ew -= ew % 2;
+        eh -= eh % 2;
+        expect(L.outW).toBe(ew);
+        expect(L.outH).toBe(eh);
+      }
+    });
+  });
+
+  describe("fixed aspect — centering & short-axis padding", () => {
+    test("16:9 around a TALL-ish window puts the extra space left/right", () => {
+      // Content box for a 1000x1000 frame with p=50 is 1100x1100 (square).
+      // Smallest 16:9 rect containing 1100x1100: height=1100 → width=1100*16/9
+      // ≈ 1955.6. So width grows, height stays: extra lands left+right.
+      const L = outputLayout(1000, 1000, 50, "16:9");
+      expect(L.outW / L.outH).toBeCloseTo(16 / 9, 2);
+      expect(L.outH).toBe(1100); // content box height drives the short axis
+      expect(L.outW).toBeGreaterThan(1100); // widened
+      // content box (1100x1100) centered horizontally, flush vertically. The
+      // centering offset is computed off the unrounded canvas, so allow ~1px.
+      const boxW = 1100;
+      const expectedBoxX = (L.outW - boxW) / 2;
+      expect(L.contentX).toBeCloseTo(expectedBoxX + 50, -1); // + padding
+      expect(L.contentY).toBeCloseTo(50, -1); // flush to top band + padding
+      expect(L.contentW).toBeCloseTo(1000, -1);
+      expect(L.contentH).toBeCloseTo(1000, -1);
+    });
+
+    test("16:9 around a WIDE-short window puts the extra space top/bottom", () => {
+      // A 2000x400 frame, p=0 → content box 2000x400 (5:1, wider than 16:9).
+      // Smallest 16:9 rect containing it: width=2000 → height=2000*9/16=1125.
+      // So height grows: extra lands top+bottom.
+      const L = outputLayout(2000, 400, 0, "16:9");
+      expect(L.outW / L.outH).toBeCloseTo(16 / 9, 2);
+      expect(L.outW).toBe(2000); // content box width drives the long axis
+      expect(L.outH).toBeGreaterThan(400); // heightened (letterbox top/bottom)
+      // centered vertically, flush horizontally (allow ~1px for even-rounding).
+      expect(L.contentX).toBeCloseTo(0, -1);
+      const expectedBoxY = (L.outH - 400) / 2;
+      expect(L.contentY).toBeCloseTo(expectedBoxY, -1);
+      expect(L.contentW).toBeCloseTo(2000, -1);
+      expect(L.contentH).toBeCloseTo(400, -1);
+    });
+
+    test("9:16 (portrait) around a landscape window pads top/bottom", () => {
+      // 1600x900 frame, p=0 → box 1600x900 (landscape). 9:16 target is tall:
+      // width=1600 drives → height=1600*16/9≈2844. Extra top/bottom.
+      const L = outputLayout(1600, 900, 0, "9:16");
+      expect(L.outW / L.outH).toBeCloseTo(9 / 16, 2);
+      expect(L.outW).toBe(1600);
+      expect(L.outH).toBeGreaterThan(900);
+      expect(L.contentX).toBeCloseTo(0, -1);
+      expect(L.contentY).toBeCloseTo((L.outH - 900) / 2, -1);
+    });
+
+    test("1:1 around a landscape window pads top/bottom to square", () => {
+      // 1600x900 landscape box → square canvas 1600x1600; the wider width drives
+      // the square, so the extra height lands top/bottom (flush horizontally).
+      const L = outputLayout(1600, 900, 0, "1:1");
+      expect(L.outW).toBe(L.outH); // square
+      expect(L.outW).toBe(1600); // long axis (width) of the box drives the square
+      expect(L.contentX).toBeCloseTo(0, -1); // flush horizontally
+      expect(L.contentY).toBeCloseTo((L.outH - 900) / 2, -1); // centered vertically
+    });
+
+    test("4:3 around a 16:9 window pads top/bottom", () => {
+      // 1920x1080 (16:9) is wider than 4:3 → width drives, height grows.
+      const L = outputLayout(1920, 1080, 0, "4:3");
+      expect(L.outW / L.outH).toBeCloseTo(4 / 3, 2);
+      expect(L.outW).toBe(1920);
+      expect(L.outH).toBeGreaterThan(1080);
+    });
+
+    test("the frame content box always fits inside the canvas", () => {
+      for (const aspect of ["16:9", "9:16", "1:1", "4:3"] as const) {
+        for (const [w, h, p] of [
+          [1920, 1080, 96],
+          [1000, 1000, 50],
+          [400, 1200, 20],
+          [1200, 400, 0],
+        ] as const) {
+          const L = outputLayout(w, h, p, aspect);
+          // content rect fully inside canvas
+          expect(L.contentX).toBeGreaterThanOrEqual(-1e-6);
+          expect(L.contentY).toBeGreaterThanOrEqual(-1e-6);
+          expect(L.contentX + L.contentW).toBeLessThanOrEqual(L.outW + 1e-6);
+          expect(L.contentY + L.contentH).toBeLessThanOrEqual(L.outH + 1e-6);
+        }
+      }
+    });
+
+    test("outW/outH are always even integers", () => {
+      for (const aspect of ["auto", "16:9", "9:16", "1:1", "4:3"] as const) {
+        for (const [w, h, p] of [
+          [1921, 1081, 37],
+          [1000, 1000, 51],
+          [1710, 1069, 13],
+        ] as const) {
+          const L = outputLayout(w, h, p, aspect);
+          expect(Number.isInteger(L.outW)).toBe(true);
+          expect(Number.isInteger(L.outH)).toBe(true);
+          expect(isEven(L.outW)).toBe(true);
+          expect(isEven(L.outH)).toBe(true);
+        }
+      }
+    });
+  });
+
+  describe("3840 long-edge cap", () => {
+    test("caps the long edge and preserves aspect (content scaled down)", () => {
+      // 5000x2000 frame, p=0, 16:9. Box is 5000x2000 (2.5:1 wider than 16:9) →
+      // width drives: outW=5000, outH=5000*9/16=2812.5. Long edge 5000 > 3840,
+      // so scale by 3840/5000 = 0.768 → outW≈3840, outH≈2160.
+      const L = outputLayout(5000, 2000, 0, "16:9");
+      expect(Math.max(L.outW, L.outH)).toBeLessThanOrEqual(3840);
+      // long edge hits the cap (within even-rounding)
+      expect(Math.max(L.outW, L.outH)).toBeGreaterThanOrEqual(3840 - 2);
+      expect(L.outW / L.outH).toBeCloseTo(16 / 9, 2);
+      // content shrank proportionally: originally 5000 wide content, now scaled
+      // by ~0.768 → ~3840. (Frame content, not the whole canvas.)
+      expect(L.contentW).toBeCloseTo(5000 * (3840 / 5000), 0);
+    });
+
+    test("cap in auto mode matches legacy proportional downscale", () => {
+      // 5000x3000 + p=0 → 5000x3000, long edge 5000 → k=3840/5000=0.768.
+      const L = outputLayout(5000, 3000, 0, "auto");
+      expect(Math.max(L.outW, L.outH)).toBeLessThanOrEqual(3840);
+      let ew = Math.round(5000 * 0.768);
+      let eh = Math.round(3000 * 0.768);
+      ew -= ew % 2;
+      eh -= eh % 2;
+      expect(L.outW).toBe(ew);
+      expect(L.outH).toBe(eh);
+    });
+
+    test("padding scales with the cap (documented choice: whole layout × k)", () => {
+      // With a binding cap, the ENTIRE layout — content box, centering bands,
+      // and padding — is scaled by k. So the padding gap between the content
+      // rect and its box edge shrinks to padding*k. This is the documented
+      // decision (padding scales, not nominal).
+      // 8000x4000 + p=400 → box 8800x4800; 16:9 wider-than target so width
+      // drives: outW≈8800, outH≈8800*9/16=4950; long edge 8800 > 3840 →
+      // k = 3840/8800.
+      const capped = outputLayout(8000, 4000, 400, "16:9");
+      const k = 3840 / 8800;
+      const boxW = 8800 * k; // scaled content-box width
+      const centeringBand = (capped.outW - boxW) / 2;
+      // The left padding gap (contentX minus the centering band) == padding*k.
+      expect(capped.contentX - centeringBand).toBeCloseTo(400 * k, -1);
+      // And the content itself is the frame scaled by k.
+      expect(capped.contentW).toBeCloseTo(8000 * k, -1);
+      expect(capped.contentH).toBeCloseTo(4000 * k, -1);
+    });
+  });
+
+  describe("auto-equivalence to legacy geometry", () => {
+    test("auto content rect equals the old implicit (padding, padding, outW-2p, outH-2p)", () => {
+      // The old drawFrameLayer used content = (p, p, outW-2p, outH-2p) with
+      // outW=frameW+2p. auto must reproduce exactly that so existing composite
+      // output is pixel-identical.
+      for (const [w, h, p] of [
+        [1920, 1080, 96],
+        [1280, 720, 0],
+        [640, 480, 128],
+      ] as const) {
+        const L = outputLayout(w, h, p, "auto");
+        expect(L.contentX).toBe(p);
+        expect(L.contentY).toBe(p);
+        expect(L.contentW).toBe(L.outW - 2 * p);
+        expect(L.contentH).toBe(L.outH - 2 * p);
+      }
+    });
+  });
+});
 
 describe("zoomStateAt", () => {
   test("identity outside blocks", () => {

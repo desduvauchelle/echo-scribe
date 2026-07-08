@@ -30,6 +30,7 @@ import {
   cursorDrawScale,
   cursorStateAt,
   drawCompositeV2,
+  outputLayout,
   zoomStateAt,
   type Appearance,
   type CursorSample,
@@ -137,8 +138,6 @@ export function frameInTrimWindow(tsSourceUs: number, trim: TrimWindow): boolean
 
 /** Output frame rate. Source frames above this are dropped down to it. */
 const TARGET_FPS = 30;
-/** Cap the output long edge so a 5K capture doesn't blow up encode time/memory. */
-const MAX_LONG_EDGE = 3840;
 /** Encoder backpressure threshold — never let the queue grow unbounded. */
 const MAX_ENCODE_QUEUE = 8;
 
@@ -480,26 +479,6 @@ class WebcamSource {
   }
 }
 
-/** Compute the output canvas size: source pixels + 2×padding, long edge capped. */
-function outputSize(
-  srcW: number,
-  srcH: number,
-  padding: number,
-): { outW: number; outH: number } {
-  let outW = srcW + 2 * padding;
-  let outH = srcH + 2 * padding;
-  const longEdge = Math.max(outW, outH);
-  if (longEdge > MAX_LONG_EDGE) {
-    const k = MAX_LONG_EDGE / longEdge;
-    outW = Math.round(outW * k);
-    outH = Math.round(outH * k);
-  }
-  // Encoders require even dimensions.
-  outW -= outW % 2;
-  outH -= outH % 2;
-  return { outW, outH };
-}
-
 /**
  * Render one recording end-to-end. Resolves with the finished MP4 bytes.
  * Progress is reported across three phases (decode → encode → mux); the caller
@@ -594,7 +573,9 @@ export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8A
     }
   }
 
-  const { outW, outH } = outputSize(codedWidth, codedHeight, appearance.padding);
+  // Output canvas size honors the project's aspect preset (auto = source +
+  // 2×padding, capped). The compositor derives the SAME content rect internally.
+  const { outW, outH } = outputLayout(codedWidth, codedHeight, appearance.padding, appearance.aspect);
 
   // --- Set up canvas, muxer, encoder ---
   const canvas = new OffscreenCanvas(outW, outH);

@@ -16,6 +16,7 @@ import {
   clampTrim,
   defaultProject,
   parseProject,
+  type AspectPreset,
   type Background,
   type EditorProject,
   type WebcamSettings,
@@ -33,6 +34,7 @@ import {
   cursorDrawScale,
   cursorStateAt,
   drawCompositeV2,
+  outputLayout,
   type Appearance,
   type CursorSample,
   type OverlayState,
@@ -257,14 +259,20 @@ export function EditorView({
     const vw = video.videoWidth;
     const vh = video.videoHeight;
     if (vw === 0 || vh === 0) return;
-    if (canvas.width !== vw) canvas.width = vw;
-    if (canvas.height !== vh) canvas.height = vh;
+    const p = projectRef.current;
+    // Size the preview canvas to the resolved output geometry (aspect + padding
+    // + cap), so the letterboxing and centering render exactly as the export
+    // will. The compositor derives the same content rect from frame dims +
+    // appearance internally.
+    const { outW, outH } = outputLayout(vw, vh, p.appearance.padding, p.appearance.aspect);
+    if (canvas.width !== outW) canvas.width = outW;
+    if (canvas.height !== outH) canvas.height = outH;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    const p = projectRef.current;
     const appearance: Appearance = {
       padding: p.appearance.padding,
       cornerRadius: p.appearance.cornerRadius,
+      aspect: p.appearance.aspect,
       background: p.appearance.background,
     };
     // The preview uses identity zoom (no auto-zoom applied live), so the source
@@ -292,8 +300,8 @@ export function EditorView({
       video,
       vw,
       vh,
-      vw,
-      vh,
+      outW,
+      outH,
       appearance,
       { cx: 0.5, cy: 0.5, scale: 1 },
       { cursor, webcam },
@@ -499,6 +507,8 @@ export function EditorView({
     setProject((p) => ({ ...p, appearance: { ...p.appearance, padding } }));
   const setCornerRadius = (cornerRadius: number) =>
     setProject((p) => ({ ...p, appearance: { ...p.appearance, cornerRadius } }));
+  const setAspect = (aspect: AspectPreset) =>
+    setProject((p) => ({ ...p, appearance: { ...p.appearance, aspect } }));
   const setBackground = (background: Background) =>
     setProject((p) => ({ ...p, appearance: { ...p.appearance, background } }));
 
@@ -931,6 +941,32 @@ export function EditorView({
             onChange={(e) => setCornerRadius(Number(e.target.value))}
             className="mb-5 w-full accent-accent"
           />
+
+          <div className="mb-2 text-[12px] text-muted">Aspect ratio</div>
+          <div className="mb-5 grid grid-cols-5 gap-1.5">
+            {(
+              [
+                ["auto", "Auto"],
+                ["16:9", "16:9"],
+                ["9:16", "9:16"],
+                ["1:1", "1:1"],
+                ["4:3", "4:3"],
+              ] as const
+            ).map(([value, label]) => (
+              <button
+                key={value}
+                className={`rounded-md border px-1 py-1.5 text-[11px] font-medium ${
+                  project.appearance.aspect === value
+                    ? "border-accent bg-accent/15 text-fg"
+                    : "border-line text-muted hover:bg-surface"
+                }`}
+                onClick={() => setAspect(value as AspectPreset)}
+                aria-pressed={project.appearance.aspect === value}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
 
           <div className="mb-2 text-[12px] text-muted">Background</div>
           <div className="mb-3 flex gap-2">
