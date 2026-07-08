@@ -78,6 +78,20 @@ final class WebcamRecorder: NSObject, AVCaptureFileOutputRecordingDelegate {
         self.webcamURL = webcamURL
         super.init()
 
+        // Verify camera TCC authorization before touching AVCaptureSession at
+        // all. The sidecar is a headless child process spawned by the app —
+        // it can never itself trigger the system permission prompt (only
+        // requestAccess from the app's own process can), so if the user
+        // hasn't granted Camera access yet, building the session would just
+        // silently fail later (no didStartRecordingTo, no file). Fail fast
+        // here instead, with a truthful log, and degrade to no-webcam.
+        let authStatus = AVCaptureDevice.authorizationStatus(for: .video)
+        guard authStatus == .authorized else {
+            emit(["event": "warn", "kind": "camera_denied",
+                  "msg": "camera permission not granted; recording continues without webcam"])
+            return nil
+        }
+
         // Match the camera by uniqueID (what --list-cameras emits). Fall back to
         // the direct initializer, then any discovered video device.
         let discovery = AVCaptureDevice.DiscoverySession(

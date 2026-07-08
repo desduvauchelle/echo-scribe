@@ -8,6 +8,8 @@ import {
   getScreenrecAudioPrefs,
   setScreenrecAudioPrefs,
   startScreenRecording,
+  requestCameraAccess,
+  openCameraSettings,
   type DisplaySource,
   type WindowSource,
   type InputDevice,
@@ -47,6 +49,12 @@ const SetupWindow: React.FC = () => {
   const [cameraUid, setCameraUid] = useState("");
   const [cameras, setCameras] = useState<CameraSource[]>([]);
   const [cameraError, setCameraError] = useState<string | null>(null);
+
+  // Set when the in-app camera permission request comes back "denied". The
+  // checkbox stays ON (recording still proceeds, just without the webcam —
+  // the sidecar degrades gracefully) but we surface the same friendly nudge
+  // the mic/accessibility flows use elsewhere in the app.
+  const [cameraPermissionDenied, setCameraPermissionDenied] = useState(false);
 
   const [starting, setStarting] = useState(false);
 
@@ -344,10 +352,28 @@ const SetupWindow: React.FC = () => {
               checked={cameraEnabled}
               disabled={cameraError !== null || cameras.length === 0}
               onChange={(e) => {
-                setCameraEnabled(e.target.checked);
+                const checked = e.target.checked;
+                setCameraEnabled(checked);
                 // First enable with nothing selected: default to first camera.
-                if (e.target.checked && !cameraUid && cameras.length > 0) {
+                if (checked && !cameraUid && cameras.length > 0) {
                   setCameraUid(cameras[0].uid);
+                }
+                if (checked) {
+                  // Trigger the in-app camera prompt (or read the cached
+                  // decision). Recording still proceeds even on "denied" —
+                  // the sidecar degrades to no-webcam — so this only ever
+                  // shows a nudge, never blocks Start.
+                  requestCameraAccess()
+                    .then((outcome) => {
+                      setCameraPermissionDenied(outcome === "denied");
+                    })
+                    .catch(() => {
+                      // Non-fatal: leave the warning cleared and let the
+                      // sidecar's own camera_denied log be the fallback
+                      // signal if something's actually wrong.
+                    });
+                } else {
+                  setCameraPermissionDenied(false);
                 }
               }}
             />
@@ -360,6 +386,24 @@ const SetupWindow: React.FC = () => {
           {cameraError && <p style={styles.errorText}>{cameraError}</p>}
           {!cameraError && cameras.length === 0 && (
             <p style={styles.emptyText}>No cameras found</p>
+          )}
+
+          {/* Camera permission denied: recording still proceeds without the
+              webcam, so this is a nudge, not a blocker. */}
+          {cameraEnabled && cameraPermissionDenied && (
+            <div style={styles.errorText}>
+              <p style={{ margin: 0 }}>
+                Camera access is off for Echo Scribe. Open System Settings →
+                Privacy &amp; Security → Camera, enable Echo Scribe, then quit
+                and reopen.
+              </p>
+              <button
+                style={styles.openSettingsButton}
+                onClick={() => openCameraSettings()}
+              >
+                Open Settings
+              </button>
+            </div>
           )}
 
           {/* Camera device select (only when enabled) */}
@@ -613,6 +657,17 @@ const styles: Record<string, React.CSSProperties> = {
     padding: "8px 10px",
     borderRadius: "6px",
     border: "1px solid rgba(248, 113, 113, 0.2)",
+  },
+  openSettingsButton: {
+    marginTop: "8px",
+    padding: "5px 12px",
+    backgroundColor: "var(--color-surface)",
+    color: "var(--color-fg)",
+    border: "1px solid var(--color-line)",
+    borderRadius: "6px",
+    fontSize: "12px",
+    fontWeight: 500,
+    cursor: "pointer",
   },
   footer: {
     display: "flex",

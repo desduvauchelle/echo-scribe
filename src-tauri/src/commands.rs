@@ -32,7 +32,7 @@ use crate::input::binding::{
 };
 use crate::input::hotkeys::{spawn_listener, HotkeyEvent};
 use crate::llm::{self, rag, GenerateRequest, Llm, LlmDownloadProgress, LlmModelEntry};
-use crate::permissions::{self, MicAccessOutcome, PermissionsStatus, SettingsPane};
+use crate::permissions::{self, CameraAccessOutcome, MicAccessOutcome, PermissionsStatus, SettingsPane};
 use crate::settings::SettingsStore;
 use crate::temporal::extract_date_window;
 use crate::ui::tray::TrayHandle;
@@ -213,6 +213,11 @@ pub fn open_screen_recording_settings() -> Result<(), String> {
     permissions::open_settings(SettingsPane::ScreenCapture).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+pub fn open_camera_settings() -> Result<(), String> {
+    permissions::open_settings(SettingsPane::Camera).map_err(|e| e.to_string())
+}
+
 /// Trigger the macOS in-process microphone prompt (or return the cached
 /// decision). Returns `true` if access is granted (now or already), `false`
 /// if denied or undetermined.
@@ -222,6 +227,27 @@ pub async fn request_microphone_access() -> Result<bool, String> {
         permissions::request_microphone().await,
         MicAccessOutcome::Granted
     ))
+}
+
+/// Maps a [`CameraAccessOutcome`] to the string the frontend switches on.
+/// Kept as a standalone function (rather than inlined in the command) so the
+/// mapping itself is unit-testable.
+fn camera_access_outcome_str(outcome: CameraAccessOutcome) -> &'static str {
+    match outcome {
+        CameraAccessOutcome::Granted => "granted",
+        CameraAccessOutcome::Denied => "denied",
+        CameraAccessOutcome::Undetermined => "undetermined",
+    }
+}
+
+/// Trigger the macOS in-process camera prompt (or return the cached
+/// decision). Returns "granted" / "denied" / "undetermined" — SetupWindow
+/// only acts on "denied" (shows the inline warning); the other two proceed
+/// silently, mirroring `request_microphone_access` but as a tri-state string
+/// since the UI needs to distinguish "denied" from "undetermined".
+#[tauri::command]
+pub async fn request_camera_access() -> Result<String, String> {
+    Ok(camera_access_outcome_str(permissions::request_camera().await).to_string())
 }
 
 /// Trigger the macOS Accessibility prompt. The dialog is a side effect; the
@@ -4535,6 +4561,22 @@ mod tests {
         assert_eq!(key_from_code(""), None);
         assert_eq!(key_from_code("NotARealCode"), None);
         assert_eq!(key_from_code("F30"), None);
+    }
+
+    #[test]
+    fn camera_access_outcome_str_maps_all_variants() {
+        assert_eq!(
+            camera_access_outcome_str(CameraAccessOutcome::Granted),
+            "granted"
+        );
+        assert_eq!(
+            camera_access_outcome_str(CameraAccessOutcome::Denied),
+            "denied"
+        );
+        assert_eq!(
+            camera_access_outcome_str(CameraAccessOutcome::Undetermined),
+            "undetermined"
+        );
     }
 
     #[test]

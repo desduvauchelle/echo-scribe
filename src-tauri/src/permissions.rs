@@ -21,6 +21,7 @@ pub enum SettingsPane {
     Accessibility,
     ScreenCapture,
     Calendars,
+    Camera,
 }
 
 /// Result of an asynchronous microphone access request.
@@ -33,15 +34,30 @@ pub enum MicAccessOutcome {
     Undetermined,
 }
 
+/// Result of an asynchronous camera access request. Mirrors
+/// [`MicAccessOutcome`] — kept as a distinct type (rather than reusing
+/// `MicAccessOutcome`) so call sites read as camera-specific, even though the
+/// three states and their meaning are identical.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CameraAccessOutcome {
+    Granted,
+    Denied,
+    /// The completion handler dropped its sender without producing a value
+    /// (e.g. the framework never invoked it). Treat like `Denied` for UX.
+    Undetermined,
+}
+
 #[cfg(target_os = "macos")]
 mod imp {
-    use super::{MicAccessOutcome, PermissionsStatus};
+    use super::{CameraAccessOutcome, MicAccessOutcome, PermissionsStatus};
     use block2::RcBlock;
     use objc2::runtime::Bool;
     use objc2_application_services::{
         kAXTrustedCheckOptionPrompt, AXIsProcessTrusted, AXIsProcessTrustedWithOptions,
     };
-    use objc2_av_foundation::{AVAuthorizationStatus, AVCaptureDevice, AVMediaTypeAudio};
+    use objc2_av_foundation::{
+        AVAuthorizationStatus, AVCaptureDevice, AVMediaTypeAudio, AVMediaTypeVideo,
+    };
     use objc2_core_foundation::{
         kCFBooleanTrue, kCFTypeDictionaryKeyCallBacks, kCFTypeDictionaryValueCallBacks,
         CFDictionary,
@@ -91,6 +107,27 @@ mod imp {
         // (The prompt only fires on +requestAccessForMediaType: or when
         // creating an AVCaptureDeviceInput.)
         let media_type = unsafe { AVMediaTypeAudio };
+        let Some(media_type) = media_type else {
+            // The static was nil — extremely unlikely on a real macOS system,
+            // but treat it as "not authorized" rather than crashing.
+            return false;
+        };
+        let status = unsafe { AVCaptureDevice::authorizationStatusForMediaType(media_type) };
+        status == AVAuthorizationStatus::Authorized
+    }
+
+    /// Non-prompting probe of the Camera TCC grant. Not currently wired into
+    /// [`PermissionsStatus`] (camera is opt-in per-recording, not a startup
+    /// gate like mic/accessibility/screen-recording), but exposed as `pub`
+    /// for callers — e.g. deciding whether to bother calling
+    /// [`request_camera`] at all — the same way `microphone_authorized`
+    /// backs `status()`.
+    pub fn camera_authorized() -> bool {
+        // SAFETY: AVCaptureDevice.authorizationStatusForMediaType: with
+        // AVMediaTypeVideo is a pure status read; it never prompts the user.
+        // (The prompt only fires on +requestAccessForMediaType: or when
+        // creating an AVCaptureDeviceInput.)
+        let media_type = unsafe { AVMediaTypeVideo };
         let Some(media_type) = media_type else {
             // The static was nil — extremely unlikely on a real macOS system,
             // but treat it as "not authorized" rather than crashing.
@@ -153,6 +190,60 @@ mod imp {
         }
     }
 
+    /// Asynchronously request camera access via AVCaptureDevice.
+    ///
+    /// On the first call from a process this triggers the standard macOS
+    /// in-process prompt. Subsequent calls return the cached decision
+    /// immediately without prompting.
+    ///
+    /// Implemented by handing AVFoundation an Objective-C block whose body
+    /// fires a tokio oneshot, then `await`ing on the receive end. Mirrors
+    /// `request_microphone` above exactly, swapping `AVMediaTypeVideo` in.
+    pub async fn request_camera() -> CameraAccessOutcome {
+        let media_type = match unsafe { AVMediaTypeVideo } {
+            Some(t) => t,
+            None => return CameraAccessOutcome::Undetermined,
+        };
+
+        let (tx, rx) = oneshot::channel::<bool>();
+        // Scope the RcBlock so it is dropped before any `.await`. The block
+        // itself is `!Send`, so holding it across the await would make the
+        // surrounding future non-`Send` and Tauri requires `Send` futures.
+        // AVFoundation -copy-s the block internally on the call below, so
+        // dropping our local reference immediately is fine.
+        {
+            // The completion handler may run on an arbitrary dispatch queue
+            // and is invoked exactly once. RcBlock requires `Fn`, so we wrap
+            // the sender in a Mutex<Option<_>> for interior mutability and
+            // `take()` it on first invocation. If AVFoundation never calls
+            // us, the sender is dropped when the (copied) block is dropped
+            // and the receiver resolves to `Err(_)` -> Undetermined.
+            let tx_slot: Mutex<Option<oneshot::Sender<bool>>> = Mutex::new(Some(tx));
+            let block = RcBlock::new(move |granted: Bool| {
+                if let Ok(mut guard) = tx_slot.lock() {
+                    if let Some(sender) = guard.take() {
+                        let _ = sender.send(granted.as_bool());
+                    }
+                }
+            });
+
+            // SAFETY: requestAccessForMediaType:completionHandler: is the
+            // documented entry point for prompting. The block matches the
+            // expected signature `void (^)(BOOL)`. AVFoundation retains
+            // (copies) the block internally, so it remains alive after we
+            // drop our local `RcBlock` here.
+            unsafe {
+                AVCaptureDevice::requestAccessForMediaType_completionHandler(media_type, &block);
+            }
+        }
+
+        match rx.await {
+            Ok(true) => CameraAccessOutcome::Granted,
+            Ok(false) => CameraAccessOutcome::Denied,
+            Err(_) => CameraAccessOutcome::Undetermined,
+        }
+    }
+
     /// Trigger the standard macOS Accessibility prompt via
     /// `AXIsProcessTrustedWithOptions({ kAXTrustedCheckOptionPrompt: true })`.
     ///
@@ -193,7 +284,7 @@ mod imp {
 
 #[cfg(not(target_os = "macos"))]
 mod imp {
-    use super::{MicAccessOutcome, PermissionsStatus};
+    use super::{CameraAccessOutcome, MicAccessOutcome, PermissionsStatus};
 
     pub fn status() -> PermissionsStatus {
         // On non-macOS hosts we don't gate anything; pretend everything is
@@ -208,6 +299,14 @@ mod imp {
 
     pub async fn request_microphone() -> MicAccessOutcome {
         MicAccessOutcome::Granted
+    }
+
+    pub async fn request_camera() -> CameraAccessOutcome {
+        CameraAccessOutcome::Granted
+    }
+
+    pub fn camera_authorized() -> bool {
+        true
     }
 
     pub fn prompt_accessibility() -> bool {
@@ -234,6 +333,18 @@ pub fn status() -> PermissionsStatus {
 /// prompting.
 pub async fn request_microphone() -> MicAccessOutcome {
     imp::request_microphone().await
+}
+
+/// Asynchronously request camera access via AVCaptureDevice. The first call
+/// from a process triggers the standard macOS in-process prompt; subsequent
+/// calls return the cached decision immediately without prompting.
+pub async fn request_camera() -> CameraAccessOutcome {
+    imp::request_camera().await
+}
+
+/// Non-prompting probe of the Camera TCC grant for this process.
+pub fn camera_authorized() -> bool {
+    imp::camera_authorized()
 }
 
 /// Triggers the standard macOS Accessibility prompt by calling
@@ -290,6 +401,9 @@ pub fn open_settings(pane: SettingsPane) -> Result<(), std::io::Error> {
         }
         SettingsPane::Calendars => {
             "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars"
+        }
+        SettingsPane::Camera => {
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera"
         }
     };
     let status = std::process::Command::new("open").arg(url).status()?;

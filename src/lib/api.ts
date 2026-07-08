@@ -43,8 +43,16 @@ export const openScreenRecordingSettings = (): Promise<void> =>
 export const openCalendarSettings = (): Promise<void> =>
   invoke("open_calendar_settings");
 
+export const openCameraSettings = (): Promise<void> =>
+  invoke("open_camera_settings");
+
 export const requestMicrophoneAccess = (): Promise<boolean> =>
   invoke("request_microphone_access");
+
+export type CameraAccessResult = "granted" | "denied" | "undetermined";
+
+export const requestCameraAccess = (): Promise<CameraAccessResult> =>
+  invoke("request_camera_access");
 
 export const promptAccessibilityAccess = (): Promise<boolean> =>
   invoke("prompt_accessibility_access");
