@@ -1231,20 +1231,36 @@ export const importEditorBackground = (
   invoke("import_editor_background", { id, srcPath });
 
 /** Finalize an editor export: hand the frontend's video-only render bytes to
- *  Rust, which muxes the recording's (trim-aligned) audio back in and writes
- *  `<id>.rendered.mp4`. Bytes ride as the raw IPC body (no JSON number-array
- *  copy); the id + optional trim window travel in headers. Pass
- *  `trimStartMs`/`trimEndMs` (SOURCE-time ms) to align the soundtrack to a
- *  trim, or omit both for full-length audio. Returns the updated row. */
+ *  Rust, which muxes the recording's (trim-aligned, speed-retimed) audio back
+ *  in and writes `<id>.rendered.mp4`. Bytes ride as the raw IPC body (no JSON
+ *  number-array copy); the id + optional trim window + speed ranges travel in
+ *  headers. Pass `trimStartMs`/`trimEndMs` (SOURCE-time ms) to align the
+ *  soundtrack to a trim, or omit both for full-length audio.
+ *
+ *  `speedRanges` are the POST-TRIM-time speed segments (already shifted via
+ *  `shiftRangesForTrim`) that Rust applies to the trimmed WAV; omit/empty for
+ *  no retiming. Contract: Rust never re-derives the trim offset — it trusts the
+ *  ranges are already in the trimmed audio's time base. Returns the updated
+ *  row. */
 export const finalizeRenderedRecording = (
   id: string,
   bytes: Uint8Array,
   trim?: { startMs: number; endMs: number } | null,
+  speedRanges?: { startMs: number; endMs: number; rate: number }[] | null,
 ): Promise<RecordingRow> => {
   const headers: Record<string, string> = { "x-recording-id": id };
   if (trim) {
     headers["x-trim-start-ms"] = String(Math.round(trim.startMs));
     headers["x-trim-end-ms"] = String(Math.round(trim.endMs));
+  }
+  if (speedRanges && speedRanges.length > 0) {
+    headers["x-speed-ranges"] = JSON.stringify(
+      speedRanges.map((r) => ({
+        startMs: Math.round(r.startMs),
+        endMs: Math.round(r.endMs),
+        rate: r.rate,
+      })),
+    );
   }
   return invoke("finalize_rendered_recording", bytes, { headers });
 };

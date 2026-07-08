@@ -234,28 +234,19 @@ pub fn extract_audio(mp4: &std::path::Path, out_wav: &std::path::Path) -> Result
     extract_audio_at(mp4, out_wav, 16_000)
 }
 
-/// Copy a millisecond sub-range `[start_ms, end_ms)` of a 16-bit PCM mono WAV
-/// (`wav_in`) into a fresh WAV (`wav_out`), preserving the sample rate. Pure
-/// file→file sample-range copy — no resampling, no channel changes.
-///
-/// Used by `finalize_rendered_recording` to align the muxed soundtrack with an
-/// editor trim: `extract_audio_at` gives the full-length 48kHz mono WAV, then
-/// this slices out the kept window so the audio starts/ends with the trimmed
-/// video.
-///
-/// Semantics:
-///   - `start_ms`/`end_ms` are clamped to `[0, total_ms]`; if `end_ms <=
-///     start_ms` after clamping (or `start_ms` is at/after the end of the
-///     data), returns an error rather than writing a zero-length file.
-///   - A range covering the whole clip copies every sample verbatim.
-///   - The input must be 16-bit PCM mono; other formats are rejected (callers
-///     always pass `extract_audio_at(.., 48_000)` output, which is mono 16-bit).
-pub fn trim_wav_samples(
-    wav_in: &std::path::Path,
-    wav_out: &std::path::Path,
-    start_ms: u64,
-    end_ms: u64,
-) -> Result<(), String> {
+/// A decoded 16-bit PCM mono WAV: its `data`-chunk samples plus the sample
+/// rate. The intermediate representation shared by `trim_wav_samples` and
+/// `retime_wav_samples` so the header/chunk plumbing lives in one place.
+struct MonoWav {
+    sample_rate: u32,
+    samples: Vec<i16>,
+}
+
+/// Read a 16-bit PCM mono WAV from disk into `MonoWav`. Rejects non-WAV,
+/// non-mono, and non-16-bit inputs (callers always feed `extract_audio_at(..,
+/// 48_000)` output, which is mono 16-bit). Skips any chunks between `fmt ` and
+/// `data`. Pure aside from the file read.
+fn read_mono_wav(wav_in: &std::path::Path) -> Result<MonoWav, String> {
     let mut bytes = Vec::new();
     {
         use std::io::Read;
@@ -288,10 +279,71 @@ pub fn trim_wav_samples(
         }
         pos += 8 + sz + (sz & 1); // chunks are word-aligned
     };
+    let samples: Vec<i16> = bytes[data_off..data_off + data_len]
+        .chunks_exact(2)
+        .map(|b| i16::from_le_bytes([b[0], b[1]]))
+        .collect();
+    Ok(MonoWav {
+        sample_rate,
+        samples,
+    })
+}
 
-    // Total sample frames (2 bytes/sample, mono → 1 sample per frame).
-    let total_samples = data_len / 2;
-    let sr = sample_rate as u64;
+/// Serialize a 16-bit PCM mono WAV (`sample_rate` Hz, the given `samples`) to
+/// `wav_out`. Inverse of `read_mono_wav`; the canonical 44-byte header writer
+/// shared by the trim/retime paths.
+fn write_mono_wav(
+    wav_out: &std::path::Path,
+    sample_rate: u32,
+    samples: &[i16],
+) -> Result<(), String> {
+    let out_data_len = (samples.len() * 2) as u32;
+    let byte_rate = sample_rate * 2; // mono, 16-bit
+    let mut out = Vec::with_capacity(44 + out_data_len as usize);
+    out.extend_from_slice(b"RIFF");
+    out.extend_from_slice(&(36 + out_data_len).to_le_bytes());
+    out.extend_from_slice(b"WAVE");
+    out.extend_from_slice(b"fmt ");
+    out.extend_from_slice(&16u32.to_le_bytes());
+    out.extend_from_slice(&1u16.to_le_bytes()); // PCM
+    out.extend_from_slice(&1u16.to_le_bytes()); // mono
+    out.extend_from_slice(&sample_rate.to_le_bytes());
+    out.extend_from_slice(&byte_rate.to_le_bytes());
+    out.extend_from_slice(&2u16.to_le_bytes()); // block align = channels * 2
+    out.extend_from_slice(&16u16.to_le_bytes()); // bits
+    out.extend_from_slice(b"data");
+    out.extend_from_slice(&out_data_len.to_le_bytes());
+    for &s in samples {
+        out.extend_from_slice(&s.to_le_bytes());
+    }
+    std::fs::write(wav_out, &out).map_err(|e| format!("could not write WAV: {e}"))
+}
+
+/// Copy a millisecond sub-range `[start_ms, end_ms)` of a 16-bit PCM mono WAV
+/// (`wav_in`) into a fresh WAV (`wav_out`), preserving the sample rate. Pure
+/// file→file sample-range copy — no resampling, no channel changes.
+///
+/// Used by `finalize_rendered_recording` to align the muxed soundtrack with an
+/// editor trim: `extract_audio_at` gives the full-length 48kHz mono WAV, then
+/// this slices out the kept window so the audio starts/ends with the trimmed
+/// video.
+///
+/// Semantics:
+///   - `start_ms`/`end_ms` are clamped to `[0, total_ms]`; if `end_ms <=
+///     start_ms` after clamping (or `start_ms` is at/after the end of the
+///     data), returns an error rather than writing a zero-length file.
+///   - A range covering the whole clip copies every sample verbatim.
+///   - The input must be 16-bit PCM mono; other formats are rejected (callers
+///     always pass `extract_audio_at(.., 48_000)` output, which is mono 16-bit).
+pub fn trim_wav_samples(
+    wav_in: &std::path::Path,
+    wav_out: &std::path::Path,
+    start_ms: u64,
+    end_ms: u64,
+) -> Result<(), String> {
+    let wav = read_mono_wav(wav_in)?;
+    let total_samples = wav.samples.len();
+    let sr = wav.sample_rate as u64;
 
     // ms → sample index (round to nearest sample), clamped into range.
     let ms_to_sample = |ms: u64| -> usize {
@@ -306,27 +358,115 @@ pub fn trim_wav_samples(
         ));
     }
 
-    let slice = &bytes[data_off + start_s * 2..data_off + end_s * 2];
-    let out_data_len = slice.len() as u32;
-    let byte_rate = sample_rate * channels as u32 * 2;
-    let block_align = channels * 2;
-    let mut out = Vec::with_capacity(44 + out_data_len as usize);
-    out.extend_from_slice(b"RIFF");
-    out.extend_from_slice(&(36 + out_data_len).to_le_bytes());
-    out.extend_from_slice(b"WAVE");
-    out.extend_from_slice(b"fmt ");
-    out.extend_from_slice(&16u32.to_le_bytes());
-    out.extend_from_slice(&1u16.to_le_bytes()); // PCM
-    out.extend_from_slice(&channels.to_le_bytes());
-    out.extend_from_slice(&sample_rate.to_le_bytes());
-    out.extend_from_slice(&byte_rate.to_le_bytes());
-    out.extend_from_slice(&block_align.to_le_bytes());
-    out.extend_from_slice(&16u16.to_le_bytes()); // bits
-    out.extend_from_slice(b"data");
-    out.extend_from_slice(&out_data_len.to_le_bytes());
-    out.extend_from_slice(slice);
+    write_mono_wav(wav_out, wav.sample_rate, &wav.samples[start_s..end_s])
+}
 
-    std::fs::write(wav_out, &out).map_err(|e| format!("could not write trimmed WAV: {e}"))
+/// One speed range in POST-TRIM millisecond time, as parsed from the
+/// `x-speed-ranges` finalize header. `start_ms`/`end_ms` are relative to the
+/// start of the (already-trimmed) WAV; `rate` is the playback multiplier
+/// (2.0 = twice as fast → half the samples; 0.5 = half speed → twice as many).
+///
+/// CONTRACT: the frontend sends these ALREADY shifted into post-trim time
+/// (`shiftRangesForTrim` in editorProject.ts) so Rust applies them directly to
+/// the trimmed audio without re-deriving the trim offset.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Deserialize)]
+pub struct SpeedRangeSamples {
+    pub start_ms: u64,
+    pub end_ms: u64,
+    pub rate: f64,
+}
+
+/// Retime a 16-bit PCM mono WAV (`wav_in`) by resampling each speed range in
+/// place, writing the result to `wav_out`. Regions outside every range are
+/// copied 1:1; inside a range at `rate`, the span is naively linear-interp
+/// resampled so it plays `rate`× faster (a 2× range consumes 2 input samples
+/// per output sample → half the samples; 0.5× stretches to twice as many).
+///
+/// PITCH-SHIFT CAVEAT (v1, accepted): this is a naive time-domain resample, so
+/// sped-up audio is pitch-shifted upward ("chipmunk" at 2×) and slowed audio
+/// drops in pitch. Proper pitch-preserving time-stretch (WSOLA/phase vocoder)
+/// is future work; v1 ships the simple resample to match the video retiming.
+///
+/// `ranges` must be sorted ascending by `start_ms`, non-overlapping, and within
+/// the audio data (`end_ms` ≤ total duration); each `rate` must be > 0.
+/// Otherwise returns an `Err` (the caller logs a warning and skips retiming,
+/// never failing the export). Empty `ranges` → verbatim copy. The input must be
+/// 16-bit PCM mono (same constraint as `trim_wav_samples`).
+pub fn retime_wav_samples(
+    wav_in: &std::path::Path,
+    wav_out: &std::path::Path,
+    ranges: &[SpeedRangeSamples],
+) -> Result<(), String> {
+    let wav = read_mono_wav(wav_in)?;
+    let total_samples = wav.samples.len();
+    let sr = wav.sample_rate as u64;
+
+    // ms → sample index (round to nearest), NOT clamped — an out-of-range
+    // request is a caller error (validated below), not something to silently
+    // truncate the way the trim path clamps.
+    let ms_to_sample = |ms: u64| -> u64 { (ms.saturating_mul(sr) + 500) / 1000 };
+
+    // Validate: sorted, non-overlapping, within data, positive rate.
+    let mut prev_end: u64 = 0;
+    for (i, r) in ranges.iter().enumerate() {
+        if !(r.rate.is_finite() && r.rate > 0.0) {
+            return Err(format!("speed range {i} has non-positive rate {}", r.rate));
+        }
+        if r.end_ms <= r.start_ms {
+            return Err(format!(
+                "speed range {i} is empty (start_ms={}, end_ms={})",
+                r.start_ms, r.end_ms
+            ));
+        }
+        let start_s = ms_to_sample(r.start_ms);
+        let end_s = ms_to_sample(r.end_ms);
+        if i > 0 && start_s < prev_end {
+            return Err(format!(
+                "speed ranges must be sorted and non-overlapping (range {i} overlaps its predecessor)"
+            ));
+        }
+        if end_s > total_samples as u64 {
+            return Err(format!(
+                "speed range {i} extends past the audio data (end_ms={}, samples={total_samples})",
+                r.end_ms
+            ));
+        }
+        prev_end = end_s;
+    }
+
+    // Walk the timeline: copy verbatim up to each range start, resample the
+    // range, then copy the tail after the last range.
+    let mut out: Vec<i16> = Vec::with_capacity(total_samples);
+    let mut cursor: usize = 0; // next un-emitted input sample index
+    for r in ranges {
+        let start_s = ms_to_sample(r.start_ms) as usize;
+        let end_s = ms_to_sample(r.end_ms) as usize;
+        // Verbatim gap before this range.
+        if start_s > cursor {
+            out.extend_from_slice(&wav.samples[cursor..start_s]);
+        }
+        // Resample [start_s, end_s) at `rate`. Output length = round(span/rate).
+        let span = (end_s - start_s) as f64;
+        let out_len = (span / r.rate).round() as usize;
+        for j in 0..out_len {
+            // Map output index j → fractional input position within the span.
+            let src_pos = start_s as f64 + (j as f64) * r.rate;
+            let i0 = src_pos.floor() as usize;
+            let frac = src_pos - i0 as f64;
+            // Linear interpolation between i0 and i0+1, clamped to the span end.
+            let s0 = wav.samples[i0.min(end_s - 1)] as f64;
+            let s1 = wav.samples[(i0 + 1).min(end_s - 1)] as f64;
+            let v = s0 + (s1 - s0) * frac;
+            out.push(v.round().clamp(i16::MIN as f64, i16::MAX as f64) as i16);
+        }
+        cursor = end_s;
+    }
+    // Verbatim tail after the last range.
+    if cursor < total_samples {
+        out.extend_from_slice(&wav.samples[cursor..]);
+    }
+
+    write_mono_wav(wav_out, wav.sample_rate, &out)
 }
 
 /// Mux a cleaned audio WAV into the original video, writing a new mp4.
@@ -952,6 +1092,160 @@ mod tests {
         let got = read_test_wav_samples(&dst);
         assert_eq!(got.len(), 500); // 300..800
         assert_eq!(got[0], 300);
+        let _ = std::fs::remove_file(&src);
+        let _ = std::fs::remove_file(&dst);
+    }
+
+    // ---- retime_wav_samples ----------------------------------------------
+
+    #[test]
+    fn retime_empty_ranges_is_identity() {
+        // 1000 samples @ 1000 Hz = 1000 ms. No ranges → verbatim copy.
+        let samples: Vec<i16> = (0..1000).map(|i| (i % 250) as i16).collect();
+        let src = write_test_wav("retime-id-in", 1000, &samples);
+        let dst = write_test_wav("retime-id-out", 1000, &[]);
+        retime_wav_samples(&src, &dst, &[]).unwrap();
+        assert_eq!(read_test_wav_samples(&dst), samples);
+        let _ = std::fs::remove_file(&src);
+        let _ = std::fs::remove_file(&dst);
+    }
+
+    #[test]
+    fn retime_2x_halves_span_sample_count() {
+        // 1000 samples @ 1000 Hz. A 2× range over [200ms,600ms) covers input
+        // samples 200..600 (400 samples) → 200 output samples. Regions outside
+        // are copied 1:1: [0,200) = 200 samples, [600,1000) = 400 samples.
+        // Total output = 200 + 200 + 400 = 800.
+        let samples: Vec<i16> = (0..1000).map(|i| i as i16).collect();
+        let src = write_test_wav("retime-2x-in", 1000, &samples);
+        let dst = write_test_wav("retime-2x-out", 1000, &[]);
+        retime_wav_samples(&src, &dst, &[SpeedRangeSamples { start_ms: 200, end_ms: 600, rate: 2.0 }]).unwrap();
+        let got = read_test_wav_samples(&dst);
+        assert_eq!(got.len(), 800);
+        // Untouched leading region is verbatim.
+        assert_eq!(got[0], 0);
+        assert_eq!(got[199], 199);
+        // Untouched trailing region resumes at input sample 600.
+        assert_eq!(got[400], 600);
+        assert_eq!(got[799], 999);
+        let _ = std::fs::remove_file(&src);
+        let _ = std::fs::remove_file(&dst);
+    }
+
+    #[test]
+    fn retime_half_rate_doubles_span_sample_count() {
+        // 1000 samples @ 1000 Hz. A 0.5× range over [0ms,1000ms) covers the
+        // whole clip (1000 samples) → 2000 output samples (stretched).
+        let samples: Vec<i16> = (0..1000).map(|i| i as i16).collect();
+        let src = write_test_wav("retime-half-in", 1000, &samples);
+        let dst = write_test_wav("retime-half-out", 1000, &[]);
+        retime_wav_samples(&src, &dst, &[SpeedRangeSamples { start_ms: 0, end_ms: 1000, rate: 0.5 }]).unwrap();
+        let got = read_test_wav_samples(&dst);
+        assert_eq!(got.len(), 2000);
+        // First and last samples are anchored (linear interp endpoints).
+        assert_eq!(got[0], 0);
+        let _ = std::fs::remove_file(&src);
+        let _ = std::fs::remove_file(&dst);
+    }
+
+    #[test]
+    fn retime_boundary_continuity_untouched_regions_verbatim() {
+        // Two ranges leave three untouched regions; each untouched region must
+        // be copied sample-for-sample. Ranges: [200,400)@2×, [600,800)@2×.
+        let samples: Vec<i16> = (0..1000).map(|i| i as i16).collect();
+        let src = write_test_wav("retime-cont-in", 1000, &samples);
+        let dst = write_test_wav("retime-cont-out", 1000, &[]);
+        retime_wav_samples(
+            &src,
+            &dst,
+            &[
+                SpeedRangeSamples { start_ms: 200, end_ms: 400, rate: 2.0 },
+                SpeedRangeSamples { start_ms: 600, end_ms: 800, rate: 2.0 },
+            ],
+        )
+        .unwrap();
+        let got = read_test_wav_samples(&dst);
+        // [0,200) verbatim = 200 samples; [200,400)@2× = 100; [400,600) verbatim
+        // = 200; [600,800)@2× = 100; [800,1000) verbatim = 200. Total = 800.
+        assert_eq!(got.len(), 800);
+        // Leading region verbatim.
+        assert_eq!(got[0], 0);
+        assert_eq!(got[199], 199);
+        // After the first sped span (200 + 100 = 300), the middle verbatim
+        // region resumes at input sample 400.
+        assert_eq!(got[300], 400);
+        assert_eq!(got[499], 599);
+        let _ = std::fs::remove_file(&src);
+        let _ = std::fs::remove_file(&dst);
+    }
+
+    #[test]
+    fn retime_rejects_overlapping_ranges() {
+        let samples: Vec<i16> = (0..1000).map(|i| i as i16).collect();
+        let src = write_test_wav("retime-ovl-in", 1000, &samples);
+        let dst = write_test_wav("retime-ovl-out", 1000, &[]);
+        let err = retime_wav_samples(
+            &src,
+            &dst,
+            &[
+                SpeedRangeSamples { start_ms: 100, end_ms: 500, rate: 2.0 },
+                SpeedRangeSamples { start_ms: 400, end_ms: 800, rate: 2.0 },
+            ],
+        )
+        .unwrap_err();
+        assert!(err.contains("overlap") || err.contains("sorted"), "got: {err}");
+        let _ = std::fs::remove_file(&src);
+        let _ = std::fs::remove_file(&dst);
+    }
+
+    #[test]
+    fn retime_rejects_unsorted_ranges() {
+        let samples: Vec<i16> = (0..1000).map(|i| i as i16).collect();
+        let src = write_test_wav("retime-uns-in", 1000, &samples);
+        let dst = write_test_wav("retime-uns-out", 1000, &[]);
+        let err = retime_wav_samples(
+            &src,
+            &dst,
+            &[
+                SpeedRangeSamples { start_ms: 600, end_ms: 800, rate: 2.0 },
+                SpeedRangeSamples { start_ms: 100, end_ms: 300, rate: 2.0 },
+            ],
+        )
+        .unwrap_err();
+        assert!(err.contains("sorted") || err.contains("overlap"), "got: {err}");
+        let _ = std::fs::remove_file(&src);
+        let _ = std::fs::remove_file(&dst);
+    }
+
+    #[test]
+    fn retime_rejects_range_past_data_end() {
+        let samples: Vec<i16> = (0..500).map(|i| i as i16).collect(); // 500 ms
+        let src = write_test_wav("retime-past-in", 1000, &samples);
+        let dst = write_test_wav("retime-past-out", 1000, &[]);
+        // Range end 900ms is past the 500ms of data → rejected.
+        let err = retime_wav_samples(
+            &src,
+            &dst,
+            &[SpeedRangeSamples { start_ms: 100, end_ms: 900, rate: 2.0 }],
+        )
+        .unwrap_err();
+        assert!(err.contains("data") || err.contains("range"), "got: {err}");
+        let _ = std::fs::remove_file(&src);
+        let _ = std::fs::remove_file(&dst);
+    }
+
+    #[test]
+    fn retime_rejects_nonpositive_rate() {
+        let samples: Vec<i16> = (0..500).map(|i| i as i16).collect();
+        let src = write_test_wav("retime-rate-in", 1000, &samples);
+        let dst = write_test_wav("retime-rate-out", 1000, &[]);
+        let err = retime_wav_samples(
+            &src,
+            &dst,
+            &[SpeedRangeSamples { start_ms: 100, end_ms: 300, rate: 0.0 }],
+        )
+        .unwrap_err();
+        assert!(err.contains("rate"), "got: {err}");
         let _ = std::fs::remove_file(&src);
         let _ = std::fs::remove_file(&dst);
     }

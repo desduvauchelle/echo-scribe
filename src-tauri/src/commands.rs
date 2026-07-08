@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State, Wry};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::UnboundedSender;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use crate::asr::downloader::{self, DownloadProgress};
 use crate::asr::pipeline::AsrPipeline;
@@ -4013,6 +4013,10 @@ fn record_rendered_export(
 ///   - `x-recording-id`   (required) — DB-gates the operation
 ///   - `x-trim-start-ms`  (optional) — absent/empty = no trim (full audio)
 ///   - `x-trim-end-ms`    (optional) — absent/empty = no trim (full audio)
+///   - `x-speed-ranges`   (optional) — JSON array of `{startMs,endMs,rate}` in
+///     POST-TRIM ms time base (the frontend shifts them via `shiftRangesForTrim`
+///     so they already line up with the trimmed WAV). Malformed / unparseable
+///     → logged `warn!` and skipped (retiming is dropped, export never fails).
 ///
 /// Flow (mirrors `run_denoise`'s staged temp-file orchestration; every failure
 /// path cleans up ALL temps):
@@ -4023,8 +4027,11 @@ fn record_rendered_export(
 ///          `<id>.rendered.mp4` (never fail the export for missing audio).
 ///   3. If a trim window is present, `trim_wav_samples` the extracted WAV to the
 ///      kept `[start, end)` range so the audio lines up with the trimmed video.
-///   4. `mux_audio(temp video, wav, <id>.rendered.mp4)`.
-///   5. Merge the "rendered" exports entry (replace-not-duplicate).
+///   4. If speed ranges are present, `retime_wav_samples` the (trimmed) WAV —
+///      AFTER trim, since the ranges arrive in post-trim time. A retime failure
+///      logs a warning and falls back to the un-retimed audio (never fails).
+///   5. `mux_audio(temp video, wav, <id>.rendered.mp4)`.
+///   6. Merge the "rendered" exports entry (replace-not-duplicate).
 #[tauri::command]
 pub async fn finalize_rendered_recording(
     app: AppHandle,
@@ -4057,6 +4064,24 @@ pub async fn finalize_rendered_recording(
         (Some(s), Some(e)) if e > s => Some((s, e)),
         _ => None,
     };
+
+    // Optional speed ranges (POST-TRIM ms). Defensive parse: any failure (header
+    // absent, not UTF-8, not JSON, empty array) → None (no retiming). We DON'T
+    // fail the export on a malformed header — retiming is a best-effort layer.
+    let speed_ranges: Option<Vec<crate::screenrec::SpeedRangeSamples>> = request
+        .headers()
+        .get("x-speed-ranges")
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .and_then(|s| match serde_json::from_str::<Vec<crate::screenrec::SpeedRangeSamples>>(s) {
+            Ok(ranges) => Some(ranges),
+            Err(e) => {
+                warn!(target: "screenrec", rec = %id, error = %e, "finalize: malformed x-speed-ranges header; skipping retiming");
+                None
+            }
+        })
+        .filter(|ranges| !ranges.is_empty());
 
     // Copy the render bytes out of the borrowed request before any await.
     let bytes: Vec<u8> = match request.body() {
@@ -4094,6 +4119,7 @@ pub async fn finalize_rendered_recording(
     let temp_vid = dir.join(format!("{id}.render-vid.mp4"));
     let wav_full = dir.join(format!("{id}.render-audio.wav"));
     let wav_trim = dir.join(format!("{id}.render-audio-trim.wav"));
+    let wav_speed = dir.join(format!("{id}.render-audio-speed.wav"));
     let out = dir.join(format!("{id}.rendered.mp4"));
 
     // Cleanup helper: remove every temp we might have created. `out` is the
@@ -4102,6 +4128,7 @@ pub async fn finalize_rendered_recording(
         let _ = std::fs::remove_file(&temp_vid);
         let _ = std::fs::remove_file(&wav_full);
         let _ = std::fs::remove_file(&wav_trim);
+        let _ = std::fs::remove_file(&wav_speed);
     };
 
     // 1. Write the render bytes to the temp video file.
@@ -4170,7 +4197,39 @@ pub async fn finalize_rendered_recording(
         wav_full.clone()
     };
 
-    // 4. Mux the (possibly trimmed) audio into the render video → out.
+    // 3b. Optionally retime the (already-trimmed) audio for speed segments.
+    // Ranges arrive in POST-TRIM time (frontend `shiftRangesForTrim`), so this
+    // MUST run after the trim step and reads the trimmed WAV directly. A retime
+    // failure (malformed ranges past the data end, overlap, IO) is non-fatal:
+    // we log a warning and fall back to the un-retimed audio so the export
+    // still completes with correct (if un-sped) sound.
+    let audio_for_mux = if let Some(ranges) = speed_ranges {
+        let n = ranges.len();
+        let audio_in = audio_for_mux.clone();
+        let wav_speed_c = wav_speed.clone();
+        let retimed = tokio::task::spawn_blocking(move || {
+            crate::screenrec::retime_wav_samples(&audio_in, &wav_speed_c, &ranges)
+        })
+        .await
+        .map_err(|_| {
+            cleanup();
+            "audio retime task panicked".to_string()
+        })?;
+        match retimed {
+            Ok(()) => {
+                info!(target: "screenrec", rec = %id, n_ranges = n, "finalize: retimed audio for speed segments");
+                wav_speed.clone()
+            }
+            Err(e) => {
+                warn!(target: "screenrec", rec = %id, error = %e, "finalize: audio retime failed; muxing un-retimed audio");
+                audio_for_mux
+            }
+        }
+    } else {
+        audio_for_mux
+    };
+
+    // 4. Mux the (possibly trimmed + retimed) audio into the render video → out.
     let temp_vid_c = temp_vid.clone();
     let audio_c = audio_for_mux.clone();
     let out_c = out.clone();

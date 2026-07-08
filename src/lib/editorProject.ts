@@ -369,6 +369,186 @@ export function clampSpeedRanges(ranges: SpeedRange[], durationMs: number): Spee
   }));
 }
 
+// ---- Speed map + retiming math (Task 5) ---------------------------------
+//
+// A "speed map" turns SOURCE time (ms) into OUTPUT time (ms) for the retimed
+// export. Outside every range playback is 1:1; inside a range with rate `r`,
+// each `dt` of source time contributes `dt/r` of output (so 2× halves a span's
+// output length; 0.5× doubles it). The map is piecewise-linear, continuous, and
+// strictly monotone-non-decreasing (rate > 0). The frontend and the Rust
+// audio retimer must produce the SAME output length for a given range list; the
+// TS `buildSpeedMap` is the authoritative definition of that math and the video
+// pipeline maps every emitted frame timestamp through it.
+
+/** Minimum speed-range length (ms) — a range can't be resized below this,
+ *  matching the zoom/trim handle floors. */
+export const SPEED_MIN_LENGTH_MS = 500;
+
+/** Default length + rate for a freshly-added speed segment ("Add speed"). */
+export const SPEED_ADD_DEFAULT_LENGTH_MS = 5000;
+export const SPEED_ADD_DEFAULT_RATE = 2.0;
+
+/** A source→output time map for a set of (source-time) speed ranges.
+ *  `srcToOut(srcMs)` is piecewise-linear & monotonic; `outDurationMs` is the
+ *  total output length for the whole `[0, durationMs]` source span. */
+export type SpeedMap = {
+  srcToOut(srcMs: number): number;
+  outDurationMs: number;
+};
+
+/** Build the source→output time map for `ranges` over a `durationMs` source
+ *  clip. Ranges are first normalized through `clampSpeedRanges` (sorted,
+ *  clamped, de-overlapped, rate-bounded) so callers may pass raw/unsorted
+ *  input. Pure. */
+export function buildSpeedMap(ranges: SpeedRange[], durationMs: number): SpeedMap {
+  const dur = Math.max(0, durationMs);
+  const norm = clampSpeedRanges(ranges, dur);
+
+  // Precompute the cumulative output time at each range boundary so srcToOut is
+  // O(log n)/O(n) rather than re-integrating from 0 every call. `outAtSrc[i]`
+  // is the output time at `norm[i].startMs`.
+  const outAtStart: number[] = [];
+  let outCursor = 0;
+  let srcCursor = 0;
+  for (const r of norm) {
+    // Identity gap before this range.
+    outCursor += r.startMs - srcCursor;
+    outAtStart.push(outCursor);
+    // The range itself contributes (len / rate) to output.
+    outCursor += (r.endMs - r.startMs) / r.rate;
+    srcCursor = r.endMs;
+  }
+  // Identity tail after the last range.
+  const outDurationMs = outCursor + (dur - srcCursor);
+
+  const srcToOut = (srcMsRaw: number): number => {
+    const srcMs = Math.min(Math.max(srcMsRaw, 0), dur);
+    // Walk to the range covering (or preceding) srcMs. n is small (a handful of
+    // ranges) so a linear scan is fine and keeps the code obvious.
+    let out = 0;
+    let cursor = 0;
+    for (let i = 0; i < norm.length; i++) {
+      const r = norm[i];
+      if (srcMs <= r.startMs) {
+        // In the identity gap before this range.
+        return out + (srcMs - cursor);
+      }
+      // Advance across the identity gap up to the range start.
+      out = outAtStart[i];
+      if (srcMs <= r.endMs) {
+        // Inside the range: partial contribution at rate r.
+        return out + (srcMs - r.startMs) / r.rate;
+      }
+      // Past the range end; continue past it.
+      out += (r.endMs - r.startMs) / r.rate;
+      cursor = r.endMs;
+    }
+    // In the identity tail after the last range.
+    return out + (srcMs - cursor);
+  };
+
+  return { srcToOut, outDurationMs };
+}
+
+/** Re-express source-time speed ranges into POST-TRIM time so the Rust audio
+ *  retimer (which operates on the already-trimmed WAV) and the video pipeline's
+ *  post-trim speed map apply them directly. Each range is clipped to the trim
+ *  window `[startMs, endMs)` then shifted left by `startMs`; ranges that fall
+ *  entirely outside the window (or clip to a degenerate span) are dropped.
+ *  `trim === null` → pass the ranges through unchanged (no trim). Pure.
+ *
+ *  CONTRACT (must match the Rust side): the frontend always sends ranges in
+ *  post-trim time; Rust never re-derives the trim shift. */
+export function shiftRangesForTrim(
+  ranges: SpeedRange[],
+  trim: { startMs: number; endMs: number } | null,
+): SpeedRange[] {
+  if (trim === null) return ranges;
+  const { startMs, endMs } = trim;
+  const out: SpeedRange[] = [];
+  for (const r of ranges) {
+    const clippedStart = Math.max(r.startMs, startMs);
+    const clippedEnd = Math.min(r.endMs, endMs);
+    if (clippedEnd <= clippedStart) continue; // fully outside / degenerate
+    out.push({
+      startMs: clippedStart - startMs,
+      endMs: clippedEnd - startMs,
+      rate: r.rate,
+    });
+  }
+  return out;
+}
+
+/** Find a placement for a NEW speed range near `preferredStartMs`, of length
+ *  `lengthMs`. Unlike `placeZoomBlock` (which pushes past overlaps), a speed
+ *  add at the playhead is a no-op when the playhead already sits inside a
+ *  range (the caller shows a toast): returns `null` in that case. Otherwise it
+ *  clamps the block into `[0, durationMs]` and caps its end at the next range's
+ *  start (stop-at-neighbour), returning `null` if the resulting gap is shorter
+ *  than `SPEED_MIN_LENGTH_MS`. Pure; `ranges` need not be pre-sorted. */
+export function placeSpeedRange(
+  ranges: SpeedRange[],
+  preferredStartMs: number,
+  lengthMs: number,
+  durationMs: number,
+): { startMs: number; endMs: number } | null {
+  const dur = Math.max(0, durationMs);
+  if (dur < SPEED_MIN_LENGTH_MS) return null;
+  const sorted = [...ranges].sort((a, b) => a.startMs - b.startMs);
+
+  let start = clamp(Math.round(preferredStartMs), 0, Math.max(0, dur - lengthMs));
+
+  // No-op if the (clamped) start lands inside an existing range — the start
+  // edge counts as inside so butting ranges don't silently swallow the add.
+  for (const r of sorted) {
+    if (start >= r.startMs && start < r.endMs) return null;
+  }
+
+  let end = Math.min(dur, start + lengthMs);
+  // Cap the end at the next range that starts at/after `start`.
+  const nextAfter = sorted.find((r) => r.startMs >= start);
+  if (nextAfter) end = Math.min(end, nextAfter.startMs);
+
+  if (end - start < SPEED_MIN_LENGTH_MS) return null;
+  return { startMs: start, endMs: end };
+}
+
+/** Resize one edge of speed range `index`. Mirrors `resizeZoomBlock`'s
+ *  stop-at-neighbour semantics: both edges stay in `[0, durationMs]`, the range
+ *  keeps at least `SPEED_MIN_LENGTH_MS`, and the moving edge stops at the
+ *  neighbour on that side (prev.endMs for "start", next.startMs for "end") so
+ *  ranges butt up but never overlap. `ranges` is assumed sorted by `startMs`.
+ *  Never drops/reorders. Returns a new array (or the same reference on a
+ *  no-op). Pure. */
+export function resizeSpeedRange(
+  ranges: SpeedRange[],
+  index: number,
+  edge: "start" | "end",
+  valueMs: number,
+  durationMs: number,
+): SpeedRange[] {
+  if (index < 0 || index >= ranges.length) return ranges;
+  const range = ranges[index];
+  const prev = ranges[index - 1];
+  const next = ranges[index + 1];
+
+  let v = clamp(Math.round(valueMs), 0, Math.max(0, durationMs));
+
+  if (edge === "start") {
+    const lo = prev ? prev.endMs : 0;
+    const hi = range.endMs - SPEED_MIN_LENGTH_MS;
+    v = clamp(v, lo, Math.max(lo, hi));
+    if (v === range.startMs) return ranges;
+    return ranges.map((r, i) => (i === index ? { ...r, startMs: v } : r));
+  } else {
+    const hi = next ? next.startMs : durationMs;
+    const lo = range.startMs + SPEED_MIN_LENGTH_MS;
+    v = clamp(v, Math.min(lo, hi), hi);
+    if (v === range.endMs) return ranges;
+    return ranges.map((r, i) => (i === index ? { ...r, endMs: v } : r));
+  }
+}
+
 // ---- Zoom block editing (Task 3) ----------------------------------------
 //
 // These are the pure primitives the timeline zoom lane drives every edit

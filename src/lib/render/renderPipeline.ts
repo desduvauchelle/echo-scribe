@@ -28,7 +28,13 @@ import {
   type EventsHeader,
   type ZoomBlock,
 } from "../autoZoom";
-import { clampTrim, type EditorProject } from "../editorProject";
+import {
+  buildSpeedMap,
+  clampTrim,
+  shiftRangesForTrim,
+  type EditorProject,
+  type SpeedMap,
+} from "../editorProject";
 import {
   cursorDrawScale,
   cursorStateAt,
@@ -140,6 +146,27 @@ export function frameInTrimWindow(tsSourceUs: number, trim: TrimWindow): boolean
   const startUs = trim.startMs * 1000;
   const endUs = trim.endMs * 1000;
   return tsSourceUs >= startUs - TRIM_EPSILON_US && tsSourceUs < endUs;
+}
+
+/**
+ * The CFR grid index a frame whose OUTPUT time is `outMs` lands on, at
+ * `fps` frames per second. The output timeline (post-trim, post-speed) is
+ * quantized to a fixed `1/fps` grid so the muxed file is constant-frame-rate;
+ * this rounds the mapped output time to the nearest grid slot.
+ *
+ * Frame-pacing decision (documented CFR contract): the render loop keeps a
+ * frame only when its grid index is strictly greater than the last emitted
+ * frame's grid index. In sped-up regions many source frames collapse onto the
+ * same (or an already-passed) grid slot → the extras are DROPPED to hold ≤fps.
+ * In slowed regions consecutive source frames map to grid indices more than 1
+ * apart → each is emitted once at its own slot, leaving the intervening slots
+ * empty (a VFR-style gap on the CFR grid); we do NOT duplicate frames to fill
+ * them (acceptable at 30fps — the muxer/player holds the previous frame).
+ *
+ * Pure. `outMs` is output-time ms; the returned index is `round(outMs*fps/1000)`.
+ */
+export function speedGridIndex(outMs: number, fps: number): number {
+  return Math.round((outMs * fps) / 1000);
 }
 
 /** Display window (ms) `keystrokeBadgeAt` uses — kept in sync with the
@@ -546,6 +573,18 @@ export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8A
   const clamped = clampTrim(project.trim, durationMs);
   const trim: TrimWindow = clamped ?? { startMs: 0, endMs: durationMs };
 
+  // --- Speed map (POST-TRIM source time → OUTPUT time) ---
+  // Build the SAME map the audio retimer uses: shift the source-time speed
+  // ranges into post-trim time (clipped to the trim window, offset by
+  // trim.startMs), then integrate over the trimmed duration. The video pipeline
+  // maps each kept frame's POST-TRIM source time through this map to get its
+  // output timestamp; the audio (Rust `retime_wav_samples`) applies the same
+  // shifted ranges to the trimmed WAV, so video and audio stay in lockstep.
+  // Empty ranges ⇒ identity map ⇒ the classic re-anchored CFR behaviour.
+  const trimmedDurationMs = trim.endMs - trim.startMs;
+  const shiftedSpeedRanges = shiftRangesForTrim(project.speed, clamped);
+  const speedMap: SpeedMap = buildSpeedMap(shiftedSpeedRanges, trimmedDurationMs);
+
   // --- Zoom timeline (optional) ---
   // The effective blocks come from `resolveZoomBlocks` — the SAME resolver the
   // editor preview uses — so the rendered file zooms exactly like the preview:
@@ -666,7 +705,16 @@ export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8A
   // visually at ~50% while encodedFrames lags behind totalFrames.
   let processedFrames = 0;
   const minFrameIntervalUs = 1_000_000 / TARGET_FPS;
-  let lastEmittedUs = -Infinity;
+  // Speed-aware CFR pacing: instead of pacing on source-time spacing, each kept
+  // frame is mapped through `speedMap` to an OUTPUT time, then quantized to the
+  // `TARGET_FPS` grid (`speedGridIndex`). A frame is kept only when its grid
+  // index advances past the last emitted one — so sped-up regions that collapse
+  // many source frames onto one slot drop the extras (holds ≤TARGET_FPS), and
+  // the emitted timestamp is the grid slot itself (`gridIndex/TARGET_FPS`), NOT
+  // a simple `encodedFrames` counter, so slowed regions leave real gaps rather
+  // than compressing back to CFR. Starts at -1 so the first kept frame (grid
+  // index ≥0) always advances.
+  let lastGridIndex = -1;
   /** Backpressure stall guard: abort if the encode/decode queues make zero forward progress for this long. */
   const BACKPRESSURE_STALL_MS = 30_000;
 
@@ -698,14 +746,21 @@ export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8A
           return;
         }
 
-        // Frame pacing: drop frames that arrive faster than TARGET_FPS.
-        if (frame.timestamp - lastEmittedUs < minFrameIntervalUs - 1) {
+        // Speed-aware CFR pacing. Map this frame's POST-TRIM source time
+        // through `speedMap` to an OUTPUT time, then quantize to the TARGET_FPS
+        // grid. Drop the frame unless its grid index advances past the last
+        // emitted one (collapsing sped-up regions to ≤TARGET_FPS). With no
+        // speed ranges the map is identity, so this reduces to the classic
+        // "drop frames faster than TARGET_FPS" pacing.
+        const outMs = speedMap.srcToOut(tMsSource - trim.startMs);
+        const gridIndex = speedGridIndex(outMs, TARGET_FPS);
+        if (gridIndex <= lastGridIndex) {
           frame.close();
           processedFrames++;
           onProgress({ phase: "encode", pct: Math.min(99, Math.round((processedFrames / totalFrames) * 100)) });
           return;
         }
-        lastEmittedUs = frame.timestamp;
+        lastGridIndex = gridIndex;
 
         // Enqueue the composite for this kept frame onto the serialized chain.
         // The frame is closed inside the async task once drawn.
@@ -753,11 +808,15 @@ export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8A
             );
             frame.close();
 
-            // Re-anchor: the first KEPT frame becomes t0; CFR from there. Output
-            // timeline is independent of the source trim offset so the muxed mp4
-            // starts at 0 with no leading gap.
+            // Emit on the CFR grid slot this frame mapped to. The timestamp is
+            // `gridIndex/TARGET_FPS` (µs), NOT a running `encodedFrames`
+            // counter — so a trim re-anchors to 0 (first grid index is 0) AND
+            // speed segments land at their retimed output time: sped-up regions
+            // skip grid slots (fewer frames) and slowed regions leave gaps
+            // (VFR-on-CFR-grid) without compressing back. Video and audio share
+            // the same `speedMap`, so they stay in lockstep.
             const outFrame = new VideoFrame(canvas, {
-              timestamp: Math.round(encodedFrames * minFrameIntervalUs),
+              timestamp: Math.round(gridIndex * minFrameIntervalUs),
               duration: Math.round(minFrameIntervalUs),
             });
             const keyFrame = encodedFrames % (TARGET_FPS * 2) === 0; // keyframe every ~2s

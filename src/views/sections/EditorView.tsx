@@ -23,17 +23,22 @@ import {
   type RecordingRow,
 } from "../../lib/api";
 import {
+  clampSpeedRanges,
   clampTrim,
   clampZoomCenter,
   defaultProject,
   moveZoomBlock,
   nextZoomBlockId,
   parseProject,
+  placeSpeedRange,
   placeZoomBlock,
+  resizeSpeedRange,
   resizeZoomBlock,
+  shiftRangesForTrim,
   type AspectPreset,
   type Background,
   type EditorProject,
+  type SpeedRange,
   type WebcamSettings,
   type ZoomMode,
   PADDING_MAX,
@@ -48,6 +53,10 @@ import {
   ZOOM_SCALE_MAX,
   ZOOM_ADD_DEFAULT_LENGTH_MS,
   ZOOM_ADD_DEFAULT_SCALE,
+  SPEED_RATE_MIN,
+  SPEED_RATE_MAX,
+  SPEED_ADD_DEFAULT_LENGTH_MS,
+  SPEED_ADD_DEFAULT_RATE,
 } from "../../lib/editorProject";
 import { renderRecording, type RenderProgress } from "../../lib/render/renderPipeline";
 import {
@@ -82,6 +91,16 @@ function loadImage(url: string): Promise<HTMLImageElement> {
     img.onerror = (e) => reject(e);
     img.src = url;
   });
+}
+
+/** The playback rate for SOURCE time `tMs`: the rate of the (non-overlapping)
+ *  speed range containing `tMs` (half-open `[startMs, endMs)`), or 1.0 when
+ *  `tMs` is outside every range. Pure. */
+function activeSpeedRate(tMs: number, ranges: SpeedRange[]): number {
+  for (const r of ranges) {
+    if (tMs >= r.startMs && tMs < r.endMs) return r.rate;
+  }
+  return 1;
 }
 
 function fmtTime(sec: number): string {
@@ -199,6 +218,17 @@ export function EditorView({
   // selected block's center while this is non-null). Cleared when the recording
   // changes (the whole component remounts on id change, so a fresh null is fine).
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
+
+  // Currently-selected speed range (by index into the sorted `project.speed`).
+  // Speed ranges have no stable id in the data contract, but the list stays
+  // sorted + non-overlapping and edits stop-at-neighbour (never reorder), so
+  // the index is stable across a drag; add/delete reset the selection. Drives
+  // the speed inspector row + chip highlight.
+  const [selectedSpeedIdx, setSelectedSpeedIdx] = useState<number | null>(null);
+  // Latest speed ranges in a ref so the rAF loop can read the active rate
+  // (for `video.playbackRate`) without re-subscribing per edit.
+  const speedRangesRef = useRef<SpeedRange[]>(project.speed);
+  speedRangesRef.current = project.speed;
 
   // Whether this recording was captured with a webcam (a `.webcam.mp4` exists).
   // Gates the whole webcam editor section and the preview/export overlay.
@@ -405,6 +435,13 @@ export function EditorView({
     // the block list, so scrubbing while zoomed stays smooth. The cursor uses
     // the same source time.
     const tMsSource = video.currentTime * 1000;
+    // Live speed preview: drive the <video> element's playbackRate from the
+    // speed range containing the current SOURCE time (1.0 outside any range).
+    // The webcam element follows the SAME rate so the bubble stays in step.
+    // Setting playbackRate while paused is harmless and ensures the right rate
+    // the instant playback resumes.
+    const rate = activeSpeedRate(tMsSource, speedRangesRef.current);
+    if (video.playbackRate !== rate) video.playbackRate = rate;
     const blocks = zoomBlocksRef.current;
     const zoom = blocks.length ? zoomStateAt(tMsSource, blocks) : { cx: 0.5, cy: 0.5, scale: 1 };
     const cursor = cursorOverlayAt(tMsSource);
@@ -416,6 +453,7 @@ export function EditorView({
     // The compositor no-ops gracefully on a not-ready frame, but we gate on
     // readyState anyway to avoid drawing a blank/black bubble on first paint.
     const wv = webcamVideoRef.current;
+    if (wv && wv.playbackRate !== rate) wv.playbackRate = rate;
     const webcam: OverlayState["webcam"] =
       p.webcam?.show && wv && wv.readyState >= 2 && wv.videoWidth > 0
         ? {
@@ -526,6 +564,18 @@ export function EditorView({
     return () => cancelAnimationFrame(id);
   }, [project, playing, renderFrame, loaded, eventsReady]);
 
+  // On unmount, restore both media elements to 1× so a speed-segment rate
+  // never leaks into a re-created element (belt-and-suspenders — the element
+  // is normally torn down on recording change anyway).
+  useEffect(() => {
+    return () => {
+      const v = videoRef.current;
+      if (v) v.playbackRate = 1;
+      const wv = webcamVideoRef.current;
+      if (wv) wv.playbackRate = 1;
+    };
+  }, []);
+
   // Debounced persist on any project change (after the initial load). Plain
   // debounce semantics: the cleanup only clears the pending timer (it runs on
   // every dep change, not just unmount, so it must never flush — see the
@@ -595,6 +645,10 @@ export function EditorView({
     } else {
       v.pause();
       wv?.pause();
+      // Restore normal rate when paused so a paused clip decodes at 1× (the
+      // rAF loop re-applies the range rate on the next play/scrub).
+      v.playbackRate = 1;
+      if (wv) wv.playbackRate = 1;
       setPlaying(false);
     }
   }, [hardSyncWebcam]);
@@ -965,6 +1019,148 @@ export function EditorView({
     zoomDragRef.current = null;
   }, []);
 
+  // ---- Speed segments -----------------------------------------------------
+  // Speed ranges are always stored sorted + non-overlapping. Unlike zoom
+  // (which drops overlaps via clampSpeedRanges — see the Task-1 note), the UI
+  // PREVENTS overlaps up front: adds no-op when the playhead is inside a range,
+  // and edge drags stop at neighbours (`resizeSpeedRange`). Every edit re-runs
+  // `clampSpeedRanges` at the end as a safety net so a persisted/stale project
+  // can't leave an invalid list.
+  const applySpeedEdit = useCallback(
+    (fn: (ranges: SpeedRange[]) => SpeedRange[]) => {
+      setProject((p) => {
+        const next = fn(p.speed);
+        if (next === p.speed) return p; // no-op edit
+        return { ...p, speed: clampSpeedRanges(next, durationMsRef.current || 0) };
+      });
+    },
+    [],
+  );
+
+  // "Add speed": a 2× segment at the playhead (5s), clamped into free space.
+  // No-op (with a toast) when the playhead sits inside an existing range or no
+  // gap ≥ the minimum length remains — mirrors the zoom lane's stop-at-neighbour
+  // behaviour rather than pushing past neighbours.
+  const addSpeedRange = useCallback(() => {
+    const durMs = durationMsRef.current || 0;
+    if (durMs <= 0) return;
+    const v = videoRef.current;
+    const playheadMs = v ? Math.round(v.currentTime * 1000) : 0;
+    const slot = placeSpeedRange(
+      speedRangesRef.current,
+      playheadMs,
+      SPEED_ADD_DEFAULT_LENGTH_MS,
+      durMs,
+    );
+    if (!slot) {
+      toasts.push({
+        tone: "info",
+        message: "No room for a speed segment here — move the playhead to an open spot.",
+      });
+      return;
+    }
+    const range: SpeedRange = {
+      startMs: slot.startMs,
+      endMs: slot.endMs,
+      rate: SPEED_ADD_DEFAULT_RATE,
+    };
+    // Insert + re-sort; select the new range by its post-sort index.
+    const nextSorted = [...speedRangesRef.current, range].sort(
+      (a, b) => a.startMs - b.startMs,
+    );
+    applySpeedEdit(() => nextSorted);
+    setSelectedSpeedIdx(nextSorted.findIndex((r) => r === range));
+  }, [applySpeedEdit, toasts]);
+
+  const setSpeedRate = useCallback(
+    (idx: number, rate: number) => {
+      applySpeedEdit((ranges) =>
+        ranges.map((r, i) => (i === idx ? { ...r, rate } : r)),
+      );
+    },
+    [applySpeedEdit],
+  );
+
+  const deleteSpeedRange = useCallback(
+    (idx: number) => {
+      applySpeedEdit((ranges) => ranges.filter((_, i) => i !== idx));
+      setSelectedSpeedIdx(null);
+    },
+    [applySpeedEdit],
+  );
+
+  // Speed lane pointer drag (chip body + edges) — mirrors the zoom lane. The
+  // drag is index-addressed; body drags stop at neighbours via a manual clamp
+  // (moveSpeedRange-equivalent using resizeSpeedRange twice would reorder, so
+  // body-move is done inline), edge drags use `resizeSpeedRange`.
+  const speedDragRef = useRef<{
+    idx: number;
+    kind: "start" | "end" | "body";
+    grabOffsetMs: number;
+    lenMs: number;
+  } | null>(null);
+
+  const onSpeedChipPointerDown = useCallback(
+    (idx: number, kind: "start" | "end" | "body") =>
+      (e: React.PointerEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setSelectedSpeedIdx(idx);
+        const range = speedRangesRef.current[idx];
+        const grabMs = msFromClientX(e.clientX);
+        speedDragRef.current = {
+          idx,
+          kind,
+          grabOffsetMs: range ? grabMs - range.startMs : 0,
+          lenMs: range ? range.endMs - range.startMs : 0,
+        };
+        (e.target as Element).setPointerCapture(e.pointerId);
+      },
+    [msFromClientX],
+  );
+
+  const onSpeedPointerMove = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      const drag = speedDragRef.current;
+      if (!drag) return;
+      const ms = msFromClientX(e.clientX);
+      const { idx, kind, grabOffsetMs, lenMs } = drag;
+      if (kind === "body") {
+        // Body move: slide the range, keeping length, clamped so it stays in
+        // [0, dur] and butts (never overlaps) either neighbour.
+        applySpeedEdit((ranges) => {
+          if (idx < 0 || idx >= ranges.length) return ranges;
+          const durMs = durationMsRef.current || 0;
+          const prev = ranges[idx - 1];
+          const next = ranges[idx + 1];
+          const lo = prev ? prev.endMs : 0;
+          const hi = (next ? next.startMs : durMs) - lenMs;
+          let start = Math.round(ms - grabOffsetMs);
+          start = Math.min(Math.max(start, lo), Math.max(lo, hi));
+          if (start === ranges[idx].startMs) return ranges;
+          return ranges.map((r, i) =>
+            i === idx ? { ...r, startMs: start, endMs: start + lenMs } : r,
+          );
+        });
+      } else {
+        applySpeedEdit((ranges) =>
+          resizeSpeedRange(ranges, idx, kind, ms, durationMsRef.current || 0),
+        );
+      }
+    },
+    [msFromClientX, applySpeedEdit],
+  );
+
+  const onSpeedPointerUp = useCallback(() => {
+    speedDragRef.current = null;
+  }, []);
+
+  const selectedSpeed =
+    selectedSpeedIdx !== null ? project.speed[selectedSpeedIdx] ?? null : null;
+
+  // Speed lane is always available (no capture-time evidence needed — any clip
+  // can be sped up/slowed down).
+
   const selectedBlock = selectedBlockId
     ? effectiveBlocks.find((b) => b.id === selectedBlockId) ?? null
     : null;
@@ -1126,13 +1322,19 @@ export function EditorView({
         },
       });
 
-      // Rust muxes the (trim-aligned) audio back in. The trim window is
-      // SOURCE-time ms; clamp against the real duration so the audio slice
-      // matches the frames the pipeline kept.
+      // Rust muxes the (trim-aligned, speed-retimed) audio back in. The trim
+      // window is SOURCE-time ms; clamp against the real duration so the audio
+      // slice matches the frames the pipeline kept. Speed ranges are shifted
+      // into POST-TRIM time (same `shiftRangesForTrim` the video pipeline's
+      // speed map uses) so Rust applies them directly to the trimmed WAV.
       setExportPhase("finalizing");
       setExportPct(100);
       const clamped = clampTrim(proj.trim, durationMs);
-      await finalizeRenderedRecording(recording.id, bytes, clamped);
+      const shiftedSpeed = shiftRangesForTrim(
+        clampSpeedRanges(proj.speed, durationMs),
+        clamped,
+      );
+      await finalizeRenderedRecording(recording.id, bytes, clamped, shiftedSpeed);
 
       setExportedRevealId(recording.id);
       toasts.push({ tone: "success", message: "Export complete." });
@@ -1436,6 +1638,66 @@ export function EditorView({
                   </div>
                 </div>
               ) : null}
+
+              {/* Speed lane: ranges as chips (position/width proportional to
+                  start/end over the full duration), tinted amber to distinguish
+                  from the zoom lane. Drag a chip's body to move, its edges to
+                  resize; both stop at neighbours (no overlaps). Always shown —
+                  any clip can be sped up / slowed down. */}
+              <div className="mt-2">
+                <div className="mb-1 flex items-center justify-between text-[11px] text-muted">
+                  <span>Speed</span>
+                </div>
+                <div className="relative h-7 w-full touch-none select-none rounded-md border border-line bg-surface/60">
+                  {project.speed.length === 0 ? (
+                    <div className="pointer-events-none absolute inset-0 grid place-items-center text-[11px] text-muted/60">
+                      No speed segments — add one below
+                    </div>
+                  ) : (
+                    project.speed.map((r, i) => {
+                      const leftPct = (r.startMs / (duration * 1000)) * 100;
+                      const widthPct = ((r.endMs - r.startMs) / (duration * 1000)) * 100;
+                      const selected = i === selectedSpeedIdx;
+                      return (
+                        <div
+                          key={`${r.startMs}-${r.endMs}-${i}`}
+                          onPointerDown={onSpeedChipPointerDown(i, "body")}
+                          onPointerMove={onSpeedPointerMove}
+                          onPointerUp={onSpeedPointerUp}
+                          onPointerCancel={onSpeedPointerUp}
+                          title={`Speed ×${r.rate.toFixed(2)}`}
+                          className={`absolute inset-y-0.5 flex cursor-grab items-center justify-center overflow-hidden rounded-sm border text-[10px] font-medium active:cursor-grabbing ${
+                            selected
+                              ? "border-accent bg-accent/40 text-fg ring-1 ring-accent"
+                              : "border-amber-500/50 bg-amber-500/25 text-amber-200"
+                          }`}
+                          style={{ left: `${leftPct}%`, width: `${Math.max(widthPct, 1)}%` }}
+                        >
+                          <span className="pointer-events-none truncate px-2">
+                            ×{r.rate.toFixed(2)}
+                          </span>
+                          {/* Left resize edge */}
+                          <div
+                            onPointerDown={onSpeedChipPointerDown(i, "start")}
+                            onPointerMove={onSpeedPointerMove}
+                            onPointerUp={onSpeedPointerUp}
+                            onPointerCancel={onSpeedPointerUp}
+                            className="absolute inset-y-0 left-0 w-1.5 cursor-ew-resize bg-black/20 hover:bg-black/40"
+                          />
+                          {/* Right resize edge */}
+                          <div
+                            onPointerDown={onSpeedChipPointerDown(i, "end")}
+                            onPointerMove={onSpeedPointerMove}
+                            onPointerUp={onSpeedPointerUp}
+                            onPointerCancel={onSpeedPointerUp}
+                            className="absolute inset-y-0 right-0 w-1.5 cursor-ew-resize bg-black/20 hover:bg-black/40"
+                          />
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
             </div>
           ) : null}
         </div>
@@ -1684,6 +1946,62 @@ export function EditorView({
               ) : null}
             </>
           ) : null}
+
+          {/* Speed section: an "Add speed" button (5s @2× at the playhead) and
+              an inspector (rate stepper 0.5–4.0 step 0.25 + delete) for the
+              selected segment. Always shown. */}
+          <h3 className="mb-3 mt-6 border-t border-line pt-4 text-[13px] font-semibold">
+            Speed
+          </h3>
+
+          <div className="mb-3 flex gap-2">
+            <button
+              onClick={addSpeedRange}
+              disabled={duration <= 0}
+              className="flex flex-1 items-center justify-center gap-1.5 rounded-md border border-line px-3 py-1.5 text-[12px] font-medium hover:bg-surface disabled:opacity-50"
+            >
+              <Plus size={14} /> Add speed
+            </button>
+          </div>
+
+          {selectedSpeed && selectedSpeedIdx !== null ? (
+            <div className="mb-2 rounded-md border border-line bg-surface/40 p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="rounded-full bg-amber-500/25 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-300">
+                  ×{selectedSpeed.rate.toFixed(2)}
+                </span>
+                <button
+                  onClick={() => deleteSpeedRange(selectedSpeedIdx)}
+                  className="flex items-center gap-1 rounded-md border border-line px-2 py-0.5 text-[11px] font-medium text-fg hover:bg-surface"
+                >
+                  <Trash2 size={12} /> Delete
+                </button>
+              </div>
+              <label className="mb-1 flex items-center justify-between text-[12px] text-muted">
+                <span>Playback rate</span>
+                <span className="tabular-nums text-fg">
+                  ×{selectedSpeed.rate.toFixed(2)}
+                </span>
+              </label>
+              <input
+                type="range"
+                min={SPEED_RATE_MIN}
+                max={SPEED_RATE_MAX}
+                step={0.25}
+                value={Math.min(Math.max(selectedSpeed.rate, SPEED_RATE_MIN), SPEED_RATE_MAX)}
+                onChange={(e) => setSpeedRate(selectedSpeedIdx, Number(e.target.value))}
+                className="mb-2 w-full accent-accent"
+              />
+              <p className="text-[11px] leading-snug text-muted/80">
+                Above 1× speeds this segment up (audio pitches up); below 1×
+                slows it down.
+              </p>
+            </div>
+          ) : (
+            <p className="mb-2 text-[11px] leading-snug text-muted/80">
+              Select a speed segment on the timeline to edit its rate.
+            </p>
+          )}
 
           {/* Cursor section: only actionable when the recording was captured
               with the system cursor hidden AND has an event track. Otherwise

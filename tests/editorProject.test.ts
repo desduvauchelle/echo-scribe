@@ -1,17 +1,27 @@
 import { describe, expect, test } from "bun:test";
 import {
+  buildSpeedMap,
   clampSpeedRanges,
   clampTrim,
   defaultProject,
   parseProject,
+  placeSpeedRange,
+  resizeSpeedRange,
+  shiftRangesForTrim,
   clampZoomCenter,
   nextZoomBlockId,
   resizeZoomBlock,
   moveZoomBlock,
   placeZoomBlock,
   ZOOM_MIN_LENGTH_MS,
+  type SpeedRange,
 } from "../src/lib/editorProject";
 import type { ZoomBlock } from "../src/lib/autoZoom";
+
+/** A speed range literal helper. */
+function sr(startMs: number, endMs: number, rate: number): SpeedRange {
+  return { startMs, endMs, rate };
+}
 
 /** A manual zoom block with sane defaults; override any field. */
 function zb(startMs: number, endMs: number, over: Partial<ZoomBlock> = {}): ZoomBlock {
@@ -668,5 +678,209 @@ describe("placeZoomBlock", () => {
 
   test("returns null when the timeline is shorter than the minimum", () => {
     expect(placeZoomBlock([], 0, 2000, ZOOM_MIN_LENGTH_MS - 1)).toBeNull();
+  });
+});
+
+describe("buildSpeedMap", () => {
+  test("identity when there are no ranges", () => {
+    const m = buildSpeedMap([], 10_000);
+    expect(m.outDurationMs).toBe(10_000);
+    expect(m.srcToOut(0)).toBe(0);
+    expect(m.srcToOut(5_000)).toBe(5_000);
+    expect(m.srcToOut(10_000)).toBe(10_000);
+  });
+
+  test("a single 2x range contributes half its source duration to output", () => {
+    // Range [2000,6000) @2x: 4000ms of source → 2000ms of output.
+    const m = buildSpeedMap([sr(2_000, 6_000, 2)], 10_000);
+    // Total output = 2000 (before) + 2000 (sped span) + 4000 (after) = 8000.
+    expect(m.outDurationMs).toBe(8_000);
+    // srcToOut(duration) === outDurationMs.
+    expect(m.srcToOut(10_000)).toBe(8_000);
+  });
+
+  test("2x range: boundaries exact and midpoint piecewise-linear", () => {
+    const m = buildSpeedMap([sr(2_000, 6_000, 2)], 10_000);
+    // Before the range: identity.
+    expect(m.srcToOut(0)).toBe(0);
+    expect(m.srcToOut(1_000)).toBe(1_000);
+    // Exactly at the range start (boundary): identity value carried through.
+    expect(m.srcToOut(2_000)).toBe(2_000);
+    // Midpoint of the range (srcT=4000): 2000ms into the range @2x → +1000ms.
+    expect(m.srcToOut(4_000)).toBe(3_000);
+    // Exactly at the range end (boundary): 2000 + 4000/2 = 4000.
+    expect(m.srcToOut(6_000)).toBe(4_000);
+    // After the range: identity slope resumes (+1ms per +1ms source).
+    expect(m.srcToOut(7_000)).toBe(5_000);
+    expect(m.srcToOut(10_000)).toBe(8_000);
+  });
+
+  test("monotonic non-decreasing across the whole domain", () => {
+    const m = buildSpeedMap([sr(2_000, 6_000, 2), sr(7_000, 9_000, 0.5)], 12_000);
+    let prev = -1;
+    for (let t = 0; t <= 12_000; t += 100) {
+      const v = m.srcToOut(t);
+      expect(v).toBeGreaterThanOrEqual(prev);
+      prev = v;
+    }
+  });
+
+  test("multiple ranges accumulate independently", () => {
+    // [1000,3000)@2x (2000ms→1000ms) and [5000,7000)@4x (2000ms→500ms).
+    const m = buildSpeedMap([sr(1_000, 3_000, 2), sr(5_000, 7_000, 4)], 10_000);
+    // out(1000)=1000 (identity before first range).
+    expect(m.srcToOut(1_000)).toBe(1_000);
+    // out(3000)=1000 + 2000/2 = 2000.
+    expect(m.srcToOut(3_000)).toBe(2_000);
+    // out(5000)=2000 + 2000 (identity gap) = 4000.
+    expect(m.srcToOut(5_000)).toBe(4_000);
+    // out(7000)=4000 + 2000/4 = 4500.
+    expect(m.srcToOut(7_000)).toBe(4_500);
+    // out(10000)=4500 + 3000 (identity tail) = 7500.
+    expect(m.srcToOut(10_000)).toBe(7_500);
+    expect(m.outDurationMs).toBe(7_500);
+  });
+
+  test("rate < 1 (slowdown) lengthens output", () => {
+    // [2000,4000)@0.5x: 2000ms of source → 4000ms of output.
+    const m = buildSpeedMap([sr(2_000, 4_000, 0.5)], 6_000);
+    // out(4000)=2000 + 2000/0.5 = 6000.
+    expect(m.srcToOut(4_000)).toBe(6_000);
+    // out(6000)=6000 + 2000 identity tail = 8000 > 6000 source duration.
+    expect(m.srcToOut(6_000)).toBe(8_000);
+    expect(m.outDurationMs).toBe(8_000);
+  });
+
+  test("srcToOut(duration) always equals outDurationMs", () => {
+    const cases: SpeedRange[][] = [
+      [],
+      [sr(0, 10_000, 2)],
+      [sr(0, 5_000, 4), sr(5_000, 10_000, 0.5)],
+      [sr(1_000, 2_000, 3)],
+    ];
+    for (const ranges of cases) {
+      const m = buildSpeedMap(ranges, 10_000);
+      expect(m.srcToOut(10_000)).toBeCloseTo(m.outDurationMs, 6);
+    }
+  });
+
+  test("a range touching the start (srcT=0) still maps 0→0", () => {
+    const m = buildSpeedMap([sr(0, 4_000, 2)], 10_000);
+    expect(m.srcToOut(0)).toBe(0);
+    expect(m.srcToOut(4_000)).toBe(2_000);
+    expect(m.outDurationMs).toBe(8_000);
+  });
+
+  test("clamps srcMs into [0, durationMs] before mapping", () => {
+    const m = buildSpeedMap([sr(2_000, 6_000, 2)], 10_000);
+    expect(m.srcToOut(-100)).toBe(0);
+    expect(m.srcToOut(99_999)).toBe(m.outDurationMs);
+  });
+
+  test("tolerates unsorted / out-of-range input (clamps first)", () => {
+    // Same math as the sorted single-2x case even though passed unsorted-ish.
+    const m = buildSpeedMap([sr(6_000, 2_000, 2)], 10_000);
+    // Inverted range is dropped by the clamp step → identity map.
+    expect(m.outDurationMs).toBe(10_000);
+    expect(m.srcToOut(5_000)).toBe(5_000);
+  });
+});
+
+describe("shiftRangesForTrim", () => {
+  test("no trim → ranges pass through unchanged", () => {
+    const ranges = [sr(2_000, 6_000, 2)];
+    expect(shiftRangesForTrim(ranges, null)).toEqual(ranges);
+  });
+
+  test("shifts ranges into post-trim time base (subtracts trim start)", () => {
+    // Trim [1000, 8000): a range at source [2000,6000) becomes [1000,5000).
+    const out = shiftRangesForTrim([sr(2_000, 6_000, 2)], { startMs: 1_000, endMs: 8_000 });
+    expect(out).toEqual([sr(1_000, 5_000, 2)]);
+  });
+
+  test("clips ranges to the trim window", () => {
+    // Trim [2000, 7000). Range [1000,4000) clips to source [2000,4000) →
+    // post-trim [0,2000). Range [6000,9000) clips to [6000,7000) → [4000,5000).
+    const out = shiftRangesForTrim(
+      [sr(1_000, 4_000, 2), sr(6_000, 9_000, 3)],
+      { startMs: 2_000, endMs: 7_000 },
+    );
+    expect(out).toEqual([sr(0, 2_000, 2), sr(4_000, 5_000, 3)]);
+  });
+
+  test("drops ranges entirely outside the trim window", () => {
+    // Trim [3000, 6000). Range [0,2000) is fully before → dropped; range
+    // [7000,9000) is fully after → dropped.
+    const out = shiftRangesForTrim(
+      [sr(0, 2_000, 2), sr(4_000, 5_000, 3), sr(7_000, 9_000, 4)],
+      { startMs: 3_000, endMs: 6_000 },
+    );
+    expect(out).toEqual([sr(1_000, 2_000, 3)]);
+  });
+
+  test("drops a range that clips to a degenerate span", () => {
+    // Range [5000,5000) is already empty; and a range that only touches the
+    // trim start edge [2000,3000) with trim [3000,...) clips to nothing.
+    const out = shiftRangesForTrim(
+      [sr(2_000, 3_000, 2)],
+      { startMs: 3_000, endMs: 8_000 },
+    );
+    expect(out).toEqual([]);
+  });
+});
+
+describe("placeSpeedRange", () => {
+  test("empty timeline: places a 5s block at the (clamped) playhead", () => {
+    expect(placeSpeedRange([], 3_000, 5_000, 30_000)).toEqual({ startMs: 3_000, endMs: 8_000 });
+  });
+
+  test("clamps a late playhead so the block fits before the end", () => {
+    expect(placeSpeedRange([], 29_000, 5_000, 30_000)).toEqual({ startMs: 25_000, endMs: 30_000 });
+  });
+
+  test("returns null when the playhead is inside an existing range", () => {
+    const ranges = [sr(2_000, 6_000, 2)];
+    // Playhead 4000 sits inside [2000,6000) → no-op.
+    expect(placeSpeedRange(ranges, 4_000, 5_000, 30_000)).toBeNull();
+    // The start edge counts as inside.
+    expect(placeSpeedRange(ranges, 2_000, 5_000, 30_000)).toBeNull();
+  });
+
+  test("shrinks the block to the gap when the default length would overrun a neighbour", () => {
+    // Free gap [1000,4000) between nothing-before and a range at [4000,...).
+    const ranges = [sr(4_000, 8_000, 2)];
+    // Playhead 1000, default 5000 would reach 6000 but must stop at 4000.
+    expect(placeSpeedRange(ranges, 1_000, 5_000, 30_000)).toEqual({ startMs: 1_000, endMs: 4_000 });
+  });
+
+  test("returns null when the resulting gap is below the minimum length", () => {
+    // Playhead just before a neighbour: only ~200ms of room.
+    const ranges = [sr(1_200, 8_000, 2)];
+    expect(placeSpeedRange(ranges, 1_000, 5_000, 30_000)).toBeNull();
+  });
+});
+
+describe("resizeSpeedRange", () => {
+  const three = [sr(0, 2_000, 2), sr(4_000, 6_000, 2), sr(8_000, 10_000, 2)];
+
+  test("moving an edge stops at the neighbour (no overlap)", () => {
+    // Grow range 1's start leftward past range 0's end (2000) → stops at 2000.
+    const out = resizeSpeedRange(three, 1, "start", 1_000, 12_000);
+    expect(out[1].startMs).toBe(2_000);
+  });
+
+  test("keeps a minimum length (cannot invert the block)", () => {
+    // Drag range 1's end back past its start → capped at start + min length.
+    const out = resizeSpeedRange(three, 1, "end", 4_000, 12_000);
+    expect(out[1].endMs).toBeGreaterThan(out[1].startMs);
+  });
+
+  test("clamps within [0, durationMs]", () => {
+    const out = resizeSpeedRange(three, 2, "end", 99_999, 12_000);
+    expect(out[2].endMs).toBeLessThanOrEqual(12_000);
+  });
+
+  test("no-op resize returns the same array reference", () => {
+    expect(resizeSpeedRange(three, 1, "start", 4_000, 12_000)).toBe(three);
   });
 });
