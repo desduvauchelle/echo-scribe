@@ -454,6 +454,59 @@ export function zoomStateAt(
   return { ...IDENTITY };
 }
 
+/**
+ * Inverse of the compositor's frame/cursor forward mapping: given a click at
+ * output-canvas pixel `(clickX, clickY)` and the current pan/zoom, return the
+ * normalized capture-space coords `{nx, ny}` (0..1 relative to `capture.rect`)
+ * that sit under that pixel — or `null` when the click lands outside the drawn
+ * content rect (padding / letterbox band).
+ *
+ * This is the exact inverse of the forward math `drawFrameLayer` and the
+ * `drawCompositeV2` cursor overlay use, kept here beside them so the two never
+ * drift:
+ *   forward: visible source fraction `[sfx, sfx+1/scale]` maps onto the content
+ *            rect `[contentX, contentX+contentW]`, where
+ *            `sfx = clamp(cx - (1/scale)/2, 0, 1 - 1/scale)`.
+ *   inverse: `u = (clickX - contentX) / contentW` (fraction across the content
+ *            rect), then `nx = sfx + u * (1/scale)`.
+ *
+ * At scale 1 / center 0.5 this reduces to a plain content-rect → [0,1] map. The
+ * result is NOT viewport-clamped (that's the caller's concern — see
+ * `clampZoomCenter`); it's the true capture point under the cursor.
+ *
+ * Used by the editor's "click the preview to set a zoom block's center" flow
+ * (Task 3). Pure.
+ */
+export function canvasToCapture(
+  clickX: number,
+  clickY: number,
+  layout: OutputLayout,
+  zoom: ZoomState,
+): { nx: number; ny: number } | null {
+  const { contentX, contentY, contentW, contentH } = layout;
+  if (contentW <= 0 || contentH <= 0) return null;
+
+  // Fraction across the drawn content rect. Outside [0,1] on either axis means
+  // the click hit the padding / letterbox band, not the video.
+  const u = (clickX - contentX) / contentW;
+  const v = (clickY - contentY) / contentH;
+  if (u < 0 || u > 1 || v < 0 || v > 1) return null;
+
+  const scale = zoom.scale > 0 ? zoom.scale : 1;
+  const sampleFracW = 1 / scale;
+  const sampleFracH = 1 / scale;
+  // The visible source window's top-left (mirrors drawFrameLayer's clamp).
+  let sfx = zoom.cx - sampleFracW / 2;
+  let sfy = zoom.cy - sampleFracH / 2;
+  sfx = Math.max(0, Math.min(sfx, 1 - sampleFracW));
+  sfy = Math.max(0, Math.min(sfy, 1 - sampleFracH));
+
+  return {
+    nx: sfx + u * sampleFracW,
+    ny: sfy + v * sampleFracH,
+  };
+}
+
 /** Trace a rounded-rectangle path on `ctx` (does not fill/stroke). */
 function roundedRectPath(
   ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,

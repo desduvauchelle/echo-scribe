@@ -368,3 +368,167 @@ export function clampSpeedRanges(ranges: SpeedRange[], durationMs: number): Spee
     rate: r.rate,
   }));
 }
+
+// ---- Zoom block editing (Task 3) ----------------------------------------
+//
+// These are the pure primitives the timeline zoom lane drives every edit
+// through. They all take a `blocks` array assumed to be sorted by `startMs`
+// and non-overlapping (the invariant materialization + these helpers
+// maintain), an index into it, and return a NEW array — never mutating the
+// input. Overlap is prevented by clamping against the immediate neighbours'
+// edges: an edit that would cross a neighbour STOPS at that neighbour's edge.
+// Blocks are never dropped (unlike clampSpeedRanges) — every intermediate drag
+// state stays valid, which is what the live-drag UI needs.
+
+/** Minimum zoom block length (ms). A block can't be resized shorter than this,
+ *  matching the trim handle's own floor. */
+export const ZOOM_MIN_LENGTH_MS = 500;
+
+/** Zoom scale bounds for hand-edited (manual/custom) blocks. Auto blocks use
+ *  their own default (2.0); the inspector slider is 1.5–3.0. */
+export const ZOOM_SCALE_MIN = 1.5;
+export const ZOOM_SCALE_MAX = 3;
+
+/** Default length + scale for a freshly-added manual block ("Add zoom"). */
+export const ZOOM_ADD_DEFAULT_LENGTH_MS = 2000;
+export const ZOOM_ADD_DEFAULT_SCALE = 2.0;
+
+/** Clamp a zoom center into the viewport-safe range for its scale, so the
+ *  magnified sample window never runs off the source edge — identical bound to
+ *  `generateAutoZoom` (cx, cy ∈ [0.5/scale, 1 − 0.5/scale]). At scale 1 this
+ *  collapses to exactly 0.5 on both axes. Pure. */
+export function clampZoomCenter(
+  cx: number,
+  cy: number,
+  scale: number,
+): { cx: number; cy: number } {
+  const s = Number.isFinite(scale) && scale > 0 ? scale : 1;
+  const lo = 0.5 / s;
+  const hi = 1 - 0.5 / s;
+  // For s === 1, lo === hi === 0.5, so both clamps pin to 0.5.
+  const safe = (v: number) => (Number.isFinite(v) ? clamp(v, lo, hi) : 0.5);
+  return { cx: safe(cx), cy: safe(cy) };
+}
+
+/** Next stable zoom-block id: `z<n>` where n is one past the max numeric suffix
+ *  already in use (ids like `z1`, `z2`, `m7`… — any trailing integer counts).
+ *  Deterministic (NOT time-based) so replaying the same edits yields the same
+ *  ids. Empty / id-less input → `z1`. Pure. */
+export function nextZoomBlockId(blocks: ZoomBlock[]): string {
+  let max = 0;
+  for (const b of blocks) {
+    if (typeof b.id !== "string") continue;
+    const m = b.id.match(/(\d+)$/);
+    if (m) {
+      const n = parseInt(m[1], 10);
+      if (Number.isFinite(n) && n > max) max = n;
+    }
+  }
+  return `z${max + 1}`;
+}
+
+/** Resize one edge of block `index`. `edge` is which end moves; `valueMs` is the
+ *  proposed new position for that edge. The result is clamped so that:
+ *    - both edges stay in [0, durationMs];
+ *    - the block keeps at least `ZOOM_MIN_LENGTH_MS` (the moving edge can't cross
+ *      the fixed edge's minimum-gap line);
+ *    - the moving edge does not cross the neighbour on that side — it stops at
+ *      the neighbour's touching edge (prev.endMs for "start", next.startMs for
+ *      "end"), so blocks butt up but never overlap.
+ *  Never drops or reorders blocks. Returns a new array. Pure. */
+export function resizeZoomBlock(
+  blocks: ZoomBlock[],
+  index: number,
+  edge: "start" | "end",
+  valueMs: number,
+  durationMs: number,
+): ZoomBlock[] {
+  if (index < 0 || index >= blocks.length) return blocks;
+  const block = blocks[index];
+  const prev = blocks[index - 1];
+  const next = blocks[index + 1];
+
+  let v = clamp(Math.round(valueMs), 0, Math.max(0, durationMs));
+
+  if (edge === "start") {
+    // Lower bound: neighbour's end (butt against it, no overlap); 0 otherwise.
+    const lo = prev ? prev.endMs : 0;
+    // Upper bound: keep >= min length before the fixed end edge.
+    const hi = block.endMs - ZOOM_MIN_LENGTH_MS;
+    v = clamp(v, lo, Math.max(lo, hi));
+    if (v === block.startMs) return blocks;
+    return blocks.map((b, i) => (i === index ? { ...b, startMs: v } : b));
+  } else {
+    // Upper bound: neighbour's start (butt against it); duration otherwise.
+    const hi = next ? next.startMs : durationMs;
+    // Lower bound: keep >= min length after the fixed start edge.
+    const lo = block.startMs + ZOOM_MIN_LENGTH_MS;
+    v = clamp(v, Math.min(lo, hi), hi);
+    if (v === block.endMs) return blocks;
+    return blocks.map((b, i) => (i === index ? { ...b, endMs: v } : b));
+  }
+}
+
+/** Find a placement for a NEW zoom block near `preferredStartMs`, of length
+ *  `lengthMs`, that (a) fits in [0, durationMs] and (b) doesn't overlap any of
+ *  `blocks` (assumed sorted, non-overlapping). Strategy: start at the clamped
+ *  preferred start, then push right past any block it overlaps, then cap its end
+ *  at the next block's start. Returns `{startMs, endMs}` when a slot ≥
+ *  `ZOOM_MIN_LENGTH_MS` exists, else `null` (timeline full / too short). Pure. */
+export function placeZoomBlock(
+  blocks: ZoomBlock[],
+  preferredStartMs: number,
+  lengthMs: number,
+  durationMs: number,
+): { startMs: number; endMs: number } | null {
+  const dur = Math.max(0, durationMs);
+  if (dur < ZOOM_MIN_LENGTH_MS) return null;
+
+  const sorted = [...blocks].sort((a, b) => a.startMs - b.startMs);
+  let start = clamp(Math.round(preferredStartMs), 0, Math.max(0, dur - lengthMs));
+  let end = Math.min(dur, start + lengthMs);
+
+  // Push past any block the desired window overlaps (left-to-right).
+  for (const b of sorted) {
+    if (start < b.endMs && end > b.startMs) {
+      start = b.endMs;
+      end = Math.min(dur, start + lengthMs);
+    }
+  }
+  // Cap the end at the next block that starts at/after `start`.
+  const nextAfter = sorted.find((b) => b.startMs >= start);
+  if (nextAfter) end = Math.min(end, nextAfter.startMs);
+
+  if (start >= dur || end - start < ZOOM_MIN_LENGTH_MS) return null;
+  return { startMs: start, endMs: end };
+}
+
+/** Move block `index` bodily so its start lands at (as close as possible to)
+ *  `newStartMs`, preserving its length. Clamped so the whole block stays in
+ *  [0, durationMs] AND does not overlap either neighbour: the block can slide
+ *  until its leading edge touches the next block's start or its trailing edge
+ *  touches the previous block's end. Never drops/reorders blocks. Returns a new
+ *  array. Pure. */
+export function moveZoomBlock(
+  blocks: ZoomBlock[],
+  index: number,
+  newStartMs: number,
+  durationMs: number,
+): ZoomBlock[] {
+  if (index < 0 || index >= blocks.length) return blocks;
+  const block = blocks[index];
+  const len = block.endMs - block.startMs;
+  const prev = blocks[index - 1];
+  const next = blocks[index + 1];
+
+  // Allowed range for the block's start given the neighbours and bounds.
+  const lo = prev ? prev.endMs : 0;
+  const hi = (next ? next.startMs : Math.max(0, durationMs)) - len;
+  // If the block is longer than the gap (shouldn't happen with a valid layout),
+  // lo may exceed hi; prefer lo so it butts against the previous neighbour.
+  let start = clamp(Math.round(newStartMs), lo, Math.max(lo, hi));
+  if (start === block.startMs) return blocks;
+  return blocks.map((b, i) =>
+    i === index ? { ...b, startMs: start, endMs: start + len } : b,
+  );
+}

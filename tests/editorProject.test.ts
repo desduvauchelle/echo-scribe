@@ -1,5 +1,22 @@
 import { describe, expect, test } from "bun:test";
-import { clampSpeedRanges, clampTrim, defaultProject, parseProject } from "../src/lib/editorProject";
+import {
+  clampSpeedRanges,
+  clampTrim,
+  defaultProject,
+  parseProject,
+  clampZoomCenter,
+  nextZoomBlockId,
+  resizeZoomBlock,
+  moveZoomBlock,
+  placeZoomBlock,
+  ZOOM_MIN_LENGTH_MS,
+} from "../src/lib/editorProject";
+import type { ZoomBlock } from "../src/lib/autoZoom";
+
+/** A manual zoom block with sane defaults; override any field. */
+function zb(startMs: number, endMs: number, over: Partial<ZoomBlock> = {}): ZoomBlock {
+  return { startMs, endMs, cx: 0.5, cy: 0.5, scale: 2, mode: "manual", ...over };
+}
 
 describe("defaultProject", () => {
   test("has v=1 and sane appearance defaults", () => {
@@ -466,5 +483,190 @@ describe("round-trip stability", () => {
     const twice = parseProject(JSON.stringify(once));
     expect(twice).toEqual(once);
     expect(once).toEqual(full);
+  });
+});
+
+describe("clampZoomCenter", () => {
+  test("scale 1 pins both axes to 0.5 (whole-frame)", () => {
+    expect(clampZoomCenter(0.1, 0.9, 1)).toEqual({ cx: 0.5, cy: 0.5 });
+  });
+
+  test("scale 2 clamps into [0.25, 0.75]", () => {
+    expect(clampZoomCenter(0.0, 1.0, 2)).toEqual({ cx: 0.25, cy: 0.75 });
+    expect(clampZoomCenter(0.5, 0.5, 2)).toEqual({ cx: 0.5, cy: 0.5 });
+  });
+
+  test("scale 3 clamps into [1/6, 5/6]", () => {
+    const c = clampZoomCenter(0, 1, 3);
+    expect(c.cx).toBeCloseTo(1 / 6);
+    expect(c.cy).toBeCloseTo(5 / 6);
+  });
+
+  test("non-finite center falls back to 0.5", () => {
+    expect(clampZoomCenter(NaN, Infinity, 2)).toEqual({ cx: 0.5, cy: 0.5 });
+  });
+
+  test("non-positive scale treated as 1", () => {
+    expect(clampZoomCenter(0.2, 0.8, 0)).toEqual({ cx: 0.5, cy: 0.5 });
+  });
+});
+
+describe("nextZoomBlockId", () => {
+  test("empty -> z1", () => {
+    expect(nextZoomBlockId([])).toBe("z1");
+  });
+
+  test("one past the max numeric suffix (z-ids)", () => {
+    expect(nextZoomBlockId([zb(0, 1000, { id: "z1" }), zb(2000, 3000, { id: "z3" })])).toBe("z4");
+  });
+
+  test("counts trailing integers regardless of prefix", () => {
+    expect(nextZoomBlockId([zb(0, 1000, { id: "z2" }), zb(2000, 3000, { id: "m7" })])).toBe("z8");
+  });
+
+  test("id-less blocks ignored (fresh auto blocks) -> z1", () => {
+    expect(nextZoomBlockId([zb(0, 1000), zb(2000, 3000)])).toBe("z1");
+  });
+
+  test("deterministic (not time-based): same input -> same id", () => {
+    const blocks = [zb(0, 1000, { id: "z5" })];
+    expect(nextZoomBlockId(blocks)).toBe(nextZoomBlockId(blocks));
+  });
+});
+
+describe("resizeZoomBlock", () => {
+  const three = [zb(0, 2000, { id: "z1" }), zb(3000, 5000, { id: "z2" }), zb(6000, 8000, { id: "z3" })];
+
+  test("resize end within bounds", () => {
+    const out = resizeZoomBlock(three, 1, "end", 5500, 10000);
+    expect(out[1].endMs).toBe(5500);
+    expect(out[0]).toBe(three[0]); // untouched blocks are the same reference
+    expect(out[2]).toBe(three[2]);
+  });
+
+  test("resize start stops at previous neighbour's end (no overlap)", () => {
+    // z2 start dragged left past z1.end (2000) -> clamps to 2000, butting up.
+    const out = resizeZoomBlock(three, 1, "start", 500, 10000);
+    expect(out[1].startMs).toBe(2000);
+    expect(out[1].endMs).toBe(5000);
+  });
+
+  test("resize end stops at next neighbour's start (no overlap)", () => {
+    // z2 end dragged right past z3.start (6000) -> clamps to 6000.
+    const out = resizeZoomBlock(three, 1, "end", 9000, 10000);
+    expect(out[1].endMs).toBe(6000);
+  });
+
+  test("resize enforces the 500ms minimum length", () => {
+    // Drag z2's end down toward its start (3000); floor is 3000+500=3500.
+    const out = resizeZoomBlock(three, 1, "end", 3100, 10000);
+    expect(out[1].endMs).toBe(3000 + ZOOM_MIN_LENGTH_MS);
+    // Drag z2's start up toward its end (5000); ceiling is 5000-500=4500.
+    const out2 = resizeZoomBlock(three, 1, "start", 4900, 10000);
+    expect(out2[1].startMs).toBe(5000 - ZOOM_MIN_LENGTH_MS);
+  });
+
+  test("start edge clamps to 0; end edge clamps to duration", () => {
+    expect(resizeZoomBlock(three, 0, "start", -1000, 10000)[0].startMs).toBe(0);
+    expect(resizeZoomBlock(three, 2, "end", 99999, 10000)[2].endMs).toBe(10000);
+  });
+
+  test("no-op edit returns the same array reference", () => {
+    expect(resizeZoomBlock(three, 1, "end", 5000, 10000)).toBe(three);
+  });
+
+  test("out-of-range index returns input unchanged", () => {
+    expect(resizeZoomBlock(three, 9, "end", 5000, 10000)).toBe(three);
+  });
+
+  test("never drops blocks", () => {
+    const out = resizeZoomBlock(three, 1, "start", -5000, 10000);
+    expect(out.length).toBe(3);
+  });
+});
+
+describe("moveZoomBlock", () => {
+  const three = [zb(0, 2000, { id: "z1" }), zb(3000, 5000, { id: "z2" }), zb(7000, 9000, { id: "z3" })];
+
+  test("moves body preserving length", () => {
+    const out = moveZoomBlock(three, 1, 4000, 10000);
+    expect(out[1]).toMatchObject({ startMs: 4000, endMs: 6000 });
+  });
+
+  test("stops when trailing edge would cross previous neighbour", () => {
+    // z2 (len 2000) dragged left; can't start before z1.end (2000).
+    const out = moveZoomBlock(three, 1, 0, 10000);
+    expect(out[1]).toMatchObject({ startMs: 2000, endMs: 4000 });
+  });
+
+  test("stops when leading edge would cross next neighbour", () => {
+    // z2 (len 2000) dragged right; leading edge can't pass z3.start (7000),
+    // so start caps at 7000-2000=5000.
+    const out = moveZoomBlock(three, 1, 9000, 10000);
+    expect(out[1]).toMatchObject({ startMs: 5000, endMs: 7000 });
+  });
+
+  test("first/last block clamp to timeline bounds", () => {
+    expect(moveZoomBlock(three, 0, -1000, 10000)[0]).toMatchObject({ startMs: 0, endMs: 2000 });
+    // z3 len 2000; can't exceed duration 10000, so start caps at 8000.
+    expect(moveZoomBlock(three, 2, 99999, 10000)[2]).toMatchObject({ startMs: 8000, endMs: 10000 });
+  });
+
+  test("no-op move returns the same array reference", () => {
+    expect(moveZoomBlock(three, 1, 3000, 10000)).toBe(three);
+  });
+
+  test("never drops or reorders blocks", () => {
+    const out = moveZoomBlock(three, 1, 4000, 10000);
+    expect(out.map((b) => b.id)).toEqual(["z1", "z2", "z3"]);
+  });
+});
+
+describe("placeZoomBlock", () => {
+  test("empty timeline: places 2s block at the (clamped) playhead", () => {
+    expect(placeZoomBlock([], 3000, 2000, 10000)).toEqual({ startMs: 3000, endMs: 5000 });
+  });
+
+  test("clamps a late playhead so the block fits before the end", () => {
+    expect(placeZoomBlock([], 9500, 2000, 10000)).toEqual({ startMs: 8000, endMs: 10000 });
+  });
+
+  test("pushes past an overlapping block into the next gap", () => {
+    // A block at [2000,4000]; playhead 2500 lands inside it → push to 4000.
+    const blocks = [zb(2000, 4000, { id: "z1" })];
+    expect(placeZoomBlock(blocks, 2500, 2000, 10000)).toEqual({ startMs: 4000, endMs: 6000 });
+  });
+
+  test("shrinks the block into a gap that is narrower than the default length", () => {
+    // Gap [2000,3000] (1000ms) sits between [0,2000] and [3000,5000]; the
+    // playhead is in it. The 2000ms request pushes past nothing (2000 doesn't
+    // overlap [0,2000]) but the window [2000,4000] overlaps [3000,5000], so it
+    // pushes to 5000 → lands in the open tail after the last block.
+    const blocks = [zb(0, 2000, { id: "z1" }), zb(3000, 5000, { id: "z2" })];
+    expect(placeZoomBlock(blocks, 2000, 2000, 10000)).toEqual({ startMs: 5000, endMs: 7000 });
+  });
+
+  test("caps end at the next block when start is clear but the window overruns", () => {
+    // Only one block at [4000,6000]; playhead 1000, length 2000 → [1000,3000]
+    // is fully clear (ends before 4000), no push, no cap needed.
+    expect(placeZoomBlock([zb(4000, 6000, { id: "z1" })], 1000, 2000, 10000)).toEqual({
+      startMs: 1000,
+      endMs: 3000,
+    });
+    // Now length 4000 → [1000,5000] overlaps [4000,6000] → push to 6000.
+    expect(placeZoomBlock([zb(4000, 6000, { id: "z1" })], 1000, 4000, 12000)).toEqual({
+      startMs: 6000,
+      endMs: 10000,
+    });
+  });
+
+  test("returns null when no gap ≥ min length remains", () => {
+    // Two blocks leave only a 200ms gap at [2000,2200].
+    const blocks = [zb(0, 2000, { id: "z1" }), zb(2200, 5000, { id: "z2" })];
+    expect(placeZoomBlock(blocks, 2000, 2000, 5000)).toBeNull();
+  });
+
+  test("returns null when the timeline is shorter than the minimum", () => {
+    expect(placeZoomBlock([], 0, 2000, ZOOM_MIN_LENGTH_MS - 1)).toBeNull();
   });
 });

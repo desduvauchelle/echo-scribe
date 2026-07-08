@@ -8,7 +8,10 @@ import {
   imgWidth,
   imgHeight,
   outputLayout,
+  canvasToCapture,
   type CursorSample,
+  type OutputLayout,
+  type ZoomState,
 } from "../src/lib/render/compositor";
 import type { ZoomBlock, EventsHeader } from "../src/lib/autoZoom";
 
@@ -246,6 +249,82 @@ describe("zoomStateAt", () => {
       prev = s.scale;
     }
     expect(prev).toBeCloseTo(2);
+  });
+});
+
+describe("canvasToCapture", () => {
+  // Content rect at (100, 50), 800×400 inside a larger canvas (the padding /
+  // letterbox band surrounds it).
+  const layout: OutputLayout = {
+    outW: 1000,
+    outH: 500,
+    contentX: 100,
+    contentY: 50,
+    contentW: 800,
+    contentH: 400,
+  };
+  const identity: ZoomState = { cx: 0.5, cy: 0.5, scale: 1 };
+
+  test("identity: content-rect corners map to capture (0,0) and (1,1)", () => {
+    const tl = canvasToCapture(100, 50, layout, identity);
+    expect(tl).not.toBeNull();
+    expect(tl!.nx).toBeCloseTo(0);
+    expect(tl!.ny).toBeCloseTo(0);
+    const br = canvasToCapture(900, 450, layout, identity);
+    expect(br!.nx).toBeCloseTo(1);
+    expect(br!.ny).toBeCloseTo(1);
+  });
+
+  test("identity: content-rect center maps to capture (0.5, 0.5)", () => {
+    const c = canvasToCapture(500, 250, layout, identity);
+    expect(c!.nx).toBeCloseTo(0.5);
+    expect(c!.ny).toBeCloseTo(0.5);
+  });
+
+  test("click in the padding / letterbox band returns null", () => {
+    expect(canvasToCapture(50, 250, layout, identity)).toBeNull(); // left of content
+    expect(canvasToCapture(950, 250, layout, identity)).toBeNull(); // right of content
+    expect(canvasToCapture(500, 10, layout, identity)).toBeNull(); // above content
+    expect(canvasToCapture(500, 490, layout, identity)).toBeNull(); // below content
+  });
+
+  test("degenerate layout (zero content size) returns null", () => {
+    const zero: OutputLayout = { ...layout, contentW: 0 };
+    expect(canvasToCapture(500, 250, zero, identity)).toBeNull();
+  });
+
+  test("round-trips the drawCompositeV2 forward cursor mapping", () => {
+    // Forward mapping (from drawCompositeV2's cursor path): a capture point maps
+    // to an on-screen pixel inside the content rect. Inverting that pixel must
+    // recover the original capture point.
+    const zoom: ZoomState = { cx: 0.3, cy: 0.7, scale: 2 };
+    const capture = { x: 0.35, y: 0.62 };
+    const scale = zoom.scale;
+    const sampleFracW = 1 / scale;
+    const sampleFracH = 1 / scale;
+    let sfx = zoom.cx - sampleFracW / 2;
+    let sfy = zoom.cy - sampleFracH / 2;
+    sfx = Math.max(0, Math.min(sfx, 1 - sampleFracW));
+    sfy = Math.max(0, Math.min(sfy, 1 - sampleFracH));
+    const u = (capture.x - sfx) / sampleFracW;
+    const v = (capture.y - sfy) / sampleFracH;
+    const px = layout.contentX + u * layout.contentW;
+    const py = layout.contentY + v * layout.contentH;
+
+    const back = canvasToCapture(px, py, layout, zoom);
+    expect(back).not.toBeNull();
+    expect(back!.nx).toBeCloseTo(capture.x);
+    expect(back!.ny).toBeCloseTo(capture.y);
+  });
+
+  test("zoomed: content center maps to the (clamped) zoom center", () => {
+    // With scale 2 and center (0.3, 0.7), the visible window is clamped so its
+    // top-left is at (max(0, 0.3-0.25)=0.05, max(0,0.7-0.25)=0.45). The content
+    // rect center (u=v=0.5) therefore maps to (0.05+0.25, 0.45+0.25) = (0.3, 0.7).
+    const zoom: ZoomState = { cx: 0.3, cy: 0.7, scale: 2 };
+    const c = canvasToCapture(500, 250, layout, zoom);
+    expect(c!.nx).toBeCloseTo(0.3);
+    expect(c!.ny).toBeCloseTo(0.7);
   });
 });
 

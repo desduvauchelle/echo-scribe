@@ -1,7 +1,17 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { open } from "@tauri-apps/plugin-dialog";
-import { ArrowLeft, Download, FolderOpen, Loader, Pause, Play, RotateCcw } from "lucide-react";
+import { open, ask } from "@tauri-apps/plugin-dialog";
+import {
+  ArrowLeft,
+  Download,
+  FolderOpen,
+  Loader,
+  Pause,
+  Play,
+  Plus,
+  RotateCcw,
+  Trash2,
+} from "lucide-react";
 import { useToasts } from "../../components/ToastProvider";
 import {
   getRecordingProject,
@@ -14,12 +24,18 @@ import {
 } from "../../lib/api";
 import {
   clampTrim,
+  clampZoomCenter,
   defaultProject,
+  moveZoomBlock,
+  nextZoomBlockId,
   parseProject,
+  placeZoomBlock,
+  resizeZoomBlock,
   type AspectPreset,
   type Background,
   type EditorProject,
   type WebcamSettings,
+  type ZoomMode,
   PADDING_MAX,
   PADDING_MIN,
   CORNER_MAX,
@@ -28,9 +44,14 @@ import {
   CURSOR_SCALE_MAX,
   WEBCAM_SIZE_MIN,
   WEBCAM_SIZE_MAX,
+  ZOOM_SCALE_MIN,
+  ZOOM_SCALE_MAX,
+  ZOOM_ADD_DEFAULT_LENGTH_MS,
+  ZOOM_ADD_DEFAULT_SCALE,
 } from "../../lib/editorProject";
 import { renderRecording, type RenderProgress } from "../../lib/render/renderPipeline";
 import {
+  canvasToCapture,
   cursorDrawScale,
   cursorStateAt,
   drawCompositeV2,
@@ -41,6 +62,7 @@ import {
   type OverlayState,
 } from "../../lib/render/compositor";
 import {
+  materializeBlocks,
   parseEventsJsonl,
   resolveZoomBlocks,
   type EventsHeader,
@@ -165,6 +187,12 @@ export function EditorView({
   // identity zoom (mode "off", no events, or old recordings without a track).
   const zoomBlocksRef = useRef<ZoomBlock[]>([]);
 
+  // Currently-selected zoom chip (by stable id). Drives the inspector row, the
+  // chip highlight, AND center-pick mode (a click on the preview canvas sets the
+  // selected block's center while this is non-null). Cleared when the recording
+  // changes (the whole component remounts on id change, so a fresh null is fine).
+  const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
+
   // Whether this recording was captured with a webcam (a `.webcam.mp4` exists).
   // Gates the whole webcam editor section and the preview/export overlay.
   const webcamAvailable = !!recording.webcam_path;
@@ -271,31 +299,41 @@ export function EditorView({
     [cursorAvailable],
   );
 
-  // Resolve the effective zoom timeline once whenever the inputs change:
+  // Resolve the effective zoom timeline whenever the inputs change:
   //   - `project.zoom`  (mode/blocks — off/custom/auto)
   //   - `eventsReady`   (the click track finished loading; auto mode needs it)
   //   - `duration`      (full source length; bounds auto blocks' lead-in/hold)
-  // The result is stashed in a ref so the rAF loop reads a stable reference and
-  // never re-resolves per frame. Blocks are SOURCE-time, matching the export.
-  // (This intentionally mirrors export's `resolveZoomBlocks` call so the
-  // preview and the rendered file zoom identically.)
+  // Memoized (not per-frame) and made VISIBLE to render (the zoom lane draws
+  // these chips) — the rAF loop reads it from `zoomBlocksRef` (synced below) so
+  // it never re-resolves per frame and keeps a STABLE reference for
+  // `zoomStateAt`. Blocks are SOURCE-time, matching the export. (Mirrors
+  // export's `resolveZoomBlocks` call so preview and rendered file zoom
+  // identically.)
   const zoomSettings = project.zoom;
-  useEffect(() => {
-    const durationMs = durationMsRef.current || Math.round(duration * 1000) || 0;
-    zoomBlocksRef.current = resolveZoomBlocks(
-      project,
-      eventsHeaderRef.current,
-      eventsRef.current,
-      durationMs,
-    );
-    // A paused preview repaints via the "renderOnce" effect below (it depends on
-    // `project`, so a zoom edit re-fires it; this effect is declared first, so
-    // `zoomBlocksRef` is fresh before that repaint runs).
+  const durationMs = durationMsRef.current || Math.round(duration * 1000) || 0;
+  const effectiveBlocks = useMemo(
+    () =>
+      resolveZoomBlocks(project, eventsHeaderRef.current, eventsRef.current, durationMs),
     // `project` is read only for its `zoom` here; depending on the whole object
     // would re-resolve on every appearance tweak. `eventsReady` gates the auto
-    // path (events loaded); `duration` bounds auto block windows.
+    // path (events loaded); `durationMs` bounds auto block windows.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [zoomSettings, eventsReady, duration]);
+    [zoomSettings, eventsReady, durationMs],
+  );
+  // Keep the rAF-loop ref pointed at the freshly-resolved array. Assigned
+  // during render (not in an effect) so the very next paint — the "renderOnce"
+  // effect fires on `project` change — already sees the new blocks.
+  zoomBlocksRef.current = effectiveBlocks;
+
+  // Drop a stale selection if its block no longer exists (e.g. mode switched to
+  // "off"/"auto", or the block was deleted). Runs after the memo so it reacts to
+  // the resolved list, never mid-drag on the ref.
+  useEffect(() => {
+    if (selectedBlockId === null) return;
+    if (!effectiveBlocks.some((b) => b.id === selectedBlockId)) {
+      setSelectedBlockId(null);
+    }
+  }, [effectiveBlocks, selectedBlockId]);
 
   // rAF render loop: draw the current video frame through drawCompositeV2 at
   // whatever appearance is current. Runs whenever the video is playing OR when
@@ -672,6 +710,289 @@ export function EditorView({
     dragHandleRef.current = null;
   }, []);
 
+  // Click-to-seek on the shared timeline track body: map the click x to a time
+  // and seek the playhead (onScrub re-clamps into the trim window). Chip / handle
+  // pointerdowns call stopPropagation, so this only fires on empty track space —
+  // it's wired on the track background, below the interactive lanes in the hit
+  // stack. `onScrub` wants seconds.
+  const onTrackSeek = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      // Ignore anything that originated on an interactive child (defensive: the
+      // children stopPropagation, but a stray target check is cheap insurance).
+      const ms = msFromClientX(e.clientX);
+      onScrub(ms / 1000);
+    },
+    [msFromClientX, onScrub],
+  );
+
+  // ---- Zoom blocks --------------------------------------------------------
+  // Every zoom edit funnels through `applyBlockEdit`, which folds first-edit
+  // MATERIALIZATION into the same `setProject` call as the edit itself (one
+  // update, never two): if the project is still in "auto" mode, its blocks are
+  // materialized from the recorded clicks (`materializeBlocks` — the same
+  // `z1,z2,…` ids the auto-preview chips already carry, so a selection made in
+  // auto survives the flip) and the mode becomes "custom" BEFORE `fn` runs. In
+  // "custom" mode it edits the stored blocks in place. `fn` receives the
+  // resolved block list and returns the next one; all overlap/clamp semantics
+  // live in the pure helpers (resize/move/…), so this only wires state.
+  const applyBlockEdit = useCallback(
+    (fn: (blocks: ZoomBlock[]) => ZoomBlock[]) => {
+      setProject((p) => {
+        const durMs = durationMsRef.current || 0;
+        let blocks: ZoomBlock[];
+        if (p.zoom.mode === "custom") {
+          blocks = p.zoom.blocks ?? [];
+        } else {
+          // auto (or off, defensively): materialize from clicks. Off has no auto
+          // blocks to speak of, but an edit only reaches here from a visible lane
+          // (custom/auto), so this is effectively the auto path.
+          blocks = materializeBlocks(
+            eventsHeaderRef.current ?? { k: "header", v: 1, capture: { kind: "display", rect: [0, 0, 1, 1], px_scale: 1 }, screen_h: 1 },
+            eventsRef.current,
+            durMs,
+          );
+        }
+        const next = fn(blocks);
+        if (p.zoom.mode === "custom" && next === blocks) return p; // no-op edit
+        return { ...p, zoom: { mode: "custom", blocks: next } };
+      });
+    },
+    [],
+  );
+
+  // Resize one edge of a block (id-addressed → index inside the resolved list).
+  const resizeBlock = useCallback(
+    (id: string, edge: "start" | "end", valueMs: number) => {
+      applyBlockEdit((blocks) => {
+        const idx = blocks.findIndex((b) => b.id === id);
+        if (idx < 0) return blocks;
+        return resizeZoomBlock(blocks, idx, edge, valueMs, durationMsRef.current || 0);
+      });
+    },
+    [applyBlockEdit],
+  );
+
+  // Move a block's body (keeps length; stops at neighbours).
+  const moveBlock = useCallback(
+    (id: string, newStartMs: number) => {
+      applyBlockEdit((blocks) => {
+        const idx = blocks.findIndex((b) => b.id === id);
+        if (idx < 0) return blocks;
+        return moveZoomBlock(blocks, idx, newStartMs, durationMsRef.current || 0);
+      });
+    },
+    [applyBlockEdit],
+  );
+
+  // Set a block's zoom level; re-clamp its center into the new scale's safe box
+  // so a higher zoom can't leave the center off-frame.
+  const setBlockScale = useCallback(
+    (id: string, scale: number) => {
+      applyBlockEdit((blocks) =>
+        blocks.map((b) => {
+          if (b.id !== id) return b;
+          const c = clampZoomCenter(b.cx, b.cy, scale);
+          return { ...b, scale, cx: c.cx, cy: c.cy };
+        }),
+      );
+    },
+    [applyBlockEdit],
+  );
+
+  // Delete the selected block. Clears the selection (the effect above would too,
+  // but doing it here avoids a one-frame stale inspector).
+  const deleteBlock = useCallback(
+    (id: string) => {
+      applyBlockEdit((blocks) => blocks.filter((b) => b.id !== id));
+      setSelectedBlockId(null);
+    },
+    [applyBlockEdit],
+  );
+
+  // "Add zoom": a manual block at the playhead (2s @2×, centered), clamped to a
+  // free gap. Both the placement and the deterministic id (max numeric suffix +
+  // 1, NOT Date.now) are computed OUTSIDE the state updater from the resolved
+  // block list `effectiveBlocks` — which is exactly what `applyBlockEdit`'s `fn`
+  // receives (custom → stored blocks; auto → the same materialized list). That
+  // keeps the updater pure (safe under React double-invoke) and lets us select
+  // the new id synchronously. Bails (no block) if no gap ≥ min length remains.
+  const addZoomBlock = useCallback(() => {
+    const durMs = durationMsRef.current || 0;
+    if (durMs <= 0) return;
+    const v = videoRef.current;
+    const playheadMs = v ? Math.round(v.currentTime * 1000) : 0;
+
+    const slot = placeZoomBlock(
+      effectiveBlocks,
+      playheadMs,
+      ZOOM_ADD_DEFAULT_LENGTH_MS,
+      durMs,
+    );
+    if (!slot) return; // timeline full / too short
+    const newId = nextZoomBlockId(effectiveBlocks);
+    const block: ZoomBlock = {
+      id: newId,
+      startMs: slot.startMs,
+      endMs: slot.endMs,
+      cx: 0.5,
+      cy: 0.5,
+      scale: ZOOM_ADD_DEFAULT_SCALE,
+      mode: "manual",
+    };
+    applyBlockEdit((blocks) =>
+      [...blocks, block].sort((a, b) => a.startMs - b.startMs),
+    );
+    setSelectedBlockId(newId);
+  }, [applyBlockEdit, effectiveBlocks]);
+
+  // Zoom section header controls: mode select + reset-to-auto.
+  const setZoomMode = useCallback((mode: ZoomMode) => {
+    setProject((p) => {
+      if (p.zoom.mode === mode) return p;
+      // Switching to custom while auto: materialize so the chips are editable.
+      if (mode === "custom") {
+        const blocks =
+          p.zoom.mode === "custom"
+            ? p.zoom.blocks ?? []
+            : materializeBlocks(
+                eventsHeaderRef.current ?? { k: "header", v: 1, capture: { kind: "display", rect: [0, 0, 1, 1], px_scale: 1 }, screen_h: 1 },
+                eventsRef.current,
+                durationMsRef.current || 0,
+              );
+        return { ...p, zoom: { mode: "custom", blocks } };
+      }
+      // auto / off: blocks go null (contract: non-null only in custom).
+      return { ...p, zoom: { mode, blocks: null } };
+    });
+  }, []);
+
+  const resetToAuto = useCallback(async () => {
+    const confirmed = await ask(
+      "Reset zoom to automatic? Your hand-edited zoom blocks will be replaced by the click-driven auto-zoom.",
+      { title: "Reset zoom to auto", kind: "warning" },
+    );
+    if (!confirmed) return;
+    setSelectedBlockId(null);
+    setProject((p) => ({ ...p, zoom: { mode: "auto", blocks: null } }));
+  }, []);
+
+  // ---- Zoom lane pointer drag (chip body + edges) -------------------------
+  // Mirrors the trim-handle pattern: pointer-capture on the grabbed element,
+  // move routed through a single handler, id/edge/grab-offset stashed in a ref.
+  // `grabOffsetMs` records where inside the chip the pointer grabbed (body drag),
+  // so the chip doesn't jump its start to the cursor.
+  const zoomDragRef = useRef<{
+    id: string;
+    kind: "start" | "end" | "body";
+    grabOffsetMs: number;
+  } | null>(null);
+
+  const onZoomChipPointerDown = useCallback(
+    (id: string, kind: "start" | "end" | "body") =>
+      (e: React.PointerEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setSelectedBlockId(id);
+        const block = zoomBlocksRef.current.find((b) => b.id === id);
+        const grabMs = msFromClientX(e.clientX);
+        zoomDragRef.current = {
+          id,
+          kind,
+          grabOffsetMs: block ? grabMs - block.startMs : 0,
+        };
+        (e.target as Element).setPointerCapture(e.pointerId);
+      },
+    [msFromClientX],
+  );
+
+  const onZoomPointerMove = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      const drag = zoomDragRef.current;
+      if (!drag) return;
+      const ms = msFromClientX(e.clientX);
+      if (drag.kind === "body") {
+        moveBlock(drag.id, ms - drag.grabOffsetMs);
+      } else {
+        resizeBlock(drag.id, drag.kind, ms);
+      }
+    },
+    [msFromClientX, moveBlock, resizeBlock],
+  );
+
+  const onZoomPointerUp = useCallback(() => {
+    zoomDragRef.current = null;
+  }, []);
+
+  const selectedBlock = selectedBlockId
+    ? effectiveBlocks.find((b) => b.id === selectedBlockId) ?? null
+    : null;
+  // Center-pick is active whenever a block is selected: a click on the preview
+  // canvas maps to capture coords and sets that block's center.
+  const pickMode = selectedBlock !== null;
+
+  // Gate the whole zoom lane + section on evidence that zoom is meaningful:
+  // recorded clicks, an explicit custom-mode project, or already-resolved
+  // blocks. `n_clicks` is the M3 column; when it's NULL (pre-M3 rows never
+  // populated it) fall back to events-file presence — same pattern the cursor
+  // section uses — so old recordings with a click track still expose zoom.
+  const hasClicks =
+    recording.n_clicks !== null ? recording.n_clicks > 0 : eventsAvailable;
+  const zoomGateOpen =
+    hasClicks || project.zoom.mode === "custom" || effectiveBlocks.length > 0;
+
+  // Click the preview canvas (while a block is selected) → set that block's
+  // center. The canvas is CSS-scaled to fit (object-contain), so we first map
+  // the client point into the canvas' intrinsic pixel space, then invert the
+  // compositor mapping (`canvasToCapture`) at the CURRENT frame's pan/zoom to
+  // land on the true capture point under the cursor. The resulting center is
+  // clamped into the block's own scale-safe box (same bound generateAutoZoom
+  // uses) before it's stored. A click in the padding / letterbox band (outside
+  // the content rect) returns null and is ignored.
+  const onPreviewClick = useCallback(
+    (e: React.MouseEvent<HTMLCanvasElement>) => {
+      const block = selectedBlock;
+      if (!block || block.id === undefined) return;
+      const canvas = canvasRef.current;
+      const video = videoRef.current;
+      if (!canvas || !video) return;
+      const vw = video.videoWidth;
+      const vh = video.videoHeight;
+      if (vw === 0 || vh === 0) return;
+
+      const rect = canvas.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) return;
+      // object-contain: the drawn image is letterboxed inside the element. Map
+      // the client point into intrinsic canvas pixels via the uniform contain
+      // scale + centering offsets, so a click maps correctly regardless of the
+      // element's on-screen size.
+      const scale = Math.min(rect.width / canvas.width, rect.height / canvas.height);
+      const dispW = canvas.width * scale;
+      const dispH = canvas.height * scale;
+      const offX = (rect.width - dispW) / 2;
+      const offY = (rect.height - dispH) / 2;
+      const px = (e.clientX - rect.left - offX) / scale;
+      const py = (e.clientY - rect.top - offY) / scale;
+
+      const p = projectRef.current;
+      const layout = outputLayout(vw, vh, p.appearance.padding, p.appearance.aspect);
+      // Invert at the zoom state ACTIVELY shown for this block at the current
+      // playhead (so picking while already magnified lands where the user sees).
+      const tMsSource = video.currentTime * 1000;
+      const blocks = zoomBlocksRef.current;
+      const zoom = blocks.length
+        ? zoomStateAt(tMsSource, blocks)
+        : { cx: 0.5, cy: 0.5, scale: 1 };
+      const hit = canvasToCapture(px, py, layout, zoom);
+      if (!hit) return; // clicked the padding / letterbox band
+
+      const c = clampZoomCenter(hit.nx, hit.ny, block.scale);
+      applyBlockEdit((bs) =>
+        bs.map((b) => (b.id === block.id ? { ...b, cx: c.cx, cy: c.cy } : b)),
+      );
+    },
+    [selectedBlock, applyBlockEdit],
+  );
+
   const bg = project.appearance.background;
 
   const pickImage = useCallback(async () => {
@@ -831,8 +1152,21 @@ export function EditorView({
       <div className="flex min-h-0 flex-1 gap-4">
         {/* Left: preview */}
         <div className="flex min-w-0 flex-1 flex-col">
-          <div className="grid flex-1 place-items-center overflow-hidden rounded-lg bg-black">
-            <canvas ref={canvasRef} className="max-h-full max-w-full object-contain" />
+          <div className="relative grid flex-1 place-items-center overflow-hidden rounded-lg bg-black">
+            <canvas
+              ref={canvasRef}
+              onClick={pickMode ? onPreviewClick : undefined}
+              className={`max-h-full max-w-full object-contain ${
+                pickMode ? "cursor-crosshair" : ""
+              }`}
+            />
+            {/* Pick-mode affordance: a subtle hint that clicking the preview
+                sets the selected zoom block's center. */}
+            {pickMode ? (
+              <div className="pointer-events-none absolute left-1/2 top-2 -translate-x-1/2 rounded-full border border-accent/60 bg-black/60 px-2.5 py-1 text-[11px] font-medium text-accent shadow-sm">
+                Click to set zoom center
+              </div>
+            ) : null}
           </div>
           {/* Hidden source video; drives the canvas. */}
           <video
@@ -902,25 +1236,32 @@ export function EditorView({
             <div className="mt-3">
               <div
                 ref={timelineRef}
-                className="relative h-8 w-full touch-none select-none rounded-md border border-line bg-surface"
+                onPointerDown={onTrackSeek}
+                className="relative h-8 w-full cursor-pointer touch-none select-none rounded-md border border-line bg-surface"
               >
                 {/* Dimmed region before trim start */}
                 <div
-                  className="absolute inset-y-0 left-0 rounded-l-md bg-black/40"
+                  className="pointer-events-none absolute inset-y-0 left-0 rounded-l-md bg-black/40"
                   style={{ width: `${(trimStartMs / (duration * 1000)) * 100}%` }}
                 />
                 {/* Dimmed region after trim end */}
                 <div
-                  className="absolute inset-y-0 right-0 rounded-r-md bg-black/40"
+                  className="pointer-events-none absolute inset-y-0 right-0 rounded-r-md bg-black/40"
                   style={{ width: `${100 - (trimEndMs / (duration * 1000)) * 100}%` }}
                 />
                 {/* Active (kept) region */}
                 <div
-                  className="absolute inset-y-0 border-x-2 border-accent bg-accent/10"
+                  className="pointer-events-none absolute inset-y-0 border-x-2 border-accent bg-accent/10"
                   style={{
                     left: `${(trimStartMs / (duration * 1000)) * 100}%`,
                     right: `${100 - (trimEndMs / (duration * 1000)) * 100}%`,
                   }}
+                />
+                {/* Playhead marker (current time). Non-interactive; the track
+                    body handles click-to-seek. */}
+                <div
+                  className="pointer-events-none absolute inset-y-0 z-20 w-px bg-white/90"
+                  style={{ left: `${Math.min(Math.max((current * 1000) / (duration * 1000), 0), 1) * 100}%` }}
                 />
                 {/* Start handle. Pointer events are wired directly on the
                     handle (not the container) since setPointerCapture
@@ -935,7 +1276,7 @@ export function EditorView({
                   aria-valuemin={0}
                   aria-valuemax={trimEndMs}
                   aria-valuenow={trimStartMs}
-                  className="absolute inset-y-0 z-10 w-3 -translate-x-1/2 cursor-ew-resize rounded-sm bg-accent"
+                  className="absolute inset-y-0 z-30 w-3 -translate-x-1/2 cursor-ew-resize rounded-sm bg-accent"
                   style={{ left: `${(trimStartMs / (duration * 1000)) * 100}%` }}
                 />
                 {/* End handle */}
@@ -949,7 +1290,7 @@ export function EditorView({
                   aria-valuemin={trimStartMs}
                   aria-valuemax={duration * 1000}
                   aria-valuenow={trimEndMs}
-                  className="absolute inset-y-0 z-10 w-3 -translate-x-1/2 cursor-ew-resize rounded-sm bg-accent"
+                  className="absolute inset-y-0 z-30 w-3 -translate-x-1/2 cursor-ew-resize rounded-sm bg-accent"
                   style={{ left: `${(trimEndMs / (duration * 1000)) * 100}%` }}
                 />
               </div>
@@ -967,6 +1308,84 @@ export function EditorView({
                 )}
                 <span>End {fmtTimeDs(trimEndMs)}</span>
               </div>
+
+              {/* Zoom lane: effective blocks as chips (position/width
+                  proportional to start/end over the full duration). Auto blocks
+                  tinted differently from manual; the selected chip is
+                  highlighted. Drag a chip's body to move, its edges to resize.
+                  Gated on click evidence / custom mode / resolved blocks. */}
+              {zoomGateOpen ? (
+                <div className="mt-2">
+                  <div className="mb-1 flex items-center justify-between text-[11px] text-muted">
+                    <span>Zoom</span>
+                    {project.zoom.mode === "off" ? (
+                      <span className="text-muted/70">Off</span>
+                    ) : null}
+                  </div>
+                  <div className="relative h-7 w-full touch-none select-none rounded-md border border-line bg-surface/60">
+                    {project.zoom.mode === "off" ? (
+                      <div className="pointer-events-none absolute inset-0 grid place-items-center text-[11px] text-muted/60">
+                        Zoom disabled
+                      </div>
+                    ) : effectiveBlocks.length === 0 ? (
+                      <div className="pointer-events-none absolute inset-0 grid place-items-center text-[11px] text-muted/60">
+                        No zoom blocks — add one below
+                      </div>
+                    ) : (
+                      effectiveBlocks.map((b) => {
+                        const leftPct = (b.startMs / (duration * 1000)) * 100;
+                        const widthPct = ((b.endMs - b.startMs) / (duration * 1000)) * 100;
+                        const isAuto = b.mode === "auto";
+                        const selected = b.id != null && b.id === selectedBlockId;
+                        return (
+                          <div
+                            key={b.id ?? `${b.startMs}-${b.endMs}`}
+                            onPointerDown={
+                              b.id != null ? onZoomChipPointerDown(b.id, "body") : undefined
+                            }
+                            onPointerMove={onZoomPointerMove}
+                            onPointerUp={onZoomPointerUp}
+                            onPointerCancel={onZoomPointerUp}
+                            title={`${isAuto ? "Auto" : "Manual"} zoom ×${b.scale.toFixed(1)}`}
+                            className={`absolute inset-y-0.5 flex cursor-grab items-center justify-center overflow-hidden rounded-sm border text-[10px] font-medium active:cursor-grabbing ${
+                              selected
+                                ? "border-accent bg-accent/40 text-fg ring-1 ring-accent"
+                                : isAuto
+                                  ? "border-sky-500/50 bg-sky-500/20 text-sky-200"
+                                  : "border-violet-500/50 bg-violet-500/25 text-violet-200"
+                            }`}
+                            style={{ left: `${leftPct}%`, width: `${Math.max(widthPct, 1)}%` }}
+                          >
+                            <span className="pointer-events-none truncate px-2">
+                              ×{b.scale.toFixed(1)}
+                            </span>
+                            {/* Left resize edge */}
+                            <div
+                              onPointerDown={
+                                b.id != null ? onZoomChipPointerDown(b.id, "start") : undefined
+                              }
+                              onPointerMove={onZoomPointerMove}
+                              onPointerUp={onZoomPointerUp}
+                              onPointerCancel={onZoomPointerUp}
+                              className="absolute inset-y-0 left-0 w-1.5 cursor-ew-resize bg-black/20 hover:bg-black/40"
+                            />
+                            {/* Right resize edge */}
+                            <div
+                              onPointerDown={
+                                b.id != null ? onZoomChipPointerDown(b.id, "end") : undefined
+                              }
+                              onPointerMove={onZoomPointerMove}
+                              onPointerUp={onZoomPointerUp}
+                              onPointerCancel={onZoomPointerUp}
+                              className="absolute inset-y-0 right-0 w-1.5 cursor-ew-resize bg-black/20 hover:bg-black/40"
+                            />
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -1114,6 +1533,106 @@ export function EditorView({
                 Choose a different image…
               </button>
             </div>
+          ) : null}
+
+          {/* Zoom section: mode select (Auto / Custom / Off) + reset-to-auto,
+              an "Add zoom" button, and an inspector for the selected block.
+              Gated identically to the lane. */}
+          {zoomGateOpen ? (
+            <>
+              <h3 className="mb-3 mt-6 border-t border-line pt-4 text-[13px] font-semibold">
+                Zoom
+              </h3>
+
+              <div className="mb-3 flex gap-2">
+                {(
+                  [
+                    ["auto", "Auto"],
+                    ["custom", "Custom"],
+                    ["off", "Off"],
+                  ] as const
+                ).map(([value, label]) => (
+                  <button
+                    key={value}
+                    className={seg(project.zoom.mode === value)}
+                    onClick={() => setZoomMode(value)}
+                    aria-pressed={project.zoom.mode === value}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {project.zoom.mode !== "off" ? (
+                <div className="mb-3 flex gap-2">
+                  <button
+                    onClick={addZoomBlock}
+                    disabled={duration <= 0}
+                    className="flex flex-1 items-center justify-center gap-1.5 rounded-md border border-line px-3 py-1.5 text-[12px] font-medium hover:bg-surface disabled:opacity-50"
+                  >
+                    <Plus size={14} /> Add zoom
+                  </button>
+                  <button
+                    onClick={() => void resetToAuto()}
+                    disabled={project.zoom.mode === "auto"}
+                    className="flex items-center justify-center gap-1.5 rounded-md border border-line px-3 py-1.5 text-[12px] font-medium hover:bg-surface disabled:opacity-50"
+                    title="Discard hand-edited blocks and use click-driven auto-zoom"
+                  >
+                    <RotateCcw size={13} /> Reset to auto
+                  </button>
+                </div>
+              ) : null}
+
+              {/* Inspector row for the selected block. */}
+              {project.zoom.mode !== "off" && selectedBlock ? (
+                <div className="mb-2 rounded-md border border-line bg-surface/40 p-3">
+                  <div className="mb-2 flex items-center justify-between">
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                        selectedBlock.mode === "auto"
+                          ? "bg-sky-500/20 text-sky-300"
+                          : "bg-violet-500/25 text-violet-300"
+                      }`}
+                    >
+                      {selectedBlock.mode}
+                    </span>
+                    <button
+                      onClick={() =>
+                        selectedBlock.id != null && deleteBlock(selectedBlock.id)
+                      }
+                      className="flex items-center gap-1 rounded-md border border-line px-2 py-0.5 text-[11px] font-medium text-fg hover:bg-surface"
+                    >
+                      <Trash2 size={12} /> Delete
+                    </button>
+                  </div>
+                  <label className="mb-1 flex items-center justify-between text-[12px] text-muted">
+                    <span>Zoom level</span>
+                    <span className="tabular-nums text-fg">
+                      ×{selectedBlock.scale.toFixed(1)}
+                    </span>
+                  </label>
+                  <input
+                    type="range"
+                    min={ZOOM_SCALE_MIN}
+                    max={ZOOM_SCALE_MAX}
+                    step={0.1}
+                    value={Math.min(Math.max(selectedBlock.scale, ZOOM_SCALE_MIN), ZOOM_SCALE_MAX)}
+                    onChange={(e) =>
+                      selectedBlock.id != null &&
+                      setBlockScale(selectedBlock.id, Number(e.target.value))
+                    }
+                    className="mb-2 w-full accent-accent"
+                  />
+                  <p className="text-[11px] leading-snug text-muted/80">
+                    Click the preview to set this block&rsquo;s center.
+                  </p>
+                </div>
+              ) : project.zoom.mode !== "off" ? (
+                <p className="mb-2 text-[11px] leading-snug text-muted/80">
+                  Select a zoom block on the timeline to edit it.
+                </p>
+              ) : null}
+            </>
           ) : null}
 
           {/* Cursor section: only actionable when the recording was captured
