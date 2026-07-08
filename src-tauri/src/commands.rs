@@ -4028,8 +4028,12 @@ fn record_rendered_export(
 ///   3. If a trim window is present, `trim_wav_samples` the extracted WAV to the
 ///      kept `[start, end)` range so the audio lines up with the trimmed video.
 ///   4. If speed ranges are present, `retime_wav_samples` the (trimmed) WAV —
-///      AFTER trim, since the ranges arrive in post-trim time. A retime failure
-///      logs a warning and falls back to the un-retimed audio (never fails).
+///      AFTER trim, since the ranges arrive in post-trim time. Ranges that
+///      extend past the (possibly shorter-than-video) audio length are
+///      clamped internally rather than rejected; a *remaining* `Err` (e.g.
+///      genuinely unsorted/overlapping ranges) FAILS the export with a
+///      friendly message instead of muxing un-retimed audio onto
+///      already-retimed video, which would silently desync A/V.
 ///   5. `mux_audio(temp video, wav, <id>.rendered.mp4)`.
 ///   6. Merge the "rendered" exports entry (replace-not-duplicate).
 #[tauri::command]
@@ -4199,10 +4203,14 @@ pub async fn finalize_rendered_recording(
 
     // 3b. Optionally retime the (already-trimmed) audio for speed segments.
     // Ranges arrive in POST-TRIM time (frontend `shiftRangesForTrim`), so this
-    // MUST run after the trim step and reads the trimmed WAV directly. A retime
-    // failure (malformed ranges past the data end, overlap, IO) is non-fatal:
-    // we log a warning and fall back to the un-retimed audio so the export
-    // still completes with correct (if un-sped) sound.
+    // MUST run after the trim step and reads the trimmed WAV directly.
+    // `retime_wav_samples` clamps ranges to the audio's actual length first
+    // (the frontend builds ranges against the video's nominal duration, which
+    // can slightly exceed the trimmed audio's real length), so a remaining
+    // `Err` here means genuinely malformed input (unsorted/overlapping/bad
+    // rate). We do NOT fall back to un-retimed audio in that case — muxing
+    // un-retimed audio onto already-retimed video is a silent, permanent A/V
+    // desync. Fail the export loudly instead.
     let audio_for_mux = if let Some(ranges) = speed_ranges {
         let n = ranges.len();
         let audio_in = audio_for_mux.clone();
@@ -4221,8 +4229,9 @@ pub async fn finalize_rendered_recording(
                 wav_speed.clone()
             }
             Err(e) => {
-                warn!(target: "screenrec", rec = %id, error = %e, "finalize: audio retime failed; muxing un-retimed audio");
-                audio_for_mux
+                error!(target: "screenrec", rec = %id, error = %e, "finalize: audio retime failed; failing export instead of desyncing A/V");
+                cleanup();
+                return Err("Export failed while adjusting audio speed — try again or remove the speed segments. See logs.".to_string());
             }
         }
     } else {

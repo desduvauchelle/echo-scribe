@@ -376,6 +376,63 @@ pub struct SpeedRangeSamples {
     pub rate: f64,
 }
 
+/// Clamp `ranges` (POST-TRIM ms, as received from the frontend) so none of
+/// them extend past `total_ms` (the actual duration of the audio they'll be
+/// applied to). The frontend builds ranges against the VIDEO's nominal
+/// duration, but the extracted/trimmed audio track is often a little shorter,
+/// so a range near the end of the recording can legitimately exceed the audio
+/// length even though the request is otherwise well-formed. Silently rejecting
+/// that (the old behaviour) caused un-retimed audio to be muxed onto
+/// already-retimed video → permanent A/V desync.
+///
+/// Rules:
+///   - A range whose `end_ms` exceeds `total_ms` is truncated to `end_ms =
+///     total_ms`.
+///   - A range whose `start_ms >= total_ms` (or that becomes empty after
+///     truncation, i.e. `start_ms >= end_ms`) is dropped entirely.
+///   - Ranges fully within `total_ms` pass through unchanged.
+///
+/// This does NOT touch genuinely invalid input (unsorted, overlapping,
+/// non-positive rate, `start_ms >= end_ms` on the ORIGINAL range) — those are
+/// still caught by `retime_wav_samples`'s validation after clamping, which
+/// then fails loudly rather than desyncing (see `finalize_rendered_recording`).
+///
+/// Pure and unit-tested independent of any WAV I/O.
+fn clamp_ranges_to_len(ranges: &[SpeedRangeSamples], total_ms: u64) -> Vec<SpeedRangeSamples> {
+    let mut out = Vec::with_capacity(ranges.len());
+    for (i, r) in ranges.iter().enumerate() {
+        if r.start_ms >= total_ms {
+            info!(
+                target: "screenrec",
+                range_index = i,
+                start_ms = r.start_ms,
+                end_ms = r.end_ms,
+                total_ms,
+                "clamp_ranges_to_len: range starts at/after audio end; dropping"
+            );
+            continue;
+        }
+        if r.end_ms > total_ms {
+            info!(
+                target: "screenrec",
+                range_index = i,
+                orig_end_ms = r.end_ms,
+                clamped_end_ms = total_ms,
+                total_ms,
+                "clamp_ranges_to_len: range end exceeds audio length; clamping"
+            );
+            out.push(SpeedRangeSamples {
+                start_ms: r.start_ms,
+                end_ms: total_ms,
+                rate: r.rate,
+            });
+        } else {
+            out.push(*r);
+        }
+    }
+    out
+}
+
 /// Retime a 16-bit PCM mono WAV (`wav_in`) by resampling each speed range in
 /// place, writing the result to `wav_out`. Regions outside every range are
 /// copied 1:1; inside a range at `rate`, the span is naively linear-interp
@@ -387,11 +444,16 @@ pub struct SpeedRangeSamples {
 /// drops in pitch. Proper pitch-preserving time-stretch (WSOLA/phase vocoder)
 /// is future work; v1 ships the simple resample to match the video retiming.
 ///
-/// `ranges` must be sorted ascending by `start_ms`, non-overlapping, and within
-/// the audio data (`end_ms` ≤ total duration); each `rate` must be > 0.
-/// Otherwise returns an `Err` (the caller logs a warning and skips retiming,
-/// never failing the export). Empty `ranges` → verbatim copy. The input must be
-/// 16-bit PCM mono (same constraint as `trim_wav_samples`).
+/// Before validation, incoming `ranges` are clamped to the audio's actual
+/// length via `clamp_ranges_to_len` (see its doc for why: the frontend builds
+/// ranges against the video's nominal duration, which can slightly exceed the
+/// trimmed audio's actual length). After clamping, `ranges` must be sorted
+/// ascending by `start_ms`, non-overlapping, and each `rate` must be > 0 —
+/// otherwise returns an `Err`. Unlike the pre-clamp behaviour, callers MUST NOT
+/// treat this `Err` as "skip retiming and mux un-retimed audio": that silently
+/// desyncs A/V. `finalize_rendered_recording` fails the export instead. Empty
+/// `ranges` (after clamping) → verbatim copy. The input must be 16-bit PCM
+/// mono (same constraint as `trim_wav_samples`).
 pub fn retime_wav_samples(
     wav_in: &std::path::Path,
     wav_out: &std::path::Path,
@@ -405,6 +467,16 @@ pub fn retime_wav_samples(
     // request is a caller error (validated below), not something to silently
     // truncate the way the trim path clamps.
     let ms_to_sample = |ms: u64| -> u64 { (ms.saturating_mul(sr) + 500) / 1000 };
+
+    // Clamp ranges to the audio's actual length BEFORE validating. See
+    // `clamp_ranges_to_len` doc for rationale.
+    let total_ms = if sr > 0 {
+        (total_samples as u64 * 1000) / sr
+    } else {
+        0
+    };
+    let ranges = clamp_ranges_to_len(ranges, total_ms);
+    let ranges = ranges.as_slice();
 
     // Validate: sorted, non-overlapping, within data, positive rate.
     let mut prev_end: u64 = 0;
@@ -1096,6 +1168,62 @@ mod tests {
         let _ = std::fs::remove_file(&dst);
     }
 
+    // ---- clamp_ranges_to_len ------------------------------------------------
+
+    #[test]
+    fn clamp_ranges_passthrough_when_within_len() {
+        let ranges = [
+            SpeedRangeSamples { start_ms: 100, end_ms: 300, rate: 2.0 },
+            SpeedRangeSamples { start_ms: 600, end_ms: 800, rate: 0.5 },
+        ];
+        let got = clamp_ranges_to_len(&ranges, 1000);
+        assert_eq!(got, ranges);
+    }
+
+    #[test]
+    fn clamp_ranges_truncates_end_past_len() {
+        let ranges = [SpeedRangeSamples { start_ms: 100, end_ms: 900, rate: 2.0 }];
+        let got = clamp_ranges_to_len(&ranges, 500);
+        assert_eq!(got, vec![SpeedRangeSamples { start_ms: 100, end_ms: 500, rate: 2.0 }]);
+    }
+
+    #[test]
+    fn clamp_ranges_drops_range_starting_at_len() {
+        let ranges = [SpeedRangeSamples { start_ms: 500, end_ms: 900, rate: 2.0 }];
+        let got = clamp_ranges_to_len(&ranges, 500);
+        assert!(got.is_empty());
+    }
+
+    #[test]
+    fn clamp_ranges_drops_range_starting_past_len() {
+        let ranges = [SpeedRangeSamples { start_ms: 600, end_ms: 900, rate: 2.0 }];
+        let got = clamp_ranges_to_len(&ranges, 500);
+        assert!(got.is_empty());
+    }
+
+    #[test]
+    fn clamp_ranges_mixed_keeps_and_truncates_and_drops() {
+        let ranges = [
+            SpeedRangeSamples { start_ms: 0, end_ms: 100, rate: 2.0 }, // untouched
+            SpeedRangeSamples { start_ms: 400, end_ms: 900, rate: 1.5 }, // truncated
+            SpeedRangeSamples { start_ms: 950, end_ms: 1200, rate: 3.0 }, // dropped
+        ];
+        let got = clamp_ranges_to_len(&ranges, 500);
+        assert_eq!(
+            got,
+            vec![
+                SpeedRangeSamples { start_ms: 0, end_ms: 100, rate: 2.0 },
+                SpeedRangeSamples { start_ms: 400, end_ms: 500, rate: 1.5 },
+            ]
+        );
+    }
+
+    #[test]
+    fn clamp_ranges_empty_input_is_empty_output() {
+        let got = clamp_ranges_to_len(&[], 500);
+        assert!(got.is_empty());
+    }
+
     // ---- retime_wav_samples ----------------------------------------------
 
     #[test]
@@ -1218,18 +1346,97 @@ mod tests {
     }
 
     #[test]
-    fn retime_rejects_range_past_data_end() {
+    fn retime_clamps_range_extending_past_data_end() {
+        // 500 ms of audio (the video's nominal duration was longer, e.g. audio
+        // track trimmed shorter than video — the exact scenario from the M3
+        // desync finding). Range end 900ms exceeds the 500ms of actual audio
+        // data → CLAMPED to 500ms and retiming still applies, rather than
+        // rejected outright.
         let samples: Vec<i16> = (0..500).map(|i| i as i16).collect(); // 500 ms
         let src = write_test_wav("retime-past-in", 1000, &samples);
         let dst = write_test_wav("retime-past-out", 1000, &[]);
-        // Range end 900ms is past the 500ms of data → rejected.
-        let err = retime_wav_samples(
+        retime_wav_samples(
             &src,
             &dst,
             &[SpeedRangeSamples { start_ms: 100, end_ms: 900, rate: 2.0 }],
         )
+        .unwrap();
+        let got = read_test_wav_samples(&dst);
+        // Clamped range is [100,500) = 400 samples @2× → 200 output samples.
+        // Leading verbatim region [0,100) = 100 samples. Total = 300.
+        assert_eq!(got.len(), 300);
+        assert_eq!(got[0], 0);
+        assert_eq!(got[99], 99);
+        let _ = std::fs::remove_file(&src);
+        let _ = std::fs::remove_file(&dst);
+    }
+
+    #[test]
+    fn retime_drops_range_starting_at_or_past_data_end() {
+        // A range that starts at/after the audio's actual end is dropped
+        // entirely rather than rejected or clamped into a degenerate span.
+        let samples: Vec<i16> = (0..500).map(|i| i as i16).collect(); // 500 ms
+        let src = write_test_wav("retime-fullpast-in", 1000, &samples);
+        let dst = write_test_wav("retime-fullpast-out", 1000, &[]);
+        retime_wav_samples(
+            &src,
+            &dst,
+            &[SpeedRangeSamples { start_ms: 500, end_ms: 900, rate: 2.0 }],
+        )
+        .unwrap();
+        let got = read_test_wav_samples(&dst);
+        // Range dropped entirely → verbatim copy of all 500 samples.
+        assert_eq!(got, samples);
+        let _ = std::fs::remove_file(&src);
+        let _ = std::fs::remove_file(&dst);
+    }
+
+    #[test]
+    fn retime_clamp_then_remaining_ranges_still_applied() {
+        // Two ranges: the first is fully valid, the second extends past the
+        // data end and gets clamped. Both should still be applied. Simulate a
+        // shorter audio track: only 700ms of real data.
+        let samples: Vec<i16> = (0..700).map(|i| i as i16).collect();
+        let src = write_test_wav("retime-clamp-multi-in", 1000, &samples);
+        let dst = write_test_wav("retime-clamp-multi-out", 1000, &[]);
+        retime_wav_samples(
+            &src,
+            &dst,
+            &[
+                SpeedRangeSamples { start_ms: 100, end_ms: 300, rate: 2.0 },
+                SpeedRangeSamples { start_ms: 600, end_ms: 900, rate: 2.0 },
+            ],
+        )
+        .unwrap();
+        let got = read_test_wav_samples(&dst);
+        // [0,100) verbatim=100; [100,300)@2x=100; [300,600) verbatim=300;
+        // [600,700) clamped span @2x = 50 (100 samples/2). Total = 550.
+        assert_eq!(got.len(), 550);
+        assert_eq!(got[0], 0);
+        let _ = std::fs::remove_file(&src);
+        let _ = std::fs::remove_file(&dst);
+    }
+
+    #[test]
+    fn retime_overlap_surviving_clamp_still_rejected() {
+        // Genuinely malformed input (overlapping ranges) must still be
+        // rejected even after the past-data-end clamp runs — clamping only
+        // fixes the "exceeds audio length" case, not overlap/sort violations.
+        let samples: Vec<i16> = (0..500).map(|i| i as i16).collect(); // 500 ms
+        let src = write_test_wav("retime-ovl-clamp-in", 1000, &samples);
+        let dst = write_test_wav("retime-ovl-clamp-out", 1000, &[]);
+        let err = retime_wav_samples(
+            &src,
+            &dst,
+            &[
+                // Both extend past the 500ms data end and get clamped to
+                // end_ms=500, which makes them overlap/duplicate.
+                SpeedRangeSamples { start_ms: 100, end_ms: 900, rate: 2.0 },
+                SpeedRangeSamples { start_ms: 300, end_ms: 950, rate: 2.0 },
+            ],
+        )
         .unwrap_err();
-        assert!(err.contains("data") || err.contains("range"), "got: {err}");
+        assert!(err.contains("overlap") || err.contains("sorted"), "got: {err}");
         let _ = std::fs::remove_file(&src);
         let _ = std::fs::remove_file(&dst);
     }
