@@ -669,7 +669,8 @@ export function RecordingsView() {
                 <div className="mt-2 text-[12px] text-muted">
                   Exported:{" "}
                   {parseExports(selected.exports)
-                    .map((e) => `${e.quality}p (${fmtSize(e.size)})`)
+                    // "rendered" is the editor's export entry, not a resolution.
+                    .map((e) => `${e.quality === "rendered" ? "Rendered" : `${e.quality}p`} (${fmtSize(e.size)})`)
                     .join(" · ")}
                 </div>
               ) : null}
