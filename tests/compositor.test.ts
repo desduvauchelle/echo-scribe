@@ -298,6 +298,32 @@ describe("webcamRect", () => {
     expect(big.x + big.w).toBeCloseTo(OUT_W - MARGIN);
     expect(small.x + small.w).toBeCloseTo(OUT_W - MARGIN);
   });
+
+  test("PIN (ratified M2.1 behavior): auto-mode bubble is sized + anchored against the FULL canvas, padding included", () => {
+    // This pins the deliberate M2.1 decision — the webcam PiP is a CANVAS-level
+    // overlay (Screen-Studio-style): `sizeFrac` is a fraction of the output
+    // canvas width (the M2 data contract's "fraction of output width"), and the
+    // 24px margin anchors to the canvas edge, not the content rect. In "auto"
+    // the canvas is frame + 2*padding, so vs. M2's content-anchored placement
+    // the bubble is larger (sizeFrac × 2112, not × 1920) and sits in the
+    // padding gutter. Intentional; no webcam projects predate M2.1 (webcam
+    // capture was broken until M2.1 Task 1). If this test breaks, someone
+    // changed ratified render output — do not "fix" the numbers casually.
+    const L = outputLayout(1920, 1080, 96, "auto");
+    expect(L.outW).toBe(2112); // 1920 + 2*96
+    expect(L.outH).toBe(1272); // 1080 + 2*96
+
+    const r = webcamRect(L.outW, L.outH, "br", 0.25, "circle");
+    expect(r.w).toBe(528); // 0.25 * 2112 (canvas width, NOT 0.25*1920 = 480)
+    expect(r.h).toBe(528); // circle → square
+    expect(r.x).toBe(1560); // 2112 - 24 - 528 (flush to CANVAS right edge)
+    expect(r.y).toBe(720); // 1272 - 24 - 528 (flush to CANVAS bottom edge)
+    // The bubble overhangs the content rect (frame at 96..2016 × 96..1176)
+    // into the padding gutter: it ends 24px from the canvas edge, inside the
+    // 96px padding band — impossible under M2's content-anchored placement.
+    expect(r.x + r.w).toBeGreaterThan(L.contentX + L.contentW);
+    expect(r.y + r.h).toBeGreaterThan(L.contentY + L.contentH);
+  });
 });
 
 describe("coverCrop", () => {

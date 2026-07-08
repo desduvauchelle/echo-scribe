@@ -11,11 +11,9 @@
 // canvas draw and is exercised live in the render pipeline (Task 7).
 
 import type { ZoomBlock, EventsHeader } from "../autoZoom";
-
-/** Output aspect-ratio preset. `auto` = canvas is exactly the frame + padding
- *  (the legacy look). The fixed presets wrap that content box in a canvas of the
- *  named aspect, centering the box and letterboxing the short axis. */
-export type AspectPreset = "auto" | "16:9" | "9:16" | "1:1" | "4:3";
+// `AspectPreset` is owned by editorProject.ts (it's part of the persisted
+// project schema); type-only import keeps zero runtime coupling.
+import type { AspectPreset } from "../editorProject";
 
 export type Appearance = {
   padding: number; // px in OUTPUT space (uniform inset around the video)
@@ -478,13 +476,17 @@ function roundedRectPath(
 /**
  * Paint one output frame onto `ctx` (sized `outW`×`outH`):
  *   1. Fill the full canvas with the background (solid or top→bottom gradient).
- *   2. Draw the source `frame` inset by `appearance.padding` on all sides,
- *      clipped to a rounded rect (`appearance.cornerRadius`).
+ *   2. Draw the source `frame` into the content rect resolved by
+ *      `outputLayout` (padding inset within the content box; a fixed aspect
+ *      centers that box with letterbox bands), clipped to a rounded rect
+ *      (`appearance.cornerRadius`).
  *   3. Apply the pan/zoom: `scale` magnifies around the normalized center
  *      (`cx`,`cy`); at scale 1 / center 0.5 this is the whole frame.
  *
- * The inner (video) area is `outW - 2*padding` × `outH - 2*padding`. Zoom is
- * done by choosing the source sub-rectangle to sample: a `scale`× zoom samples
+ * The inner (video) area is the `contentW`×`contentH` rect at
+ * (`contentX`,`contentY`) from `outputLayout` (for `auto` that reduces to the
+ * legacy `outW - 2*padding` × `outH - 2*padding` inset). Zoom is done by
+ * choosing the source sub-rectangle to sample: a `scale`× zoom samples
  * `1/scale` of the source, centered on (`cx`,`cy`) and clamped so the sample
  * window stays inside the source (no out-of-bounds sampling / edge smear).
  */
@@ -809,11 +811,17 @@ export function drawCompositeV2(
     }
   }
 
-  // 4. Webcam PiP, corner-anchored to the CANVAS (not the content rect). With a
-  //    letterboxed aspect the bubble may sit in the letterbox band, flush to the
-  //    canvas corner — matching Screen Studio (the webcam is a canvas-level
-  //    overlay, independent of where the recording is centered). In "auto" the
-  //    canvas IS the content box, so this is unchanged from before.
+  // 4. Webcam PiP: sized AND margin-anchored against the FULL canvas — padding
+  //    and letterbox bands included — never the content rect. With a letterboxed
+  //    aspect the bubble may sit in the band, flush to the canvas corner,
+  //    matching Screen Studio (the webcam is a canvas-level overlay, independent
+  //    of where the recording is centered). NOTE: this deliberately changed in
+  //    M2.1 from M2's content-anchored placement — even in "auto" the canvas is
+  //    the frame + 2*padding, so at padding 96 the bubble is ~10% larger and
+  //    sits in the padding gutter vs. M2. Ratified, not a bug: the M2 data
+  //    contract defines `sizeFrac` as a fraction of OUTPUT width (outW), and no
+  //    webcam projects predate M2.1 (webcam capture was broken until M2.1
+  //    Task 1). Pinned by "ratified M2.1" test in tests/compositor.test.ts.
   if (overlay.webcam) {
     const shape = overlay.webcam.shape;
     const r = webcamRect(outW, outH, overlay.webcam.corner, overlay.webcam.sizeFrac, shape);

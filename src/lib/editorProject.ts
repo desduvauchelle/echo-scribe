@@ -22,7 +22,7 @@ export type WebcamSettings = {
 /** Output canvas aspect-ratio preset. `auto` = the canvas is exactly the frame
  *  plus padding (the legacy look); the fixed presets wrap that in a canvas of
  *  the named aspect with the recording centered and the short axis letterboxed.
- *  Mirrors `AspectPreset` in `render/compositor.ts` (kept in sync). */
+ *  Single source of truth — `render/compositor.ts` type-only imports this. */
 export type AspectPreset = "auto" | "16:9" | "9:16" | "1:1" | "4:3";
 
 const ASPECT_VALUES: readonly AspectPreset[] = ["auto", "16:9", "9:16", "1:1", "4:3"];
