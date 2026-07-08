@@ -63,6 +63,13 @@ const CameraPreview: React.FC = () => {
           // Swap: stop the temporary default-camera stream, keep the matched one.
           stream.getTracks().forEach((t) => t.stop());
           stream = preferred;
+        } else {
+          // Label matching is best-effort (AVFoundation localizedName vs
+          // MediaDeviceInfo.label). Preview-only: the recording still uses
+          // the camera the user picked.
+          console.warn(
+            `[camera-preview] no device label matched "${cameraName}"; showing default camera`,
+          );
         }
       }
 

@@ -367,10 +367,11 @@ const SetupWindow: React.FC = () => {
                     .then((outcome) => {
                       setCameraPermissionDenied(outcome === "denied");
                     })
-                    .catch(() => {
+                    .catch((e) => {
                       // Non-fatal: leave the warning cleared and let the
                       // sidecar's own camera_denied log be the fallback
                       // signal if something's actually wrong.
+                      console.error("[setup] requestCameraAccess failed:", e);
                     });
                 } else {
                   setCameraPermissionDenied(false);
