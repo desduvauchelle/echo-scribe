@@ -1,8 +1,11 @@
 // WebCodecs render pipeline: decode an MP4 → composite background + padding +
-// rounded corners + animated auto-zoom on an OffscreenCanvas → re-encode → mux
-// to a fresh MP4. Video-only in M1 (no audio). This is both a shippable
-// "Render (beta)" feature and the de-risking spike proving decode→composite→
-// encode works inside Tauri's WKWebView (Safari-17-era WebCodecs).
+// rounded corners + pan/zoom + synthetic cursor + webcam bubble on an
+// OffscreenCanvas → re-encode → mux to a fresh MP4. This is the editor's
+// video-export path: it renders the frames for whatever the EditorProject
+// specifies, then the Rust `finalizeRenderedRecording` command muxes the
+// (trim-aligned) audio back in — so the exported file is audio-inclusive even
+// though this stage is video-only. The effective zoom timeline comes from the
+// shared `resolveZoomBlocks`, so the export matches the editor preview exactly.
 //
 // Pipeline stages:
 //   1. Fetch the source MP4 bytes (fileUrl is a convertFileSrc URL).
@@ -20,8 +23,8 @@
 import { createFile, DataStream, MP4BoxBuffer, type Sample } from "mp4box";
 import { ArrayBufferTarget, Muxer } from "mp4-muxer";
 import {
-  generateAutoZoom,
   parseEventsJsonl,
+  resolveZoomBlocks,
   type EventsHeader,
   type ZoomBlock,
 } from "../autoZoom";
@@ -508,13 +511,18 @@ export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8A
   const trim: TrimWindow = clamped ?? { startMs: 0, endMs: durationMs };
 
   // --- Zoom timeline (optional) ---
-  // NOTE: auto-zoom blocks are generated in SOURCE time (against the full,
-  // un-trimmed timeline), so `zoomStateAt` MUST be queried with each frame's
-  // SOURCE timestamp — never the re-anchored output time. If we passed
-  // output-time here, a trim that lops off the first N seconds would shift
-  // every zoom block earlier by N seconds and desync the pan/zoom from the
-  // content it was computed for. So: trim-skip decisions and zoom lookup both
-  // use `tMsSource`; only the *emitted* frame timestamp is re-anchored to t0.
+  // The effective blocks come from `resolveZoomBlocks` — the SAME resolver the
+  // editor preview uses — so the rendered file zooms exactly like the preview:
+  //   mode "off" → no zoom; "custom" → the project's stored blocks; "auto" →
+  //   generated from the recorded clicks (as before this was inlined here).
+  //
+  // NOTE: zoom blocks are SOURCE time (against the full, un-trimmed timeline),
+  // so `zoomStateAt` MUST be queried with each frame's SOURCE timestamp — never
+  // the re-anchored output time. If we passed output-time here, a trim that
+  // lops off the first N seconds would shift every zoom block earlier by N
+  // seconds and desync the pan/zoom from the content it was computed for. So:
+  // trim-skip decisions and zoom lookup both use `tMsSource`; only the *emitted*
+  // frame timestamp is re-anchored to t0.
   let zoomBlocks: ZoomBlock[] = [];
   // Synthetic-cursor overlay data (Task 6): when the project has the cursor
   // enabled AND the events parsed, keep the header + pre-split move/down
@@ -526,20 +534,21 @@ export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8A
   if (eventsJsonl) {
     try {
       const { header, events } = parseEventsJsonl(eventsJsonl);
-      if (header) {
-        zoomBlocks = generateAutoZoom(header, events, durationMs);
-        if (project.cursor.enabled) {
-          cursorHeader = header;
-          for (const e of events) {
-            if (e.k === "move") cursorMoves.push({ t: e.t, x: e.x, y: e.y });
-            else if (e.k === "down") cursorDowns.push({ t: e.t, x: e.x, y: e.y });
-          }
+      zoomBlocks = resolveZoomBlocks(project, header, events, durationMs);
+      if (header && project.cursor.enabled) {
+        cursorHeader = header;
+        for (const e of events) {
+          if (e.k === "move") cursorMoves.push({ t: e.t, x: e.x, y: e.y });
+          else if (e.k === "down") cursorDowns.push({ t: e.t, x: e.x, y: e.y });
         }
       }
     } catch (e) {
       // Non-fatal: render without zoom rather than failing the whole export.
-      console.warn("[render] auto-zoom generation failed; rendering without zoom", e);
+      console.warn("[render] zoom resolution failed; rendering without zoom", e);
     }
+  } else {
+    // No events file, but a "custom" project may still carry stored blocks.
+    zoomBlocks = resolveZoomBlocks(project, null, [], durationMs);
   }
   const drawCursor = project.cursor.enabled && cursorHeader !== null && cursorMoves.length > 0;
   const cursorScale = cursorDrawScale(

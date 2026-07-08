@@ -35,11 +35,18 @@ import {
   cursorStateAt,
   drawCompositeV2,
   outputLayout,
+  zoomStateAt,
   type Appearance,
   type CursorSample,
   type OverlayState,
 } from "../../lib/render/compositor";
-import { parseEventsJsonl, type EventsHeader } from "../../lib/autoZoom";
+import {
+  parseEventsJsonl,
+  resolveZoomBlocks,
+  type EventsHeader,
+  type RecEvent,
+  type ZoomBlock,
+} from "../../lib/autoZoom";
 
 const SAVE_DEBOUNCE_MS = 500;
 
@@ -134,16 +141,29 @@ export function EditorView({
   // from. Otherwise the cursor section is disabled (the real cursor is already
   // baked into the video, so drawing a second one would double it up).
   const cursorAvailable = recording.cursor_hidden && !!recording.events_path;
+  // Auto-zoom is driven by recorded clicks, independent of the cursor: any
+  // recording with an events track can zoom (even if its real cursor is baked
+  // in). So the events file is loaded whenever it exists, not just for cursor.
+  const eventsAvailable = !!recording.events_path;
 
-  // Parsed input-event data for the synthetic cursor, loaded once when the
-  // cursor section is available and enabled. Kept in refs so the rAF loop reads
-  // the latest without re-subscribing; `cursorHeaderRef` null = not yet loaded
-  // (or unavailable), which makes the overlay a no-op.
-  const cursorHeaderRef = useRef<EventsHeader | null>(null);
+  // Parsed input-event track, loaded once per recording when an events file
+  // exists. Kept in refs so the rAF loop reads the latest without
+  // re-subscribing. `eventsHeaderRef` null = not loaded / unavailable (both the
+  // cursor overlay and zoom resolution then no-op). `eventsRef` holds the raw
+  // events for `resolveZoomBlocks`; `cursorMovesRef`/`cursorDownsRef` are the
+  // pre-split subset the synthetic-cursor lookup binary-searches per frame.
+  const eventsHeaderRef = useRef<EventsHeader | null>(null);
+  const eventsRef = useRef<RecEvent[]>([]);
   const cursorMovesRef = useRef<CursorSample[]>([]);
   const cursorDownsRef = useRef<CursorSample[]>([]);
-  const cursorLoadedForRef = useRef<string | null>(null);
-  const [cursorEventsReady, setCursorEventsReady] = useState(false);
+  const eventsLoadedForRef = useRef<string | null>(null);
+  const [eventsReady, setEventsReady] = useState(false);
+  // Resolved zoom timeline for the preview. Recomputed (below) only when the
+  // project's zoom settings, the loaded events, or the duration change — never
+  // per frame — so the rAF loop's per-frame `zoomStateAt` reads a STABLE array
+  // reference (no per-frame allocation, scrubbing stays smooth). `[]` means
+  // identity zoom (mode "off", no events, or old recordings without a track).
+  const zoomBlocksRef = useRef<ZoomBlock[]>([]);
 
   // Whether this recording was captured with a webcam (a `.webcam.mp4` exists).
   // Gates the whole webcam editor section and the preview/export overlay.
@@ -198,15 +218,17 @@ export function EditorView({
     };
   }, [bgPath]);
 
-  // Load + parse the input-event track once when the synthetic cursor becomes
-  // relevant (available AND enabled). Splitting moves/downs here keeps the rAF
-  // loop's per-frame work to a binary search. Guarded by `cursorLoadedForRef`
-  // so we fetch at most once per recording.
-  const cursorEnabled = project.cursor.enabled;
+  // Load + parse the input-event track once per recording whenever an events
+  // file exists. Both features read from it: auto-zoom needs the clicks (any
+  // recording, default mode), and the synthetic cursor needs the moves/downs
+  // (only when it's available + enabled). Splitting moves/downs here keeps the
+  // rAF loop's per-frame cursor work to a binary search. Guarded by
+  // `eventsLoadedForRef` so we fetch at most once per recording — the zoom and
+  // cursor consumers share this single load (no double fetch).
   useEffect(() => {
-    if (!cursorAvailable || !cursorEnabled) return;
-    if (cursorLoadedForRef.current === recording.id) return;
-    cursorLoadedForRef.current = recording.id;
+    if (!eventsAvailable) return;
+    if (eventsLoadedForRef.current === recording.id) return;
+    eventsLoadedForRef.current = recording.id;
     let cancelled = false;
     void readRecordingEvents(recording.id)
       .then((text) => {
@@ -219,21 +241,22 @@ export function EditorView({
           if (e.k === "move") moves.push({ t: e.t, x: e.x, y: e.y });
           else if (e.k === "down") downs.push({ t: e.t, x: e.x, y: e.y });
         }
-        cursorHeaderRef.current = header;
+        eventsHeaderRef.current = header;
+        eventsRef.current = events;
         cursorMovesRef.current = moves;
         cursorDownsRef.current = downs;
-        setCursorEventsReady(true);
+        setEventsReady(true);
       })
       .catch((e) => {
-        // Non-fatal: the preview just falls back to no synthetic cursor. Allow
-        // a retry on a later enable by clearing the guard.
-        cursorLoadedForRef.current = null;
-        console.warn("[editor] cursor events failed to load", e);
+        // Non-fatal: the preview just falls back to no synthetic cursor and no
+        // live zoom. Allow a retry on a later open by clearing the guard.
+        eventsLoadedForRef.current = null;
+        console.warn("[editor] input events failed to load", e);
       });
     return () => {
       cancelled = true;
     };
-  }, [cursorAvailable, cursorEnabled, recording.id]);
+  }, [eventsAvailable, recording.id]);
 
   // Compute the synthetic-cursor overlay for a given SOURCE time (ms). Returns
   // null unless the cursor is available, enabled, and the events are loaded.
@@ -241,12 +264,38 @@ export function EditorView({
     (tMsSource: number): OverlayState["cursor"] => {
       const p = projectRef.current;
       if (!p.cursor.enabled || !cursorAvailable) return null;
-      const header = cursorHeaderRef.current;
+      const header = eventsHeaderRef.current;
       if (!header) return null;
       return cursorStateAt(tMsSource, cursorMovesRef.current, cursorDownsRef.current, header);
     },
     [cursorAvailable],
   );
+
+  // Resolve the effective zoom timeline once whenever the inputs change:
+  //   - `project.zoom`  (mode/blocks — off/custom/auto)
+  //   - `eventsReady`   (the click track finished loading; auto mode needs it)
+  //   - `duration`      (full source length; bounds auto blocks' lead-in/hold)
+  // The result is stashed in a ref so the rAF loop reads a stable reference and
+  // never re-resolves per frame. Blocks are SOURCE-time, matching the export.
+  // (This intentionally mirrors export's `resolveZoomBlocks` call so the
+  // preview and the rendered file zoom identically.)
+  const zoomSettings = project.zoom;
+  useEffect(() => {
+    const durationMs = durationMsRef.current || Math.round(duration * 1000) || 0;
+    zoomBlocksRef.current = resolveZoomBlocks(
+      project,
+      eventsHeaderRef.current,
+      eventsRef.current,
+      durationMs,
+    );
+    // A paused preview repaints via the "renderOnce" effect below (it depends on
+    // `project`, so a zoom edit re-fires it; this effect is declared first, so
+    // `zoomBlocksRef` is fresh before that repaint runs).
+    // `project` is read only for its `zoom` here; depending on the whole object
+    // would re-resolve on every appearance tweak. `eventsReady` gates the auto
+    // path (events loaded); `duration` bounds auto block windows.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [zoomSettings, eventsReady, duration]);
 
   // rAF render loop: draw the current video frame through drawCompositeV2 at
   // whatever appearance is current. Runs whenever the video is playing OR when
@@ -275,10 +324,18 @@ export function EditorView({
       aspect: p.appearance.aspect,
       background: p.appearance.background,
     };
-    // The preview uses identity zoom (no auto-zoom applied live), so the source
-    // time driving the cursor is just the video's currentTime.
-    const cursor = cursorOverlayAt(video.currentTime * 1000);
-    const pxScale = cursorHeaderRef.current?.capture.px_scale ?? 1;
+    // Live zoom: evaluate the resolved zoom timeline at the current SOURCE time
+    // (the preview shows the un-trimmed clip, so currentTime IS source time —
+    // same source-time keying the export uses). `zoomBlocksRef` holds a stable,
+    // pre-resolved array (empty ⇒ identity, so old/eventless recordings are
+    // unchanged); `zoomStateAt` is a cheap per-frame scan with no allocation of
+    // the block list, so scrubbing while zoomed stays smooth. The cursor uses
+    // the same source time.
+    const tMsSource = video.currentTime * 1000;
+    const blocks = zoomBlocksRef.current;
+    const zoom = blocks.length ? zoomStateAt(tMsSource, blocks) : { cx: 0.5, cy: 0.5, scale: 1 };
+    const cursor = cursorOverlayAt(tMsSource);
+    const pxScale = eventsHeaderRef.current?.capture.px_scale ?? 1;
     // Webcam overlay: feed the hidden webcam <video> as the frame source when
     // it's decodable (readyState >= 2 = HAVE_CURRENT_DATA) and the project is
     // showing it. The webcam element's currentTime is kept ≈ main + offset by
@@ -303,7 +360,7 @@ export function EditorView({
       outW,
       outH,
       appearance,
-      { cx: 0.5, cy: 0.5, scale: 1 },
+      zoom,
       { cursor, webcam },
       cursorDrawScale(p.cursor.scale, pxScale),
       bgImageRef.current,
@@ -385,13 +442,15 @@ export function EditorView({
 
   // Re-render a single frame whenever appearance changes while paused (so slider
   // moves show up immediately), the background image finished loading, or the
-  // cursor event track just became ready (so the synthetic cursor appears
-  // without needing a scrub).
+  // input-event track just became ready (so the synthetic cursor AND live zoom
+  // appear without needing a scrub). `project` covers zoom mode/block edits;
+  // the zoom-resolution effect above runs first (declared earlier) so
+  // `zoomBlocksRef` is already up to date by the time this repaints.
   useEffect(() => {
     if (playing) return;
     const id = requestAnimationFrame(renderFrame);
     return () => cancelAnimationFrame(id);
-  }, [project, playing, renderFrame, loaded, cursorEventsReady]);
+  }, [project, playing, renderFrame, loaded, eventsReady]);
 
   // Debounced persist on any project change (after the initial load). Plain
   // debounce semantics: the cleanup only clears the pending timer (it runs on

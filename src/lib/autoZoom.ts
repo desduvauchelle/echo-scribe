@@ -1,5 +1,15 @@
 // Pure TS module: converts recorded input events (JSONL from the Swift sidecar)
-// into Screen Studio-style auto-zoom timeline blocks. No dependencies.
+// into Screen Studio-style auto-zoom timeline blocks.
+//
+// The only cross-module reference is a TYPE-ONLY import of `EditorProject`
+// (for `resolveZoomBlocks`). editorProject.ts likewise imports only the
+// `ZoomBlock` *type* from here, so both edges are erased at compile time — the
+// runtime module graph stays acyclic (autoZoom.ts has no runtime deps). This
+// is why the shared resolver lives here, co-located with `generateAutoZoom`,
+// rather than in editorProject.ts (which would need a *runtime* import of
+// `generateAutoZoom`, adding a real dependency edge).
+
+import type { EditorProject } from "./editorProject";
 
 export type RecEvent =
   | { t: number; k: "move"; x: number; y: number }
@@ -268,4 +278,57 @@ export function generateAutoZoom(
   }
 
   return merged.map(toZoomBlock);
+}
+
+/**
+ * Auto-zoom blocks with stable UI-editing ids assigned. This is the
+ * "materialized" form a project's zoom takes on the FIRST edit (Task 3): the
+ * caller flips `zoom.mode` to `"custom"` and stores exactly this array as
+ * `zoom.blocks`, so the ids (`z1, z2, …`, in start order) become durable keys
+ * for per-block editing. Identical to `generateAutoZoom` otherwise (same
+ * geometry, `mode: "auto"`). Deterministic: same events → same ids.
+ */
+export function materializeBlocks(
+  header: EventsHeader,
+  events: RecEvent[],
+  durationMs: number,
+): ZoomBlock[] {
+  // generateAutoZoom already emits blocks in start order (clusters walk events
+  // chronologically and merges keep them ordered), so a straight index → id
+  // mapping is stable and matches the "start order" contract.
+  return generateAutoZoom(header, events, durationMs).map((b, i) => ({
+    ...b,
+    id: `z${i + 1}`,
+  }));
+}
+
+/**
+ * The effective zoom timeline for a recording, shared by BOTH the editor
+ * preview and the export pipeline so they zoom identically:
+ *   - `"off"`    → `[]` (no zoom; identity everywhere).
+ *   - `"custom"` → the project's stored, hand-edited blocks (`?? []` if none).
+ *   - `"auto"`   → freshly materialized from the recorded clicks
+ *                  (`materializeBlocks`, with stable `z*` ids).
+ *
+ * `header` may be null (recording has no readable events / no header line) —
+ * auto mode then resolves to `[]` (no click geometry to zoom on), and old
+ * recordings without an events file keep their pre-zoom look. Pure and cheap
+ * (a single generateAutoZoom pass for auto); callers memoize the returned array
+ * so `zoomStateAt` runs per-frame against a stable reference.
+ */
+export function resolveZoomBlocks(
+  project: EditorProject,
+  header: EventsHeader | null,
+  events: RecEvent[],
+  durationMs: number,
+): ZoomBlock[] {
+  switch (project.zoom.mode) {
+    case "off":
+      return [];
+    case "custom":
+      return project.zoom.blocks ?? [];
+    case "auto":
+      if (!header) return [];
+      return materializeBlocks(header, events, durationMs);
+  }
 }
