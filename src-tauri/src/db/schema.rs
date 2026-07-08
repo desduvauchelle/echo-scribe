@@ -350,6 +350,28 @@ ALTER TABLE recordings ADD COLUMN cursor_hidden INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE recordings ADD COLUMN webcam_offset_ms INTEGER;
 "#,
     ),
+    (
+        24,
+        r#"
+CREATE TABLE meeting_guide_runs (
+  id            TEXT PRIMARY KEY,
+  meeting_id    TEXT NOT NULL REFERENCES meetings(item_id) ON DELETE CASCADE,
+  template_id   TEXT NOT NULL,
+  template_name TEXT NOT NULL,
+  template_json TEXT NOT NULL,
+  slot          INTEGER NOT NULL,
+  started_at    TEXT NOT NULL,
+  timeline_json TEXT,
+  review_json   TEXT,
+  status        TEXT NOT NULL,
+  error         TEXT,
+  generated_at  TEXT,
+  created_at    TEXT NOT NULL
+);
+CREATE INDEX idx_guide_runs_meeting  ON meeting_guide_runs(meeting_id);
+CREATE INDEX idx_guide_runs_template ON meeting_guide_runs(template_id);
+"#,
+    ),
 ];
 
 const META_TABLE_SQL: &str = r#"
@@ -411,7 +433,7 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(v, "23");
+        assert_eq!(v, "24");
     }
 
     #[test]
@@ -565,7 +587,7 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(version, "23");
+        assert_eq!(version, "24");
     }
 
     #[test]
@@ -655,6 +677,34 @@ mod tests {
                 cols.iter().any(|c| c == required),
                 "missing column: {required}"
             );
+        }
+    }
+
+    #[test]
+    fn migration_v24_creates_meeting_guide_runs() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        run_migrations(&mut conn).unwrap();
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name = 'meeting_guide_runs'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1);
+        let cols: Vec<String> = conn
+            .prepare("PRAGMA table_info(meeting_guide_runs)")
+            .unwrap()
+            .query_map([], |r| r.get::<_, String>(1))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        for expected in [
+            "id", "meeting_id", "template_id", "template_name", "template_json",
+            "slot", "started_at", "timeline_json", "review_json", "status",
+            "error", "generated_at", "created_at",
+        ] {
+            assert!(cols.iter().any(|c| c == expected), "missing column {expected}; got {cols:?}");
         }
     }
 }
