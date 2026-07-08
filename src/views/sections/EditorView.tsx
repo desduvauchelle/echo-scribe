@@ -55,6 +55,8 @@ import {
   cursorDrawScale,
   cursorStateAt,
   drawCompositeV2,
+  keystrokeBadgeAlpha,
+  keystrokeBadgeAt,
   outputLayout,
   zoomStateAt,
   type Appearance,
@@ -178,6 +180,11 @@ export function EditorView({
   const eventsRef = useRef<RecEvent[]>([]);
   const cursorMovesRef = useRef<CursorSample[]>([]);
   const cursorDownsRef = useRef<CursorSample[]>([]);
+  // Pre-split `k: "key"` events, alongside the existing moves/downs split —
+  // the keystroke badge lookup (`keystrokeBadgeAt`) scans this per frame, so
+  // splitting it once here (rather than filtering `eventsRef` every frame)
+  // keeps the rAF loop's per-frame work cheap, mirroring the cursor pattern.
+  const keyEventsRef = useRef<RecEvent[]>([]);
   const eventsLoadedForRef = useRef<string | null>(null);
   const [eventsReady, setEventsReady] = useState(false);
   // Resolved zoom timeline for the preview. Recomputed (below) only when the
@@ -265,14 +272,17 @@ export function EditorView({
         if (!header) return;
         const moves: CursorSample[] = [];
         const downs: CursorSample[] = [];
+        const keys: RecEvent[] = [];
         for (const e of events) {
           if (e.k === "move") moves.push({ t: e.t, x: e.x, y: e.y });
           else if (e.k === "down") downs.push({ t: e.t, x: e.x, y: e.y });
+          else if (e.k === "key") keys.push(e);
         }
         eventsHeaderRef.current = header;
         eventsRef.current = events;
         cursorMovesRef.current = moves;
         cursorDownsRef.current = downs;
+        keyEventsRef.current = keys;
         setEventsReady(true);
       })
       .catch((e) => {
@@ -298,6 +308,31 @@ export function EditorView({
     },
     [cursorAvailable],
   );
+
+  // Compute the keystroke badge overlay for a given SOURCE time (ms). Returns
+  // null unless keystrokes are enabled and a qualifying event is in the
+  // display window. `keystrokeBadgeAt` only returns the label; the fade alpha
+  // is derived here from the driving event's age (re-walk is cheap — the
+  // array is small and we scan from the end same as `keystrokeBadgeAt`).
+  const keystrokeOverlayAt = useCallback((tMsSource: number): OverlayState["keystroke"] => {
+    const p = projectRef.current;
+    if (!p.keystrokes.enabled) return null;
+    const events = keyEventsRef.current;
+    const badge = keystrokeBadgeAt(tMsSource, events, { allKeys: p.keystrokes.allKeys });
+    if (!badge) return null;
+    // Find the driving event's age: the same latest-qualifying-event scan
+    // `keystrokeBadgeAt` performed, redone here only to get its timestamp
+    // (kept as a separate small scan rather than changing that function's
+    // pure `{ label }` contract just to also return an age).
+    let age = 0;
+    for (let i = events.length - 1; i >= 0; i--) {
+      const e = events[i];
+      if (e.k !== "key" || e.t > tMsSource || tMsSource - e.t > 800) continue;
+      age = tMsSource - e.t;
+      break;
+    }
+    return { label: badge.label, alpha: keystrokeBadgeAlpha(age) };
+  }, []);
 
   // Resolve the effective zoom timeline whenever the inputs change:
   //   - `project.zoom`  (mode/blocks — off/custom/auto)
@@ -390,6 +425,7 @@ export function EditorView({
             sizeFrac: p.webcam.sizeFrac,
           }
         : null;
+    const keystroke = keystrokeOverlayAt(tMsSource);
     drawCompositeV2(
       ctx,
       video,
@@ -399,11 +435,11 @@ export function EditorView({
       outH,
       appearance,
       zoom,
-      { cursor, webcam },
+      { cursor, webcam, keystroke },
       cursorDrawScale(p.cursor.scale, pxScale),
       bgImageRef.current,
     );
-  }, [cursorOverlayAt]);
+  }, [cursorOverlayAt, keystrokeOverlayAt]);
 
   // Webcam preview time-sync. The webcam element should sit at
   //   webcamTime = mainTime + offsetMs   (offset = firstMainFramePTS − webcamStart).
@@ -614,6 +650,12 @@ export function EditorView({
     setProject((p) => ({ ...p, cursor: { ...p.cursor, enabled } }));
   const setCursorScale = (scale: number) =>
     setProject((p) => ({ ...p, cursor: { ...p.cursor, scale } }));
+
+  // ---- Keystroke overlay updaters ------------------------------------------
+  const setKeystrokesEnabled = (enabled: boolean) =>
+    setProject((p) => ({ ...p, keystrokes: { ...p.keystrokes, enabled } }));
+  const setKeystrokesAllKeys = (allKeys: boolean) =>
+    setProject((p) => ({ ...p, keystrokes: { ...p.keystrokes, allKeys } }));
 
   // ---- Webcam updaters ----------------------------------------------------
   // Each updater merges onto the existing webcam settings, falling back to the
@@ -1029,12 +1071,20 @@ export function EditorView({
     try {
       // Snapshot the current project so mid-export slider moves don't affect
       // the render. Force-disable the synthetic cursor when the recording
-      // doesn't support it (real cursor baked in / no events) so a stale
-      // project flag can't double-draw a cursor at export.
+      // doesn't support it (real cursor baked in / no events), and likewise
+      // force-disable the keystroke overlay when there's no events file to
+      // source key data from — so a stale project flag can't draw either
+      // overlay from data that doesn't exist.
       const projSnapshot = projectRef.current;
-      const proj: EditorProject = cursorAvailable
-        ? projSnapshot
-        : { ...projSnapshot, cursor: { ...projSnapshot.cursor, enabled: false } };
+      const proj: EditorProject = {
+        ...projSnapshot,
+        cursor: cursorAvailable
+          ? projSnapshot.cursor
+          : { ...projSnapshot.cursor, enabled: false },
+        keystrokes: eventsAvailable
+          ? projSnapshot.keystrokes
+          : { ...projSnapshot.keystrokes, enabled: false },
+      };
 
       // Events file drives auto-zoom; missing/unreadable is fine (no zoom).
       let eventsJsonl: string | null = null;
@@ -1680,6 +1730,49 @@ export function EditorView({
                 Record with &lsquo;Enhance cursor&rsquo; to enable
               </p>
             ) : null}
+          </div>
+
+          {/* Keystrokes section: gated on the recording having an events
+              track at all (same evidence gate the zoom section uses) — no
+              events file means no key data to draw badges from. PRIVACY:
+              default is modifier-combo-only; "show all keys" is an explicit
+              opt-in with a visible warning, never silently enabled. */}
+          <h3 className="mb-4 mt-6 border-t border-line pt-4 text-[13px] font-semibold">
+            Keystrokes
+          </h3>
+          <div
+            title={eventsAvailable ? undefined : "No recorded key events for this clip"}
+            className={eventsAvailable ? "" : "opacity-50"}
+          >
+            <label className="mb-3 flex cursor-pointer items-center gap-2 text-[13px]">
+              <input
+                type="checkbox"
+                checked={project.keystrokes.enabled}
+                disabled={!eventsAvailable}
+                onChange={(e) => setKeystrokesEnabled(e.target.checked)}
+                className="accent-accent"
+              />
+              Show keystrokes
+            </label>
+            <label className="mb-1 flex cursor-pointer items-center gap-2 text-[12px] text-muted">
+              <input
+                type="checkbox"
+                checked={project.keystrokes.allKeys}
+                disabled={!eventsAvailable || !project.keystrokes.enabled}
+                onChange={(e) => setKeystrokesAllKeys(e.target.checked)}
+                className="accent-accent disabled:opacity-50"
+              />
+              Show all keys (may reveal typed text)
+            </label>
+            {!eventsAvailable ? (
+              <p className="text-[11px] leading-snug text-muted">
+                No recorded key events for this clip
+              </p>
+            ) : (
+              <p className="text-[11px] leading-snug text-muted/80">
+                By default only modifier shortcuts (⌘⌃⌥ combos) are shown.
+              </p>
+            )}
           </div>
 
           {/* Webcam section: only rendered when the recording was captured with

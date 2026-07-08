@@ -33,12 +33,15 @@ import {
   cursorDrawScale,
   cursorStateAt,
   drawCompositeV2,
+  keystrokeBadgeAlpha,
+  keystrokeBadgeAt,
   outputLayout,
   zoomStateAt,
   type Appearance,
   type CursorSample,
   type OverlayState,
 } from "./compositor";
+import type { RecEvent } from "../autoZoom";
 
 export type RenderProgress = { phase: "decode" | "encode" | "mux"; pct: number };
 
@@ -137,6 +140,39 @@ export function frameInTrimWindow(tsSourceUs: number, trim: TrimWindow): boolean
   const startUs = trim.startMs * 1000;
   const endUs = trim.endMs * 1000;
   return tsSourceUs >= startUs - TRIM_EPSILON_US && tsSourceUs < endUs;
+}
+
+/** Display window (ms) `keystrokeBadgeAt` uses — kept in sync with the
+ *  `KEYSTROKE_DISPLAY_MS` constant private to compositor.ts (both derive the
+ *  driving event's age the same way; duplicated here rather than exported
+ *  from the compositor since it's an internal detail of that module's pure
+ *  grouping function, not part of its public contract). */
+const KEYSTROKE_DISPLAY_MS = 800;
+
+/**
+ * Resolve the keystroke badge overlay (label + fade alpha) for SOURCE time
+ * `tMs`, given the recording's pre-split key events and the project's
+ * `allKeys` setting. Thin wrapper around `keystrokeBadgeAt` (the label
+ * lookup) plus a second small backward scan to find the driving event's age
+ * for `keystrokeBadgeAlpha` — mirrors the editor preview's
+ * `keystrokeOverlayAt` in EditorView.tsx so preview and export fade
+ * identically. Returns `null` when there's no qualifying event in the window.
+ */
+function keystrokeOverlayAt(
+  tMs: number,
+  keyEvents: RecEvent[],
+  allKeys: boolean,
+): OverlayState["keystroke"] {
+  const badge = keystrokeBadgeAt(tMs, keyEvents, { allKeys });
+  if (!badge) return null;
+  let age = 0;
+  for (let i = keyEvents.length - 1; i >= 0; i--) {
+    const e = keyEvents[i];
+    if (e.k !== "key" || e.t > tMs || tMs - e.t > KEYSTROKE_DISPLAY_MS) continue;
+    age = tMs - e.t;
+    break;
+  }
+  return { label: badge.label, alpha: keystrokeBadgeAlpha(age) };
 }
 
 /** Output frame rate. Source frames above this are dropped down to it. */
@@ -531,6 +567,10 @@ export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8A
   let cursorHeader: EventsHeader | null = null;
   const cursorMoves: CursorSample[] = [];
   const cursorDowns: CursorSample[] = [];
+  // Keystroke overlay data (Task 4): pre-split `k: "key"` events, alongside
+  // the moves/downs split above, when the project has the overlay enabled.
+  // Mirrors the editor preview's `keyEventsRef` — same source-time lookup.
+  const keyEvents: RecEvent[] = [];
   if (eventsJsonl) {
     try {
       const { header, events } = parseEventsJsonl(eventsJsonl);
@@ -540,6 +580,11 @@ export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8A
         for (const e of events) {
           if (e.k === "move") cursorMoves.push({ t: e.t, x: e.x, y: e.y });
           else if (e.k === "down") cursorDowns.push({ t: e.t, x: e.x, y: e.y });
+        }
+      }
+      if (project.keystrokes.enabled) {
+        for (const e of events) {
+          if (e.k === "key") keyEvents.push(e);
         }
       }
     } catch (e) {
@@ -555,6 +600,8 @@ export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8A
     project.cursor.scale,
     cursorHeader?.capture.px_scale ?? 1,
   );
+  const drawKeystrokes = project.keystrokes.enabled && keyEvents.length > 0;
+  const keystrokesAllKeys = project.keystrokes.allKeys;
 
   // --- Demux ---
   const { chunks, decoderConfig, codedWidth, codedHeight } = await demux(srcBytes);
@@ -671,6 +718,11 @@ export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8A
             const cursor = drawCursor
               ? cursorStateAt(tMsSource, cursorMoves, cursorDowns, cursorHeader!)
               : null;
+            // Keystroke badge overlay, looked up at SOURCE time — same rule as
+            // zoom/cursor. Mirrors the editor preview's `keystrokeOverlayAt`.
+            const keystroke = drawKeystrokes
+              ? keystrokeOverlayAt(tMsSource, keyEvents, keystrokesAllKeys)
+              : null;
             // Webcam overlay, co-occurring frame at SOURCE time. Convention:
             //   webcamTime = mainTime + offset_ms   (see pickWebcamFrameIndex).
             // WebcamSource owns the returned frame (held/reused) — do NOT close it.
@@ -695,7 +747,7 @@ export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8A
               outH,
               appearance,
               zoom,
-              { cursor, webcam },
+              { cursor, webcam, keystroke },
               cursorScale,
               bgImage,
             );

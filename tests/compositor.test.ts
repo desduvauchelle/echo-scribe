@@ -9,11 +9,12 @@ import {
   imgHeight,
   outputLayout,
   canvasToCapture,
+  keystrokeBadgeAt,
   type CursorSample,
   type OutputLayout,
   type ZoomState,
 } from "../src/lib/render/compositor";
-import type { ZoomBlock, EventsHeader } from "../src/lib/autoZoom";
+import type { ZoomBlock, EventsHeader, RecEvent } from "../src/lib/autoZoom";
 
 const block: ZoomBlock = { startMs: 2000, endMs: 6000, cx: 0.3, cy: 0.7, scale: 2, mode: "auto" };
 
@@ -680,5 +681,146 @@ describe("cursorDrawScale", () => {
     expect(cursorDrawScale(NaN, 1)).toBeCloseTo(base);
     expect(cursorDrawScale(1, 0)).toBeCloseTo(base);
     expect(cursorDrawScale(1, NaN)).toBeCloseTo(base);
+  });
+});
+
+describe("keystrokeBadgeAt", () => {
+  const keyEv = (t: number, code: number, mods: string[]): RecEvent => ({
+    t,
+    k: "key",
+    code,
+    mods,
+  });
+
+  test("no key events -> null", () => {
+    expect(keystrokeBadgeAt(1000, [], { allKeys: false })).toBeNull();
+  });
+
+  test("modifier combo within the 800ms window renders the badge", () => {
+    // cmd+S at t=1000, code 0x01 = "S".
+    const events = [keyEv(1000, 0x01, ["cmd"])];
+    const badge = keystrokeBadgeAt(1200, events, { allKeys: false });
+    expect(badge).not.toBeNull();
+    expect(badge!.label).toBe("⌘S");
+  });
+
+  test("exactly at the 800ms edge still qualifies (tMs - t <= 800)", () => {
+    const events = [keyEv(1000, 0x01, ["cmd"])];
+    const badge = keystrokeBadgeAt(1800, events, { allKeys: false });
+    expect(badge).not.toBeNull();
+  });
+
+  test("just past the 800ms window is excluded", () => {
+    const events = [keyEv(1000, 0x01, ["cmd"])];
+    const badge = keystrokeBadgeAt(1801, events, { allKeys: false });
+    expect(badge).toBeNull();
+  });
+
+  test("future events (t > tMs) are never considered", () => {
+    const events = [keyEv(2000, 0x01, ["cmd"])];
+    expect(keystrokeBadgeAt(1000, events, { allKeys: false })).toBeNull();
+  });
+
+  test("latest qualifying event wins when multiple are in the window", () => {
+    const events = [keyEv(1000, 0x01, ["cmd"]), keyEv(1200, 0x02, ["cmd"])]; // cmd+S then cmd+D
+    const badge = keystrokeBadgeAt(1400, events, { allKeys: false });
+    expect(badge!.label).toBe("⌘D");
+  });
+
+  // ---- Privacy filter (non-negotiable default) ---------------------------
+  // Default (allKeys: false) renders ONLY modifier combos: at least one of
+  // cmd/ctrl/alt/fn must be present. Plain typing (no mods, or shift-only —
+  // which is just capitalized plain text) must render nothing.
+
+  test("plain key with no mods at all is excluded by default", () => {
+    const events = [keyEv(1000, 0x00, [])]; // bare "A"
+    expect(keystrokeBadgeAt(1200, events, { allKeys: false })).toBeNull();
+  });
+
+  test("shift-only is excluded by default (capitalized typing, not a combo)", () => {
+    const events = [keyEv(1000, 0x00, ["shift"])]; // Shift+A = "A" typed
+    expect(keystrokeBadgeAt(1200, events, { allKeys: false })).toBeNull();
+  });
+
+  test("cmd qualifies by default", () => {
+    const events = [keyEv(1000, 0x00, ["cmd"])];
+    expect(keystrokeBadgeAt(1200, events, { allKeys: false })).not.toBeNull();
+  });
+
+  test("ctrl qualifies by default", () => {
+    const events = [keyEv(1000, 0x00, ["ctrl"])];
+    expect(keystrokeBadgeAt(1200, events, { allKeys: false })).not.toBeNull();
+  });
+
+  test("alt qualifies by default", () => {
+    const events = [keyEv(1000, 0x00, ["alt"])];
+    expect(keystrokeBadgeAt(1200, events, { allKeys: false })).not.toBeNull();
+  });
+
+  test("fn qualifies by default", () => {
+    const events = [keyEv(1000, 0x00, ["fn"])];
+    expect(keystrokeBadgeAt(1200, events, { allKeys: false })).not.toBeNull();
+  });
+
+  test("shift+cmd qualifies by default (cmd present, not shift-only)", () => {
+    const events = [keyEv(1000, 0x00, ["shift", "cmd"])];
+    const badge = keystrokeBadgeAt(1200, events, { allKeys: false });
+    expect(badge).not.toBeNull();
+    expect(badge!.label).toBe("⇧⌘A");
+  });
+
+  test("latest-wins skips a later DISqualifying event and falls back to an earlier qualifying one within the window", () => {
+    // cmd+S at t=1000 (qualifies), then bare "A" (no mods) at t=1300 (doesn't).
+    // Per spec, latest QUALIFYING event wins — the plain keystroke at 1300
+    // must not surface (privacy) and must not blank out the still-live badge.
+    const events = [keyEv(1000, 0x01, ["cmd"]), keyEv(1300, 0x00, [])];
+    const badge = keystrokeBadgeAt(1400, events, { allKeys: false });
+    expect(badge).not.toBeNull();
+    expect(badge!.label).toBe("⌘S");
+  });
+
+  // ---- allKeys: true (opt-in "show all keys") -----------------------------
+
+  test("allKeys true renders plain typing with no mods", () => {
+    const events = [keyEv(1000, 0x00, [])];
+    const badge = keystrokeBadgeAt(1200, events, { allKeys: true });
+    expect(badge).not.toBeNull();
+    expect(badge!.label).toBe("A");
+  });
+
+  test("allKeys true still renders modifier combos", () => {
+    const events = [keyEv(1000, 0x01, ["cmd"])];
+    const badge = keystrokeBadgeAt(1200, events, { allKeys: true });
+    expect(badge!.label).toBe("⌘S");
+  });
+
+  // ---- Unknown keycode handling -------------------------------------------
+
+  test("unknown keycode is skipped entirely (falls back to an earlier qualifying event)", () => {
+    const events = [keyEv(1000, 0x01, ["cmd"]), keyEv(1200, 9999, ["cmd"])];
+    const badge = keystrokeBadgeAt(1400, events, { allKeys: false });
+    expect(badge!.label).toBe("⌘S");
+  });
+
+  test("unknown keycode with no earlier qualifying event -> null", () => {
+    const events = [keyEv(1000, 9999, ["cmd"])];
+    expect(keystrokeBadgeAt(1200, events, { allKeys: false })).toBeNull();
+  });
+
+  test("non-key events in the array are ignored", () => {
+    const events: RecEvent[] = [
+      { t: 1000, k: "move", x: 10, y: 10 },
+      keyEv(1100, 0x01, ["cmd"]),
+    ];
+    const badge = keystrokeBadgeAt(1200, events, { allKeys: false });
+    expect(badge!.label).toBe("⌘S");
+  });
+
+  test("consecutive identical labels within the window stay the same badge (stable, no flicker)", () => {
+    // Two cmd+S events close together: the label at any query time in-window
+    // is identical either way (latest-wins naturally satisfies "same label").
+    const events = [keyEv(1000, 0x01, ["cmd"]), keyEv(1100, 0x01, ["cmd"])];
+    const badge = keystrokeBadgeAt(1150, events, { allKeys: false });
+    expect(badge!.label).toBe("⌘S");
   });
 });

@@ -10,10 +10,11 @@
 // `zoomStateAt` is unit-tested (tests/compositor.test.ts); `drawComposite` is a
 // canvas draw and is exercised live in the render pipeline (Task 7).
 
-import type { ZoomBlock, EventsHeader } from "../autoZoom";
+import type { ZoomBlock, EventsHeader, RecEvent } from "../autoZoom";
 // `AspectPreset` is owned by editorProject.ts (it's part of the persisted
 // project schema); type-only import keeps zero runtime coupling.
 import type { AspectPreset } from "../editorProject";
+import { keyLabel, modsLabel } from "../keycodes";
 
 export type Appearance = {
   padding: number; // px in OUTPUT space (uniform inset around the video)
@@ -187,6 +188,12 @@ export type OverlayState = {
     corner: string;
     sizeFrac: number;
   } | null;
+  /** The keystroke badge to draw this frame (label text + fade alpha), or
+   *  null when no qualifying key event is in the display window. Callers
+   *  derive `alpha` from the event's age via `keystrokeBadgeAlpha` (kept out
+   *  of the pure `keystrokeBadgeAt` grouping function so that stays a clean
+   *  label lookup independent of the fade curve). */
+  keystroke: { label: string; alpha: number } | null;
 };
 
 export type WebcamCorner = "br" | "bl" | "tr" | "tl";
@@ -319,6 +326,78 @@ function clickAgeAt(tMs: number, downs: CursorSample[]): number | null {
   const age = tMs - downs[idx].t;
   if (age < 0 || age > CURSOR_CLICK_WINDOW_MS) return null;
   return age;
+}
+
+// ---- Keystroke badge lookup ----------------------------------------------
+
+/** How long a qualifying key event's badge stays on screen after its
+ *  timestamp (ms). Also the window `keystrokeBadgeAt` searches for
+ *  candidates within. */
+const KEYSTROKE_DISPLAY_MS = 800;
+
+/** The trailing slice of the display window (ms) over which the badge fades
+ *  out (alpha 1 -> 0). Kept as its own const since the fade curve is a
+ *  drawing concern, not part of the pure grouping function's contract. */
+const KEYSTROKE_FADE_MS = 200;
+
+/**
+ * Which keystroke badge (if any) should be shown at source time `tMs`, given
+ * the recording's parsed key events. Pure — no drawing, no Date.now().
+ *
+ * Candidate events are those with `t <= tMs` AND `tMs - t <= 800`
+ * (`KEYSTROKE_DISPLAY_MS`) — i.e. still inside the display window. Among
+ * candidates, "qualifying" ones are filtered by the PRIVACY RULE:
+ *   - default (`allKeys: false`): the event's `mods` must contain at least
+ *     one of cmd/ctrl/alt/fn. A shift-only combo (or no mods at all) is
+ *     PLAIN TYPING and is excluded — this is the non-negotiable default that
+ *     keeps typed text off the recording.
+ *   - `allKeys: true`: every candidate event qualifies (the user opted in to
+ *     "show all keys").
+ * The LATEST qualifying candidate wins (later events in the array are
+ * assumed to have `t` >= earlier ones, matching the sidecar's append-only
+ * JSONL order). An event whose `code` has no `keyLabel` (unmapped keycode)
+ * is skipped entirely — as if it were never recorded — so a run of
+ * [qualifying, unmapped] still shows the earlier qualifying event's badge
+ * rather than going blank.
+ *
+ * Label = `modsLabel(mods) + keyLabel(code)`. Returns `null` when there is no
+ * qualifying, labelable candidate in the window.
+ */
+export function keystrokeBadgeAt(
+  tMs: number,
+  keyEvents: RecEvent[],
+  opts: { allKeys: boolean },
+): { label: string } | null {
+  for (let i = keyEvents.length - 1; i >= 0; i--) {
+    const e = keyEvents[i];
+    if (e.k !== "key") continue;
+    if (e.t > tMs) continue;
+    if (tMs - e.t > KEYSTROKE_DISPLAY_MS) continue;
+
+    const hasModCombo = e.mods.some(
+      (m) => m === "cmd" || m === "ctrl" || m === "alt" || m === "fn",
+    );
+    if (!opts.allKeys && !hasModCombo) continue;
+
+    const glyph = keyLabel(e.code);
+    if (glyph === null) continue; // unmapped keycode: skip, keep scanning back
+
+    return { label: modsLabel(e.mods) + glyph };
+  }
+  return null;
+}
+
+/** Fade alpha (0..1) for a keystroke badge given the AGE (ms, `tMs - event.t`,
+ *  always >= 0 for a qualifying candidate) of the event driving it: opaque
+ *  for the first `KEYSTROKE_DISPLAY_MS - KEYSTROKE_FADE_MS`, then linearly
+ *  fades to 0 over the final `KEYSTROKE_FADE_MS` of the display window.
+ *  Ages outside [0, KEYSTROKE_DISPLAY_MS] clamp to the nearest end (fully
+ *  opaque / fully transparent) rather than extrapolating. */
+export function keystrokeBadgeAlpha(ageMs: number): number {
+  if (!Number.isFinite(ageMs) || ageMs <= KEYSTROKE_DISPLAY_MS - KEYSTROKE_FADE_MS) return 1;
+  if (ageMs >= KEYSTROKE_DISPLAY_MS) return 0;
+  const intoFade = ageMs - (KEYSTROKE_DISPLAY_MS - KEYSTROKE_FADE_MS);
+  return 1 - intoFade / KEYSTROKE_FADE_MS;
 }
 
 /** Margin (px, output space) between the webcam PiP and the frame edge. */
@@ -690,6 +769,12 @@ function drawFrameLayer(
  *  Kept in sync with `CURSOR_CLICK_WINDOW_MS` (the `clickAge` producer). */
 const CLICK_RIPPLE_MS = 400;
 
+/** Shared accent color (soft blue) for the cursor click ripple. Extracted
+ *  from what was previously two duplicated `rgba(96,176,255,…)` literals
+ *  (M2-carried cleanup) — pass the desired alpha in separately since each
+ *  call site animates it differently (fill vs. stroke, different curves). */
+const RIPPLE_COLOR_RGB = "96,176,255";
+
 /**
  * Draw a macOS-style arrow cursor glyph with its tip at (px,py), scaled by
  * `scale`. The unit path (below) is ~12 wide × ~19 tall; a base scale is folded
@@ -850,13 +935,13 @@ export function drawCompositeV2(
         // Soft filled core early in the ripple, fading fast.
         ctx.beginPath();
         ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(96,176,255,${alpha * 0.22})`;
+        ctx.fillStyle = `rgba(${RIPPLE_COLOR_RGB},${alpha * 0.22})`;
         ctx.fill();
         // Expanding stroked ring.
         ctx.beginPath();
         ctx.arc(cx, cy, radius, 0, Math.PI * 2);
         ctx.lineWidth = Math.max(1.5, 2.2 * cursorScale * (1 - f));
-        ctx.strokeStyle = `rgba(96,176,255,${alpha})`;
+        ctx.strokeStyle = `rgba(${RIPPLE_COLOR_RGB},${alpha})`;
         ctx.stroke();
       }
       drawCursorGlyph(ctx, cx, cy, cursorScale);
@@ -904,4 +989,72 @@ export function drawCompositeV2(
     }
     ctx.restore();
   }
+
+  // 5. Keystroke badge: a rounded pill, bottom-center of the CONTENT rect (so
+  //    it tracks the video under any aspect/letterbox, like the cursor), sat
+  //    safely above the webcam's own margin zone so the two never collide.
+  //    Fades per `overlay.keystroke.alpha` (driven by `keystrokeBadgeAlpha`,
+  //    computed by the caller from the source-time event age).
+  if (overlay.keystroke && overlay.keystroke.alpha > 0) {
+    drawKeystrokeBadge(ctx, overlay.keystroke.label, overlay.keystroke.alpha, dx, dy, dw, dh);
+  }
+}
+
+/** Font size (px) for the keystroke badge as a fraction of the content width,
+ *  clamped to a sane on-screen range regardless of output resolution. */
+const KEYSTROKE_FONT_MIN_PX = 14;
+const KEYSTROKE_FONT_MAX_PX = 34;
+const KEYSTROKE_FONT_FRAC = 0.022;
+
+/** Vertical gap (px, content-rect space) between the pill's bottom edge and
+ *  the content rect's bottom edge — clears the webcam PiP's own margin band
+ *  (`WEBCAM_MARGIN`) plus its own height would be excessive, so this is sized
+ *  independently as a fraction of content height, floor-clamped. */
+const KEYSTROKE_BOTTOM_MARGIN_FRAC = 0.06;
+const KEYSTROKE_BOTTOM_MARGIN_MIN_PX = 28;
+
+/**
+ * Draw the keystroke badge: a dark translucent rounded pill with white text,
+ * horizontally centered and anchored near the bottom of the content rect
+ * `(dx, dy, dw, dh)`. `alpha` (0..1, from `keystrokeBadgeAlpha`) scales the
+ * whole layer's opacity uniformly (background + text) so the fade-out is a
+ * clean dissolve rather than the bg and text fading at different rates.
+ */
+function drawKeystrokeBadge(
+  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+  label: string,
+  alpha: number,
+  dx: number,
+  dy: number,
+  dw: number,
+  dh: number,
+): void {
+  if (dw <= 0 || dh <= 0 || !label) return;
+  const a = Math.max(0, Math.min(1, alpha));
+
+  const fontPx = Math.max(KEYSTROKE_FONT_MIN_PX, Math.min(KEYSTROKE_FONT_MAX_PX, dw * KEYSTROKE_FONT_FRAC));
+  const paddingX = fontPx * 0.7;
+  const paddingY = fontPx * 0.45;
+
+  ctx.save();
+  ctx.font = `600 ${fontPx}px -apple-system, "SF Pro Text", system-ui, sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  const textWidth = ctx.measureText(label).width;
+
+  const pillW = textWidth + paddingX * 2;
+  const pillH = fontPx + paddingY * 2;
+  const bottomMargin = Math.max(KEYSTROKE_BOTTOM_MARGIN_MIN_PX, dh * KEYSTROKE_BOTTOM_MARGIN_FRAC);
+
+  const pillX = dx + dw / 2 - pillW / 2;
+  const pillY = dy + dh - bottomMargin - pillH;
+
+  ctx.globalAlpha = a;
+  roundedRectPath(ctx, pillX, pillY, pillW, pillH, pillH / 2);
+  ctx.fillStyle = "rgba(20,20,24,0.72)";
+  ctx.fill();
+
+  ctx.fillStyle = "#ffffff";
+  ctx.fillText(label, pillX + pillW / 2, pillY + pillH / 2 + 1);
+  ctx.restore();
 }
