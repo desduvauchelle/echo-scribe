@@ -162,7 +162,7 @@ impl TrayHandle<Wry> {
                         let app2 = app.clone();
                         std::thread::spawn(move || {
                             let st = app2.state::<AppState>();
-                            match crate::commands::stop_screen_recording_inner(&st) {
+                            match crate::commands::stop_screen_recording_inner(&st, &app2) {
                                 Ok(row) => {
                                     if let Ok(t) = st.tray.lock() {
                                         t.set_screenrec_active(false);

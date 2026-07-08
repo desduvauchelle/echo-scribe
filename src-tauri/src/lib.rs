@@ -710,6 +710,7 @@ pub fn run() {
 
             if capabilities.screen_recording {
                 crate::overlay::create_screenrec_setup(&app.handle().clone());
+                crate::overlay::create_camera_preview(&app.handle().clone());
             }
 
             // If permissions are already green at startup AND a model is

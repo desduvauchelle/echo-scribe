@@ -492,3 +492,123 @@ pub fn show_screenrec_setup(app_handle: &AppHandle<Wry>) {
         let _ = w.set_focus();
     }
 }
+
+// ---------------------------------------------------------------------------
+// Live camera self-view (floating mirror while recording)
+// ---------------------------------------------------------------------------
+
+const CAMERA_PREVIEW_WIDTH: f64 = 240.0;
+const CAMERA_PREVIEW_HEIGHT: f64 = 180.0;
+/// Margin from the screen's bottom-right corner for the default placement.
+const CAMERA_PREVIEW_MARGIN: f64 = 24.0;
+
+/// Default self-view placement: bottom-right of the primary monitor, above the
+/// recording pill's corner. The window is draggable, so this is only the
+/// starting position each time recording begins.
+fn calculate_camera_preview_position(app_handle: &AppHandle<Wry>) -> Option<(f64, f64)> {
+    let monitor = app_handle.primary_monitor().ok().flatten()?;
+    let scale = monitor.scale_factor();
+    let monitor_x = monitor.position().x as f64 / scale;
+    let monitor_y = monitor.position().y as f64 / scale;
+    let monitor_width = monitor.size().width as f64 / scale;
+    let monitor_height = monitor.size().height as f64 / scale;
+    let x = monitor_x + monitor_width - CAMERA_PREVIEW_WIDTH - CAMERA_PREVIEW_MARGIN;
+    let y = monitor_y + monitor_height - CAMERA_PREVIEW_HEIGHT - CAMERA_PREVIEW_MARGIN;
+    Some((x, y))
+}
+
+/// Creates the camera self-view window (hidden by default).
+///
+/// A small (240×180) frameless, transparent, always-on-top, draggable window
+/// that mirrors the chosen webcam via `getUserMedia`. It never appears in
+/// display recordings — ScreenCaptureKit's display filter excludes every window
+/// owned by our bundle id (`excludingApplications`, see screenrec/main.swift) —
+/// and window captures only ever contain the single targeted window, so the
+/// self-view is invisible to captures of any kind.
+///
+/// Camera access at the WKWebView layer is granted automatically: wry's
+/// `WKUIDelegate` answers `requestMediaCapturePermission` with
+/// `WKPermissionDecision::Grant` (wry 0.55.0
+/// `src/wkwebview/class/wry_web_view_ui_delegate.rs:136`). The webview holding
+/// the camera concurrently with the sidecar's `AVCaptureSession` is fine —
+/// macOS allows multi-client access to the same camera.
+pub fn create_camera_preview(app_handle: &AppHandle<Wry>) {
+    if app_handle.get_webview_window("camera_preview").is_some() {
+        debug!("camera_preview window already exists; skipping create");
+        return;
+    }
+    let (x, y) = calculate_camera_preview_position(app_handle).unwrap_or((200.0, 200.0));
+
+    match WebviewWindowBuilder::new(
+        app_handle,
+        "camera_preview",
+        tauri::WebviewUrl::App("src/camera-preview/index.html".into()),
+    )
+    .title("Camera")
+    .position(x, y)
+    .inner_size(CAMERA_PREVIEW_WIDTH, CAMERA_PREVIEW_HEIGHT)
+    .resizable(false)
+    .shadow(false)
+    .maximizable(false)
+    .minimizable(false)
+    .closable(false)
+    .accept_first_mouse(true)
+    .decorations(false)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .transparent(true)
+    .focused(false)
+    .visible(false)
+    .build()
+    {
+        Ok(_) => debug!("camera_preview window created (hidden)"),
+        Err(e) => error!("failed to create camera_preview window: {}", e),
+    }
+}
+
+/// Shows the self-view and tells the page which camera to mirror.
+///
+/// `camera_name` is the AVFoundation `localizedName` (what `--list-cameras`
+/// returns as `name`). The page matches it against a `MediaDeviceInfo.label`
+/// from `enumerateDevices()` — WebKit's `deviceId` is a per-origin salted hash
+/// that does NOT equal the AVFoundation `uniqueID`, so label matching is the
+/// only bridge available. It's fragile: if two cameras share a label, or the
+/// OS localizes the name differently at the WebKit layer, the match can pick
+/// the wrong device or fall back to the default camera. That mismatch only
+/// affects the on-screen preview — the sidecar still records the correct device
+/// by `uniqueID` — so it degrades to "preview shows a different camera than the
+/// one being recorded", never to a broken recording.
+pub fn show_camera_preview(app_handle: &AppHandle<Wry>, camera_name: &str) {
+    if app_handle.get_webview_window("camera_preview").is_none() {
+        create_camera_preview(app_handle);
+    }
+    if let Some(w) = app_handle.get_webview_window("camera_preview") {
+        // Reset to the default corner each time (the window is draggable, but a
+        // fresh recording should start from a predictable spot).
+        if let Some((x, y)) = calculate_camera_preview_position(app_handle) {
+            let _ = w.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
+        }
+        let _ = w.show();
+        // Never let the self-view become key (same rationale as recording_overlay):
+        // it must not steal focus / Cmd+V from the user's target app.
+        let _ = w.set_always_on_top(true);
+        if let Err(e) = w.emit(
+            "camera-preview-start",
+            serde_json::json!({ "camera_name": camera_name }),
+        ) {
+            tracing::warn!(target: "screenrec", ?e, "camera-preview-start emit failed");
+        }
+    }
+}
+
+/// Hides the self-view and tells the page to release the camera stream. Safe to
+/// call unconditionally (no-op if the window was never created or is already
+/// hidden) — call it on every recording-stop and error path.
+pub fn hide_camera_preview(app_handle: &AppHandle<Wry>) {
+    if let Some(w) = app_handle.get_webview_window("camera_preview") {
+        // Ask the page to stop the MediaStream tracks so the camera's in-use
+        // indicator clears promptly, then hide the window.
+        let _ = w.emit("camera-preview-stop", ());
+        let _ = w.hide();
+    }
+}

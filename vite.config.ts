@@ -20,6 +20,7 @@ export default defineConfig({
         consent: resolve(__dirname, "src/consent-overlay/index.html"),
         "meeting-hud": resolve(__dirname, "src/meeting-hud/index.html"),
         "screenrec-setup": resolve(__dirname, "src/screenrec-setup/index.html"),
+        "camera-preview": resolve(__dirname, "src/camera-preview/index.html"),
       },
     },
   },

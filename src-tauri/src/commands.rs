@@ -3371,6 +3371,28 @@ pub fn start_screen_recording(
     if let Ok(t) = state.tray.lock() {
         t.set_screenrec_active(true);
     }
+    // Drop the active-recording lock before touching windows so overlay work
+    // can never contend with a concurrent stop.
+    drop(guard);
+    // Show the floating camera self-view when a webcam is being recorded. The
+    // sidecar records the camera by `uniqueID`; the preview mirrors it by name
+    // (see `show_camera_preview`). Best-effort: a failed lookup or missing
+    // camera just means no self-view — the recording is unaffected.
+    if let Some(uid) = camera_uid.as_deref() {
+        if !uid.is_empty() {
+            let camera_name = crate::screenrec::list_cameras()
+                .ok()
+                .and_then(|c| c.cameras.into_iter().find(|c| c.uid == uid).map(|c| c.name))
+                .unwrap_or_default();
+            info!(
+                target: "screenrec",
+                uid_len = uid.len(),
+                has_name = !camera_name.is_empty(),
+                "showing camera self-view"
+            );
+            crate::overlay::show_camera_preview(&app, &camera_name);
+        }
+    }
     // Notify the frontend so RecordingsView refreshes.
     let _ = app.emit("screenrec-changed", ());
     Ok(())
@@ -3389,7 +3411,13 @@ pub fn is_screen_recording(state: State<'_, AppState>) -> Result<bool, String> {
 /// going through a `#[tauri::command]` wrapper (which requires `State<'_>`).
 pub fn stop_screen_recording_inner(
     state: &AppState,
+    app: &AppHandle<Wry>,
 ) -> Result<crate::db::recordings::RecordingRow, String> {
+    // Tear down the floating self-view first, unconditionally. Doing it up front
+    // (before any fallible work below) guarantees the camera window is released
+    // on every stop — clean or errored — so a failed `handle.stop()` / DB insert
+    // can never strand an always-on-top preview on screen.
+    crate::overlay::hide_camera_preview(app);
     let (handle, meta) = {
         let mut guard = state
             .active_recording
@@ -3455,7 +3483,7 @@ pub fn stop_screen_recording(
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<crate::db::recordings::RecordingRow, String> {
-    let row = stop_screen_recording_inner(&state)?;
+    let row = stop_screen_recording_inner(&state, &app)?;
     // Notify the frontend so RecordingsView refreshes.
     let _ = app.emit("screenrec-changed", ());
     spawn_auto_denoise(app, row.id.clone());
