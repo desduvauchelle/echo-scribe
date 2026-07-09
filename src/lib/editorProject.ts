@@ -677,6 +677,54 @@ export function clampMasks(masks: Mask[], durationMs: number): Mask[] {
   return out;
 }
 
+/** Normalized [0,1] rect shape shared with `Mask.rect`. */
+export type MaskRect = { x: number; y: number; w: number; h: number };
+
+/** Corner-resize math for the on-canvas mask edit box (Task 5 rev — fixes the
+ *  "corner-resize jump under zoom" bug). Pointer-down records a grab offset
+ *  between the pointer's capture-space position and the TRUE (unclamped) rect
+ *  corner being dragged, exactly like the body-move branch's grabDx/grabDy —
+ *  this function then re-applies that offset on every move so a
+ *  zero-movement drag is a no-op, even when the on-screen handle was drawn on
+ *  a zoom-clipped display box that doesn't line up 1:1 with the true rect.
+ *
+ *  `pointerNx/pointerNy` is the CURRENT pointer position in normalized
+ *  capture coords (unclamped — from `clientPointToCapture`). `grabDx/grabDy`
+ *  is `(pointerNx, pointerNy) - (draggedCornerX, draggedCornerY)` AT GRAB
+ *  TIME, in the same normalized space (so it can be negative). Subtracting it
+ *  back out reconstructs the dragged corner's new position without any jump.
+ *
+ *  The OPPOSITE corner is anchored from `rect` (the true, current rect — NOT
+ *  a clipped display box), so the anchor never moves out from under the drag.
+ *  Result is normalized (min/max so w/h stay positive regardless of which
+ *  side of the anchor the pointer crosses to) and clamped to [0,1] per axis
+ *  before deriving x/y/w/h. Pure — does not mutate `rect`. Callers still run
+ *  the result through `clampMasks` (the single write choke point), but this
+ *  function already returns a well-formed [0,1] rect on its own. */
+export function resizeMaskRect(
+  rect: MaskRect,
+  corner: "nw" | "ne" | "sw" | "se",
+  pointerNx: number,
+  pointerNy: number,
+  grabDx: number,
+  grabDy: number,
+): MaskRect {
+  const fixedX = corner.includes("e") ? rect.x : rect.x + rect.w;
+  const fixedY = corner.includes("s") ? rect.y : rect.y + rect.h;
+
+  // Reconstruct the dragged corner's position by undoing the grab offset
+  // recorded at pointer-down, THEN clamp to [0,1] — so a zero-movement drag
+  // (pointer hasn't moved since grab) reproduces the original corner exactly.
+  const draggedX = clamp(pointerNx - grabDx, 0, 1);
+  const draggedY = clamp(pointerNy - grabDy, 0, 1);
+
+  const x = Math.min(fixedX, draggedX);
+  const y = Math.min(fixedY, draggedY);
+  const w = Math.abs(draggedX - fixedX);
+  const h = Math.abs(draggedY - fixedY);
+  return { x, y, w, h };
+}
+
 // ---- Speed map + retiming math (Task 5) ---------------------------------
 //
 // A "speed map" turns SOURCE time (ms) into OUTPUT time (ms) for the retimed

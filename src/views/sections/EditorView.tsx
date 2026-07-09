@@ -74,6 +74,7 @@ import {
   SPEED_ADD_DEFAULT_RATE,
   SCENE_MIN_LENGTH_MS,
   clampMasks,
+  resizeMaskRect,
 } from "../../lib/editorProject";
 import { renderRecording, type RenderProgress } from "../../lib/render/renderPipeline";
 import {
@@ -1864,12 +1865,19 @@ export function EditorView({
   // Selected mask's on-canvas rect-edit box: move (drag inside) + resize
   // (drag a corner handle), mapped via `clientPointToCapture` and clamped to
   // [0,1] by `applyMaskEdit`'s `clampMasks` pass. Drag state records which
-  // corner (if any) is being resized and the grab offset (for a body move,
-  // so the rect doesn't jump to re-center under the cursor).
+  // corner (if any) is being resized and the grab offset — for BOTH body
+  // move and corner resize — so neither branch snaps the rect to re-center
+  // under the cursor. This matters especially for corner resize under zoom:
+  // the on-screen handle is drawn on `maskRectBoxStyle`'s zoom-CLIPPED
+  // display box (see `maskRectToContent`), which can sit at different
+  // coordinates than the TRUE unclamped rect corner. Recording the grab
+  // offset against the true corner (not the clipped display box) and
+  // re-applying it in `resizeMaskRect` means a zero-movement drag is a
+  // no-op regardless of how far the clipped box was from the true corner.
   const maskRectDragRef = useRef<{
     id: string;
     corner: "nw" | "ne" | "sw" | "se" | null; // null = body move
-    grabDx: number; // grab point minus rect.x, in normalized capture coords
+    grabDx: number; // grab point minus the dragged corner (or rect.x for a body move), in normalized capture coords
     grabDy: number;
   } | null>(null);
 
@@ -1881,11 +1889,18 @@ export function EditorView({
         e.preventDefault();
         e.stopPropagation();
         const hit = clientPointToCapture(e.clientX, e.clientY);
+        // The TRUE (unclamped) point being grabbed: for a body move it's the
+        // rect's origin; for a corner resize it's that corner, derived from
+        // the true rect — never from the zoom-clipped display box.
+        const grabX =
+          corner === null ? mask.rect.x : corner.includes("e") ? mask.rect.x + mask.rect.w : mask.rect.x;
+        const grabY =
+          corner === null ? mask.rect.y : corner.includes("s") ? mask.rect.y + mask.rect.h : mask.rect.y;
         maskRectDragRef.current = {
           id: mask.id,
           corner,
-          grabDx: hit ? hit.nx - mask.rect.x : 0,
-          grabDy: hit ? hit.ny - mask.rect.y : 0,
+          grabDx: hit ? hit.nx - grabX : 0,
+          grabDy: hit ? hit.ny - grabY : 0,
         };
         (e.target as Element).setPointerCapture(e.pointerId);
       },
@@ -1909,20 +1924,11 @@ export function EditorView({
           const y = hit.ny - drag.grabDy;
           return masks.map((mm, i) => (i === idx ? { ...mm, rect: { ...mm.rect, x, y } } : mm));
         }
-        // Corner resize: the dragged corner moves to the cursor; the OPPOSITE
-        // corner stays fixed. Compute the fixed corner from the current rect,
-        // then derive x/y/w/h from (fixed, dragged) — clampMasks handles any
-        // resulting negative w/h... but to keep the box well-formed while
-        // dragging (not just after clamp), normalize here too.
-        const fixedX = drag.corner.includes("e") ? m.rect.x : m.rect.x + m.rect.w;
-        const fixedY = drag.corner.includes("s") ? m.rect.y : m.rect.y + m.rect.h;
-        const nx = clampMs(hit.nx, 0, 1);
-        const ny = clampMs(hit.ny, 0, 1);
-        const x = Math.min(fixedX, nx);
-        const y = Math.min(fixedY, ny);
-        const w = Math.abs(nx - fixedX);
-        const h = Math.abs(ny - fixedY);
-        return masks.map((mm, i) => (i === idx ? { ...mm, rect: { x, y, w, h } } : mm));
+        // Corner resize: pure helper reconstructs the dragged corner from the
+        // grab offset (so zero movement = no-op) and anchors the OPPOSITE
+        // corner from the TRUE rect `m.rect` — see resizeMaskRect's doc.
+        const rect = resizeMaskRect(m.rect, drag.corner, hit.nx, hit.ny, drag.grabDx, drag.grabDy);
+        return masks.map((mm, i) => (i === idx ? { ...mm, rect } : mm));
       });
     },
     [applyMaskEdit, clientPointToCapture],

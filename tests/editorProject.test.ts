@@ -9,6 +9,7 @@ import {
   defaultProject,
   parseProject,
   placeSpeedRange,
+  resizeMaskRect,
   resizeSpeedRange,
   renderedExportPath,
   shiftRangesForTrim,
@@ -25,6 +26,7 @@ import {
   SCENE_MIN_LENGTH_MS,
   type CaptionSegment,
   type Mask,
+  type MaskRect,
   type SpeedRange,
   type WebcamScene,
 } from "../src/lib/editorProject";
@@ -956,6 +958,92 @@ describe("clampMasks", () => {
     const snapshot = JSON.parse(JSON.stringify(input));
     clampMasks(input, 10000);
     expect(input).toEqual(snapshot);
+  });
+});
+
+describe("resizeMaskRect", () => {
+  // Reviewer-traced regression: zoom 2x centered (0.5,0.5), mask rect
+  // {0,0,0.3,0.3} partially outside the visible zoom window. The nw handle's
+  // on-screen (zoom-clipped) position corresponds to capture point
+  // (0.25,0.25), NOT the true rect corner (0,0). A caller that grabs at that
+  // clipped point records grabDx/grabDy = (0.25-0, 0.25-0) = (0.25, 0.25) —
+  // exactly like a body-move grab offset. A zero-movement pointermove (same
+  // client point as pointerdown) must reproduce the identical rect: no snap.
+  test("zero-movement drag leaves the rect unchanged (nw handle grabbed off the true corner under zoom)", () => {
+    const rect: MaskRect = { x: 0, y: 0, w: 0.3, h: 0.3 };
+    // Pointer grabbed at capture point (0.25, 0.25) — the clipped nw handle's
+    // display position — while the true nw corner is (0, 0).
+    const grabDx = 0.25 - rect.x;
+    const grabDy = 0.25 - rect.y;
+    const out = resizeMaskRect(rect, "nw", 0.25, 0.25, grabDx, grabDy);
+    expect(out).toEqual(rect);
+  });
+
+  test("zero-movement drag is a no-op for every corner", () => {
+    const rect: MaskRect = { x: 0.2, y: 0.3, w: 0.4, h: 0.25 };
+    const corners: Array<["nw" | "ne" | "sw" | "se", number, number]> = [
+      ["nw", rect.x, rect.y],
+      ["ne", rect.x + rect.w, rect.y],
+      ["sw", rect.x, rect.y + rect.h],
+      ["se", rect.x + rect.w, rect.y + rect.h],
+    ];
+    for (const [corner, cornerX, cornerY] of corners) {
+      // Simulate a grab at some arbitrary display point (as if drawn on a
+      // clipped box), then a pointermove at that SAME point.
+      const grabPointX = cornerX + 0.05;
+      const grabPointY = cornerY - 0.05;
+      const grabDx = grabPointX - cornerX;
+      const grabDy = grabPointY - cornerY;
+      const out = resizeMaskRect(rect, corner, grabPointX, grabPointY, grabDx, grabDy);
+      expect(out.x).toBeCloseTo(rect.x, 10);
+      expect(out.y).toBeCloseTo(rect.y, 10);
+      expect(out.w).toBeCloseTo(rect.w, 10);
+      expect(out.h).toBeCloseTo(rect.h, 10);
+    }
+  });
+
+  test("moves the dragged corner by the pointer's delta since grab", () => {
+    const rect: MaskRect = { x: 0.2, y: 0.2, w: 0.4, h: 0.4 };
+    // Grab exactly at the se corner (0.6, 0.6) — zero grab offset.
+    const out = resizeMaskRect(rect, "se", 0.7, 0.65, 0, 0);
+    // se corner moves to (0.7, 0.65); nw anchor (0.2, 0.2) stays fixed.
+    expect(out.x).toBeCloseTo(0.2, 10);
+    expect(out.y).toBeCloseTo(0.2, 10);
+    expect(out.w).toBeCloseTo(0.5, 10);
+    expect(out.h).toBeCloseTo(0.45, 10);
+  });
+
+  test("dragging the corner past the anchor flips w/h positive (normalizes)", () => {
+    const rect: MaskRect = { x: 0.4, y: 0.4, w: 0.2, h: 0.2 };
+    // Drag the se corner (anchor stays nw = (0.4, 0.4)) up-left past the anchor.
+    const out = resizeMaskRect(rect, "se", 0.1, 0.1, 0, 0);
+    expect(out.w).toBeGreaterThan(0);
+    expect(out.h).toBeGreaterThan(0);
+    expect(out.x).toBeCloseTo(0.1, 10);
+    expect(out.y).toBeCloseTo(0.1, 10);
+    expect(out.w).toBeCloseTo(0.3, 10);
+    expect(out.h).toBeCloseTo(0.3, 10);
+  });
+
+  test("clamps the dragged corner to [0,1] at the edges", () => {
+    const rect: MaskRect = { x: 0.5, y: 0.5, w: 0.2, h: 0.2 };
+    // Drag se corner way past the unit square.
+    const out = resizeMaskRect(rect, "se", 5, 5, 0, 0);
+    expect(out).toEqual({ x: 0.5, y: 0.5, w: 0.5, h: 0.5 });
+  });
+
+  test("clamps the dragged corner to [0,1] on the negative side", () => {
+    const rect: MaskRect = { x: 0.3, y: 0.3, w: 0.2, h: 0.2 };
+    // Drag nw corner (anchor se = (0.5, 0.5)) far off the negative edge.
+    const out = resizeMaskRect(rect, "nw", -5, -5, 0, 0);
+    expect(out).toEqual({ x: 0, y: 0, w: 0.5, h: 0.5 });
+  });
+
+  test("does not mutate its rect argument", () => {
+    const rect: MaskRect = { x: 0.2, y: 0.2, w: 0.3, h: 0.3 };
+    const snapshot = { ...rect };
+    resizeMaskRect(rect, "se", 0.9, 0.9, 0.1, 0.1);
+    expect(rect).toEqual(snapshot);
   });
 });
 
