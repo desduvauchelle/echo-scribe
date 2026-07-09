@@ -307,6 +307,55 @@ mod tests {
     }
 
     #[test]
+    fn enqueue_recording_does_not_trip_items_foreign_key() {
+        // Regression: project_tag_jobs.item_id used to be REFERENCES items(id),
+        // so enqueueing a recording id (absent from items) failed with a
+        // FOREIGN KEY constraint. Migration 27 dropped that FK.
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.pragma_update(None, "foreign_keys", &"ON").unwrap();
+        run_migrations(&mut conn).unwrap();
+        conn.execute(
+            "INSERT INTO recordings (id, created_at, file_path) VALUES ('rec-1', 0, '/tmp/rec-1.mp4')",
+            [],
+        )
+        .unwrap();
+
+        super::enqueue_recording(&conn, "rec-1", "2026-06-25T12:00:00Z").unwrap();
+
+        let target: String = conn
+            .query_row(
+                "SELECT target FROM project_tag_jobs WHERE item_id = 'rec-1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(target, super::TARGET_RECORDING);
+    }
+
+    #[test]
+    fn enqueue_backfill_all_covers_items_and_recordings() {
+        let conn = fresh_db();
+        insert_voice_item(&conn, "item-1", None, false);
+        conn.execute(
+            "INSERT INTO recordings (id, created_at, file_path) VALUES ('rec-1', 0, '/tmp/rec-1.mp4')",
+            [],
+        )
+        .unwrap();
+
+        let added = super::enqueue_backfill_all(&conn, "2026-06-25T12:00:00Z").unwrap();
+
+        assert_eq!(added, 2);
+        let n: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM project_tag_jobs WHERE target = 'recording'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(n, 1);
+    }
+
+    #[test]
     fn enqueue_backfill_only_adds_unassigned_active_voice_rows() {
         let conn = fresh_db();
         conn.execute(

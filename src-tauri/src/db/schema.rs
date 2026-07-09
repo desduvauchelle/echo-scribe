@@ -396,6 +396,36 @@ ALTER TABLE recordings ADD COLUMN classified_by TEXT;
 ALTER TABLE project_tag_jobs ADD COLUMN target TEXT NOT NULL DEFAULT 'item';
 "#,
     ),
+    (
+        // project_tag_jobs.item_id was declared REFERENCES items(id), but the
+        // queue now also holds recording ids (target='recording') which are
+        // NOT in items — so enqueueing a recording tripped a FOREIGN KEY
+        // constraint. A single column can't FK to two tables, so rebuild the
+        // table without the constraint. Orphaned jobs self-heal: the tagger
+        // marks a job done when its target row is missing. Safe with
+        // foreign_keys=ON because nothing references this table.
+        27,
+        r#"
+CREATE TABLE project_tag_jobs_new (
+  item_id TEXT PRIMARY KEY,
+  status TEXT NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  next_run_at TEXT,
+  last_error TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  target TEXT NOT NULL DEFAULT 'item'
+);
+INSERT INTO project_tag_jobs_new
+  (item_id, status, attempts, next_run_at, last_error, created_at, updated_at, target)
+  SELECT item_id, status, attempts, next_run_at, last_error, created_at, updated_at, target
+    FROM project_tag_jobs;
+DROP TABLE project_tag_jobs;
+ALTER TABLE project_tag_jobs_new RENAME TO project_tag_jobs;
+CREATE INDEX IF NOT EXISTS idx_project_tag_jobs_status_next_run
+  ON project_tag_jobs(status, next_run_at);
+"#,
+    ),
 ];
 
 const META_TABLE_SQL: &str = r#"
@@ -457,7 +487,7 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(v, "26");
+        assert_eq!(v, "27");
     }
 
     #[test]
@@ -611,7 +641,7 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(version, "26");
+        assert_eq!(version, "27");
     }
 
     #[test]
