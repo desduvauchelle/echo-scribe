@@ -14,11 +14,20 @@ export type Background =
   | { type: "gradient"; from: string; to: string }
   | { type: "image"; path: string }; // absolute path under the recordings dir
 
+/** A single "cut to camera" time range over source (pre-speed) time.
+ *  Non-overlapping; shares editing semantics with `ZoomBlock` (see the
+ *  generic range helpers below) — `SCENE_MIN_LENGTH_MS` is the floor and
+ *  ids are assigned with the "s" prefix. */
+export type WebcamScene = { id: string; startMs: number; endMs: number };
+
 export type WebcamSettings = {
   show: boolean;
   shape: "circle" | "rounded";
   corner: "br" | "bl" | "tr" | "tl";
   sizeFrac: number; // 0.1..0.35 of output width
+  autoShrink: boolean; // shrink the bubble while a zoom block is active
+  mirror: boolean; // flip the webcam horizontally (bubble + scenes)
+  scenes: WebcamScene[]; // "cut to camera" ranges, source time
 };
 
 /** Zoom mode: "auto" derives blocks from recorded clicks at render time
@@ -190,6 +199,29 @@ function parseTrim(v: unknown): EditorProject["trim"] {
   return null;
 }
 
+/** Shape-checks a single persisted webcam scene (overlap/ordering are
+ *  enforced by clampWebcamScenes at time-of-use, not here — parse only
+ *  validates shape, same pattern as isValidCaptionSegment). Unlike zoom
+ *  blocks, `id` is required (mirrors the WebcamScene contract). */
+function isValidWebcamScene(v: unknown): v is WebcamScene {
+  if (!isObject(v)) return false;
+  return (
+    typeof v.id === "string" &&
+    v.id.length > 0 &&
+    typeof v.startMs === "number" &&
+    Number.isFinite(v.startMs) &&
+    typeof v.endMs === "number" &&
+    Number.isFinite(v.endMs)
+  );
+}
+
+/** Parses the `webcam.scenes` field: non-array (or absent) -> `[]`;
+ *  shape-invalid entries are dropped, valid ones kept (mirrors parseSpeed). */
+function parseWebcamScenes(v: unknown): WebcamScene[] {
+  if (!Array.isArray(v)) return [];
+  return v.filter(isValidWebcamScene);
+}
+
 function parseWebcam(v: unknown, fallback: WebcamSettings | null): WebcamSettings | null {
   if (!isObject(v)) return fallback;
   const shape = v.shape === "circle" ? "circle" : "rounded";
@@ -200,6 +232,9 @@ function parseWebcam(v: unknown, fallback: WebcamSettings | null): WebcamSetting
     shape,
     corner,
     sizeFrac: clamp(num(v.sizeFrac, 0.2), WEBCAM_SIZE_MIN, WEBCAM_SIZE_MAX),
+    autoShrink: typeof v.autoShrink === "boolean" ? v.autoShrink : false,
+    mirror: typeof v.mirror === "boolean" ? v.mirror : false,
+    scenes: parseWebcamScenes(v.scenes),
   };
 }
 
@@ -486,6 +521,54 @@ export function clampCaptionSegments(
   }));
 }
 
+/** Minimum webcam scene length in milliseconds — mirrors ZOOM_MIN_LENGTH_MS /
+ *  SPEED_MIN_LENGTH_MS; the camera lane's drag handles can't shrink a scene
+ *  below this. */
+export const SCENE_MIN_LENGTH_MS = 500;
+
+/** Sorts, clamps, and de-overlaps a list of webcam "cut to camera" scenes
+ *  against a clip duration. Pure — never mutates its argument. Mirrors
+ *  `clampCaptionSegments` exactly (minus the empty-text drop; `id` passes
+ *  through untouched instead). Order of operations:
+ *
+ *  1. Sort by `startMs` ascending.
+ *  2. Clamp both `startMs` and `endMs` into `[0, durationMs]`.
+ *  3. Drop any scene where `endMs <= startMs` after clamping (degenerate or
+ *     fully out-of-bounds) — does NOT reorder an inverted pair; it drops it.
+ *  4. Walk the (now-sorted) survivors left to right, dropping any scene
+ *     that starts before the previous kept scene's `endMs` (overlap) —
+ *     the earlier scene always wins. Scenes that merely touch
+ *     (`startMs === prev.endMs`) are not an overlap and both are kept.
+ *  5. Round `startMs`/`endMs` to integers.
+ */
+export function clampWebcamScenes(
+  scenes: WebcamScene[],
+  durationMs: number,
+): WebcamScene[] {
+  const sorted = [...scenes].sort((a, b) => a.startMs - b.startMs);
+
+  const clamped: WebcamScene[] = [];
+  for (const s of sorted) {
+    const start = clamp(s.startMs, 0, durationMs);
+    const end = clamp(s.endMs, 0, durationMs);
+    if (end <= start) continue;
+    clamped.push({ id: s.id, startMs: start, endMs: end });
+  }
+
+  const kept: WebcamScene[] = [];
+  for (const s of clamped) {
+    const prev = kept[kept.length - 1];
+    if (prev && s.startMs < prev.endMs) continue; // overlap: earlier scene wins
+    kept.push(s);
+  }
+
+  return kept.map((s) => ({
+    id: s.id,
+    startMs: Math.round(s.startMs),
+    endMs: Math.round(s.endMs),
+  }));
+}
+
 // ---- Speed map + retiming math (Task 5) ---------------------------------
 //
 // A "speed map" turns SOURCE time (ms) into OUTPUT time (ms) for the retimed
@@ -707,21 +790,152 @@ export function clampZoomCenter(
   return { cx: safe(cx), cy: safe(cy) };
 }
 
-/** Next stable zoom-block id: `z<n>` where n is one past the max numeric suffix
- *  already in use (ids like `z1`, `z2`, `m7`… — any trailing integer counts).
- *  Deterministic (NOT time-based) so replaying the same edits yields the same
- *  ids. Empty / id-less input → `z1`. Pure. */
-export function nextZoomBlockId(blocks: ZoomBlock[]): string {
+// ---- Generic range editing core (extracted for M6) -----------------------
+//
+// The zoom-block helpers above and the webcam-scene helpers below are both
+// thin wrappers over this core: the SAME pure primitives, parameterized by a
+// min-length floor (and, for id generation, a prefix). Operates on any
+// `{startMs; endMs}` shape that optionally carries an `id`; blocks/scenes are
+// passed straight through the `...r`/`...b` spreads so caller-specific fields
+// (cx/cy/scale/mode for zoom; nothing extra for scenes) pass through
+// untouched. Never mutates its input.
+
+type RangeLike = { id?: string; startMs: number; endMs: number };
+
+/** Next stable id: `<prefix><n>` where n is one past the max numeric suffix
+ *  already in use across `ranges` (ids like `z1`, `z2`, `m7`… — any trailing
+ *  integer counts, regardless of prefix). Deterministic (NOT time-based) so
+ *  replaying the same edits yields the same ids. Empty / id-less input →
+ *  `<prefix>1`. Pure. */
+export function nextRangeId<T extends RangeLike>(ranges: T[], prefix: string): string {
   let max = 0;
-  for (const b of blocks) {
-    if (typeof b.id !== "string") continue;
-    const m = b.id.match(/(\d+)$/);
+  for (const r of ranges) {
+    if (typeof r.id !== "string") continue;
+    const m = r.id.match(/(\d+)$/);
     if (m) {
       const n = parseInt(m[1], 10);
       if (Number.isFinite(n) && n > max) max = n;
     }
   }
-  return `z${max + 1}`;
+  return `${prefix}${max + 1}`;
+}
+
+/** Resize one edge of range `index`. `edge` is which end moves; `valueMs` is the
+ *  proposed new position for that edge. The result is clamped so that:
+ *    - both edges stay in [0, durationMs];
+ *    - the range keeps at least `minLengthMs` (the moving edge can't cross
+ *      the fixed edge's minimum-gap line);
+ *    - the moving edge does not cross the neighbour on that side — it stops at
+ *      the neighbour's touching edge (prev.endMs for "start", next.startMs for
+ *      "end"), so ranges butt up but never overlap.
+ *  Never drops or reorders ranges. Returns a new array (or the same reference
+ *  on a no-op). Pure. */
+export function resizeRange<T extends RangeLike>(
+  ranges: T[],
+  index: number,
+  edge: "start" | "end",
+  valueMs: number,
+  durationMs: number,
+  minLengthMs: number,
+): T[] {
+  if (index < 0 || index >= ranges.length) return ranges;
+  const range = ranges[index];
+  const prev = ranges[index - 1];
+  const next = ranges[index + 1];
+
+  let v = clamp(Math.round(valueMs), 0, Math.max(0, durationMs));
+
+  if (edge === "start") {
+    // Lower bound: neighbour's end (butt against it, no overlap); 0 otherwise.
+    const lo = prev ? prev.endMs : 0;
+    // Upper bound: keep >= min length before the fixed end edge.
+    const hi = range.endMs - minLengthMs;
+    v = clamp(v, lo, Math.max(lo, hi));
+    if (v === range.startMs) return ranges;
+    return ranges.map((r, i) => (i === index ? { ...r, startMs: v } : r));
+  } else {
+    // Upper bound: neighbour's start (butt against it); duration otherwise.
+    const hi = next ? next.startMs : durationMs;
+    // Lower bound: keep >= min length after the fixed start edge.
+    const lo = range.startMs + minLengthMs;
+    v = clamp(v, Math.min(lo, hi), hi);
+    if (v === range.endMs) return ranges;
+    return ranges.map((r, i) => (i === index ? { ...r, endMs: v } : r));
+  }
+}
+
+/** Find a placement for a NEW range near `preferredStartMs`, of length
+ *  `lengthMs`, that (a) fits in [0, durationMs] and (b) doesn't overlap any of
+ *  `ranges` (assumed sorted, non-overlapping). Strategy: start at the clamped
+ *  preferred start, then push right past any range it overlaps, then cap its
+ *  end at the next range's start. Returns `{startMs, endMs}` when a slot ≥
+ *  `minLengthMs` exists, else `null` (timeline full / too short). Pure. */
+export function placeRange<T extends RangeLike>(
+  ranges: T[],
+  preferredStartMs: number,
+  lengthMs: number,
+  durationMs: number,
+  minLengthMs: number,
+): { startMs: number; endMs: number } | null {
+  const dur = Math.max(0, durationMs);
+  if (dur < minLengthMs) return null;
+
+  const sorted = [...ranges].sort((a, b) => a.startMs - b.startMs);
+  let start = clamp(Math.round(preferredStartMs), 0, Math.max(0, dur - lengthMs));
+  let end = Math.min(dur, start + lengthMs);
+
+  // Push past any range the desired window overlaps (left-to-right).
+  for (const r of sorted) {
+    if (start < r.endMs && end > r.startMs) {
+      start = r.endMs;
+      end = Math.min(dur, start + lengthMs);
+    }
+  }
+  // Cap the end at the next range that starts at/after `start`.
+  const nextAfter = sorted.find((r) => r.startMs >= start);
+  if (nextAfter) end = Math.min(end, nextAfter.startMs);
+
+  if (start >= dur || end - start < minLengthMs) return null;
+  return { startMs: start, endMs: end };
+}
+
+/** Move range `index` bodily so its start lands at (as close as possible to)
+ *  `newStartMs`, preserving its length. Clamped so the whole range stays in
+ *  [0, durationMs] AND does not overlap either neighbour: the range can slide
+ *  until its leading edge touches the next range's start or its trailing edge
+ *  touches the previous range's end. Never drops/reorders ranges. Returns a
+ *  new array (or the same reference on a no-op). Pure. */
+export function moveRange<T extends RangeLike>(
+  ranges: T[],
+  index: number,
+  newStartMs: number,
+  durationMs: number,
+): T[] {
+  if (index < 0 || index >= ranges.length) return ranges;
+  const range = ranges[index];
+  const len = range.endMs - range.startMs;
+  const prev = ranges[index - 1];
+  const next = ranges[index + 1];
+
+  // Allowed range for the range's start given the neighbours and bounds.
+  const lo = prev ? prev.endMs : 0;
+  const hi = (next ? next.startMs : Math.max(0, durationMs)) - len;
+  // If the range is longer than the gap (shouldn't happen with a valid
+  // layout), lo may exceed hi; prefer lo so it butts against the previous
+  // neighbour.
+  let start = clamp(Math.round(newStartMs), lo, Math.max(lo, hi));
+  if (start === range.startMs) return ranges;
+  return ranges.map((r, i) =>
+    i === index ? { ...r, startMs: start, endMs: start + len } : r,
+  );
+}
+
+/** Next stable zoom-block id: `z<n>` where n is one past the max numeric suffix
+ *  already in use (ids like `z1`, `z2`, `m7`… — any trailing integer counts).
+ *  Deterministic (NOT time-based) so replaying the same edits yields the same
+ *  ids. Empty / id-less input → `z1`. Pure. Thin wrapper over `nextRangeId`. */
+export function nextZoomBlockId(blocks: ZoomBlock[]): string {
+  return nextRangeId(blocks, "z");
 }
 
 /** Resize one edge of block `index`. `edge` is which end moves; `valueMs` is the
@@ -732,7 +946,9 @@ export function nextZoomBlockId(blocks: ZoomBlock[]): string {
  *    - the moving edge does not cross the neighbour on that side — it stops at
  *      the neighbour's touching edge (prev.endMs for "start", next.startMs for
  *      "end"), so blocks butt up but never overlap.
- *  Never drops or reorders blocks. Returns a new array. Pure. */
+ *  Never drops or reorders blocks. Returns a new array. Pure. Thin wrapper
+ *  over `resizeRange` — cx/cy/scale/mode pass through untouched via the
+ *  core's spread. */
 export function resizeZoomBlock(
   blocks: ZoomBlock[],
   index: number,
@@ -740,30 +956,7 @@ export function resizeZoomBlock(
   valueMs: number,
   durationMs: number,
 ): ZoomBlock[] {
-  if (index < 0 || index >= blocks.length) return blocks;
-  const block = blocks[index];
-  const prev = blocks[index - 1];
-  const next = blocks[index + 1];
-
-  let v = clamp(Math.round(valueMs), 0, Math.max(0, durationMs));
-
-  if (edge === "start") {
-    // Lower bound: neighbour's end (butt against it, no overlap); 0 otherwise.
-    const lo = prev ? prev.endMs : 0;
-    // Upper bound: keep >= min length before the fixed end edge.
-    const hi = block.endMs - ZOOM_MIN_LENGTH_MS;
-    v = clamp(v, lo, Math.max(lo, hi));
-    if (v === block.startMs) return blocks;
-    return blocks.map((b, i) => (i === index ? { ...b, startMs: v } : b));
-  } else {
-    // Upper bound: neighbour's start (butt against it); duration otherwise.
-    const hi = next ? next.startMs : durationMs;
-    // Lower bound: keep >= min length after the fixed start edge.
-    const lo = block.startMs + ZOOM_MIN_LENGTH_MS;
-    v = clamp(v, Math.min(lo, hi), hi);
-    if (v === block.endMs) return blocks;
-    return blocks.map((b, i) => (i === index ? { ...b, endMs: v } : b));
-  }
+  return resizeRange(blocks, index, edge, valueMs, durationMs, ZOOM_MIN_LENGTH_MS);
 }
 
 /** Find a placement for a NEW zoom block near `preferredStartMs`, of length
@@ -771,33 +964,15 @@ export function resizeZoomBlock(
  *  `blocks` (assumed sorted, non-overlapping). Strategy: start at the clamped
  *  preferred start, then push right past any block it overlaps, then cap its end
  *  at the next block's start. Returns `{startMs, endMs}` when a slot ≥
- *  `ZOOM_MIN_LENGTH_MS` exists, else `null` (timeline full / too short). Pure. */
+ *  `ZOOM_MIN_LENGTH_MS` exists, else `null` (timeline full / too short). Pure.
+ *  Thin wrapper over `placeRange`. */
 export function placeZoomBlock(
   blocks: ZoomBlock[],
   preferredStartMs: number,
   lengthMs: number,
   durationMs: number,
 ): { startMs: number; endMs: number } | null {
-  const dur = Math.max(0, durationMs);
-  if (dur < ZOOM_MIN_LENGTH_MS) return null;
-
-  const sorted = [...blocks].sort((a, b) => a.startMs - b.startMs);
-  let start = clamp(Math.round(preferredStartMs), 0, Math.max(0, dur - lengthMs));
-  let end = Math.min(dur, start + lengthMs);
-
-  // Push past any block the desired window overlaps (left-to-right).
-  for (const b of sorted) {
-    if (start < b.endMs && end > b.startMs) {
-      start = b.endMs;
-      end = Math.min(dur, start + lengthMs);
-    }
-  }
-  // Cap the end at the next block that starts at/after `start`.
-  const nextAfter = sorted.find((b) => b.startMs >= start);
-  if (nextAfter) end = Math.min(end, nextAfter.startMs);
-
-  if (start >= dur || end - start < ZOOM_MIN_LENGTH_MS) return null;
-  return { startMs: start, endMs: end };
+  return placeRange(blocks, preferredStartMs, lengthMs, durationMs, ZOOM_MIN_LENGTH_MS);
 }
 
 /** Move block `index` bodily so its start lands at (as close as possible to)
@@ -805,30 +980,22 @@ export function placeZoomBlock(
  *  [0, durationMs] AND does not overlap either neighbour: the block can slide
  *  until its leading edge touches the next block's start or its trailing edge
  *  touches the previous block's end. Never drops/reorders blocks. Returns a new
- *  array. Pure. */
+ *  array. Pure. Thin wrapper over `moveRange` — cx/cy/scale/mode pass through
+ *  untouched via the core's spread. */
 export function moveZoomBlock(
   blocks: ZoomBlock[],
   index: number,
   newStartMs: number,
   durationMs: number,
 ): ZoomBlock[] {
-  if (index < 0 || index >= blocks.length) return blocks;
-  const block = blocks[index];
-  const len = block.endMs - block.startMs;
-  const prev = blocks[index - 1];
-  const next = blocks[index + 1];
-
-  // Allowed range for the block's start given the neighbours and bounds.
-  const lo = prev ? prev.endMs : 0;
-  const hi = (next ? next.startMs : Math.max(0, durationMs)) - len;
-  // If the block is longer than the gap (shouldn't happen with a valid layout),
-  // lo may exceed hi; prefer lo so it butts against the previous neighbour.
-  let start = clamp(Math.round(newStartMs), lo, Math.max(lo, hi));
-  if (start === block.startMs) return blocks;
-  return blocks.map((b, i) =>
-    i === index ? { ...b, startMs: start, endMs: start + len } : b,
-  );
+  return moveRange(blocks, index, newStartMs, durationMs);
 }
+
+// Webcam scene editing (M6) reuses the generic core directly — Task 3's
+// camera lane calls `nextRangeId(scenes, "s")`, `resizeRange(scenes, ...,
+// SCENE_MIN_LENGTH_MS)`, `placeRange(scenes, ..., SCENE_MIN_LENGTH_MS)`, and
+// `moveRange(scenes, ...)` — no named scene wrappers, since (unlike zoom)
+// there's no pre-existing call-site signature to preserve.
 
 /** Path of the editor's `"rendered"` entry inside a recording row's `exports`
  *  JSON, or `null` when the recording has never been editor-exported (or the

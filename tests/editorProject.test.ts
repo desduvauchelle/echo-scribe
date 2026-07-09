@@ -4,6 +4,7 @@ import {
   clampCaptionSegments,
   clampSpeedRanges,
   clampTrim,
+  clampWebcamScenes,
   defaultProject,
   parseProject,
   placeSpeedRange,
@@ -15,9 +16,15 @@ import {
   resizeZoomBlock,
   moveZoomBlock,
   placeZoomBlock,
+  nextRangeId,
+  moveRange,
+  resizeRange,
+  placeRange,
   ZOOM_MIN_LENGTH_MS,
+  SCENE_MIN_LENGTH_MS,
   type CaptionSegment,
   type SpeedRange,
+  type WebcamScene,
 } from "../src/lib/editorProject";
 import type { ZoomBlock } from "../src/lib/autoZoom";
 
@@ -34,6 +41,11 @@ function cap(startMs: number, endMs: number, text = "hello"): CaptionSegment {
 /** A manual zoom block with sane defaults; override any field. */
 function zb(startMs: number, endMs: number, over: Partial<ZoomBlock> = {}): ZoomBlock {
   return { startMs, endMs, cx: 0.5, cy: 0.5, scale: 2, mode: "manual", ...over };
+}
+
+/** A webcam scene literal helper. */
+function scene(startMs: number, endMs: number, id = "s1"): WebcamScene {
+  return { id, startMs, endMs };
 }
 
 describe("defaultProject", () => {
@@ -54,6 +66,16 @@ describe("defaultProject", () => {
     expect(p.cursor.scale).toBeGreaterThanOrEqual(1);
     // webcam default null when no webcam file
     expect(p.webcam).toBeNull();
+  });
+
+  test("webcam autoShrink/mirror/scenes defaults present (M6)", () => {
+    const p = parseProject(
+      JSON.stringify({ webcam: { show: true, shape: "circle", corner: "tl", sizeFrac: 0.2 } }),
+    );
+    expect(p.webcam).not.toBeNull();
+    expect(p.webcam!.autoShrink).toBe(false);
+    expect(p.webcam!.mirror).toBe(false);
+    expect(p.webcam!.scenes).toEqual([]);
   });
 
   test("zoom/speed/keystrokes defaults present", () => {
@@ -213,6 +235,68 @@ describe("parseProject — tolerant", () => {
     expect(q.webcam!.shape).toBe("rounded");
     expect(q.webcam!.corner).toBe("br");
     expect(q.webcam!.sizeFrac).toBe(0.1);
+  });
+});
+
+describe("parseProject — webcam autoShrink/mirror/scenes (M6)", () => {
+  test("valid autoShrink/mirror/scenes survive", () => {
+    const scenes = [scene(0, 1000, "s1"), scene(2000, 3000, "s2")];
+    const p = parseProject(
+      JSON.stringify({
+        webcam: {
+          show: true,
+          shape: "circle",
+          corner: "tl",
+          sizeFrac: 0.2,
+          autoShrink: true,
+          mirror: true,
+          scenes,
+        },
+      }),
+    );
+    expect(p.webcam!.autoShrink).toBe(true);
+    expect(p.webcam!.mirror).toBe(true);
+    expect(p.webcam!.scenes).toEqual(scenes);
+  });
+
+  test("non-boolean autoShrink/mirror fall back to defaults", () => {
+    const p = parseProject(
+      JSON.stringify({
+        webcam: { show: true, autoShrink: "yes", mirror: 1 },
+      }),
+    );
+    expect(p.webcam!.autoShrink).toBe(false);
+    expect(p.webcam!.mirror).toBe(false);
+  });
+
+  test("non-array scenes -> empty array", () => {
+    const p = parseProject(JSON.stringify({ webcam: { show: true, scenes: "nope" } }));
+    expect(p.webcam!.scenes).toEqual([]);
+    const q = parseProject(JSON.stringify({ webcam: { show: true, scenes: {} } }));
+    expect(q.webcam!.scenes).toEqual([]);
+  });
+
+  test("shape-invalid scene entries are dropped, valid ones kept", () => {
+    const p = parseProject(
+      JSON.stringify({
+        webcam: {
+          show: true,
+          scenes: [
+            { id: "s1", startMs: 0, endMs: 1000 },
+            { id: "s2", startMs: "x", endMs: 1000 },
+            { startMs: 0, endMs: 1000 }, // missing id
+            { id: "s3", startMs: 0 }, // missing endMs
+            "garbage",
+            null,
+            { id: "s4", startMs: 500, endMs: 1500 },
+          ],
+        },
+      }),
+    );
+    expect(p.webcam!.scenes).toEqual([
+      { id: "s1", startMs: 0, endMs: 1000 },
+      { id: "s4", startMs: 500, endMs: 1500 },
+    ]);
   });
 });
 
@@ -645,6 +729,81 @@ describe("clampCaptionSegments", () => {
   });
 });
 
+describe("clampWebcamScenes", () => {
+  test("empty input -> empty output", () => {
+    expect(clampWebcamScenes([], 10000)).toEqual([]);
+  });
+
+  test("single valid scene passes through unchanged", () => {
+    expect(clampWebcamScenes([scene(1000, 2000, "s1")], 10000)).toEqual([
+      { id: "s1", startMs: 1000, endMs: 2000 },
+    ]);
+  });
+
+  test("sorts scenes by startMs", () => {
+    const out = clampWebcamScenes(
+      [scene(5000, 6000, "b"), scene(0, 1000, "a")],
+      10000,
+    );
+    expect(out).toEqual([
+      { id: "a", startMs: 0, endMs: 1000 },
+      { id: "b", startMs: 5000, endMs: 6000 },
+    ]);
+  });
+
+  test("clamps start/end into [0, durationMs]", () => {
+    expect(clampWebcamScenes([scene(-500, 2000, "a")], 10000)).toEqual([
+      { id: "a", startMs: 0, endMs: 2000 },
+    ]);
+    expect(clampWebcamScenes([scene(8000, 20000, "a")], 10000)).toEqual([
+      { id: "a", startMs: 8000, endMs: 10000 },
+    ]);
+  });
+
+  test("drops scenes with endMs<=startMs after clamping", () => {
+    // fully out of bounds — clamps to a zero-length scene, dropped.
+    expect(clampWebcamScenes([scene(20000, 30000, "a")], 10000)).toEqual([]);
+    // inverted/zero-length before clamp — dropped, not reordered.
+    expect(clampWebcamScenes([scene(5000, 5000, "a")], 10000)).toEqual([]);
+  });
+
+  test("drops overlapping scenes, keeping the earlier one", () => {
+    const out = clampWebcamScenes(
+      [scene(0, 2000, "a"), scene(1000, 3000, "b")],
+      10000,
+    );
+    expect(out).toEqual([{ id: "a", startMs: 0, endMs: 2000 }]);
+  });
+
+  test("touching (non-overlapping) scenes are both kept", () => {
+    const out = clampWebcamScenes(
+      [scene(0, 2000, "a"), scene(2000, 3000, "b")],
+      10000,
+    );
+    expect(out).toEqual([
+      { id: "a", startMs: 0, endMs: 2000 },
+      { id: "b", startMs: 2000, endMs: 3000 },
+    ]);
+  });
+
+  test("rounds start/end to integers", () => {
+    expect(clampWebcamScenes([scene(100.6, 999.4, "a")], 10000)).toEqual([
+      { id: "a", startMs: 101, endMs: 999 },
+    ]);
+  });
+
+  test("multiple overlaps resolved left-to-right (earliest wins each time)", () => {
+    const out = clampWebcamScenes(
+      [scene(0, 5000, "a"), scene(1000, 2000, "b"), scene(6000, 7000, "c")],
+      10000,
+    );
+    expect(out).toEqual([
+      { id: "a", startMs: 0, endMs: 5000 },
+      { id: "c", startMs: 6000, endMs: 7000 },
+    ]);
+  });
+});
+
 describe("clampTrim", () => {
   test("null passthrough", () => {
     expect(clampTrim(null, 10000)).toBeNull();
@@ -728,6 +887,9 @@ describe("round-trip stability", () => {
         shape: "rounded" as const,
         corner: "bl" as const,
         sizeFrac: 0.25,
+        autoShrink: true,
+        mirror: true,
+        scenes: [{ id: "s1", startMs: 500, endMs: 2500 }],
       },
       zoom: {
         mode: "custom" as const,
@@ -748,6 +910,57 @@ describe("round-trip stability", () => {
     const twice = parseProject(JSON.stringify(once));
     expect(twice).toEqual(once);
     expect(once).toEqual(full);
+  });
+
+  test("pre-M6 project JSON (webcam without autoShrink/mirror/scenes) parses to identical render behavior", () => {
+    // Fixture shape captured from a pre-M6 serialized project — webcam has
+    // only the M1 fields (show/shape/corner/sizeFrac), no autoShrink/mirror/
+    // scenes yet.
+    const preM6Json = JSON.stringify({
+      v: 1,
+      trim: { startMs: 250, endMs: 12000 },
+      appearance: {
+        padding: 120,
+        cornerRadius: 24,
+        aspect: "16:9",
+        background: { type: "image", path: "/abs/bg.jpg" },
+      },
+      cursor: { enabled: true, scale: 2, smoothing: 0.4, hideIdle: true },
+      webcam: { show: true, shape: "rounded", corner: "bl", sizeFrac: 0.25 },
+      zoom: {
+        mode: "custom",
+        blocks: [
+          { startMs: 0, endMs: 1000, cx: 0.5, cy: 0.5, scale: 2, mode: "manual", id: "z1" },
+        ],
+      },
+      speed: [{ startMs: 0, endMs: 1000, rate: 2 }],
+      keystrokes: { enabled: true, allKeys: true },
+      captions: {
+        enabled: true,
+        segments: [{ startMs: 0, endMs: 1000, text: "hello there" }],
+      },
+      audio: { normalizeLoudness: true },
+      motionBlur: true,
+    });
+    const p = parseProject(preM6Json);
+
+    // Pre-existing webcam fields are byte-for-byte unchanged.
+    expect(p.webcam!.show).toBe(true);
+    expect(p.webcam!.shape).toBe("rounded");
+    expect(p.webcam!.corner).toBe("bl");
+    expect(p.webcam!.sizeFrac).toBe(0.25);
+
+    // New M6 fields default OFF/neutral so render behavior is unchanged.
+    expect(p.webcam!.autoShrink).toBe(false);
+    expect(p.webcam!.mirror).toBe(false);
+    expect(p.webcam!.scenes).toEqual([]);
+
+    // Everything else is untouched.
+    expect(p.trim).toEqual({ startMs: 250, endMs: 12000 });
+    expect(p.zoom).toEqual({
+      mode: "custom",
+      blocks: [{ startMs: 0, endMs: 1000, cx: 0.5, cy: 0.5, scale: 2, mode: "manual", id: "z1" }],
+    });
   });
 
   test("pre-M4 project JSON (no captions/audio/motionBlur/smoothing/hideIdle) parses to identical render behavior", () => {
@@ -785,7 +998,17 @@ describe("round-trip stability", () => {
     });
     expect(p.cursor.enabled).toBe(true);
     expect(p.cursor.scale).toBe(2);
-    expect(p.webcam).toEqual({ show: true, shape: "rounded", corner: "bl", sizeFrac: 0.25 });
+    expect(p.webcam).toEqual({
+      show: true,
+      shape: "rounded",
+      corner: "bl",
+      sizeFrac: 0.25,
+      // New M6 fields default OFF/neutral (see the dedicated pre-M6 fixture
+      // test below for the full-project version of this pin).
+      autoShrink: false,
+      mirror: false,
+      scenes: [],
+    });
     expect(p.zoom).toEqual({
       mode: "custom",
       blocks: [{ startMs: 0, endMs: 1000, cx: 0.5, cy: 0.5, scale: 2, mode: "manual", id: "z1" }],
@@ -984,6 +1207,223 @@ describe("placeZoomBlock", () => {
 
   test("returns null when the timeline is shorter than the minimum", () => {
     expect(placeZoomBlock([], 0, 2000, ZOOM_MIN_LENGTH_MS - 1)).toBeNull();
+  });
+});
+
+// ---- Generic range helpers (M6 extraction) -------------------------------
+//
+// nextRangeId/moveRange/resizeRange/placeRange are the generic core the zoom
+// helpers above (and the webcam scene helpers below) are thin wrappers over.
+// These tests exercise the SAME edge cases as the zoom describe blocks above,
+// just against the bare `{id,startMs,endMs}` shape with a configurable
+// min-length + id prefix, proving the core is behavior-identical to what the
+// zoom wrappers already guarantee.
+
+/** A bare range literal helper for the generic core. */
+function rg(id: string, startMs: number, endMs: number): { id: string; startMs: number; endMs: number } {
+  return { id, startMs, endMs };
+}
+
+const RG_MIN = 500;
+
+describe("nextRangeId", () => {
+  test("empty -> prefix+1", () => {
+    expect(nextRangeId([], "s")).toBe("s1");
+  });
+
+  test("one past the max numeric suffix", () => {
+    expect(nextRangeId([rg("s1", 0, 1000), rg("s3", 2000, 3000)], "s")).toBe("s4");
+  });
+
+  test("counts trailing integers regardless of prefix", () => {
+    expect(nextRangeId([rg("s2", 0, 1000), rg("m7", 2000, 3000)], "s")).toBe("s8");
+  });
+
+  test("id-less ranges ignored -> prefix+1", () => {
+    expect(nextRangeId([{ startMs: 0, endMs: 1000 } as any, { startMs: 2000, endMs: 3000 } as any], "s")).toBe(
+      "s1",
+    );
+  });
+
+  test("deterministic (not time-based): same input -> same id", () => {
+    const ranges = [rg("s5", 0, 1000)];
+    expect(nextRangeId(ranges, "s")).toBe(nextRangeId(ranges, "s"));
+  });
+});
+
+describe("resizeRange", () => {
+  const three = [rg("s1", 0, 2000), rg("s2", 3000, 5000), rg("s3", 6000, 8000)];
+
+  test("resize end within bounds", () => {
+    const out = resizeRange(three, 1, "end", 5500, 10000, RG_MIN);
+    expect(out[1].endMs).toBe(5500);
+    expect(out[0]).toBe(three[0]);
+    expect(out[2]).toBe(three[2]);
+  });
+
+  test("resize start stops at previous neighbour's end (no overlap)", () => {
+    const out = resizeRange(three, 1, "start", 500, 10000, RG_MIN);
+    expect(out[1].startMs).toBe(2000);
+    expect(out[1].endMs).toBe(5000);
+  });
+
+  test("resize end stops at next neighbour's start (no overlap)", () => {
+    const out = resizeRange(three, 1, "end", 9000, 10000, RG_MIN);
+    expect(out[1].endMs).toBe(6000);
+  });
+
+  test("resize enforces the minimum length", () => {
+    const out = resizeRange(three, 1, "end", 3100, 10000, RG_MIN);
+    expect(out[1].endMs).toBe(3000 + RG_MIN);
+    const out2 = resizeRange(three, 1, "start", 4900, 10000, RG_MIN);
+    expect(out2[1].startMs).toBe(5000 - RG_MIN);
+  });
+
+  test("start edge clamps to 0; end edge clamps to duration", () => {
+    expect(resizeRange(three, 0, "start", -1000, 10000, RG_MIN)[0].startMs).toBe(0);
+    expect(resizeRange(three, 2, "end", 99999, 10000, RG_MIN)[2].endMs).toBe(10000);
+  });
+
+  test("no-op edit returns the same array reference", () => {
+    expect(resizeRange(three, 1, "end", 5000, 10000, RG_MIN)).toBe(three);
+  });
+
+  test("out-of-range index returns input unchanged", () => {
+    expect(resizeRange(three, 9, "end", 5000, 10000, RG_MIN)).toBe(three);
+  });
+
+  test("never drops ranges", () => {
+    const out = resizeRange(three, 1, "start", -5000, 10000, RG_MIN);
+    expect(out.length).toBe(3);
+  });
+});
+
+describe("moveRange", () => {
+  const three = [rg("s1", 0, 2000), rg("s2", 3000, 5000), rg("s3", 7000, 9000)];
+
+  test("moves body preserving length", () => {
+    const out = moveRange(three, 1, 4000, 10000);
+    expect(out[1]).toMatchObject({ startMs: 4000, endMs: 6000 });
+  });
+
+  test("stops when trailing edge would cross previous neighbour", () => {
+    const out = moveRange(three, 1, 0, 10000);
+    expect(out[1]).toMatchObject({ startMs: 2000, endMs: 4000 });
+  });
+
+  test("stops when leading edge would cross next neighbour", () => {
+    const out = moveRange(three, 1, 9000, 10000);
+    expect(out[1]).toMatchObject({ startMs: 5000, endMs: 7000 });
+  });
+
+  test("first/last range clamp to timeline bounds", () => {
+    expect(moveRange(three, 0, -1000, 10000)[0]).toMatchObject({ startMs: 0, endMs: 2000 });
+    expect(moveRange(three, 2, 99999, 10000)[2]).toMatchObject({ startMs: 8000, endMs: 10000 });
+  });
+
+  test("no-op move returns the same array reference", () => {
+    expect(moveRange(three, 1, 3000, 10000)).toBe(three);
+  });
+
+  test("never drops or reorders ranges", () => {
+    const out = moveRange(three, 1, 4000, 10000);
+    expect(out.map((r) => r.id)).toEqual(["s1", "s2", "s3"]);
+  });
+});
+
+describe("placeRange", () => {
+  test("empty timeline: places a 2s range at the (clamped) playhead", () => {
+    expect(placeRange([], 3000, 2000, 10000, RG_MIN)).toEqual({ startMs: 3000, endMs: 5000 });
+  });
+
+  test("clamps a late playhead so the range fits before the end", () => {
+    expect(placeRange([], 9500, 2000, 10000, RG_MIN)).toEqual({ startMs: 8000, endMs: 10000 });
+  });
+
+  test("pushes past an overlapping range into the next gap", () => {
+    const ranges = [rg("s1", 2000, 4000)];
+    expect(placeRange(ranges, 2500, 2000, 10000, RG_MIN)).toEqual({ startMs: 4000, endMs: 6000 });
+  });
+
+  test("shrinks the range into a gap that is narrower than the default length", () => {
+    const ranges = [rg("s1", 0, 2000), rg("s2", 3000, 5000)];
+    expect(placeRange(ranges, 2000, 2000, 10000, RG_MIN)).toEqual({ startMs: 5000, endMs: 7000 });
+  });
+
+  test("caps end at the next range when start is clear but the window overruns", () => {
+    expect(placeRange([rg("s1", 4000, 6000)], 1000, 2000, 10000, RG_MIN)).toEqual({
+      startMs: 1000,
+      endMs: 3000,
+    });
+    expect(placeRange([rg("s1", 4000, 6000)], 1000, 4000, 12000, RG_MIN)).toEqual({
+      startMs: 6000,
+      endMs: 10000,
+    });
+  });
+
+  test("returns null when no gap >= min length remains", () => {
+    const ranges = [rg("s1", 0, 2000), rg("s2", 2200, 5000)];
+    expect(placeRange(ranges, 2000, 2000, 5000, RG_MIN)).toBeNull();
+  });
+
+  test("returns null when the timeline is shorter than the minimum", () => {
+    expect(placeRange([], 0, 2000, RG_MIN - 1, RG_MIN)).toBeNull();
+  });
+});
+
+// ---- Webcam scene helpers (M6) — thin wrappers over the generic core -----
+//
+// Same edge cases as the zoom describe blocks above, proving scenes share
+// zoom's exact editing semantics via the extracted core (SCENE_MIN_LENGTH_MS,
+// id prefix "s").
+
+describe("nextRangeId for scenes (empty/non-empty determinism)", () => {
+  test("empty scenes -> s1", () => {
+    expect(nextRangeId([], "s")).toBe("s1");
+  });
+
+  test("non-empty scenes -> one past the max suffix", () => {
+    expect(nextRangeId([scene(0, 1000, "s1"), scene(2000, 3000, "s4")], "s")).toBe("s5");
+  });
+});
+
+describe("placeRange for scenes — place-past-overlap + min length", () => {
+  test("pushes past an overlapping scene into the next gap", () => {
+    const scenes = [scene(2000, 4000, "s1")];
+    expect(placeRange(scenes, 2500, 2000, 10000, SCENE_MIN_LENGTH_MS)).toEqual({
+      startMs: 4000,
+      endMs: 6000,
+    });
+  });
+
+  test("returns null when no gap >= SCENE_MIN_LENGTH_MS remains", () => {
+    const scenes = [scene(0, 2000, "s1"), scene(2200, 5000, "s2")];
+    expect(placeRange(scenes, 2000, 2000, 5000, SCENE_MIN_LENGTH_MS)).toBeNull();
+  });
+
+  test("returns null when the timeline is shorter than SCENE_MIN_LENGTH_MS", () => {
+    expect(placeRange([], 0, 2000, SCENE_MIN_LENGTH_MS - 1, SCENE_MIN_LENGTH_MS)).toBeNull();
+  });
+});
+
+describe("resizeRange for scenes — clamp at edges + min length + stop-at-neighbor", () => {
+  const three = [scene(0, 2000, "s1"), scene(3000, 5000, "s2"), scene(6000, 8000, "s3")];
+
+  test("start edge clamps to 0; end edge clamps to duration", () => {
+    expect(resizeRange(three, 0, "start", -1000, 10000, SCENE_MIN_LENGTH_MS)[0].startMs).toBe(0);
+    expect(resizeRange(three, 2, "end", 99999, 10000, SCENE_MIN_LENGTH_MS)[2].endMs).toBe(10000);
+  });
+
+  test("resize enforces SCENE_MIN_LENGTH_MS", () => {
+    const out = resizeRange(three, 1, "end", 3100, 10000, SCENE_MIN_LENGTH_MS);
+    expect(out[1].endMs).toBe(3000 + SCENE_MIN_LENGTH_MS);
+  });
+
+  test("resize stops at neighbour (no overlap)", () => {
+    const out = resizeRange(three, 1, "end", 9000, 10000, SCENE_MIN_LENGTH_MS);
+    expect(out[1].endMs).toBe(6000);
+    const out2 = resizeRange(three, 1, "start", 500, 10000, SCENE_MIN_LENGTH_MS);
+    expect(out2[1].startMs).toBe(2000);
   });
 });
 

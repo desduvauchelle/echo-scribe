@@ -29,14 +29,19 @@ import {
   clampCaptionSegments,
   clampSpeedRanges,
   clampTrim,
+  clampWebcamScenes,
   clampZoomCenter,
   defaultProject,
+  moveRange,
   moveZoomBlock,
+  nextRangeId,
   nextZoomBlockId,
   parseProject,
+  placeRange,
   placeSpeedRange,
   placeZoomBlock,
   renderedExportPath,
+  resizeRange,
   resizeSpeedRange,
   resizeZoomBlock,
   shiftRangesForTrim,
@@ -45,6 +50,7 @@ import {
   type CaptionSegment as ProjectCaptionSegment,
   type EditorProject,
   type SpeedRange,
+  type WebcamScene,
   type WebcamSettings,
   type ZoomMode,
   PADDING_MAX,
@@ -65,6 +71,7 @@ import {
   SPEED_RATE_MAX,
   SPEED_ADD_DEFAULT_LENGTH_MS,
   SPEED_ADD_DEFAULT_RATE,
+  SCENE_MIN_LENGTH_MS,
 } from "../../lib/editorProject";
 import { renderRecording, type RenderProgress } from "../../lib/render/renderPipeline";
 import {
@@ -79,6 +86,8 @@ import {
   MOTION_BLUR_SAMPLES,
   outputLayout,
   smoothCursorPath,
+  webcamSceneAt,
+  webcamShrinkFactor,
   zoomStateAt,
   type Appearance,
   type CursorSample,
@@ -146,6 +155,10 @@ const PREVIEW_MOTION_BLUR = true;
  *  sub-sample time step — the export's TARGET_FPS (30) interval, so the preview
  *  smears over the same ~1-frame window the exported file will. */
 const PREVIEW_FRAME_INTERVAL_MS = 1000 / 30;
+
+/** Default length for a freshly-added "cut to camera" scene ("Add camera
+ *  scene") — mirrors ZOOM_ADD_DEFAULT_LENGTH_MS / SPEED_ADD_DEFAULT_LENGTH_MS. */
+const SCENE_ADD_DEFAULT_LENGTH_MS = 3000;
 
 /**
  * Full-pane per-recording editor. Left: a live canvas preview driven by a hidden
@@ -266,6 +279,17 @@ export function EditorView({
   const speedRangesRef = useRef<SpeedRange[]>(project.speed);
   speedRangesRef.current = project.speed;
 
+  // Currently-selected camera scene (by stable id) — mirrors `selectedBlockId`
+  // (zoom scenes carry stable "s"-prefixed ids just like zoom blocks' "z"
+  // ones). Drives the camera-lane inspector row + chip highlight. Cleared when
+  // the recording changes (fresh mount).
+  const [selectedSceneId, setSelectedSceneId] = useState<string | null>(null);
+  // Latest webcam scenes in a ref so pointer handlers (which fire many times
+  // per drag) can read the current list without re-subscribing per edit —
+  // mirrors `zoomBlocksRef`.
+  const scenesRef = useRef<WebcamScene[]>(project.webcam?.scenes ?? []);
+  scenesRef.current = project.webcam?.scenes ?? [];
+
   // Whether this recording was captured with a webcam (a `.webcam.mp4` exists).
   // Gates the whole webcam editor section and the preview/export overlay.
   const webcamAvailable = !!recording.webcam_path;
@@ -286,7 +310,15 @@ export function EditorView({
       // (parseProject leaves `webcam` null for a stale/absent field). Default:
       // shown, circle bubble, bottom-right, 20% width.
       if (webcamAvailable && parsed.webcam === null) {
-        parsed.webcam = { show: true, shape: "circle", corner: "br", sizeFrac: 0.2 };
+        parsed.webcam = {
+          show: true,
+          shape: "circle",
+          corner: "br",
+          sizeFrac: 0.2,
+          autoShrink: false,
+          mirror: false,
+          scenes: [],
+        };
       }
       setProject(parsed);
       setLoaded(true);
@@ -531,17 +563,41 @@ export function EditorView({
     // readyState anyway to avoid drawing a blank/black bubble on first paint.
     const wv = webcamVideoRef.current;
     if (wv && wv.playbackRate !== rate) wv.playbackRate = rate;
+    // Webcam frame is drawable when the hidden element has decoded data. Shared
+    // between the "cut to camera" scene layout and the corner bubble (M6). Uses
+    // the SAME shared `webcamSceneAt` / `webcamShrinkFactor` the export uses, so
+    // preview and rendered file render scenes/shrink/mirror identically.
+    const wcReady = !!wv && wv.readyState >= 2 && wv.videoWidth > 0;
+    const scenes = p.webcam?.scenes ?? [];
+    const mirror = !!p.webcam?.mirror;
+    // Scene active this frame: a scene covers the SOURCE time AND a webcam frame
+    // is decodable. When the frame isn't ready, `scene` stays null → the preview
+    // falls back to the normal screen layout (never black), matching export.
+    const scene: OverlayState["scene"] =
+      wcReady && scenes.length > 0 && webcamSceneAt(tMsSource, scenes)
+        ? { frame: wv!, mirror }
+        : null;
+    // Corner bubble: shown, frame ready, and NOT superseded by a scene. Auto-
+    // shrink follows the frame's primary zoom scale at tMsSource (one value per
+    // frame, stable across the blur sub-samples).
     const webcam: OverlayState["webcam"] =
-      p.webcam?.show && wv && wv.readyState >= 2 && wv.videoWidth > 0
+      p.webcam?.show && wcReady && !scene
         ? {
-            frame: wv,
+            frame: wv!,
             shape: p.webcam.shape,
             corner: p.webcam.corner,
             sizeFrac: p.webcam.sizeFrac,
+            scaleFactor:
+              p.webcam.autoShrink && blocks.length
+                ? webcamShrinkFactor(zoomStateAt(tMsSource, blocks).scale)
+                : 1,
+            mirror,
           }
         : null;
     const keystroke = keystrokeOverlayAt(tMsSource);
     const caption = captionOverlayAt(tMsSource);
+    // Motion blur collapses during a scene (zoom ignored ⇒ identical sub-samples).
+    const frameZoomSamples = scene ? [zoomSamples[0]] : zoomSamples;
     drawCompositeBlurred(
       ctx,
       video,
@@ -550,8 +606,8 @@ export function EditorView({
       outW,
       outH,
       appearance,
-      zoomSamples,
-      { cursor, webcam, keystroke, caption },
+      frameZoomSamples,
+      { cursor, webcam, keystroke, caption, scene },
       cursorDrawScale(p.cursor.scale, pxScale),
       bgImageRef.current,
     );
@@ -903,6 +959,9 @@ export function EditorView({
     shape: "circle",
     corner: "br",
     sizeFrac: 0.2,
+    autoShrink: false,
+    mirror: false,
+    scenes: [],
   };
   const setWebcam = (patch: Partial<WebcamSettings>) =>
     setProject((p) => ({ ...p, webcam: { ...WEBCAM_DEFAULTS, ...(p.webcam ?? {}), ...patch } }));
@@ -1003,6 +1062,141 @@ export function EditorView({
     },
     [msFromClientX, onScrub],
   );
+
+  // ---- Webcam "cut to camera" scenes (camera lane) -------------------------
+  // Scenes reuse the SAME generic range core the zoom lane's blocks do
+  // (moveRange/resizeRange/placeRange/nextRangeId — see editorProject.ts's
+  // "Generic range editing core" comment) rather than named per-feature
+  // wrappers, since scenes have no pre-existing call-site signature to
+  // preserve. EVERY write funnels through `applySceneEdit`, which re-runs
+  // `clampWebcamScenes` before touching `setProject` — the hard invariant:
+  // `webcamSceneAt` (preview + export) assumes sorted, non-overlapping input,
+  // so an unclamped write would corrupt rendering. Mirrors `applySpeedEdit`.
+  const applySceneEdit = useCallback((fn: (scenes: WebcamScene[]) => WebcamScene[]) => {
+    setProject((p) => {
+      const scenes = p.webcam?.scenes ?? [];
+      const next = fn(scenes);
+      if (next === scenes) return p; // no-op edit
+      const clamped = clampWebcamScenes(next, durationMsRef.current || 0);
+      return { ...p, webcam: { ...WEBCAM_DEFAULTS, ...(p.webcam ?? {}), scenes: clamped } };
+    });
+  }, []);
+
+  // "Add camera scene": a 3s scene at the playhead, clamped into free space —
+  // stop-at-neighbour via `placeRange`, mirroring "Add speed" (never pushes
+  // past an overlap; no-op with a toast when there's no room).
+  const addWebcamScene = useCallback(() => {
+    const durMs = durationMsRef.current || 0;
+    if (durMs <= 0) return;
+    const v = videoRef.current;
+    const playheadMs = v ? Math.round(v.currentTime * 1000) : 0;
+    const slot = placeRange(
+      scenesRef.current,
+      playheadMs,
+      SCENE_ADD_DEFAULT_LENGTH_MS,
+      durMs,
+      SCENE_MIN_LENGTH_MS,
+    );
+    if (!slot) {
+      toasts.push({
+        tone: "info",
+        message: "No room for a camera scene here — move the playhead to an open spot.",
+      });
+      return;
+    }
+    const newId = nextRangeId(scenesRef.current, "s");
+    const scene: WebcamScene = { id: newId, startMs: slot.startMs, endMs: slot.endMs };
+    applySceneEdit((scenes) => [...scenes, scene].sort((a, b) => a.startMs - b.startMs));
+    setSelectedSceneId(newId);
+  }, [applySceneEdit, toasts]);
+
+  // Resize one edge of a scene (id-addressed → index inside the current list).
+  const resizeScene = useCallback(
+    (id: string, edge: "start" | "end", valueMs: number) => {
+      applySceneEdit((scenes) => {
+        const idx = scenes.findIndex((s) => s.id === id);
+        if (idx < 0) return scenes;
+        return resizeRange(scenes, idx, edge, valueMs, durationMsRef.current || 0, SCENE_MIN_LENGTH_MS);
+      });
+    },
+    [applySceneEdit],
+  );
+
+  // Move a scene's body (keeps length; stops at neighbours).
+  const moveScene = useCallback(
+    (id: string, newStartMs: number) => {
+      applySceneEdit((scenes) => {
+        const idx = scenes.findIndex((s) => s.id === id);
+        if (idx < 0) return scenes;
+        return moveRange(scenes, idx, newStartMs, durationMsRef.current || 0);
+      });
+    },
+    [applySceneEdit],
+  );
+
+  // Delete the selected scene. Clears the selection immediately (avoids a
+  // one-frame stale inspector), mirroring `deleteBlock`.
+  const deleteScene = useCallback(
+    (id: string) => {
+      applySceneEdit((scenes) => scenes.filter((s) => s.id !== id));
+      setSelectedSceneId(null);
+    },
+    [applySceneEdit],
+  );
+
+  // Drop a stale scene selection if it no longer exists (e.g. deleted from
+  // another path, or the recording changed). Mirrors the zoom block effect.
+  useEffect(() => {
+    if (selectedSceneId === null) return;
+    if (!(project.webcam?.scenes ?? []).some((s) => s.id === selectedSceneId)) {
+      setSelectedSceneId(null);
+    }
+  }, [project.webcam?.scenes, selectedSceneId]);
+
+  // Camera lane pointer drag (chip body + edges) — mirrors the zoom lane
+  // exactly: same `timelineRef`/`msFromClientX`, pointer capture, and
+  // grab-offset-preserving body drag.
+  const sceneDragRef = useRef<{
+    id: string;
+    kind: "start" | "end" | "body";
+    grabOffsetMs: number;
+  } | null>(null);
+
+  const onSceneChipPointerDown = useCallback(
+    (id: string, kind: "start" | "end" | "body") =>
+      (e: React.PointerEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setSelectedSceneId(id);
+        const scene = scenesRef.current.find((s) => s.id === id);
+        const grabMs = msFromClientX(e.clientX);
+        sceneDragRef.current = {
+          id,
+          kind,
+          grabOffsetMs: scene ? grabMs - scene.startMs : 0,
+        };
+        (e.target as Element).setPointerCapture(e.pointerId);
+      },
+    [msFromClientX],
+  );
+
+  const onScenePointerMove = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      const drag = sceneDragRef.current;
+      if (!drag) return;
+      const ms = msFromClientX(e.clientX);
+      if (drag.kind === "body") {
+        moveScene(drag.id, ms - drag.grabOffsetMs);
+      } else {
+        resizeScene(drag.id, drag.kind, ms);
+      }
+    },
+    [msFromClientX, moveScene, resizeScene],
+  );
+
+  const onScenePointerUp = useCallback(() => {
+    sceneDragRef.current = null;
+  }, []);
 
   // ---- Zoom blocks --------------------------------------------------------
   // Every zoom edit funnels through `applyBlockEdit`, which folds first-edit
@@ -1344,6 +1538,10 @@ export function EditorView({
   // Speed lane is always available (no capture-time evidence needed — any clip
   // can be sped up/slowed down).
 
+  const selectedScene = selectedSceneId
+    ? (project.webcam?.scenes ?? []).find((s) => s.id === selectedSceneId) ?? null
+    : null;
+
   const selectedBlock = selectedBlockId
     ? effectiveBlocks.find((b) => b.id === selectedBlockId) ?? null
     : null;
@@ -1494,10 +1692,15 @@ export function EditorView({
         durationMs,
         project: proj,
         bgImage,
-        // Webcam overlay: only when the recording HAS a webcam file AND the
-        // (snapshotted) project is showing it. The pipeline treats any webcam
-        // demux/decode failure as non-fatal (renders without the overlay).
-        webcamUrl: webcamSrc && proj.webcam?.show ? webcamSrc : null,
+        // Webcam overlay: pass the webcam file when the recording HAS one AND
+        // the (snapshotted) project either shows the bubble OR has at least one
+        // "cut to camera" scene (scenes render even with the bubble hidden —
+        // M6). `renderRecording` re-derives the same `show || scenes>0` gate;
+        // any webcam demux/decode failure is non-fatal (renders without it).
+        webcamUrl:
+          webcamSrc && (proj.webcam?.show || (proj.webcam?.scenes.length ?? 0) > 0)
+            ? webcamSrc
+            : null,
         webcamOffsetMs,
         onProgress: (p) => {
           setExportPhase(p.phase);
@@ -1896,6 +2099,69 @@ export function EditorView({
                   )}
                 </div>
               </div>
+
+              {/* Camera lane: "cut to camera" scenes as chips, mirroring the
+                  zoom lane's x-mapping/pointer machinery exactly (same
+                  timelineRef/msFromClientX; body drag moves via moveRange,
+                  edge drag resizes via resizeRange — both stop at neighbours,
+                  never dropping a range on overlap). Gated on webcamAvailable
+                  (a `.webcam.mp4` exists for this recording). */}
+              {webcamAvailable ? (
+                <div className="mt-2">
+                  <div className="mb-1 flex items-center justify-between text-[11px] text-muted">
+                    <span>Camera</span>
+                  </div>
+                  <div className="relative h-7 w-full touch-none select-none rounded-md border border-line bg-surface/60">
+                    {(project.webcam?.scenes.length ?? 0) === 0 ? (
+                      <div className="pointer-events-none absolute inset-0 grid place-items-center text-[11px] text-muted/60">
+                        No camera scenes — add one below
+                      </div>
+                    ) : (
+                      (project.webcam?.scenes ?? []).map((s) => {
+                        const leftPct = (s.startMs / (duration * 1000)) * 100;
+                        const widthPct = ((s.endMs - s.startMs) / (duration * 1000)) * 100;
+                        const selected = s.id === selectedSceneId;
+                        return (
+                          <div
+                            key={s.id}
+                            onPointerDown={onSceneChipPointerDown(s.id, "body")}
+                            onPointerMove={onScenePointerMove}
+                            onPointerUp={onScenePointerUp}
+                            onPointerCancel={onScenePointerUp}
+                            title={`Camera scene ${fmtTimeDs(s.startMs)}–${fmtTimeDs(s.endMs)}`}
+                            className={`absolute inset-y-0.5 flex cursor-grab items-center justify-center overflow-hidden rounded-sm border text-[10px] font-medium active:cursor-grabbing ${
+                              selected
+                                ? "border-accent bg-accent/40 text-fg ring-1 ring-accent"
+                                : "border-emerald-500/50 bg-emerald-500/25 text-emerald-200"
+                            }`}
+                            style={{ left: `${leftPct}%`, width: `${Math.max(widthPct, 1)}%` }}
+                          >
+                            <span className="pointer-events-none truncate px-2">
+                              {fmtTimeDs(s.endMs - s.startMs)}
+                            </span>
+                            {/* Left resize edge */}
+                            <div
+                              onPointerDown={onSceneChipPointerDown(s.id, "start")}
+                              onPointerMove={onScenePointerMove}
+                              onPointerUp={onScenePointerUp}
+                              onPointerCancel={onScenePointerUp}
+                              className="absolute inset-y-0 left-0 w-1.5 cursor-ew-resize bg-black/20 hover:bg-black/40"
+                            />
+                            {/* Right resize edge */}
+                            <div
+                              onPointerDown={onSceneChipPointerDown(s.id, "end")}
+                              onPointerMove={onScenePointerMove}
+                              onPointerUp={onScenePointerUp}
+                              onPointerCancel={onScenePointerUp}
+                              className="absolute inset-y-0 right-0 w-1.5 cursor-ew-resize bg-black/20 hover:bg-black/40"
+                            />
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -2539,6 +2805,69 @@ export function EditorView({
                 onChange={(e) => setWebcam({ sizeFrac: Number(e.target.value) })}
                 className="mb-2 w-full accent-accent disabled:opacity-50"
               />
+
+              <label className="mb-3 flex cursor-pointer items-center gap-2 text-[13px]">
+                <input
+                  type="checkbox"
+                  checked={project.webcam?.autoShrink ?? false}
+                  disabled={!project.webcam?.show}
+                  onChange={(e) => setWebcam({ autoShrink: e.target.checked })}
+                  className="accent-accent disabled:opacity-50"
+                />
+                <span className="flex flex-col">
+                  <span>Auto-shrink on zoom</span>
+                  <span className="text-[11px] leading-snug text-muted">
+                    Shrinks the bubble while a zoom block is active.
+                  </span>
+                </span>
+              </label>
+
+              <label className="mb-4 flex cursor-pointer items-center gap-2 text-[13px]">
+                <input
+                  type="checkbox"
+                  checked={project.webcam?.mirror ?? false}
+                  disabled={!project.webcam?.show}
+                  onChange={(e) => setWebcam({ mirror: e.target.checked })}
+                  className="accent-accent disabled:opacity-50"
+                />
+                Mirror
+              </label>
+
+              {/* Camera scenes: "Add camera scene" (3s at the playhead) and an
+                  inspector (range display + delete) for the selected scene —
+                  mirrors the zoom/speed "Add" button + inspector pattern. */}
+              <div className="mb-3 flex gap-2">
+                <button
+                  onClick={addWebcamScene}
+                  disabled={duration <= 0}
+                  className="flex flex-1 items-center justify-center gap-1.5 rounded-md border border-line px-3 py-1.5 text-[12px] font-medium hover:bg-surface disabled:opacity-50"
+                >
+                  <Plus size={14} /> Add camera scene
+                </button>
+              </div>
+
+              {selectedScene ? (
+                <div className="mb-2 rounded-md border border-line bg-surface/40 p-3">
+                  <div className="mb-2 flex items-center justify-between">
+                    <span className="rounded-full bg-emerald-500/25 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-300">
+                      {fmtTimeDs(selectedScene.startMs)} – {fmtTimeDs(selectedScene.endMs)}
+                    </span>
+                    <button
+                      onClick={() => deleteScene(selectedScene.id)}
+                      className="flex items-center gap-1 rounded-md border border-line px-2 py-0.5 text-[11px] font-medium text-fg hover:bg-surface"
+                    >
+                      <Trash2 size={12} /> Delete
+                    </button>
+                  </div>
+                  <p className="text-[11px] leading-snug text-muted/80">
+                    Drag the chip to move it, its edges to resize.
+                  </p>
+                </div>
+              ) : (
+                <p className="mb-2 text-[11px] leading-snug text-muted/80">
+                  Select a camera scene on the timeline to edit it.
+                </p>
+              )}
             </>
           ) : null}
         </div>

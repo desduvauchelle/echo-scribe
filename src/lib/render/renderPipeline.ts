@@ -46,6 +46,9 @@ import {
   MOTION_BLUR_SAMPLES,
   outputLayout,
   smoothCursorPath,
+  webcamSceneAt,
+  webcamShrinkFactor,
+  zoomStateAt,
   type Appearance,
   type CursorSample,
   type OverlayState,
@@ -558,10 +561,13 @@ export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8A
   const { fileUrl, eventsJsonl, durationMs, project, bgImage, onProgress } = opts;
   const appearance: Appearance = project.appearance;
 
-  // Webcam overlay is on only when the project shows it, the row carries a
-  // webcam file, AND the project has webcam settings. Offset null → 0.
+  // Webcam SOURCE is opened when the row carries a webcam file AND the project
+  // either shows the bubble OR has at least one "cut to camera" scene (M6) —
+  // scenes render even with the bubble hidden, so a scenes-only project must
+  // still decode the webcam. Offset null → 0.
   const webcamSettings = project.webcam;
-  const wantWebcam = !!opts.webcamUrl && !!webcamSettings?.show;
+  const webcamScenes = webcamSettings?.scenes ?? [];
+  const wantWebcam = !!opts.webcamUrl && (!!webcamSettings?.show || webcamScenes.length > 0);
   const webcamOffsetMs = opts.webcamOffsetMs ?? 0;
 
   // --- Fetch source bytes ---
@@ -668,6 +674,16 @@ export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8A
   // need no special handling here — see `frameInTrimWindow`/`speedMap` above).
   const captionSegments = project.captions.enabled ? (project.captions.segments ?? []) : [];
   const drawCaptions = captionSegments.length > 0;
+
+  // Webcam M6 flags (auto-shrink, mirror, scenes). `showWebcamBubble` gates the
+  // corner PiP; `drawScenes` gates the "cut to camera" full-frame ranges (which
+  // render even when the bubble is hidden). Both looked up at SOURCE time via
+  // the shared `webcamShrinkFactor` / `webcamSceneAt` the preview uses. Defaults
+  // (autoShrink/mirror false, scenes []) leave the pre-M6 bubble untouched.
+  const showWebcamBubble = !!webcamSettings?.show;
+  const webcamAutoShrink = !!webcamSettings?.autoShrink;
+  const webcamMirror = !!webcamSettings?.mirror;
+  const drawScenes = webcamScenes.length > 0;
 
   // --- Demux ---
   const { chunks, decoderConfig, codedWidth, codedHeight } = await demux(srcBytes);
@@ -822,18 +838,43 @@ export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8A
             // Webcam overlay, co-occurring frame at SOURCE time. Convention:
             //   webcamTime = mainTime + offset_ms   (see pickWebcamFrameIndex).
             // WebcamSource owns the returned frame (held/reused) — do NOT close it.
+            // Decoded ONCE and shared between the scene layout and the bubble.
+            const wf =
+              webcamSource && webcamSettings ? await webcamSource.frameAt(tsSourceUs) : null;
+
+            // "Cut to camera" scene (M6): active when a scene covers this SOURCE
+            // time AND a webcam frame is available. When the frame is missing
+            // (webcam not started yet / decode failed), `scene` stays null and
+            // the render falls back to the normal screen layout for this frame
+            // (never a black frame). During a scene the bubble is NOT also drawn.
+            const scene: OverlayState["scene"] =
+              drawScenes && wf && webcamSceneAt(tMsSource, webcamScenes)
+                ? { frame: wf, mirror: webcamMirror }
+                : null;
+
+            // Corner webcam bubble (only when shown AND not superseded by a
+            // scene this frame). Auto-shrink follows the frame's PRIMARY zoom
+            // state at tMsSource (a single value per frame, stable across the
+            // motion-blur sub-samples per the M4 overlay-bundle invariant), not
+            // the per-sub-sample zoom.
             let webcam: OverlayState["webcam"] = null;
-            if (webcamSource && webcamSettings) {
-              const wf = await webcamSource.frameAt(tsSourceUs);
-              if (wf) {
-                webcam = {
-                  frame: wf,
-                  shape: webcamSettings.shape,
-                  corner: webcamSettings.corner,
-                  sizeFrac: webcamSettings.sizeFrac,
-                };
-              }
+            if (showWebcamBubble && wf && webcamSettings && !scene) {
+              const scaleFactor =
+                webcamAutoShrink && zoomBlocks.length
+                  ? webcamShrinkFactor(zoomStateAt(tMsSource, zoomBlocks).scale)
+                  : 1;
+              webcam = {
+                frame: wf,
+                shape: webcamSettings.shape,
+                corner: webcamSettings.corner,
+                sizeFrac: webcamSettings.sizeFrac,
+                scaleFactor,
+                mirror: webcamMirror,
+              };
             }
+            // Motion blur collapses during a scene (zoom ignored ⇒ every
+            // sub-sample resolves identically) — force a single draw.
+            const frameZoomSamples = scene ? [zoomSamples[0]] : zoomSamples;
             drawCompositeBlurred(
               ctx,
               frame,
@@ -842,8 +883,8 @@ export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8A
               outW,
               outH,
               appearance,
-              zoomSamples,
-              { cursor, webcam, keystroke, caption },
+              frameZoomSamples,
+              { cursor, webcam, keystroke, caption, scene },
               cursorScale,
               bgImage,
             );
