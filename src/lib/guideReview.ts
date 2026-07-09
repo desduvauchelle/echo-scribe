@@ -1,4 +1,4 @@
-import type { GuideReview, TimelineEntry } from "./api";
+import type { GuideReview, TimelineEntry, GuideRun } from "./api";
 
 /** Safe-parse a `review_json` string into a fully-defaulted GuideReview. */
 export function parseGuideReview(json: string | null): GuideReview | null {
@@ -34,4 +34,53 @@ export function verdictClass(verdict: string): "met" | "partial" | "missed" | "u
   if (v === "partial") return "partial";
   if (v === "missed") return "missed";
   return "unknown";
+}
+
+export type TrendColumn = { runId: string; startedAt: string; overall: string; cells: string[] };
+export type TrendData = {
+  criteria: string[];
+  columns: TrendColumn[];
+  hits: number[];
+  gap: string | null;
+  strength: string | null;
+};
+
+export function aggregateTrend(runs: GuideRun[]): TrendData {
+  // Oldest → newest by started_at.
+  const sorted = [...runs].sort((a, b) => a.started_at.localeCompare(b.started_at));
+  const parsed = sorted.map((r) => ({ run: r, review: parseGuideReview(r.review_json) }));
+
+  // Criteria order from the most recent run that has a scorecard.
+  let criteria: string[] = [];
+  for (let i = parsed.length - 1; i >= 0; i--) {
+    const sc = parsed[i].review?.scorecard ?? [];
+    if (sc.length > 0) {
+      criteria = sc.map((c) => c.criterion);
+      break;
+    }
+  }
+
+  const columns: TrendColumn[] = parsed.map(({ run, review }) => {
+    const byName = new Map((review?.scorecard ?? []).map((c) => [c.criterion, verdictClass(c.verdict)]));
+    return {
+      runId: run.id,
+      startedAt: run.started_at,
+      overall: review?.overall ?? "",
+      cells: criteria.map((c) => byName.get(c) ?? "unknown"),
+    };
+  });
+
+  const hits = criteria.map((_, i) => columns.filter((col) => col.cells[i] === "met").length);
+  const misses = criteria.map((_, i) => columns.filter((col) => col.cells[i] === "missed").length);
+
+  const gap =
+    criteria.length > 0 && Math.max(...misses) > 0
+      ? criteria[misses.indexOf(Math.max(...misses))]
+      : null;
+  const strength =
+    criteria.length > 0 && Math.max(...hits) > 0
+      ? criteria[hits.indexOf(Math.max(...hits))]
+      : null;
+
+  return { criteria, columns, hits, gap, strength };
 }
