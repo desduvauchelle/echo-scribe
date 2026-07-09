@@ -1321,3 +1321,55 @@ export interface EmbeddingIndexStatus {
 
 export const getEmbeddingIndexStatus = (): Promise<EmbeddingIndexStatus> =>
   invoke("embedding_index_status");
+
+// ===================== Guide review (post-meeting) =====================
+
+export type ScorecardItem = {
+  criterion: string;
+  verdict: string; // "met" | "partial" | "missed" | "unknown" (kept loose)
+  evidence: string;
+  why: string;
+  tip: string;
+};
+
+export type EmergentItem = { observation: string; evidence: string };
+
+export type GuideReview = {
+  overall: string; // "strong" | "mixed" | "weak"
+  synthesis: string;
+  scorecard: ScorecardItem[];
+  emergent: EmergentItem[];
+};
+
+export type TimelineEntry = {
+  at: string;
+  key_points: { id: string; label: string; status: string }[];
+  suggestions: string[];
+};
+
+export type GuideRun = {
+  id: string;
+  meeting_id: string;
+  template_id: string;
+  template_name: string;
+  template_json: string;
+  slot: number;
+  started_at: string;
+  timeline_json: string | null;
+  review_json: string | null;
+  status: string; // "pending" | "ready" | "failed"
+  error: string | null;
+  generated_at: string | null;
+  created_at: string;
+};
+
+export const listGuideRuns = (meetingId: string): Promise<GuideRun[]> =>
+  invoke("list_guide_runs", { meetingId });
+
+export const guideRunsForTemplate = (
+  templateId: string,
+  limit: number,
+): Promise<GuideRun[]> => invoke("guide_runs_for_template", { templateId, limit });
+
+export const regenerateGuideReview = (runId: string): Promise<void> =>
+  invoke("regenerate_guide_review", { runId });
