@@ -261,6 +261,17 @@ pub fn log_camera_preview_error(message: String) {
     warn!(target: "screenrec", %message, "camera self-view getUserMedia failed");
 }
 
+/// Log bridge for the WebCodecs export/render pipeline. The whole render runs
+/// in the webview, so a failure only reaches `console.error` — invisible in a
+/// production bundle, which is why the "See logs" toast previously pointed at
+/// a log that had nothing. The editor reports the raw error (name + message +
+/// stack) here so an export failure is actually diagnosable from the daily
+/// log.
+#[tauri::command]
+pub fn log_export_error(message: String) {
+    error!(target: "screenrec", %message, "video export failed");
+}
+
 /// Trigger the macOS Accessibility prompt. The dialog is a side effect; the
 /// returned bool is the current trust state (typically `false` on first
 /// call — the user still has to flip the toggle in System Settings).

@@ -60,6 +60,12 @@ export const requestCameraAccess = (): Promise<CameraAccessResult> =>
 export const logCameraPreviewError = (message: string): Promise<void> =>
   invoke("log_camera_preview_error", { message });
 
+// Report a WebCodecs export/render failure to the backend daily log — the
+// render runs in the webview, so its errors otherwise only reach the webview
+// console (which the "See logs" toast can't actually point at).
+export const logExportError = (message: string): Promise<void> =>
+  invoke("log_export_error", { message });
+
 export const promptAccessibilityAccess = (): Promise<boolean> =>
   invoke("prompt_accessibility_access");
 
