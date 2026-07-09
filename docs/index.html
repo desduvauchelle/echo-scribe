@@ -3,13 +3,13 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Echo Scribe — Stop typing. Start speaking.</title>
-  <meta name="description" content="Dictate into any app, or capture notes that organize themselves. 100% local AI — no internet, no account, no data leaving your Mac." />
-  <meta property="og:title" content="Echo Scribe — Stop typing. Start speaking." />
-  <meta property="og:description" content="Voice transcription and AI note capture for macOS. Fully private, fully offline." />
+  <title>Echo Scribe — Capture everything. Understand what matters.</title>
+  <meta name="description" content="Echo Scribe captures your conversations, thoughts, meetings, and screen recordings, then organizes them into searchable work context with private local AI." />
+  <meta property="og:title" content="Echo Scribe — Capture everything. Understand what matters." />
+  <meta property="og:description" content="Private AI for capturing, organizing, and improving the work that happens in conversations." />
   <meta property="og:image" content="icon.jpeg" />
   <meta property="og:type" content="website" />
-  <meta name="theme-color" content="#0A0A0A" />
+  <meta name="theme-color" content="#123B2D" />
   <link rel="icon" href="icon.jpeg" type="image/jpeg" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -18,19 +18,22 @@
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-      --bg:          #0A0A0A;
-      --bg-card:     #111111;
-      --bg-elevated: #181818;
-      --border:      rgba(255,255,255,0.07);
-      --border-mid:  rgba(255,255,255,0.13);
-      --teal:        #0D9488;
-      --teal-light:  #2DD4BF;
-      --teal-glow:   rgba(45,212,191,0.2);
-      --orange:      #F97316;
-      --orange-glow: rgba(249,115,22,0.25);
-      --text-1:      #F1F5F9;
-      --text-2:      #94A3B8;
-      --text-3:      #475569;
+      --bg:          #FBF6EA;
+      --bg-card:     #F2EAD8;
+      --bg-elevated: #FFFDF7;
+      --border:      rgba(18,59,45,0.10);
+      --border-mid:  rgba(18,59,45,0.18);
+      --teal:        #123B2D;
+      --teal-light:  #8FE0BA;
+      --teal-glow:   rgba(45,170,124,0.22);
+      --orange:      #C7893C;
+      --orange-glow: rgba(199,137,60,0.22);
+      --text-1:      #203329;
+      --text-2:      #647064;
+      --text-3:      #8D9285;
+      --forest:      #123B2D;
+      --forest-soft: #1B4D3A;
+      --on-forest:   #F3FAF5;
       --radius:      14px;
       --radius-lg:   24px;
       --t:           200ms ease-out;
@@ -60,7 +63,7 @@
       position: fixed; top: 0; left: 0; right: 0; z-index: 1000;
       display: flex; align-items: center; justify-content: space-between;
       padding: 14px 28px;
-      background: rgba(10,10,10,0.75);
+      background: rgba(251,246,234,0.88);
       backdrop-filter: blur(24px) saturate(160%);
       -webkit-backdrop-filter: blur(24px) saturate(160%);
       border-bottom: 1px solid var(--border);
@@ -80,14 +83,14 @@
 
     .nav-cta {
       display: inline-flex; align-items: center; gap: 8px;
-      background: var(--orange); color: #fff;
+      background: var(--teal); color: var(--on-forest);
       font-weight: 600; font-size: 14px;
       padding: 9px 20px; border-radius: 9px;
       text-decoration: none;
       transition: background var(--t), transform var(--t), box-shadow var(--t);
       cursor: pointer;
     }
-    .nav-cta:hover { background: #fb923c; transform: translateY(-1px); box-shadow: 0 4px 24px var(--orange-glow); }
+    .nav-cta:hover { background: var(--forest-soft); transform: translateY(-1px); box-shadow: 0 4px 24px var(--teal-glow); }
 
     /* ── HERO ─────────────────────────────────── */
     #hero {
@@ -100,7 +103,7 @@
     #hero::before {
       content: '';
       position: absolute; inset: 0;
-      background: radial-gradient(ellipse 70% 50% at 50% 0%, rgba(13,148,136,0.15) 0%, transparent 70%);
+      background: radial-gradient(ellipse 70% 50% at 50% 0%, rgba(55,164,119,0.10) 0%, transparent 70%);
       pointer-events: none;
     }
 
@@ -111,21 +114,21 @@
     .hero-logo img {
       width: 88px; height: 88px;
       border-radius: 22px;
-      box-shadow: 0 0 0 1px rgba(255,255,255,0.08), 0 24px 64px rgba(0,0,0,0.6), 0 0 80px var(--teal-glow);
+      box-shadow: 0 0 0 1px rgba(18,59,45,0.12), 0 24px 64px rgba(18,59,45,0.20), 0 0 80px var(--teal-glow);
     }
 
     .hero-badge {
       display: inline-flex; align-items: center; gap: 8px;
-      background: rgba(45,212,191,0.08);
-      border: 1px solid rgba(45,212,191,0.2);
+      background: rgba(32,132,91,0.08);
+      border: 1px solid rgba(32,132,91,0.22);
       border-radius: 100px;
       padding: 6px 16px;
-      font-size: 13px; font-weight: 500; color: var(--teal-light);
+      font-size: 13px; font-weight: 500; color: var(--teal);
       margin-bottom: 28px;
     }
     .hero-badge-dot {
       width: 7px; height: 7px;
-      background: var(--teal-light);
+      background: #37A477;
       border-radius: 50%;
       animation: pulse 2.5s ease-in-out infinite;
     }
@@ -140,7 +143,7 @@
     }
     h1 em {
       font-style: normal;
-      background: linear-gradient(135deg, var(--teal-light) 0%, #67e8f9 100%);
+      background: linear-gradient(135deg, var(--teal) 0%, #2B966B 100%);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
       background-clip: text;
@@ -162,22 +165,22 @@
 
     .btn-primary {
       display: inline-flex; align-items: center; gap: 10px;
-      background: var(--orange); color: #fff;
+      background: var(--teal); color: var(--on-forest);
       font-weight: 700; font-size: 16px;
       padding: 15px 30px; border-radius: var(--radius);
       text-decoration: none;
       transition: background var(--t), transform var(--t), box-shadow var(--t);
       cursor: pointer;
     }
-    .btn-primary:hover { background: #fb923c; transform: translateY(-2px); box-shadow: 0 10px 36px var(--orange-glow); }
+    .btn-primary:hover { background: var(--forest-soft); transform: translateY(-2px); box-shadow: 0 10px 36px var(--teal-glow); }
 
     .btn-ghost {
       display: inline-flex; align-items: center; gap: 8px;
-      color: var(--text-2); font-size: 15px; font-weight: 500;
+      color: var(--teal); font-size: 15px; font-weight: 600;
       text-decoration: none;
       transition: color var(--t); cursor: pointer;
     }
-    .btn-ghost:hover { color: var(--text-1); }
+    .btn-ghost:hover { color: var(--forest-soft); }
 
     .hero-meta {
       display: flex; flex-wrap: wrap;
@@ -195,7 +198,7 @@
     }
     .wb {
       width: 5px; border-radius: 3px;
-      background: var(--teal);
+      background: #37A477;
       animation: wave 1.6s ease-in-out infinite;
       opacity: 0.7;
     }
@@ -215,6 +218,15 @@
     }
     .slab:nth-child(even) { background: var(--bg-card); }
 
+    .hero-curve {
+      position: relative;
+      z-index: 1;
+      margin-top: -1px;
+      line-height: 0;
+      background: var(--bg);
+    }
+    .hero-curve svg { display: block; width: 100%; height: 76px; }
+
     .slab-inner {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -231,9 +243,9 @@
     .slab-eyebrow {
       display: inline-block;
       font-size: 12px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
-      color: var(--teal-light);
-      background: rgba(45,212,191,0.08);
-      border: 1px solid rgba(45,212,191,0.18);
+      color: var(--teal);
+      background: rgba(55,164,119,0.08);
+      border: 1px solid rgba(55,164,119,0.20);
       border-radius: 100px; padding: 4px 14px;
       margin-bottom: 20px;
     }
@@ -263,11 +275,11 @@
 
     .step-num {
       width: 32px; height: 32px; flex-shrink: 0;
-      background: rgba(45,212,191,0.1);
-      border: 1px solid rgba(45,212,191,0.25);
+      background: rgba(55,164,119,0.10);
+      border: 1px solid rgba(55,164,119,0.26);
       border-radius: 50%;
       display: flex; align-items: center; justify-content: center;
-      font-size: 13px; font-weight: 700; color: var(--teal-light);
+      font-size: 13px; font-weight: 700; color: var(--teal);
     }
 
     .step-text strong { font-size: 15px; font-weight: 600; display: block; margin-bottom: 2px; }
@@ -284,7 +296,7 @@
       border: 1px solid var(--border-mid);
       border-radius: var(--radius-lg);
       overflow: hidden;
-      box-shadow: 0 32px 80px rgba(0,0,0,0.5);
+      box-shadow: 0 32px 80px rgba(18,59,45,0.14);
     }
 
     .demo-titlebar {
@@ -321,22 +333,22 @@
       display: flex; align-items: center; gap: 12px;
       margin: 0 24px 24px;
       padding: 12px 16px;
-      background: rgba(13,148,136,0.12);
-      border: 1px solid rgba(13,148,136,0.25);
+      background: rgba(55,164,119,0.10);
+      border: 1px solid rgba(55,164,119,0.24);
       border-radius: 10px;
     }
 
     .mini-wave {
       display: flex; align-items: flex-end; gap: 3px; height: 20px;
     }
-    .mw { width: 3px; border-radius: 2px; background: var(--teal-light); animation: wave 1s ease-in-out infinite; }
+    .mw { width: 3px; border-radius: 2px; background: #37A477; animation: wave 1s ease-in-out infinite; }
     .mw:nth-child(1){height:40%;animation-delay:0s}
     .mw:nth-child(2){height:80%;animation-delay:0.1s}
     .mw:nth-child(3){height:100%;animation-delay:0.2s}
     .mw:nth-child(4){height:80%;animation-delay:0.3s}
     .mw:nth-child(5){height:40%;animation-delay:0.4s}
 
-    .demo-overlay-text { font-size: 13px; color: var(--teal-light); font-weight: 500; }
+    .demo-overlay-text { font-size: 13px; color: #178052; font-weight: 600; }
     .demo-hotkey {
       margin-left: auto;
       font-family: 'JetBrains Mono', monospace;
@@ -367,25 +379,124 @@
       font-size: 11px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;
       padding: 4px 10px; border-radius: 100px;
     }
-    .tag-note  { background: rgba(99,102,241,0.12); color: #a5b4fc; border: 1px solid rgba(99,102,241,0.2); }
-    .tag-task  { background: rgba(249,115,22,0.1);  color: #fdba74; border: 1px solid rgba(249,115,22,0.2); }
-    .tag-idea  { background: rgba(45,212,191,0.1);  color: var(--teal-light); border: 1px solid rgba(45,212,191,0.2); }
+    .tag-note  { background: #E8F3EB; color: #226C4B; border: 1px solid #B9DCC5; }
+    .tag-task  { background: #FFF3DE; color: #99611F; border: 1px solid #EACB9C; }
+    .tag-idea  { background: #DDF4E8; color: #14734C; border: 1px solid #A9D9BF; }
+    .tag-meeting { background: #E5F1F2; color: #286B72; border: 1px solid #B5D8D9; }
+    .tag-screen { background: #F0EEE6; color: #6B5D3F; border: 1px solid #D9D2BE; }
 
     .capture-content p { font-size: 14px; color: var(--text-1); line-height: 1.5; }
     .capture-time { font-size: 12px; color: var(--text-3); margin-top: 4px; }
 
     .capture-card.incoming {
-      border-color: rgba(45,212,191,0.25);
-      background: rgba(45,212,191,0.04);
+      border-color: rgba(55,164,119,0.30);
+      background: rgba(55,164,119,0.06);
       animation: slideIn 0.5s ease-out forwards;
     }
     @keyframes slideIn { from{opacity:0;transform:translateY(-8px)} to{opacity:1;transform:none} }
+
+    /* ── STORY LOOP ───────────────────────────── */
+    #how-it-works {
+      padding: 92px 0 100px;
+      border-top: 1px solid var(--border);
+      background: var(--bg-card);
+      color: var(--text-1);
+    }
+
+    .story-header { max-width: 680px; margin-bottom: 54px; }
+    .story-header h2 {
+      font-size: clamp(30px, 4.5vw, 54px);
+      font-weight: 800; letter-spacing: -0.035em;
+      line-height: 1.08; margin-bottom: 18px;
+    }
+    .story-header p { font-size: 18px; color: var(--text-2); line-height: 1.65; }
+
+    .story-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 0;
+      border-top: 1px solid rgba(18,59,45,0.16);
+      border-bottom: 1px solid rgba(18,59,45,0.16);
+    }
+    .story-step { padding: 28px 24px 30px 0; border-right: 1px solid rgba(18,59,45,0.16); }
+    .story-step:not(:first-child) { padding-left: 24px; }
+    .story-step:last-child { border-right: 0; }
+    .story-number {
+      color: var(--teal); font-family: 'JetBrains Mono', monospace;
+      font-size: 13px; margin-bottom: 24px;
+    }
+    .story-step h3 { font-size: 19px; margin-bottom: 9px; }
+    .story-step p { color: var(--text-2); font-size: 14px; line-height: 1.6; }
+    #how-it-works .slab-eyebrow { color: var(--teal); background: rgba(18,59,45,0.08); border-color: rgba(18,59,45,0.18); }
+
+    /* ── GUIDED MEETING MOCKUP ────────────────── */
+    .meeting-demo {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-mid);
+      border-radius: var(--radius-lg);
+      padding: 22px;
+      box-shadow: 0 32px 80px rgba(18,59,45,0.16);
+    }
+    .meeting-demo-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 22px; }
+    .meeting-demo-title { font-size: 14px; font-weight: 600; }
+    .meeting-live { color: var(--teal-light); font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+    .meeting-prompt {
+      padding: 16px; margin-bottom: 18px;
+      border: 1px solid rgba(199,137,60,0.34);
+      background: rgba(199,137,60,0.11);
+      border-radius: 10px;
+      color: #80541F; font-size: 14px; line-height: 1.5;
+    }
+    .meeting-prompt strong { display: block; color: #A96B1D; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 6px; }
+    .meeting-checklist { display: flex; flex-direction: column; gap: 12px; }
+    .check-item { display: flex; gap: 10px; align-items: flex-start; color: var(--text-2); font-size: 13px; }
+    .check-mark { color: #178052; font-weight: 700; }
+    .check-item.current { color: var(--text-1); }
+
+    /* ── STATUS MOCKUP ───────────────────────── */
+    .status-demo {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-mid);
+      border-radius: var(--radius-lg);
+      padding: 22px;
+      box-shadow: 0 32px 80px rgba(18,59,45,0.16);
+    }
+    .status-demo-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+    .status-demo-header strong { font-size: 14px; }
+    .status-period { font-size: 11px; color: var(--text-3); font-family: 'JetBrains Mono', monospace; }
+    .status-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 24px; }
+    .status-metric { padding: 14px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 9px; }
+    .status-metric strong { display: block; font-size: 21px; margin-bottom: 2px; }
+    .status-metric span { color: var(--text-3); font-size: 11px; }
+    .status-row { margin-bottom: 16px; }
+    .status-row-top { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; margin-bottom: 7px; }
+    .status-row-top span { color: var(--text-2); }
+    .status-row-top strong { color: #178052; font-size: 12px; }
+    .status-track { height: 7px; border-radius: 100px; background: var(--bg-card); overflow: hidden; }
+    .status-fill { height: 100%; border-radius: inherit; background: #37A477; }
+    .status-fill.orange { background: var(--orange); }
+
+    @media (max-width: 768px) {
+      .story-grid { grid-template-columns: 1fr 1fr; }
+      .story-step:nth-child(2) { border-right: 0; }
+      .story-step:nth-child(3), .story-step:nth-child(4) { border-top: 1px solid var(--border-mid); }
+      .story-step:nth-child(3) { padding-left: 0; }
+      .story-step:nth-child(4) { border-right: 0; }
+    }
+
+    @media (max-width: 480px) {
+      .story-grid { grid-template-columns: 1fr; }
+      .story-step, .story-step:not(:first-child) { padding: 22px 0; border-right: 0; border-bottom: 1px solid var(--border-mid); }
+      .story-step:last-child { border-bottom: 0; }
+      .story-step:nth-child(3), .story-step:nth-child(4) { border-top: 0; }
+      .status-summary { grid-template-columns: 1fr; }
+    }
 
     /* ── PRIVACY ──────────────────────────────── */
     #privacy {
       padding: 100px 0;
       border-top: 1px solid var(--border);
-      background: linear-gradient(180deg, rgba(13,148,136,0.06) 0%, transparent 100%);
+      background: var(--bg-card);
     }
 
     .privacy-header { text-align: center; margin-bottom: 56px; }
@@ -404,14 +515,14 @@
 
     .privacy-card {
       padding: 24px;
-      background: rgba(45,212,191,0.05);
-      border: 1px solid rgba(45,212,191,0.12);
+      background: var(--bg);
+      border: 1px solid rgba(18,59,45,0.12);
       border-radius: var(--radius);
     }
 
     .privacy-card-icon {
       width: 40px; height: 40px;
-      color: var(--teal-light);
+      color: #178052;
       margin-bottom: 14px;
     }
 
@@ -423,11 +534,14 @@
       padding: 100px 0;
       text-align: center;
       border-top: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text-1);
     }
 
     #install h2 {
       font-size: clamp(28px, 4vw, 46px);
       font-weight: 800; letter-spacing: -0.03em;
+      color: var(--text-1);
       margin-bottom: 14px;
     }
     #install p { font-size: 18px; color: var(--text-2); margin-bottom: 40px; }
@@ -435,32 +549,33 @@
     .install-box {
       display: inline-flex; flex-wrap: wrap;
       align-items: center; gap: 12px;
-      background: var(--bg-card);
+      background: var(--bg-elevated);
       border: 1px solid var(--border-mid);
       border-radius: var(--radius);
       padding: 18px 22px;
       max-width: 100%;
+      box-shadow: 0 24px 70px rgba(18,59,45,0.10);
     }
 
     .install-cmd {
       font-family: 'JetBrains Mono', monospace;
-      font-size: 13px; color: var(--teal-light);
+      font-size: 13px; color: var(--teal);
       word-break: break-all; text-align: left;
     }
 
     .copy-btn {
       display: flex; align-items: center; gap: 6px;
       flex-shrink: 0;
-      background: var(--bg-elevated);
-      border: 1px solid var(--border);
+      background: var(--teal);
+      border: 1px solid rgba(18,59,45,0.14);
       border-radius: 8px;
       padding: 8px 14px;
-      font-size: 13px; font-weight: 500; color: var(--text-2);
+      font-size: 13px; font-weight: 500; color: var(--on-forest);
       cursor: pointer; font-family: inherit;
       transition: background var(--t), color var(--t), border-color var(--t);
     }
-    .copy-btn:hover { background: #222; color: var(--text-1); border-color: var(--border-mid); }
-    .copy-btn.copied { color: var(--teal-light); border-color: rgba(45,212,191,0.35); }
+    .copy-btn:hover { background: var(--forest-soft); color: var(--on-forest); border-color: rgba(18,59,45,0.24); }
+    .copy-btn.copied { color: var(--on-forest); border-color: rgba(18,59,45,0.28); }
 
     .install-meta {
       display: flex; flex-wrap: wrap; justify-content: center; gap: 20px;
@@ -523,22 +638,22 @@
 
     <div class="hero-badge">
       <span class="hero-badge-dot" aria-hidden="true"></span>
-      100% local AI — no cloud, no account
+      Private AI for the workday
     </div>
 
-    <h1>Stop typing.<br><em>Start speaking.</em></h1>
+    <h1>Capture everything.<br><em>Understand what matters.</em></h1>
 
     <p class="hero-sub">
-      Dictate into any app with a hotkey, or capture notes that organize themselves automatically. Everything runs on your Mac — privately, instantly, offline.
+      Echo Scribe captures your conversations, thoughts, meetings, and screen recordings, then organizes them into searchable work context. See what is happening, decide what matters, and improve what happens next.
     </p>
 
     <div class="hero-actions">
       <a href="#install" class="btn-primary">
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-        Install for free
+        Start capturing for free
       </a>
-      <a href="#transcription" class="btn-ghost">
-        See how it works
+      <a href="#how-it-works" class="btn-ghost">
+        See the workflow
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
       </a>
     </div>
@@ -546,15 +661,15 @@
     <div class="hero-meta">
       <span class="hero-meta-item">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-        macOS 14+
+        Runs locally on your Mac
       </span>
       <span class="hero-meta-item">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-        Apple Silicon &amp; Intel
+        No account or cloud backend
       </span>
       <span class="hero-meta-item">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-        Free &amp; open source
+        Capture voice, meetings &amp; screens
       </span>
     </div>
 
@@ -567,6 +682,47 @@
   </div>
 </section>
 
+<!-- ════════════════════════════════════════ HERO CURVE -->
+<div class="hero-curve" aria-hidden="true">
+  <svg viewBox="0 0 1440 90" preserveAspectRatio="none">
+    <path d="M0,90 L1440,90 L1440,44 C1080,90 360,90 0,44 Z" fill="#F2EAD8"></path>
+  </svg>
+</div>
+
+<!-- ════════════════════════════════════════ STORY LOOP -->
+<section id="how-it-works">
+  <div class="container">
+    <div class="story-header fade-in">
+      <span class="slab-eyebrow">The work memory loop</span>
+      <h2>You can’t manage what you can’t see.</h2>
+      <p>Important work is spread across conversations, half-formed thoughts, meetings, and recordings. Echo Scribe turns those moments into a living picture of your work, so progress and gaps do not stay invisible.</p>
+    </div>
+
+    <div class="story-grid fade-in">
+      <div class="story-step">
+        <div class="story-number">01 / CAPTURE</div>
+        <h3>Keep the moment</h3>
+        <p>Speak naturally, record a meeting, or capture your screen without breaking your flow.</p>
+      </div>
+      <div class="story-step">
+        <div class="story-number">02 / ORGANIZE</div>
+        <h3>Make it usable</h3>
+        <p>Transcripts become notes, tasks, tags, projects, summaries, and searchable context.</p>
+      </div>
+      <div class="story-step">
+        <div class="story-number">03 / SEE</div>
+        <h3>Find the signal</h3>
+        <p>Understand what was decided, what is still open, and where a conversation or project stands.</p>
+      </div>
+      <div class="story-step">
+        <div class="story-number">04 / IMPROVE</div>
+        <h3>Act with context</h3>
+        <p>Follow up, ask your work memory, and use what you learn to run the next conversation better.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
 <!-- ════════════════════════════════════════ FEATURE 1: TRANSCRIPTION -->
 <section id="transcription" class="slab">
   <div class="container">
@@ -574,32 +730,32 @@
 
       <!-- Text -->
       <div>
-        <span class="slab-eyebrow">Voice Transcription</span>
-        <h2 class="slab-title">Your voice.<br>Any app. Instantly.</h2>
+        <span class="slab-eyebrow">Capture Without Friction</span>
+        <h2 class="slab-title">Get ideas out of your head and into the work.</h2>
         <p class="slab-desc">
-          Press your hotkey, say what you need, and your words appear right where your cursor is — in Slack, Gmail, Notes, VS Code, anywhere. No switching apps, no copy-pasting.
+          Press a hotkey and speak wherever you are. Echo Scribe can put polished words at your cursor, or save a thought for later. Your voice becomes an input layer for every app and an organized record of what you meant to do.
         </p>
 
         <div class="steps">
           <div class="step">
             <div class="step-num">1</div>
             <div class="step-text">
-              <strong>Press your hotkey</strong>
-              <span>A recording overlay appears. The rest of your Mac keeps running.</span>
+              <strong>Speak in the moment</strong>
+              <span>Dictate into Slack, Gmail, Notes, VS Code, or any other app.</span>
             </div>
           </div>
           <div class="step">
             <div class="step-num">2</div>
             <div class="step-text">
-              <strong>Speak naturally</strong>
-              <span>Echo Scribe listens and detects when you stop talking.</span>
+              <strong>Let local AI clean it up</strong>
+              <span>Filler words and rough phrasing do not have to survive the first draft.</span>
             </div>
           </div>
           <div class="step">
             <div class="step-num">3</div>
             <div class="step-text">
-              <strong>Done — text appears</strong>
-              <span>Your words are transcribed and pasted at the cursor, instantly.</span>
+              <strong>Keep moving</strong>
+              <span>Text appears at your cursor, or the thought is saved for organization later.</span>
             </div>
           </div>
         </div>
@@ -632,39 +788,99 @@
   </div>
 </section>
 
-<!-- ════════════════════════════════════════ FEATURE 2: SMART CAPTURE -->
-<section id="capture" class="slab">
+<!-- ════════════════════════════════════════ FEATURE 2: GUIDED TEMPLATES -->
+<section id="guided" class="slab">
   <div class="container">
     <div class="slab-inner reverse fade-in">
 
-      <!-- Text -->
       <div>
-        <span class="slab-eyebrow">Smart Note Capture</span>
-        <h2 class="slab-title">Speak your mind.<br>It organizes itself.</h2>
+        <span class="slab-eyebrow">Guided Templates</span>
+        <h2 class="slab-title">Run better conversations while they are happening.</h2>
         <p class="slab-desc">
-          A second hotkey captures your thought and hands it to an on-device AI that decides whether it's a note, a task, or an idea — and files it away. No folders. No tags. Just speak.
+          Important calls are hard to lead and even harder to remember. Start a guided template for a client call, interview, coaching session, discovery conversation, or team meeting. Echo Scribe keeps the goal in view, shows what to ask next, and tracks what has been covered.
         </p>
 
         <div class="steps">
           <div class="step">
             <div class="step-num">1</div>
             <div class="step-text">
-              <strong>Press the capture hotkey</strong>
-              <span>From anywhere on your Mac, any time a thought strikes.</span>
+              <strong>Choose the shape of the conversation</strong>
+              <span>Use a repeatable guide instead of rebuilding your preparation every time.</span>
             </div>
           </div>
           <div class="step">
             <div class="step-num">2</div>
             <div class="step-text">
-              <strong>Say what's on your mind</strong>
-              <span>"Remember to call the bank" or "idea for the homepage redesign…"</span>
+              <strong>Stay oriented in real time</strong>
+              <span>See prompts, suggestions, and key points while you listen and speak.</span>
             </div>
           </div>
           <div class="step">
             <div class="step-num">3</div>
             <div class="step-text">
-              <strong>AI classifies &amp; saves</strong>
-              <span>Lands in Tasks, Notes, or Ideas automatically. Searchable forever.</span>
+              <strong>Leave with a useful record</strong>
+              <span>The transcript, summary, decisions, and follow-up flow into your work memory.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="slab-visual">
+        <div class="meeting-demo" role="img" aria-label="Guided client conversation template showing a live prompt and covered topics">
+          <div class="meeting-demo-top">
+            <span class="meeting-demo-title">Client discovery · Northstar</span>
+            <span class="meeting-live">● Live</span>
+          </div>
+          <div class="meeting-prompt">
+            <strong>Suggested next question</strong>
+            What would make this workflow feel successful three months from now?
+          </div>
+          <div class="meeting-checklist">
+            <div class="check-item"><span class="check-mark">✓</span><span>Understand the current workflow</span></div>
+            <div class="check-item"><span class="check-mark">✓</span><span>Identify the cost of the problem</span></div>
+            <div class="check-item current"><span class="check-mark">○</span><span>Define the desired outcome</span></div>
+            <div class="check-item"><span class="check-mark">○</span><span>Agree on next steps</span></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════ FEATURE 3: CONTEXT -->
+<section id="capture" class="slab">
+  <div class="container">
+    <div class="slab-inner reverse fade-in">
+
+      <!-- Text -->
+      <div>
+        <span class="slab-eyebrow">Everything Becomes Context</span>
+        <h2 class="slab-title">Capture the work around the work.</h2>
+        <p class="slab-desc">
+          Meetings, voice notes, screen recordings, and passing thoughts all contain useful signals. Echo Scribe transcribes them, identifies what they are about, tags them, and routes them to the right project so your work does not disappear into disconnected files.
+        </p>
+
+        <div class="steps">
+          <div class="step">
+            <div class="step-num">1</div>
+            <div class="step-text">
+              <strong>Capture from wherever work happens</strong>
+              <span>Use voice, Zoom or meeting recording, or screen recording when the moment matters.</span>
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-num">2</div>
+            <div class="step-text">
+              <strong>Let the system add structure</strong>
+              <span>Transcripts become notes, tasks, decisions, tags, and project context.</span>
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-num">3</div>
+            <div class="step-text">
+              <strong>Find it when you need it</strong>
+              <span>Search your work memory, ask questions, and see the thread across sources.</span>
             </div>
           </div>
         </div>
@@ -674,25 +890,92 @@
       <div class="slab-visual">
         <div class="capture-demo" role="img" aria-label="Example of captured notes being classified">
           <div class="capture-card">
-            <span class="capture-tag tag-task">Task</span>
+            <span class="capture-tag tag-meeting">Meeting</span>
             <div class="capture-content">
-              <p>Call the accountant to review Q1 numbers before the board meeting</p>
-              <div class="capture-time">Today at 2:14 pm</div>
+              <p>Northstar wants weekly progress visibility before the next review</p>
+              <div class="capture-time">Client discovery · tagged Northstar</div>
             </div>
           </div>
           <div class="capture-card">
-            <span class="capture-tag tag-idea">Idea</span>
+            <span class="capture-tag tag-screen">Screen</span>
             <div class="capture-content">
-              <p>What if the onboarding flow started with a 30-second voice intro instead of a form?</p>
-              <div class="capture-time">Today at 11:52 am</div>
+              <p>Checkout drop-off begins after the pricing step</p>
+              <div class="capture-time">Screen recording · tagged Growth</div>
             </div>
           </div>
           <div class="capture-card incoming">
-            <span class="capture-tag tag-note">Note</span>
+            <span class="capture-tag tag-task">Task</span>
             <div class="capture-content">
-              <p>Sarah mentioned the client prefers weekly updates over a shared dashboard</p>
-              <div class="capture-time">Just now</div>
+              <p>Send a follow-up with the proposed weekly reporting workflow</p>
+              <div class="capture-time">Created from meeting · just now</div>
             </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════ FEATURE 4: STATUS -->
+<section id="status" class="slab">
+  <div class="container">
+    <div class="slab-inner fade-in">
+
+      <div>
+        <span class="slab-eyebrow">A Clearer Operating Picture</span>
+        <h2 class="slab-title">Turn scattered moments into a status you can act on.</h2>
+        <p class="slab-desc">
+          Once the work is captured and organized, patterns become visible. See the decisions, open questions, commitments, and follow-ups that shape a project. Daily recaps, search, and local chat help you move from “what happened?” to “what should happen next?”
+        </p>
+
+        <div class="steps">
+          <div class="step">
+            <div class="step-num">1</div>
+            <div class="step-text">
+              <strong>Trace the thread</strong>
+              <span>Bring together meetings, recordings, notes, and tasks by project.</span>
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-num">2</div>
+            <div class="step-text">
+              <strong>Spot what is missing</strong>
+              <span>See unresolved questions and commitments before they become surprises.</span>
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-num">3</div>
+            <div class="step-text">
+              <strong>Improve the next move</strong>
+              <span>Use the record to prepare, follow up, and run the next conversation better.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="slab-visual">
+        <div class="status-demo" role="img" aria-label="Project status view showing decisions, open questions, and follow-up progress">
+          <div class="status-demo-header">
+            <strong>Northstar · work status</strong>
+            <span class="status-period">THIS WEEK</span>
+          </div>
+          <div class="status-summary">
+            <div class="status-metric"><strong>12</strong><span>captured moments</span></div>
+            <div class="status-metric"><strong>4</strong><span>open decisions</span></div>
+            <div class="status-metric"><strong>7</strong><span>follow-ups</span></div>
+          </div>
+          <div class="status-row">
+            <div class="status-row-top"><span>Discovery coverage</span><strong>82%</strong></div>
+            <div class="status-track"><div class="status-fill" style="width:82%"></div></div>
+          </div>
+          <div class="status-row">
+            <div class="status-row-top"><span>Follow-up completed</span><strong>64%</strong></div>
+            <div class="status-track"><div class="status-fill orange" style="width:64%"></div></div>
+          </div>
+          <div class="status-row">
+            <div class="status-row-top"><span>Next gap to resolve</span><strong>Pricing workflow</strong></div>
+            <div class="status-track"><div class="status-fill" style="width:38%"></div></div>
           </div>
         </div>
       </div>
@@ -706,15 +989,15 @@
   <div class="container">
     <div class="privacy-header fade-in">
       <span class="slab-eyebrow">Privacy</span>
-      <h2>Your voice never leaves<br>your Mac.</h2>
-      <p>No cloud backend. No account. No data sold. Echo Scribe is engineered to keep everything local, always.</p>
+      <h2>Your work stays yours.</h2>
+      <p>No cloud backend. No account. No data sold. Dictation, recordings, transcripts, and project context stay under your control on your Mac.</p>
     </div>
 
     <div class="privacy-grid fade-in">
       <div class="privacy-card">
         <svg class="privacy-card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-        <h3>Audio stays in RAM</h3>
-        <p>Your mic input is processed in memory and discarded the moment transcription finishes. Nothing is ever written to disk.</p>
+        <h3>Quick dictation stays ephemeral</h3>
+        <p>Short voice input is processed locally and can be discarded after transcription. You decide what becomes part of your work memory.</p>
       </div>
 
       <div class="privacy-card">
@@ -742,7 +1025,7 @@
 <section id="install">
   <div class="container">
     <div class="fade-in">
-      <h2>One command.<br>Running in 60 seconds.</h2>
+      <h2>Start building your work memory.</h2>
       <p>Open Terminal and paste the line below. No Homebrew required.</p>
 
       <div class="install-box">
