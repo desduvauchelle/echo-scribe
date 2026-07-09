@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Echo Scribe - macOS Compact Split</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ["-apple-system", "BlinkMacSystemFont", "Inter", "Segoe UI", "sans-serif"],
+            mono: ["SF Mono", "JetBrains Mono", "Menlo", "monospace"]
+          },
+          boxShadow: {
+            window: "0 24px 80px rgba(15, 23, 42, 0.22), 0 1px 0 rgba(255,255,255,0.7) inset"
+          }
+        }
+      }
+    }
+  </script>
+</head>
+<body class="min-h-screen bg-[radial-gradient(circle_at_top_left,#eef7f2,#d8dfdf_42%,#cbd2d6)] p-4 text-[#1c1f20] antialiased">
+  <div class="mx-auto h-[calc(100vh-2rem)] min-h-[760px] max-w-[1280px] overflow-hidden rounded-xl border border-black/20 bg-[#f7f7f5] shadow-window">
+    <header class="grid h-12 grid-cols-[220px_1fr_320px] border-b border-black/10 bg-[#ecefed]/90 backdrop-blur-xl">
+      <div class="flex items-center gap-2 border-r border-black/10 px-4">
+        <span class="h-3 w-3 rounded-full bg-[#ff5f57] shadow-inner"></span>
+        <span class="h-3 w-3 rounded-full bg-[#ffbd2e] shadow-inner"></span>
+        <span class="h-3 w-3 rounded-full bg-[#28c840] shadow-inner"></span>
+      </div>
+      <div class="flex items-center justify-between px-4">
+        <div class="inline-flex rounded-md border border-black/15 bg-white/80 p-0.5 text-[13px] shadow-sm">
+          <button class="rounded bg-[#1f6f5d] px-3 py-1 font-medium text-white">Dashboard</button>
+          <button class="rounded px-3 py-1 text-[#4f5755]">Project</button>
+          <button class="rounded px-3 py-1 text-[#4f5755]">Daily</button>
+        </div>
+        <div class="flex items-center gap-2">
+          <button class="grid h-7 w-7 place-items-center rounded-md border border-black/10 bg-white/70 text-[#56605d]" title="Search"><i data-lucide="search" class="h-3.5 w-3.5"></i></button>
+          <button class="grid h-7 w-7 place-items-center rounded-md border border-black/10 bg-white/70 text-[#56605d]" title="Export"><i data-lucide="download" class="h-3.5 w-3.5"></i></button>
+          <button class="grid h-7 w-7 place-items-center rounded-md border border-black/10 bg-white/70 text-[#56605d]" title="Settings"><i data-lucide="settings" class="h-3.5 w-3.5"></i></button>
+        </div>
+      </div>
+      <div class="flex items-center justify-end border-l border-black/10 px-4">
+        <button class="inline-flex h-7 items-center gap-1.5 rounded-md bg-[#1f6f5d] px-3 text-[13px] font-medium text-white shadow-sm"><i data-lucide="mic" class="h-3.5 w-3.5"></i>Capture</button>
+      </div>
+    </header>
+
+    <div class="grid h-[calc(100%-3rem)] grid-cols-[220px_minmax(420px,1fr)_320px]">
+      <aside class="border-r border-black/10 bg-[#e9eeeb]/80 px-3 py-4 backdrop-blur-xl">
+        <div class="flex items-center gap-2 px-2">
+          <img src="assets/echo-scribe-icon.jpeg" alt="" class="h-8 w-8 rounded-md object-cover" />
+          <div>
+            <div class="text-[13px] font-semibold">Echo Scribe</div>
+            <div class="text-[11px] text-[#63706b]">Right Option active</div>
+          </div>
+        </div>
+
+        <nav class="mt-5 space-y-0.5 text-[13px]">
+          <button class="flex w-full items-center gap-2 rounded-md bg-[#cfdcd6] px-2.5 py-1.5 font-medium text-[#14231f]"><i data-lucide="layout-dashboard" class="h-4 w-4 text-[#1f6f5d]"></i>Dashboard</button>
+          <button class="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-[#53605c] hover:bg-white/50"><i data-lucide="message-square" class="h-4 w-4"></i>Chat</button>
+          <button class="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-[#53605c] hover:bg-white/50"><i data-lucide="phone" class="h-4 w-4"></i>Meetings</button>
+          <button class="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-[#53605c] hover:bg-white/50"><i data-lucide="video" class="h-4 w-4"></i>Recordings</button>
+          <button class="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-[#53605c] hover:bg-white/50"><i data-lucide="calendar-days" class="h-4 w-4"></i>Daily</button>
+        </nav>
+
+        <div class="mt-6 px-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#7c8783]">Projects</div>
+        <div class="mt-2 space-y-0.5 text-[13px]">
+          <button class="flex w-full items-center justify-between rounded-md bg-white/60 px-2.5 py-1.5 text-left font-medium"><span>Echo Scribe</span><span class="text-[11px] text-[#6d7773]">67</span></button>
+          <button class="flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-left text-[#53605c] hover:bg-white/50"><span>LiveCase</span><span class="text-[11px]">42</span></button>
+          <button class="flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-left text-[#53605c] hover:bg-white/50"><span>LILA PA</span><span class="text-[11px]">18</span></button>
+          <button class="flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-left text-[#53605c] hover:bg-white/50"><span>Website designer</span><span class="text-[11px]">9</span></button>
+        </div>
+
+        <div class="mt-auto pt-6">
+          <div class="rounded-lg border border-black/10 bg-white/50 p-3">
+            <div class="flex items-center justify-between text-[12px] text-[#53605c]"><span>Routing queue</span><strong class="text-[#1f6f5d]">7</strong></div>
+            <div class="mt-2 h-1.5 rounded-full bg-black/10"><div class="h-1.5 w-[64%] rounded-full bg-[#1f6f5d]"></div></div>
+          </div>
+        </div>
+      </aside>
+
+      <main class="min-w-0 bg-[#fbfbfa]">
+        <div class="border-b border-black/10 px-5 py-4">
+          <div class="flex items-start justify-between gap-4">
+            <div>
+              <h1 class="text-[22px] font-semibold tracking-tight">Dashboard</h1>
+              <p class="mt-0.5 text-[13px] text-[#66716d]">Today, 29 captures across 4 active projects</p>
+            </div>
+            <div class="grid grid-cols-4 overflow-hidden rounded-lg border border-black/10 bg-white text-center shadow-sm">
+              <div class="min-w-[84px] px-3 py-2"><div class="text-[18px] font-semibold">29</div><div class="text-[10px] uppercase tracking-[0.08em] text-[#7a8581]">Today</div></div>
+              <div class="min-w-[84px] border-l border-black/10 px-3 py-2"><div class="text-[18px] font-semibold">537</div><div class="text-[10px] uppercase tracking-[0.08em] text-[#7a8581]">Week</div></div>
+              <div class="min-w-[84px] border-l border-black/10 px-3 py-2"><div class="text-[18px] font-semibold">3.8K</div><div class="text-[10px] uppercase tracking-[0.08em] text-[#7a8581]">All</div></div>
+              <div class="min-w-[84px] border-l border-black/10 bg-[#e8f6f1] px-3 py-2"><div class="text-[18px] font-semibold text-[#1f6f5d]">31h</div><div class="text-[10px] uppercase tracking-[0.08em] text-[#4b7468]">Saved</div></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="border-b border-black/10 px-5 py-3">
+          <div class="flex items-center gap-3">
+            <div class="inline-flex rounded-md border border-black/10 bg-[#f1f2f0] p-0.5 text-[12px]">
+              <button class="rounded bg-white px-2.5 py-1 font-medium shadow-sm">All</button>
+              <button class="rounded px-2.5 py-1 text-[#5d6763]">Voice</button>
+              <button class="rounded px-2.5 py-1 text-[#5d6763]">Notes</button>
+              <button class="rounded px-2.5 py-1 text-[#5d6763]">Tasks</button>
+              <button class="rounded px-2.5 py-1 text-[#5d6763]">Recordings</button>
+            </div>
+            <div class="relative flex-1">
+              <i data-lucide="search" class="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#8b9692]"></i>
+              <input value="dashboard" aria-label="Search" class="h-8 w-full rounded-md border border-black/10 bg-white pl-8 pr-3 text-[13px] outline-none" />
+            </div>
+          </div>
+        </div>
+
+        <div class="grid h-[calc(100%-137px)] grid-cols-[340px_1fr]">
+          <section class="overflow-y-auto border-r border-black/10">
+            <article class="border-b border-black/10 bg-[#eef7f3] p-3">
+              <div class="flex items-center justify-between text-[11px] text-[#61706a]"><span>Just now</span><span class="rounded-full bg-[#1f6f5d] px-2 py-0.5 text-white">Voice</span></div>
+              <p class="mt-2 line-clamp-3 font-mono text-[12.5px] leading-5">Can you recreate three new ones? We need a pretty functional and more native macOS design feel.</p>
+              <div class="mt-2 text-[11px] text-[#61706a]">Echo Scribe - #dashboard</div>
+            </article>
+            <article class="border-b border-black/10 p-3 hover:bg-[#f2f5f3]">
+              <div class="flex items-center justify-between text-[11px] text-[#61706a]"><span>32 min ago</span><span class="rounded-full bg-[#eef1ef] px-2 py-0.5">Voice</span></div>
+              <p class="mt-2 line-clamp-3 font-mono text-[12.5px] leading-5">If the child series ID does not exist we still look for it instead of removing code.</p>
+              <div class="mt-2 text-[11px] text-[#61706a]">LiveCase - #case-routing</div>
+            </article>
+            <article class="border-b border-black/10 p-3 hover:bg-[#f2f5f3]">
+              <div class="flex items-center justify-between text-[11px] text-[#61706a]"><span>1 day ago</span><span class="rounded-full bg-[#fff4cf] px-2 py-0.5 text-[#8a640f]">Task</span></div>
+              <p class="mt-2 text-[13px] leading-5">Finalize the quick case format as planned.</p>
+              <div class="mt-2 text-[11px] text-[#61706a]">Echo Scribe - #feature-finalization</div>
+            </article>
+            <article class="border-b border-black/10 p-3 hover:bg-[#f2f5f3]">
+              <div class="flex items-center gap-3">
+                <img src="assets/current-dashboard.png" alt="" class="h-12 w-20 rounded object-cover" />
+                <div><p class="text-[13px] font-medium">Claude - Claude</p><p class="mt-1 text-[11px] text-[#61706a]">0:51 - 16.6 MB - Drive</p></div>
+              </div>
+            </article>
+          </section>
+
+          <section class="overflow-y-auto p-5">
+            <div class="rounded-lg border border-black/10 bg-white p-4 shadow-sm">
+              <div class="flex items-start justify-between gap-4">
+                <div>
+                  <div class="flex items-center gap-2 text-[12px] text-[#61706a]"><span class="grid h-5 w-5 place-items-center rounded bg-[#d8f2eb] text-[#1f6f5d]"><i data-lucide="mic" class="h-3.5 w-3.5"></i></span>Voice capture - Just now</div>
+                  <h2 class="mt-3 text-[18px] font-semibold">Native dashboard redesign request</h2>
+                </div>
+                <button class="rounded-md border border-black/10 bg-[#f7f7f5] px-2.5 py-1 text-[12px]">Copy</button>
+              </div>
+              <p class="mt-4 font-mono text-[13px] leading-6 text-[#202524]">These are not landing pages, they were desktop apps. Can you recreate three new ones? We do not need a landing page approach, we need a pretty functional and almost looks a bit more native on macOS design feel.</p>
+              <div class="mt-5 grid grid-cols-3 gap-3">
+                <div class="rounded-md bg-[#f3f5f4] p-3"><div class="text-[11px] text-[#66716d]">Project</div><div class="mt-1 text-[13px] font-medium">Echo Scribe</div></div>
+                <div class="rounded-md bg-[#f3f5f4] p-3"><div class="text-[11px] text-[#66716d]">Confidence</div><div class="mt-1 text-[13px] font-medium text-[#1f6f5d]">High</div></div>
+                <div class="rounded-md bg-[#f3f5f4] p-3"><div class="text-[11px] text-[#66716d]">Source</div><div class="mt-1 text-[13px] font-medium">Voice at cursor</div></div>
+              </div>
+            </div>
+
+            <div class="mt-4 grid gap-4 lg:grid-cols-2">
+              <div class="rounded-lg border border-black/10 bg-white p-4 shadow-sm">
+                <h3 class="text-[13px] font-semibold">Yesterday recap</h3>
+                <p class="mt-2 text-[13px] leading-6 text-[#5f6965]">Strategic product design discussion focused on dashboard layout, routing behavior, and clarity around review states.</p>
+              </div>
+              <div class="rounded-lg border border-black/10 bg-white p-4 shadow-sm">
+                <h3 class="text-[13px] font-semibold">Review queue</h3>
+                <div class="mt-3 space-y-2 text-[13px]">
+                  <div class="flex justify-between"><span>Needs project</span><strong>7</strong></div>
+                  <div class="flex justify-between"><span>Open tasks</span><strong>12</strong></div>
+                  <div class="flex justify-between"><span>Drive uploads</span><strong class="text-[#1f6f5d]">4</strong></div>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+      </main>
+
+      <aside class="border-l border-black/10 bg-[#f1f3f1] p-4">
+        <div class="flex items-center justify-between">
+          <h2 class="text-[13px] font-semibold">Inspector</h2>
+          <button class="grid h-6 w-6 place-items-center rounded-md hover:bg-black/5"><i data-lucide="panel-right-close" class="h-3.5 w-3.5"></i></button>
+        </div>
+        <div class="mt-4 rounded-lg border border-black/10 bg-white p-3">
+          <div class="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#7a8581]">Suggested actions</div>
+          <div class="mt-3 space-y-2 text-[13px]">
+            <button class="flex w-full items-center justify-between rounded-md bg-[#e8f6f1] px-3 py-2 text-left text-[#1f6f5d]"><span>Create task</span><i data-lucide="plus" class="h-3.5 w-3.5"></i></button>
+            <button class="flex w-full items-center justify-between rounded-md bg-[#f3f5f4] px-3 py-2 text-left"><span>Assign project</span><i data-lucide="folder-plus" class="h-3.5 w-3.5"></i></button>
+            <button class="flex w-full items-center justify-between rounded-md bg-[#f3f5f4] px-3 py-2 text-left"><span>Export range</span><i data-lucide="download" class="h-3.5 w-3.5"></i></button>
+          </div>
+        </div>
+        <div class="mt-4 rounded-lg border border-black/10 bg-white p-3">
+          <div class="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#7a8581]">Metadata</div>
+          <dl class="mt-3 space-y-2 text-[12px]">
+            <div class="flex justify-between gap-3"><dt class="text-[#66716d]">App</dt><dd>Codex</dd></div>
+            <div class="flex justify-between gap-3"><dt class="text-[#66716d]">Window</dt><dd class="truncate">echo-scribe</dd></div>
+            <div class="flex justify-between gap-3"><dt class="text-[#66716d]">Tags</dt><dd>#dashboard</dd></div>
+            <div class="flex justify-between gap-3"><dt class="text-[#66716d]">Words</dt><dd>43</dd></div>
+          </dl>
+        </div>
+        <div class="mt-4 rounded-lg border border-black/10 bg-white p-3">
+          <div class="flex items-center justify-between text-[12px]"><span>Routing confidence</span><strong class="text-[#1f6f5d]">92%</strong></div>
+          <div class="mt-2 h-1.5 rounded-full bg-black/10"><div class="h-1.5 w-[92%] rounded-full bg-[#1f6f5d]"></div></div>
+        </div>
+      </aside>
+    </div>
+  </div>
+  <script>lucide.createIcons();</script>
+</body>
+</html>

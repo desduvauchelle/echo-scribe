@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Echo Scribe - Split Focus</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body class="bg-[#e8eeea] text-[#151918] antialiased">
+  <div class="min-h-screen lg:grid lg:grid-cols-[300px_1fr]">
+    <aside class="bg-[#101817] p-5 text-white">
+      <div class="flex items-center gap-3">
+        <img src="assets/echo-scribe-icon.jpeg" alt="" class="h-10 w-10 rounded-lg object-cover" />
+        <div><div class="font-semibold">Echo Scribe</div><div class="text-xs text-teal-100/70">Capture intelligence</div></div>
+      </div>
+      <div class="mt-8 rounded-lg border border-white/10 bg-white/5 p-4">
+        <div class="flex items-center gap-2 text-sm text-teal-100"><i data-lucide="mic" class="h-4 w-4"></i>Right Option active</div>
+        <div class="mt-4 grid grid-cols-2 gap-3">
+          <div><div class="text-3xl font-semibold">29</div><div class="text-xs text-white/50">today</div></div>
+          <div><div class="text-3xl font-semibold text-teal-200">31h</div><div class="text-xs text-white/50">saved</div></div>
+        </div>
+      </div>
+      <nav class="mt-6 space-y-1 text-sm">
+        <button class="flex w-full items-center gap-3 rounded-lg bg-teal-300 px-3 py-2 font-semibold text-[#101817]"><i data-lucide="layout-dashboard" class="h-4 w-4"></i>Dashboard</button>
+        <button class="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-white/65 hover:bg-white/5"><i data-lucide="message-square" class="h-4 w-4"></i>Chat</button>
+        <button class="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-white/65 hover:bg-white/5"><i data-lucide="phone" class="h-4 w-4"></i>Meetings</button>
+        <button class="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-white/65 hover:bg-white/5"><i data-lucide="video" class="h-4 w-4"></i>Recordings</button>
+        <button class="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-white/65 hover:bg-white/5"><i data-lucide="calendar-days" class="h-4 w-4"></i>Daily</button>
+      </nav>
+      <div class="mt-8">
+        <div class="text-[11px] uppercase tracking-[0.18em] text-white/40">Pinned projects</div>
+        <div class="mt-3 space-y-2 text-sm text-white/70">
+          <div class="rounded-lg bg-white/5 px-3 py-2 text-white">Echo Scribe</div>
+          <div class="px-3 py-2">LiveCase</div>
+          <div class="px-3 py-2">Website designer</div>
+        </div>
+      </div>
+    </aside>
+
+    <main class="p-5 lg:p-7">
+      <header class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <div class="text-xs font-bold uppercase tracking-[0.18em] text-[#33675d]">Split Focus</div>
+          <h1 class="mt-1 text-4xl font-semibold tracking-tight">Dashboard</h1>
+          <p class="mt-2 max-w-xl text-sm leading-6 text-[#5b6460]">A mixed-light workspace where the sidebar handles orientation and the main panel stays readable for review.</p>
+        </div>
+        <div class="flex gap-2">
+          <button class="grid h-10 w-10 place-items-center rounded-lg border border-black/10 bg-white text-[#4d5752]" title="Search"><i data-lucide="search" class="h-4 w-4"></i></button>
+          <button class="grid h-10 w-10 place-items-center rounded-lg border border-black/10 bg-white text-[#4d5752]" title="Export"><i data-lucide="download" class="h-4 w-4"></i></button>
+        </div>
+      </header>
+
+      <section class="mt-6 grid gap-4 xl:grid-cols-[1fr_420px]">
+        <div class="grid gap-3 md:grid-cols-3">
+          <div class="rounded-lg bg-white p-5 shadow-sm"><div class="text-xs uppercase tracking-[0.16em] text-[#65716c]">Week</div><div class="mt-3 text-5xl font-semibold">537</div><div class="mt-1 text-sm text-[#65716c]">captures</div></div>
+          <div class="rounded-lg bg-white p-5 shadow-sm"><div class="text-xs uppercase tracking-[0.16em] text-[#65716c]">Words</div><div class="mt-3 text-5xl font-semibold">96.8K</div><div class="mt-1 text-sm text-[#65716c]">this week</div></div>
+          <div class="rounded-lg bg-[#173b34] p-5 text-white shadow-sm"><div class="text-xs uppercase tracking-[0.16em] text-teal-100/70">Momentum</div><div class="mt-3 text-5xl font-semibold">+18%</div><div class="mt-1 text-sm text-teal-100/70">vs last week</div></div>
+        </div>
+        <div class="rounded-lg bg-white p-5 shadow-sm">
+          <div class="flex items-center justify-between"><h2 class="font-semibold">Yesterday recap</h2><i data-lucide="chevron-right" class="h-4 w-4 text-[#69746f]"></i></div>
+          <p class="mt-3 text-sm leading-7 text-[#525d58]">Strategic product design discussion centered on dashboard layouts, route behavior, and better project specificity.</p>
+        </div>
+      </section>
+
+      <section class="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
+        <div class="rounded-lg bg-white p-4 shadow-sm">
+          <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div class="flex flex-wrap gap-2 text-sm">
+              <button class="rounded-full bg-[#173b34] px-3 py-1 text-white">All</button>
+              <button class="rounded-full bg-[#edf2ee] px-3 py-1 text-[#525d58]">Voice</button>
+              <button class="rounded-full bg-[#edf2ee] px-3 py-1 text-[#525d58]">Tasks</button>
+              <button class="rounded-full bg-[#edf2ee] px-3 py-1 text-[#525d58]">Meetings</button>
+              <button class="rounded-full bg-[#edf2ee] px-3 py-1 text-[#525d58]">Recordings</button>
+            </div>
+            <button class="rounded-lg border border-black/10 px-3 py-2 text-sm">Sort by recent</button>
+          </div>
+          <div class="mt-4 grid gap-3">
+            <article class="rounded-lg border border-[#dce5df] bg-[#f8faf8] p-4"><div class="flex gap-3"><span class="grid h-8 w-8 place-items-center rounded-md bg-[#d9f4ee] text-[#167562]"><i data-lucide="mic" class="h-4 w-4"></i></span><div><p class="font-mono text-sm leading-6">Can you create five design variations of the website of the app in HTML and Tailwind...</p><div class="mt-3 text-xs text-[#69746f]">Just now - Echo Scribe - #dashboard</div></div></div></article>
+            <article class="rounded-lg border border-[#dce5df] bg-[#f8faf8] p-4"><div class="flex gap-3"><span class="grid h-8 w-8 place-items-center rounded-md bg-[#d9f4ee] text-[#167562]"><i data-lucide="mic" class="h-4 w-4"></i></span><div><p class="font-mono text-sm leading-6">The child series ID needs to be preserved when the linked page path is missing.</p><div class="mt-3 text-xs text-[#69746f]">32 min ago - LiveCase</div></div></div></article>
+            <article class="rounded-lg border border-[#dce5df] bg-[#f8faf8] p-4"><div class="flex gap-3"><span class="grid h-8 w-8 place-items-center rounded-md bg-[#fff0c7] text-[#956b0b]"><i data-lucide="check-square" class="h-4 w-4"></i></span><div><p class="text-sm leading-6">Finalize the quick case format as planned.</p><div class="mt-3 text-xs text-[#69746f]">1 day ago - #feature-finalization</div></div></div></article>
+          </div>
+        </div>
+        <aside class="space-y-4">
+          <div class="rounded-lg bg-white p-5 shadow-sm">
+            <h2 class="font-semibold">Capture sources</h2>
+            <div class="mt-4 grid grid-cols-2 gap-3 text-sm">
+              <div class="rounded-lg bg-[#edf2ee] p-3"><div class="text-2xl font-semibold">62%</div><div class="text-[#69746f]">voice</div></div>
+              <div class="rounded-lg bg-[#edf2ee] p-3"><div class="text-2xl font-semibold">21%</div><div class="text-[#69746f]">meeting</div></div>
+              <div class="rounded-lg bg-[#edf2ee] p-3"><div class="text-2xl font-semibold">12</div><div class="text-[#69746f]">tasks</div></div>
+              <div class="rounded-lg bg-[#edf2ee] p-3"><div class="text-2xl font-semibold">4</div><div class="text-[#69746f]">uploads</div></div>
+            </div>
+          </div>
+          <div class="rounded-lg bg-white p-5 shadow-sm">
+            <h2 class="font-semibold">Recent recording</h2>
+            <img src="assets/current-dashboard.png" alt="" class="mt-3 h-28 w-full rounded-lg object-cover" />
+            <p class="mt-3 text-sm font-medium">Claude - Claude</p>
+            <p class="mt-1 text-xs text-[#69746f]">0:51 - 16.6 MB - On Drive</p>
+          </div>
+        </aside>
+      </section>
+    </main>
+  </div>
+  <script>lucide.createIcons();</script>
+</body>
+</html>

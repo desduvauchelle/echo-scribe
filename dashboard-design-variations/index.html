@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Echo Scribe macOS Dashboard Concepts</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ["-apple-system", "BlinkMacSystemFont", "Inter", "Segoe UI", "sans-serif"],
+            mono: ["SF Mono", "JetBrains Mono", "Menlo", "monospace"]
+          },
+          boxShadow: {
+            window: "0 24px 80px rgba(31, 41, 55, 0.22), 0 1px 0 rgba(255,255,255,0.75) inset"
+          }
+        }
+      }
+    }
+  </script>
+</head>
+<body class="bg-[#e2e6e7] text-[#1f2324] antialiased">
+  <main class="mx-auto max-w-7xl px-5 py-8">
+    <header class="overflow-hidden rounded-xl border border-black/15 bg-[#f6f7f5] shadow-window">
+      <div class="flex h-11 items-center border-b border-black/10 bg-[#ecefed] px-4">
+        <div class="flex gap-2">
+          <span class="h-3 w-3 rounded-full bg-[#ff5f57]"></span>
+          <span class="h-3 w-3 rounded-full bg-[#ffbd2e]"></span>
+          <span class="h-3 w-3 rounded-full bg-[#28c840]"></span>
+        </div>
+        <div class="flex flex-1 justify-center text-[13px] font-medium text-[#59625f]">Echo Scribe dashboard concepts</div>
+      </div>
+      <div class="grid gap-6 p-6 lg:grid-cols-[1fr_360px]">
+        <div>
+          <div class="flex items-center gap-3">
+            <img src="assets/echo-scribe-icon.jpeg" alt="" class="h-10 w-10 rounded-lg object-cover" />
+            <div>
+              <p class="text-sm font-semibold">Echo Scribe</p>
+              <p class="text-[13px] text-[#66716d]">Native macOS desktop app directions</p>
+            </div>
+          </div>
+          <h1 class="mt-5 max-w-3xl text-4xl font-semibold tracking-tight md:text-5xl">Functional dashboard concepts, not landing pages.</h1>
+          <p class="mt-4 max-w-2xl text-[15px] leading-7 text-[#59625f]">These three options focus on desktop-app patterns: traffic-light window chrome, compact toolbars, split views, list/detail panes, inspectors, segmented controls, and useful density for reviewing captures.</p>
+        </div>
+        <div class="rounded-lg border border-black/10 bg-white p-4">
+          <div class="text-[12px] font-semibold uppercase tracking-[0.08em] text-[#71807a]">Current source</div>
+          <img src="assets/current-dashboard.png" alt="Current Echo Scribe dashboard" class="mt-3 rounded-md border border-black/10" />
+        </div>
+      </div>
+    </header>
+
+    <section class="mt-6 grid gap-4 lg:grid-cols-3">
+      <a href="06-macos-compact-split.html" class="group overflow-hidden rounded-xl border border-black/15 bg-[#f7f7f5] shadow-sm transition hover:-translate-y-0.5 hover:shadow-xl">
+        <div class="flex h-9 items-center border-b border-black/10 bg-[#ecefed] px-3">
+          <div class="flex gap-1.5"><span class="h-2.5 w-2.5 rounded-full bg-[#ff5f57]"></span><span class="h-2.5 w-2.5 rounded-full bg-[#ffbd2e]"></span><span class="h-2.5 w-2.5 rounded-full bg-[#28c840]"></span></div>
+          <span class="ml-auto mr-auto text-[12px] text-[#66716d]">Compact Split</span>
+        </div>
+        <div class="grid h-48 grid-cols-[30%_1fr_26%]">
+          <div class="border-r border-black/10 bg-[#e9eeeb] p-3">
+            <div class="h-5 rounded bg-[#1f6f5d]/20"></div>
+            <div class="mt-3 space-y-2"><div class="h-3 rounded bg-black/10"></div><div class="h-3 rounded bg-black/10"></div><div class="h-3 rounded bg-black/10"></div></div>
+          </div>
+          <div class="bg-white p-3">
+            <div class="grid grid-cols-4 gap-1"><div class="h-8 rounded bg-[#eff3f1]"></div><div class="h-8 rounded bg-[#eff3f1]"></div><div class="h-8 rounded bg-[#eff3f1]"></div><div class="h-8 rounded bg-[#e8f6f1]"></div></div>
+            <div class="mt-3 space-y-2"><div class="h-9 rounded border border-black/10 bg-[#eef7f3]"></div><div class="h-9 rounded border border-black/10"></div><div class="h-9 rounded border border-black/10"></div></div>
+          </div>
+          <div class="border-l border-black/10 bg-[#f1f3f1] p-3"><div class="h-4 rounded bg-black/10"></div><div class="mt-3 h-16 rounded bg-white"></div><div class="mt-2 h-10 rounded bg-white"></div></div>
+        </div>
+        <div class="p-4">
+          <h2 class="text-lg font-semibold">06 macOS Compact Split</h2>
+          <p class="mt-1 text-sm leading-6 text-[#59625f]">Closest to a native productivity app: sidebar, activity list, detail pane, and inspector.</p>
+        </div>
+      </a>
+
+      <a href="07-macos-dark-inspector.html" class="group overflow-hidden rounded-xl border border-black/20 bg-[#111417] text-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-xl">
+        <div class="flex h-9 items-center border-b border-white/10 bg-[#202327] px-3">
+          <div class="flex gap-1.5"><span class="h-2.5 w-2.5 rounded-full bg-[#ff5f57]"></span><span class="h-2.5 w-2.5 rounded-full bg-[#ffbd2e]"></span><span class="h-2.5 w-2.5 rounded-full bg-[#28c840]"></span></div>
+          <span class="ml-auto mr-auto text-[12px] text-white/55">Dark Inspector</span>
+        </div>
+        <div class="grid h-48 grid-cols-[26%_26%_1fr_24%]">
+          <div class="border-r border-white/10 bg-[#171a1d] p-3"><div class="h-5 rounded bg-[#5eead4]/20"></div><div class="mt-3 space-y-2"><div class="h-3 rounded bg-white/10"></div><div class="h-3 rounded bg-white/10"></div><div class="h-3 rounded bg-white/10"></div></div></div>
+          <div class="border-r border-white/10 bg-[#111417] p-3"><div class="h-8 rounded bg-[#1a2825]"></div><div class="mt-2 h-8 rounded bg-white/5"></div><div class="mt-2 h-8 rounded bg-white/5"></div></div>
+          <div class="bg-[#0d1012] p-3"><div class="h-16 rounded border border-white/10 bg-[#15191c]"></div><div class="mt-2 grid grid-cols-4 gap-1"><div class="h-8 rounded bg-white/5"></div><div class="h-8 rounded bg-white/5"></div><div class="h-8 rounded bg-white/5"></div><div class="h-8 rounded bg-[#12302b]"></div></div></div>
+          <div class="border-l border-white/10 bg-[#171a1d] p-3"><div class="h-4 rounded bg-white/10"></div><div class="mt-3 h-12 rounded bg-black/25"></div><div class="mt-2 h-12 rounded bg-black/25"></div></div>
+        </div>
+        <div class="p-4">
+          <h2 class="text-lg font-semibold">07 macOS Dark Inspector</h2>
+          <p class="mt-1 text-sm leading-6 text-white/58">A denser pro-app direction with four panes and an always-visible routing inspector.</p>
+        </div>
+      </a>
+
+      <a href="08-macos-clean-utility.html" class="group overflow-hidden rounded-xl border border-black/15 bg-[#f6f6f4] shadow-sm transition hover:-translate-y-0.5 hover:shadow-xl">
+        <div class="flex h-9 items-center border-b border-black/10 bg-[#eeeeec] px-3">
+          <div class="flex gap-1.5"><span class="h-2.5 w-2.5 rounded-full bg-[#ff5f57]"></span><span class="h-2.5 w-2.5 rounded-full bg-[#ffbd2e]"></span><span class="h-2.5 w-2.5 rounded-full bg-[#28c840]"></span></div>
+          <span class="ml-auto mr-auto text-[12px] text-[#66716d]">Clean Utility</span>
+        </div>
+        <div class="grid h-48 grid-cols-[30%_1fr]">
+          <div class="border-r border-black/10 bg-[#ecefed] p-3"><div class="h-8 rounded bg-[#1f6f5d]"></div><div class="mt-3 rounded bg-white p-2"><div class="h-3 rounded bg-black/10"></div><div class="mt-2 h-3 w-2/3 rounded bg-black/10"></div></div><div class="mt-3 space-y-2"><div class="h-3 rounded bg-black/10"></div><div class="h-3 rounded bg-black/10"></div></div></div>
+          <div class="bg-white p-3"><div class="grid grid-cols-4 gap-1"><div class="h-12 rounded bg-[#f2f4f2]"></div><div class="h-12 rounded bg-[#f2f4f2]"></div><div class="h-12 rounded bg-[#f2f4f2]"></div><div class="h-12 rounded bg-[#ecf8f4]"></div></div><div class="mt-3 h-20 rounded border border-black/10"></div></div>
+        </div>
+        <div class="p-4">
+          <h2 class="text-lg font-semibold">08 macOS Clean Utility</h2>
+          <p class="mt-1 text-sm leading-6 text-[#59625f]">A calmer, lighter app frame with dashboard cards, inbox table, and side overview.</p>
+        </div>
+      </a>
+    </section>
+
+    <section class="mt-8 rounded-xl border border-black/10 bg-white/70 p-4">
+      <div class="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h2 class="text-sm font-semibold">Earlier exploratory set</h2>
+          <p class="text-sm text-[#66716d]">Kept for comparison, but these are less aligned with the native desktop-app direction.</p>
+        </div>
+        <div class="mt-3 flex flex-wrap gap-2 text-sm md:mt-0">
+          <a class="rounded-md border border-black/10 px-2.5 py-1 text-[#59625f]" href="01-command-center.html">01</a>
+          <a class="rounded-md border border-black/10 px-2.5 py-1 text-[#59625f]" href="02-light-studio.html">02</a>
+          <a class="rounded-md border border-black/10 px-2.5 py-1 text-[#59625f]" href="03-split-focus.html">03</a>
+          <a class="rounded-md border border-black/10 px-2.5 py-1 text-[#59625f]" href="04-ops-console.html">04</a>
+          <a class="rounded-md border border-black/10 px-2.5 py-1 text-[#59625f]" href="05-warm-notebook.html">05</a>
+        </div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

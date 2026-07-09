@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && bun --bun x vite build",
+    "test:installer": "bash scripts/test-installer.sh",
     "preview": "vite preview",
     "tauri": "tauri"
   },

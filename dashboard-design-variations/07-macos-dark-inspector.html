@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Echo Scribe - macOS Dark Inspector</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ["-apple-system", "BlinkMacSystemFont", "Inter", "Segoe UI", "sans-serif"],
+            mono: ["SF Mono", "JetBrains Mono", "Menlo", "monospace"]
+          },
+          boxShadow: {
+            window: "0 24px 90px rgba(0,0,0,0.42), 0 1px 0 rgba(255,255,255,0.08) inset"
+          }
+        }
+      }
+    }
+  </script>
+</head>
+<body class="min-h-screen bg-[#1b1d21] p-4 text-[#edf1ef] antialiased">
+  <div class="mx-auto h-[calc(100vh-2rem)] min-h-[760px] max-w-[1280px] overflow-hidden rounded-xl border border-white/10 bg-[#111417] shadow-window">
+    <header class="grid h-12 grid-cols-[240px_1fr_300px] border-b border-white/10 bg-[#202327]">
+      <div class="flex items-center gap-2 border-r border-white/10 px-4">
+        <span class="h-3 w-3 rounded-full bg-[#ff5f57]"></span>
+        <span class="h-3 w-3 rounded-full bg-[#ffbd2e]"></span>
+        <span class="h-3 w-3 rounded-full bg-[#28c840]"></span>
+        <span class="ml-3 text-[13px] font-medium text-white/80">Echo Scribe</span>
+      </div>
+      <div class="flex items-center justify-between px-4">
+        <div class="inline-flex rounded-md border border-white/10 bg-black/30 p-0.5 text-[12px]">
+          <button class="rounded bg-white/15 px-3 py-1 font-medium text-white">Dashboard</button>
+          <button class="rounded px-3 py-1 text-white/55">Capture</button>
+          <button class="rounded px-3 py-1 text-white/55">Daily</button>
+        </div>
+        <div class="relative w-72">
+          <i data-lucide="search" class="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/35"></i>
+          <input value="" placeholder="Search captures" class="h-7 w-full rounded-md border border-white/10 bg-black/30 pl-8 pr-3 text-[13px] outline-none placeholder:text-white/35" />
+        </div>
+      </div>
+      <div class="flex items-center justify-end gap-2 border-l border-white/10 px-4">
+        <button class="grid h-7 w-7 place-items-center rounded-md border border-white/10 bg-white/5 text-white/70" title="Export"><i data-lucide="download" class="h-3.5 w-3.5"></i></button>
+        <button class="inline-flex h-7 items-center gap-1.5 rounded-md bg-[#5eead4] px-3 text-[13px] font-semibold text-[#08110f]"><i data-lucide="mic" class="h-3.5 w-3.5"></i>Record</button>
+      </div>
+    </header>
+
+    <div class="grid h-[calc(100%-3rem)] grid-cols-[240px_360px_minmax(360px,1fr)_300px]">
+      <aside class="border-r border-white/10 bg-[#171a1d] p-3">
+        <div class="flex items-center gap-2 px-2 pt-1">
+          <img src="assets/echo-scribe-icon.jpeg" alt="" class="h-8 w-8 rounded-md object-cover" />
+          <div><div class="text-[13px] font-semibold">Workspace</div><div class="text-[11px] text-white/45">Local transcription</div></div>
+        </div>
+        <nav class="mt-5 space-y-0.5 text-[13px]">
+          <button class="flex w-full items-center gap-2 rounded-md bg-[#25302d] px-2.5 py-1.5 font-medium text-[#dffdf7]"><i data-lucide="layout-dashboard" class="h-4 w-4 text-[#5eead4]"></i>Dashboard</button>
+          <button class="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-white/55 hover:bg-white/5"><i data-lucide="message-square" class="h-4 w-4"></i>Chat</button>
+          <button class="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-white/55 hover:bg-white/5"><i data-lucide="phone" class="h-4 w-4"></i>Meetings</button>
+          <button class="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-white/55 hover:bg-white/5"><i data-lucide="video" class="h-4 w-4"></i>Recordings</button>
+          <button class="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-white/55 hover:bg-white/5"><i data-lucide="calendar-days" class="h-4 w-4"></i>Daily</button>
+        </nav>
+        <div class="mt-6 px-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-white/35">Projects</div>
+        <div class="mt-2 space-y-0.5 text-[13px]">
+          <button class="flex w-full justify-between rounded-md bg-white/7 px-2.5 py-1.5 text-left text-white"><span>Echo Scribe</span><span class="text-white/45">67</span></button>
+          <button class="flex w-full justify-between rounded-md px-2.5 py-1.5 text-left text-white/55 hover:bg-white/5"><span>LiveCase</span><span>42</span></button>
+          <button class="flex w-full justify-between rounded-md px-2.5 py-1.5 text-left text-white/55 hover:bg-white/5"><span>LILA PA</span><span>18</span></button>
+          <button class="flex w-full justify-between rounded-md px-2.5 py-1.5 text-left text-white/55 hover:bg-white/5"><span>Recursive</span><span>13</span></button>
+        </div>
+        <div class="mt-6 rounded-lg border border-white/10 bg-black/20 p-3">
+          <div class="text-[11px] text-white/40">Today</div>
+          <div class="mt-2 grid grid-cols-2 gap-2">
+            <div><div class="text-2xl font-semibold">29</div><div class="text-[11px] text-white/40">captures</div></div>
+            <div><div class="text-2xl font-semibold text-[#5eead4]">31h</div><div class="text-[11px] text-white/40">saved</div></div>
+          </div>
+        </div>
+      </aside>
+
+      <section class="border-r border-white/10 bg-[#111417]">
+        <div class="border-b border-white/10 px-4 py-3">
+          <h1 class="text-[18px] font-semibold">Activity</h1>
+          <div class="mt-3 inline-flex rounded-md border border-white/10 bg-black/30 p-0.5 text-[12px]">
+            <button class="rounded bg-white/15 px-2.5 py-1 text-white">All</button>
+            <button class="rounded px-2.5 py-1 text-white/50">Voice</button>
+            <button class="rounded px-2.5 py-1 text-white/50">Tasks</button>
+          </div>
+        </div>
+        <div class="h-[calc(100%-85px)] overflow-y-auto">
+          <article class="border-b border-white/10 bg-[#1a2825] p-3">
+            <div class="flex items-center justify-between text-[11px] text-white/45"><span>Just now</span><span class="text-[#5eead4]">Voice</span></div>
+            <p class="mt-2 line-clamp-3 font-mono text-[12.5px] leading-5 text-white">Recreate three native macOS desktop app dashboard designs, not landing pages.</p>
+            <div class="mt-3 flex gap-1.5"><span class="rounded bg-white/10 px-1.5 py-0.5 text-[11px]">Echo Scribe</span><span class="rounded bg-white/10 px-1.5 py-0.5 text-[11px]">#design</span></div>
+          </article>
+          <article class="border-b border-white/10 p-3 hover:bg-white/[0.03]">
+            <div class="flex items-center justify-between text-[11px] text-white/45"><span>32 min ago</span><span>Voice</span></div>
+            <p class="mt-2 line-clamp-3 font-mono text-[12.5px] leading-5 text-white/85">Preserve the child series ID fallback while still resolving the page route.</p>
+            <div class="mt-3 text-[11px] text-white/45">LiveCase - #case-routing</div>
+          </article>
+          <article class="border-b border-white/10 p-3 hover:bg-white/[0.03]">
+            <div class="flex items-center justify-between text-[11px] text-white/45"><span>1 day ago</span><span class="text-amber-300">Task</span></div>
+            <p class="mt-2 text-[13px] leading-5 text-white/85">Finalize the quick case format as planned.</p>
+            <div class="mt-3 text-[11px] text-white/45">Echo Scribe - #feature-finalization</div>
+          </article>
+          <article class="border-b border-white/10 p-3 hover:bg-white/[0.03]">
+            <div class="flex gap-3">
+              <img src="assets/current-project-feed.png" alt="" class="h-12 w-20 rounded object-cover opacity-80" />
+              <div><p class="text-[13px] font-medium">Claude - Claude</p><p class="mt-1 text-[11px] text-white/45">0:51 - Drive uploaded</p></div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <main class="min-w-0 bg-[#0d1012]">
+        <div class="border-b border-white/10 p-4">
+          <div class="flex items-center justify-between">
+            <div>
+              <div class="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#5eead4]">Selected capture</div>
+              <h2 class="mt-1 text-[22px] font-semibold">Desktop-native redesign request</h2>
+            </div>
+            <button class="rounded-md border border-white/10 bg-white/5 px-3 py-1.5 text-[13px] text-white/75">Open in Chat</button>
+          </div>
+        </div>
+        <div class="p-5">
+          <div class="rounded-lg border border-white/10 bg-[#15191c] p-4">
+            <div class="flex items-center gap-2 text-[12px] text-white/45"><i data-lucide="mic" class="h-4 w-4 text-[#5eead4]"></i>Voice at cursor - Codex - Just now</div>
+            <p class="mt-4 font-mono text-[13.5px] leading-7 text-[#f5fbf9]">These are not landing pages, they were desktop apps. We need a pretty functional design that feels more native on macOS: window chrome, compact controls, split views, and useful dashboard density.</p>
+          </div>
+
+          <div class="mt-4 grid grid-cols-4 gap-3">
+            <div class="rounded-lg border border-white/10 bg-[#15191c] p-3"><div class="text-[11px] text-white/40">Today</div><div class="mt-2 text-2xl font-semibold">29</div></div>
+            <div class="rounded-lg border border-white/10 bg-[#15191c] p-3"><div class="text-[11px] text-white/40">Week</div><div class="mt-2 text-2xl font-semibold">537</div></div>
+            <div class="rounded-lg border border-white/10 bg-[#15191c] p-3"><div class="text-[11px] text-white/40">Words</div><div class="mt-2 text-2xl font-semibold">845K</div></div>
+            <div class="rounded-lg border border-[#5eead4]/30 bg-[#12302b] p-3"><div class="text-[11px] text-[#99f6e4]">Saved</div><div class="mt-2 text-2xl font-semibold text-[#5eead4]">31.4h</div></div>
+          </div>
+
+          <div class="mt-4 grid gap-4 lg:grid-cols-2">
+            <section class="rounded-lg border border-white/10 bg-[#15191c] p-4">
+              <h3 class="text-[13px] font-semibold">Daily recap</h3>
+              <p class="mt-3 text-[13px] leading-6 text-white/62">The day focused on product design, dashboard review flows, route behavior, and clearer capture/project attribution.</p>
+            </section>
+            <section class="rounded-lg border border-white/10 bg-[#15191c] p-4">
+              <h3 class="text-[13px] font-semibold">Source mix</h3>
+              <div class="mt-3 space-y-2 text-[12px]">
+                <div><div class="flex justify-between text-white/55"><span>Voice</span><span>62%</span></div><div class="mt-1 h-1.5 rounded bg-white/10"><div class="h-1.5 w-[62%] rounded bg-[#5eead4]"></div></div></div>
+                <div><div class="flex justify-between text-white/55"><span>Meetings</span><span>23%</span></div><div class="mt-1 h-1.5 rounded bg-white/10"><div class="h-1.5 w-[23%] rounded bg-sky-400"></div></div></div>
+              </div>
+            </section>
+          </div>
+        </div>
+      </main>
+
+      <aside class="border-l border-white/10 bg-[#171a1d] p-4">
+        <div class="flex items-center justify-between">
+          <h2 class="text-[13px] font-semibold">Inspector</h2>
+          <i data-lucide="panel-right" class="h-4 w-4 text-white/45"></i>
+        </div>
+        <section class="mt-4 rounded-lg border border-white/10 bg-black/20 p-3">
+          <div class="text-[11px] font-semibold uppercase tracking-[0.1em] text-white/35">Routing</div>
+          <div class="mt-3 rounded-md bg-[#12302b] px-3 py-2 text-[13px] text-[#99f6e4]">Echo Scribe - 92%</div>
+          <div class="mt-2 rounded-md bg-white/5 px-3 py-2 text-[13px] text-white/65">Design - 74%</div>
+          <div class="mt-2 rounded-md bg-white/5 px-3 py-2 text-[13px] text-white/65">Product - 58%</div>
+        </section>
+        <section class="mt-4 rounded-lg border border-white/10 bg-black/20 p-3">
+          <div class="text-[11px] font-semibold uppercase tracking-[0.1em] text-white/35">Actions</div>
+          <div class="mt-3 grid gap-2 text-[13px]">
+            <button class="rounded-md bg-[#5eead4] px-3 py-2 font-semibold text-[#08110f]">Create task</button>
+            <button class="rounded-md bg-white/7 px-3 py-2 text-white/75">Copy capture</button>
+            <button class="rounded-md bg-white/7 px-3 py-2 text-white/75">Export selection</button>
+          </div>
+        </section>
+        <section class="mt-4 rounded-lg border border-white/10 bg-black/20 p-3">
+          <div class="text-[11px] font-semibold uppercase tracking-[0.1em] text-white/35">Metadata</div>
+          <dl class="mt-3 space-y-2 text-[12px]">
+            <div class="flex justify-between gap-3"><dt class="text-white/40">Words</dt><dd>43</dd></div>
+            <div class="flex justify-between gap-3"><dt class="text-white/40">Source</dt><dd>Voice</dd></div>
+            <div class="flex justify-between gap-3"><dt class="text-white/40">App</dt><dd>Codex</dd></div>
+            <div class="flex justify-between gap-3"><dt class="text-white/40">Created</dt><dd>11:24 AM</dd></div>
+          </dl>
+        </section>
+      </aside>
+    </div>
+  </div>
+  <script>lucide.createIcons();</script>
+</body>
+</html>

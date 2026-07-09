@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Echo Scribe - Ops Console</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script>
+    tailwind.config = { theme: { extend: { fontFamily: { mono: ["JetBrains Mono", "SFMono-Regular", "Menlo", "monospace"] } } } }
+  </script>
+</head>
+<body class="bg-[#07080b] font-mono text-[#d9f7ff] antialiased">
+  <div class="min-h-screen p-3">
+    <div class="grid min-h-[calc(100vh-1.5rem)] gap-3 lg:grid-cols-[220px_1fr]">
+      <aside class="rounded-lg border border-[#27313a] bg-[#0d1016] p-3">
+        <div class="flex items-center gap-2 border-b border-[#27313a] pb-3">
+          <img src="assets/echo-scribe-icon.jpeg" alt="" class="h-8 w-8 rounded-md object-cover" />
+          <div><div class="text-sm font-bold">ECHO.SCRIBE</div><div class="text-[10px] text-cyan-300/70">LOCAL OPS</div></div>
+        </div>
+        <nav class="mt-3 space-y-1 text-xs">
+          <button class="flex w-full items-center justify-between rounded-md bg-cyan-300 px-2 py-2 font-bold text-[#07080b]"><span>01 DASHBOARD</span><i data-lucide="activity" class="h-3.5 w-3.5"></i></button>
+          <button class="flex w-full items-center justify-between rounded-md px-2 py-2 text-[#80919b] hover:bg-white/5"><span>02 CHAT</span><i data-lucide="message-square" class="h-3.5 w-3.5"></i></button>
+          <button class="flex w-full items-center justify-between rounded-md px-2 py-2 text-[#80919b] hover:bg-white/5"><span>03 MEETINGS</span><i data-lucide="phone" class="h-3.5 w-3.5"></i></button>
+          <button class="flex w-full items-center justify-between rounded-md px-2 py-2 text-[#80919b] hover:bg-white/5"><span>04 RECORDINGS</span><i data-lucide="video" class="h-3.5 w-3.5"></i></button>
+          <button class="flex w-full items-center justify-between rounded-md px-2 py-2 text-[#80919b] hover:bg-white/5"><span>05 DAILY</span><i data-lucide="calendar-days" class="h-3.5 w-3.5"></i></button>
+        </nav>
+        <div class="mt-5 rounded-lg border border-[#27313a] bg-black/25 p-3">
+          <div class="text-[10px] text-[#80919b]">DICTATION_BINDING</div>
+          <div class="mt-2 flex items-center gap-2 text-xs text-cyan-200"><span class="h-2 w-2 rounded-full bg-cyan-300"></span>RIGHT_OPTION</div>
+        </div>
+      </aside>
+
+      <main class="grid gap-3 xl:grid-cols-[1fr_320px]">
+        <section class="rounded-lg border border-[#27313a] bg-[#0d1016]">
+          <header class="flex flex-col gap-3 border-b border-[#27313a] p-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              <div class="text-[10px] font-bold uppercase tracking-[0.2em] text-cyan-300">SYSTEM DASHBOARD</div>
+              <h1 class="mt-1 text-2xl font-bold tracking-tight text-white">Capture Review Console</h1>
+            </div>
+            <div class="flex gap-2">
+              <button class="grid h-9 w-9 place-items-center rounded-md border border-[#27313a] text-[#9fb0b9]" title="Search"><i data-lucide="search" class="h-4 w-4"></i></button>
+              <button class="grid h-9 w-9 place-items-center rounded-md border border-[#27313a] text-[#9fb0b9]" title="Export"><i data-lucide="download" class="h-4 w-4"></i></button>
+              <button class="rounded-md bg-cyan-300 px-3 py-2 text-xs font-bold text-[#07080b]">CAPTURE</button>
+            </div>
+          </header>
+
+          <div class="grid border-b border-[#27313a] md:grid-cols-4">
+            <div class="border-b border-[#27313a] p-4 md:border-b-0 md:border-r"><div class="text-[10px] text-[#80919b]">TODAY</div><div class="mt-2 text-3xl font-bold text-white">29</div><div class="text-xs text-[#80919b]">1.3K WORDS</div></div>
+            <div class="border-b border-[#27313a] p-4 md:border-b-0 md:border-r"><div class="text-[10px] text-[#80919b]">WEEK</div><div class="mt-2 text-3xl font-bold text-white">537</div><div class="text-xs text-[#80919b]">96.8K WORDS</div></div>
+            <div class="border-b border-[#27313a] p-4 md:border-b-0 md:border-r"><div class="text-[10px] text-[#80919b]">ALL_TIME</div><div class="mt-2 text-3xl font-bold text-white">3.8K</div><div class="text-xs text-[#80919b]">845K WORDS</div></div>
+            <div class="p-4"><div class="text-[10px] text-[#80919b]">TIME_SAVED</div><div class="mt-2 text-3xl font-bold text-cyan-300">31.4H</div><div class="text-xs text-[#80919b]">VS_TYPING</div></div>
+          </div>
+
+          <div class="border-b border-[#27313a] p-3">
+            <div class="flex flex-wrap gap-2 text-xs">
+              <button class="rounded-md bg-white px-2 py-1 font-bold text-black">ALL</button>
+              <button class="rounded-md border border-[#27313a] px-2 py-1 text-[#9fb0b9]">TRANSCRIPTION</button>
+              <button class="rounded-md border border-[#27313a] px-2 py-1 text-[#9fb0b9]">NOTE</button>
+              <button class="rounded-md border border-[#27313a] px-2 py-1 text-[#9fb0b9]">TASK</button>
+              <button class="rounded-md border border-[#27313a] px-2 py-1 text-[#9fb0b9]">MEETING</button>
+              <button class="rounded-md border border-[#27313a] px-2 py-1 text-[#9fb0b9]">RECORDING</button>
+            </div>
+          </div>
+
+          <div class="overflow-x-auto">
+            <table class="w-full min-w-[760px] text-left text-xs">
+              <thead class="bg-black/20 text-[#80919b]">
+                <tr><th class="px-4 py-3 font-medium">TIME</th><th class="px-4 py-3 font-medium">TYPE</th><th class="px-4 py-3 font-medium">CONTENT</th><th class="px-4 py-3 font-medium">PROJECT</th><th class="px-4 py-3 font-medium">STATUS</th></tr>
+              </thead>
+              <tbody class="divide-y divide-[#27313a]">
+                <tr class="hover:bg-white/[0.03]"><td class="px-4 py-4 text-[#80919b]">00:00</td><td class="px-4 py-4 text-cyan-300">VOICE</td><td class="px-4 py-4 text-white">Create five design variations of the website dashboard in standalone HTML and Tailwind.</td><td class="px-4 py-4">Echo Scribe</td><td class="px-4 py-4 text-emerald-300">ROUTED</td></tr>
+                <tr class="hover:bg-white/[0.03]"><td class="px-4 py-4 text-[#80919b]">00:32</td><td class="px-4 py-4 text-cyan-300">VOICE</td><td class="px-4 py-4 text-white">Preserve child series ID fallback instead of removing the defensive path.</td><td class="px-4 py-4">LiveCase</td><td class="px-4 py-4 text-amber-300">REVIEW</td></tr>
+                <tr class="hover:bg-white/[0.03]"><td class="px-4 py-4 text-[#80919b]">01:00</td><td class="px-4 py-4 text-amber-300">TASK</td><td class="px-4 py-4 text-white">Finalize the quick case format as planned.</td><td class="px-4 py-4">Echo Scribe</td><td class="px-4 py-4 text-emerald-300">DONE</td></tr>
+                <tr class="hover:bg-white/[0.03]"><td class="px-4 py-4 text-[#80919b]">01:14</td><td class="px-4 py-4 text-sky-300">REC</td><td class="px-4 py-4 text-white">Claude - Claude, 0:51, 16.6 MB.</td><td class="px-4 py-4">Website designer</td><td class="px-4 py-4 text-emerald-300">DRIVE</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <aside class="space-y-3">
+          <div class="rounded-lg border border-[#27313a] bg-[#0d1016] p-4">
+            <div class="text-[10px] text-[#80919b]">YESTERDAY_SUMMARY</div>
+            <p class="mt-3 text-xs leading-6 text-white">Strategic product design discussion focused on dashboard layout, route behavior, capture specificity, and review speed.</p>
+          </div>
+          <div class="rounded-lg border border-[#27313a] bg-[#0d1016] p-4">
+            <div class="text-[10px] text-[#80919b]">QUEUE</div>
+            <div class="mt-3 space-y-2 text-xs">
+              <div class="flex justify-between border-b border-[#27313a] pb-2"><span>UNASSIGNED</span><span class="text-amber-300">07</span></div>
+              <div class="flex justify-between border-b border-[#27313a] pb-2"><span>UPLOADS</span><span class="text-cyan-300">04</span></div>
+              <div class="flex justify-between"><span>OPEN_TASKS</span><span class="text-white">12</span></div>
+            </div>
+          </div>
+          <div class="rounded-lg border border-[#27313a] bg-[#0d1016] p-4">
+            <div class="text-[10px] text-[#80919b]">RECORDING_THUMB</div>
+            <img src="assets/current-project-feed.png" alt="" class="mt-3 h-32 w-full rounded-md object-cover opacity-80" />
+          </div>
+        </aside>
+      </main>
+    </div>
+  </div>
+  <script>lucide.createIcons();</script>
+</body>
+</html>
