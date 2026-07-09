@@ -49,6 +49,7 @@ import {
   type Background,
   type CaptionSegment as ProjectCaptionSegment,
   type EditorProject,
+  type Mask,
   type SpeedRange,
   type WebcamScene,
   type WebcamSettings,
@@ -83,6 +84,7 @@ import {
   drawCompositeBlurred,
   keystrokeBadgeAlpha,
   keystrokeBadgeAt,
+  maskRectToContent,
   masksAt,
   motionBlurSamples,
   MOTION_BLUR_SAMPLES,
@@ -127,6 +129,14 @@ function activeSpeedRate(tMs: number, ranges: SpeedRange[]): number {
   return 1;
 }
 
+/** Local numeric clamp — mirrors editorProject.ts's private `clamp` (not
+ *  exported; small enough not to warrant plumbing it through). Used by the
+ *  masks lane's free move/resize (no neighbour-stop, so the bound is just
+ *  `[lo,hi]`). */
+function clampMs(n: number, lo: number, hi: number): number {
+  return Math.max(lo, Math.min(hi, n));
+}
+
 function fmtTime(sec: number): string {
   if (!Number.isFinite(sec) || sec < 0) sec = 0;
   const m = Math.floor(sec / 60);
@@ -161,6 +171,19 @@ const PREVIEW_FRAME_INTERVAL_MS = 1000 / 30;
 /** Default length for a freshly-added "cut to camera" scene ("Add camera
  *  scene") — mirrors ZOOM_ADD_DEFAULT_LENGTH_MS / SPEED_ADD_DEFAULT_LENGTH_MS. */
 const SCENE_ADD_DEFAULT_LENGTH_MS = 3000;
+
+/** Default length/kind/rect for a freshly-added mask ("Add mask"): 3s,
+ *  pixelate, a rect centered in the capture frame at 25% of its width/height
+ *  (`{x:0.375,y:0.375,w:0.25,h:0.25}` — 0.375 + 0.25 + 0.375 = 1, so it's
+ *  exactly centered on both axes). */
+const MASK_ADD_DEFAULT_LENGTH_MS = 3000;
+const MASK_ADD_DEFAULT_RECT = { x: 0.375, y: 0.375, w: 0.25, h: 0.25 };
+
+/** Minimum mask length (ms) — masks move/resize FREELY (they may legitimately
+ *  overlap in time, unlike every other lane), so this is the ONLY time
+ *  constraint: a drag can't shrink a mask below this, matching the other
+ *  lanes' floors (SCENE_MIN_LENGTH_MS / ZOOM_MIN_LENGTH_MS / SPEED_MIN_LENGTH_MS). */
+const MASK_MIN_LENGTH_MS = 500;
 
 /**
  * Full-pane per-recording editor. Left: a live canvas preview driven by a hidden
@@ -291,6 +314,16 @@ export function EditorView({
   // mirrors `zoomBlocksRef`.
   const scenesRef = useRef<WebcamScene[]>(project.webcam?.scenes ?? []);
   scenesRef.current = project.webcam?.scenes ?? [];
+
+  // Currently-selected mask (by stable id) — mirrors `selectedSceneId`. Drives
+  // the masks-lane inspector row + chip highlight AND the on-canvas rect-edit
+  // overlay (drawn on the preview whenever a mask is selected). Cleared when
+  // the recording changes (fresh mount).
+  const [selectedMaskId, setSelectedMaskId] = useState<string | null>(null);
+  // Latest masks in a ref so pointer handlers (many events per drag) read the
+  // current list without re-subscribing per edit — mirrors `scenesRef`.
+  const masksRef = useRef<Mask[]>(project.masks);
+  masksRef.current = project.masks;
 
   // Whether this recording was captured with a webcam (a `.webcam.mp4` exists).
   // Gates the whole webcam editor section and the preview/export overlay.
@@ -1217,6 +1250,164 @@ export function EditorView({
     sceneDragRef.current = null;
   }, []);
 
+  // ---- Masks (pixelate/highlight) -----------------------------------------
+  // UNLIKE every other lane, masks move/resize FREELY: they may legitimately
+  // overlap in time (`clampMasks` preserves overlaps — see its doc), so this
+  // section does NOT reuse the generic range core's moveRange/resizeRange
+  // (which stop at neighbours to prevent overlap). Move/resize here clamp
+  // ONLY to `[0, duration]` with a `MASK_MIN_LENGTH_MS` floor — no neighbour
+  // awareness at all. EVERY write funnels through `applyMaskEdit`, which
+  // re-runs `clampMasks` before touching `setProject` — mirrors
+  // `applySceneEdit`'s single-choke-point shape exactly, just with a
+  // different (overlap-preserving) clamp function.
+  const applyMaskEdit = useCallback((fn: (masks: Mask[]) => Mask[]) => {
+    setProject((p) => {
+      const next = fn(p.masks);
+      if (next === p.masks) return p; // no-op edit
+      return { ...p, masks: clampMasks(next, durationMsRef.current || 0) };
+    });
+  }, []);
+
+  // "Add mask" at the playhead: 3s, pixelate, centered default rect. Unlike
+  // "Add camera scene" / "Add zoom", there's no `placeRange`-style slot search
+  // — masks are allowed to overlap, so the default window never needs to dodge
+  // existing masks. Deterministic id via `nextRangeId(masks, "m")`.
+  const addMask = useCallback(() => {
+    const durMs = durationMsRef.current || 0;
+    if (durMs <= 0) return;
+    const v = videoRef.current;
+    const playheadMs = v ? Math.round(v.currentTime * 1000) : 0;
+    const startMs = Math.max(0, Math.min(playheadMs, Math.max(0, durMs - MASK_ADD_DEFAULT_LENGTH_MS)));
+    const endMs = Math.min(durMs, startMs + MASK_ADD_DEFAULT_LENGTH_MS);
+    if (endMs - startMs < MASK_MIN_LENGTH_MS) return; // clip too short to fit a mask
+    const newId = nextRangeId(masksRef.current, "m");
+    const mask: Mask = {
+      id: newId,
+      startMs,
+      endMs,
+      rect: { ...MASK_ADD_DEFAULT_RECT },
+      kind: "pixelate",
+    };
+    applyMaskEdit((masks) => [...masks, mask]);
+    setSelectedMaskId(newId);
+  }, [applyMaskEdit]);
+
+  // Move a mask bodily (keeps length), clamped only to [0, duration] — no
+  // neighbour stop, mirrors `moveScene` minus the neighbour bounds.
+  const moveMask = useCallback(
+    (id: string, newStartMs: number) => {
+      applyMaskEdit((masks) => {
+        const idx = masks.findIndex((m) => m.id === id);
+        if (idx < 0) return masks;
+        const m = masks[idx];
+        const len = m.endMs - m.startMs;
+        const durMs = durationMsRef.current || 0;
+        const start = clampMs(Math.round(newStartMs), 0, Math.max(0, durMs - len));
+        if (start === m.startMs) return masks;
+        return masks.map((x, i) => (i === idx ? { ...x, startMs: start, endMs: start + len } : x));
+      });
+    },
+    [applyMaskEdit],
+  );
+
+  // Resize one edge of a mask, clamped only to [0, duration] with the
+  // MASK_MIN_LENGTH_MS floor — no neighbour stop, mirrors `resizeScene` minus
+  // the neighbour bounds.
+  const resizeMask = useCallback(
+    (id: string, edge: "start" | "end", valueMs: number) => {
+      applyMaskEdit((masks) => {
+        const idx = masks.findIndex((m) => m.id === id);
+        if (idx < 0) return masks;
+        const m = masks[idx];
+        const durMs = durationMsRef.current || 0;
+        let v = clampMs(Math.round(valueMs), 0, Math.max(0, durMs));
+        if (edge === "start") {
+          v = clampMs(v, 0, Math.max(0, m.endMs - MASK_MIN_LENGTH_MS));
+          if (v === m.startMs) return masks;
+          return masks.map((x, i) => (i === idx ? { ...x, startMs: v } : x));
+        } else {
+          v = clampMs(v, m.startMs + MASK_MIN_LENGTH_MS, Math.max(0, durMs));
+          if (v === m.endMs) return masks;
+          return masks.map((x, i) => (i === idx ? { ...x, endMs: v } : x));
+        }
+      });
+    },
+    [applyMaskEdit],
+  );
+
+  // Delete the selected mask. Clears the selection immediately (avoids a
+  // one-frame stale inspector), mirroring `deleteScene`.
+  const deleteMask = useCallback(
+    (id: string) => {
+      applyMaskEdit((masks) => masks.filter((m) => m.id !== id));
+      setSelectedMaskId(null);
+    },
+    [applyMaskEdit],
+  );
+
+  // Change the selected mask's kind (pixelate/highlight) — inspector select.
+  const setMaskKind = useCallback(
+    (id: string, kind: Mask["kind"]) => {
+      applyMaskEdit((masks) => masks.map((m) => (m.id === id ? { ...m, kind } : m)));
+    },
+    [applyMaskEdit],
+  );
+
+  // Drop a stale mask selection if it no longer exists (e.g. deleted from
+  // another path, or the recording changed). Mirrors the scene/zoom effects.
+  useEffect(() => {
+    if (selectedMaskId === null) return;
+    if (!project.masks.some((m) => m.id === selectedMaskId)) {
+      setSelectedMaskId(null);
+    }
+  }, [project.masks, selectedMaskId]);
+
+  // Masks-lane pointer drag (chip body + edges) — mirrors the camera lane
+  // exactly: same `timelineRef`/`msFromClientX`, pointer capture, and
+  // grab-offset-preserving body drag. The only difference is the underlying
+  // move/resize calls (moveMask/resizeMask — free, no neighbour stop).
+  const maskDragRef = useRef<{
+    id: string;
+    kind: "start" | "end" | "body";
+    grabOffsetMs: number;
+  } | null>(null);
+
+  const onMaskChipPointerDown = useCallback(
+    (id: string, kind: "start" | "end" | "body") =>
+      (e: React.PointerEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setSelectedMaskId(id);
+        const mask = masksRef.current.find((m) => m.id === id);
+        const grabMs = msFromClientX(e.clientX);
+        maskDragRef.current = {
+          id,
+          kind,
+          grabOffsetMs: mask ? grabMs - mask.startMs : 0,
+        };
+        (e.target as Element).setPointerCapture(e.pointerId);
+      },
+    [msFromClientX],
+  );
+
+  const onMaskPointerMove = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      const drag = maskDragRef.current;
+      if (!drag) return;
+      const ms = msFromClientX(e.clientX);
+      if (drag.kind === "body") {
+        moveMask(drag.id, ms - drag.grabOffsetMs);
+      } else {
+        resizeMask(drag.id, drag.kind, ms);
+      }
+    },
+    [msFromClientX, moveMask, resizeMask],
+  );
+
+  const onMaskPointerUp = useCallback(() => {
+    maskDragRef.current = null;
+  }, []);
+
   // ---- Zoom blocks --------------------------------------------------------
   // Every zoom edit funnels through `applyBlockEdit`, which folds first-edit
   // MATERIALIZATION into the same `setProject` call as the edit itself (one
@@ -1561,6 +1752,10 @@ export function EditorView({
     ? (project.webcam?.scenes ?? []).find((s) => s.id === selectedSceneId) ?? null
     : null;
 
+  const selectedMask = selectedMaskId
+    ? project.masks.find((m) => m.id === selectedMaskId) ?? null
+    : null;
+
   const selectedBlock = selectedBlockId
     ? effectiveBlocks.find((b) => b.id === selectedBlockId) ?? null
     : null;
@@ -1630,6 +1825,168 @@ export function EditorView({
     },
     [selectedBlock, applyBlockEdit],
   );
+
+  // Map a client point to normalized capture coords `{nx, ny}` — the SAME
+  // canvas-intrinsic-space + `canvasToCapture` inversion `onPreviewClick`
+  // uses, extracted here so the mask rect drag (move + corner resize) can
+  // reuse it. Returns null when the canvas/video aren't ready, or the point
+  // lands in the padding/letterbox band (canvasToCapture's own guard).
+  const clientPointToCapture = useCallback(
+    (clientX: number, clientY: number): { nx: number; ny: number } | null => {
+      const canvas = canvasRef.current;
+      const video = videoRef.current;
+      if (!canvas || !video) return null;
+      const vw = video.videoWidth;
+      const vh = video.videoHeight;
+      if (vw === 0 || vh === 0) return null;
+      const rect = canvas.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) return null;
+      const scale = Math.min(rect.width / canvas.width, rect.height / canvas.height);
+      const dispW = canvas.width * scale;
+      const dispH = canvas.height * scale;
+      const offX = (rect.width - dispW) / 2;
+      const offY = (rect.height - dispH) / 2;
+      const px = (clientX - rect.left - offX) / scale;
+      const py = (clientY - rect.top - offY) / scale;
+
+      const p = projectRef.current;
+      const layout = outputLayout(vw, vh, p.appearance.padding, p.appearance.aspect);
+      const tMsSource = video.currentTime * 1000;
+      const blocks = zoomBlocksRef.current;
+      const zoom = blocks.length
+        ? zoomStateAt(tMsSource, blocks)
+        : { cx: 0.5, cy: 0.5, scale: 1 };
+      return canvasToCapture(px, py, layout, zoom);
+    },
+    [],
+  );
+
+  // Selected mask's on-canvas rect-edit box: move (drag inside) + resize
+  // (drag a corner handle), mapped via `clientPointToCapture` and clamped to
+  // [0,1] by `applyMaskEdit`'s `clampMasks` pass. Drag state records which
+  // corner (if any) is being resized and the grab offset (for a body move,
+  // so the rect doesn't jump to re-center under the cursor).
+  const maskRectDragRef = useRef<{
+    id: string;
+    corner: "nw" | "ne" | "sw" | "se" | null; // null = body move
+    grabDx: number; // grab point minus rect.x, in normalized capture coords
+    grabDy: number;
+  } | null>(null);
+
+  const onMaskRectPointerDown = useCallback(
+    (corner: "nw" | "ne" | "sw" | "se" | null) =>
+      (e: React.PointerEvent<HTMLDivElement>) => {
+        const mask = selectedMask;
+        if (!mask) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const hit = clientPointToCapture(e.clientX, e.clientY);
+        maskRectDragRef.current = {
+          id: mask.id,
+          corner,
+          grabDx: hit ? hit.nx - mask.rect.x : 0,
+          grabDy: hit ? hit.ny - mask.rect.y : 0,
+        };
+        (e.target as Element).setPointerCapture(e.pointerId);
+      },
+    [selectedMask, clientPointToCapture],
+  );
+
+  const onMaskRectPointerMove = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      const drag = maskRectDragRef.current;
+      if (!drag) return;
+      const hit = clientPointToCapture(e.clientX, e.clientY);
+      if (!hit) return;
+      applyMaskEdit((masks) => {
+        const idx = masks.findIndex((m) => m.id === drag.id);
+        if (idx < 0) return masks;
+        const m = masks[idx];
+        if (drag.corner === null) {
+          // Body move: keep w/h, reposition x/y so the grab point stays under
+          // the cursor. clampMasks clamps x/y into [0,1] (and w/h to fit).
+          const x = hit.nx - drag.grabDx;
+          const y = hit.ny - drag.grabDy;
+          return masks.map((mm, i) => (i === idx ? { ...mm, rect: { ...mm.rect, x, y } } : mm));
+        }
+        // Corner resize: the dragged corner moves to the cursor; the OPPOSITE
+        // corner stays fixed. Compute the fixed corner from the current rect,
+        // then derive x/y/w/h from (fixed, dragged) — clampMasks handles any
+        // resulting negative w/h... but to keep the box well-formed while
+        // dragging (not just after clamp), normalize here too.
+        const fixedX = drag.corner.includes("e") ? m.rect.x : m.rect.x + m.rect.w;
+        const fixedY = drag.corner.includes("s") ? m.rect.y : m.rect.y + m.rect.h;
+        const nx = clampMs(hit.nx, 0, 1);
+        const ny = clampMs(hit.ny, 0, 1);
+        const x = Math.min(fixedX, nx);
+        const y = Math.min(fixedY, ny);
+        const w = Math.abs(nx - fixedX);
+        const h = Math.abs(ny - fixedY);
+        return masks.map((mm, i) => (i === idx ? { ...mm, rect: { x, y, w, h } } : mm));
+      });
+    },
+    [applyMaskEdit, clientPointToCapture],
+  );
+
+  const onMaskRectPointerUp = useCallback(() => {
+    maskRectDragRef.current = null;
+  }, []);
+
+  // Selected mask's edit-box geometry, in CSS px relative to the canvas
+  // element's own on-screen box (so it can be rendered as an absolutely
+  // positioned sibling of <canvas> inside the same `relative` wrapper).
+  // Forward-maps the mask's normalized rect to canvas-intrinsic content
+  // pixels via `maskRectToContent` (the SAME forward map the compositor uses
+  // to draw the mask effect itself — see its doc), then converts intrinsic
+  // canvas px -> on-screen CSS px with the object-contain scale/offset
+  // (mirrors `clientPointToCapture`'s inverse of the same transform).
+  // Recomputed on every render — `getBoundingClientRect` is cheap and
+  // `current` already re-renders every rAF tick during playback, so the box
+  // tracks zoom pan/scale live. Null when there's no selection or the canvas
+  // isn't laid out yet (nothing to draw).
+  let maskRectBoxStyle: React.CSSProperties | null = null;
+  if (selectedMask) {
+    const canvas = canvasRef.current;
+    const video = videoRef.current;
+    if (canvas && video && video.videoWidth > 0 && video.videoHeight > 0 && canvas.width > 0) {
+      const rect = canvas.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        const p = projectRef.current;
+        const layout = outputLayout(
+          video.videoWidth,
+          video.videoHeight,
+          p.appearance.padding,
+          p.appearance.aspect,
+        );
+        const tMsSource = video.currentTime * 1000;
+        const blocks = zoomBlocksRef.current;
+        const zoom = blocks.length
+          ? zoomStateAt(tMsSource, blocks)
+          : { cx: 0.5, cy: 0.5, scale: 1 };
+        const content = maskRectToContent(
+          selectedMask.rect,
+          zoom,
+          layout.contentX,
+          layout.contentY,
+          layout.contentW,
+          layout.contentH,
+        );
+        if (content) {
+          const scale = Math.min(rect.width / canvas.width, rect.height / canvas.height);
+          const dispW = canvas.width * scale;
+          const dispH = canvas.height * scale;
+          const offX = (rect.width - dispW) / 2;
+          const offY = (rect.height - dispH) / 2;
+          maskRectBoxStyle = {
+            left: offX + content.x * scale,
+            top: offY + content.y * scale,
+            width: content.w * scale,
+            height: content.h * scale,
+          };
+        }
+      }
+    }
+  }
 
   const bg = project.appearance.background;
 
@@ -1837,6 +2194,41 @@ export function EditorView({
             {pickMode ? (
               <div className="pointer-events-none absolute left-1/2 top-2 -translate-x-1/2 rounded-full border border-accent/60 bg-black/60 px-2.5 py-1 text-[11px] font-medium text-accent shadow-sm">
                 Click to set zoom center
+              </div>
+            ) : null}
+            {/* Selected mask's rect-edit box: an EDIT AFFORDANCE overlay (the
+                compositor already renders the mask effect itself, under this
+                box) — drag the body to move, a corner handle to resize. Both
+                map the pointer through `clientPointToCapture` (the inverse of
+                the same forward transform `maskRectBoxStyle` uses), and every
+                write clamps to [0,1] via `applyMaskEdit`'s `clampMasks` pass. */}
+            {selectedMask && maskRectBoxStyle ? (
+              <div
+                onPointerDown={onMaskRectPointerDown(null)}
+                onPointerMove={onMaskRectPointerMove}
+                onPointerUp={onMaskRectPointerUp}
+                onPointerCancel={onMaskRectPointerUp}
+                className="absolute cursor-move touch-none border-2 border-rose-400 bg-rose-400/10"
+                style={maskRectBoxStyle}
+              >
+                {(["nw", "ne", "sw", "se"] as const).map((corner) => (
+                  <div
+                    key={corner}
+                    onPointerDown={onMaskRectPointerDown(corner)}
+                    onPointerMove={onMaskRectPointerMove}
+                    onPointerUp={onMaskRectPointerUp}
+                    onPointerCancel={onMaskRectPointerUp}
+                    className={`absolute h-3 w-3 touch-none rounded-full border-2 border-rose-400 bg-white ${
+                      corner === "nw"
+                        ? "-left-1.5 -top-1.5 cursor-nwse-resize"
+                        : corner === "ne"
+                          ? "-right-1.5 -top-1.5 cursor-nesw-resize"
+                          : corner === "sw"
+                            ? "-bottom-1.5 -left-1.5 cursor-nesw-resize"
+                            : "-bottom-1.5 -right-1.5 cursor-nwse-resize"
+                    }`}
+                  />
+                ))}
               </div>
             ) : null}
           </div>
@@ -2181,6 +2573,69 @@ export function EditorView({
                   </div>
                 </div>
               ) : null}
+
+              {/* Masks lane: privacy/emphasis masks as chips, mirroring the
+                  camera lane's x-mapping/pointer machinery (same
+                  timelineRef/msFromClientX; pointer capture; grab-offset body
+                  drag) — but move/resize FREELY (moveMask/resizeMask clamp
+                  only to [0,duration] with a MASK_MIN_LENGTH_MS floor, no
+                  neighbour stop), since masks may legitimately overlap in
+                  time. Gated on nothing special — masks apply to any
+                  recording. */}
+              <div className="mt-2">
+                <div className="mb-1 flex items-center justify-between text-[11px] text-muted">
+                  <span>Masks</span>
+                </div>
+                <div className="relative h-7 w-full touch-none select-none rounded-md border border-line bg-surface/60">
+                  {project.masks.length === 0 ? (
+                    <div className="pointer-events-none absolute inset-0 grid place-items-center text-[11px] text-muted/60">
+                      No masks — add one below
+                    </div>
+                  ) : (
+                    project.masks.map((m) => {
+                      const leftPct = (m.startMs / (duration * 1000)) * 100;
+                      const widthPct = ((m.endMs - m.startMs) / (duration * 1000)) * 100;
+                      const selected = m.id === selectedMaskId;
+                      return (
+                        <div
+                          key={m.id}
+                          onPointerDown={onMaskChipPointerDown(m.id, "body")}
+                          onPointerMove={onMaskPointerMove}
+                          onPointerUp={onMaskPointerUp}
+                          onPointerCancel={onMaskPointerUp}
+                          title={`${m.kind === "pixelate" ? "Pixelate" : "Highlight"} mask ${fmtTimeDs(m.startMs)}–${fmtTimeDs(m.endMs)}`}
+                          className={`absolute inset-y-0.5 flex cursor-grab items-center justify-center overflow-hidden rounded-sm border text-[10px] font-medium active:cursor-grabbing ${
+                            selected
+                              ? "border-accent bg-accent/40 text-fg ring-1 ring-accent"
+                              : "border-rose-500/50 bg-rose-500/25 text-rose-200"
+                          }`}
+                          style={{ left: `${leftPct}%`, width: `${Math.max(widthPct, 1)}%` }}
+                        >
+                          <span className="pointer-events-none truncate px-2">
+                            {m.kind === "pixelate" ? "Pixelate" : "Highlight"}
+                          </span>
+                          {/* Left resize edge */}
+                          <div
+                            onPointerDown={onMaskChipPointerDown(m.id, "start")}
+                            onPointerMove={onMaskPointerMove}
+                            onPointerUp={onMaskPointerUp}
+                            onPointerCancel={onMaskPointerUp}
+                            className="absolute inset-y-0 left-0 w-1.5 cursor-ew-resize bg-black/20 hover:bg-black/40"
+                          />
+                          {/* Right resize edge */}
+                          <div
+                            onPointerDown={onMaskChipPointerDown(m.id, "end")}
+                            onPointerMove={onMaskPointerMove}
+                            onPointerUp={onMaskPointerUp}
+                            onPointerCancel={onMaskPointerUp}
+                            className="absolute inset-y-0 right-0 w-1.5 cursor-ew-resize bg-black/20 hover:bg-black/40"
+                          />
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
             </div>
           ) : null}
         </div>
@@ -2889,6 +3344,65 @@ export function EditorView({
               )}
             </>
           ) : null}
+
+          {/* Masks section: "Add mask" (3s pixelate mask, centered, at the
+              playhead) and an inspector (kind select + delete) for the
+              selected mask — mirrors the camera-scene "Add" button +
+              inspector pattern. Gated on nothing special (masks apply to any
+              recording). */}
+          <h3 className="mb-4 mt-6 border-t border-line pt-4 text-[13px] font-semibold">
+            Masks
+          </h3>
+          <div className="mb-3 flex gap-2">
+            <button
+              onClick={addMask}
+              disabled={duration <= 0}
+              className="flex flex-1 items-center justify-center gap-1.5 rounded-md border border-line px-3 py-1.5 text-[12px] font-medium hover:bg-surface disabled:opacity-50"
+            >
+              <Plus size={14} /> Add mask
+            </button>
+          </div>
+
+          {selectedMask ? (
+            <div className="mb-2 rounded-md border border-line bg-surface/40 p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="rounded-full bg-rose-500/25 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-rose-300">
+                  {fmtTimeDs(selectedMask.startMs)} – {fmtTimeDs(selectedMask.endMs)}
+                </span>
+                <button
+                  onClick={() => deleteMask(selectedMask.id)}
+                  className="flex items-center gap-1 rounded-md border border-line px-2 py-0.5 text-[11px] font-medium text-fg hover:bg-surface"
+                >
+                  <Trash2 size={12} /> Delete
+                </button>
+              </div>
+
+              <div className="mb-1 text-[12px] text-muted">Kind</div>
+              <div className="mb-2 flex gap-2">
+                <button
+                  className={seg(selectedMask.kind === "pixelate")}
+                  onClick={() => setMaskKind(selectedMask.id, "pixelate")}
+                >
+                  Pixelate
+                </button>
+                <button
+                  className={seg(selectedMask.kind === "highlight")}
+                  onClick={() => setMaskKind(selectedMask.id, "highlight")}
+                >
+                  Highlight
+                </button>
+              </div>
+
+              <p className="text-[11px] leading-snug text-muted/80">
+                Drag the chip to move it, its edges to resize. On the preview,
+                drag the box to move it, a corner to resize.
+              </p>
+            </div>
+          ) : (
+            <p className="mb-2 text-[11px] leading-snug text-muted/80">
+              Select a mask on the timeline to edit it.
+            </p>
+          )}
         </div>
       </div>
     </div>
