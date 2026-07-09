@@ -3448,7 +3448,18 @@ pub async fn start_screen_recording(
     source_label: String,
     hide_cursor: Option<bool>,
     camera_uid: Option<String>,
+    rect: Option<Vec<f64>>,
 ) -> Result<(), String> {
+    // Validate the optional crop rect up front: `[x, y, w, h]` (global points).
+    // A malformed rect is a caller bug, so fail with a friendly message before
+    // spawning anything rather than silently ignoring it. `None` = full display.
+    let rect = match rect {
+        Some(v) => Some(crate::screenrec::rect_from_vec(&v).map_err(|e| {
+            warn!(target: "screenrec", err = %e, "invalid crop rect");
+            "Couldn't start the area recording: the selected region is invalid.".to_string()
+        })?),
+        None => None,
+    };
     // Resolve the Camera TCC grant up front when a webcam was requested. If
     // the grant is missing, ask macOS now — this prompts on a fresh state and
     // returns the cached decision otherwise, so a setup flow that never
@@ -3497,6 +3508,7 @@ pub async fn start_screen_recording(
         sysaudio,
         hide_cursor,
         camera_uid: camera_uid.clone(),
+        rect,
     };
     let handle = crate::screenrec::ScreenrecHandle::start(out_path, params)?;
     let meta = RecordingMeta {

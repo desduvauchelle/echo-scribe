@@ -364,6 +364,9 @@ var argMicUID: String?
 var argEventsPath: String?
 var argHideCursor: Bool = false
 var argCameraUID: String?
+// Area (region-of-display) capture rect: `x,y,w,h` in GLOBAL points, top-left
+// origin. Valid only with --display; ignored on the window path. nil = full display.
+var argRect: CGRect?
 do {
     let args = CommandLine.arguments
     var i = 1
@@ -382,6 +385,19 @@ do {
         // Video-only (mic is already in the main mix); failures degrade to a
         // warn event and the recording continues without a webcam file.
         else if args[i] == "--camera", i + 1 < args.count { argCameraUID = args[i + 1]; i += 1 }
+        // Area capture: crop to a sub-rect of the display. Parsed as four
+        // comma-separated points `x,y,w,h` (global, top-left). A malformed
+        // value is rejected up front so we never silently full-screen a
+        // requested area recording.
+        else if args[i] == "--rect", i + 1 < args.count {
+            let parts = args[i + 1].split(separator: ",").map { Double($0) }
+            if parts.count == 4, let x = parts[0], let y = parts[1], let w = parts[2], let h = parts[3] {
+                argRect = CGRect(x: x, y: y, width: w, height: h)
+            } else {
+                emitFatal("bad_rect", "invalid --rect '\(args[i + 1])' (want x,y,w,h)")
+            }
+            i += 1
+        }
         i += 1
     }
 }
@@ -1086,6 +1102,23 @@ final class Pinned {
     var termSource: DispatchSourceSignal?
 }
 
+// Clamp a crop `rect` (global points, top-left origin) to `display`'s bounds
+// (same space). Origin is pulled to the nearest edge; the far edge clamps down
+// so the rect never extends past the display. Returns nil when nothing remains
+// (zero area) so the caller can emit a `bad_rect` fatal. Mirrors the Rust
+// `clamp_rect_to_display`; keep the two in sync.
+func clampRectToDisplay(_ rect: CGRect, _ display: CGRect) -> CGRect? {
+    if rect.width <= 0 || rect.height <= 0 { return nil }
+    let x0 = min(max(rect.minX, display.minX), display.maxX)
+    let y0 = min(max(rect.minY, display.minY), display.maxY)
+    let x1 = min(max(rect.maxX, display.minX), display.maxX)
+    let y1 = min(max(rect.maxY, display.minY), display.maxY)
+    let w = x1 - x0
+    let h = y1 - y0
+    if w <= 0 || h <= 0 { return nil }
+    return CGRect(x: x0, y: y0, width: w, height: h)
+}
+
 // Clamp (w, h) so the long edge ≤ 3840, then enforce even dimensions for H.264.
 func clampDims(_ w: Int, _ h: Int) -> (Int, Int) {
     var capW = w
@@ -1114,6 +1147,7 @@ func run() async {
             "arg_display": argDisplayID.map { Int($0) } as Any,
             "no_sysaudio": argNoSysaudio, "mic": argMicUID ?? "",
             "hide_cursor": argHideCursor, "camera": argCameraUID ?? "",
+            "arg_rect": argRect.map { [$0.minX, $0.minY, $0.width, $0.height] } as Any,
             "n_windows": content.windows.count, "n_displays": content.displays.count,
         ])
 
@@ -1191,19 +1225,58 @@ func run() async {
                 emitFatal("no_display", "no shareable display")
             }
             filter = SCContentFilter(display: display, excludingApplications: excluded, exceptingWindows: [])
-            // Capture at the display's true pixel resolution, but clamp the long
-            // edge so we never exceed the H.264 encoder's maximum frame size. An
-            // oversized frame makes AVAssetWriter fail on the first append and
-            // produce a 0-byte file (observed on a 5120-wide display where the old
-            // `display.width * 2` = 10240 exceeded the encoder limit).
+            // Point→pixel scale from the native pixel width (SCDisplay.frame is
+            // in points, cfg.width/height are pixels). Used for both the full
+            // display and the crop path below.
             let mode = CGDisplayCopyDisplayMode(display.displayID)
-            let (w, h) = clampDims(mode?.pixelWidth ?? display.width, mode?.pixelHeight ?? display.height)
-            capW = w; capH = h
-            // SCDisplay.frame is the display's rect in points (top-left origin,
-            // global). Derive the point→pixel scale from the native pixel width.
-            captureRectPoints = display.frame
+            let pixelW = mode?.pixelWidth ?? display.width
+            let pixelH = mode?.pixelHeight ?? display.height
             let pointsW = Double(display.width)
-            pxScaleForEvents = pointsW > 0 ? Double(mode?.pixelWidth ?? display.width) / pointsW : 1.0
+            let pxScale = pointsW > 0 ? Double(pixelW) / pointsW : 1.0
+            pxScaleForEvents = pxScale
+
+            if let requested = argRect {
+                // Area (region-of-display) capture. Clamp the requested global-
+                // points rect to the display, then crop via sourceRect. A rect
+                // that lands fully off the display (zero area after clamping) is
+                // a hard error — nothing to capture.
+                guard let crop = clampRectToDisplay(requested, display.frame) else {
+                    emitFatal("bad_rect", "rect \(requested) is outside display \(display.frame)")
+                }
+                if crop != requested {
+                    emit(["event": "diag", "phase": "rect_clamped",
+                          "requested": [requested.minX, requested.minY, requested.width, requested.height],
+                          "clamped": [crop.minX, crop.minY, crop.width, crop.height]])
+                }
+                // SCStreamConfiguration.sourceRect is in DISPLAY-LOCAL points
+                // (top-left origin), so subtract the display's global origin.
+                cfg.sourceRect = CGRect(
+                    x: crop.minX - display.frame.minX,
+                    y: crop.minY - display.frame.minY,
+                    width: crop.width,
+                    height: crop.height
+                )
+                // cfg.width/height are the crop size in pixels (× pxScale),
+                // long-edge-capped + even-rounded like the full-display path.
+                let (w, h) = clampDims(Int((crop.width * pxScale).rounded()),
+                                       Int((crop.height * pxScale).rounded()))
+                capW = w; capH = h
+                // Events header rect is the CROP rect in global points; kind stays
+                // "display" so click normalization (x-rx)/rw maps into the crop.
+                captureRectPoints = crop
+            } else {
+                // Full-display capture at true pixel resolution, but clamp the
+                // long edge so we never exceed the H.264 encoder's maximum frame
+                // size. An oversized frame makes AVAssetWriter fail on the first
+                // append and produce a 0-byte file (observed on a 5120-wide
+                // display where the old `display.width * 2` = 10240 exceeded the
+                // encoder limit).
+                let (w, h) = clampDims(pixelW, pixelH)
+                capW = w; capH = h
+                // SCDisplay.frame is the display's rect in points (top-left
+                // origin, global).
+                captureRectPoints = display.frame
+            }
         }
 
         cfg.width = capW

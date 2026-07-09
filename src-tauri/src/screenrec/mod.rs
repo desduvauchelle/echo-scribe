@@ -926,6 +926,55 @@ pub fn recordings_dir() -> std::io::Result<PathBuf> {
     Ok(dir)
 }
 
+/// Validate a caller-supplied crop rect vector (`[x, y, w, h]`, global points).
+/// Returns the tuple on success, or a short friendly error describing why it was
+/// rejected (wrong length, or a non-positive width/height). The area-vs-display
+/// clamping is a separate concern handled sidecar-side (see
+/// [`clamp_rect_to_display`]); this only guards the shape and sign of the input.
+pub fn rect_from_vec(v: &[f64]) -> Result<(f64, f64, f64, f64), String> {
+    if v.len() != 4 {
+        return Err(format!(
+            "rect must be [x, y, width, height] (4 numbers), got {}",
+            v.len()
+        ));
+    }
+    let (x, y, w, h) = (v[0], v[1], v[2], v[3]);
+    if !(w > 0.0) || !(h > 0.0) {
+        return Err("rect width and height must be positive".to_string());
+    }
+    Ok((x, y, w, h))
+}
+
+/// Clamp a crop `rect` (`(x, y, w, h)`, global points, top-left origin) to the
+/// bounds of `display` (same coordinate space). Origin is pulled to the nearest
+/// edge and the size shrunk so the far edge never exceeds the display; the far
+/// edge is held fixed when the origin moves inward. Returns `None` when the
+/// input size is non-positive or nothing remains after clamping (zero area) —
+/// the sidecar treats that as a `bad_rect` fatal. Mirrors the Swift
+/// `clampRectToDisplay` used on the capture path; keep the two in sync.
+pub fn clamp_rect_to_display(
+    rect: (f64, f64, f64, f64),
+    display: (f64, f64, f64, f64),
+) -> Option<(f64, f64, f64, f64)> {
+    let (rx, ry, rw, rh) = rect;
+    if rw <= 0.0 || rh <= 0.0 {
+        return None;
+    }
+    let (dx, dy, dw, dh) = display;
+    let (d_right, d_bottom) = (dx + dw, dy + dh);
+    // Right/bottom edges of the requested rect, then clamp each edge into the
+    // display. Origin clamps up to the near edge; far edge clamps down.
+    let x0 = rx.max(dx).min(d_right);
+    let y0 = ry.max(dy).min(d_bottom);
+    let x1 = (rx + rw).max(dx).min(d_right);
+    let y1 = (ry + rh).max(dy).min(d_bottom);
+    let (w, h) = (x1 - x0, y1 - y0);
+    if w <= 0.0 || h <= 0.0 {
+        return None;
+    }
+    Some((x0, y0, w, h))
+}
+
 /// Parameters for a new recording session.
 #[derive(Debug, Clone, Default)]
 pub struct RecordParams {
@@ -945,6 +994,11 @@ pub struct RecordParams {
     /// Camera device uid to record alongside the main capture (`--camera
     /// <uid>`). `None` means no webcam recording (identical spawn to today).
     pub camera_uid: Option<String>,
+    /// Crop region (`(x, y, w, h)`, global points, top-left origin) to capture
+    /// instead of the whole display. Valid only on the display path (ignored
+    /// with `--window`). `None` means full-display capture — the spawn is then
+    /// byte-identical to before this field existed.
+    pub rect: Option<(f64, f64, f64, f64)>,
 }
 
 /// A running screen recording. Holds the child process and the path it is
@@ -995,6 +1049,13 @@ impl ScreenrecHandle {
         }
         if let Some(ref uid) = params.camera_uid {
             cmd.arg("--camera").arg(uid);
+        }
+        // Area (region-of-display) capture. Appended ONLY when set, so a
+        // full-display call produces a byte-identical spawn to before this
+        // param existed. Format `x,y,w,h` in global points; the sidecar
+        // clamps it to the display and crops via SCStreamConfiguration.sourceRect.
+        if let Some((x, y, w, h)) = params.rect {
+            cmd.arg("--rect").arg(format!("{x},{y},{w},{h}"));
         }
         let mut child = cmd
             .stdout(Stdio::null())
@@ -1252,6 +1313,88 @@ mod tests {
     fn parse_export_done_ignores_other_events() {
         assert!(parse_export_done(r#"{"event":"progress","pct":50}"#).is_none());
         assert!(parse_export_done("not json").is_none());
+    }
+
+    // ---- clamp_rect_to_display -------------------------------------------
+
+    #[test]
+    fn clamp_rect_fully_inside_is_unchanged() {
+        // A rect wholly within a primary (origin 0,0) display is returned as-is.
+        let display = (0.0, 0.0, 1920.0, 1080.0);
+        let got = clamp_rect_to_display((100.0, 100.0, 800.0, 600.0), display);
+        assert_eq!(got, Some((100.0, 100.0, 800.0, 600.0)));
+    }
+
+    #[test]
+    fn clamp_rect_overhang_clamps_size_to_display_edge() {
+        // Rect extends past the right/bottom edges: width/height shrink so it
+        // ends exactly at the display's far edges, origin unchanged.
+        let display = (0.0, 0.0, 1920.0, 1080.0);
+        let got = clamp_rect_to_display((1800.0, 1000.0, 500.0, 500.0), display);
+        assert_eq!(got, Some((1800.0, 1000.0, 120.0, 80.0)));
+    }
+
+    #[test]
+    fn clamp_rect_negative_origin_moves_into_display() {
+        // Origin before the display's top-left is pulled to the edge; width is
+        // reduced by the same amount so the far edge stays put.
+        let display = (0.0, 0.0, 1920.0, 1080.0);
+        let got = clamp_rect_to_display((-50.0, -30.0, 400.0, 300.0), display);
+        // x: -50 -> 0 (lost 50 of width -> 350); y: -30 -> 0 (lost 30 -> 270).
+        assert_eq!(got, Some((0.0, 0.0, 350.0, 270.0)));
+    }
+
+    #[test]
+    fn clamp_rect_respects_nonzero_display_origin() {
+        // A second display sits at global (1920, -200). A rect given in global
+        // points must clamp against that display's actual frame, not (0,0).
+        let display = (1920.0, -200.0, 1920.0, 1080.0);
+        // Fully inside the second display -> unchanged.
+        let inside = clamp_rect_to_display((2000.0, -100.0, 400.0, 300.0), display);
+        assert_eq!(inside, Some((2000.0, -100.0, 400.0, 300.0)));
+        // Overhanging the right edge (1920+1920 = 3840): width clamps to 3840-3600=240.
+        let over = clamp_rect_to_display((3600.0, 0.0, 500.0, 200.0), display);
+        assert_eq!(over, Some((3600.0, 0.0, 240.0, 200.0)));
+    }
+
+    #[test]
+    fn clamp_rect_zero_area_after_clamp_is_none() {
+        let display = (0.0, 0.0, 1920.0, 1080.0);
+        // Origin at/after the far edge -> nothing left to capture.
+        assert_eq!(clamp_rect_to_display((1920.0, 0.0, 100.0, 100.0), display), None);
+        assert_eq!(clamp_rect_to_display((0.0, 1080.0, 100.0, 100.0), display), None);
+        // Origin entirely off the near side by more than its size -> empty.
+        assert_eq!(clamp_rect_to_display((-500.0, 0.0, 400.0, 100.0), display), None);
+    }
+
+    #[test]
+    fn clamp_rect_nonpositive_input_size_is_none() {
+        let display = (0.0, 0.0, 1920.0, 1080.0);
+        assert_eq!(clamp_rect_to_display((10.0, 10.0, 0.0, 100.0), display), None);
+        assert_eq!(clamp_rect_to_display((10.0, 10.0, 100.0, -5.0), display), None);
+    }
+
+    // ---- rect_from_vec ---------------------------------------------------
+
+    #[test]
+    fn rect_from_vec_accepts_len_4() {
+        assert_eq!(
+            rect_from_vec(&[1.0, 2.0, 3.0, 4.0]),
+            Ok((1.0, 2.0, 3.0, 4.0))
+        );
+    }
+
+    #[test]
+    fn rect_from_vec_rejects_wrong_len() {
+        assert!(rect_from_vec(&[1.0, 2.0, 3.0]).is_err());
+        assert!(rect_from_vec(&[1.0, 2.0, 3.0, 4.0, 5.0]).is_err());
+        assert!(rect_from_vec(&[]).is_err());
+    }
+
+    #[test]
+    fn rect_from_vec_rejects_nonpositive_size() {
+        assert!(rect_from_vec(&[0.0, 0.0, 0.0, 100.0]).is_err());
+        assert!(rect_from_vec(&[0.0, 0.0, 100.0, -1.0]).is_err());
     }
 
     // ---- trim_wav_samples ------------------------------------------------

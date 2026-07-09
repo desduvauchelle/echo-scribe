@@ -1175,6 +1175,9 @@ export const startScreenRecording = (p: {
   source_label: string;
   hide_cursor?: boolean | null;
   camera_uid?: string | null;
+  /** Crop region [x, y, w, h] in global points (top-left origin). Display-path
+   *  only; ignored with a window source. Omit/null for full-display capture. */
+  rect?: [number, number, number, number] | null;
 }): Promise<void> =>
   invoke("start_screen_recording", {
     displayId: p.display_id ?? null,
@@ -1184,6 +1187,7 @@ export const startScreenRecording = (p: {
     sourceLabel: p.source_label,
     hideCursor: p.hide_cursor ?? null,
     cameraUid: p.camera_uid ?? null,
+    rect: p.rect ?? null,
   });
 export const stopScreenRecording = (): Promise<RecordingRow> =>
   invoke("stop_screen_recording");
