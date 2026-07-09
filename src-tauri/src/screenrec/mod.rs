@@ -1749,10 +1749,14 @@ mod tests {
 
     #[test]
     fn normalize_peaks_never_exceed_ceiling() {
-        // After the soft-knee limiter at −1 dBFS, no output sample may exceed
-        // the ceiling (−1 dBFS ≈ 0.891 of full scale). Use a quiet input so
-        // the big normalization gain would blow past full scale WITHOUT the
-        // limiter — proving the limiter, not luck, holds the ceiling.
+        // A plain low-amplitude sine has a crest factor (peak/RMS) of only
+        // √2 ≈ 1.414. Even after the full ×4 (MAX_GAIN) boost, its post-gain
+        // peak stays well under the −1 dBFS ceiling (≈0.891 of full scale),
+        // so the soft-knee limiter branch never actually runs here — it's the
+        // MAX_GAIN clamp alone that keeps this particular signal under the
+        // ceiling, not the limiter. See
+        // `normalize_limiter_engages_on_high_crest_transient` below for a
+        // signal that genuinely drives the limiter.
         let samples = sine_48k(1.0, 0.03);
         let src = write_test_wav("norm-ceil-in", 48_000, &samples);
         let dst = write_test_wav("norm-ceil-out", 48_000, &[]);
@@ -1766,6 +1770,73 @@ mod tests {
             peak <= ceiling + 1e-3,
             "output peak {peak} exceeded the −1 dBFS ceiling {ceiling}"
         );
+        let _ = std::fs::remove_file(&src);
+        let _ = std::fs::remove_file(&dst);
+    }
+
+    #[test]
+    fn normalize_limiter_engages_on_high_crest_transient() {
+        // The soft-knee limiter only engages when the POST-GAIN signal's peak
+        // exceeds the −1 dBFS ceiling, which requires a crest factor (peak /
+        // RMS) above ≈5.62 (ceiling / MAX_GAIN-headroom math). A pure sine
+        // (crest 1.414) can never trip it — see the comment on
+        // `normalize_peaks_never_exceed_ceiling`. This test builds a
+        // genuinely high-crest-factor signal instead: a quiet speech-like
+        // sine bed (amp 0.02, well under the gate's boost threshold) with
+        // periodic near-full-scale transient spikes (amp 0.98) punched in
+        // every 100 ms. The gated-RMS measure is dominated by the quiet bed
+        // (the sparse spikes barely move it), so the clip still earns the
+        // full ×4 MAX_GAIN boost — driving the spikes' post-gain magnitude to
+        // ~3.92, far past the ~0.891 ceiling. That forces the limiter branch
+        // to actually run (`report.limited == true`), and every output
+        // sample must still land within i16 range (the limiter's documented
+        // contract keeps it in `(ceiling, 1.0)` of full scale — see the
+        // soft-knee comment in `normalize_samples`).
+        let sr = 48_000usize;
+        let secs = 1.0;
+        let n = (secs * sr as f64) as usize;
+        let base_amp = 0.02;
+        let spike_amp = 0.98;
+        let spike_width = 4; // samples
+        let spike_period = 4_800; // every 100 ms
+        let mut samples: Vec<i16> = (0..n)
+            .map(|i| {
+                let t = i as f64 / sr as f64;
+                let v = base_amp * (2.0 * std::f64::consts::PI * 220.0 * t).sin();
+                (v * i16::MAX as f64).round().clamp(i16::MIN as f64, i16::MAX as f64) as i16
+            })
+            .collect();
+        let mut start = 0usize;
+        while start < n {
+            for k in 0..spike_width {
+                let idx = start + k;
+                if idx >= n {
+                    break;
+                }
+                let v = if k % 2 == 0 { spike_amp } else { -spike_amp };
+                samples[idx] = (v * i16::MAX as f64).round() as i16;
+            }
+            start += spike_period;
+        }
+
+        let src = write_test_wav("norm-limiter-in", 48_000, &samples);
+        let dst = write_test_wav("norm-limiter-out", 48_000, &[]);
+        let report = normalize_wav_loudness(&src, &dst).unwrap();
+        let got = read_test_wav_samples(&dst);
+
+        assert!(
+            report.limited,
+            "high-crest-factor transient should have engaged the soft-knee limiter"
+        );
+        // Every output sample must stay within i16 full-scale bounds — the
+        // limiter's documented guarantee (soft knee compresses asymptotically
+        // toward, but never past, full scale).
+        let peak = peak_dbfs_frac(&got);
+        assert!(
+            peak <= 1.0 + 1e-6,
+            "output peak {peak} exceeded full scale despite the limiter"
+        );
+
         let _ = std::fs::remove_file(&src);
         let _ = std::fs::remove_file(&dst);
     }
@@ -1796,7 +1867,7 @@ mod tests {
             .map(|(&a, &b)| (a as i32 - b as i32).abs())
             .max()
             .unwrap_or(0);
-        assert!(max_dev <= 2048, "round-trip drift too large: {max_dev}");
+        assert!(max_dev <= 16, "round-trip drift too large: {max_dev}");
         let _ = std::fs::remove_file(&src);
         let _ = std::fs::remove_file(&dst);
     }
