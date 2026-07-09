@@ -18,6 +18,7 @@ pub mod daily_summaries;
 pub mod events;
 pub mod guide_templates;
 pub mod items;
+pub mod meeting_guide_runs;
 pub mod meetings;
 pub mod project_tag_jobs;
 pub mod projects;
