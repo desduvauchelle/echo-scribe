@@ -10,11 +10,15 @@ import {
   outputLayout,
   canvasToCapture,
   keystrokeBadgeAt,
+  captionAt,
+  CAPTION_STRIP_HEIGHT_FRAC,
+  keystrokeBottomMargin,
   type CursorSample,
   type OutputLayout,
   type ZoomState,
 } from "../src/lib/render/compositor";
 import type { ZoomBlock, EventsHeader, RecEvent } from "../src/lib/autoZoom";
+import type { CaptionSegment } from "../src/lib/editorProject";
 
 const block: ZoomBlock = { startMs: 2000, endMs: 6000, cx: 0.3, cy: 0.7, scale: 2, mode: "auto" };
 
@@ -822,5 +826,106 @@ describe("keystrokeBadgeAt", () => {
     const events = [keyEv(1000, 0x01, ["cmd"]), keyEv(1100, 0x01, ["cmd"])];
     const badge = keystrokeBadgeAt(1150, events, { allKeys: false });
     expect(badge!.label).toBe("⌘S");
+  });
+});
+
+describe("captionAt", () => {
+  const seg = (startMs: number, endMs: number, text: string): CaptionSegment => ({
+    startMs,
+    endMs,
+    text,
+  });
+
+  test("no segments -> null", () => {
+    expect(captionAt(1000, [])).toBeNull();
+  });
+
+  test("time inside a segment returns its text", () => {
+    const segments = [seg(1000, 2000, "hello world")];
+    expect(captionAt(1500, segments)).toBe("hello world");
+  });
+
+  test("time before the first segment -> null", () => {
+    const segments = [seg(1000, 2000, "hello world")];
+    expect(captionAt(500, segments)).toBeNull();
+  });
+
+  test("time after the last segment -> null", () => {
+    const segments = [seg(1000, 2000, "hello world")];
+    expect(captionAt(2500, segments)).toBeNull();
+  });
+
+  test("exactly at startMs is inside (half-open [start, end))", () => {
+    const segments = [seg(1000, 2000, "hello world")];
+    expect(captionAt(1000, segments)).toBe("hello world");
+  });
+
+  test("exactly at endMs is outside (half-open [start, end))", () => {
+    const segments = [seg(1000, 2000, "hello world")];
+    expect(captionAt(2000, segments)).toBeNull();
+  });
+
+  test("gap between two segments -> null", () => {
+    const segments = [seg(0, 1000, "first"), seg(2000, 3000, "second")];
+    expect(captionAt(1500, segments)).toBeNull();
+  });
+
+  test("finds the correct segment among many (binary search correctness)", () => {
+    const segments = [
+      seg(0, 1000, "a"),
+      seg(1000, 2000, "b"),
+      seg(2000, 3000, "c"),
+      seg(3000, 4000, "d"),
+      seg(4000, 5000, "e"),
+    ];
+    expect(captionAt(500, segments)).toBe("a");
+    expect(captionAt(1000, segments)).toBe("b");
+    expect(captionAt(1999, segments)).toBe("b");
+    expect(captionAt(3500, segments)).toBe("d");
+    expect(captionAt(4999, segments)).toBe("e");
+    expect(captionAt(5000, segments)).toBeNull();
+  });
+
+  test("single-element list", () => {
+    const segments = [seg(100, 200, "only")];
+    expect(captionAt(150, segments)).toBe("only");
+    expect(captionAt(50, segments)).toBeNull();
+    expect(captionAt(250, segments)).toBeNull();
+  });
+
+  test("touching segments (startMs === prev.endMs) resolve to the later one at the boundary", () => {
+    const segments = [seg(0, 1000, "first"), seg(1000, 2000, "second")];
+    expect(captionAt(999, segments)).toBe("first");
+    expect(captionAt(1000, segments)).toBe("second");
+  });
+});
+
+describe("keystroke badge offset when captions are active", () => {
+  // The keystroke badge draws bottom-center of the content rect. When captions
+  // are enabled AND a caption is showing, the badge must shift up by one
+  // "strip height" so the two never collide. `keystrokeBottomMargin` is the
+  // shared layout helper both the badge draw and any caller use to compute
+  // that offset; `CAPTION_STRIP_HEIGHT_FRAC` is the shared constant driving it.
+  test("CAPTION_STRIP_HEIGHT_FRAC is a small positive fraction of content height", () => {
+    expect(CAPTION_STRIP_HEIGHT_FRAC).toBeGreaterThan(0);
+    expect(CAPTION_STRIP_HEIGHT_FRAC).toBeLessThan(0.3);
+  });
+
+  test("keystrokeBottomMargin is larger when a caption is showing than when it isn't", () => {
+    const dh = 1000;
+    const withoutCaption = keystrokeBottomMargin(dh, false);
+    const withCaption = keystrokeBottomMargin(dh, true);
+    expect(withCaption).toBeGreaterThan(withoutCaption);
+  });
+
+  test("keystrokeBottomMargin offset scales with content height", () => {
+    const small = keystrokeBottomMargin(200, true) - keystrokeBottomMargin(200, false);
+    const large = keystrokeBottomMargin(2000, true) - keystrokeBottomMargin(2000, false);
+    expect(large).toBeGreaterThan(small);
+  });
+
+  test("keystrokeBottomMargin is deterministic and pure", () => {
+    expect(keystrokeBottomMargin(1000, true)).toBe(keystrokeBottomMargin(1000, true));
+    expect(keystrokeBottomMargin(1000, false)).toBe(keystrokeBottomMargin(1000, false));
   });
 });

@@ -36,6 +36,7 @@ import {
   type SpeedMap,
 } from "../editorProject";
 import {
+  captionAt,
   cursorDrawScale,
   cursorStateAt,
   drawCompositeV2,
@@ -642,6 +643,15 @@ export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8A
   const drawKeystrokes = project.keystrokes.enabled && keyEvents.length > 0;
   const keystrokesAllKeys = project.keystrokes.allKeys;
 
+  // Caption overlay (Task 3): unlike zoom/cursor/keystrokes, captions come
+  // straight from the project (`generateCaptions`'s output persisted via the
+  // editor's save path) — no events file involved. Drawn only when enabled AND
+  // segments exist; looked up at each frame's SOURCE time via the shared
+  // `captionAt`, same rule as the keystroke badge / zoom lookups (trim/speed
+  // need no special handling here — see `frameInTrimWindow`/`speedMap` above).
+  const captionSegments = project.captions.enabled ? (project.captions.segments ?? []) : [];
+  const drawCaptions = captionSegments.length > 0;
+
   // --- Demux ---
   const { chunks, decoderConfig, codedWidth, codedHeight } = await demux(srcBytes);
   if (chunks.length === 0) {
@@ -778,6 +788,11 @@ export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8A
             const keystroke = drawKeystrokes
               ? keystrokeOverlayAt(tMsSource, keyEvents, keystrokesAllKeys)
               : null;
+            // Caption overlay, looked up at SOURCE time via the SAME shared
+            // `captionAt` the editor preview uses — a caption spanning a
+            // trimmed/sped region needs no special handling (identical rule to
+            // the keystroke badge / zoom lookups above).
+            const caption = drawCaptions ? captionAt(tMsSource, captionSegments) : null;
             // Webcam overlay, co-occurring frame at SOURCE time. Convention:
             //   webcamTime = mainTime + offset_ms   (see pickWebcamFrameIndex).
             // WebcamSource owns the returned frame (held/reused) — do NOT close it.
@@ -802,7 +817,7 @@ export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8A
               outH,
               appearance,
               zoom,
-              { cursor, webcam, keystroke },
+              { cursor, webcam, keystroke, caption },
               cursorScale,
               bgImage,
             );

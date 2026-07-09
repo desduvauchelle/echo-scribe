@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { open, ask } from "@tauri-apps/plugin-dialog";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
   ArrowLeft,
   Download,
@@ -19,11 +20,13 @@ import {
   importEditorBackground,
   readRecordingEvents,
   finalizeRenderedRecording,
+  generateCaptions,
   revealRecording,
   revealRecordingFile,
   type RecordingRow,
 } from "../../lib/api";
 import {
+  clampCaptionSegments,
   clampSpeedRanges,
   clampTrim,
   clampZoomCenter,
@@ -39,6 +42,7 @@ import {
   shiftRangesForTrim,
   type AspectPreset,
   type Background,
+  type CaptionSegment as ProjectCaptionSegment,
   type EditorProject,
   type SpeedRange,
   type WebcamSettings,
@@ -63,6 +67,7 @@ import {
 import { renderRecording, type RenderProgress } from "../../lib/render/renderPipeline";
 import {
   canvasToCapture,
+  captionAt,
   cursorDrawScale,
   cursorStateAt,
   drawCompositeV2,
@@ -370,6 +375,18 @@ export function EditorView({
     return { label: badge.label, alpha: keystrokeBadgeAlpha(age) };
   }, []);
 
+  // Compute the caption pill text for a given SOURCE time (ms). Returns null
+  // unless captions are enabled and a generated segment covers `tMsSource`.
+  // Reads `project.captions.segments` directly (no ref needed — it's already
+  // captured via `projectRef`, mirroring the keystroke lookup above) through
+  // the SAME `captionAt` the export path uses, so preview and export render
+  // identical captions.
+  const captionOverlayAt = useCallback((tMsSource: number): OverlayState["caption"] => {
+    const p = projectRef.current;
+    if (!p.captions.enabled || !p.captions.segments) return null;
+    return captionAt(tMsSource, p.captions.segments);
+  }, []);
+
   // Resolve the effective zoom timeline whenever the inputs change:
   //   - `project.zoom`  (mode/blocks — off/custom/auto)
   //   - `eventsReady`   (the click track finished loading; auto mode needs it)
@@ -470,6 +487,7 @@ export function EditorView({
           }
         : null;
     const keystroke = keystrokeOverlayAt(tMsSource);
+    const caption = captionOverlayAt(tMsSource);
     drawCompositeV2(
       ctx,
       video,
@@ -479,11 +497,11 @@ export function EditorView({
       outH,
       appearance,
       zoom,
-      { cursor, webcam, keystroke },
+      { cursor, webcam, keystroke, caption },
       cursorDrawScale(p.cursor.scale, pxScale),
       bgImageRef.current,
     );
-  }, [cursorOverlayAt, keystrokeOverlayAt]);
+  }, [captionOverlayAt, cursorOverlayAt, keystrokeOverlayAt]);
 
   // Webcam preview time-sync. The webcam element should sit at
   //   webcamTime = mainTime + offsetMs   (offset = firstMainFramePTS − webcamStart).
@@ -716,6 +734,101 @@ export function EditorView({
     setProject((p) => ({ ...p, keystrokes: { ...p.keystrokes, enabled } }));
   const setKeystrokesAllKeys = (allKeys: boolean) =>
     setProject((p) => ({ ...p, keystrokes: { ...p.keystrokes, allKeys } }));
+
+  // ---- Captions -------------------------------------------------------------
+  // Gated on the recording actually having audio to transcribe (same evidence
+  // the backend's `generate_captions` command itself requires — a mic or
+  // system-audio source captured). No audio source means there's nothing to
+  // generate captions from, so the whole section is disabled up front rather
+  // than letting the user hit the backend's "Recording has no audio" error.
+  const audioAvailable = recording.has_mic || recording.has_sysaudio;
+
+  const [captionsGenerating, setCaptionsGenerating] = useState(false);
+  const [captionsProgress, setCaptionsProgress] = useState(0);
+
+  // Listen for `captions-progress` events (id, ratio 0..1) scoped to THIS
+  // recording while a generation is in flight. Mirrors the app-wide
+  // `listen<T>` pattern used elsewhere (e.g. SpeechModelPicker's download
+  // progress) — subscribe once per recording, filter by id since the event is
+  // global (the backend doesn't scope emission to a webview).
+  useEffect(() => {
+    let unlisten: UnlistenFn | null = null;
+    let cancelled = false;
+    void listen<{ id: string; ratio: number }>("captions-progress", (event) => {
+      if (event.payload.id !== recording.id) return;
+      setCaptionsProgress(Math.round(Math.max(0, Math.min(1, event.payload.ratio)) * 100));
+    }).then((fn) => {
+      if (cancelled) {
+        fn();
+        return;
+      }
+      unlisten = fn;
+    });
+    return () => {
+      cancelled = true;
+      if (unlisten) unlisten();
+    };
+  }, [recording.id]);
+
+  const setCaptionsEnabled = (enabled: boolean) =>
+    setProject((p) => ({ ...p, captions: { ...p.captions, enabled } }));
+
+  /** Persist a new segment list, clamped/sorted/de-overlapped against the
+   *  clip's real duration — mirrors `applySpeedEdit`'s safety-net pattern so a
+   *  stale/hand-edited project can never leave an invalid list. */
+  const setCaptionSegments = useCallback((segments: ProjectCaptionSegment[]) => {
+    setProject((p) => ({
+      ...p,
+      captions: {
+        ...p.captions,
+        segments: clampCaptionSegments(segments, durationMsRef.current || 0),
+      },
+    }));
+  }, []);
+
+  /** Generate (or regenerate) captions for this recording. Runs the ASR
+   *  pipeline via the Task 2 backend command, tracks progress from the
+   *  `captions-progress` listener above, and on success stores the returned
+   *  segments (clamped) and turns captions on. Errors surface as a toast with
+   *  the friendly message the backend already returns; detail is in the log. */
+  const onGenerateCaptions = useCallback(async () => {
+    setCaptionsGenerating(true);
+    setCaptionsProgress(0);
+    try {
+      const segments = await generateCaptions(recording.id);
+      setProject((p) => ({
+        ...p,
+        captions: {
+          enabled: true,
+          segments: clampCaptionSegments(segments, durationMsRef.current || 0),
+        },
+      }));
+    } catch (e) {
+      toasts.push({ tone: "error", message: String(e) });
+    } finally {
+      setCaptionsGenerating(false);
+    }
+  }, [recording.id, toasts]);
+
+  /** Edit one segment's text in place (by index into the sorted/clamped
+   *  list), then re-run the same clamp/save path as any other edit. */
+  const editCaptionSegment = useCallback(
+    (index: number, text: string) => {
+      const segments = project.captions.segments ?? [];
+      if (index < 0 || index >= segments.length) return;
+      setCaptionSegments(segments.map((s, i) => (i === index ? { ...s, text } : s)));
+    },
+    [project.captions.segments, setCaptionSegments],
+  );
+
+  /** Delete one segment (by index). */
+  const deleteCaptionSegment = useCallback(
+    (index: number) => {
+      const segments = project.captions.segments ?? [];
+      setCaptionSegments(segments.filter((_, i) => i !== index));
+    },
+    [project.captions.segments, setCaptionSegments],
+  );
 
   // ---- Webcam updaters ----------------------------------------------------
   // Each updater merges onto the existing webcam settings, falling back to the
@@ -2110,6 +2223,100 @@ export function EditorView({
               <p className="text-[11px] leading-snug text-muted/80">
                 By default only modifier shortcuts (⌘⌃⌥ combos) are shown.
               </p>
+            )}
+          </div>
+
+          {/* Captions section: gated on the recording having an audio source
+              (mic or system audio) to transcribe — mirrors the backend's own
+              "Recording has no audio" gate so the user sees the disabled
+              state instead of the generation call failing. Generate/Regenerate
+              run the Task 2 ASR pipeline and show a progress bar fed by the
+              `captions-progress` event; each segment is inline-editable and
+              deletable, saved (clamped) via the same debounced project path
+              every other section uses. */}
+          <h3 className="mb-4 mt-6 border-t border-line pt-4 text-[13px] font-semibold">
+            Captions
+          </h3>
+          <div
+            title={audioAvailable ? undefined : "This recording has no audio to transcribe"}
+            className={audioAvailable ? "" : "opacity-50"}
+          >
+            {!audioAvailable ? (
+              <p className="mb-3 text-[11px] leading-snug text-muted">
+                This recording has no audio to transcribe.
+              </p>
+            ) : (
+              <>
+                <button
+                  onClick={() => void onGenerateCaptions()}
+                  disabled={!audioAvailable || captionsGenerating}
+                  className="mb-2 flex items-center gap-1.5 rounded-md border border-line px-3 py-1.5 text-[13px] font-medium hover:bg-surface disabled:opacity-50"
+                >
+                  {captionsGenerating ? (
+                    <Loader size={14} className="animate-spin" />
+                  ) : null}
+                  {captionsGenerating
+                    ? `Generating… ${captionsProgress}%`
+                    : project.captions.segments === null
+                      ? "Generate captions"
+                      : "Regenerate captions"}
+                </button>
+
+                {captionsGenerating ? (
+                  <div className="mb-3 h-1.5 w-full overflow-hidden rounded-full bg-elevated">
+                    <div
+                      className="h-full bg-accent transition-all"
+                      style={{ width: `${captionsProgress}%` }}
+                    />
+                  </div>
+                ) : null}
+
+                {project.captions.segments !== null ? (
+                  <>
+                    <label className="mb-3 flex cursor-pointer items-center gap-2 text-[13px]">
+                      <input
+                        type="checkbox"
+                        checked={project.captions.enabled}
+                        onChange={(e) => setCaptionsEnabled(e.target.checked)}
+                        className="accent-accent"
+                      />
+                      Show captions
+                    </label>
+
+                    {project.captions.segments.length === 0 ? (
+                      <p className="text-[11px] leading-snug text-muted">
+                        No speech detected in this recording.
+                      </p>
+                    ) : (
+                      <div className="mb-2 max-h-64 overflow-y-auto rounded-md border border-line">
+                        {project.captions.segments.map((s, i) => (
+                          <div
+                            key={i}
+                            className="flex items-start gap-2 border-b border-line p-2 last:border-b-0"
+                          >
+                            <span className="mt-1.5 shrink-0 text-[10px] tabular-nums text-muted">
+                              {fmtTimeDs(s.startMs)}
+                            </span>
+                            <textarea
+                              value={s.text}
+                              onChange={(e) => editCaptionSegment(i, e.target.value)}
+                              rows={1}
+                              className="min-w-0 flex-1 resize-none rounded border border-line bg-transparent px-1.5 py-1 text-[12px] leading-snug focus:border-accent focus:outline-none"
+                            />
+                            <button
+                              onClick={() => deleteCaptionSegment(i)}
+                              title="Delete this caption"
+                              className="shrink-0 rounded p-1 text-muted hover:bg-surface hover:text-danger"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                ) : null}
+              </>
             )}
           </div>
 

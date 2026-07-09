@@ -11,9 +11,9 @@
 // canvas draw and is exercised live in the render pipeline (Task 7).
 
 import type { ZoomBlock, EventsHeader, RecEvent } from "../autoZoom";
-// `AspectPreset` is owned by editorProject.ts (it's part of the persisted
-// project schema); type-only import keeps zero runtime coupling.
-import type { AspectPreset } from "../editorProject";
+// `AspectPreset`/`CaptionSegment` are owned by editorProject.ts (part of the
+// persisted project schema); type-only import keeps zero runtime coupling.
+import type { AspectPreset, CaptionSegment } from "../editorProject";
 import { keyLabel, modsLabel } from "../keycodes";
 
 export type Appearance = {
@@ -194,6 +194,11 @@ export type OverlayState = {
    *  of the pure `keystrokeBadgeAt` grouping function so that stays a clean
    *  label lookup independent of the fade curve). */
   keystroke: { label: string; alpha: number } | null;
+  /** The caption text to draw this frame (from `captionAt`), or null when no
+   *  segment covers the current SOURCE time / captions are disabled. When
+   *  non-null, the keystroke badge (if also drawn) shifts up by one strip
+   *  height so the two never collide — see `keystrokeBottomMargin`. */
+  caption: string | null;
 };
 
 export type WebcamCorner = "br" | "bl" | "tr" | "tl";
@@ -398,6 +403,45 @@ export function keystrokeBadgeAlpha(ageMs: number): number {
   if (ageMs >= KEYSTROKE_DISPLAY_MS) return 0;
   const intoFade = ageMs - (KEYSTROKE_DISPLAY_MS - KEYSTROKE_FADE_MS);
   return 1 - intoFade / KEYSTROKE_FADE_MS;
+}
+
+// ---- Caption lookup --------------------------------------------------------
+
+/**
+ * The caption text visible at SOURCE time `tMs`, given a recording's caption
+ * segments — or `null` when no segment covers it. Segments are assumed
+ * non-overlapping and sorted ascending by `startMs` (the invariant
+ * `clampCaptionSegments` maintains — this function does not re-sort or
+ * de-overlap). Each segment is a half-open `[startMs, endMs)` window, mirroring
+ * `activeSpeedRate`'s convention: the start edge is inside, the end edge is
+ * not, so touching segments resolve unambiguously to the later one at their
+ * shared boundary.
+ *
+ * Binary search: O(log n) largest index with `segments[i].startMs <= tMs`,
+ * then a single check that `tMs` still falls before that segment's `endMs`
+ * (handles gaps between segments, which are legal and common). Pure — no
+ * drawing, no globals. Both the preview (EditorView) and the export
+ * (renderPipeline) call this exact function so captions render identically.
+ */
+export function captionAt(tMs: number, segments: CaptionSegment[]): string | null {
+  if (segments.length === 0) return null;
+
+  let lo = -1;
+  let a = 0;
+  let b = segments.length - 1;
+  while (a <= b) {
+    const mid = (a + b) >> 1;
+    if (segments[mid].startMs <= tMs) {
+      lo = mid;
+      a = mid + 1;
+    } else {
+      b = mid - 1;
+    }
+  }
+  if (lo < 0) return null;
+
+  const seg = segments[lo];
+  return tMs < seg.endMs ? seg.text : null;
 }
 
 /** Margin (px, output space) between the webcam PiP and the frame edge. */
@@ -990,28 +1034,72 @@ export function drawCompositeV2(
     ctx.restore();
   }
 
-  // 5. Keystroke badge: a rounded pill, bottom-center of the CONTENT rect (so
+  // 5. Caption pill: a rounded pill, bottom-center of the CONTENT rect,
+  //    drawn BEFORE the keystroke badge so the badge (below) can shift up to
+  //    clear it. Shares the keystroke badge's style constants/pill shape.
+  const captionShowing = !!overlay.caption;
+  if (overlay.caption) {
+    drawCaptionPill(ctx, overlay.caption, dx, dy, dw, dh);
+  }
+
+  // 6. Keystroke badge: a rounded pill, bottom-center of the CONTENT rect (so
   //    it tracks the video under any aspect/letterbox, like the cursor), sat
   //    safely above the webcam's own margin zone so the two never collide.
   //    Fades per `overlay.keystroke.alpha` (driven by `keystrokeBadgeAlpha`,
-  //    computed by the caller from the source-time event age).
+  //    computed by the caller from the source-time event age). When a caption
+  //    is also showing this frame, `keystrokeBottomMargin` shifts the badge up
+  //    by one strip height so the two pills never overlap.
   if (overlay.keystroke && overlay.keystroke.alpha > 0) {
-    drawKeystrokeBadge(ctx, overlay.keystroke.label, overlay.keystroke.alpha, dx, dy, dw, dh);
+    drawKeystrokeBadge(
+      ctx,
+      overlay.keystroke.label,
+      overlay.keystroke.alpha,
+      dx,
+      dy,
+      dw,
+      dh,
+      captionShowing,
+    );
   }
 }
 
-/** Font size (px) for the keystroke badge as a fraction of the content width,
- *  clamped to a sane on-screen range regardless of output resolution. */
+/** Font size (px) for the keystroke badge / caption pill as a fraction of the
+ *  content width, clamped to a sane on-screen range regardless of output
+ *  resolution. Shared by both pills so their text reads at the same size. */
 const KEYSTROKE_FONT_MIN_PX = 14;
 const KEYSTROKE_FONT_MAX_PX = 34;
 const KEYSTROKE_FONT_FRAC = 0.022;
 
-/** Vertical gap (px, content-rect space) between the pill's bottom edge and
- *  the content rect's bottom edge — clears the webcam PiP's own margin band
- *  (`WEBCAM_MARGIN`) plus its own height would be excessive, so this is sized
- *  independently as a fraction of content height, floor-clamped. */
+/** Vertical gap (px, content-rect space) between a bottom-anchored pill's
+ *  bottom edge and the content rect's bottom edge — clears the webcam PiP's
+ *  own margin band (`WEBCAM_MARGIN`) plus its own height would be excessive,
+ *  so this is sized independently as a fraction of content height,
+ *  floor-clamped. Shared by the caption pill (which always sits here) and the
+ *  keystroke badge (which sits here only when no caption is showing). */
 const KEYSTROKE_BOTTOM_MARGIN_FRAC = 0.06;
 const KEYSTROKE_BOTTOM_MARGIN_MIN_PX = 28;
+
+/** Height (as a fraction of content height) reserved for the caption strip —
+ *  the shared layout constant that both the caption pill's own vertical size
+ *  and the keystroke badge's extra upward shift derive from, so the two never
+ *  collide regardless of output resolution. Exported so preview and export
+ *  callers (and tests) can reason about the offset without duplicating it. */
+export const CAPTION_STRIP_HEIGHT_FRAC = 0.1;
+const CAPTION_STRIP_HEIGHT_MIN_PX = 44;
+
+/** Bottom margin (px, content-rect space) for the keystroke badge given the
+ *  content height `dh` and whether a caption pill is ALSO showing this frame.
+ *  Without a caption this is the plain `KEYSTROKE_BOTTOM_MARGIN_*` floor
+ *  (unchanged pre-M4 behavior). With a caption, the badge shifts up by one
+ *  caption-strip height (`CAPTION_STRIP_HEIGHT_FRAC`, floor-clamped) so the
+ *  two pills stack without overlapping. Pure — the single source of truth for
+ *  this offset, shared by the draw code and covered directly by tests. */
+export function keystrokeBottomMargin(dh: number, captionShowing: boolean): number {
+  const base = Math.max(KEYSTROKE_BOTTOM_MARGIN_MIN_PX, dh * KEYSTROKE_BOTTOM_MARGIN_FRAC);
+  if (!captionShowing) return base;
+  const stripHeight = Math.max(CAPTION_STRIP_HEIGHT_MIN_PX, dh * CAPTION_STRIP_HEIGHT_FRAC);
+  return base + stripHeight;
+}
 
 /**
  * Draw the keystroke badge: a dark translucent rounded pill with white text,
@@ -1019,6 +1107,8 @@ const KEYSTROKE_BOTTOM_MARGIN_MIN_PX = 28;
  * `(dx, dy, dw, dh)`. `alpha` (0..1, from `keystrokeBadgeAlpha`) scales the
  * whole layer's opacity uniformly (background + text) so the fade-out is a
  * clean dissolve rather than the bg and text fading at different rates.
+ * `captionShowing` shifts the badge up via `keystrokeBottomMargin` so it never
+ * collides with a caption pill drawn the same frame.
  */
 function drawKeystrokeBadge(
   ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
@@ -1028,6 +1118,7 @@ function drawKeystrokeBadge(
   dy: number,
   dw: number,
   dh: number,
+  captionShowing: boolean,
 ): void {
   if (dw <= 0 || dh <= 0 || !label) return;
   const a = Math.max(0, Math.min(1, alpha));
@@ -1044,7 +1135,7 @@ function drawKeystrokeBadge(
 
   const pillW = textWidth + paddingX * 2;
   const pillH = fontPx + paddingY * 2;
-  const bottomMargin = Math.max(KEYSTROKE_BOTTOM_MARGIN_MIN_PX, dh * KEYSTROKE_BOTTOM_MARGIN_FRAC);
+  const bottomMargin = keystrokeBottomMargin(dh, captionShowing);
 
   const pillX = dx + dw / 2 - pillW / 2;
   const pillY = dy + dh - bottomMargin - pillH;
@@ -1057,4 +1148,86 @@ function drawKeystrokeBadge(
   ctx.fillStyle = "#ffffff";
   ctx.fillText(label, pillX + pillW / 2, pillY + pillH / 2 + 1);
   ctx.restore();
+}
+
+/**
+ * Draw the caption pill: mirrors `drawKeystrokeBadge`'s style (dark
+ * translucent rounded pill, white text, same font sizing) but always sits at
+ * the FLOOR bottom margin (`KEYSTROKE_BOTTOM_MARGIN_*`) — it never shifts for
+ * the keystroke badge, since the badge is the one that yields. Captions don't
+ * fade (no age-based alpha curve — they're either the active segment's text
+ * or not drawn at all), and can wrap to multiple lines for long text, each
+ * line stacked and centered within the pill.
+ */
+function drawCaptionPill(
+  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+  text: string,
+  dx: number,
+  dy: number,
+  dw: number,
+  dh: number,
+): void {
+  if (dw <= 0 || dh <= 0 || !text) return;
+
+  const fontPx = Math.max(KEYSTROKE_FONT_MIN_PX, Math.min(KEYSTROKE_FONT_MAX_PX, dw * KEYSTROKE_FONT_FRAC));
+  const paddingX = fontPx * 0.9;
+  const paddingY = fontPx * 0.5;
+  const lineHeight = fontPx * 1.25;
+  // Cap line width to most of the content rect so long captions wrap rather
+  // than overflow the frame edges.
+  const maxLineWidth = dw * 0.86;
+
+  ctx.save();
+  ctx.font = `600 ${fontPx}px -apple-system, "SF Pro Text", system-ui, sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+
+  const lines = wrapText(ctx, text, maxLineWidth);
+  const textWidth = lines.reduce((max, line) => Math.max(max, ctx.measureText(line).width), 0);
+
+  const pillW = Math.min(dw, textWidth + paddingX * 2);
+  const pillH = lineHeight * lines.length + paddingY * 2;
+  const bottomMargin = Math.max(KEYSTROKE_BOTTOM_MARGIN_MIN_PX, dh * KEYSTROKE_BOTTOM_MARGIN_FRAC);
+
+  const pillX = dx + dw / 2 - pillW / 2;
+  const pillY = dy + dh - bottomMargin - pillH;
+
+  roundedRectPath(ctx, pillX, pillY, pillW, pillH, Math.min(pillH / 2, 18));
+  ctx.fillStyle = "rgba(20,20,24,0.72)";
+  ctx.fill();
+
+  ctx.fillStyle = "#ffffff";
+  const firstLineY = pillY + paddingY + lineHeight / 2;
+  lines.forEach((line, i) => {
+    ctx.fillText(line, pillX + pillW / 2, firstLineY + i * lineHeight);
+  });
+  ctx.restore();
+}
+
+/** Greedy word-wrap: split `text` into lines whose measured width (in the
+ *  context's currently-set font) does not exceed `maxWidth`, breaking on
+ *  whitespace. A single word longer than `maxWidth` is kept whole on its own
+ *  line (never mid-word split) so it isn't silently mangled. Pure given the
+ *  context's font state. */
+function wrapText(
+  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+  text: string,
+  maxWidth: number,
+): string[] {
+  const words = text.split(/\s+/).filter((w) => w.length > 0);
+  if (words.length === 0) return [""];
+
+  const lines: string[] = [];
+  let current = words[0];
+  for (let i = 1; i < words.length; i++) {
+    const candidate = `${current} ${words[i]}`;
+    if (ctx.measureText(candidate).width <= maxWidth) {
+      current = candidate;
+    } else {
+      lines.push(current);
+      current = words[i];
+    }
+  }
+  lines.push(current);
+  return lines;
 }
