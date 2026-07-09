@@ -13,7 +13,7 @@
 import type { ZoomBlock, EventsHeader, RecEvent } from "../autoZoom";
 // `AspectPreset`/`CaptionSegment` are owned by editorProject.ts (part of the
 // persisted project schema); type-only import keeps zero runtime coupling.
-import type { AspectPreset, CaptionSegment, WebcamScene } from "../editorProject";
+import type { AspectPreset, CaptionSegment, Mask, WebcamScene } from "../editorProject";
 import { keyLabel, modsLabel } from "../keycodes";
 
 export type Appearance = {
@@ -222,6 +222,13 @@ export type OverlayState = {
    *  non-null, the keystroke badge (if also drawn) shifts up by one strip
    *  height so the two never collide — see `keystrokeBottomMargin`. */
   caption: string | null;
+  /** The masks active this frame (from `masksAt`), in normalized CAPTURE coords
+   *  — drawn INSIDE the frame layer's transformed space (after the frame, before
+   *  the cursor) so they track content under zoom. May contain multiple
+   *  simultaneously-active masks (overlaps are legal). Empty `[]` draws nothing
+   *  (pre-M5 projects render byte-identically). Suppressed entirely during a
+   *  camera scene (the screen is hidden — handled by the scene early-return). */
+  masks: Mask[];
 };
 
 export type WebcamCorner = "br" | "bl" | "tr" | "tl";
@@ -614,6 +621,28 @@ export function webcamSceneAt(tMs: number, scenes: WebcamScene[]): { id: string 
 
   const scene = scenes[lo];
   return tMs < scene.endMs ? { id: scene.id } : null;
+}
+
+/**
+ * ALL masks active at SOURCE time `tMs`, given a recording's masks — in INPUT
+ * ORDER (stable). Unlike `captionAt` / `webcamSceneAt` (which return the single
+ * covering segment via binary search), masks MAY overlap in time, so several
+ * can be simultaneously active; a plain forward scan collecting every mask
+ * whose half-open `[startMs, endMs)` window contains `tMs` is both correct and
+ * order-preserving (masks are NOT sorted — see `clampMasks`). Half-open on the
+ * end mirrors `captionAt`: the start edge is inside, the end edge is not.
+ *
+ * Pure — no drawing, no globals. Both the preview (EditorView) and the export
+ * (renderPipeline) call this exact function so masks render identically. Empty
+ * `masks` → always `[]` (pre-M5 projects render byte-identically). The lists are
+ * small (a handful of masks), so the linear scan is fine.
+ */
+export function masksAt(tMs: number, masks: Mask[]): Mask[] {
+  const active: Mask[] = [];
+  for (const m of masks) {
+    if (tMs >= m.startMs && tMs < m.endMs) active.push(m);
+  }
+  return active;
 }
 
 /** Margin (px, output space) between the webcam PiP and the frame edge. */
@@ -1065,6 +1094,219 @@ function drawFrameLayer(
   ctx.restore();
 }
 
+// ---- Masks (pixelate / highlight) ---------------------------------------
+//
+// Masks are stored in normalized CAPTURE coords ([0,1]) and must track the
+// content under zoom. `drawFrameLayer` leaves NO persistent ctx transform (it
+// maps source→content-rect inside a single `drawImage` and restores), so —
+// exactly like the cursor overlay — we compute each mask's on-screen rect
+// EXPLICITLY through the same forward pan/zoom map, rather than drawing inside a
+// (non-existent) transform. `maskRectToContent` is that forward map, extracted
+// pure + tested.
+
+/**
+ * Map a mask's normalized-capture rect (`x,y,w,h` in [0,1]) to on-screen
+ * content-rect pixels under the current pan/zoom, intersected with the content
+ * rect `(dx,dy,dw,dh)`. Returns `null` when the rect is entirely outside the
+ * visible source window (fully scrolled off under zoom) — nothing to draw.
+ *
+ * The forward map mirrors `drawFrameLayer` / the cursor overlay exactly: under
+ * `scale`× zoom the visible source fraction is `[sfx, sfx+1/scale]` on X (and
+ * likewise Y), clamped inside the source, and that window maps onto the content
+ * rect. So a normalized capture coordinate `nx` lands at content fraction
+ * `u = (nx - sfx) / (1/scale)`, i.e. output pixel `dx + u*dw`. We map the rect's
+ * two X edges and two Y edges, then intersect the resulting box with the content
+ * rect. Kept pure (no ctx) so the geometry is unit-testable without a canvas.
+ */
+export function maskRectToContent(
+  rect: { x: number; y: number; w: number; h: number },
+  zoom: ZoomState,
+  dx: number,
+  dy: number,
+  dw: number,
+  dh: number,
+): { x: number; y: number; w: number; h: number } | null {
+  if (dw <= 0 || dh <= 0) return null;
+  const scale = zoom.scale > 0 ? zoom.scale : 1;
+  const sampleFracW = 1 / scale;
+  const sampleFracH = 1 / scale;
+  let sfx = zoom.cx - sampleFracW / 2;
+  let sfy = zoom.cy - sampleFracH / 2;
+  sfx = Math.max(0, Math.min(sfx, 1 - sampleFracW));
+  sfy = Math.max(0, Math.min(sfy, 1 - sampleFracH));
+
+  // Forward-map the rect's edges (normalized capture → content fraction → px).
+  const x0 = dx + ((rect.x - sfx) / sampleFracW) * dw;
+  const x1 = dx + ((rect.x + rect.w - sfx) / sampleFracW) * dw;
+  const y0 = dy + ((rect.y - sfy) / sampleFracH) * dh;
+  const y1 = dy + ((rect.y + rect.h - sfy) / sampleFracH) * dh;
+
+  // Intersect with the content rect (clip off any part scrolled out of view).
+  const left = Math.max(dx, Math.min(x0, x1));
+  const right = Math.min(dx + dw, Math.max(x0, x1));
+  const top = Math.max(dy, Math.min(y0, y1));
+  const bottom = Math.min(dy + dh, Math.max(y0, y1));
+
+  const w = right - left;
+  const h = bottom - top;
+  if (w <= 0 || h <= 0) return null; // entirely off-screen under this zoom
+  return { x: left, y: top, w, h };
+}
+
+/** Downscale factor for the pixelate mosaic: the region is drawn into an
+ *  offscreen ≈1/24 its size then scaled back up with smoothing off, so each
+ *  ~24px source block becomes one flat mosaic cell. Chosen to read as a clear
+ *  privacy mosaic at typical output resolutions without being so coarse it
+ *  loses the region's shape. */
+const PIXELATE_DIVISOR = 24;
+
+/** Offscreen buffer size (px) for a pixelate region of on-screen size
+ *  `regionW`×`regionH`: each axis is `round(size / PIXELATE_DIVISOR)`, floored
+ *  at 1 so a tiny region still produces a valid ≥1×1 buffer (a single flat
+ *  cell). Pure — the block geometry is unit-testable without a canvas. */
+export function pixelateBufferSize(
+  regionW: number,
+  regionH: number,
+): { w: number; h: number } {
+  return {
+    w: Math.max(1, Math.round(regionW / PIXELATE_DIVISOR)),
+    h: Math.max(1, Math.round(regionH / PIXELATE_DIVISOR)),
+  };
+}
+
+/** Opacity of the highlight dim overlay (the fill drawn OUTSIDE the highlight
+ *  rects). ~0.5 reads as a clear "focus here" darkening without hiding the
+ *  dimmed content entirely. */
+const HIGHLIGHT_DIM_ALPHA = 0.5;
+
+/** A small offscreen drawing surface for the pixelate downscale. Prefers
+ *  `OffscreenCanvas` (the export worker path); falls back to a DOM `<canvas>`
+ *  (the preview). Returns null if neither is available (masks then skip the
+ *  pixelate silently rather than throwing). */
+function makeScratchCanvas(
+  w: number,
+  h: number,
+):
+  | { canvas: OffscreenCanvas | HTMLCanvasElement; ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D }
+  | null {
+  const cw = Math.max(1, w);
+  const ch = Math.max(1, h);
+  if (typeof OffscreenCanvas !== "undefined") {
+    const canvas = new OffscreenCanvas(cw, ch);
+    const ctx = canvas.getContext("2d");
+    if (ctx) return { canvas, ctx };
+  }
+  if (typeof document !== "undefined") {
+    const canvas = document.createElement("canvas");
+    canvas.width = cw;
+    canvas.height = ch;
+    const ctx = canvas.getContext("2d");
+    if (ctx) return { canvas, ctx };
+  }
+  return null;
+}
+
+/**
+ * Draw the active masks over the ALREADY-DRAWN frame, inside the content rect
+ * `(dx,dy,dw,dh)`, under the current pan/zoom `zoom`. Called from
+ * `drawCompositeV2`'s NORMAL (non-scene) path, AFTER the frame and BEFORE the
+ * cursor — masks are content, so they sit under the synthetic cursor/badges.
+ * Empty `masks` is a complete no-op (no ctx state touched) so `masks: []`
+ * renders byte-identically to pre-M5.
+ *
+ * Two kinds, both mapped to on-screen pixels via `maskRectToContent` (so they
+ * track content under zoom) and clipped to the rounded content rect:
+ *   - `pixelate`: read the region back from the canvas into an offscreen ≈1/24
+ *     its size, then draw it back scaled up with `imageSmoothingEnabled = false`
+ *     → a mosaic. NO `ctx.filter` (unreliable in WKWebView). Each pixelate mask
+ *     is an independent read-back+redraw.
+ *   - `highlight`: dim everything OUTSIDE the union of all active highlight rects
+ *     in ONE fill pass — an even-odd path (outer content rect + each highlight
+ *     rect as a hole) filled with `rgba(0,0,0,HIGHLIGHT_DIM_ALPHA)`, so the
+ *     interior of every highlight rect stays undimmed. Multiple highlights =
+ *     multiple holes in the single pass (never stacked fills → no double-dim).
+ *
+ * Respects the ambient `ctx.globalAlpha` (the motion-blur accumulation weight)
+ * by never assigning it — the pixelate redraw and the dim fill inherit it, so
+ * under N-sample accumulation they average to the same value the frame does (no
+ * double-dim / no residual darkening). Pure w.r.t. inputs beyond the ctx it
+ * draws to.
+ */
+function drawMasksLayer(
+  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+  masks: Mask[],
+  zoom: ZoomState,
+  dx: number,
+  dy: number,
+  dw: number,
+  dh: number,
+  cornerRadius: number,
+): void {
+  if (masks.length === 0) return; // no-op ⇒ pre-M5 byte-identical
+
+  // Resolve every active mask to its on-screen rect once (drop fully off-screen).
+  const pixelateRects: { x: number; y: number; w: number; h: number }[] = [];
+  const highlightRects: { x: number; y: number; w: number; h: number }[] = [];
+  for (const m of masks) {
+    const r = maskRectToContent(m.rect, zoom, dx, dy, dw, dh);
+    if (!r) continue;
+    if (m.kind === "pixelate") pixelateRects.push(r);
+    else highlightRects.push(r);
+  }
+  if (pixelateRects.length === 0 && highlightRects.length === 0) return;
+
+  // --- Pixelate: mosaic each region independently (read-back + upscale). ---
+  for (const r of pixelateRects) {
+    const buf = pixelateBufferSize(r.w, r.h);
+    const scratch = makeScratchCanvas(buf.w, buf.h);
+    if (!scratch) continue; // no drawing surface available — skip silently
+    // Downscale the on-screen region into the tiny buffer. Smoothing stays ON
+    // for the DOWNSCALE so each mosaic cell is the AVERAGE of its ~24px block
+    // (a cleaner privacy mosaic than nearest-neighbor's single-pixel pick); the
+    // blocky look comes from the smoothing-OFF UPSCALE below.
+    scratch.ctx.imageSmoothingEnabled = true;
+    scratch.ctx.clearRect(0, 0, buf.w, buf.h);
+    scratch.ctx.drawImage(
+      ctx.canvas as CanvasImageSource,
+      r.x,
+      r.y,
+      r.w,
+      r.h,
+      0,
+      0,
+      buf.w,
+      buf.h,
+    );
+    // Draw it back upscaled with smoothing off (blocky mosaic), clipped to the
+    // rounded content rect so it never bleeds past the frame's corners.
+    ctx.save();
+    roundedRectPath(ctx, dx, dy, dw, dh, cornerRadius);
+    ctx.clip();
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(scratch.canvas as CanvasImageSource, 0, 0, buf.w, buf.h, r.x, r.y, r.w, r.h);
+    ctx.restore();
+  }
+
+  // --- Highlight: ONE dim pass outside the union of highlight rects. ---
+  if (highlightRects.length > 0) {
+    ctx.save();
+    // Clip to the rounded content rect so the dim respects the frame corners.
+    roundedRectPath(ctx, dx, dy, dw, dh, cornerRadius);
+    ctx.clip();
+    // Even-odd path: the full content rect as the outer boundary, each highlight
+    // rect punched as a hole. Filling even-odd leaves the holes' interiors
+    // untouched — so the dim covers everything EXCEPT the highlight rects, in a
+    // single fill (multiple highlights = multiple holes, never overlapping
+    // fills → no double-darkening).
+    ctx.beginPath();
+    ctx.rect(dx, dy, dw, dh);
+    for (const r of highlightRects) ctx.rect(r.x, r.y, r.w, r.h);
+    ctx.fillStyle = `rgba(0,0,0,${HIGHLIGHT_DIM_ALPHA})`;
+    ctx.fill("evenodd");
+    ctx.restore();
+  }
+}
+
 // ---- Cursor + webcam overlays -------------------------------------------
 
 /** Ripple window (ms): the fading click ring lives this long after a down.
@@ -1287,6 +1529,15 @@ export function drawCompositeV2(
   drawFrameLayer(ctx, frame, frameW, frameH, outW, outH, appearance, zoom);
 
   if (dw <= 0 || dh <= 0) return;
+
+  // 2.5. Masks (pixelate / highlight): drawn INSIDE the frame's transformed
+  //      space (mapped via `maskRectToContent` under the same pan/zoom), AFTER
+  //      the frame and BEFORE the cursor — masks are content, so the synthetic
+  //      cursor/badges sit on top of them. Suppressed during a camera scene (the
+  //      scene branch returned above). Empty `masks` is a no-op ⇒ pre-M5
+  //      byte-identical. Under motion blur this runs per sub-sample at the
+  //      ambient accumulation alpha, averaging correctly (see `drawMasksLayer`).
+  drawMasksLayer(ctx, overlay.masks, zoom, dx, dy, dw, dh, appearance.cornerRadius);
 
   // 3. Cursor overlay. `overlay.cursor` is in normalized capture space; map it
   //    into the on-screen position accounting for the current pan/zoom so it

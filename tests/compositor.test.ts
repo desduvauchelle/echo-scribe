@@ -13,6 +13,9 @@ import {
   captionAt,
   webcamShrinkFactor,
   webcamSceneAt,
+  masksAt,
+  maskRectToContent,
+  pixelateBufferSize,
   smoothCursorPath,
   motionBlurSamples,
   drawCompositeBlurred,
@@ -25,7 +28,7 @@ import {
   type ZoomState,
 } from "../src/lib/render/compositor";
 import type { ZoomBlock, EventsHeader, RecEvent } from "../src/lib/autoZoom";
-import type { CaptionSegment, WebcamScene } from "../src/lib/editorProject";
+import type { CaptionSegment, Mask, WebcamScene } from "../src/lib/editorProject";
 
 const block: ZoomBlock = { startMs: 2000, endMs: 6000, cx: 0.3, cy: 0.7, scale: 2, mode: "auto" };
 
@@ -557,6 +560,156 @@ describe("webcamSceneAt", () => {
     expect(webcamSceneAt(3500, scenes)).toEqual({ id: "d" });
     expect(webcamSceneAt(4999, scenes)).toEqual({ id: "e" });
     expect(webcamSceneAt(5000, scenes)).toBeNull();
+  });
+});
+
+describe("masksAt", () => {
+  const mk = (
+    startMs: number,
+    endMs: number,
+    id: string,
+    kind: Mask["kind"] = "pixelate",
+  ): Mask => ({
+    id,
+    startMs,
+    endMs,
+    rect: { x: 0.25, y: 0.25, w: 0.5, h: 0.5 },
+    kind,
+  });
+
+  test("no masks -> empty array", () => {
+    expect(masksAt(1000, [])).toEqual([]);
+  });
+
+  test("time inside a mask returns it", () => {
+    const masks = [mk(1000, 2000, "m1")];
+    expect(masksAt(1500, masks).map((m) => m.id)).toEqual(["m1"]);
+  });
+
+  test("time before / after a mask -> empty", () => {
+    const masks = [mk(1000, 2000, "m1")];
+    expect(masksAt(500, masks)).toEqual([]);
+    expect(masksAt(2500, masks)).toEqual([]);
+  });
+
+  test("exactly at startMs is inside; exactly at endMs is outside (half-open)", () => {
+    const masks = [mk(1000, 2000, "m1")];
+    expect(masksAt(1000, masks).map((m) => m.id)).toEqual(["m1"]);
+    expect(masksAt(2000, masks)).toEqual([]);
+  });
+
+  test("returns ALL simultaneously-active masks (overlaps are legal)", () => {
+    const masks = [mk(0, 3000, "a"), mk(1000, 2000, "b"), mk(1500, 4000, "c")];
+    // At t=1500 all three overlap.
+    expect(masksAt(1500, masks).map((m) => m.id)).toEqual(["a", "b", "c"]);
+  });
+
+  test("result is order-stable (input order, NOT sorted by startMs)", () => {
+    // b starts before a, but a is listed first — masksAt must keep input order.
+    const masks = [mk(0, 3000, "a"), mk(0, 3000, "b")];
+    expect(masksAt(1000, masks).map((m) => m.id)).toEqual(["a", "b"]);
+    const reversed = [mk(0, 3000, "b"), mk(0, 3000, "a")];
+    expect(masksAt(1000, reversed).map((m) => m.id)).toEqual(["b", "a"]);
+  });
+
+  test("returns only the active subset when some masks don't cover t", () => {
+    const masks = [mk(0, 1000, "a"), mk(2000, 3000, "b"), mk(2500, 4000, "c")];
+    expect(masksAt(2600, masks).map((m) => m.id)).toEqual(["b", "c"]);
+    expect(masksAt(1500, masks)).toEqual([]); // in the gap
+  });
+});
+
+describe("maskRectToContent", () => {
+  // A content rect at (100, 50) sized 800×600 (mimics the padded frame area).
+  const dx = 100;
+  const dy = 50;
+  const dw = 800;
+  const dh = 600;
+  const noZoom: ZoomState = { cx: 0.5, cy: 0.5, scale: 1 };
+
+  test("at scale 1 a normalized rect maps linearly onto the content rect", () => {
+    // Left half of the frame.
+    const r = maskRectToContent({ x: 0, y: 0, w: 0.5, h: 1 }, noZoom, dx, dy, dw, dh);
+    expect(r).not.toBeNull();
+    expect(r!.x).toBeCloseTo(100);
+    expect(r!.y).toBeCloseTo(50);
+    expect(r!.w).toBeCloseTo(400); // half of 800
+    expect(r!.h).toBeCloseTo(600);
+  });
+
+  test("a full-frame rect maps to exactly the content rect", () => {
+    const r = maskRectToContent({ x: 0, y: 0, w: 1, h: 1 }, noZoom, dx, dy, dw, dh);
+    expect(r).toEqual({ x: 100, y: 50, w: 800, h: 600 });
+  });
+
+  test("a centered rect maps to the center of the content rect", () => {
+    const r = maskRectToContent({ x: 0.25, y: 0.25, w: 0.5, h: 0.5 }, noZoom, dx, dy, dw, dh);
+    expect(r!.x).toBeCloseTo(100 + 0.25 * 800); // 300
+    expect(r!.y).toBeCloseTo(50 + 0.25 * 600); // 200
+    expect(r!.w).toBeCloseTo(400);
+    expect(r!.h).toBeCloseTo(300);
+  });
+
+  test("under 2× zoom centered on the middle, the visible window is the center half — a centered rect grows", () => {
+    // scale 2, cx=cy=0.5 → visible source fraction is [0.25, 0.75] on each axis.
+    // A capture rect [0.25..0.75] fills the ENTIRE content rect at this zoom.
+    const zoom: ZoomState = { cx: 0.5, cy: 0.5, scale: 2 };
+    const r = maskRectToContent({ x: 0.25, y: 0.25, w: 0.5, h: 0.5 }, zoom, dx, dy, dw, dh);
+    expect(r!.x).toBeCloseTo(100);
+    expect(r!.y).toBeCloseTo(50);
+    expect(r!.w).toBeCloseTo(800);
+    expect(r!.h).toBeCloseTo(600);
+  });
+
+  test("a rect fully outside the visible window under zoom returns null", () => {
+    // scale 2 centered on the bottom-right (clamped) → the top-left of the
+    // capture is scrolled out of view; a tiny rect there is off-screen.
+    const zoom: ZoomState = { cx: 1, cy: 1, scale: 2 }; // clamps to [0.5,1]×[0.5,1]
+    const r = maskRectToContent({ x: 0, y: 0, w: 0.1, h: 0.1 }, zoom, dx, dy, dw, dh);
+    expect(r).toBeNull();
+  });
+
+  test("a rect partially off-screen under zoom is clipped to the content rect", () => {
+    // scale 2 centered on the middle → visible [0.25,0.75]. A rect [0..0.5]
+    // straddles the left edge: its [0..0.25] part is off-screen, [0.25..0.5]
+    // maps into the left half of the content rect.
+    const zoom: ZoomState = { cx: 0.5, cy: 0.5, scale: 2 };
+    const r = maskRectToContent({ x: 0, y: 0.3, w: 0.5, h: 0.2 }, zoom, dx, dy, dw, dh);
+    expect(r).not.toBeNull();
+    // Left edge clipped to the content rect's left (dx=100).
+    expect(r!.x).toBeCloseTo(100);
+    // Right edge: capture 0.5 → content fraction (0.5-0.25)/0.5 = 0.5 → dx+0.5*dw = 500.
+    expect(r!.x + r!.w).toBeCloseTo(500);
+  });
+
+  test("degenerate content rect (zero size) returns null", () => {
+    expect(maskRectToContent({ x: 0, y: 0, w: 1, h: 1 }, noZoom, dx, dy, 0, dh)).toBeNull();
+    expect(maskRectToContent({ x: 0, y: 0, w: 1, h: 1 }, noZoom, dx, dy, dw, 0)).toBeNull();
+  });
+});
+
+describe("pixelateBufferSize", () => {
+  test("downscales by ~1/24 on each axis", () => {
+    expect(pixelateBufferSize(480, 240)).toEqual({ w: 20, h: 10 });
+  });
+
+  test("rounds to the nearest whole cell", () => {
+    // 100/24 = 4.16… → 4;  50/24 = 2.08… → 2
+    expect(pixelateBufferSize(100, 50)).toEqual({ w: 4, h: 2 });
+  });
+
+  test("floors at 1px so a tiny region still yields a valid ≥1×1 buffer", () => {
+    expect(pixelateBufferSize(1, 1)).toEqual({ w: 1, h: 1 });
+    expect(pixelateBufferSize(10, 5)).toEqual({ w: 1, h: 1 }); // 10/24→0→1, 5/24→0→1
+  });
+
+  test("a smaller buffer than the region drives the mosaic (buffer << region)", () => {
+    const region = { w: 720, h: 480 };
+    const buf = pixelateBufferSize(region.w, region.h);
+    expect(buf.w).toBeLessThan(region.w);
+    expect(buf.h).toBeLessThan(region.h);
+    expect(buf.w).toBe(30); // 720/24
+    expect(buf.h).toBe(20); // 480/24
   });
 });
 
@@ -1333,7 +1486,7 @@ describe("drawCompositeBlurred (accumulation weights)", () => {
     background: { type: "gradient", from: "#111", to: "#000" },
   };
   const frame = { width: 1920, height: 1080 } as unknown as CanvasImageSource;
-  const overlay: OverlayState = { cursor: null, webcam: null, keystroke: null, caption: null, scene: null };
+  const overlay: OverlayState = { cursor: null, webcam: null, keystroke: null, caption: null, scene: null, masks: [] };
 
   test("single sample draws the frame exactly once and restores globalAlpha", () => {
     const { ctx, drawImageAlphas, getDepth } = makeCtxStub();
@@ -1470,6 +1623,7 @@ describe("drawCompositeV2 — camera scene + mirror (draw structure)", () => {
     keystroke: null,
     caption: null,
     scene: null,
+    masks: [],
   };
 
   test("scene draws ONE image (the webcam into the content rect) — the screen frame is replaced, not composited", () => {
@@ -1612,6 +1766,254 @@ describe("drawCompositeV2 — camera scene + mirror (draw structure)", () => {
     );
     expect(getDrawImageCount()).toBe(2); // screen + bubble
     expect(wasFlipped()).toBe(false);
+  });
+});
+
+describe("drawCompositeV2 — masks (draw structure)", () => {
+  // A stub recording the calls the mask draw exercises: drawImage count, the
+  // fill-rule of each fill() (to detect the highlight even-odd dim pass), the
+  // number of rect() calls (outer + holes), and save/restore depth. `canvas`
+  // is a plain marker object so the pixelate read-back's drawImage(ctx.canvas…)
+  // is a no-op-but-counted call.
+  function makeCtxStub() {
+    let drawImageCount = 0;
+    const fillRules: (string | undefined)[] = [];
+    let rectCount = 0;
+    let depth = 0;
+    let maxDepth = 0;
+    const canvas = { __isCanvas: true };
+    const ctx = {
+      canvas,
+      globalAlpha: 1,
+      fillStyle: "" as string | CanvasGradient,
+      strokeStyle: "",
+      lineWidth: 1,
+      font: "",
+      textAlign: "",
+      textBaseline: "",
+      shadowColor: "",
+      shadowBlur: 0,
+      shadowOffsetX: 0,
+      shadowOffsetY: 0,
+      lineJoin: "",
+      imageSmoothingEnabled: true,
+      save() {
+        depth++;
+        maxDepth = Math.max(maxDepth, depth);
+      },
+      restore() {
+        depth--;
+      },
+      beginPath() {},
+      closePath() {},
+      moveTo() {},
+      lineTo() {},
+      arc() {},
+      arcTo() {},
+      rect() {
+        rectCount++;
+      },
+      clip() {},
+      fill(rule?: string) {
+        fillRules.push(rule);
+      },
+      stroke() {},
+      fillRect() {},
+      clearRect() {},
+      translate() {},
+      scale() {},
+      fillText() {},
+      measureText() {
+        return { width: 10 };
+      },
+      createLinearGradient() {
+        return { addColorStop() {} };
+      },
+      drawImage() {
+        drawImageCount++;
+      },
+    };
+    return {
+      ctx,
+      getDrawImageCount: () => drawImageCount,
+      getFillRules: () => fillRules,
+      getRectCount: () => rectCount,
+      getDepth: () => depth,
+    };
+  }
+
+  const appearance: Appearance = {
+    padding: 96,
+    cornerRadius: 16,
+    aspect: "auto",
+    background: { type: "solid", color: "#000" },
+  };
+  const screenFrame = { width: 1920, height: 1080 } as unknown as CanvasImageSource;
+  const zoom: ZoomState = { cx: 0.5, cy: 0.5, scale: 1 };
+  const baseOverlay: OverlayState = {
+    cursor: null,
+    webcam: null,
+    keystroke: null,
+    caption: null,
+    scene: null,
+    masks: [],
+  };
+  const pixelate = (id: string): Mask => ({
+    id,
+    startMs: 0,
+    endMs: 1000,
+    rect: { x: 0.25, y: 0.25, w: 0.5, h: 0.5 },
+    kind: "pixelate",
+  });
+  const highlight = (id: string, rect = { x: 0.25, y: 0.25, w: 0.5, h: 0.5 }): Mask => ({
+    id,
+    startMs: 0,
+    endMs: 1000,
+    rect,
+    kind: "highlight",
+  });
+
+  function draw(ctx: unknown, masks: Mask[]) {
+    drawCompositeBlurred(
+      ctx as CanvasRenderingContext2D,
+      screenFrame,
+      1920,
+      1080,
+      2112,
+      1272,
+      appearance,
+      [zoom],
+      { ...baseOverlay, masks },
+      1.5,
+      null,
+    );
+  }
+
+  test("empty masks is a complete no-op: only the frame draws, no fills, no rects", () => {
+    const { ctx, getDrawImageCount, getFillRules, getRectCount, getDepth } = makeCtxStub();
+    draw(ctx, []);
+    expect(getDrawImageCount()).toBe(1); // just the frame
+    expect(getFillRules()).toEqual([]); // no dim pass
+    expect(getRectCount()).toBe(0); // no mask paths
+    expect(getDepth()).toBe(0); // balanced
+  });
+
+  test("a single highlight dims OUTSIDE it in ONE even-odd fill pass (outer + one hole)", () => {
+    const { ctx, getFillRules, getRectCount, getDepth } = makeCtxStub();
+    draw(ctx, [highlight("h1")]);
+    // Exactly one fill, and it is the even-odd dim pass.
+    expect(getFillRules()).toEqual(["evenodd"]);
+    // Two rects: the outer content rect + one hole for the highlight.
+    expect(getRectCount()).toBe(2);
+    expect(getDepth()).toBe(0);
+  });
+
+  test("multiple highlights = multiple holes in the SINGLE dim pass (no stacked fills → no double-dim)", () => {
+    const { ctx, getFillRules, getRectCount } = makeCtxStub();
+    draw(ctx, [
+      highlight("h1", { x: 0.05, y: 0.05, w: 0.3, h: 0.3 }),
+      highlight("h2", { x: 0.6, y: 0.6, w: 0.3, h: 0.3 }),
+    ]);
+    // Still exactly ONE fill (one dim pass), not one per highlight.
+    expect(getFillRules()).toEqual(["evenodd"]);
+    // Outer rect + one hole per highlight = 3.
+    expect(getRectCount()).toBe(3);
+  });
+
+  test("a highlight fully scrolled off-screen under zoom contributes no hole (dropped by maskRectToContent)", () => {
+    const { ctx, getFillRules, getRectCount } = makeCtxStub();
+    // scale 2 clamped to the bottom-right → a top-left highlight is off-screen.
+    const zoomBR: ZoomState = { cx: 1, cy: 1, scale: 2 };
+    drawCompositeBlurred(
+      ctx as unknown as CanvasRenderingContext2D,
+      screenFrame,
+      1920,
+      1080,
+      2112,
+      1272,
+      appearance,
+      [zoomBR],
+      { ...baseOverlay, masks: [highlight("h1", { x: 0, y: 0, w: 0.1, h: 0.1 })] },
+      1.5,
+      null,
+    );
+    // No visible highlight rect → no dim pass at all.
+    expect(getFillRules()).toEqual([]);
+    expect(getRectCount()).toBe(0);
+  });
+
+  test("pixelate reads back the region and redraws it (mosaic) when an OffscreenCanvas is available", () => {
+    // Provide a minimal OffscreenCanvas so makeScratchCanvas succeeds; without
+    // one the pixelate is skipped silently (env-guarded). Restore afterward.
+    const scratchCtx = {
+      imageSmoothingEnabled: true,
+      clearRect() {},
+      drawImage() {},
+    };
+    const prev = (globalThis as Record<string, unknown>).OffscreenCanvas;
+    (globalThis as Record<string, unknown>).OffscreenCanvas = class {
+      getContext() {
+        return scratchCtx;
+      }
+    };
+    try {
+      const { ctx, getDrawImageCount } = makeCtxStub();
+      draw(ctx, [pixelate("p1")]);
+      // The frame draw + the pixelate redraw onto the main ctx = 2 drawImages on
+      // the MAIN context (the downscale draw lands on the scratch ctx, not here).
+      expect(getDrawImageCount()).toBe(2);
+    } finally {
+      (globalThis as Record<string, unknown>).OffscreenCanvas = prev;
+    }
+  });
+
+  test("pixelate + highlight together: pixelate redraw + one even-odd dim pass", () => {
+    const scratchCtx = {
+      imageSmoothingEnabled: true,
+      clearRect() {},
+      drawImage() {},
+    };
+    const prev = (globalThis as Record<string, unknown>).OffscreenCanvas;
+    (globalThis as Record<string, unknown>).OffscreenCanvas = class {
+      getContext() {
+        return scratchCtx;
+      }
+    };
+    try {
+      const { ctx, getDrawImageCount, getFillRules } = makeCtxStub();
+      draw(ctx, [pixelate("p1"), highlight("h1")]);
+      // frame + pixelate redraw = 2 main-ctx drawImages; one even-odd dim pass.
+      expect(getDrawImageCount()).toBe(2);
+      expect(getFillRules()).toEqual(["evenodd"]);
+    } finally {
+      (globalThis as Record<string, unknown>).OffscreenCanvas = prev;
+    }
+  });
+
+  test("masks are suppressed during a camera scene (scene overlay ignores masks entirely)", () => {
+    const { ctx, getFillRules, getDrawImageCount } = makeCtxStub();
+    const camFrame = { width: 1280, height: 720 } as unknown as CanvasImageSource;
+    drawCompositeBlurred(
+      ctx as unknown as CanvasRenderingContext2D,
+      screenFrame,
+      1920,
+      1080,
+      2112,
+      1272,
+      appearance,
+      [zoom],
+      {
+        ...baseOverlay,
+        scene: { frame: camFrame, mirror: false },
+        // Masks present, but a scene is active → the scene branch returns before
+        // the mask draw, so NO dim pass and only the scene's single image draws.
+        masks: [highlight("h1"), pixelate("p1")],
+      },
+      1.5,
+      null,
+    );
+    expect(getFillRules()).toEqual([]); // no highlight dim during a scene
+    expect(getDrawImageCount()).toBe(1); // only the scene webcam image
   });
 });
 

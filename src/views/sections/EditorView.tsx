@@ -72,6 +72,7 @@ import {
   SPEED_ADD_DEFAULT_LENGTH_MS,
   SPEED_ADD_DEFAULT_RATE,
   SCENE_MIN_LENGTH_MS,
+  clampMasks,
 } from "../../lib/editorProject";
 import { renderRecording, type RenderProgress } from "../../lib/render/renderPipeline";
 import {
@@ -82,6 +83,7 @@ import {
   drawCompositeBlurred,
   keystrokeBadgeAlpha,
   keystrokeBadgeAt,
+  masksAt,
   motionBlurSamples,
   MOTION_BLUR_SAMPLES,
   outputLayout,
@@ -448,6 +450,19 @@ export function EditorView({
     return captionAt(tMsSource, p.captions.segments);
   }, []);
 
+  // Compute the active masks (pixelate/highlight) for a given SOURCE time (ms).
+  // Reads `project.masks` via `projectRef` (mirroring the caption/keystroke
+  // lookups), clamps them against the current duration (rect into [0,1],
+  // degenerate/zero-area dropped; time-overlaps preserved), then returns ALL
+  // active via the SAME shared `masksAt` the export path uses — so preview and
+  // rendered file draw identical masks. Empty ⇒ [] (pre-M5 look unchanged).
+  const masksOverlayAt = useCallback((tMsSource: number): OverlayState["masks"] => {
+    const p = projectRef.current;
+    if (p.masks.length === 0) return [];
+    const clamped = clampMasks(p.masks, durationMsRef.current || 0);
+    return masksAt(tMsSource, clamped);
+  }, []);
+
   // Resolve the effective zoom timeline whenever the inputs change:
   //   - `project.zoom`  (mode/blocks — off/custom/auto)
   //   - `eventsReady`   (the click track finished loading; auto mode needs it)
@@ -596,6 +611,10 @@ export function EditorView({
         : null;
     const keystroke = keystrokeOverlayAt(tMsSource);
     const caption = captionOverlayAt(tMsSource);
+    // Masks (pixelate/highlight) active this frame — suppressed during a scene
+    // (screen hidden), matching export. Belt-and-suspenders with the
+    // compositor's scene early-return, which also skips the mask draw.
+    const masks = scene ? [] : masksOverlayAt(tMsSource);
     // Motion blur collapses during a scene (zoom ignored ⇒ identical sub-samples).
     const frameZoomSamples = scene ? [zoomSamples[0]] : zoomSamples;
     drawCompositeBlurred(
@@ -607,11 +626,11 @@ export function EditorView({
       outH,
       appearance,
       frameZoomSamples,
-      { cursor, webcam, keystroke, caption, scene },
+      { cursor, webcam, keystroke, caption, scene, masks },
       cursorDrawScale(p.cursor.scale, pxScale),
       bgImageRef.current,
     );
-  }, [captionOverlayAt, cursorOverlayAt, keystrokeOverlayAt]);
+  }, [captionOverlayAt, cursorOverlayAt, keystrokeOverlayAt, masksOverlayAt]);
 
   // Webcam preview time-sync. The webcam element should sit at
   //   webcamTime = mainTime + offsetMs   (offset = firstMainFramePTS − webcamStart).

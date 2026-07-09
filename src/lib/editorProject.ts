@@ -61,6 +61,24 @@ export type CaptionSettings = {
 
 export type AudioSettings = { normalizeLoudness: boolean };
 
+/** A privacy/emphasis mask over a rectangular region of the CAPTURE frame,
+ *  active over a source-time window. `rect` is in normalized capture coords
+ *  ([0,1] on both axes, `w`/`h` relative to the capture width/height), so it
+ *  tracks the underlying content under zoom automatically (drawn in the same
+ *  transformed frame space). Two kinds:
+ *    - `pixelate` — blur/mosaic the region (hide sensitive content).
+ *    - `highlight` — dim everything OUTSIDE the region (draw the eye to it).
+ *  Unlike every other lane (scenes/speed/captions), masks MAY overlap in time:
+ *  multiple masks can be simultaneously active, so `clampMasks` does NOT drop
+ *  time-overlaps — see its doc. `id` is required (mirrors WebcamScene). */
+export type Mask = {
+  id: string;
+  startMs: number;
+  endMs: number;
+  rect: { x: number; y: number; w: number; h: number }; // normalized [0,1]
+  kind: "pixelate" | "highlight";
+};
+
 /** Output canvas aspect-ratio preset. `auto` = the canvas is exactly the frame
  *  plus padding (the legacy look); the fixed presets wrap that in a canvas of
  *  the named aspect with the recording centered and the short axis letterboxed.
@@ -91,6 +109,7 @@ export type EditorProject = {
   captions: CaptionSettings;
   audio: AudioSettings;
   motionBlur: boolean;
+  masks: Mask[]; // privacy/emphasis regions; default []
 };
 
 // Bounds shared with the UI sliders and the compositor.
@@ -129,6 +148,7 @@ export function defaultProject(): EditorProject {
     captions: { enabled: false, segments: null },
     audio: { normalizeLoudness: false },
     motionBlur: false,
+    masks: [],
   };
 }
 
@@ -338,6 +358,47 @@ function parseCaptions(v: unknown, fallback: CaptionSettings): CaptionSettings {
   return { enabled, segments: v.segments.filter(isValidCaptionSegment) };
 }
 
+/** Shape-checks a single persisted mask (rect-clamp/zero-area/time-overlap are
+ *  enforced by clampMasks at time-of-use, not here — parse only validates
+ *  shape, same pattern as isValidCaptionSegment). `id` is required (mirrors the
+ *  Mask contract) and `rect`'s four numeric fields must be present + finite;
+ *  `kind` must be one of the two known values. */
+function isValidMask(v: unknown): v is Mask {
+  if (!isObject(v)) return false;
+  if (
+    typeof v.id !== "string" ||
+    v.id.length === 0 ||
+    typeof v.startMs !== "number" ||
+    !Number.isFinite(v.startMs) ||
+    typeof v.endMs !== "number" ||
+    !Number.isFinite(v.endMs) ||
+    (v.kind !== "pixelate" && v.kind !== "highlight")
+  ) {
+    return false;
+  }
+  const r = v.rect;
+  return (
+    isObject(r) &&
+    typeof r.x === "number" &&
+    Number.isFinite(r.x) &&
+    typeof r.y === "number" &&
+    Number.isFinite(r.y) &&
+    typeof r.w === "number" &&
+    Number.isFinite(r.w) &&
+    typeof r.h === "number" &&
+    Number.isFinite(r.h)
+  );
+}
+
+/** Parses the `masks` field: non-array (or absent) -> `[]`; shape-invalid
+ *  entries are dropped, valid ones kept in their original order (mirrors
+ *  parseSpeed / parseWebcamScenes). Rect-clamping and zero-area/overlap
+ *  handling are deferred to clampMasks at time-of-use. */
+function parseMasks(v: unknown): Mask[] {
+  if (!Array.isArray(v)) return [];
+  return v.filter(isValidMask);
+}
+
 /** Parses the `audio` field: missing/non-object -> default; non-boolean
  *  `normalizeLoudness` falls back to its default value. */
 function parseAudio(v: unknown, fallback: AudioSettings): AudioSettings {
@@ -430,6 +491,7 @@ export function parseProject(json: string | null): EditorProject {
     captions: parseCaptions(raw.captions, base.captions),
     audio: parseAudio(raw.audio, base.audio),
     motionBlur: typeof raw.motionBlur === "boolean" ? raw.motionBlur : base.motionBlur,
+    masks: parseMasks(raw.masks),
   };
 }
 
@@ -567,6 +629,52 @@ export function clampWebcamScenes(
     startMs: Math.round(s.startMs),
     endMs: Math.round(s.endMs),
   }));
+}
+
+/** Sorts, clamps, and — unlike every other lane — does NOT de-overlap a list of
+ *  masks against a clip duration. Pure — never mutates its argument. Mirrors
+ *  `clampWebcamScenes`'s time handling (clamp `[startMs,endMs]` into
+ *  `[0,durationMs]`, drop degenerate/out-of-bounds windows, round to integers)
+ *  PLUS a normalized-rect clamp, and CRUCIALLY preserves time-overlaps:
+ *  multiple masks active at the same instant is legal, so there is no
+ *  earlier-wins drop step. Order of operations:
+ *
+ *  1. Clamp both `startMs` and `endMs` into `[0, durationMs]`.
+ *  2. Drop any mask where `endMs <= startMs` after clamping (degenerate or
+ *     fully out-of-bounds) — does NOT reorder an inverted pair; it drops it.
+ *  3. Clamp the rect into the unit square: `x`,`y` into `[0,1]`, then `w`,`h`
+ *     into `[0, 1-x]` / `[0, 1-y]` so the rect never runs off the capture edge.
+ *  4. Drop any mask whose clamped rect is zero-area (`w <= 0` or `h <= 0`) —
+ *     nothing to draw.
+ *  5. Round `startMs`/`endMs` to integers (rect stays fractional — it's
+ *     normalized capture coords, not pixels).
+ *
+ *  Input ORDER is preserved (no sort): masks legitimately overlap in time, so
+ *  there's no earlier-wins tie-break that a sort would serve, and `masksAt`
+ *  documents an input-order-stable result — keeping the array order here makes
+ *  that guarantee meaningful end-to-end. */
+export function clampMasks(masks: Mask[], durationMs: number): Mask[] {
+  const out: Mask[] = [];
+  for (const m of masks) {
+    const start = clamp(m.startMs, 0, durationMs);
+    const end = clamp(m.endMs, 0, durationMs);
+    if (end <= start) continue;
+
+    const x = clamp(m.rect.x, 0, 1);
+    const y = clamp(m.rect.y, 0, 1);
+    const w = clamp(m.rect.w, 0, 1 - x);
+    const h = clamp(m.rect.h, 0, 1 - y);
+    if (w <= 0 || h <= 0) continue; // zero-area: nothing to draw
+
+    out.push({
+      id: m.id,
+      startMs: Math.round(start),
+      endMs: Math.round(end),
+      rect: { x, y, w, h },
+      kind: m.kind,
+    });
+  }
+  return out;
 }
 
 // ---- Speed map + retiming math (Task 5) ---------------------------------

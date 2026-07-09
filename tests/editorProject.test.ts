@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   buildSpeedMap,
   clampCaptionSegments,
+  clampMasks,
   clampSpeedRanges,
   clampTrim,
   clampWebcamScenes,
@@ -23,6 +24,7 @@ import {
   ZOOM_MIN_LENGTH_MS,
   SCENE_MIN_LENGTH_MS,
   type CaptionSegment,
+  type Mask,
   type SpeedRange,
   type WebcamScene,
 } from "../src/lib/editorProject";
@@ -46,6 +48,22 @@ function zb(startMs: number, endMs: number, over: Partial<ZoomBlock> = {}): Zoom
 /** A webcam scene literal helper. */
 function scene(startMs: number, endMs: number, id = "s1"): WebcamScene {
   return { id, startMs, endMs };
+}
+
+/** A mask literal helper (rect defaults to a centered unit-quarter square). */
+function mask(
+  startMs: number,
+  endMs: number,
+  over: Partial<Mask> = {},
+): Mask {
+  return {
+    id: "m1",
+    startMs,
+    endMs,
+    rect: { x: 0.25, y: 0.25, w: 0.5, h: 0.5 },
+    kind: "pixelate",
+    ...over,
+  };
 }
 
 describe("defaultProject", () => {
@@ -90,6 +108,11 @@ describe("defaultProject", () => {
     expect(p.captions).toEqual({ enabled: false, segments: null });
     expect(p.audio).toEqual({ normalizeLoudness: false });
     expect(p.motionBlur).toBe(false);
+  });
+
+  test("masks default to [] (M5)", () => {
+    const p = defaultProject();
+    expect(p.masks).toEqual([]);
   });
 
   test("cursor smoothing/hideIdle defaults present (M4) — existing look unchanged", () => {
@@ -515,6 +538,47 @@ describe("parseProject — motionBlur", () => {
   });
 });
 
+describe("parseProject — masks (M5)", () => {
+  test("missing masks -> empty array", () => {
+    expect(parseProject(JSON.stringify({ appearance: { padding: 20 } })).masks).toEqual([]);
+  });
+
+  test("non-array masks -> empty array", () => {
+    expect(parseProject(JSON.stringify({ masks: "nope" })).masks).toEqual([]);
+    expect(parseProject(JSON.stringify({ masks: {} })).masks).toEqual([]);
+  });
+
+  test("valid masks survive (both kinds)", () => {
+    const masks = [
+      { id: "m1", startMs: 0, endMs: 1000, rect: { x: 0.1, y: 0.2, w: 0.3, h: 0.4 }, kind: "pixelate" },
+      { id: "m2", startMs: 500, endMs: 1500, rect: { x: 0, y: 0, w: 1, h: 1 }, kind: "highlight" },
+    ];
+    expect(parseProject(JSON.stringify({ masks })).masks).toEqual(masks);
+  });
+
+  test("shape-invalid mask entries are dropped, valid ones kept in order", () => {
+    const p = parseProject(
+      JSON.stringify({
+        masks: [
+          { id: "m1", startMs: 0, endMs: 1000, rect: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 }, kind: "pixelate" },
+          { id: "m2", startMs: "x", endMs: 1000, rect: { x: 0, y: 0, w: 1, h: 1 }, kind: "highlight" }, // bad startMs
+          { startMs: 0, endMs: 1000, rect: { x: 0, y: 0, w: 1, h: 1 }, kind: "pixelate" }, // missing id
+          { id: "m3", startMs: 0, endMs: 1000, kind: "pixelate" }, // missing rect
+          { id: "m4", startMs: 0, endMs: 1000, rect: { x: 0, y: 0, w: 1 }, kind: "pixelate" }, // rect missing h
+          { id: "m5", startMs: 0, endMs: 1000, rect: { x: 0, y: 0, w: 1, h: 1 }, kind: "blur" }, // bad kind
+          "garbage",
+          null,
+          { id: "m6", startMs: 500, endMs: 1500, rect: { x: 0.5, y: 0.5, w: 0.2, h: 0.2 }, kind: "highlight" },
+        ],
+      }),
+    );
+    expect(p.masks).toEqual([
+      { id: "m1", startMs: 0, endMs: 1000, rect: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 }, kind: "pixelate" },
+      { id: "m6", startMs: 500, endMs: 1500, rect: { x: 0.5, y: 0.5, w: 0.2, h: 0.2 }, kind: "highlight" },
+    ]);
+  });
+});
+
 describe("parseProject — cursor smoothing/hideIdle (M4)", () => {
   test("missing smoothing/hideIdle -> defaults (existing look unchanged)", () => {
     const p = parseProject(JSON.stringify({ cursor: { enabled: true, scale: 2 } }));
@@ -804,6 +868,97 @@ describe("clampWebcamScenes", () => {
   });
 });
 
+describe("clampMasks", () => {
+  test("empty input -> empty output", () => {
+    expect(clampMasks([], 10000)).toEqual([]);
+  });
+
+  test("single valid mask passes through unchanged", () => {
+    expect(clampMasks([mask(1000, 2000)], 10000)).toEqual([
+      { id: "m1", startMs: 1000, endMs: 2000, rect: { x: 0.25, y: 0.25, w: 0.5, h: 0.5 }, kind: "pixelate" },
+    ]);
+  });
+
+  test("preserves input order (does NOT sort by startMs) — masks are order-stable", () => {
+    const out = clampMasks(
+      [mask(5000, 6000, { id: "b" }), mask(0, 1000, { id: "a" })],
+      10000,
+    );
+    expect(out.map((m) => m.id)).toEqual(["b", "a"]);
+  });
+
+  test("clamps start/end into [0, durationMs]", () => {
+    expect(clampMasks([mask(-500, 2000)], 10000)[0]).toMatchObject({
+      startMs: 0,
+      endMs: 2000,
+    });
+    expect(clampMasks([mask(8000, 20000)], 10000)[0]).toMatchObject({
+      startMs: 8000,
+      endMs: 10000,
+    });
+  });
+
+  test("drops masks with endMs<=startMs after clamping", () => {
+    // fully out of bounds — clamps to a zero-length window, dropped.
+    expect(clampMasks([mask(20000, 30000)], 10000)).toEqual([]);
+    // inverted/zero-length before clamp — dropped, not reordered.
+    expect(clampMasks([mask(5000, 5000)], 10000)).toEqual([]);
+  });
+
+  test("KEEPS time-overlapping masks (unlike scenes/speed/captions)", () => {
+    const out = clampMasks(
+      [mask(0, 2000, { id: "a" }), mask(1000, 3000, { id: "b" })],
+      10000,
+    );
+    // Both survive — overlap in time is legal for masks.
+    expect(out.map((m) => m.id)).toEqual(["a", "b"]);
+  });
+
+  test("clamps rect x/y into [0,1] and w/h so the rect stays inside the unit square", () => {
+    const out = clampMasks(
+      [mask(0, 1000, { rect: { x: -0.2, y: 0.5, w: 2, h: 0.9 } })],
+      10000,
+    );
+    // x -> 0; w capped at 1 - x = 1. y stays 0.5; h capped at 1 - y = 0.5.
+    expect(out[0].rect).toEqual({ x: 0, y: 0.5, w: 1, h: 0.5 });
+  });
+
+  test("drops masks whose clamped rect is zero-area", () => {
+    // zero width
+    expect(clampMasks([mask(0, 1000, { rect: { x: 0.1, y: 0.1, w: 0, h: 0.5 } })], 10000)).toEqual([]);
+    // negative height clamps to 0 -> dropped
+    expect(clampMasks([mask(0, 1000, { rect: { x: 0.1, y: 0.1, w: 0.5, h: -0.3 } })], 10000)).toEqual([]);
+    // x at the far edge leaves no width -> w clamps to 0 -> dropped
+    expect(clampMasks([mask(0, 1000, { rect: { x: 1, y: 0.1, w: 0.5, h: 0.5 } })], 10000)).toEqual([]);
+  });
+
+  test("rounds start/end to integers (rect stays fractional)", () => {
+    const out = clampMasks(
+      [mask(100.6, 999.4, { rect: { x: 0.111, y: 0.222, w: 0.3, h: 0.4 } })],
+      10000,
+    );
+    expect(out[0].startMs).toBe(101);
+    expect(out[0].endMs).toBe(999);
+    // rect not rounded — it's normalized capture coords, not pixels.
+    expect(out[0].rect).toEqual({ x: 0.111, y: 0.222, w: 0.3, h: 0.4 });
+  });
+
+  test("preserves the kind field", () => {
+    const out = clampMasks(
+      [mask(0, 1000, { kind: "highlight" }), mask(2000, 3000, { kind: "pixelate" })],
+      10000,
+    );
+    expect(out.map((m) => m.kind)).toEqual(["highlight", "pixelate"]);
+  });
+
+  test("does not mutate its argument", () => {
+    const input = [mask(-100, 2000, { rect: { x: -1, y: 0.5, w: 3, h: 0.5 } })];
+    const snapshot = JSON.parse(JSON.stringify(input));
+    clampMasks(input, 10000);
+    expect(input).toEqual(snapshot);
+  });
+});
+
 describe("clampTrim", () => {
   test("null passthrough", () => {
     expect(clampTrim(null, 10000)).toBeNull();
@@ -905,6 +1060,10 @@ describe("round-trip stability", () => {
       },
       audio: { normalizeLoudness: true },
       motionBlur: true,
+      masks: [
+        { id: "m1", startMs: 0, endMs: 1000, rect: { x: 0.1, y: 0.2, w: 0.3, h: 0.4 }, kind: "pixelate" as const },
+        { id: "m2", startMs: 500, endMs: 1500, rect: { x: 0, y: 0, w: 1, h: 1 }, kind: "highlight" as const },
+      ],
     };
     const once = parseProject(JSON.stringify(full));
     const twice = parseProject(JSON.stringify(once));
@@ -961,6 +1120,9 @@ describe("round-trip stability", () => {
       mode: "custom",
       blocks: [{ startMs: 0, endMs: 1000, cx: 0.5, cy: 0.5, scale: 2, mode: "manual", id: "z1" }],
     });
+
+    // The M5 masks field is absent in the fixture → defaults to [] (no masks).
+    expect(p.masks).toEqual([]);
   });
 
   test("pre-M4 project JSON (no captions/audio/motionBlur/smoothing/hideIdle) parses to identical render behavior", () => {
@@ -1022,6 +1184,9 @@ describe("round-trip stability", () => {
     expect(p.motionBlur).toBe(false);
     expect(p.cursor.smoothing).toBe(0);
     expect(p.cursor.hideIdle).toBe(false);
+
+    // New M5 masks field defaults to [] so render behavior is unchanged.
+    expect(p.masks).toEqual([]);
   });
 });
 

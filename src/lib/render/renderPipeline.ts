@@ -30,9 +30,11 @@ import {
 } from "../autoZoom";
 import {
   buildSpeedMap,
+  clampMasks,
   clampTrim,
   shiftRangesForTrim,
   type EditorProject,
+  type Mask,
   type SpeedMap,
 } from "../editorProject";
 import {
@@ -42,6 +44,7 @@ import {
   drawCompositeBlurred,
   keystrokeBadgeAlpha,
   keystrokeBadgeAt,
+  masksAt,
   motionBlurSamples,
   MOTION_BLUR_SAMPLES,
   outputLayout,
@@ -675,6 +678,16 @@ export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8A
   const captionSegments = project.captions.enabled ? (project.captions.segments ?? []) : [];
   const drawCaptions = captionSegments.length > 0;
 
+  // Masks overlay (Task 4, M5): pixelate/highlight regions come straight from
+  // the project (no events file). Clamped against the full source duration
+  // (rect into [0,1], degenerate windows/zero-area rects dropped; time-overlaps
+  // PRESERVED — see `clampMasks`), then looked up at each frame's SOURCE time
+  // via the shared `masksAt` — same source-time rule as captions/scenes. Empty
+  // ⇒ no masks drawn (pre-M5 byte-identical). Masks are suppressed during a
+  // camera scene automatically (the compositor's scene branch returns first).
+  const maskList: Mask[] = clampMasks(project.masks, durationMs);
+  const drawMasks = maskList.length > 0;
+
   // Webcam M6 flags (auto-shrink, mirror, scenes). `showWebcamBubble` gates the
   // corner PiP; `drawScenes` gates the "cut to camera" full-frame ranges (which
   // render even when the bubble is hidden). Both looked up at SOURCE time via
@@ -835,6 +848,10 @@ export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8A
             // trimmed/sped region needs no special handling (identical rule to
             // the keystroke badge / zoom lookups above).
             const caption = drawCaptions ? captionAt(tMsSource, captionSegments) : null;
+            // Masks active at SOURCE time (all currently-active — overlaps are
+            // legal). Empty when disabled; suppressed during a scene below by
+            // forcing `masks: []` on the scene overlay (the screen is hidden).
+            const masks = drawMasks ? masksAt(tMsSource, maskList) : [];
             // Webcam overlay, co-occurring frame at SOURCE time. Convention:
             //   webcamTime = mainTime + offset_ms   (see pickWebcamFrameIndex).
             // WebcamSource owns the returned frame (held/reused) — do NOT close it.
@@ -884,7 +901,11 @@ export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8A
               outH,
               appearance,
               frameZoomSamples,
-              { cursor, webcam, keystroke, caption, scene },
+              // Masks are content on the screen frame, so they're suppressed
+              // during a "cut to camera" scene (the screen is hidden). Force []
+              // when a scene is active — belt-and-suspenders with the
+              // compositor's scene early-return, which also skips the mask draw.
+              { cursor, webcam, keystroke, caption, scene, masks: scene ? [] : masks },
               cursorScale,
               bgImage,
             );
