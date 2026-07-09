@@ -109,7 +109,7 @@ describe("defaultProject", () => {
   test("captions/audio/motionBlur defaults present (M4)", () => {
     const p = defaultProject();
     expect(p.captions).toEqual({ enabled: false, segments: null });
-    expect(p.audio).toEqual({ normalizeLoudness: false });
+    expect(p.audio).toEqual({ normalizeLoudness: false, music: null });
     expect(p.motionBlur).toBe(false);
   });
 
@@ -501,28 +501,94 @@ describe("parseProject — captions", () => {
 });
 
 describe("parseProject — audio", () => {
-  test("missing audio -> default (normalizeLoudness false)", () => {
+  test("missing audio -> default (normalizeLoudness false, music null)", () => {
     expect(parseProject(JSON.stringify({ appearance: { padding: 20 } })).audio).toEqual({
       normalizeLoudness: false,
+      music: null,
     });
   });
 
   test("valid audio survives", () => {
     expect(
       parseProject(JSON.stringify({ audio: { normalizeLoudness: true } })).audio,
-    ).toEqual({ normalizeLoudness: true });
+    ).toEqual({ normalizeLoudness: true, music: null });
   });
 
   test("non-boolean normalizeLoudness falls back to default", () => {
     expect(
       parseProject(JSON.stringify({ audio: { normalizeLoudness: "yes" } })).audio,
-    ).toEqual({ normalizeLoudness: false });
+    ).toEqual({ normalizeLoudness: false, music: null });
   });
 
   test("non-object audio -> default", () => {
     expect(parseProject(JSON.stringify({ audio: "nope" })).audio).toEqual({
       normalizeLoudness: false,
+      music: null,
     });
+  });
+});
+
+describe("parseProject — audio.music", () => {
+  test("missing music -> null", () => {
+    expect(
+      parseProject(JSON.stringify({ audio: { normalizeLoudness: false } })).audio.music,
+    ).toBeNull();
+  });
+
+  test("valid music survives with its volume", () => {
+    expect(
+      parseProject(
+        JSON.stringify({ audio: { music: { path: "/abs/song.mp3", volume: 0.7 } } }),
+      ).audio.music,
+    ).toEqual({ path: "/abs/song.mp3", volume: 0.7 });
+  });
+
+  test("missing volume falls back to MUSIC_VOLUME_DEFAULT (0.5)", () => {
+    expect(
+      parseProject(JSON.stringify({ audio: { music: { path: "/abs/song.mp3" } } })).audio.music,
+    ).toEqual({ path: "/abs/song.mp3", volume: 0.5 });
+  });
+
+  test("volume is clamped into [0, 1]", () => {
+    expect(
+      parseProject(
+        JSON.stringify({ audio: { music: { path: "/abs/song.mp3", volume: 5 } } }),
+      ).audio.music,
+    ).toEqual({ path: "/abs/song.mp3", volume: 1 });
+    expect(
+      parseProject(
+        JSON.stringify({ audio: { music: { path: "/abs/song.mp3", volume: -2 } } }),
+      ).audio.music,
+    ).toEqual({ path: "/abs/song.mp3", volume: 0 });
+  });
+
+  test("non-numeric volume falls back to default", () => {
+    expect(
+      parseProject(
+        JSON.stringify({ audio: { music: { path: "/abs/song.mp3", volume: "loud" } } }),
+      ).audio.music,
+    ).toEqual({ path: "/abs/song.mp3", volume: 0.5 });
+  });
+
+  test("missing/empty path -> null (no usable music)", () => {
+    expect(
+      parseProject(JSON.stringify({ audio: { music: { volume: 0.5 } } })).audio.music,
+    ).toBeNull();
+    expect(
+      parseProject(JSON.stringify({ audio: { music: { path: "", volume: 0.5 } } })).audio.music,
+    ).toBeNull();
+  });
+
+  test("non-object music -> null", () => {
+    expect(
+      parseProject(JSON.stringify({ audio: { music: "nope" } })).audio.music,
+    ).toBeNull();
+  });
+
+  test("explicit null music -> null", () => {
+    expect(
+      parseProject(JSON.stringify({ audio: { music: null } })).audio.music,
+    ).toBeNull();
   });
 });
 
@@ -1254,7 +1320,7 @@ describe("round-trip stability", () => {
         enabled: true,
         segments: [{ startMs: 0, endMs: 1000, text: "hello there" }],
       },
-      audio: { normalizeLoudness: true },
+      audio: { normalizeLoudness: true, music: { path: "/abs/music.mp3", volume: 0.7 } },
       motionBlur: true,
       masks: [
         { id: "m1", startMs: 0, endMs: 1000, rect: { x: 0.1, y: 0.2, w: 0.3, h: 0.4 }, kind: "pixelate" as const },
@@ -1376,7 +1442,7 @@ describe("round-trip stability", () => {
 
     // New M4 fields default OFF/neutral so render behavior is unchanged.
     expect(p.captions).toEqual({ enabled: false, segments: null });
-    expect(p.audio).toEqual({ normalizeLoudness: false });
+    expect(p.audio).toEqual({ normalizeLoudness: false, music: null });
     expect(p.motionBlur).toBe(false);
     expect(p.cursor.smoothing).toBe(0);
     expect(p.cursor.hideIdle).toBe(false);

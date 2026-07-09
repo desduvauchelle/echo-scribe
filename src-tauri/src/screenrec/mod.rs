@@ -759,6 +759,66 @@ pub fn normalize_wav_loudness(
     Ok(report)
 }
 
+/// Pure DSP core of `mix_wav_samples`: additively mixes `music` (scaled by
+/// `gain`) onto `voice`, hard-clamped to i16 range. `music` and `voice` are
+/// both 16-bit PCM mono sample buffers at the SAME sample rate (callers
+/// always feed two `extract_audio_at(.., 48_000)` outputs, so a rate mismatch
+/// never legitimately happens — see `mix_wav_samples` for the Err case).
+///
+/// Length handling (no looping — v1 deliberately keeps this simple):
+///   - `music` longer than `voice` → truncated at `voice`'s length (only the
+///     leading `voice.len()` samples of `music` are used).
+///   - `music` shorter than `voice` → the remaining tail of the output is
+///     voice-only (unmodified voice samples; music is NOT looped to fill it).
+///
+/// Output length always equals `voice.len()`.
+fn mix_samples(voice: &[i16], music: &[i16], gain: f64) -> Vec<i16> {
+    voice
+        .iter()
+        .enumerate()
+        .map(|(i, &v)| match music.get(i) {
+            Some(&m) => {
+                let mixed = v as f64 + (m as f64 * gain);
+                mixed.round().clamp(i16::MIN as f64, i16::MAX as f64) as i16
+            }
+            None => v,
+        })
+        .collect()
+}
+
+/// Mix a background-music WAV under a voice WAV, writing the result to
+/// `wav_out`. Thin file→file wrapper around `mix_samples` (mirrors how
+/// `normalize_wav_loudness` wraps `normalize_samples`).
+///
+/// `gain` scales the music track's samples before summing (e.g. a `volume`
+/// UI slider of 0.5 maps to `gain = 0.5`; callers may apply their own
+/// perceptual curve on top — this function just multiplies). Both inputs
+/// must be 16-bit PCM mono; a sample-rate mismatch between `voice_wav` and
+/// `music_wav` is an `Err` (both are expected to be `extract_audio_at(..,
+/// 48_000)` output, so a mismatch indicates a caller bug, not a runtime
+/// condition to silently paper over).
+///
+/// This is a best-effort polish step: `finalize_rendered_recording` treats
+/// any `Err` here (missing file, decode failure, rate mismatch) as "skip the
+/// music + warn", never failing the export.
+pub fn mix_wav_samples(
+    voice_wav: &std::path::Path,
+    music_wav: &std::path::Path,
+    wav_out: &std::path::Path,
+    gain: f64,
+) -> Result<(), String> {
+    let voice = read_mono_wav(voice_wav)?;
+    let music = read_mono_wav(music_wav)?;
+    if voice.sample_rate != music.sample_rate {
+        return Err(format!(
+            "sample-rate mismatch: voice is {} Hz, music is {} Hz",
+            voice.sample_rate, music.sample_rate
+        ));
+    }
+    let mixed = mix_samples(&voice.samples, &music.samples, gain);
+    write_mono_wav(wav_out, voice.sample_rate, &mixed)
+}
+
 /// Mux a cleaned audio WAV into the original video, writing a new mp4.
 pub fn mux_audio(
     video: &std::path::Path,
@@ -1534,6 +1594,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires an active display/WindowServer (fails when screens are asleep)"]
     fn display_bounds_active_display_has_positive_size() {
         // Every CI/dev host running this test has at least one active
         // display (headless Mac test runners still report a virtual one).
@@ -2184,6 +2245,114 @@ mod tests {
             .unwrap_or(0);
         assert!(max_dev <= 16, "round-trip drift too large: {max_dev}");
         let _ = std::fs::remove_file(&src);
+        let _ = std::fs::remove_file(&dst);
+    }
+
+    // ---- mix_wav_samples ---------------------------------------------------
+
+    #[test]
+    fn mix_scales_music_by_gain_before_summing() {
+        // Constant-value "samples" make the arithmetic exact: voice=1000
+        // everywhere, music=2000 everywhere, gain=0.25 → each output sample
+        // should be 1000 + round(2000*0.25) = 1000 + 500 = 1500.
+        let voice = vec![1000i16; 1000];
+        let music = vec![2000i16; 1000];
+        let voice_src = write_test_wav("mix-gain-voice", 48_000, &voice);
+        let music_src = write_test_wav("mix-gain-music", 48_000, &music);
+        let dst = write_test_wav("mix-gain-out", 48_000, &[]);
+        mix_wav_samples(&voice_src, &music_src, &dst, 0.25).unwrap();
+        let got = read_test_wav_samples(&dst);
+        assert_eq!(got, vec![1500i16; 1000], "music must be scaled by gain before summing");
+        let _ = std::fs::remove_file(&voice_src);
+        let _ = std::fs::remove_file(&music_src);
+        let _ = std::fs::remove_file(&dst);
+    }
+
+    #[test]
+    fn mix_hard_clamps_to_i16_range() {
+        // Both tracks near full-scale positive, gain=1.0 → the raw sum
+        // massively overflows i16::MAX and must be clamped, not wrapped.
+        let voice = vec![i16::MAX; 100];
+        let music = vec![i16::MAX; 100];
+        let voice_src = write_test_wav("mix-clamp-pos-voice", 48_000, &voice);
+        let music_src = write_test_wav("mix-clamp-pos-music", 48_000, &music);
+        let dst = write_test_wav("mix-clamp-pos-out", 48_000, &[]);
+        mix_wav_samples(&voice_src, &music_src, &dst, 1.0).unwrap();
+        let got = read_test_wav_samples(&dst);
+        assert!(got.iter().all(|&s| s == i16::MAX), "sum must clamp to i16::MAX, not wrap");
+
+        // Symmetric check on the negative rail.
+        let voice_neg = vec![i16::MIN; 100];
+        let music_neg = vec![i16::MIN; 100];
+        let voice_src2 = write_test_wav("mix-clamp-neg-voice", 48_000, &voice_neg);
+        let music_src2 = write_test_wav("mix-clamp-neg-music", 48_000, &music_neg);
+        let dst2 = write_test_wav("mix-clamp-neg-out", 48_000, &[]);
+        mix_wav_samples(&voice_src2, &music_src2, &dst2, 1.0).unwrap();
+        let got_neg = read_test_wav_samples(&dst2);
+        assert!(got_neg.iter().all(|&s| s == i16::MIN), "sum must clamp to i16::MIN, not wrap");
+
+        let _ = std::fs::remove_file(&voice_src);
+        let _ = std::fs::remove_file(&music_src);
+        let _ = std::fs::remove_file(&dst);
+        let _ = std::fs::remove_file(&voice_src2);
+        let _ = std::fs::remove_file(&music_src2);
+        let _ = std::fs::remove_file(&dst2);
+    }
+
+    #[test]
+    fn mix_truncates_music_longer_than_voice() {
+        // Music runs longer than voice; output length must match voice's
+        // length exactly (excess music samples are simply never consulted).
+        let voice = vec![100i16; 500];
+        let music = vec![200i16; 900]; // longer than voice
+        let voice_src = write_test_wav("mix-trunc-voice", 48_000, &voice);
+        let music_src = write_test_wav("mix-trunc-music", 48_000, &music);
+        let dst = write_test_wav("mix-trunc-out", 48_000, &[]);
+        mix_wav_samples(&voice_src, &music_src, &dst, 1.0).unwrap();
+        let got = read_test_wav_samples(&dst);
+        assert_eq!(got.len(), voice.len(), "output length must equal voice length");
+        assert!(got.iter().all(|&s| s == 300), "every sample should be voice+music*gain");
+        let _ = std::fs::remove_file(&voice_src);
+        let _ = std::fs::remove_file(&music_src);
+        let _ = std::fs::remove_file(&dst);
+    }
+
+    #[test]
+    fn mix_tail_is_voice_only_when_music_shorter() {
+        // Music runs shorter than voice; the tail beyond music's length must
+        // be UNMODIFIED voice (no looping the music back in to fill it — v1
+        // deliberately has no loop behavior, see `mix_samples`'s doc comment).
+        let voice = vec![50i16; 1000];
+        let music = vec![400i16; 300]; // shorter than voice
+        let voice_src = write_test_wav("mix-tail-voice", 48_000, &voice);
+        let music_src = write_test_wav("mix-tail-music", 48_000, &music);
+        let dst = write_test_wav("mix-tail-out", 48_000, &[]);
+        mix_wav_samples(&voice_src, &music_src, &dst, 1.0).unwrap();
+        let got = read_test_wav_samples(&dst);
+        assert_eq!(got.len(), voice.len());
+        // First 300 samples are mixed (50 + 400 = 450).
+        assert!(got[0..300].iter().all(|&s| s == 450), "overlap region must be mixed");
+        // Remaining 700 samples are voice-only (music never loops to fill).
+        assert!(got[300..].iter().all(|&s| s == 50), "tail beyond music length must be voice-only");
+        let _ = std::fs::remove_file(&voice_src);
+        let _ = std::fs::remove_file(&music_src);
+        let _ = std::fs::remove_file(&dst);
+    }
+
+    #[test]
+    fn mix_sample_rate_mismatch_errors() {
+        // The two inputs must share a sample rate (both are expected to be
+        // extract_audio_at(.., 48_000) output); a mismatch is a caller bug,
+        // not something to silently resample around.
+        let voice = vec![100i16; 100];
+        let music = vec![100i16; 100];
+        let voice_src = write_test_wav("mix-rate-voice", 48_000, &voice);
+        let music_src = write_test_wav("mix-rate-music", 44_100, &music);
+        let dst = write_test_wav("mix-rate-out", 48_000, &[]);
+        let err = mix_wav_samples(&voice_src, &music_src, &dst, 1.0).unwrap_err();
+        assert!(err.contains("sample-rate"), "error should mention the sample-rate mismatch: {err}");
+        let _ = std::fs::remove_file(&voice_src);
+        let _ = std::fs::remove_file(&music_src);
         let _ = std::fs::remove_file(&dst);
     }
 }

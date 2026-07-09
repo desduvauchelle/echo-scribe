@@ -38,7 +38,7 @@ use crate::asr::pipeline::AsrPipeline;
 use crate::asr::registry;
 use crate::commands::{
     apply_update_and_restart, archive_project, cancel_countdown, cancel_log_capture, chat_with_memory,
-    close_area_picker, complete_task, finish_countdown,
+    close_area_picker, complete_task, copy_export_to_clipboard, finish_countdown,
     download_embedding_model, embedding_index_status,
     get_edit_selection_binding, update_edit_selection_binding,
     confirm_log_capture, count_items, count_items_for_project, create_chat_session, create_project,
@@ -384,6 +384,7 @@ pub fn run() {
             denoise_recording,
             reveal_recording,
             reveal_recording_file,
+            copy_export_to_clipboard,
             export_recording,
             generate_captions,
             read_recording_events,

@@ -59,7 +59,15 @@ export type CaptionSettings = {
   segments: CaptionSegment[] | null;
 };
 
-export type AudioSettings = { normalizeLoudness: boolean };
+/** A user-picked background-music track mixed under the recording's voice
+ *  audio at export. `path` is an absolute path to the source file wherever it
+ *  lives on disk (unlike editor backgrounds, music is NOT copied into the
+ *  recordings dir — Rust reads it once via `extract_audio_at` at export
+ *  time). `volume` is the 0..1 gain applied before mixing (see
+ *  `MUSIC_VOLUME_MIN`/`MUSIC_VOLUME_MAX`); `null` means no music track. */
+export type MusicSettings = { path: string; volume: number } | null;
+
+export type AudioSettings = { normalizeLoudness: boolean; music: MusicSettings };
 
 /** A privacy/emphasis mask over a rectangular region of the CAPTURE frame,
  *  active over a source-time window. `rect` is in normalized capture coords
@@ -125,6 +133,9 @@ export const WEBCAM_SIZE_MIN = 0.1;
 export const WEBCAM_SIZE_MAX = 0.35;
 export const SPEED_RATE_MIN = 0.5;
 export const SPEED_RATE_MAX = 4;
+export const MUSIC_VOLUME_MIN = 0;
+export const MUSIC_VOLUME_MAX = 1;
+export const MUSIC_VOLUME_DEFAULT = 0.5;
 
 const ZOOM_MODE_VALUES: readonly ZoomMode[] = ["auto", "custom", "off"];
 
@@ -146,7 +157,7 @@ export function defaultProject(): EditorProject {
     speed: [],
     keystrokes: { enabled: false, allKeys: false },
     captions: { enabled: false, segments: null },
-    audio: { normalizeLoudness: false },
+    audio: { normalizeLoudness: false, music: null },
     motionBlur: false,
     masks: [],
   };
@@ -399,13 +410,30 @@ function parseMasks(v: unknown): Mask[] {
   return v.filter(isValidMask);
 }
 
+/** Parses the `audio.music` field: missing/non-object/null -> null (no
+ *  music); a non-empty string `path` with a numeric (or missing) `volume`
+ *  survives, clamped into [MUSIC_VOLUME_MIN, MUSIC_VOLUME_MAX] with
+ *  MUSIC_VOLUME_DEFAULT as the fallback. A non-string/empty `path` -> null
+ *  (mirrors how `parseBackground`'s image variant requires a usable path). */
+function parseMusic(v: unknown): MusicSettings {
+  if (!isObject(v)) return null;
+  const path = typeof v.path === "string" ? v.path.trim() : "";
+  if (!path) return null;
+  return {
+    path,
+    volume: clamp(num(v.volume, MUSIC_VOLUME_DEFAULT), MUSIC_VOLUME_MIN, MUSIC_VOLUME_MAX),
+  };
+}
+
 /** Parses the `audio` field: missing/non-object -> default; non-boolean
- *  `normalizeLoudness` falls back to its default value. */
+ *  `normalizeLoudness` falls back to its default value; `music` is parsed
+ *  tolerantly via `parseMusic` (absent/malformed -> null, never throws). */
 function parseAudio(v: unknown, fallback: AudioSettings): AudioSettings {
   if (!isObject(v)) return fallback;
   return {
     normalizeLoudness:
       typeof v.normalizeLoudness === "boolean" ? v.normalizeLoudness : fallback.normalizeLoudness,
+    music: parseMusic(v.music),
   };
 }
 

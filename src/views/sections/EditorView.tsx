@@ -4,14 +4,17 @@ import { open, ask } from "@tauri-apps/plugin-dialog";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
   ArrowLeft,
+  Copy,
   Download,
   FolderOpen,
   Loader,
+  Music,
   Pause,
   Play,
   Plus,
   RotateCcw,
   Trash2,
+  X,
 } from "lucide-react";
 import { useToasts } from "../../components/ToastProvider";
 import {
@@ -24,6 +27,7 @@ import {
   generateCaptions,
   revealRecording,
   revealRecordingFile,
+  copyExportToClipboard,
   type RecordingRow,
 } from "../../lib/api";
 import {
@@ -74,6 +78,8 @@ import {
   SPEED_ADD_DEFAULT_LENGTH_MS,
   SPEED_ADD_DEFAULT_RATE,
   SCENE_MIN_LENGTH_MS,
+  MUSIC_VOLUME_MIN,
+  MUSIC_VOLUME_MAX,
   clampMasks,
   resizeMaskRect,
 } from "../../lib/editorProject";
@@ -913,6 +919,42 @@ export function EditorView({
   // ---- Audio ----------------------------------------------------------------
   const setNormalizeLoudness = (normalizeLoudness: boolean) =>
     setProject((p) => ({ ...p, audio: { ...p.audio, normalizeLoudness } }));
+
+  // ---- Background music (Task 7) ---------------------------------------------
+  const [musicImporting, setMusicImporting] = useState(false);
+  const setMusicVolume = (volume: number) =>
+    setProject((p) =>
+      p.audio.music
+        ? { ...p, audio: { ...p.audio, music: { ...p.audio.music, volume } } }
+        : p,
+    );
+  const clearMusic = () =>
+    setProject((p) => ({ ...p, audio: { ...p.audio, music: null } }));
+  const pickMusic = useCallback(async () => {
+    setMusicImporting(true);
+    try {
+      const picked = await open({
+        multiple: false,
+        directory: false,
+        filters: [{ name: "Audio", extensions: ["mp3", "m4a", "wav", "aac"] }],
+      });
+      if (typeof picked !== "string") return; // cancelled
+      setProject((p) => ({
+        ...p,
+        audio: { ...p.audio, music: { path: picked, volume: p.audio.music?.volume ?? 0.5 } },
+      }));
+    } catch (e) {
+      toasts.push({
+        tone: "error",
+        message:
+          typeof e === "string"
+            ? e
+            : "Couldn't select the music file. See Settings → Diagnostics → logs.",
+      });
+    } finally {
+      setMusicImporting(false);
+    }
+  }, [toasts]);
 
   // ---- Captions -------------------------------------------------------------
   // Gated on the recording actually having audio to transcribe (same evidence
@@ -2181,6 +2223,7 @@ export function EditorView({
           clamped,
           shiftedSpeed,
           proj.audio.normalizeLoudness,
+          proj.audio.music,
         );
         setExportedRevealPath(renderedExportPath(updated.exports));
       }
@@ -2242,6 +2285,27 @@ export function EditorView({
             className="flex items-center gap-1.5 rounded-md border border-line px-2.5 py-1.5 text-[13px] hover:bg-surface"
           >
             <FolderOpen size={15} /> Reveal in Finder
+          </button>
+        ) : null}
+        {/* Copy-to-clipboard (Task 7): copies the just-exported file as a
+            pasteable file reference (macOS NSPasteboard), not a text path.
+            Only shown once we have a concrete export path — mirrors the
+            Reveal button's gating, but skips the `revealRecording(id)`
+            fallback since clipboard copy needs an actual file to point at. */}
+        {exportedRevealPath && !exporting ? (
+          <button
+            onClick={() => {
+              copyExportToClipboard(exportedRevealPath).then(
+                () => toasts.push({ tone: "success", message: "Copied!" }),
+                (e) => {
+                  console.error("[editor] copy to clipboard failed", e);
+                  toasts.push({ tone: "error", message: String(e) });
+                },
+              );
+            }}
+            className="flex items-center gap-1.5 rounded-md border border-line px-2.5 py-1.5 text-[13px] hover:bg-surface"
+          >
+            <Copy size={15} /> Copy
           </button>
         ) : null}
         {/* Export format select (session-local; not persisted). GIF renders a
@@ -3292,6 +3356,61 @@ export function EditorView({
               {audioAvailable
                 ? "Evens out the volume toward a consistent level on export."
                 : "This recording has no audio."}
+            </p>
+          </div>
+
+          {/* Background music (Task 7): a user-picked track mixed under the
+              voice audio at export. Not gated on `audioAvailable` — music can
+              be added even to a recording with no mic/system audio (the
+              export just gains a soundtrack). File picker via the dialog
+              plugin's `open()`; volume slider 0..1 step 0.05; a clear (✕)
+              button drops the track back to null. `project.audio.music` is
+              null by default (no music), so this is entirely opt-in. */}
+          <div className="mt-4">
+            <p className="mb-1 text-[13px] font-medium">Background music</p>
+            {project.audio.music ? (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Music size={14} className="shrink-0 text-muted" />
+                  <span className="min-w-0 flex-1 truncate text-[12px]" title={project.audio.music.path}>
+                    {project.audio.music.path.split("/").pop() || project.audio.music.path}
+                  </span>
+                  <button
+                    onClick={clearMusic}
+                    title="Remove background music"
+                    className="shrink-0 rounded p-1 text-muted hover:bg-surface hover:text-fg"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+                <label className="flex items-center gap-2 text-[12px] text-muted">
+                  Volume
+                  <input
+                    type="range"
+                    min={MUSIC_VOLUME_MIN}
+                    max={MUSIC_VOLUME_MAX}
+                    step={0.05}
+                    value={project.audio.music.volume}
+                    onChange={(e) => setMusicVolume(Number(e.target.value))}
+                    className="flex-1 accent-accent"
+                  />
+                  <span className="w-9 shrink-0 text-right tabular-nums">
+                    {Math.round(project.audio.music.volume * 100)}%
+                  </span>
+                </label>
+              </div>
+            ) : (
+              <button
+                onClick={() => void pickMusic()}
+                disabled={musicImporting}
+                className="flex w-full items-center justify-center gap-1.5 rounded-md border border-line px-3 py-1.5 text-[12px] hover:bg-surface disabled:opacity-50"
+              >
+                {musicImporting ? <Loader size={14} className="animate-spin" /> : <Music size={14} />}
+                Choose a music track…
+              </button>
+            )}
+            <p className="mt-1 text-[11px] leading-snug text-muted/80">
+              Mixed in under your voice at export. MP3, M4A, WAV, or AAC.
             </p>
           </div>
 

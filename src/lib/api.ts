@@ -1283,13 +1283,20 @@ export const importEditorBackground = (
  *  `normalizeLoudness` toggles the loudness-normalization polish pass (gated-RMS
  *  toward −16 dBFS + soft-knee limiter) Rust applies AFTER retime, pre-mux; it's
  *  a best-effort step (any Rust-side failure degrades to un-normalized audio, so
- *  it never fails the export). Only sent when `true`. Returns the updated row. */
+ *  it never fails the export). Only sent when `true`.
+ *
+ *  `music` (Task 7) adds a background-music track mixed under the voice audio
+ *  AFTER normalize, pre-mux — `{path, volume}` rides as the `x-music` JSON
+ *  header. Best-effort like normalization: any Rust-side failure (missing
+ *  file, decode error) degrades to music-less audio, never fails the export.
+ *  Only sent when non-null. Returns the updated row. */
 export const finalizeRenderedRecording = (
   id: string,
   bytes: Uint8Array,
   trim?: { startMs: number; endMs: number } | null,
   speedRanges?: { startMs: number; endMs: number; rate: number }[] | null,
   normalizeLoudness?: boolean,
+  music?: { path: string; volume: number } | null,
 ): Promise<RecordingRow> => {
   const headers: Record<string, string> = { "x-recording-id": id };
   if (trim) {
@@ -1308,8 +1315,18 @@ export const finalizeRenderedRecording = (
   if (normalizeLoudness) {
     headers["x-normalize-loudness"] = "true";
   }
+  if (music) {
+    headers["x-music"] = JSON.stringify({ path: music.path, volume: music.volume });
+  }
   return invoke("finalize_rendered_recording", bytes, { headers });
 };
+
+/** Copy a file inside the recordings folder to the system clipboard as a file
+ *  reference (macOS NSPasteboard) — a paste in Finder/Mail/Slack pastes the
+ *  actual file, not a text path. Rejects with a friendly message when the
+ *  path is missing/outside the recordings dir, or on non-macOS platforms. */
+export const copyExportToClipboard = (path: string): Promise<void> =>
+  invoke("copy_export_to_clipboard", { path });
 
 /** Save an editor GIF export: hand the frontend's fully-rendered animated GIF
  *  bytes to Rust, which writes them verbatim to `<id>.rendered.gif` and records

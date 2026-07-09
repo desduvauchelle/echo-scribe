@@ -4174,6 +4174,78 @@ pub fn reveal_recording_file(path: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Copy a file inside the recordings folder to the system clipboard as a file
+/// reference (so a paste in Finder/Mail/Slack/etc. pastes the FILE, not a text
+/// path). Used by the "Copy" button next to the export reveal affordance.
+///
+/// Path validation mirrors `reveal_recording_file`: only files that
+/// canonicalize inside the recordings dir are eligible — this keeps the
+/// command from becoming a copy-any-file-to-clipboard primitive.
+///
+/// macOS-only (NSPasteboard via objc2/objc2-app-kit); `cfg`-gated so the
+/// command still compiles (and returns a friendly "not supported" error) on
+/// a future Windows build rather than failing to build the crate at all.
+#[tauri::command]
+pub fn copy_export_to_clipboard(path: String) -> Result<(), String> {
+    let dir = crate::screenrec::recordings_dir().map_err(|e| {
+        error!(target: "screenrec", error = %e, "copy_export_to_clipboard: recordings_dir failed");
+        "Could not locate the recordings folder.".to_string()
+    })?;
+    let target = validate_reveal_path(&dir, &path).map_err(|e| {
+        error!(target: "screenrec", path = %path, error = %e, "copy_export_to_clipboard: rejected path");
+        "Could not find that file in the recordings folder.".to_string()
+    })?;
+    clipboard_imp::copy_file_to_clipboard(&target).map_err(|e| {
+        error!(target: "screenrec", path = %target.display(), error = %e, "copy_export_to_clipboard: failed");
+        "Could not copy the file to the clipboard. See Settings → Diagnostics → logs for details.".to_string()
+    })?;
+    info!(target: "screenrec", path = %target.display(), "copied export file to clipboard");
+    Ok(())
+}
+
+/// NSPasteboard file-reference clipboard write. Deliberately objc2/objc2-app-kit
+/// (NOT the cross-platform `arboard` crate already in Cargo.toml for other
+/// clipboard uses) — `arboard` can only write text/image bytes, not a file
+/// reference, and a file reference is what makes "paste" in Finder/Mail/Slack
+/// paste the ACTUAL FILE rather than a text path string.
+#[cfg(target_os = "macos")]
+mod clipboard_imp {
+    use objc2::rc::Retained;
+    use objc2::runtime::ProtocolObject;
+    use objc2_app_kit::{NSPasteboard, NSPasteboardWriting};
+    use objc2_foundation::{NSArray, NSString, NSURL};
+
+    /// Write `path` to the general pasteboard as a file URL. Returns `Err` if
+    /// the pasteboard refuses the write (e.g. another app holds an exclusive
+    /// pasteboard lock) — the caller treats this as a friendly-error case, not
+    /// a panic.
+    pub fn copy_file_to_clipboard(path: &std::path::Path) -> Result<(), String> {
+        let path_str = path.to_string_lossy();
+        let ns_path = NSString::from_str(&path_str);
+        let url: Retained<NSURL> = NSURL::fileURLWithPath(&ns_path);
+        let writing: Retained<ProtocolObject<dyn NSPasteboardWriting>> =
+            ProtocolObject::from_retained(url);
+        let objects = NSArray::from_retained_slice(&[writing]);
+
+        let pasteboard = NSPasteboard::generalPasteboard();
+        pasteboard.clearContents();
+        let ok = pasteboard.writeObjects(&objects);
+        if !ok {
+            return Err("NSPasteboard writeObjects returned false".to_string());
+        }
+        Ok(())
+    }
+}
+
+/// Non-macOS fallback: the command compiles everywhere, but clipboard writes
+/// aren't implemented on other platforms yet.
+#[cfg(not(target_os = "macos"))]
+mod clipboard_imp {
+    pub fn copy_file_to_clipboard(_path: &std::path::Path) -> Result<(), String> {
+        Err("Copy to clipboard is not supported on this platform yet.".to_string())
+    }
+}
+
 /// Transcode a recording to `quality` ("1080"|"720"|"480"), store the output
 /// next to the source as `<stem>-<quality>.mp4`, and merge it into the row's
 /// `exports` JSON (replacing any prior export of the same quality). Returns the
@@ -4458,6 +4530,21 @@ fn record_rendered_export(
         .ok_or_else(|| "recording vanished".to_string())
 }
 
+/// `x-music` finalize header shape: mirrors `EditorProject.audio.music` on the
+/// frontend (`{ path: string; volume: number }`). `path` is an absolute path
+/// to the user-picked music file, wherever it lives on disk (unlike editor
+/// backgrounds, music is NOT copied into the recordings dir — it's read
+/// once via `extract_audio_at` at export time). `volume` is the 0..1 gain fed
+/// to `mix_wav_samples` (the frontend already clamps it, but we clamp again
+/// here defensively since this is a network-shaped boundary); any failure to
+/// read/decode the file degrades to music-less audio + `warn!`, so an
+/// unreadable/missing path is never a hard error.
+#[derive(Debug, Clone, serde::Deserialize)]
+struct MusicHeader {
+    path: String,
+    volume: f64,
+}
+
 /// Finalize an editor export: take the frontend's video-only WebCodecs render
 /// (raw IPC body) and mux the recording's (trim-aligned) soundtrack back in,
 /// writing `<id>.rendered.mp4`.
@@ -4474,6 +4561,12 @@ fn record_rendered_export(
 ///   - `x-normalize-loudness` (optional) — `"true"`/`"1"` enables the loudness
 ///     normalization polish pass; anything else / absent = off. Any failure of
 ///     the pass degrades to un-normalized audio + `warn!` (never fails export).
+///   - `x-music` (optional) — JSON `{"path":..., "volume":...}` for a
+///     background-music track to mix under the voice audio. Defensive parse:
+///     any failure (absent, not UTF-8, not JSON, wrong shape) → skipped +
+///     `warn!` (never fails the export). Any failure of the MIX itself
+///     (missing/unreadable file, decode error, rate mismatch) ALSO degrades
+///     to music-less audio + `warn!` — music can never fail an export.
 ///
 /// Flow (mirrors `run_denoise`'s staged temp-file orchestration; every failure
 /// path cleans up ALL temps):
@@ -4495,6 +4588,12 @@ fn record_rendered_export(
 ///       retimed) WAV — AFTER retime so the measured level is the muxed audio.
 ///       FAIL-SAFE: any error degrades to the un-normalized WAV + `warn!`
 ///       (unlike retime, skipping this causes no A/V desync).
+///   4c. If `x-music` is present, `extract_audio_at` the music file (48kHz
+///       mono, AVFoundation decodes mp3/m4a/wav/aac) then `mix_wav_samples`
+///       it under the (trimmed + retimed + normalized) voice WAV — AFTER
+///       normalize so the music volume is relative to the FINAL speech level
+///       (set the music level once, speech is always consistent). FAIL-SAFE:
+///       any failure (extract or mix) degrades to music-less audio + `warn!`.
 ///   5. `mux_audio(temp video, wav, <id>.rendered.mp4)`.
 ///   6. Merge the "rendered" exports entry (replace-not-duplicate).
 #[tauri::command]
@@ -4560,6 +4659,24 @@ pub async fn finalize_rendered_recording(
         .map(|s| s.eq_ignore_ascii_case("true") || s == "1")
         .unwrap_or(false);
 
+    // Optional background-music track (Task 7). Defensive parse mirroring
+    // x-speed-ranges: absent / not UTF-8 / not JSON / wrong shape → None
+    // (feature off). We never fail the export on a malformed header — music
+    // is a best-effort polish layer exactly like loudness normalization.
+    let music: Option<MusicHeader> = request
+        .headers()
+        .get("x-music")
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .and_then(|s| match serde_json::from_str::<MusicHeader>(s) {
+            Ok(m) => Some(m),
+            Err(e) => {
+                warn!(target: "screenrec", rec = %id, error = %e, "finalize: malformed x-music header; skipping music");
+                None
+            }
+        });
+
     // Copy the render bytes out of the borrowed request before any await.
     let bytes: Vec<u8> = match request.body() {
         tauri::ipc::InvokeBody::Raw(b) => b.to_vec(),
@@ -4598,6 +4715,8 @@ pub async fn finalize_rendered_recording(
     let wav_trim = dir.join(format!("{id}.render-audio-trim.wav"));
     let wav_speed = dir.join(format!("{id}.render-audio-speed.wav"));
     let wav_norm = dir.join(format!("{id}.render-audio-norm.wav"));
+    let wav_music = dir.join(format!("{id}.render-music.wav"));
+    let wav_mixed = dir.join(format!("{id}.render-audio-mixed.wav"));
     let out = dir.join(format!("{id}.rendered.mp4"));
 
     // Cleanup helper: remove every temp we might have created. `out` is the
@@ -4608,6 +4727,8 @@ pub async fn finalize_rendered_recording(
         let _ = std::fs::remove_file(&wav_trim);
         let _ = std::fs::remove_file(&wav_speed);
         let _ = std::fs::remove_file(&wav_norm);
+        let _ = std::fs::remove_file(&wav_music);
+        let _ = std::fs::remove_file(&wav_mixed);
     };
 
     // 1. Write the render bytes to the temp video file.
@@ -4754,7 +4875,60 @@ pub async fn finalize_rendered_recording(
         audio_for_mux
     };
 
-    // 4. Mux the (possibly trimmed + retimed + normalized) audio into video → out.
+    // 3d. Optionally mix a background-music track under the (trimmed + retimed
+    // + normalized) voice audio (Task 7). Runs AFTER normalize so the music
+    // volume is relative to the FINAL speech level — set the music level once,
+    // speech is always consistent. FAIL-SAFE: BOTH the music extraction and
+    // the mix itself are best-effort; ANY failure (missing/unreadable file,
+    // decode error, rate mismatch, task panic) degrades to music-less audio +
+    // `warn!`. Music must NEVER fail an export.
+    let audio_for_mux = if let Some(m) = music {
+        let gain = m.volume.clamp(0.0, 1.0);
+        let music_src = std::path::PathBuf::from(&m.path);
+        let wav_music_c = wav_music.clone();
+        let extract_music = tokio::task::spawn_blocking(move || {
+            crate::screenrec::extract_audio_at(&music_src, &wav_music_c, 48_000)
+        })
+        .await;
+        match extract_music {
+            Ok(Ok(())) => {
+                let audio_in = audio_for_mux.clone();
+                let wav_music_c2 = wav_music.clone();
+                let wav_mixed_c = wav_mixed.clone();
+                let mixed = tokio::task::spawn_blocking(move || {
+                    crate::screenrec::mix_wav_samples(&audio_in, &wav_music_c2, &wav_mixed_c, gain)
+                })
+                .await;
+                match mixed {
+                    Ok(Ok(())) => {
+                        info!(target: "screenrec", rec = %id, music_path = %m.path, gain, "finalize: mixed background music under voice audio");
+                        wav_mixed.clone()
+                    }
+                    Ok(Err(e)) => {
+                        warn!(target: "screenrec", rec = %id, error = %e, "finalize: music mix failed; muxing voice-only audio");
+                        audio_for_mux
+                    }
+                    Err(_) => {
+                        warn!(target: "screenrec", rec = %id, "finalize: music mix task panicked; muxing voice-only audio");
+                        audio_for_mux
+                    }
+                }
+            }
+            Ok(Err(e)) => {
+                warn!(target: "screenrec", rec = %id, path = %m.path, error = %e, "finalize: music extraction failed; muxing voice-only audio");
+                audio_for_mux
+            }
+            Err(_) => {
+                warn!(target: "screenrec", rec = %id, "finalize: music extraction task panicked; muxing voice-only audio");
+                audio_for_mux
+            }
+        }
+    } else {
+        audio_for_mux
+    };
+
+    // 4. Mux the (possibly trimmed + retimed + normalized + music-mixed) audio
+    // into video → out.
     let temp_vid_c = temp_vid.clone();
     let audio_c = audio_for_mux.clone();
     let out_c = out.clone();
