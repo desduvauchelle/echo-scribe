@@ -21,6 +21,9 @@ pub struct ProjectTaggerRunSummary {
     pub assigned: u32,
     pub deferred: u32,
     pub failed: u32,
+    /// First LLM classification error of the run, if any — surfaced so the UI
+    /// can show *why* a pass assigned nothing instead of a bare zero.
+    pub sample_error: Option<String>,
 }
 
 pub fn run_deterministic_batch(
@@ -149,13 +152,10 @@ pub async fn run_llm_batch<L: LlmGenerator + ?Sized>(
                 summary.deferred += 1;
             }
             Err(e) => {
-                project_tag_jobs::defer(
-                    conn,
-                    &job.item_id,
-                    None,
-                    Some(&format!("llm classification failed: {e}")),
-                    now_iso,
-                )?;
+                let msg = format!("llm classification failed: {e}");
+                warn!(target: "project_tagger", item_id = %job.item_id, error = %e, "llm classification failed");
+                project_tag_jobs::defer(conn, &job.item_id, None, Some(&msg), now_iso)?;
+                summary.sample_error.get_or_insert(msg);
                 summary.deferred += 1;
             }
         }
@@ -245,15 +245,12 @@ pub async fn run_llm_batch_db<L: LlmGenerator + ?Sized>(
                 summary.deferred += 1;
             }
             Err(e) => {
+                let msg = format!("llm classification failed: {e}");
+                warn!(target: "project_tagger", item_id = %job.item_id, error = %e, "llm classification failed");
                 db.with_conn(|conn| {
-                    project_tag_jobs::defer(
-                        conn,
-                        &job.item_id,
-                        None,
-                        Some(&format!("llm classification failed: {e}")),
-                        now_iso,
-                    )
+                    project_tag_jobs::defer(conn, &job.item_id, None, Some(&msg), now_iso)
                 })?;
+                summary.sample_error.get_or_insert(msg);
                 summary.deferred += 1;
             }
         }

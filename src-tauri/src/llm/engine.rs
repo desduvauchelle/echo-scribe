@@ -88,6 +88,25 @@ impl Default for GenerateRequest {
     }
 }
 
+/// Process-wide llama.cpp backend. `llama_backend_init` may only run once per
+/// process, but both the LLM engine and the embedding engine (`crate::embed`)
+/// need a backend — whichever loads second must reuse the first one's, or its
+/// init fails with `BackendAlreadyInitialized` forever after.
+static SHARED_BACKEND: std::sync::Mutex<Option<Arc<LlamaBackend>>> = std::sync::Mutex::new(None);
+
+pub fn shared_backend() -> Result<Arc<LlamaBackend>, EngineError> {
+    let mut guard = SHARED_BACKEND
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(backend) = guard.as_ref() {
+        return Ok(Arc::clone(backend));
+    }
+    let backend =
+        Arc::new(LlamaBackend::init().map_err(|e| EngineError::Backend(e.to_string()))?);
+    *guard = Some(Arc::clone(&backend));
+    Ok(backend)
+}
+
 pub struct LlmEngine {
     /// Backend is held for the lifetime of the engine (and thus the model).
     /// llama.cpp requires the backend to outlive every model + context.
@@ -102,7 +121,7 @@ impl LlmEngine {
     /// VRAM/RAM but large enough for the longest prompt+response pair you
     /// expect. 8192 is a reasonable default for our short classifier prompts.
     pub fn load(model_path: &Path, n_ctx: u32) -> Result<Self, EngineError> {
-        let backend = LlamaBackend::init().map_err(|e| EngineError::Backend(e.to_string()))?;
+        let backend = shared_backend()?;
         // -1 = full GPU offload (Metal on Apple Silicon). We cast to u32 with
         // wrap to 0xFFFFFFFF; llama.cpp interprets a saturated value as
         // "all layers".
@@ -118,7 +137,7 @@ impl LlmEngine {
             .map_err(|e| EngineError::Load(e.to_string()))?;
 
         Ok(Self {
-            _backend: Arc::new(backend),
+            _backend: backend,
             model: Arc::new(model),
             n_ctx,
         })

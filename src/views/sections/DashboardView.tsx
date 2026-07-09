@@ -322,17 +322,30 @@ export default function DashboardView({ projects }: Props) {
       const det = await runProjectTaggerDeterministicOnce();
       const status = await projectTaggerStatus().catch(() => null);
       const llm = status?.llm_ready ? await runProjectTaggerLlmOnce() : null;
-      const aiPart = llm
-        ? `AI: assigned ${llm.assigned} of ${llm.scanned}.`
-        : "AI pass skipped — no model loaded.";
-      pushToast({
-        tone: "success",
-        message:
-          det.scanned === 0 && (llm?.scanned ?? 0) === 0
-            ? "Tagging ran — nothing queued to tag."
-            : `Router: assigned ${det.assigned} of ${det.scanned}. ${aiPart}`,
-      });
-      if (det.assigned > 0 || (llm?.assigned ?? 0) > 0) void fetchItems("reset");
+      const assigned = det.assigned + (llm?.assigned ?? 0);
+      if (det.scanned === 0 && (llm?.scanned ?? 0) === 0) {
+        pushToast({
+          tone: "success",
+          message: "Tagging ran — no untagged items were waiting.",
+        });
+      } else if (llm?.sample_error && assigned === 0) {
+        pushToast({
+          tone: "error",
+          message: `Tagging couldn't assign any of ${det.scanned} items. AI error: ${llm.sample_error}`,
+        });
+      } else {
+        const notes = [
+          !llm ? "AI pass skipped — no local model loaded." : null,
+          llm?.sample_error ? `Some items hit an AI error: ${llm.sample_error}` : null,
+        ]
+          .filter(Boolean)
+          .join(" ");
+        pushToast({
+          tone: "success",
+          message: `Tagging finished: ${assigned} of ${det.scanned} items matched to a project.${notes ? ` ${notes}` : ""}`,
+        });
+      }
+      if (assigned > 0) void fetchItems("reset");
     } catch (e) {
       pushToast({
         tone: "error",

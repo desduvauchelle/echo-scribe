@@ -295,6 +295,8 @@ export type ProjectTaggerRunSummary = {
   assigned: number;
   deferred: number;
   failed: number;
+  /** First LLM classification error of the run, if any. */
+  sample_error: string | null;
 };
 
 export type TaskWithItem = {

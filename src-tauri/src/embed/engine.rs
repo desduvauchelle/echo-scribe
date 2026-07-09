@@ -23,13 +23,15 @@ pub struct EmbedEngine {
 
 impl EmbedEngine {
     pub fn load(model_path: &Path) -> Result<Self, EmbedError> {
-        let backend = LlamaBackend::init().map_err(|e| EmbedError::Backend(e.to_string()))?;
+        // Shared with the LLM engine: llama_backend_init is once-per-process.
+        let backend = crate::llm::engine::shared_backend()
+            .map_err(|e| EmbedError::Backend(e.to_string()))?;
         let model_params = LlamaModelParams::default().with_n_gpu_layers(u32::MAX);
         info!(target: "embed", path = %model_path.display(), "loading embedding GGUF");
         let model = LlamaModel::load_from_file(&backend, model_path, &model_params)
             .map_err(|e| EmbedError::Load(e.to_string()))?;
         Ok(Self {
-            _backend: Arc::new(backend),
+            _backend: backend,
             model: Arc::new(model),
         })
     }
