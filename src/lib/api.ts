@@ -1197,6 +1197,20 @@ export const renameRecording = (id: string, title: string): Promise<void> =>
   invoke("rename_recording", { id, title });
 export const transcribeRecording = (id: string): Promise<string> =>
   invoke("transcribe_recording", { id });
+
+/** A timed caption segment from the local ASR. `startMs`/`endMs` are ms
+ *  relative to the recording's t=0 (same base as the recorded-events file). */
+export interface CaptionSegment {
+  startMs: number;
+  endMs: number;
+  text: string;
+}
+
+/** Generate timed caption segments for a recording. Emits `captions-progress`
+ *  events `{ id, ratio }` (ratio 0..1) while running. Rejects with a friendly
+ *  message on failure; the caller stores the returned segments in the project. */
+export const generateCaptions = (id: string): Promise<CaptionSegment[]> =>
+  invoke("generate_captions", { id });
 export const denoiseRecording = (id: string): Promise<void> =>
   invoke("denoise_recording", { id });
 export const revealRecording = (id: string): Promise<void> =>

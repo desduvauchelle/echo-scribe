@@ -3729,6 +3729,121 @@ pub async fn transcribe_recording(
     Ok(text)
 }
 
+/// Generate timed caption segments for a recording from the app's local ASR.
+///
+/// Extracts the recording's audio (reusing `transcribe_recording`'s WAV extract
+/// path), transcribes it with Parakeet's native sentence-level timestamps, and
+/// returns segments whose `start_ms`/`end_ms` are relative to the recording's
+/// t=0 (same base as `<id>.events.jsonl`). Empty-text segments are dropped.
+///
+/// Segments are returned to the frontend, which stores them in the project JSON
+/// via the existing project-save path — this command persists nothing itself.
+/// Emits `captions-progress` events `{ id, ratio }` (ratio 0..1) so the UI can
+/// show a bar. On failure returns the friendly string "Caption generation
+/// failed — see logs." with full detail logged at `error!`.
+#[tauri::command]
+pub async fn generate_captions(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<Vec<crate::asr::captions::CaptionSegment>, String> {
+    // Look up the mp4 path, dropping the DB borrow before any await.
+    let mp4: std::path::PathBuf = {
+        let db = require_db(&state)?;
+        let row = db
+            .with_conn(|c| crate::db::recordings::get(c, &id))
+            .map_err(|e| {
+                error!(target: "captions", %id, error = %e, "db lookup failed");
+                "Caption generation failed — see logs.".to_string()
+            })?
+            .ok_or_else(|| {
+                warn!(target: "captions", %id, "recording not found");
+                "Caption generation failed — see logs.".to_string()
+            })?;
+        std::path::PathBuf::from(row.file_path)
+    };
+    if !mp4.exists() {
+        warn!(target: "captions", %id, path = %mp4.display(), "recording file missing on disk");
+        return Err("Caption generation failed — see logs.".into());
+    }
+
+    // Require a downloaded ASR model up front for a clear message.
+    if !state.asr.ready() {
+        warn!(target: "captions", %id, "no downloaded ASR model");
+        return Err("Download a transcription model first".into());
+    }
+
+    // Extract audio to a temp WAV in the recordings dir (same path as transcribe).
+    let wav = match crate::screenrec::recordings_dir() {
+        Ok(d) => d.join(format!("{id}.captions.wav")),
+        Err(e) => {
+            error!(target: "captions", %id, error = %e, "recordings_dir failed");
+            return Err("Caption generation failed — see logs.".into());
+        }
+    };
+    let mp4_for_blocking = mp4.clone();
+    let wav_for_blocking = wav.clone();
+    let extract = tokio::task::spawn_blocking(move || {
+        crate::screenrec::extract_audio(&mp4_for_blocking, &wav_for_blocking)
+    })
+    .await
+    .map_err(|_| {
+        error!(target: "captions", %id, "audio extraction task panicked");
+        "Caption generation failed — see logs.".to_string()
+    })?;
+    if let Err(e) = extract {
+        let _ = std::fs::remove_file(&wav);
+        if e == "no_audio" {
+            warn!(target: "captions", %id, "recording has no audio");
+            return Err("Recording has no audio".into());
+        }
+        error!(target: "captions", %id, error = %e, "audio extraction failed");
+        return Err("Caption generation failed — see logs.".into());
+    }
+
+    // Load the WAV and generate captions in ~60s windows, emitting progress.
+    let (samples, rate, channels) = match AsrPipeline::load_wav_16k_mono_int16(&wav) {
+        Ok(t) => t,
+        Err(e) => {
+            let _ = std::fs::remove_file(&wav);
+            error!(target: "captions", %id, error = %e, "WAV load failed");
+            return Err("Caption generation failed — see logs.".into());
+        }
+    };
+    let asr = std::sync::Arc::clone(&state.asr);
+    let app_for_progress = app.clone();
+    let id_for_progress = id.clone();
+    let segments = asr
+        .transcribe_segments_long(samples, rate, channels, move |ratio| {
+            let _ = app_for_progress.emit(
+                "captions-progress",
+                serde_json::json!({ "id": id_for_progress, "ratio": ratio }),
+            );
+        })
+        .await;
+
+    // Always clean up the temp WAV.
+    let _ = std::fs::remove_file(&wav);
+
+    let segments = match segments {
+        Ok(s) => s,
+        Err(e) => {
+            error!(target: "captions", %id, error = %e, "caption generation failed");
+            return Err("Caption generation failed — see logs.".into());
+        }
+    };
+
+    let total_speech_ms = crate::asr::captions::total_speech_ms(&segments);
+    info!(
+        target: "captions",
+        %id,
+        segments = segments.len(),
+        total_speech_ms,
+        "caption generation complete"
+    );
+    Ok(segments)
+}
+
 /// Denoise auto-runs after `stop_screen_recording`; the cleaned file replaces
 /// the original so there's no UI toggle to maintain. Kept as a const so a
 /// future regression that needs to compare original vs. cleaned can flip it.

@@ -434,6 +434,108 @@ impl AsrPipeline {
         }
         Ok(parts.join(" "))
     }
+
+    /// Resample to 16 kHz mono and run Parakeet inference, returning the model's
+    /// **native** sentence-level timed segments (`start`/`end` in seconds,
+    /// relative to the first sample of `samples`).
+    ///
+    /// Unlike [`Self::transcribe`], this path does **not** run VAD
+    /// `filter_silence`: dropping silent frames would collapse the audio
+    /// timeline and invalidate the timestamps. The caption caller feeds bounded
+    /// windows (see [`Self::transcribe_segments_long`]) so memory stays flat
+    /// without silence-trimming.
+    async fn transcribe_segments_chunk(
+        &self,
+        samples: Vec<f32>,
+        from_rate: u32,
+        channels: u16,
+    ) -> Result<Vec<transcribe_rs::TranscriptionSegment>, AsrError> {
+        // Resolve the active model + path before spawning blocking work.
+        let model_path: PathBuf = {
+            let guard = self
+                .active_model
+                .read()
+                .map_err(|_| AsrError::NoActiveModel)?;
+            let entry = guard.as_ref().ok_or(AsrError::NoActiveModel)?;
+            if !is_downloaded(entry) {
+                return Err(AsrError::NotDownloaded(entry.id.clone()));
+            }
+            model_dir(entry)
+        };
+
+        let engine_slot = Arc::clone(&self.engine);
+
+        let resampled = tokio::task::spawn_blocking(move || {
+            resample_to_16k_mono(&samples, from_rate, channels)
+        })
+        .await
+        .map_err(|_| AsrError::Join)?;
+
+        if resampled.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let segments = tokio::task::spawn_blocking(
+            move || -> Result<Vec<transcribe_rs::TranscriptionSegment>, AsrError> {
+                let mut guard = engine_slot.lock().map_err(|_| AsrError::Join)?;
+                if guard.is_none() {
+                    let eng = ParakeetEngine::load(&model_path)?;
+                    *guard = Some(eng);
+                }
+                let eng = guard.as_mut().expect("engine just loaded");
+                Ok(eng.transcribe_segments(&resampled)?)
+            },
+        )
+        .await
+        .map_err(|_| AsrError::Join)??;
+
+        self.touch();
+        Ok(segments)
+    }
+
+    /// Generate source-time caption segments for arbitrary-length audio.
+    ///
+    /// Windows the samples into ~60-second chunks (reusing `transcribe_long`'s
+    /// chunking discipline so memory stays flat), transcribes each chunk with
+    /// native Parakeet timestamps, shifts every segment by the chunk's
+    /// source-time start, and drops empty-text segments. Times are ms relative
+    /// to the recording's t=0 (== the `<id>.events.jsonl` base). Calls
+    /// `progress(ratio)` with `0.0..=1.0` after each chunk completes.
+    pub async fn transcribe_segments_long(
+        &self,
+        samples: Vec<f32>,
+        from_rate: u32,
+        channels: u16,
+        progress: impl Fn(f64) + Send + 'static,
+    ) -> Result<Vec<crate::asr::captions::CaptionSegment>, AsrError> {
+        const WINDOW_SECS: usize = 60;
+        let ch = channels.max(1) as usize;
+        let window = WINDOW_SECS * from_rate as usize * ch;
+        let ranges = window_ranges(samples.len(), window);
+        if ranges.is_empty() {
+            return Ok(Vec::new());
+        }
+        let total = ranges.len();
+        let mut out: Vec<crate::asr::captions::CaptionSegment> = Vec::new();
+        for (i, (start, end)) in ranges.into_iter().enumerate() {
+            // Source-time offset of this chunk's first sample, in ms. Frames are
+            // interleaved by `channels`, so divide out the channel count.
+            let offset_ms = (start as u64 * 1000) / (from_rate as u64 * ch as u64);
+            let chunk = samples[start..end].to_vec();
+            let segs = self
+                .transcribe_segments_chunk(chunk, from_rate, channels)
+                .await?;
+            for seg in segs {
+                if let Some(cap) = crate::asr::captions::caption_from_secs(
+                    seg.start, seg.end, &seg.text, offset_ms,
+                ) {
+                    out.push(cap);
+                }
+            }
+            progress((i + 1) as f64 / total as f64);
+        }
+        Ok(out)
+    }
 }
 
 #[cfg(test)]

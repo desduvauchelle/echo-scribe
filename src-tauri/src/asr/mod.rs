@@ -2,6 +2,7 @@
 //! inference wrapper, and the unified [`pipeline::AsrPipeline`] consumed by
 //! [`crate::coordinator`].
 
+pub mod captions;
 pub mod downloader;
 pub mod parakeet;
 pub mod pipeline;

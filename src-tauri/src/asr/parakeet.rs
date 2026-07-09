@@ -7,8 +7,9 @@
 use std::path::Path;
 
 use thiserror::Error;
-use transcribe_rs::onnx::parakeet::{ParakeetModel, ParakeetParams};
+use transcribe_rs::onnx::parakeet::{ParakeetModel, ParakeetParams, TimestampGranularity};
 use transcribe_rs::onnx::Quantization;
+use transcribe_rs::TranscriptionSegment;
 
 #[derive(Debug, Error)]
 pub enum EngineError {
@@ -50,5 +51,31 @@ impl ParakeetEngine {
             .transcribe_with(samples_16k_mono, &ParakeetParams::default())
             .map_err(|e| EngineError::Transcribe(Box::new(e)))?;
         Ok(result.text.trim().to_string())
+    }
+
+    /// Run inference on 16 kHz mono `f32` samples and return the native
+    /// sentence-level timed segments (`start`/`end` in **seconds**, relative to
+    /// the first sample). Used by caption generation. Returns an empty vec when
+    /// the model produced no timed segments (e.g. all-silence input).
+    ///
+    /// transcribe-rs 0.3.11 exposes Parakeet-TDT's native alignment via
+    /// `TimestampGranularity::Segment`; it already subtracts the 250 ms
+    /// leading-silence pad it adds internally, so the returned times are
+    /// chunk-relative with no further correction needed here.
+    pub fn transcribe_segments(
+        &mut self,
+        samples_16k_mono: &[f32],
+    ) -> Result<Vec<TranscriptionSegment>, EngineError> {
+        let result = self
+            .model
+            .transcribe_with(
+                samples_16k_mono,
+                &ParakeetParams {
+                    timestamp_granularity: Some(TimestampGranularity::Segment),
+                    ..Default::default()
+                },
+            )
+            .map_err(|e| EngineError::Transcribe(Box::new(e)))?;
+        Ok(result.segments.unwrap_or_default())
     }
 }
