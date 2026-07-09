@@ -4314,13 +4314,15 @@ fn editor_bg_files(dir: &std::path::Path, id: &str) -> Vec<std::path::PathBuf> {
 }
 
 /// Editor artifacts of `id` in `dir` that no DB column tracks: imported
-/// backgrounds (`<id>.bg.*`) plus the editor export (`<id>.rendered.mp4`).
-/// Listing only — callers decide whether to delete.
+/// backgrounds (`<id>.bg.*`) plus the editor exports (`<id>.rendered.mp4`,
+/// `<id>.rendered.gif`). Listing only — callers decide whether to delete.
 fn editor_artifact_files(dir: &std::path::Path, id: &str) -> Vec<std::path::PathBuf> {
     let mut out = editor_bg_files(dir, id);
-    let rendered = dir.join(format!("{id}.rendered.mp4"));
-    if rendered.exists() {
-        out.push(rendered);
+    for ext in ["rendered.mp4", "rendered.gif"] {
+        let rendered = dir.join(format!("{id}.{ext}"));
+        if rendered.exists() {
+            out.push(rendered);
+        }
     }
     out
 }
@@ -4423,21 +4425,25 @@ pub fn import_editor_background(
     Ok(out)
 }
 
-/// Merge (replace-not-duplicate) a single `{"quality":"rendered",...}` entry
-/// into a recording's exports JSON and return the refreshed row. Shared tail of
-/// `finalize_rendered_recording`.
+/// Merge (replace-not-duplicate) a single `{"quality":<quality>,...}` entry into
+/// a recording's exports JSON and return the refreshed row. Shared tail of the
+/// editor export commands: `finalize_rendered_recording` passes `"rendered"`
+/// (the MP4), `save_rendered_gif` passes `"rendered-gif"`. The two qualities are
+/// distinct rows, so exporting a GIF never clobbers the MP4 export (and vice
+/// versa) — each replaces only its own prior entry.
 fn record_rendered_export(
     db: &crate::db::Db,
     id: &str,
     existing_exports: &str,
+    quality: &str,
     out_path: &str,
     size: u64,
 ) -> Result<crate::db::recordings::RecordingRow, String> {
     let mut exports: Vec<serde_json::Value> =
         serde_json::from_str(existing_exports).unwrap_or_default();
-    exports.retain(|e| e.get("quality").and_then(|q| q.as_str()) != Some("rendered"));
+    exports.retain(|e| e.get("quality").and_then(|q| q.as_str()) != Some(quality));
     exports.push(serde_json::json!({
-        "quality": "rendered",
+        "quality": quality,
         "path": out_path,
         "size": size,
     }));
@@ -4639,7 +4645,7 @@ pub async fn finalize_rendered_recording(
             info!(target: "screenrec", rec = %id, path = %out_path, size = vid_size, "finalize: saved video-only render");
             let state = app.state::<AppState>();
             let db = require_db(&state)?;
-            return record_rendered_export(db, &id, &existing_exports, &out_path, vid_size);
+            return record_rendered_export(db, &id, &existing_exports, "rendered", &out_path, vid_size);
         }
         error!(target: "screenrec", rec = %id, error = %e, "finalize: audio extraction failed");
         cleanup();
@@ -4781,7 +4787,87 @@ pub async fn finalize_rendered_recording(
 
     let state = app.state::<AppState>();
     let db = require_db(&state)?;
-    record_rendered_export(db, &id, &existing_exports, &out_path, final_size)
+    record_rendered_export(db, &id, &existing_exports, "rendered", &out_path, final_size)
+}
+
+/// Save an editor GIF export: take the frontend's fully-rendered animated GIF
+/// (raw IPC body) and write it verbatim to `<id>.rendered.gif` in the recordings
+/// dir. Unlike `finalize_rendered_recording`, there is NO audio path — a GIF has
+/// no soundtrack, so the frontend hands over the finished container and Rust only
+/// persists it + records the export row. Emits `screenrec-changed` so any list
+/// view refreshes.
+///
+/// Transport mirrors `finalize_rendered_recording`: the bytes ride as the raw
+/// IPC body (`InvokeBody::Raw`), the recording id in the `x-recording-id` header.
+///
+/// Flow:
+///   1. Read + validate the `x-recording-id` header and the raw body.
+///   2. DB-gate the id (must exist) and read its current `exports` JSON.
+///   3. Write the bytes to `<id>.rendered.gif` (fsync via `std::fs::write`).
+///   4. Merge the `"rendered-gif"` exports entry (replace-not-duplicate) — a
+///      distinct quality from the MP4 `"rendered"` row, so the two coexist.
+///   5. Emit `screenrec-changed` and return the refreshed row.
+#[tauri::command]
+pub async fn save_rendered_gif(
+    app: AppHandle,
+    request: tauri::ipc::Request<'_>,
+) -> Result<crate::db::recordings::RecordingRow, String> {
+    let id = request
+        .headers()
+        .get("x-recording-id")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string())
+        .ok_or_else(|| {
+            error!(target: "screenrec", "save_rendered_gif missing x-recording-id header");
+            "internal error: missing recording id".to_string()
+        })?;
+
+    // Copy the GIF bytes out of the borrowed request before any await.
+    let bytes: Vec<u8> = match request.body() {
+        tauri::ipc::InvokeBody::Raw(b) => b.to_vec(),
+        tauri::ipc::InvokeBody::Json(_) => {
+            error!(target: "screenrec", rec = %id, "save_rendered_gif received JSON body, expected raw bytes");
+            return Err("internal error: rendered GIF bytes not received".to_string());
+        }
+    };
+    if bytes.is_empty() {
+        error!(target: "screenrec", rec = %id, "save_rendered_gif received empty body");
+        return Err("render produced no data".to_string());
+    }
+
+    // DB-gate: confirm the recording exists and grab its current exports JSON.
+    let existing_exports: String = {
+        let state = app.state::<AppState>();
+        let db = require_db(&state)?;
+        let row = db
+            .with_conn(|c| crate::db::recordings::get(c, &id))
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| {
+                error!(target: "screenrec", rec = %id, "save_rendered_gif: recording not found");
+                "recording not found".to_string()
+            })?;
+        row.exports
+    };
+
+    let dir = crate::screenrec::recordings_dir().map_err(|e| {
+        error!(target: "screenrec", rec = %id, error = %e, "save_rendered_gif: recordings_dir failed");
+        "could not locate the recordings folder".to_string()
+    })?;
+    let out = dir.join(format!("{id}.rendered.gif"));
+
+    let size = bytes.len() as u64;
+    if let Err(e) = std::fs::write(&out, &bytes) {
+        error!(target: "screenrec", rec = %id, path = %out.display(), error = %e, "save_rendered_gif: failed to write gif");
+        return Err("could not save the rendered GIF. See Settings → Diagnostics → logs for details.".to_string());
+    }
+    let out_path = out.to_string_lossy().to_string();
+    info!(target: "screenrec", rec = %id, path = %out_path, size, "save_rendered_gif: saved rendered gif");
+
+    let state = app.state::<AppState>();
+    let db = require_db(&state)?;
+    let row = record_rendered_export(db, &id, &existing_exports, "rendered-gif", &out_path, size)?;
+    let _ = app.emit("screenrec-changed", ());
+    Ok(row)
 }
 
 #[tauri::command]

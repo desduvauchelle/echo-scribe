@@ -20,6 +20,7 @@ import {
   importEditorBackground,
   readRecordingEvents,
   finalizeRenderedRecording,
+  saveRenderedGif,
   generateCaptions,
   revealRecording,
   revealRecordingFile,
@@ -215,6 +216,10 @@ export function EditorView({
     RenderProgress["phase"] | "finalizing" | null
   >(null);
   const [exportPct, setExportPct] = useState(0);
+  // Output format for the export button. Session-local only (NOT persisted to
+  // the project) — MP4 is the default; GIF renders a silent, 15fps, ≤960px-wide
+  // animated GIF via the same composite pipeline (no audio).
+  const [exportFormat, setExportFormat] = useState<"mp4" | "gif">("mp4");
   // Path to the just-exported mp4 (for the Reveal-in-Finder affordance).
   const [exportedRevealId, setExportedRevealId] = useState<string | null>(null);
   // Absolute path of the just-created `<id>.rendered.mp4`, so "Reveal in
@@ -2120,12 +2125,19 @@ export function EditorView({
 
       const durationMs = Math.round((durationMsRef.current || duration * 1000) || 0);
 
+      // Snapshot the format so a mid-export toggle can't switch the finalize
+      // branch out from under the just-rendered bytes.
+      const format = exportFormat;
+
       const bytes = await renderRecording({
         fileUrl: src,
         eventsJsonl,
         durationMs,
         project: proj,
         bgImage,
+        // GIF: same composite pipeline, but 15fps / ≤960px / no audio (see
+        // renderPipeline's GifSink). MP4 (default) → the WebCodecs encode path.
+        format,
         // Webcam overlay: pass the webcam file when the recording HAS one AND
         // the (snapshotted) project either shows the bubble OR has at least one
         // "cut to camera" scene (scenes render even with the bubble hidden —
@@ -2142,28 +2154,38 @@ export function EditorView({
         },
       });
 
-      // Rust muxes the (trim-aligned, speed-retimed) audio back in. The trim
-      // window is SOURCE-time ms; clamp against the real duration so the audio
-      // slice matches the frames the pipeline kept. Speed ranges are shifted
-      // into POST-TRIM time (same `shiftRangesForTrim` the video pipeline's
-      // speed map uses) so Rust applies them directly to the trimmed WAV.
-      setExportPhase("finalizing");
-      setExportPct(100);
-      const clamped = clampTrim(proj.trim, durationMs);
-      const shiftedSpeed = shiftRangesForTrim(
-        clampSpeedRanges(proj.speed, durationMs),
-        clamped,
-      );
-      const updated = await finalizeRenderedRecording(
-        recording.id,
-        bytes,
-        clamped,
-        shiftedSpeed,
-        proj.audio.normalizeLoudness,
-      );
+      let updated: RecordingRow;
+      if (format === "gif") {
+        // GIF has no soundtrack — skip the audio chain entirely. Rust just
+        // writes `<id>.rendered.gif` and records the "rendered-gif" export row.
+        setExportPhase("finalizing");
+        setExportPct(100);
+        updated = await saveRenderedGif(recording.id, bytes);
+        setExportedRevealPath(renderedExportPath(updated.exports, "rendered-gif"));
+      } else {
+        // Rust muxes the (trim-aligned, speed-retimed) audio back in. The trim
+        // window is SOURCE-time ms; clamp against the real duration so the audio
+        // slice matches the frames the pipeline kept. Speed ranges are shifted
+        // into POST-TRIM time (same `shiftRangesForTrim` the video pipeline's
+        // speed map uses) so Rust applies them directly to the trimmed WAV.
+        setExportPhase("finalizing");
+        setExportPct(100);
+        const clamped = clampTrim(proj.trim, durationMs);
+        const shiftedSpeed = shiftRangesForTrim(
+          clampSpeedRanges(proj.speed, durationMs),
+          clamped,
+        );
+        updated = await finalizeRenderedRecording(
+          recording.id,
+          bytes,
+          clamped,
+          shiftedSpeed,
+          proj.audio.normalizeLoudness,
+        );
+        setExportedRevealPath(renderedExportPath(updated.exports));
+      }
 
       setExportedRevealId(recording.id);
-      setExportedRevealPath(renderedExportPath(updated.exports));
       toasts.push({ tone: "success", message: "Export complete." });
     } catch (e) {
       console.error("[export] failed", e);
@@ -2175,7 +2197,7 @@ export function EditorView({
       setExportPhase(null);
       setExportPct(0);
     }
-  }, [recording.id, recording.events_path, cursorAvailable, src, webcamSrc, webcamOffsetMs, duration, toasts]);
+  }, [recording.id, recording.events_path, cursorAvailable, src, webcamSrc, webcamOffsetMs, duration, exportFormat, toasts]);
 
   const exportLabel =
     exportPhase === "decode"
@@ -2222,6 +2244,22 @@ export function EditorView({
             <FolderOpen size={15} /> Reveal in Finder
           </button>
         ) : null}
+        {/* Export format select (session-local; not persisted). GIF renders a
+            silent 15fps ≤960px animated GIF via the same composite pipeline. */}
+        <label className="sr-only" htmlFor="export-format">
+          Export format
+        </label>
+        <select
+          id="export-format"
+          value={exportFormat}
+          onChange={(e) => setExportFormat(e.target.value === "gif" ? "gif" : "mp4")}
+          disabled={exporting || !loaded}
+          title="Export format"
+          className="rounded-md border border-line bg-surface px-2 py-1.5 text-[13px] disabled:opacity-50"
+        >
+          <option value="mp4">MP4</option>
+          <option value="gif">GIF</option>
+        </select>
         <button
           onClick={() => void onExport()}
           disabled={exporting || !loaded}

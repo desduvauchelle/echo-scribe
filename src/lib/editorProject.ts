@@ -1198,11 +1198,15 @@ export function moveZoomBlock(
 // `moveRange(scenes, ...)` — no named scene wrappers, since (unlike zoom)
 // there's no pre-existing call-site signature to preserve.
 
-/** Path of the editor's `"rendered"` entry inside a recording row's `exports`
- *  JSON, or `null` when the recording has never been editor-exported (or the
- *  JSON is malformed). Lets the post-export "Reveal in Finder" affordance
- *  target `<id>.rendered.mp4` instead of the original recording. */
-export function renderedExportPath(exportsJson: string): string | null {
+/** Path of the editor's export entry of `quality` inside a recording row's
+ *  `exports` JSON, or `null` when the recording has never been editor-exported
+ *  to that format (or the JSON is malformed). Lets the post-export "Reveal in
+ *  Finder" affordance target `<id>.rendered.mp4` (`"rendered"`, the default) or
+ *  `<id>.rendered.gif` (`"rendered-gif"`) instead of the original recording. */
+export function renderedExportPath(
+  exportsJson: string,
+  quality: "rendered" | "rendered-gif" = "rendered",
+): string | null {
   try {
     const v: unknown = JSON.parse(exportsJson);
     if (!Array.isArray(v)) return null;
@@ -1210,7 +1214,7 @@ export function renderedExportPath(exportsJson: string): string | null {
       if (
         e &&
         typeof e === "object" &&
-        (e as { quality?: unknown }).quality === "rendered" &&
+        (e as { quality?: unknown }).quality === quality &&
         typeof (e as { path?: unknown }).path === "string" &&
         (e as { path: string }).path.length > 0
       ) {

@@ -2015,4 +2015,19 @@ describe("renderedExportPath", () => {
     expect(renderedExportPath(JSON.stringify([{ quality: "rendered", size: 2 }]))).toBeNull();
     expect(renderedExportPath(JSON.stringify([{ quality: "rendered", path: "", size: 2 }]))).toBeNull();
   });
+
+  test("selects the rendered-gif entry when asked, independently of the mp4 one", () => {
+    const json = JSON.stringify([
+      { quality: "rendered", path: "/r/rec1.rendered.mp4", size: 2 },
+      { quality: "rendered-gif", path: "/r/rec1.rendered.gif", size: 3 },
+    ]);
+    // Default quality still resolves the MP4; the gif selector resolves the gif.
+    expect(renderedExportPath(json)).toBe("/r/rec1.rendered.mp4");
+    expect(renderedExportPath(json, "rendered-gif")).toBe("/r/rec1.rendered.gif");
+  });
+
+  test("rendered-gif returns null when only an mp4 export exists", () => {
+    const json = JSON.stringify([{ quality: "rendered", path: "/r/rec1.rendered.mp4", size: 2 }]);
+    expect(renderedExportPath(json, "rendered-gif")).toBeNull();
+  });
 });

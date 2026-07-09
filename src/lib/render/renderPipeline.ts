@@ -22,6 +22,7 @@
 
 import { createFile, DataStream, MP4BoxBuffer, type Sample } from "mp4box";
 import { ArrayBufferTarget, Muxer } from "mp4-muxer";
+import { GIFEncoder, quantize, applyPalette } from "gifenc";
 import {
   parseEventsJsonl,
   resolveZoomBlocks,
@@ -130,6 +131,12 @@ export type RenderRecordingOpts = {
    *  `firstMainFramePTS − webcamStart`. Applied as `webcamTime = mainTime +
    *  offsetMs`. Null on the row → 0. */
   webcamOffsetMs?: number | null;
+  /** Output container. "mp4" (default) → the WebCodecs H.264/HEVC/VP9 encode +
+   *  mux (audio muxed back in by Rust). "gif" → an animated GIF at
+   *  `TARGET_GIF_FPS`, width-capped to `GIF_MAX_WIDTH`, encoded incrementally
+   *  with gifenc (no audio path at all). Both share the exact same
+   *  decode→composite loop, so every effect rides along identically. */
+  format?: "mp4" | "gif";
   onProgress: (p: RenderProgress) => void;
 };
 
@@ -216,6 +223,60 @@ function keystrokeOverlayAt(
 const TARGET_FPS = 30;
 /** Encoder backpressure threshold — never let the queue grow unbounded. */
 const MAX_ENCODE_QUEUE = 8;
+
+// ---- GIF export constants + pure helpers ----------------------------------
+// The GIF path re-uses the SAME decode→composite loop and the SAME `speedGridIndex`
+// quantization as the MP4 path, only on a coarser grid (15fps) and a smaller
+// output. Keeping the grid math identical means a 30fps source drops to every
+// other frame exactly the way the MP4 CFR pacing works — no separate cadence.
+
+/** GIF output frame rate. Half of `TARGET_FPS`, so a 30fps source drops to
+ *  every other frame on the shared CFR grid (see `speedGridIndex`). */
+export const TARGET_GIF_FPS = 15;
+
+/** GIF output width cap (px). Larger sources scale proportionally down to this;
+ *  smaller ones are left at their own width. Keeps GIF byte-size and per-frame
+ *  quantization cost bounded (GIF is a heavyweight format for screen video). */
+export const GIF_MAX_WIDTH = 960;
+
+/**
+ * The GIF output canvas size for a source of `srcW`×`srcH`, capped so the width
+ * never exceeds `maxWidth` and BOTH dimensions are even (video-friendly and it
+ * keeps the palette-index buffer aligned). Scales proportionally when over the
+ * cap; when under it, keeps the source width but still rounds each dimension to
+ * the nearest even value. Never returns a zero dimension (clamped to ≥2) so the
+ * encoder always gets a drawable frame.
+ *
+ * Pure. Even-rounding: `round(x/2)*2`, then `max(2, …)`.
+ */
+export function gifOutputSize(
+  srcW: number,
+  srcH: number,
+  maxWidth: number = GIF_MAX_WIDTH,
+): { w: number; h: number } {
+  const toEven = (x: number): number => Math.max(2, Math.round(x / 2) * 2);
+  if (srcW <= maxWidth) {
+    return { w: toEven(srcW), h: toEven(srcH) };
+  }
+  const scale = maxWidth / srcW;
+  return { w: toEven(maxWidth), h: toEven(srcH * scale) };
+}
+
+/** Centiseconds in the `[7,7,6]` GIF frame-delay cycle. Sums to 20cs / 3 frames. */
+const GIF_DELAY_CYCLE_CS = [7, 7, 6] as const;
+
+/**
+ * The per-frame delay (centiseconds) for the GIF frame at grid position
+ * `frameIndex`. GIF only stores delays at centisecond (1/100s) granularity, so
+ * the exact 1/15s = 6.667cs per-frame delay can't be encoded directly. We cycle
+ * `[7,7,6]` centiseconds: every 3 frames span 20cs = 0.20s, i.e. EXACTLY 15fps
+ * on average (45 frames → 300cs → 3.00s). A fixed 7cs would drift to 14.29fps
+ * and a fixed 6cs to 16.67fps; the 7/7/6 cycle holds true 15fps over whole
+ * cycles with at most ±0.33cs of instantaneous jitter (imperceptible). Pure.
+ */
+export function gifFrameDelayCs(frameIndex: number): number {
+  return GIF_DELAY_CYCLE_CS[frameIndex % GIF_DELAY_CYCLE_CS.length];
+}
 
 /** A muxer codec tag paired with the WebCodecs encoder config that produced it. */
 type CodecChoice = {
@@ -556,9 +617,158 @@ class WebcamSource {
 }
 
 /**
- * Render one recording end-to-end. Resolves with the finished MP4 bytes.
- * Progress is reported across three phases (decode → encode → mux); the caller
- * turns it into an inline "% " display.
+ * Output abstraction shared by the MP4 and GIF paths. The decode→composite loop
+ * draws every frame onto ONE OffscreenCanvas (so all effects ride the shared
+ * compositor identically), then hands the canvas + its CFR grid slot to the
+ * sink. This is the ONLY place the two formats diverge — the composite is
+ * byte-for-byte the same. A sink NEVER buffers all frames: the MP4 sink pushes
+ * to a `VideoEncoder` (bounded queue), the GIF sink quantizes + `writeFrame`s
+ * incrementally and discards the pixels each iteration.
+ */
+interface FrameSink {
+  /** Output canvas size (px). The compositor targets exactly this. */
+  readonly outW: number;
+  readonly outH: number;
+  /** Frames-per-second the CFR grid is quantized to (`speedGridIndex`). */
+  readonly fps: number;
+  /** True while downstream backpressure asks the feed loop to wait (MP4 only;
+   *  the GIF encoder is synchronous so it's always false). */
+  isBackpressured(): boolean;
+  /** Emit the current canvas as the output frame that lands on CFR grid slot
+   *  `gridIndex` (already validated as advancing). Sync draw already happened;
+   *  the sink reads the canvas here. Must NOT retain the canvas past this call. */
+  emit(canvas: OffscreenCanvas, ctx: OffscreenCanvasRenderingContext2D, gridIndex: number): void;
+  /** Any async encoder error surfaced out-of-band (MP4). Null when none. */
+  readonly error: unknown;
+  /** Finish encoding and return the finished container bytes. */
+  finalize(): Promise<Uint8Array>;
+}
+
+/** MP4 sink: the original WebCodecs `VideoEncoder` → `mp4-muxer` path. Kept
+ *  behaviourally identical to the pre-GIF pipeline (same codec probe, keyframe
+ *  cadence, bitrate, grid-slot timestamp). */
+class Mp4Sink implements FrameSink {
+  readonly outW: number;
+  readonly outH: number;
+  readonly fps = TARGET_FPS;
+  private readonly muxer: Muxer<ArrayBufferTarget>;
+  private readonly encoder: VideoEncoder;
+  private readonly minFrameIntervalUs = 1_000_000 / TARGET_FPS;
+  private encodedFrames = 0;
+  private encodeError: unknown = null;
+
+  private constructor(outW: number, outH: number, codec: CodecChoice) {
+    this.outW = outW;
+    this.outH = outH;
+    this.muxer = new Muxer({
+      target: new ArrayBufferTarget(),
+      video: { codec: codec.muxerCodec, width: outW, height: outH, frameRate: TARGET_FPS },
+      fastStart: "in-memory",
+    });
+    this.encoder = new VideoEncoder({
+      output: (chunk, meta) => this.muxer.addVideoChunk(chunk, meta),
+      error: (e) => {
+        this.encodeError = e;
+        console.error("[render] VideoEncoder error", e);
+      },
+    });
+    this.encoder.configure(codec.encoderConfig);
+  }
+
+  static async create(outW: number, outH: number): Promise<Mp4Sink> {
+    const codec = await pickCodec(outW, outH);
+    return new Mp4Sink(outW, outH, codec);
+  }
+
+  get error(): unknown {
+    return this.encodeError;
+  }
+
+  isBackpressured(): boolean {
+    return this.encoder.encodeQueueSize >= MAX_ENCODE_QUEUE;
+  }
+
+  emit(canvas: OffscreenCanvas, _ctx: OffscreenCanvasRenderingContext2D, gridIndex: number): void {
+    // Emit on the CFR grid slot this frame mapped to. The timestamp is
+    // `gridIndex/TARGET_FPS` (µs), NOT a running counter — so a trim re-anchors
+    // to 0 and speed segments land at their retimed output time.
+    const outFrame = new VideoFrame(canvas, {
+      timestamp: Math.round(gridIndex * this.minFrameIntervalUs),
+      duration: Math.round(this.minFrameIntervalUs),
+    });
+    const keyFrame = this.encodedFrames % (TARGET_FPS * 2) === 0; // keyframe every ~2s
+    this.encoder.encode(outFrame, { keyFrame });
+    outFrame.close();
+    this.encodedFrames++;
+  }
+
+  async finalize(): Promise<Uint8Array> {
+    await this.encoder.flush();
+    this.encoder.close();
+    if (this.encodeError) throw this.encodeError;
+    this.muxer.finalize();
+    return new Uint8Array(this.muxer.target.buffer);
+  }
+}
+
+/** GIF sink: incremental gifenc encode. Each emitted frame is read off the
+ *  canvas (`getImageData`), quantized to a PER-FRAME 256-color palette
+ *  (quality-first v1 — bigger files, no cross-frame banding), indexed, and
+ *  `writeFrame`d immediately. The RGBA + index buffers are transient locals, so
+ *  only the accumulating GIF byte stream grows — never a frame backlog.
+ *
+ *  Delay: gifenc's `writeFrame({delay})` is in ms and rounds to centiseconds
+ *  internally, so we pass `gifFrameDelayCs(i)*10` to land EXACTLY on the
+ *  intended centisecond (7/7/6 cycle → true 15fps average — see
+ *  `gifFrameDelayCs`). GIF frames are consecutive (grid GAPS from slow-mo are
+ *  ignored: GIF holds each frame for its own delay, so a "gap" just means the
+ *  prior frame shows a touch longer — acceptable for a lossy share format). */
+class GifSink implements FrameSink {
+  readonly outW: number;
+  readonly outH: number;
+  readonly fps = TARGET_GIF_FPS;
+  private readonly gif = GIFEncoder();
+  private frameCount = 0;
+
+  constructor(outW: number, outH: number) {
+    this.outW = outW;
+    this.outH = outH;
+  }
+
+  readonly error = null;
+
+  isBackpressured(): boolean {
+    return false; // synchronous encoder — no queue to drain
+  }
+
+  emit(_canvas: OffscreenCanvas, ctx: OffscreenCanvasRenderingContext2D, _gridIndex: number): void {
+    const { data } = ctx.getImageData(0, 0, this.outW, this.outH);
+    const rgba = new Uint8Array(data.buffer);
+    // Per-frame palette (quality-first v1): quantize THIS frame to ≤256 colors,
+    // then map its pixels to indices. Both buffers are dropped when this method
+    // returns — nothing is held across frames but the growing GIF stream.
+    const palette = quantize(rgba, 256, { format: "rgb565" });
+    const index = applyPalette(rgba, palette, "rgb565");
+    this.gif.writeFrame(index, this.outW, this.outH, {
+      palette,
+      // `delay` is ms; gifenc floors to centiseconds → pass exact cs*10.
+      delay: gifFrameDelayCs(this.frameCount) * 10,
+      repeat: 0, // loop forever
+    });
+    this.frameCount++;
+  }
+
+  async finalize(): Promise<Uint8Array> {
+    this.gif.finish();
+    return this.gif.bytes();
+  }
+}
+
+/**
+ * Render one recording end-to-end. Resolves with the finished container bytes:
+ * an MP4 (default) or, when `opts.format === "gif"`, an animated GIF. Progress
+ * is reported across three phases (decode → encode → mux); the caller turns it
+ * into an inline "% " display.
  */
 export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8Array> {
   const { fileUrl, eventsJsonl, durationMs, project, bgImage, onProgress } = opts;
@@ -724,52 +934,48 @@ export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8A
     }
   }
 
-  // Output canvas size honors the project's aspect preset (auto = source +
-  // 2×padding, capped). The compositor derives the SAME content rect internally.
-  const { outW, outH } = outputLayout(codedWidth, codedHeight, appearance.padding, appearance.aspect);
+  // Output canvas size. MP4 honors the project's aspect preset (auto = source +
+  // 2×padding, capped); GIF caps the SAME layout's width at GIF_MAX_WIDTH (even)
+  // so big screens don't blow up the GIF. The compositor derives its content
+  // rect from whatever outW/outH we give it, so every effect scales along.
+  const format: "mp4" | "gif" = opts.format ?? "mp4";
+  const layout = outputLayout(codedWidth, codedHeight, appearance.padding, appearance.aspect);
+  let outW = layout.outW;
+  let outH = layout.outH;
+  if (format === "gif") {
+    const g = gifOutputSize(layout.outW, layout.outH);
+    outW = g.w;
+    outH = g.h;
+  }
 
-  // --- Set up canvas, muxer, encoder ---
+  // --- Set up canvas + output sink ---
   const canvas = new OffscreenCanvas(outW, outH);
   const ctx = canvas.getContext("2d", { alpha: false });
   if (!ctx) throw new Error("Could not create a 2D drawing context for rendering.");
 
-  const codec = await pickCodec(outW, outH);
-
-  const muxer = new Muxer({
-    target: new ArrayBufferTarget(),
-    video: { codec: codec.muxerCodec, width: outW, height: outH, frameRate: TARGET_FPS },
-    fastStart: "in-memory",
-  });
-
-  let encodeError: unknown = null;
-  const encoder = new VideoEncoder({
-    output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
-    error: (e) => {
-      encodeError = e;
-      console.error("[render] VideoEncoder error", e);
-    },
-  });
-  encoder.configure(codec.encoderConfig);
+  // The sink is the ONLY divergence between MP4 and GIF: it owns the encoder,
+  // the CFR grid fps, backpressure, and finalize. The composite loop is shared.
+  const sink: FrameSink =
+    format === "gif" ? new GifSink(outW, outH) : await Mp4Sink.create(outW, outH);
+  const gridFps = sink.fps;
 
   // --- Decode → composite → encode ---
   const totalFrames = chunks.length;
   let decodedCount = 0;
-  let encodedFrames = 0;
   // Frames the decoder has emitted and we've made a keep/drop decision on —
   // used as the encode-phase progress numerator so 60fps sources (which drop
-  // ~half their decoded frames under the TARGET_FPS filter below) don't stall
-  // visually at ~50% while encodedFrames lags behind totalFrames.
+  // ~half their decoded frames under the grid filter below) don't stall
+  // visually at ~50% while emitted frames lag behind totalFrames.
   let processedFrames = 0;
-  const minFrameIntervalUs = 1_000_000 / TARGET_FPS;
   // Speed-aware CFR pacing: instead of pacing on source-time spacing, each kept
   // frame is mapped through `speedMap` to an OUTPUT time, then quantized to the
-  // `TARGET_FPS` grid (`speedGridIndex`). A frame is kept only when its grid
-  // index advances past the last emitted one — so sped-up regions that collapse
-  // many source frames onto one slot drop the extras (holds ≤TARGET_FPS), and
-  // the emitted timestamp is the grid slot itself (`gridIndex/TARGET_FPS`), NOT
-  // a simple `encodedFrames` counter, so slowed regions leave real gaps rather
-  // than compressing back to CFR. Starts at -1 so the first kept frame (grid
-  // index ≥0) always advances.
+  // sink's grid (`speedGridIndex(outMs, gridFps)`). A frame is kept only when
+  // its grid index advances past the last emitted one — so sped-up regions that
+  // collapse many source frames onto one slot drop the extras (holds ≤fps). For
+  // MP4 the emitted timestamp is the grid slot itself so slowed regions leave
+  // real gaps; GIF holds each frame for its own delay instead. GIF's 15fps grid
+  // additionally drops a plain 30fps source to every other frame. Starts at -1
+  // so the first kept frame (grid index ≥0) always advances.
   let lastGridIndex = -1;
   /** Backpressure stall guard: abort if the encode/decode queues make zero forward progress for this long. */
   const BACKPRESSURE_STALL_MS = 30_000;
@@ -803,13 +1009,14 @@ export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8A
         }
 
         // Speed-aware CFR pacing. Map this frame's POST-TRIM source time
-        // through `speedMap` to an OUTPUT time, then quantize to the TARGET_FPS
-        // grid. Drop the frame unless its grid index advances past the last
-        // emitted one (collapsing sped-up regions to ≤TARGET_FPS). With no
-        // speed ranges the map is identity, so this reduces to the classic
-        // "drop frames faster than TARGET_FPS" pacing.
+        // through `speedMap` to an OUTPUT time, then quantize to the sink's grid
+        // (30fps for MP4, 15fps for GIF). Drop the frame unless its grid index
+        // advances past the last emitted one (collapsing sped-up regions to
+        // ≤fps). With no speed ranges the map is identity, so this reduces to
+        // the classic "drop frames faster than the grid fps" pacing — which for
+        // GIF's 15fps grid means a 30fps source drops to every other frame.
         const outMs = speedMap.srcToOut(tMsSource - trim.startMs);
-        const gridIndex = speedGridIndex(outMs, TARGET_FPS);
+        const gridIndex = speedGridIndex(outMs, gridFps);
         if (gridIndex <= lastGridIndex) {
           frame.close();
           processedFrames++;
@@ -911,21 +1118,14 @@ export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8A
             );
             frame.close();
 
-            // Emit on the CFR grid slot this frame mapped to. The timestamp is
-            // `gridIndex/TARGET_FPS` (µs), NOT a running `encodedFrames`
-            // counter — so a trim re-anchors to 0 (first grid index is 0) AND
-            // speed segments land at their retimed output time: sped-up regions
-            // skip grid slots (fewer frames) and slowed regions leave gaps
-            // (VFR-on-CFR-grid) without compressing back. Video and audio share
-            // the same `speedMap`, so they stay in lockstep.
-            const outFrame = new VideoFrame(canvas, {
-              timestamp: Math.round(gridIndex * minFrameIntervalUs),
-              duration: Math.round(minFrameIntervalUs),
-            });
-            const keyFrame = encodedFrames % (TARGET_FPS * 2) === 0; // keyframe every ~2s
-            encoder.encode(outFrame, { keyFrame });
-            outFrame.close();
-            encodedFrames++;
+            // Hand the freshly-composited canvas to the output sink for the CFR
+            // grid slot this frame mapped to. MP4 re-anchors the encoded frame's
+            // timestamp to `gridIndex/fps` (so a trim starts at 0 and speed
+            // segments land at their retimed output time — video/audio share the
+            // same `speedMap`); GIF reads the pixels, quantizes, and writes an
+            // indexed frame with a per-slot centisecond delay. Neither retains
+            // the canvas past this call, so memory stays bounded.
+            sink.emit(canvas, ctx, gridIndex);
             processedFrames++;
             onProgress({ phase: "encode", pct: Math.min(99, Math.round((processedFrames / totalFrames) * 100)) });
           } catch (e) {
@@ -948,20 +1148,23 @@ export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8A
     void (async () => {
       try {
         for (const chunk of chunks) {
-          // Backpressure: don't let the decode queue, the encode queue, or the
-          // pending-composite backlog balloon (memory — each pins a VideoFrame).
+          // Backpressure: don't let the decode queue, the sink's encode queue,
+          // or the pending-composite backlog balloon (memory — each pins a
+          // decoded VideoFrame). The GIF sink is synchronous (`isBackpressured`
+          // is always false), so only the decode queue + composite backlog gate
+          // it — still bounded, since the composite drains one frame at a time.
           // Guard against an indefinite stall with a wall-clock timeout.
           const stallStartedAt = Date.now();
           while (
-            encoder.encodeQueueSize >= MAX_ENCODE_QUEUE ||
+            sink.isBackpressured() ||
             decoder.decodeQueueSize >= MAX_ENCODE_QUEUE ||
             pendingComposites >= MAX_PENDING_COMPOSITES
           ) {
             await new Promise((r) => setTimeout(r, 1));
-            if (encodeError) throw encodeError;
+            if (sink.error) throw sink.error;
             if (Date.now() - stallStartedAt > BACKPRESSURE_STALL_MS) {
               throw new Error(
-                `Render stalled: encoder/decoder queues made no progress for ${BACKPRESSURE_STALL_MS / 1000}s (encodeQueueSize=${encoder.encodeQueueSize}, decodeQueueSize=${decoder.decodeQueueSize}, pendingComposites=${pendingComposites}).`,
+                `Render stalled: encoder/decoder queues made no progress for ${BACKPRESSURE_STALL_MS / 1000}s (decodeQueueSize=${decoder.decodeQueueSize}, pendingComposites=${pendingComposites}).`,
               );
             }
           }
@@ -986,15 +1189,14 @@ export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8A
     // Release the webcam decoder + any held frames regardless of outcome.
     webcamSource?.close();
   }
-  if (encodeError) throw encodeError;
+  if (sink.error) throw sink.error;
 
   // --- Finalize ---
+  // Same "mux" phase label for both formats (the UI maps it to "Finalizing
+  // video"): MP4 flushes the encoder + muxer, GIF writes the trailer.
   onProgress({ phase: "mux", pct: 99 });
-  await encoder.flush();
-  encoder.close();
-  if (encodeError) throw encodeError;
-  muxer.finalize();
+  const outBytes = await sink.finalize();
 
   onProgress({ phase: "mux", pct: 100 });
-  return new Uint8Array(muxer.target.buffer);
+  return outBytes;
 }

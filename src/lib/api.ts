@@ -1311,6 +1311,19 @@ export const finalizeRenderedRecording = (
   return invoke("finalize_rendered_recording", bytes, { headers });
 };
 
+/** Save an editor GIF export: hand the frontend's fully-rendered animated GIF
+ *  bytes to Rust, which writes them verbatim to `<id>.rendered.gif` and records
+ *  a `"rendered-gif"` export row (distinct from the MP4 `"rendered"` row).
+ *
+ *  Unlike `finalizeRenderedRecording`, there is NO audio path — a GIF has no
+ *  soundtrack — so the only header is the recording id; the bytes ride as the
+ *  raw IPC body (same least-copy transport). Returns the updated row. */
+export const saveRenderedGif = (
+  id: string,
+  bytes: Uint8Array,
+): Promise<RecordingRow> =>
+  invoke("save_rendered_gif", bytes, { headers: { "x-recording-id": id } });
+
 export type DriveStatus = {
   connected: boolean;
   email: string | null;
