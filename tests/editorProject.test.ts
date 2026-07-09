@@ -10,6 +10,7 @@ import {
   parseProject,
   placeSpeedRange,
   resizeMaskRect,
+  MASK_MIN_SIZE,
   resizeSpeedRange,
   renderedExportPath,
   shiftRangesForTrim,
@@ -972,29 +973,30 @@ describe("resizeMaskRect", () => {
   test("zero-movement drag leaves the rect unchanged (nw handle grabbed off the true corner under zoom)", () => {
     const rect: MaskRect = { x: 0, y: 0, w: 0.3, h: 0.3 };
     // Pointer grabbed at capture point (0.25, 0.25) — the clipped nw handle's
-    // display position — while the true nw corner is (0, 0).
+    // display position — while the true nw corner is (0, 0). Anchor (se) is
+    // (0.3, 0.3), captured once by the caller at pointer-down.
     const grabDx = 0.25 - rect.x;
     const grabDy = 0.25 - rect.y;
-    const out = resizeMaskRect(rect, "nw", 0.25, 0.25, grabDx, grabDy);
+    const out = resizeMaskRect(rect.x + rect.w, rect.y + rect.h, 0.25, 0.25, grabDx, grabDy);
     expect(out).toEqual(rect);
   });
 
   test("zero-movement drag is a no-op for every corner", () => {
     const rect: MaskRect = { x: 0.2, y: 0.3, w: 0.4, h: 0.25 };
-    const corners: Array<["nw" | "ne" | "sw" | "se", number, number]> = [
-      ["nw", rect.x, rect.y],
-      ["ne", rect.x + rect.w, rect.y],
-      ["sw", rect.x, rect.y + rect.h],
-      ["se", rect.x + rect.w, rect.y + rect.h],
+    const corners: Array<["nw" | "ne" | "sw" | "se", number, number, number, number]> = [
+      ["nw", rect.x, rect.y, rect.x + rect.w, rect.y + rect.h],
+      ["ne", rect.x + rect.w, rect.y, rect.x, rect.y + rect.h],
+      ["sw", rect.x, rect.y + rect.h, rect.x + rect.w, rect.y],
+      ["se", rect.x + rect.w, rect.y + rect.h, rect.x, rect.y],
     ];
-    for (const [corner, cornerX, cornerY] of corners) {
+    for (const [, cornerX, cornerY, fixedX, fixedY] of corners) {
       // Simulate a grab at some arbitrary display point (as if drawn on a
       // clipped box), then a pointermove at that SAME point.
       const grabPointX = cornerX + 0.05;
       const grabPointY = cornerY - 0.05;
       const grabDx = grabPointX - cornerX;
       const grabDy = grabPointY - cornerY;
-      const out = resizeMaskRect(rect, corner, grabPointX, grabPointY, grabDx, grabDy);
+      const out = resizeMaskRect(fixedX, fixedY, grabPointX, grabPointY, grabDx, grabDy);
       expect(out.x).toBeCloseTo(rect.x, 10);
       expect(out.y).toBeCloseTo(rect.y, 10);
       expect(out.w).toBeCloseTo(rect.w, 10);
@@ -1004,8 +1006,9 @@ describe("resizeMaskRect", () => {
 
   test("moves the dragged corner by the pointer's delta since grab", () => {
     const rect: MaskRect = { x: 0.2, y: 0.2, w: 0.4, h: 0.4 };
-    // Grab exactly at the se corner (0.6, 0.6) — zero grab offset.
-    const out = resizeMaskRect(rect, "se", 0.7, 0.65, 0, 0);
+    // Grab exactly at the se corner (0.6, 0.6) — zero grab offset. Anchor
+    // (nw) is (0.2, 0.2).
+    const out = resizeMaskRect(0.2, 0.2, 0.7, 0.65, 0, 0);
     // se corner moves to (0.7, 0.65); nw anchor (0.2, 0.2) stays fixed.
     expect(out.x).toBeCloseTo(0.2, 10);
     expect(out.y).toBeCloseTo(0.2, 10);
@@ -1014,9 +1017,8 @@ describe("resizeMaskRect", () => {
   });
 
   test("dragging the corner past the anchor flips w/h positive (normalizes)", () => {
-    const rect: MaskRect = { x: 0.4, y: 0.4, w: 0.2, h: 0.2 };
     // Drag the se corner (anchor stays nw = (0.4, 0.4)) up-left past the anchor.
-    const out = resizeMaskRect(rect, "se", 0.1, 0.1, 0, 0);
+    const out = resizeMaskRect(0.4, 0.4, 0.1, 0.1, 0, 0);
     expect(out.w).toBeGreaterThan(0);
     expect(out.h).toBeGreaterThan(0);
     expect(out.x).toBeCloseTo(0.1, 10);
@@ -1026,24 +1028,130 @@ describe("resizeMaskRect", () => {
   });
 
   test("clamps the dragged corner to [0,1] at the edges", () => {
-    const rect: MaskRect = { x: 0.5, y: 0.5, w: 0.2, h: 0.2 };
-    // Drag se corner way past the unit square.
-    const out = resizeMaskRect(rect, "se", 5, 5, 0, 0);
+    // Drag se corner way past the unit square. Anchor (nw) is (0.5, 0.5).
+    const out = resizeMaskRect(0.5, 0.5, 5, 5, 0, 0);
     expect(out).toEqual({ x: 0.5, y: 0.5, w: 0.5, h: 0.5 });
   });
 
   test("clamps the dragged corner to [0,1] on the negative side", () => {
-    const rect: MaskRect = { x: 0.3, y: 0.3, w: 0.2, h: 0.2 };
     // Drag nw corner (anchor se = (0.5, 0.5)) far off the negative edge.
-    const out = resizeMaskRect(rect, "nw", -5, -5, 0, 0);
+    const out = resizeMaskRect(0.5, 0.5, -5, -5, 0, 0);
     expect(out).toEqual({ x: 0, y: 0, w: 0.5, h: 0.5 });
   });
 
-  test("does not mutate its rect argument", () => {
-    const rect: MaskRect = { x: 0.2, y: 0.2, w: 0.3, h: 0.3 };
-    const snapshot = { ...rect };
-    resizeMaskRect(rect, "se", 0.9, 0.9, 0.1, 0.1);
-    expect(rect).toEqual(snapshot);
+  test("does not mutate its arguments", () => {
+    const before = { fixedX: 0.5, fixedY: 0.5, pointerNx: 0.9, pointerNy: 0.9, grabDx: 0.1, grabDy: 0.1 };
+    const snapshot = { ...before };
+    resizeMaskRect(before.fixedX, before.fixedY, before.pointerNx, before.pointerNy, before.grabDx, before.grabDy);
+    expect(before).toEqual(snapshot);
+  });
+
+  // Reviewer-traced regression: a prior revision re-derived the anchor each
+  // move from the MUTATED rect using the STALE corner label — once the
+  // dragged corner crosses the anchor, normalization swaps which side is
+  // "min"/"max" and the label picks the wrong physical corner on every
+  // subsequent move, so the anchor visibly drifts with the cursor instead of
+  // staying put (traced case: dragging se of {0.4,0.4,0.2,0.2} leftward past
+  // x=0.4 left w frozen as a cursor-riding sliver instead of growing from the
+  // anchor). With the anchor captured ONCE at pointer-down and passed through
+  // unchanged, feeding each move's output back in as the next move's context
+  // must keep growing the rect from the ORIGINAL anchor (0.4, 0.4) even after
+  // crossover — never re-anchor to wherever the cursor currently sits.
+  test("multi-move crossover: dragging se leftward past the anchor keeps growing from the fixed nw anchor", () => {
+    const start: MaskRect = { x: 0.4, y: 0.4, w: 0.2, h: 0.2 };
+    // se corner starts at (0.6, 0.6); nw anchor (0.4, 0.4) is captured once
+    // at pointer-down and never changes for the whole gesture.
+    const fixedX = start.x;
+    const fixedY = start.y;
+    const grabDx = 0; // grabbed exactly at the se corner
+    const grabDy = 0;
+
+    // Move 1: drag left/up a bit, still on the se side of the anchor.
+    const m1 = resizeMaskRect(fixedX, fixedY, 0.55, 0.55, grabDx, grabDy);
+    expect(m1.x).toBeCloseTo(0.4, 10);
+    expect(m1.y).toBeCloseTo(0.4, 10);
+    expect(m1.w).toBeCloseTo(0.15, 10);
+    expect(m1.h).toBeCloseTo(0.15, 10);
+
+    // Move 2: cross the anchor leftward/upward — pointer now at (0.2, 0.2),
+    // left of and above the anchor (0.4, 0.4). The rect must grow from the
+    // anchor toward the new pointer position, not freeze at move 1's edge.
+    const m2 = resizeMaskRect(fixedX, fixedY, 0.2, 0.2, grabDx, grabDy);
+    expect(m2.x).toBeCloseTo(0.2, 10);
+    expect(m2.y).toBeCloseTo(0.2, 10);
+    expect(m2.w).toBeCloseTo(0.2, 10);
+    expect(m2.h).toBeCloseTo(0.2, 10);
+
+    // Move 3: keep dragging further past the anchor — the rect must keep
+    // growing from the SAME (0.4, 0.4) anchor, not from move 2's edge.
+    const m3 = resizeMaskRect(fixedX, fixedY, 0.05, 0.1, grabDx, grabDy);
+    expect(m3.x).toBeCloseTo(0.05, 10);
+    expect(m3.y).toBeCloseTo(0.1, 10);
+    expect(m3.w).toBeCloseTo(0.35, 10);
+    expect(m3.h).toBeCloseTo(0.3, 10);
+
+    // Move 4: drag back right past the anchor again — should shrink back
+    // down cleanly, still anchored at (0.4, 0.4), confirming the anchor
+    // never moved across the whole back-and-forth gesture.
+    const m4 = resizeMaskRect(fixedX, fixedY, 0.5, 0.45, grabDx, grabDy);
+    expect(m4.x).toBeCloseTo(0.4, 10);
+    expect(m4.y).toBeCloseTo(0.4, 10);
+    expect(m4.w).toBeCloseTo(0.1, 10);
+    expect(m4.h).toBeCloseTo(0.05, 10);
+  });
+
+  // Zero-movement invariant still holds across a crossover-capable gesture:
+  // re-grabbing (fresh fixedX/fixedY + grabDx/grabDy) at the CURRENT dragged
+  // corner and issuing a zero-movement move must reproduce that exact rect.
+  test("zero-movement invariant holds after a crossover move", () => {
+    const fixedX = 0.4;
+    const fixedY = 0.4;
+    const afterCrossover = resizeMaskRect(fixedX, fixedY, 0.2, 0.2, 0, 0);
+    expect(afterCrossover).toEqual({ x: 0.2, y: 0.2, w: 0.2, h: 0.2 });
+    // Re-grab at the new dragged corner (nw of the flipped rect, since se
+    // crossed to become the min corner) with zero offset and zero movement.
+    const noop = resizeMaskRect(fixedX, fixedY, 0.2, 0.2, 0, 0);
+    expect(noop).toEqual(afterCrossover);
+  });
+
+  // Finding 3: dragging a corner exactly onto (or past) the anchor must not
+  // collapse w/h to 0 — clampMasks would silently drop a zero-area mask,
+  // clearing the selection mid-drag. MASK_MIN_SIZE floors the span, anchored
+  // on the fixed side.
+  describe("MASK_MIN_SIZE floor (Finding 3 — exact collapse doesn't zero out the rect)", () => {
+    test("dragging the corner exactly onto the anchor floors both axes to MASK_MIN_SIZE", () => {
+      // Anchor (nw) at (0.4, 0.4); drag se corner exactly onto the anchor.
+      const out = resizeMaskRect(0.4, 0.4, 0.4, 0.4, 0, 0);
+      expect(out.w).toBeGreaterThanOrEqual(MASK_MIN_SIZE);
+      expect(out.h).toBeGreaterThanOrEqual(MASK_MIN_SIZE);
+      expect(out.w).toBeCloseTo(MASK_MIN_SIZE, 10);
+      expect(out.h).toBeCloseTo(MASK_MIN_SIZE, 10);
+    });
+
+    test("collapse at an edge-flush anchor still floors to MASK_MIN_SIZE by growing into the interior", () => {
+      // Rect flush against the right/bottom edge: anchor (nw, since we're
+      // dragging se) sits at x+w=1 — pushing the dragged point "out" past 1
+      // on the naive side would clamp back to 1 and still collapse. The
+      // floor must fall back to growing the rect leftward/upward instead.
+      const fixedX = 1; // anchor pinned at the right edge
+      const fixedY = 1; // anchor pinned at the bottom edge
+      // Drag se corner past the right/bottom edge (clamped to 1,1 — same as
+      // the anchor) so naive flooring on the "preferred" side has no room.
+      const out = resizeMaskRect(fixedX, fixedY, 5, 5, 0, 0);
+      expect(out.w).toBeCloseTo(MASK_MIN_SIZE, 10);
+      expect(out.h).toBeCloseTo(MASK_MIN_SIZE, 10);
+      // The anchor (fixed corner) must not have moved: x+w and y+h stay at 1.
+      expect(out.x + out.w).toBeCloseTo(1, 10);
+      expect(out.y + out.h).toBeCloseTo(1, 10);
+    });
+
+    test("a drag that already exceeds MASK_MIN_SIZE is unaffected by the floor", () => {
+      const out = resizeMaskRect(0.2, 0.2, 0.6, 0.6, 0, 0);
+      expect(out.x).toBeCloseTo(0.2, 10);
+      expect(out.y).toBeCloseTo(0.2, 10);
+      expect(out.w).toBeCloseTo(0.4, 10);
+      expect(out.h).toBeCloseTo(0.4, 10);
+    });
   });
 });
 

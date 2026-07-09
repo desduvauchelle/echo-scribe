@@ -680,8 +680,34 @@ export function clampMasks(masks: Mask[], durationMs: number): Mask[] {
 /** Normalized [0,1] rect shape shared with `Mask.rect`. */
 export type MaskRect = { x: number; y: number; w: number; h: number };
 
+/** Minimum mask rect size (normalized, each axis) enforced by
+ *  `resizeMaskRect` — mirrors the length floors the other lanes use
+ *  (`SCENE_MIN_LENGTH_MS`, `SPEED_MIN_LENGTH_MS`) but in space instead of
+ *  time. Without this, dragging a corner exactly onto the fixed anchor (e.g.
+ *  the rect already flush against an edge, corner dragged past it) collapses
+ *  w or h to 0, which `clampMasks` then silently drops as zero-area — the
+ *  mask vanishes and the selection clears mid-drag. The floor is applied
+ *  around the FIXED anchor side so the anchor still never moves. */
+export const MASK_MIN_SIZE = 0.02;
+
+/** Push `dragged` at least `MASK_MIN_SIZE` away from `anchor` on the [0,1]
+ *  line, preferring the side `dragged` is already on. Falls back to the
+ *  opposite side when the preferred side doesn't have `MASK_MIN_SIZE` of room
+ *  before the axis edge (anchor within `MASK_MIN_SIZE` of that edge) — the
+ *  opposite side always has room since `anchor` is itself in [0,1] and the
+ *  two `MASK_MIN_SIZE`-wide bands can't both be edge-constrained at once
+ *  (`MASK_MIN_SIZE` is well under half the [0,1] span). Pure. */
+function floorSpanFromAnchor(anchor: number, dragged: number): number {
+  if (Math.abs(dragged - anchor) >= MASK_MIN_SIZE) return dragged;
+  const preferred = dragged >= anchor ? anchor + MASK_MIN_SIZE : anchor - MASK_MIN_SIZE;
+  if (preferred >= 0 && preferred <= 1) return preferred;
+  const fallback = dragged >= anchor ? anchor - MASK_MIN_SIZE : anchor + MASK_MIN_SIZE;
+  return clamp(fallback, 0, 1);
+}
+
 /** Corner-resize math for the on-canvas mask edit box (Task 5 rev — fixes the
- *  "corner-resize jump under zoom" bug). Pointer-down records a grab offset
+ *  "corner-resize jump under zoom" bug, then the gesture-stability + collapse
+ *  bugs found in the round-2 review). Pointer-down records a grab offset
  *  between the pointer's capture-space position and the TRUE (unclamped) rect
  *  corner being dragged, exactly like the body-move branch's grabDx/grabDy —
  *  this function then re-applies that offset on every move so a
@@ -689,34 +715,53 @@ export type MaskRect = { x: number; y: number; w: number; h: number };
  *  a zoom-clipped display box that doesn't line up 1:1 with the true rect.
  *
  *  `pointerNx/pointerNy` is the CURRENT pointer position in normalized
- *  capture coords (unclamped — from `clientPointToCapture`). `grabDx/grabDy`
- *  is `(pointerNx, pointerNy) - (draggedCornerX, draggedCornerY)` AT GRAB
- *  TIME, in the same normalized space (so it can be negative). Subtracting it
- *  back out reconstructs the dragged corner's new position without any jump.
+ *  capture coords (unclamped — from `clientPointToCaptureUnclamped`).
+ *  `grabDx/grabDy` is `(pointerNx, pointerNy) - (draggedCornerX,
+ *  draggedCornerY)` AT GRAB TIME, in the same normalized space (so it can be
+ *  negative). Subtracting it back out reconstructs the dragged corner's new
+ *  position without any jump.
  *
- *  The OPPOSITE corner is anchored from `rect` (the true, current rect — NOT
- *  a clipped display box), so the anchor never moves out from under the drag.
+ *  `fixedX/fixedY` is the OPPOSITE corner's absolute position, captured ONCE
+ *  by the caller at pointer-down (`maskRectDragRef`) and passed in unchanged
+ *  on every move — this function does NOT re-derive it from `rect` (a prior
+ *  revision did, from the mutated rect + a stale corner label, which meant
+ *  that once the dragged corner crossed the anchor mid-gesture, the
+ *  normalization below swapped which side was "fixed" and the label picked
+ *  the wrong physical corner on every subsequent move — the anchor visibly
+ *  drifted with the cursor instead of staying put). Passing the anchor as an
+ *  explicit point makes "the anchor never moves" true for the WHOLE gesture,
+ *  not just instantaneously.
+ *
  *  Result is normalized (min/max so w/h stay positive regardless of which
- *  side of the anchor the pointer crosses to) and clamped to [0,1] per axis
- *  before deriving x/y/w/h. Pure — does not mutate `rect`. Callers still run
+ *  side of the anchor the pointer crosses to), clamped to [0,1] per axis,
+ *  and floored to `MASK_MIN_SIZE` on each axis (anchor side fixed, far side
+ *  pushed out) so an exact-collapse drag can't zero out w/h and get the mask
+ *  dropped by `clampMasks`. Pure — does not mutate `rect`. Callers still run
  *  the result through `clampMasks` (the single write choke point), but this
- *  function already returns a well-formed [0,1] rect on its own. */
+ *  function already returns a well-formed, non-degenerate [0,1] rect on its
+ *  own. */
 export function resizeMaskRect(
-  rect: MaskRect,
-  corner: "nw" | "ne" | "sw" | "se",
+  fixedX: number,
+  fixedY: number,
   pointerNx: number,
   pointerNy: number,
   grabDx: number,
   grabDy: number,
 ): MaskRect {
-  const fixedX = corner.includes("e") ? rect.x : rect.x + rect.w;
-  const fixedY = corner.includes("s") ? rect.y : rect.y + rect.h;
-
   // Reconstruct the dragged corner's position by undoing the grab offset
   // recorded at pointer-down, THEN clamp to [0,1] — so a zero-movement drag
   // (pointer hasn't moved since grab) reproduces the original corner exactly.
-  const draggedX = clamp(pointerNx - grabDx, 0, 1);
-  const draggedY = clamp(pointerNy - grabDy, 0, 1);
+  let draggedX = clamp(pointerNx - grabDx, 0, 1);
+  let draggedY = clamp(pointerNy - grabDy, 0, 1);
+
+  // Floor the span on each axis around the FIXED anchor, so the anchor still
+  // never moves even when the drag would otherwise collapse (or invert past)
+  // the minimum size. Prefer pushing the dragged point out on the side the
+  // pointer was already headed; if that side doesn't have `MASK_MIN_SIZE` of
+  // room before the [0,1] edge (anchor sits within MASK_MIN_SIZE of that
+  // edge), push out the other side instead so the floor is still met.
+  draggedX = floorSpanFromAnchor(fixedX, draggedX);
+  draggedY = floorSpanFromAnchor(fixedY, draggedY);
 
   const x = Math.min(fixedX, draggedX);
   const y = Math.min(fixedY, draggedY);

@@ -79,6 +79,7 @@ import {
 import { renderRecording, type RenderProgress } from "../../lib/render/renderPipeline";
 import {
   canvasToCapture,
+  canvasToCaptureUnclamped,
   captionAt,
   cursorDrawScale,
   cursorStateAt,
@@ -1827,6 +1828,37 @@ export function EditorView({
     [selectedBlock, applyBlockEdit],
   );
 
+  // Shared setup for client->capture mapping: canvas-intrinsic pixel coords
+  // for `clientX/clientY` plus the layout/zoom state needed by
+  // `canvasToCapture`/`canvasToCaptureUnclamped`. Returns null when the
+  // canvas/video aren't ready. Extracted so `clientPointToCapture` and
+  // `clientPointToCaptureUnclamped` share the exact same math (they must
+  // never drift from each other or from `onPreviewClick`'s inline copy).
+  const clientPointToCanvasCtx = useCallback((clientX: number, clientY: number) => {
+    const canvas = canvasRef.current;
+    const video = videoRef.current;
+    if (!canvas || !video) return null;
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
+    if (vw === 0 || vh === 0) return null;
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return null;
+    const scale = Math.min(rect.width / canvas.width, rect.height / canvas.height);
+    const dispW = canvas.width * scale;
+    const dispH = canvas.height * scale;
+    const offX = (rect.width - dispW) / 2;
+    const offY = (rect.height - dispH) / 2;
+    const px = (clientX - rect.left - offX) / scale;
+    const py = (clientY - rect.top - offY) / scale;
+
+    const p = projectRef.current;
+    const layout = outputLayout(vw, vh, p.appearance.padding, p.appearance.aspect);
+    const tMsSource = video.currentTime * 1000;
+    const blocks = zoomBlocksRef.current;
+    const zoom = blocks.length ? zoomStateAt(tMsSource, blocks) : { cx: 0.5, cy: 0.5, scale: 1 };
+    return { px, py, layout, zoom };
+  }, []);
+
   // Map a client point to normalized capture coords `{nx, ny}` — the SAME
   // canvas-intrinsic-space + `canvasToCapture` inversion `onPreviewClick`
   // uses, extracted here so the mask rect drag (move + corner resize) can
@@ -1834,32 +1866,29 @@ export function EditorView({
   // lands in the padding/letterbox band (canvasToCapture's own guard).
   const clientPointToCapture = useCallback(
     (clientX: number, clientY: number): { nx: number; ny: number } | null => {
-      const canvas = canvasRef.current;
-      const video = videoRef.current;
-      if (!canvas || !video) return null;
-      const vw = video.videoWidth;
-      const vh = video.videoHeight;
-      if (vw === 0 || vh === 0) return null;
-      const rect = canvas.getBoundingClientRect();
-      if (rect.width === 0 || rect.height === 0) return null;
-      const scale = Math.min(rect.width / canvas.width, rect.height / canvas.height);
-      const dispW = canvas.width * scale;
-      const dispH = canvas.height * scale;
-      const offX = (rect.width - dispW) / 2;
-      const offY = (rect.height - dispH) / 2;
-      const px = (clientX - rect.left - offX) / scale;
-      const py = (clientY - rect.top - offY) / scale;
-
-      const p = projectRef.current;
-      const layout = outputLayout(vw, vh, p.appearance.padding, p.appearance.aspect);
-      const tMsSource = video.currentTime * 1000;
-      const blocks = zoomBlocksRef.current;
-      const zoom = blocks.length
-        ? zoomStateAt(tMsSource, blocks)
-        : { cx: 0.5, cy: 0.5, scale: 1 };
-      return canvasToCapture(px, py, layout, zoom);
+      const ctx = clientPointToCanvasCtx(clientX, clientY);
+      if (!ctx) return null;
+      return canvasToCapture(ctx.px, ctx.py, ctx.layout, ctx.zoom);
     },
-    [],
+    [clientPointToCanvasCtx],
+  );
+
+  // Same as `clientPointToCapture` but UNCLAMPED: still returns the true
+  // capture-space point when the client point lands outside the drawn
+  // content rect (padding/letterbox band) or outside [0,1] in capture space.
+  // Used only for the mask corner-resize grab offset (see
+  // `onMaskRectPointerDown`) — a 12px corner handle drawn on a zoom-clipped
+  // edge can have roughly half its hit area sitting just outside the content
+  // rect, and `clientPointToCapture` returning null there would silently
+  // record a zero grab offset and resurrect the absolute-position snap on
+  // the first move.
+  const clientPointToCaptureUnclamped = useCallback(
+    (clientX: number, clientY: number): { nx: number; ny: number } | null => {
+      const ctx = clientPointToCanvasCtx(clientX, clientY);
+      if (!ctx) return null;
+      return canvasToCaptureUnclamped(ctx.px, ctx.py, ctx.layout, ctx.zoom);
+    },
+    [clientPointToCanvasCtx],
   );
 
   // Selected mask's on-canvas rect-edit box: move (drag inside) + resize
@@ -1874,11 +1903,20 @@ export function EditorView({
   // offset against the true corner (not the clipped display box) and
   // re-applying it in `resizeMaskRect` means a zero-movement drag is a
   // no-op regardless of how far the clipped box was from the true corner.
+  //
+  // `fixedX/fixedY` (corner resize only) is the OPPOSITE corner's absolute
+  // position, captured ONCE here at pointer-down and passed through
+  // unchanged on every move — `resizeMaskRect` no longer re-derives it from
+  // the (mutated) rect + the corner label, because after the dragged corner
+  // crosses the anchor mid-gesture that re-derivation picks the wrong
+  // physical corner on every subsequent move (see resizeMaskRect's doc).
   const maskRectDragRef = useRef<{
     id: string;
     corner: "nw" | "ne" | "sw" | "se" | null; // null = body move
     grabDx: number; // grab point minus the dragged corner (or rect.x for a body move), in normalized capture coords
     grabDy: number;
+    fixedX: number; // corner resize only: the anchor corner's position, fixed for the whole gesture
+    fixedY: number;
   } | null>(null);
 
   const onMaskRectPointerDown = useCallback(
@@ -1888,7 +1926,15 @@ export function EditorView({
         if (!mask) return;
         e.preventDefault();
         e.stopPropagation();
-        const hit = clientPointToCapture(e.clientX, e.clientY);
+        // UNCLAMPED hit test: a 12px corner handle drawn on a zoom-clipped
+        // edge can have roughly half its hit area sitting just outside the
+        // drawn content rect. `clientPointToCapture` would return null there,
+        // which recorded a zero grab offset and resurrected the
+        // absolute-position snap on the very first move. The unclamped
+        // inverse mapping is well-defined outside [0,1] (only its in-bounds
+        // guard rejects), so use it here to get a real grab offset even for
+        // an outer-half grab.
+        const hit = clientPointToCaptureUnclamped(e.clientX, e.clientY);
         // The TRUE (unclamped) point being grabbed: for a body move it's the
         // rect's origin; for a corner resize it's that corner, derived from
         // the true rect — never from the zoom-clipped display box.
@@ -1896,15 +1942,21 @@ export function EditorView({
           corner === null ? mask.rect.x : corner.includes("e") ? mask.rect.x + mask.rect.w : mask.rect.x;
         const grabY =
           corner === null ? mask.rect.y : corner.includes("s") ? mask.rect.y + mask.rect.h : mask.rect.y;
+        // The OPPOSITE (anchor) corner, captured once now — stays fixed for
+        // the whole gesture regardless of how the dragged corner moves.
+        const fixedX = corner === null ? 0 : corner.includes("e") ? mask.rect.x : mask.rect.x + mask.rect.w;
+        const fixedY = corner === null ? 0 : corner.includes("s") ? mask.rect.y : mask.rect.y + mask.rect.h;
         maskRectDragRef.current = {
           id: mask.id,
           corner,
           grabDx: hit ? hit.nx - grabX : 0,
           grabDy: hit ? hit.ny - grabY : 0,
+          fixedX,
+          fixedY,
         };
         (e.target as Element).setPointerCapture(e.pointerId);
       },
-    [selectedMask, clientPointToCapture],
+    [selectedMask, clientPointToCaptureUnclamped],
   );
 
   const onMaskRectPointerMove = useCallback(
@@ -1916,7 +1968,6 @@ export function EditorView({
       applyMaskEdit((masks) => {
         const idx = masks.findIndex((m) => m.id === drag.id);
         if (idx < 0) return masks;
-        const m = masks[idx];
         if (drag.corner === null) {
           // Body move: keep w/h, reposition x/y so the grab point stays under
           // the cursor. clampMasks clamps x/y into [0,1] (and w/h to fit).
@@ -1926,8 +1977,9 @@ export function EditorView({
         }
         // Corner resize: pure helper reconstructs the dragged corner from the
         // grab offset (so zero movement = no-op) and anchors the OPPOSITE
-        // corner from the TRUE rect `m.rect` — see resizeMaskRect's doc.
-        const rect = resizeMaskRect(m.rect, drag.corner, hit.nx, hit.ny, drag.grabDx, drag.grabDy);
+        // corner at the FIXED point captured at pointer-down (never
+        // re-derived from the mutated rect) — see resizeMaskRect's doc.
+        const rect = resizeMaskRect(drag.fixedX, drag.fixedY, hit.nx, hit.ny, drag.grabDx, drag.grabDy);
         return masks.map((mm, i) => (i === idx ? { ...mm, rect } : mm));
       });
     },
