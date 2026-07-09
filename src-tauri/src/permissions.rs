@@ -13,6 +13,12 @@ pub struct PermissionsStatus {
     pub accessibility: bool,
     pub screen_recording: bool,
     pub calendars: bool,
+    /// Camera is optional (only used when a screen recording enables the
+    /// webcam), but surfaced in the permissions UI so a *denied* grant is
+    /// visible and fixable up front — once denied, macOS never re-prompts,
+    /// so the record-time request alone can strand the user with no in-app
+    /// recovery path.
+    pub camera: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -72,6 +78,7 @@ mod imp {
             accessibility: accessibility_trusted(),
             screen_recording: screen_recording_authorized(),
             calendars: crate::calendar::is_authorized_sync(),
+            camera: camera_authorized(),
         }
     }
 
@@ -116,12 +123,11 @@ mod imp {
         status == AVAuthorizationStatus::Authorized
     }
 
-    /// Non-prompting probe of the Camera TCC grant. Not currently wired into
-    /// [`PermissionsStatus`] (camera is opt-in per-recording, not a startup
-    /// gate like mic/accessibility/screen-recording), but exposed as `pub`
-    /// for callers — e.g. deciding whether to bother calling
-    /// [`request_camera`] at all — the same way `microphone_authorized`
-    /// backs `status()`.
+    /// Non-prompting probe of the Camera TCC grant. Backs the `camera` field
+    /// of [`PermissionsStatus`] — camera is optional (only the webcam overlay
+    /// uses it), so it's not a startup *gate*, but it IS surfaced in the
+    /// permissions UI so a denied grant is visible and fixable up front the
+    /// same way `microphone_authorized` backs `status()`.
     pub fn camera_authorized() -> bool {
         // SAFETY: AVCaptureDevice.authorizationStatusForMediaType: with
         // AVMediaTypeVideo is a pure status read; it never prompts the user.
@@ -294,6 +300,7 @@ mod imp {
             accessibility: true,
             screen_recording: true,
             calendars: true,
+            camera: true,
         }
     }
 

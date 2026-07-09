@@ -2,11 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import {
   openAccessibilitySettings,
   openCalendarSettings,
+  openCameraSettings,
   openMicrophoneSettings,
   openScreenRecordingSettings,
   permissionsStatus,
   promptAccessibilityAccess,
   promptCalendarAccess,
+  requestCameraAccess,
   requestMicrophoneAccess,
   requestScreenRecordingAccess,
   resetTccAndQuit,
@@ -26,6 +28,7 @@ export default function PermissionsSection() {
     accessibility: false,
     screen_recording: false,
     calendars: false,
+    camera: false,
   });
   const [checking, setChecking] = useState(false);
   const [resetting, setResetting] = useState(false);
@@ -107,6 +110,29 @@ export default function PermissionsSection() {
     }
     try {
       await openCalendarSettings();
+    } catch {
+      /* ignore */
+    }
+    await refresh().catch(() => {});
+  };
+
+  const handleGrantCamera = async () => {
+    // Camera is optional (only the webcam overlay uses it). requestCameraAccess
+    // prompts on an undetermined state and returns the cached decision
+    // otherwise. Crucially, once macOS has recorded "denied" it NEVER
+    // re-prompts — so on anything but "granted" we open System Settings, the
+    // only place a denied grant can actually be flipped back on.
+    try {
+      const outcome = await requestCameraAccess();
+      if (outcome === "granted") {
+        await refresh();
+        return;
+      }
+    } catch {
+      /* fall through */
+    }
+    try {
+      await openCameraSettings();
     } catch {
       /* ignore */
     }
@@ -195,6 +221,17 @@ export default function PermissionsSection() {
       <div className="h-px bg-elevated" />
 
       <PermissionRow
+        title="Camera (optional)"
+        subtitle="Only used when you turn on the webcam overlay for a screen recording. Grant it here so it's ready — and so a blocked camera is fixable from this screen instead of failing silently mid-recording."
+        granted={status.camera}
+        onGrant={() => void handleGrantCamera()}
+        onRecheck={() => void refresh()}
+        recheckBusy={checking}
+      />
+
+      <div className="h-px bg-elevated" />
+
+      <PermissionRow
         title="Calendar (optional)"
         subtitle="Matches each meeting to your calendar invite so summaries name attendees and reference the meeting topic. The calendar data never leaves your Mac."
         granted={status.calendars}
@@ -211,8 +248,8 @@ export default function PermissionsSection() {
             Reset permissions
           </div>
           <p className="mt-1 text-sm text-muted">
-            Wipes Microphone + Accessibility + Screen Recording grants and
-            quits the app. Use if a permission feels broken — relaunch will
+            Wipes Microphone + Accessibility + Screen Recording + Camera grants
+            and quits the app. Use if a permission feels broken — relaunch will
             re-prompt from scratch.
           </p>
         </div>

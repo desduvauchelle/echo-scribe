@@ -42,6 +42,7 @@ function AppShell() {
     accessibility: false,
     screen_recording: false,
     calendars: false,
+    camera: false,
   });
   const [resumeNotice, setResumeNotice] = useState<string | null>(null);
   const [mainKey, setMainKey] = useState(0);

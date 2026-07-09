@@ -13,6 +13,7 @@ export type PermissionsStatus = {
   accessibility: boolean;
   screen_recording: boolean;
   calendars: boolean;
+  camera: boolean;
 };
 
 export type PlatformCapabilities = {
