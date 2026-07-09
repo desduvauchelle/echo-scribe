@@ -3320,6 +3320,100 @@ pub fn delete_guide_template(state: State<'_, AppState>, id: String) -> Result<(
         .map_err(|e| e.to_string())
 }
 
+// ============================================================================
+// Guide runs (post-meeting review)
+// ============================================================================
+
+#[tauri::command]
+pub fn list_guide_runs(
+    state: State<'_, AppState>,
+    meeting_id: String,
+) -> Result<Vec<crate::db::meeting_guide_runs::GuideRunRow>, String> {
+    let db = require_db(&state)?;
+    db.with_conn(move |c| crate::db::meeting_guide_runs::list_guide_runs_for_meeting(c, &meeting_id))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn guide_runs_for_template(
+    state: State<'_, AppState>,
+    template_id: String,
+    limit: i64,
+) -> Result<Vec<crate::db::meeting_guide_runs::GuideRunRow>, String> {
+    let db = require_db(&state)?;
+    db.with_conn(move |c| {
+        crate::db::meeting_guide_runs::list_guide_runs_for_template(c, &template_id, limit)
+    })
+    .map_err(|e| e.to_string())
+}
+
+/// Envelope for pulling `segments` out of a meeting's stored `transcript_json`.
+#[derive(serde::Deserialize)]
+struct TranscriptEnvelope {
+    #[serde(default)]
+    segments: Vec<crate::meeting::Segment>,
+}
+
+/// Guide template as stored in the run row's `template_json` snapshot.
+#[tauri::command]
+pub async fn regenerate_guide_review(
+    state: State<'_, AppState>,
+    run_id: String,
+) -> Result<(), String> {
+    let db = require_db(&state)?.clone();
+    let llm = state.llm.clone();
+
+    // Load the run row → meeting_id + template snapshot.
+    let rid = run_id.clone();
+    let run = db
+        .with_conn(move |c| crate::db::meeting_guide_runs::get_guide_run(c, &rid))
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("guide run {run_id} not found"))?;
+    let template: crate::db::guide_templates::GuideTemplate =
+        serde_json::from_str(&run.template_json).map_err(|e| format!("bad template snapshot: {e}"))?;
+
+    // Load the meeting transcript → segments.
+    let mid = run.meeting_id.clone();
+    let meeting = db
+        .with_conn(move |c| crate::db::meetings::get_meeting(c, &mid))
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "meeting not found".to_string())?;
+    let transcript_json = meeting
+        .transcript_json
+        .ok_or_else(|| "meeting has no transcript".to_string())?;
+    let env: TranscriptEnvelope =
+        serde_json::from_str(&transcript_json).map_err(|e| format!("bad transcript json: {e}"))?;
+
+    // Mark pending, regenerate, persist.
+    let rid = run_id.clone();
+    let _ = db.with_conn(move |c| {
+        crate::db::meeting_guide_runs::set_guide_run_status(c, &rid, "pending", None)
+    });
+
+    match crate::meeting::guide_review::generate_review(llm, &template, &env.segments).await {
+        Ok(review) => {
+            let rj = serde_json::to_string(&review).unwrap_or_else(|_| "{}".into());
+            let gen_at = chrono::Utc::now().to_rfc3339();
+            let rid = run_id.clone();
+            db.with_conn(move |c| {
+                crate::db::meeting_guide_runs::update_guide_run_review(
+                    c, &rid, Some(rj.as_str()), "ready", Some(gen_at.as_str()),
+                )
+            })
+            .map_err(|e| e.to_string())?;
+            Ok(())
+        }
+        Err(e) => {
+            let rid = run_id.clone();
+            let err = e.clone();
+            let _ = db.with_conn(move |c| {
+                crate::db::meeting_guide_runs::set_guide_run_status(c, &rid, "failed", Some(err.as_str()))
+            });
+            Err(e)
+        }
+    }
+}
+
 // ----- Screen recording commands -----
 
 #[tauri::command]
