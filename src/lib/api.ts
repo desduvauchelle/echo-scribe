@@ -1420,6 +1420,13 @@ export const hideCountdownOverlay = (): Promise<void> =>
  *  "starting…" UI state. */
 export const cancelCountdown = (): Promise<void> => invoke("cancel_countdown");
 
+/** Called by the countdown page itself when its own visual tick reaches
+ *  zero. The countdown page is the single clock for "when did the countdown
+ *  end" — the setup window starts recording ONLY on receiving the resulting
+ *  `countdown-finished` event, never from its own timer (that was the
+ *  Esc-cancel race this replaces). */
+export const finishCountdown = (): Promise<void> => invoke("finish_countdown");
+
 // --- Embedding index (chat memory v2) ---
 
 export const downloadEmbeddingModel = (): Promise<void> =>

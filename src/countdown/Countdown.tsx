@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { cancelCountdown } from "../lib/api";
+import { cancelCountdown, finishCountdown } from "../lib/api";
 import { currentTick, secondsSequence } from "../lib/countdown";
 
 type StartPayload = { seconds: number };
@@ -9,20 +9,28 @@ const TICK_MS = 1000;
 
 /**
  * Small frameless, transparent, always-on-top overlay shown centered on the
- * target display before a recording starts. Ticks 3→2→1 (~1s each) then
- * emits nothing further — the setup window (which owns the actual
- * `startScreenRecording` call) is driven by its own local `setTimeout`
- * chain / promise, NOT by an event from this page, so this page's only
- * responsibilities are: render the current number, and let Esc cancel.
+ * target display before a recording starts. Ticks 3→2→1 (~1s each) — this
+ * page is the SINGLE clock for the countdown's duration. When the tick
+ * sequence runs out, it calls `finishCountdown()`, which the Rust side
+ * forwards to the setup window as `countdown-finished`; the setup window
+ * starts recording ONLY on receiving that event, never from a timer of its
+ * own. (Previously the setup window ran a second, independent
+ * `setTimeout` of the same nominal duration — a late Esc could race it and
+ * start recording anyway. Single event-driven clock removes that race.)
  *
  * Esc calls `cancelCountdown`, which the Rust side handles by hiding this
  * window AND re-showing the setup window — this page does not need to
- * track "did the user cancel" beyond firing that one call.
+ * track "did the user cancel" beyond firing that one call (and not also
+ * firing `finishCountdown` — see the guard below).
  */
 const Countdown: React.FC = () => {
   const [sequence, setSequence] = useState<number[]>([]);
   const [ticksElapsed, setTicksElapsed] = useState(0);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Set once this run's countdown has ended (cancelled OR finished) so a
+  // stray timer callback can never fire both `cancelCountdown` and
+  // `finishCountdown` for the same run.
+  const endedRef = useRef(false);
 
   const clearTimer = () => {
     if (intervalRef.current !== null) {
@@ -38,6 +46,7 @@ const Countdown: React.FC = () => {
     (async () => {
       unlistenStart = await listen<StartPayload>("countdown-start", (event) => {
         clearTimer();
+        endedRef.current = false;
         const seq = secondsSequence(event.payload?.seconds ?? 0);
         setSequence(seq);
         setTicksElapsed(0);
@@ -48,6 +57,7 @@ const Countdown: React.FC = () => {
       });
       unlistenStop = await listen("countdown-stop", () => {
         clearTimer();
+        endedRef.current = true;
         setSequence([]);
         setTicksElapsed(0);
       });
@@ -57,6 +67,8 @@ const Countdown: React.FC = () => {
       if (e.key === "Escape") {
         e.preventDefault();
         clearTimer();
+        if (endedRef.current) return;
+        endedRef.current = true;
         void cancelCountdown();
       }
     };
@@ -70,12 +82,16 @@ const Countdown: React.FC = () => {
     };
   }, []);
 
-  // Once ticksElapsed runs past the sequence, stop the interval — the
-  // display goes blank and the setup window's own timer (which started in
-  // lockstep) is expected to call startScreenRecording right around now.
+  // Once ticksElapsed runs past the sequence, stop the interval and tell
+  // the setup window the countdown is done — cancel-wins: if Esc already
+  // fired `cancelCountdown` for this run, `endedRef` is already true and
+  // `finishCountdown` must NOT also fire.
   useEffect(() => {
     if (sequence.length > 0 && ticksElapsed >= sequence.length) {
       clearTimer();
+      if (endedRef.current) return;
+      endedRef.current = true;
+      void finishCountdown();
     }
   }, [sequence, ticksElapsed]);
 

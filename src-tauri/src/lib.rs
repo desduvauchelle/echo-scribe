@@ -38,7 +38,7 @@ use crate::asr::pipeline::AsrPipeline;
 use crate::asr::registry;
 use crate::commands::{
     apply_update_and_restart, archive_project, cancel_countdown, cancel_log_capture, chat_with_memory,
-    close_area_picker, complete_task,
+    close_area_picker, complete_task, finish_countdown,
     download_embedding_model, embedding_index_status,
     get_edit_selection_binding, update_edit_selection_binding,
     confirm_log_capture, count_items, count_items_for_project, create_chat_session, create_project,
@@ -397,6 +397,7 @@ pub fn run() {
             show_countdown_overlay,
             hide_countdown_overlay,
             cancel_countdown,
+            finish_countdown,
             drive_status,
             drive_connect,
             drive_disconnect,

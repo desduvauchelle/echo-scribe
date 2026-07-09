@@ -24,10 +24,12 @@ import {
 
 type SourceKind = "screen" | "window" | "area";
 
-/** ~1s per tick, matching the countdown page's own TICK_MS — kept as a
- *  named constant here (rather than importing the page's constant) since
- *  this is a separate window/bundle; see src/countdown/Countdown.tsx. */
-const COUNTDOWN_TICK_MS = 1000;
+/** The countdown page (src/countdown/Countdown.tsx) is the single owner of
+ *  the countdown's duration — it drives its own visual tick and tells us
+ *  when it's done via the `countdown-finished` event. This window no
+ *  longer runs a parallel timer of its own (that duplicated clock was an
+ *  Esc-cancel race: a late Esc could lose to this window's timer firing
+ *  first and start recording anyway). */
 const COUNTDOWN_SECONDS = 3;
 
 const SetupWindow: React.FC = () => {
@@ -80,13 +82,14 @@ const SetupWindow: React.FC = () => {
   const [countdownEnabled, setCountdownEnabled] = useState(false);
 
   const [starting, setStarting] = useState(false);
-  // Timer id for the pending post-countdown startScreenRecording call, so a
-  // cancel (Esc in the countdown window) can abort it before it fires.
-  const countdownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Resolver for the in-flight countdown wait promise (see handleStart). The
-  // countdown-cancelled listener calls this (with `cancelled: true`) so the
-  // await in handleStart wakes up immediately instead of hanging until a
-  // timer that was just cleared would have fired.
+  // Resolver for the in-flight countdown wait promise (see handleStart).
+  // Either the `countdown-finished` listener (cancelled=false) or the
+  // `countdown-cancelled` listener (cancelled=true) calls this exactly
+  // once per countdown run to wake the await in handleStart. `null` once
+  // resolved so a stray/duplicate/late event of the OTHER kind is a no-op
+  // — this is the cancel-wins guard: whichever of finished/cancelled
+  // arrives FIRST wins, and the second one (if it somehow still arrives)
+  // can never re-resolve or double-fire recording start.
   const countdownResolveRef = useRef<((cancelled: boolean) => void) | null>(null);
 
   useEffect(() => {
@@ -130,13 +133,14 @@ const SetupWindow: React.FC = () => {
       .catch((e) => setCameraError(String(e)));
   }, []);
 
-  // Area picker result + countdown cancellation listeners. Both are
+  // Area picker result + countdown finish/cancel listeners. All three are
   // long-lived for the setup window's whole mounted lifetime (not tied to
   // sourceKind/pickerOpen) so a result that arrives after a re-render still
   // lands correctly.
   useEffect(() => {
     let unlistenPicker: (() => void) | undefined;
     let unlistenCountdownCancel: (() => void) | undefined;
+    let unlistenCountdownFinish: (() => void) | undefined;
 
     (async () => {
       unlistenPicker = await listen<AreaPickerResultPayload>(
@@ -153,27 +157,32 @@ const SetupWindow: React.FC = () => {
         },
       );
       unlistenCountdownCancel = await listen("countdown-cancelled", () => {
-        // The Rust side already re-shows this window; abort the pending
-        // start call (wake the awaited promise with cancelled=true rather
-        // than letting the cleared timer never fire) and reset the
-        // "starting…" UI state.
-        if (countdownTimerRef.current !== null) {
-          clearTimeout(countdownTimerRef.current);
-          countdownTimerRef.current = null;
-        }
-        countdownResolveRef.current?.(true);
+        // The Rust side already re-shows this window. Cancel wins: wake
+        // the awaited promise with cancelled=true and clear the resolver
+        // so a `countdown-finished` that was already in flight (e.g. the
+        // countdown page's tick and the Esc keydown landed in the same
+        // ~tick) is a no-op when it arrives — see the resolver's own
+        // null-check below and in the finished listener.
+        if (countdownResolveRef.current === null) return;
+        countdownResolveRef.current(true);
         countdownResolveRef.current = null;
         setStarting(false);
+      });
+      unlistenCountdownFinish = await listen("countdown-finished", () => {
+        // The countdown page is the single clock; this fires when its
+        // visual tick reaches zero. If cancel already resolved this run's
+        // promise (resolver is null), a late finish must be a no-op —
+        // cancel wins, recording must not start after Esc.
+        if (countdownResolveRef.current === null) return;
+        countdownResolveRef.current(false);
+        countdownResolveRef.current = null;
       });
     })();
 
     return () => {
       unlistenPicker?.();
       unlistenCountdownCancel?.();
-      if (countdownTimerRef.current !== null) {
-        clearTimeout(countdownTimerRef.current);
-        countdownTimerRef.current = null;
-      }
+      unlistenCountdownFinish?.();
     };
   }, []);
 
@@ -283,18 +292,19 @@ const SetupWindow: React.FC = () => {
       await getCurrentWindow().hide();
       await showCountdownOverlay(countdownDisplayId, COUNTDOWN_SECONDS);
 
-      // Wait for the countdown to finish OR to be cancelled. The
-      // countdown-cancelled listener resolves this same promise with
-      // `cancelled: true` (see the listener effect above) so an Esc-cancel
-      // wakes this await immediately instead of leaving it hanging until a
-      // timer that was just cleared would otherwise have fired.
+      // Wait for the countdown page to tell us it's done. The countdown
+      // page is the single clock for the countdown's duration — it emits
+      // `countdown-finished` when its own visual tick reaches zero, and
+      // that's the ONLY thing that resolves this promise with
+      // `cancelled: false`. This window does not run a timer of its own
+      // (previously a parallel `setTimeout` here raced Esc-cancel: a late
+      // Esc could lose to this timer and start recording anyway). The
+      // `countdown-cancelled` listener resolves the same promise with
+      // `cancelled: true` (see the listener effect above); whichever event
+      // arrives first wins and clears the resolver, so the other one (if
+      // it still arrives) is a no-op.
       const cancelled = await new Promise<boolean>((resolve) => {
         countdownResolveRef.current = resolve;
-        countdownTimerRef.current = setTimeout(() => {
-          countdownTimerRef.current = null;
-          countdownResolveRef.current = null;
-          resolve(false);
-        }, COUNTDOWN_SECONDS * COUNTDOWN_TICK_MS);
       });
       if (cancelled) {
         // countdown-cancelled already reset `starting` and re-showed setup;

@@ -4827,6 +4827,35 @@ pub fn cancel_countdown(app: AppHandle) {
     crate::overlay::show_screenrec_setup(&app);
 }
 
+/// Called by the countdown page itself when its own visual tick reaches
+/// zero. The countdown page is the SINGLE clock for "when does the
+/// countdown end" — this event (not a second, independently-running timer
+/// on the setup side) is what tells the setup window it may now call
+/// `startScreenRecording`. This closes an Esc-cancel race: previously the
+/// setup window ran its own parallel `setTimeout` of the same nominal
+/// duration, so a very-late Esc could have `cancel_countdown` and the
+/// setup window's timer fire within the same tick — recording could start
+/// AND the setup window get re-shown over a live recording. With a single
+/// event-driven source of truth, `countdown-cancelled` and
+/// `countdown-finished` can never both "win": the setup window's own
+/// cancel-wins guard (see `SetupWindow.tsx`) ignores a `countdown-finished`
+/// that arrives after a cancel was already processed.
+///
+/// Does NOT hide the countdown window or touch the setup window here —
+/// unlike `cancel_countdown`, the setup window still owns calling
+/// `hide_countdown_overlay` (after it starts recording) so a
+/// `startScreenRecording` failure can leave the countdown hidden but the
+/// setup window re-shown with the error, exactly as before.
+#[tauri::command]
+pub fn finish_countdown(app: AppHandle) {
+    info!(target: "screenrec", "countdown finished");
+    if let Some(setup) = app.get_webview_window("screenrec_setup") {
+        if let Err(e) = setup.emit("countdown-finished", ()) {
+            warn!(target: "screenrec", ?e, "countdown-finished emit failed");
+        }
+    }
+}
+
 /// Bounds (`[x, y, width, height]`, GLOBAL POINTS, top-left origin) of the
 /// display with the given `--list-sources` id — the SAME id `start_screen_recording`
 /// takes as `display_id` and the coordinate space its `rect` param expects.
