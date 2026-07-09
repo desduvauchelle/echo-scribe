@@ -247,7 +247,18 @@ fn camera_access_outcome_str(outcome: CameraAccessOutcome) -> &'static str {
 /// since the UI needs to distinguish "denied" from "undetermined".
 #[tauri::command]
 pub async fn request_camera_access() -> Result<String, String> {
-    Ok(camera_access_outcome_str(permissions::request_camera().await).to_string())
+    let outcome = permissions::request_camera().await;
+    info!(target: "screenrec", ?outcome, "camera access requested");
+    Ok(camera_access_outcome_str(outcome).to_string())
+}
+
+/// Log bridge for the camera self-view window. WKWebView console output is
+/// invisible in a production bundle, so the preview page reports its
+/// getUserMedia failures here to land the raw error (name + message) in the
+/// daily log next to the sidecar's camera events.
+#[tauri::command]
+pub fn log_camera_preview_error(message: String) {
+    warn!(target: "screenrec", %message, "camera self-view getUserMedia failed");
 }
 
 /// Trigger the macOS Accessibility prompt. The dialog is a side effect; the
@@ -1824,21 +1835,27 @@ pub async fn reset_onboarding_and_quit(app: AppHandle) -> Result<(), String> {
 
 // ----- Reset TCC permissions -----
 
-/// Run `tccutil reset` for Microphone + Accessibility + ScreenCapture
-/// against this app's bundle id, then quit the app. macOS keeps TCC grants
-/// attached to the running process, so the user must relaunch to be
-/// re-prompted.
+/// Every TCC service the app ever requests. `reset_tcc_and_quit` must reset
+/// all of them: a service missing here keeps its old grant/denial across the
+/// user's "reset permissions" action, which reads as a broken feature (a
+/// silently-denied Camera survived the reset and wedged the webcam until
+/// Camera was added to this list).
+pub(crate) const TCC_RESET_SERVICES: [&str; 4] =
+    ["Microphone", "Accessibility", "ScreenCapture", "Camera"];
+
+/// Run `tccutil reset` for every service in [`TCC_RESET_SERVICES`] against
+/// this app's bundle id, then quit the app. macOS keeps TCC grants attached
+/// to the running process, so the user must relaunch to be re-prompted.
 ///
-/// Equivalent to the manual `tccutil reset Microphone com.echoscribe.app`
-/// + `tccutil reset Accessibility com.echoscribe.app` + `tccutil reset
-/// ScreenCapture com.echoscribe.app` flow documented in CLAUDE.md, but
-/// exposed in the UI so the user doesn't need a terminal.
+/// Equivalent to the manual `tccutil reset <Service> com.echoscribe.app`
+/// flow documented in CLAUDE.md, but exposed in the UI so the user doesn't
+/// need a terminal.
 #[tauri::command]
 pub async fn reset_tcc_and_quit(app: AppHandle) -> Result<(), String> {
     use std::process::Command;
     const BUNDLE_ID: &str = "com.echoscribe.app";
     info!(bundle = BUNDLE_ID, "reset_tcc_and_quit invoked");
-    for service in ["Microphone", "Accessibility", "ScreenCapture"] {
+    for service in TCC_RESET_SERVICES {
         let output = Command::new("/usr/bin/tccutil")
             .args(["reset", service, BUNDLE_ID])
             .output()
@@ -3323,7 +3340,7 @@ pub fn delete_guide_template(state: State<'_, AppState>, id: String) -> Result<(
 // ----- Screen recording commands -----
 
 #[tauri::command]
-pub fn start_screen_recording(
+pub async fn start_screen_recording(
     state: State<'_, AppState>,
     app: AppHandle,
     display_id: Option<u32>,
@@ -3334,6 +3351,30 @@ pub fn start_screen_recording(
     hide_cursor: Option<bool>,
     camera_uid: Option<String>,
 ) -> Result<(), String> {
+    // Resolve the Camera TCC grant up front when a webcam was requested. If
+    // the grant is missing, ask macOS now — this prompts on a fresh state and
+    // returns the cached decision otherwise, so a setup flow that never
+    // triggered the prompt (or a stale denial) can't silently produce a
+    // webcam-less recording plus a dead self-view. On anything but Granted we
+    // record WITHOUT the webcam and tell the user, instead of spawning a
+    // sidecar camera session that can only fail.
+    let mut camera_uid = camera_uid;
+    if camera_uid.as_deref().is_some_and(|u| !u.is_empty())
+        && !permissions::camera_authorized()
+    {
+        let outcome = permissions::request_camera().await;
+        info!(target: "screenrec", ?outcome, "camera not authorized at record start; requested access");
+        if outcome != CameraAccessOutcome::Granted {
+            warn!(target: "screenrec", ?outcome, "recording without webcam: camera access not granted");
+            let _ = app.emit(
+                "screenrec-warning",
+                serde_json::json!({
+                    "message": "Camera access is off for Echo Scribe, so this recording won't include the webcam. Enable it in System Settings → Privacy & Security → Camera, then quit and reopen the app.",
+                }),
+            );
+            camera_uid = None;
+        }
+    }
     let mut guard = state
         .active_recording
         .lock()

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { logCameraPreviewError } from "../lib/api";
 
 type StartPayload = { camera_name?: string };
 
@@ -89,9 +90,14 @@ const CameraPreview: React.FC = () => {
     } catch (e) {
       if (token === startTokenRef.current) {
         setError("Camera preview unavailable");
-        // Log the raw reason to the webview console for diagnostics; the UI
-        // stays a short friendly message.
+        // Log the raw reason for diagnostics; the UI stays a short friendly
+        // message. The backend bridge lands the error name (NotAllowedError
+        // vs NotReadableError etc.) in the daily log, where the webview
+        // console can't be seen in a production bundle.
         console.error("[camera-preview] getUserMedia failed:", e);
+        const detail =
+          e instanceof DOMException ? `${e.name}: ${e.message}` : String(e);
+        void logCameraPreviewError(detail).catch(() => {});
       }
     }
   };

@@ -368,6 +368,20 @@ export function RecordingsView() {
     };
   }, [toasts]);
 
+  // Non-fatal recording degradations (e.g. camera permission missing at
+  // record start → recording continues without the webcam).
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    void listen<{ message: string }>("screenrec-warning", (e) => {
+      toasts.push({ tone: "error", message: e.payload.message });
+    }).then((fn) => {
+      unlisten = fn;
+    });
+    return () => {
+      unlisten?.();
+    };
+  }, [toasts]);
+
   const onToggle = useCallback(async () => {
     setBusy(true);
     try {

@@ -54,6 +54,11 @@ export type CameraAccessResult = "granted" | "denied" | "undetermined";
 export const requestCameraAccess = (): Promise<CameraAccessResult> =>
   invoke("request_camera_access");
 
+// Report a camera self-view getUserMedia failure to the backend daily log —
+// the webview console is invisible in a production bundle.
+export const logCameraPreviewError = (message: string): Promise<void> =>
+  invoke("log_camera_preview_error", { message });
+
 export const promptAccessibilityAccess = (): Promise<boolean> =>
   invoke("prompt_accessibility_access");
 
