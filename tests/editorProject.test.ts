@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   buildSpeedMap,
+  clampCaptionSegments,
   clampSpeedRanges,
   clampTrim,
   defaultProject,
@@ -15,6 +16,7 @@ import {
   moveZoomBlock,
   placeZoomBlock,
   ZOOM_MIN_LENGTH_MS,
+  type CaptionSegment,
   type SpeedRange,
 } from "../src/lib/editorProject";
 import type { ZoomBlock } from "../src/lib/autoZoom";
@@ -22,6 +24,11 @@ import type { ZoomBlock } from "../src/lib/autoZoom";
 /** A speed range literal helper. */
 function sr(startMs: number, endMs: number, rate: number): SpeedRange {
   return { startMs, endMs, rate };
+}
+
+/** A caption segment literal helper. */
+function cap(startMs: number, endMs: number, text = "hello"): CaptionSegment {
+  return { startMs, endMs, text };
 }
 
 /** A manual zoom block with sane defaults; override any field. */
@@ -54,6 +61,22 @@ describe("defaultProject", () => {
     expect(p.zoom).toEqual({ mode: "auto", blocks: null });
     expect(p.speed).toEqual([]);
     expect(p.keystrokes).toEqual({ enabled: false, allKeys: false });
+  });
+
+  test("captions/audio/motionBlur defaults present (M4)", () => {
+    const p = defaultProject();
+    expect(p.captions).toEqual({ enabled: false, segments: null });
+    expect(p.audio).toEqual({ normalizeLoudness: false });
+    expect(p.motionBlur).toBe(false);
+  });
+
+  test("cursor smoothing/hideIdle defaults present (M4) — existing look unchanged", () => {
+    const p = defaultProject();
+    expect(p.cursor.smoothing).toBe(0);
+    expect(p.cursor.hideIdle).toBe(false);
+    // pre-M4 fields untouched
+    expect(p.cursor.enabled).toBe(false);
+    expect(p.cursor.scale).toBe(1.5);
   });
 
   test("returns a fresh object each call (no shared mutable state)", () => {
@@ -170,7 +193,7 @@ describe("parseProject — tolerant", () => {
     expect(parseProject(JSON.stringify({ cursor: { scale: 99 } })).cursor.scale).toBe(3);
     expect(parseProject(JSON.stringify({ cursor: { scale: 0 } })).cursor.scale).toBe(1);
     expect(parseProject(JSON.stringify({ cursor: { enabled: true, scale: 2 } })).cursor)
-      .toEqual({ enabled: true, scale: 2 });
+      .toEqual({ enabled: true, scale: 2, smoothing: 0, hideIdle: false });
   });
 
   test("webcam parsed when present; sizeFrac clamped 0.1..0.35", () => {
@@ -299,6 +322,152 @@ describe("parseProject — keystrokes", () => {
   });
 });
 
+describe("parseProject — captions", () => {
+  test("missing captions -> default (disabled, segments null)", () => {
+    expect(parseProject(JSON.stringify({ appearance: { padding: 20 } })).captions).toEqual({
+      enabled: false,
+      segments: null,
+    });
+  });
+
+  test("valid captions with segments survive", () => {
+    const segments = [cap(0, 1000, "hi"), cap(1000, 2000, "there")];
+    const p = parseProject(JSON.stringify({ captions: { enabled: true, segments } }));
+    expect(p.captions).toEqual({ enabled: true, segments });
+  });
+
+  test("enabled true with segments null survives (generation not run yet)", () => {
+    const p = parseProject(JSON.stringify({ captions: { enabled: true, segments: null } }));
+    expect(p.captions).toEqual({ enabled: true, segments: null });
+  });
+
+  test("non-boolean enabled falls back to default", () => {
+    expect(
+      parseProject(JSON.stringify({ captions: { enabled: "yes", segments: null } })).captions
+        .enabled,
+    ).toBe(false);
+  });
+
+  test("non-array, non-null segments -> null", () => {
+    expect(
+      parseProject(JSON.stringify({ captions: { enabled: true, segments: "nope" } })).captions
+        .segments,
+    ).toBeNull();
+    expect(
+      parseProject(JSON.stringify({ captions: { enabled: true, segments: {} } })).captions
+        .segments,
+    ).toBeNull();
+  });
+
+  test("shape-invalid segment entries are dropped, valid ones kept", () => {
+    const p = parseProject(
+      JSON.stringify({
+        captions: {
+          enabled: true,
+          segments: [
+            { startMs: 0, endMs: 1000, text: "ok" },
+            { startMs: "x", endMs: 1000, text: "bad" },
+            { startMs: 0, endMs: 1000 }, // missing text
+            { startMs: 0, text: "bad" }, // missing endMs
+            "garbage",
+            null,
+            { startMs: 500, endMs: 1500, text: "also ok" },
+          ],
+        },
+      }),
+    );
+    expect(p.captions.segments).toEqual([
+      { startMs: 0, endMs: 1000, text: "ok" },
+      { startMs: 500, endMs: 1500, text: "also ok" },
+    ]);
+  });
+
+  test("non-object captions -> default", () => {
+    expect(parseProject(JSON.stringify({ captions: "nope" })).captions).toEqual({
+      enabled: false,
+      segments: null,
+    });
+  });
+});
+
+describe("parseProject — audio", () => {
+  test("missing audio -> default (normalizeLoudness false)", () => {
+    expect(parseProject(JSON.stringify({ appearance: { padding: 20 } })).audio).toEqual({
+      normalizeLoudness: false,
+    });
+  });
+
+  test("valid audio survives", () => {
+    expect(
+      parseProject(JSON.stringify({ audio: { normalizeLoudness: true } })).audio,
+    ).toEqual({ normalizeLoudness: true });
+  });
+
+  test("non-boolean normalizeLoudness falls back to default", () => {
+    expect(
+      parseProject(JSON.stringify({ audio: { normalizeLoudness: "yes" } })).audio,
+    ).toEqual({ normalizeLoudness: false });
+  });
+
+  test("non-object audio -> default", () => {
+    expect(parseProject(JSON.stringify({ audio: "nope" })).audio).toEqual({
+      normalizeLoudness: false,
+    });
+  });
+});
+
+describe("parseProject — motionBlur", () => {
+  test("missing motionBlur -> default false", () => {
+    expect(parseProject(JSON.stringify({ appearance: { padding: 20 } })).motionBlur).toBe(false);
+  });
+
+  test("valid motionBlur survives", () => {
+    expect(parseProject(JSON.stringify({ motionBlur: true })).motionBlur).toBe(true);
+  });
+
+  test("non-boolean motionBlur falls back to default", () => {
+    expect(parseProject(JSON.stringify({ motionBlur: "yes" })).motionBlur).toBe(false);
+    expect(parseProject(JSON.stringify({ motionBlur: 1 })).motionBlur).toBe(false);
+  });
+});
+
+describe("parseProject — cursor smoothing/hideIdle (M4)", () => {
+  test("missing smoothing/hideIdle -> defaults (existing look unchanged)", () => {
+    const p = parseProject(JSON.stringify({ cursor: { enabled: true, scale: 2 } }));
+    expect(p.cursor).toEqual({ enabled: true, scale: 2, smoothing: 0, hideIdle: false });
+  });
+
+  test("valid smoothing/hideIdle survive", () => {
+    const p = parseProject(
+      JSON.stringify({ cursor: { smoothing: 0.6, hideIdle: true } }),
+    );
+    expect(p.cursor.smoothing).toBe(0.6);
+    expect(p.cursor.hideIdle).toBe(true);
+  });
+
+  test("smoothing clamped to [0, 1]", () => {
+    expect(parseProject(JSON.stringify({ cursor: { smoothing: 5 } })).cursor.smoothing).toBe(1);
+    expect(parseProject(JSON.stringify({ cursor: { smoothing: -2 } })).cursor.smoothing).toBe(0);
+  });
+
+  test("malformed smoothing falls back to default (never throws)", () => {
+    expect(() => parseProject(JSON.stringify({ cursor: { smoothing: "fast" } }))).not.toThrow();
+    expect(parseProject(JSON.stringify({ cursor: { smoothing: "fast" } })).cursor.smoothing).toBe(
+      0,
+    );
+    expect(parseProject(JSON.stringify({ cursor: { smoothing: null } })).cursor.smoothing).toBe(
+      0,
+    );
+    expect(parseProject(JSON.stringify({ cursor: { smoothing: NaN } })).cursor.smoothing).toBe(0);
+  });
+
+  test("non-boolean hideIdle falls back to default", () => {
+    expect(parseProject(JSON.stringify({ cursor: { hideIdle: "yes" } })).cursor.hideIdle).toBe(
+      false,
+    );
+  });
+});
+
 describe("clampSpeedRanges", () => {
   test("empty input -> empty output", () => {
     expect(clampSpeedRanges([], 10000)).toEqual([]);
@@ -397,6 +566,85 @@ describe("clampSpeedRanges", () => {
   });
 });
 
+describe("clampCaptionSegments", () => {
+  test("empty input -> empty output", () => {
+    expect(clampCaptionSegments([], 10000)).toEqual([]);
+  });
+
+  test("single valid segment passes through unchanged", () => {
+    expect(clampCaptionSegments([cap(1000, 2000, "hi")], 10000)).toEqual([
+      { startMs: 1000, endMs: 2000, text: "hi" },
+    ]);
+  });
+
+  test("sorts segments by startMs", () => {
+    const out = clampCaptionSegments(
+      [cap(5000, 6000, "b"), cap(0, 1000, "a")],
+      10000,
+    );
+    expect(out).toEqual([
+      { startMs: 0, endMs: 1000, text: "a" },
+      { startMs: 5000, endMs: 6000, text: "b" },
+    ]);
+  });
+
+  test("clamps start/end into [0, durationMs]", () => {
+    expect(clampCaptionSegments([cap(-500, 2000, "a")], 10000)).toEqual([
+      { startMs: 0, endMs: 2000, text: "a" },
+    ]);
+    expect(clampCaptionSegments([cap(8000, 20000, "a")], 10000)).toEqual([
+      { startMs: 8000, endMs: 10000, text: "a" },
+    ]);
+  });
+
+  test("drops segments with endMs<=startMs after clamping", () => {
+    // fully out of bounds — clamps to a zero-length segment, dropped.
+    expect(clampCaptionSegments([cap(20000, 30000, "a")], 10000)).toEqual([]);
+    // inverted/zero-length before clamp — dropped, not reordered.
+    expect(clampCaptionSegments([cap(5000, 5000, "a")], 10000)).toEqual([]);
+  });
+
+  test("drops segments with empty text", () => {
+    expect(clampCaptionSegments([cap(0, 1000, "")], 10000)).toEqual([]);
+  });
+
+  test("drops overlapping segments, keeping the earlier one", () => {
+    const out = clampCaptionSegments(
+      [cap(0, 2000, "a"), cap(1000, 3000, "b")],
+      10000,
+    );
+    expect(out).toEqual([{ startMs: 0, endMs: 2000, text: "a" }]);
+  });
+
+  test("touching (non-overlapping) segments are both kept", () => {
+    const out = clampCaptionSegments(
+      [cap(0, 2000, "a"), cap(2000, 3000, "b")],
+      10000,
+    );
+    expect(out).toEqual([
+      { startMs: 0, endMs: 2000, text: "a" },
+      { startMs: 2000, endMs: 3000, text: "b" },
+    ]);
+  });
+
+  test("rounds start/end to integers", () => {
+    expect(clampCaptionSegments([cap(100.6, 999.4, "a")], 10000)).toEqual([
+      { startMs: 101, endMs: 999, text: "a" },
+    ]);
+  });
+
+  test("multiple overlaps resolved left-to-right (earliest wins each time)", () => {
+    const out = clampCaptionSegments(
+      [cap(0, 5000, "a"), cap(1000, 2000, "b"), cap(6000, 7000, "c")],
+      10000,
+    );
+    expect(out).toEqual([
+      { startMs: 0, endMs: 5000, text: "a" },
+      { startMs: 6000, endMs: 7000, text: "c" },
+    ]);
+  });
+});
+
 describe("clampTrim", () => {
   test("null passthrough", () => {
     expect(clampTrim(null, 10000)).toBeNull();
@@ -474,7 +722,7 @@ describe("round-trip stability", () => {
         aspect: "16:9" as const,
         background: { type: "image" as const, path: "/abs/bg.jpg" },
       },
-      cursor: { enabled: true, scale: 2 },
+      cursor: { enabled: true, scale: 2, smoothing: 0.4, hideIdle: true },
       webcam: {
         show: true,
         shape: "rounded" as const,
@@ -489,11 +737,68 @@ describe("round-trip stability", () => {
       },
       speed: [{ startMs: 0, endMs: 1000, rate: 2 }],
       keystrokes: { enabled: true, allKeys: true },
+      captions: {
+        enabled: true,
+        segments: [{ startMs: 0, endMs: 1000, text: "hello there" }],
+      },
+      audio: { normalizeLoudness: true },
+      motionBlur: true,
     };
     const once = parseProject(JSON.stringify(full));
     const twice = parseProject(JSON.stringify(once));
     expect(twice).toEqual(once);
     expect(once).toEqual(full);
+  });
+
+  test("pre-M4 project JSON (no captions/audio/motionBlur/smoothing/hideIdle) parses to identical render behavior", () => {
+    // Fixture shape captured from a pre-M4 serialized project (mirrors the
+    // M3 "keystrokes" fixture shape, before this task's fields existed).
+    const preM4Json = JSON.stringify({
+      v: 1,
+      trim: { startMs: 250, endMs: 12000 },
+      appearance: {
+        padding: 120,
+        cornerRadius: 24,
+        aspect: "16:9",
+        background: { type: "image", path: "/abs/bg.jpg" },
+      },
+      cursor: { enabled: true, scale: 2 },
+      webcam: { show: true, shape: "rounded", corner: "bl", sizeFrac: 0.25 },
+      zoom: {
+        mode: "custom",
+        blocks: [
+          { startMs: 0, endMs: 1000, cx: 0.5, cy: 0.5, scale: 2, mode: "manual", id: "z1" },
+        ],
+      },
+      speed: [{ startMs: 0, endMs: 1000, rate: 2 }],
+      keystrokes: { enabled: true, allKeys: true },
+    });
+    const p = parseProject(preM4Json);
+
+    // Pre-existing fields are byte-for-byte unchanged.
+    expect(p.trim).toEqual({ startMs: 250, endMs: 12000 });
+    expect(p.appearance).toEqual({
+      padding: 120,
+      cornerRadius: 24,
+      aspect: "16:9",
+      background: { type: "image", path: "/abs/bg.jpg" },
+    });
+    expect(p.cursor.enabled).toBe(true);
+    expect(p.cursor.scale).toBe(2);
+    expect(p.webcam).toEqual({ show: true, shape: "rounded", corner: "bl", sizeFrac: 0.25 });
+    expect(p.zoom).toEqual({
+      mode: "custom",
+      blocks: [{ startMs: 0, endMs: 1000, cx: 0.5, cy: 0.5, scale: 2, mode: "manual", id: "z1" }],
+    });
+    expect(p.speed).toEqual([{ startMs: 0, endMs: 1000, rate: 2 }]);
+    expect(p.keystrokes).toEqual({ enabled: true, allKeys: true });
+
+    // New M4 fields default OFF/neutral so render behavior is unchanged.
+    expect(p.captions).toEqual({ enabled: false, segments: null });
+    expect(p.audio).toEqual({ normalizeLoudness: false });
+    expect(p.motionBlur).toBe(false);
+    expect(p.cursor.smoothing).toBe(0);
+    expect(p.cursor.hideIdle).toBe(false);
   });
 });
 

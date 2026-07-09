@@ -38,6 +38,20 @@ export type SpeedRange = { startMs: number; endMs: number; rate: number };
 
 export type KeystrokeSettings = { enabled: boolean; allKeys: boolean };
 
+/** A single caption line over source (pre-speed) time. Non-overlapping;
+ *  mirrors the `SpeedRange` shape/semantics (see `clampCaptionSegments`). */
+export type CaptionSegment = { startMs: number; endMs: number; text: string };
+
+/** `segments === null` means captions have never been generated for this
+ *  recording (distinct from `[]`, which means generation ran and found
+ *  nothing / the user cleared them). */
+export type CaptionSettings = {
+  enabled: boolean;
+  segments: CaptionSegment[] | null;
+};
+
+export type AudioSettings = { normalizeLoudness: boolean };
+
 /** Output canvas aspect-ratio preset. `auto` = the canvas is exactly the frame
  *  plus padding (the legacy look); the fixed presets wrap that in a canvas of
  *  the named aspect with the recording centered and the short axis letterboxed.
@@ -55,11 +69,19 @@ export type EditorProject = {
     aspect: AspectPreset; // output aspect; "auto" = frame + padding
     background: Background;
   };
-  cursor: { enabled: boolean; scale: number }; // scale 1..3
+  cursor: {
+    enabled: boolean;
+    scale: number; // 1..3
+    smoothing: number; // 0..1, default 0 (existing look unchanged)
+    hideIdle: boolean;
+  };
   webcam: WebcamSettings | null; // null when recording has no webcam file
   zoom: ZoomSettings;
   speed: SpeedRange[];
   keystrokes: KeystrokeSettings;
+  captions: CaptionSettings;
+  audio: AudioSettings;
+  motionBlur: boolean;
 };
 
 // Bounds shared with the UI sliders and the compositor.
@@ -69,6 +91,8 @@ export const CORNER_MIN = 0;
 export const CORNER_MAX = 64;
 export const CURSOR_SCALE_MIN = 1;
 export const CURSOR_SCALE_MAX = 3;
+export const CURSOR_SMOOTHING_MIN = 0;
+export const CURSOR_SMOOTHING_MAX = 1;
 export const WEBCAM_SIZE_MIN = 0.1;
 export const WEBCAM_SIZE_MAX = 0.35;
 export const SPEED_RATE_MIN = 0.5;
@@ -88,11 +112,14 @@ export function defaultProject(): EditorProject {
       aspect: "auto",
       background: { type: "gradient", from: "#1e3a5f", to: "#0f1b2d" },
     },
-    cursor: { enabled: false, scale: 1.5 },
+    cursor: { enabled: false, scale: 1.5, smoothing: 0, hideIdle: false },
     webcam: null,
     zoom: { mode: "auto", blocks: null },
     speed: [],
     keystrokes: { enabled: false, allKeys: false },
+    captions: { enabled: false, segments: null },
+    audio: { normalizeLoudness: false },
+    motionBlur: false,
   };
 }
 
@@ -249,6 +276,43 @@ function parseKeystrokes(v: unknown, fallback: KeystrokeSettings): KeystrokeSett
   };
 }
 
+/** Shape-checks a single persisted caption segment (overlap/ordering/empty-text
+ *  are enforced by clampCaptionSegments at time-of-use, not here — parse only
+ *  validates shape, same pattern as isValidSpeedRange). */
+function isValidCaptionSegment(v: unknown): v is CaptionSegment {
+  if (!isObject(v)) return false;
+  return (
+    typeof v.startMs === "number" &&
+    Number.isFinite(v.startMs) &&
+    typeof v.endMs === "number" &&
+    Number.isFinite(v.endMs) &&
+    typeof v.text === "string"
+  );
+}
+
+/** Parses the `captions` field: missing/non-object -> default; `enabled`
+ *  falls back to its default when non-boolean; `segments` is tolerant: a
+ *  non-array/non-null value becomes `null`, and shape-invalid entries are
+ *  dropped from an array (mirrors parseSpeed). `null` is preserved as-is
+ *  (means "never generated"), distinct from `[]`. */
+function parseCaptions(v: unknown, fallback: CaptionSettings): CaptionSettings {
+  if (!isObject(v)) return fallback;
+  const enabled = typeof v.enabled === "boolean" ? v.enabled : fallback.enabled;
+  if (v.segments === null) return { enabled, segments: null };
+  if (!Array.isArray(v.segments)) return { enabled, segments: null };
+  return { enabled, segments: v.segments.filter(isValidCaptionSegment) };
+}
+
+/** Parses the `audio` field: missing/non-object -> default; non-boolean
+ *  `normalizeLoudness` falls back to its default value. */
+function parseAudio(v: unknown, fallback: AudioSettings): AudioSettings {
+  if (!isObject(v)) return fallback;
+  return {
+    normalizeLoudness:
+      typeof v.normalizeLoudness === "boolean" ? v.normalizeLoudness : fallback.normalizeLoudness,
+  };
+}
+
 /** Minimum trim length in milliseconds — the timeline handles can't be
  *  dragged closer together than this. */
 export const TRIM_MIN_LENGTH_MS = 500;
@@ -317,11 +381,20 @@ export function parseProject(json: string | null): EditorProject {
     cursor: {
       enabled: typeof cursor.enabled === "boolean" ? cursor.enabled : base.cursor.enabled,
       scale: clamp(num(cursor.scale, base.cursor.scale), CURSOR_SCALE_MIN, CURSOR_SCALE_MAX),
+      smoothing: clamp(
+        num(cursor.smoothing, base.cursor.smoothing),
+        CURSOR_SMOOTHING_MIN,
+        CURSOR_SMOOTHING_MAX,
+      ),
+      hideIdle: typeof cursor.hideIdle === "boolean" ? cursor.hideIdle : base.cursor.hideIdle,
     },
     webcam: parseWebcam(raw.webcam, base.webcam),
     zoom: parseZoom(raw.zoom, base.zoom),
     speed: parseSpeed(raw.speed),
     keystrokes: parseKeystrokes(raw.keystrokes, base.keystrokes),
+    captions: parseCaptions(raw.captions, base.captions),
+    audio: parseAudio(raw.audio, base.audio),
+    motionBlur: typeof raw.motionBlur === "boolean" ? raw.motionBlur : base.motionBlur,
   };
 }
 
@@ -366,6 +439,50 @@ export function clampSpeedRanges(ranges: SpeedRange[], durationMs: number): Spee
     startMs: Math.round(r.startMs),
     endMs: Math.round(r.endMs),
     rate: r.rate,
+  }));
+}
+
+/** Sorts, clamps, and de-overlaps a list of caption segments against a clip
+ *  duration. Pure — never mutates its argument. Mirrors `clampSpeedRanges`
+ *  exactly, with an added empty-text drop. Order of operations:
+ *
+ *  1. Sort by `startMs` ascending.
+ *  2. Clamp both `startMs` and `endMs` into `[0, durationMs]`.
+ *  3. Drop any segment where `endMs <= startMs` after clamping (degenerate or
+ *     fully out-of-bounds) — does NOT reorder an inverted pair; it drops it.
+ *  4. Drop any segment with empty `text`.
+ *  5. Walk the (now-sorted) survivors left to right, dropping any segment
+ *     that starts before the previous kept segment's `endMs` (overlap) —
+ *     the earlier segment always wins. Segments that merely touch
+ *     (`startMs === prev.endMs`) are not an overlap and both are kept.
+ *  6. Round `startMs`/`endMs` to integers.
+ */
+export function clampCaptionSegments(
+  segments: CaptionSegment[],
+  durationMs: number,
+): CaptionSegment[] {
+  const sorted = [...segments].sort((a, b) => a.startMs - b.startMs);
+
+  const clamped: CaptionSegment[] = [];
+  for (const s of sorted) {
+    const start = clamp(s.startMs, 0, durationMs);
+    const end = clamp(s.endMs, 0, durationMs);
+    if (end <= start) continue;
+    if (s.text.length === 0) continue;
+    clamped.push({ startMs: start, endMs: end, text: s.text });
+  }
+
+  const kept: CaptionSegment[] = [];
+  for (const s of clamped) {
+    const prev = kept[kept.length - 1];
+    if (prev && s.startMs < prev.endMs) continue; // overlap: earlier segment wins
+    kept.push(s);
+  }
+
+  return kept.map((s) => ({
+    startMs: Math.round(s.startMs),
+    endMs: Math.round(s.endMs),
+    text: s.text,
   }));
 }
 
