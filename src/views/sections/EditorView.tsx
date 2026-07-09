@@ -24,6 +24,7 @@ import {
   readRecordingEvents,
   finalizeRenderedRecording,
   saveRenderedGif,
+  logExportError,
   generateCaptions,
   revealRecording,
   revealRecordingFile,
@@ -2260,6 +2261,16 @@ export function EditorView({
       toasts.push({ tone: "success", message: "Export complete." });
     } catch (e) {
       console.error("[export] failed", e);
+      // The render runs in the webview, so this error otherwise only reaches
+      // the webview console — invisible in a production bundle. Bridge the raw
+      // detail (name + message + stack) to the daily log so the "See logs"
+      // toast below actually points at something. Fire-and-forget; never let a
+      // logging failure mask the original error.
+      const detail =
+        e instanceof Error
+          ? `format=${exportFormat} ${e.name}: ${e.message}\n${e.stack ?? "(no stack)"}`
+          : `format=${exportFormat} ${String(e)}`;
+      void logExportError(detail).catch(() => {});
       toasts.push({
         tone: "error",
         message: "Export failed. See Settings → Diagnostics → logs for details.",
