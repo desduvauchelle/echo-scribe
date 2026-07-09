@@ -439,6 +439,38 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, AVCaptureAudio
     // FIFOs, and guarantees markAsFinished can't race an append.
     let stateQ = DispatchQueue(label: "screenrec.state")
 
+    // --- central pause clock (Task 3) -------------------------------------
+    // The SINGLE time authority for pause/resume. `pausedSince` is the host-clock
+    // second at which the current pause began (nil when running); `pausedTotal`
+    // is the cumulative host-clock seconds spent paused across all completed
+    // pauses. Guarded by stateQ. Every appended video PTS subtracts the effective
+    // paused duration so the OUTPUT timeline has no gap; the audio mixer never
+    // ingests buffers while paused (so its synthetic sample count doesn't
+    // advance → same active-only timeline); the events recorder subtracts the
+    // same cumulative paused time; and dur_ms is computed on the shifted clock.
+    //
+    // ZERO-PAUSE NO-OP: with no pause ever, `pausedSince` stays nil and
+    // `pausedTotal` stays 0, so `pausedSecondsLocked()` is 0 and every shift
+    // (`pts - 0`) is structurally identical to the pre-pause code path.
+    var pausedSince: Double? = nil
+    var pausedTotal: Double = 0
+    // Host clock, seconds — same family as SCStream PTS and the events recorder.
+    func hostSeconds() -> Double { CMTimeGetSeconds(CMClockGetTime(CMClockGetHostTimeClock())) }
+    // Cumulative paused seconds effective AT `at` (host seconds): completed
+    // pauses plus, if currently paused, the in-progress pause up to `at`. Must
+    // be called on stateQ.
+    func pausedSecondsLocked(at: Double) -> Double {
+        if let since = pausedSince { return pausedTotal + max(0, at - since) }
+        return pausedTotal
+    }
+    // A CMTime offset of the cumulative paused seconds (host timescale) to shift
+    // an appended PTS back onto the active-only output clock. On stateQ.
+    func pauseShiftLocked(at: Double) -> CMTime {
+        let secs = pausedSecondsLocked(at: at)
+        if secs <= 0 { return .zero }
+        return CMTime(seconds: secs, preferredTimescale: 1_000_000_000)
+    }
+
     // --- audio configuration (Phase 2 Task 3) ---
     // sysOn: capture system audio from SCStream.  micOn: capture a microphone.
     //  - sys only  -> append SCStream .audio buffers directly to audioInput
@@ -621,6 +653,10 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, AVCaptureAudio
         // Route mic samples into the mixer on the shared state queue.
         stateQ.sync {
             if finished || !sessionStarted { return }
+            // Pause gate: drop mic buffers while paused so the mixer / synthetic
+            // audio clock never advances during a pause (matches the screen +
+            // system-audio gate above).
+            if pausedSince != nil { return }
             ingestMicLocked(sampleBuffer)
         }
     }
@@ -630,9 +666,14 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, AVCaptureAudio
         t.schedule(deadline: .now() + 1, repeating: 1.0)
         t.setEventHandler { [weak self] in
             guard let self = self else { return }
-            let (started, lpts, spts) = self.stateQ.sync { (self.sessionStarted, self.lastPTS, self.startPTS) }
+            let (started, lpts, spts, paused) = self.stateQ.sync {
+                (self.sessionStarted, self.lastPTS, self.startPTS, self.pausedSince != nil)
+            }
+            // dur_ms is on the shifted (active-only) clock: lastPTS already has
+            // the pause offset subtracted, so paused time is naturally excluded.
             let dur = started ? CMTimeGetSeconds(CMTimeSubtract(lpts, spts)) * 1000.0 : 0
-            emit(["event": "heartbeat", "ts": Date().timeIntervalSince1970, "dur_ms": Int(dur)])
+            emit(["event": "heartbeat", "ts": Date().timeIntervalSince1970,
+                  "dur_ms": Int(dur), "paused": paused])
         }
         t.resume()
         self.heartbeatTimer = t
@@ -647,6 +688,14 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, AVCaptureAudio
         // two SCStream delivery queues can't race each other or finalize.
         stateQ.sync {
             if finished { return }
+            // Pause gate: while paused, DROP every screen + audio buffer at the
+            // top so nothing is appended and the mixer's sample count never
+            // advances. The pause clock (pausedTotal/pausedSince) is the only
+            // thing that moves during a pause. Buffers that would have started
+            // the session are dropped too — the session starts on the first
+            // COMPLETE frame delivered while running, so its anchor is never a
+            // paused frame.
+            if pausedSince != nil { return }
             if !sessionStarted {
                 // Start the writer session on the first COMPLETE video frame;
                 // any audio delivered before that is dropped.
@@ -660,7 +709,14 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, AVCaptureAudio
                 // Same anchor for the webcam offset: firstMainFrameHostSeconds.
                 webcam?.markMainFirstFrame(ptsSeconds: CMTimeGetSeconds(pts))
             }
-            lastPTS = pts
+            // Track the latest PTS on the active-only OUTPUT clock, exactly as
+            // before but with the pause offset subtracted. This runs for EVERY
+            // delivered buffer (screen + audio, complete or not), preserving the
+            // original unconditional `lastPTS = pts` semantics used by dur_ms and
+            // the heartbeat. With zero pauses the shift is .zero, so this is
+            // `lastPTS = pts` — byte-identical to the pre-pause code path.
+            let ptsShift = pauseShiftLocked(at: CMTimeGetSeconds(pts))
+            lastPTS = ptsShift == .zero ? pts : CMTimeSubtract(pts, ptsShift)
             switch type {
             case .screen:
                 // Only append COMPLETE frames. SCStream delivers .idle/.blank
@@ -683,25 +739,83 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, AVCaptureAudio
                         break
                     }
                 }
+                // Shift the frame's PTS back onto the active-only output clock by
+                // subtracting the cumulative paused time (`ptsShift`, computed
+                // above). With zero pauses the shift is exactly .zero, so we
+                // append the ORIGINAL buffer unchanged — byte-identical to the
+                // pre-pause code path. Only when a pause has occurred do we
+                // rewrite the timing.
+                let toAppend: CMSampleBuffer
+                if ptsShift == .zero {
+                    toAppend = sampleBuffer
+                } else if let shifted = Self.copyWithShiftedPTS(sampleBuffer, by: ptsShift) {
+                    toAppend = shifted
+                } else {
+                    // Retiming failed (should never happen): drop rather than
+                    // append an unshifted frame that would reintroduce the gap.
+                    vFailed += 1
+                    reportAppendFailure("video_retime")
+                    break
+                }
                 if videoInput.isReadyForMoreMediaData {
-                    if videoInput.append(sampleBuffer) { vAppended += 1 } else { vFailed += 1; reportAppendFailure("video") }
+                    if videoInput.append(toAppend) { vAppended += 1 } else { vFailed += 1; reportAppendFailure("video") }
                 }
             case .audio:
                 guard sysOn else { break }
                 if doMix {
                     // Both sources on: convert system audio into the FIFO and let
-                    // the mixer drain matched pairs into the AAC track.
+                    // the mixer drain matched pairs into the AAC track. The
+                    // mixer's synthetic PTS is derived from startPTS + a running
+                    // 48kHz sample count; paused buffers are dropped above so the
+                    // count never advances during a pause — no extra shift needed.
                     ingestSystemLocked(sampleBuffer)
                 } else {
-                    // System-only (original behavior): append SCStream audio directly.
+                    // System-only (original behavior): append SCStream audio
+                    // directly, shifted by the same pause offset (`ptsShift`) as
+                    // video so the two tracks stay aligned. Zero pauses →
+                    // original buffer, byte-identical to before.
+                    let toAppend: CMSampleBuffer
+                    if ptsShift == .zero {
+                        toAppend = sampleBuffer
+                    } else if let shifted = Self.copyWithShiftedPTS(sampleBuffer, by: ptsShift) {
+                        toAppend = shifted
+                    } else {
+                        aFailed += 1; reportAppendFailure("audio_retime"); break
+                    }
                     if let ai = audioInput, ai.isReadyForMoreMediaData {
-                        if ai.append(sampleBuffer) { aAppended += 1 } else { aFailed += 1; reportAppendFailure("audio") }
+                        if ai.append(toAppend) { aAppended += 1 } else { aFailed += 1; reportAppendFailure("audio") }
                     }
                 }
             default:
                 break
             }
         }
+    }
+
+    /// Copy a CMSampleBuffer with its presentation timestamp shifted EARLIER by
+    /// `shift` (decode timestamp shifted too if present). Used only on the
+    /// pause path — the zero-pause path appends the original buffer untouched.
+    static func copyWithShiftedPTS(_ sb: CMSampleBuffer, by shift: CMTime) -> CMSampleBuffer? {
+        var timingCount: CMItemCount = 0
+        guard CMSampleBufferGetSampleTimingInfoArray(sb, entryCount: 0, arrayToFill: nil,
+                                                     entriesNeededOut: &timingCount) == noErr else { return nil }
+        var timings = [CMSampleTimingInfo](repeating: CMSampleTimingInfo(), count: max(timingCount, 1))
+        guard CMSampleBufferGetSampleTimingInfoArray(sb, entryCount: timingCount, arrayToFill: &timings,
+                                                     entriesNeededOut: &timingCount) == noErr else { return nil }
+        for i in 0..<timings.count {
+            if timings[i].presentationTimeStamp.isValid {
+                timings[i].presentationTimeStamp = CMTimeSubtract(timings[i].presentationTimeStamp, shift)
+            }
+            if timings[i].decodeTimeStamp.isValid {
+                timings[i].decodeTimeStamp = CMTimeSubtract(timings[i].decodeTimeStamp, shift)
+            }
+        }
+        var out: CMSampleBuffer?
+        let status = CMSampleBufferCreateCopyWithNewTiming(
+            allocator: kCFAllocatorDefault, sampleBuffer: sb,
+            sampleTimingEntryCount: timings.count, sampleTimingArray: &timings,
+            sampleBufferOut: &out)
+        return status == noErr ? out : nil
     }
 
     func reportAppendFailure(_ which: String) {
@@ -833,6 +947,53 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, AVCaptureAudio
             ])
             exit(exitCode)
         }
+    }
+
+    // MARK: - Pause / resume (Task 3)
+
+    /// Enter the paused state. Idempotent: pausing while already paused is a
+    /// no-op (warn-logged), never double-counting time. Records the host-clock
+    /// second the pause began so `pausedSecondsLocked` can include the
+    /// in-progress interval, gates video/audio/events by flipping `pausedSince`,
+    /// and pauses the webcam file's native timeline. Safe to call after finalize
+    /// (dropped). Runs its state mutation on stateQ.
+    func pause() {
+        let didPause: Bool = stateQ.sync {
+            if finished { return false }
+            if pausedSince != nil { return false }   // already paused
+            pausedSince = hostSeconds()
+            return true
+        }
+        guard didPause else {
+            emit(["event": "warn", "kind": "pause_redundant", "msg": "pause ignored (already paused or finished)"])
+            return
+        }
+        // Native webcam pause keeps the movie file's internal presentation
+        // timeline continuous (frames during the pause are simply not written),
+        // so webcam_offset_ms — measured once at start against the first main
+        // frame — stays valid: both files' t=0 is unchanged by a later pause.
+        webcam?.pause()
+        emit(["event": "paused"])
+    }
+
+    /// Leave the paused state. Idempotent: resuming while not paused is a no-op
+    /// (warn-logged). Folds the just-completed pause interval into `pausedTotal`
+    /// and clears `pausedSince`, so subsequent PTS shifts subtract the full
+    /// cumulative paused time. Resumes the webcam. Runs on stateQ.
+    func resume() {
+        let didResume: Bool = stateQ.sync {
+            if finished { return false }
+            guard let since = pausedSince else { return false }  // not paused
+            pausedTotal += max(0, hostSeconds() - since)
+            pausedSince = nil
+            return true
+        }
+        guard didResume else {
+            emit(["event": "warn", "kind": "resume_redundant", "msg": "resume ignored (not paused or finished)"])
+            return
+        }
+        webcam?.resume()
+        emit(["event": "resumed"])
     }
 }
 
@@ -1100,6 +1261,10 @@ final class Pinned {
     static let shared = Pinned()
     var recorder: Recorder?
     var termSource: DispatchSourceSignal?
+    // Pause/resume signal sources (SIGUSR1 = pause, SIGUSR2 = resume). Held for
+    // the process lifetime so the DispatchSource isn't deallocated + cancelled.
+    var pauseSource: DispatchSourceSignal?
+    var resumeSource: DispatchSourceSignal?
 }
 
 // Clamp a crop `rect` (global points, top-left origin) to `display`'s bounds
@@ -1297,6 +1462,19 @@ func run() async {
                 captureRect: captureRectPoints,
                 pxScale: pxScaleForEvents
             )
+            // Feed the events recorder the central pause clock so it can (a) drop
+            // events fired while paused (privacy) and (b) subtract cumulative
+            // paused time from each surviving event's offset — keeping the event
+            // track on the same active-only OUTPUT clock as video/audio. Sampled
+            // synchronously on stateQ at event time. With zero pauses this returns
+            // (false, 0) every time → identical offsets to before pause existed.
+            evRec.pauseState = { [weak rec] in
+                guard let rec = rec else { return (paused: false, pausedSeconds: 0.0) }
+                return rec.stateQ.sync {
+                    (paused: rec.pausedSince != nil,
+                     pausedSeconds: rec.pausedSecondsLocked(at: rec.hostSeconds()))
+                }
+            }
             evRec.start()
             rec.events = evRec
         }
@@ -1330,6 +1508,23 @@ func run() async {
         }
         termSrc.resume()
         Pinned.shared.termSource = termSrc
+
+        // Pause / resume via signals (Task 3). Mirrors the SIGTERM pattern:
+        // SIG_IGN the default disposition, then a DispatchSource on the main
+        // queue drives the handler. SIGUSR1 = pause, SIGUSR2 = resume. Both are
+        // idempotent in the Recorder (redundant signal → warn, no state change),
+        // so the Rust side never has to track whether a signal was already sent.
+        signal(SIGUSR1, SIG_IGN)
+        let pauseSrc = DispatchSource.makeSignalSource(signal: SIGUSR1, queue: .main)
+        pauseSrc.setEventHandler { Pinned.shared.recorder?.pause() }
+        pauseSrc.resume()
+        Pinned.shared.pauseSource = pauseSrc
+
+        signal(SIGUSR2, SIG_IGN)
+        let resumeSrc = DispatchSource.makeSignalSource(signal: SIGUSR2, queue: .main)
+        resumeSrc.setEventHandler { Pinned.shared.recorder?.resume() }
+        resumeSrc.resume()
+        Pinned.shared.resumeSource = resumeSrc
     } catch {
         emitFatal("setup", error.localizedDescription)
     }

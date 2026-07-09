@@ -166,6 +166,31 @@ final class WebcamRecorder: NSObject, AVCaptureFileOutputRecordingDelegate {
         stateLock.unlock()
     }
 
+    /// Pause the webcam file's recording (Task 3). `AVCaptureMovieFileOutput`
+    /// has NATIVE pause support: `pauseRecording()` stops appending frames but
+    /// keeps the file open and its presentation timeline CONTINUOUS — the gap
+    /// is elided, not represented as a stall. That's why `webcam_offset_ms`
+    /// (measured once at start against the main capture's first frame) stays
+    /// valid across a pause: neither file's t=0 moves, and both files omit the
+    /// same wall-clock interval, so a consumer that shifts the webcam by the
+    /// start offset keeps them aligned. Idempotent + guarded on `isRecording`.
+    func pause() {
+        finalizeQ.async { [self] in
+            if movieOutput.isRecording && !movieOutput.isRecordingPaused {
+                movieOutput.pauseRecording()
+            }
+        }
+    }
+
+    /// Resume the webcam file's recording (Task 3). Mirror of `pause()`.
+    func resume() {
+        finalizeQ.async { [self] in
+            if movieOutput.isRecording && movieOutput.isRecordingPaused {
+                movieOutput.resumeRecording()
+            }
+        }
+    }
+
     // AVCaptureFileOutputRecordingDelegate
     func fileOutput(_ output: AVCaptureFileOutput, didStartRecordingTo fileURL: URL,
                     from connections: [AVCaptureConnection]) {
@@ -213,6 +238,10 @@ final class WebcamRecorder: NSObject, AVCaptureFileOutputRecordingDelegate {
         let doneSem = DispatchSemaphore(value: 0)
         finalizeQ.async { [self] in
             if movieOutput.isRecording {
+                // Stop-while-paused: resume first so the output finalizes from a
+                // clean running state (treat as resume-then-stop). No-op when the
+                // recording was never paused.
+                if movieOutput.isRecordingPaused { movieOutput.resumeRecording() }
                 movieOutput.stopRecording()
                 // Bounded wait for didFinishRecordingTo. If it times out we
                 // still report the file if it landed on disk. This wait

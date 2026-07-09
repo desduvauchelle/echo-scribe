@@ -855,6 +855,30 @@ pub fn parse_stopped(line: &str) -> Option<StoppedInfo> {
     })
 }
 
+/// A pause-state transition emitted by the sidecar. `Paused` corresponds to
+/// `{"event":"paused"}` (after a SIGUSR1), `Resumed` to `{"event":"resumed"}`
+/// (after a SIGUSR2). The reader thread maps these onto the handle's shared
+/// paused flag so `is_paused()` reflects the sidecar's actual state (not merely
+/// which signal we last sent).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PauseEvent {
+    Paused,
+    Resumed,
+}
+
+/// Parse one line of sidecar stderr JSON into a [`PauseEvent`], if it is a
+/// `paused` or `resumed` event. Returns `None` for any other event or malformed
+/// line. Mirrors `parse_stopped`'s shape so the reader thread can classify each
+/// line with one cheap call.
+pub fn parse_pause_event(line: &str) -> Option<PauseEvent> {
+    let val: serde_json::Value = serde_json::from_str(line).ok()?;
+    match val.get("event")?.as_str()? {
+        "paused" => Some(PauseEvent::Paused),
+        "resumed" => Some(PauseEvent::Resumed),
+        _ => None,
+    }
+}
+
 /// Parsed `done` event from an `export` run.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExportDone {
@@ -1036,6 +1060,12 @@ pub struct ScreenrecHandle {
     child: Child,
     pub out_path: PathBuf,
     stopped_rx: mpsc::Receiver<StoppedInfo>,
+    /// Reflects the sidecar's actual paused state, updated by the stderr reader
+    /// thread from the sidecar's `paused`/`resumed` events (NOT merely which
+    /// signal we last sent). `pause()`/`resume()` send the signal; the sidecar
+    /// confirms via an event that flips this flag, so `is_paused()` is truthful
+    /// even if a redundant signal was a no-op sidecar-side.
+    paused: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl ScreenrecHandle {
@@ -1098,6 +1128,11 @@ impl ScreenrecHandle {
         let stderr = child.stderr.take().expect("piped");
         let log_path = recordings_dir().ok().map(|d| d.join("screenrec-last.log"));
         let out_path_for_log = out_path.clone();
+        // Shared paused flag: the reader thread owns one clone and flips it on
+        // each `paused`/`resumed` event; the handle keeps the other to answer
+        // `is_paused()`.
+        let paused = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let paused_for_reader = std::sync::Arc::clone(&paused);
         std::thread::spawn(move || {
             let mut ready_reported = false;
             let mut log_file = log_path
@@ -1128,6 +1163,11 @@ impl ScreenrecHandle {
                 if let Some(info) = parse_stopped(&line) {
                     let _ = tx.send(info);
                     break;
+                } else if let Some(ev) = parse_pause_event(&line) {
+                    // Reflect the sidecar's confirmed state into the shared flag.
+                    let now_paused = matches!(ev, PauseEvent::Paused);
+                    paused_for_reader.store(now_paused, std::sync::atomic::Ordering::SeqCst);
+                    info!(target: "screenrec", paused = now_paused, "screenrec pause state changed");
                 } else if line.contains("\"event\":\"error\"") {
                     warn!(line, "screenrec error event");
                 }
@@ -1139,7 +1179,7 @@ impl ScreenrecHandle {
         });
 
         match ready_rx.recv_timeout(Duration::from_secs(5)) {
-            Ok(Ok(())) => Ok(Self { child, out_path, stopped_rx: rx }),
+            Ok(Ok(())) => Ok(Self { child, out_path, stopped_rx: rx, paused }),
             Ok(Err(e)) => {
                 let _ = child.kill();
                 let _ = child.wait();
@@ -1151,6 +1191,60 @@ impl ScreenrecHandle {
                 Err("screenrec did not become ready within 5s".into())
             }
         }
+    }
+
+    /// Whether the sidecar is currently paused, per its confirmed
+    /// `paused`/`resumed` events (updated by the reader thread).
+    pub fn is_paused(&self) -> bool {
+        self.paused.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// Ask the sidecar to pause (SIGUSR1). Mirrors `stop()`'s `libc::kill`. The
+    /// sidecar is idempotent (a redundant pause is a warn-logged no-op there),
+    /// so callers don't have to guard against double-pause; the shared flag
+    /// flips only when the sidecar confirms via a `paused` event. Logs the send
+    /// result. No-op with a friendly error if the child already exited.
+    pub fn pause(&self) -> Result<(), String> {
+        self.signal(libc::SIGUSR1, "pause")
+    }
+
+    /// Ask the sidecar to resume (SIGUSR2). See [`pause`](Self::pause).
+    pub fn resume(&self) -> Result<(), String> {
+        self.signal(libc::SIGUSR2, "resume")
+    }
+
+    /// Send `sig` to the sidecar, logging the outcome. Shared by pause/resume.
+    /// Takes `&self` (the handle lives in a shared mutex during recording), so
+    /// it probes liveness with `kill(pid, 0)` rather than `try_wait()` (which
+    /// needs `&mut`): signal 0 checks the process exists without delivering
+    /// anything, returning ESRCH if it's gone.
+    #[cfg(unix)]
+    fn signal(&self, sig: i32, what: &str) -> Result<(), String> {
+        let pid = self.child.id() as i32;
+        // Liveness probe: kill(pid, 0) sends no signal, only reports whether the
+        // process is still around (and signalable).
+        if unsafe { libc::kill(pid, 0) } != 0 {
+            warn!(target: "screenrec", what, pid, "cannot signal — screenrec already exited");
+            return Err("Recording is no longer running.".to_string());
+        }
+        let rc = unsafe { libc::kill(pid, sig) };
+        if rc != 0 {
+            let err = std::io::Error::last_os_error();
+            warn!(target: "screenrec", what, pid, %err, "failed to signal screenrec");
+            return Err(format!(
+                "Couldn't {what} the recording. See Settings → Diagnostics → logs for details."
+            ));
+        }
+        info!(target: "screenrec", what, pid, "signalled screenrec");
+        Ok(())
+    }
+
+    /// Non-Unix stub: pause/resume via POSIX signals isn't available. The
+    /// sidecar is macOS-only anyway, so this only exists so the crate builds on
+    /// other targets during development.
+    #[cfg(not(unix))]
+    fn signal(&self, _sig: i32, what: &str) -> Result<(), String> {
+        Err(format!("{what} is not supported on this platform"))
     }
 
     /// SIGTERM the sidecar and wait up to 10s for the `stopped` event (which
@@ -1268,6 +1362,28 @@ mod tests {
         let line = r#"{"event":"stopped","path":"/r/a.mp4","dur_ms":5000,"width":100,"height":100,"size":1,"thumb":"","webcam":""}"#;
         let info = parse_stopped(line).unwrap();
         assert_eq!(info.webcam_path, None);
+    }
+
+    // ---- parse_pause_event -----------------------------------------------
+
+    #[test]
+    fn parse_pause_event_reads_paused() {
+        assert_eq!(parse_pause_event(r#"{"event":"paused"}"#), Some(PauseEvent::Paused));
+    }
+
+    #[test]
+    fn parse_pause_event_reads_resumed() {
+        assert_eq!(parse_pause_event(r#"{"event":"resumed"}"#), Some(PauseEvent::Resumed));
+    }
+
+    #[test]
+    fn parse_pause_event_ignores_other_events() {
+        // Heartbeats (even with the new paused:true field), stopped, ready, and
+        // malformed lines are NOT pause transitions.
+        assert!(parse_pause_event(r#"{"event":"heartbeat","ts":1.0,"dur_ms":10,"paused":true}"#).is_none());
+        assert!(parse_pause_event(r#"{"event":"stopped","path":"/a.mp4","dur_ms":1}"#).is_none());
+        assert!(parse_pause_event(r#"{"event":"ready"}"#).is_none());
+        assert!(parse_pause_event("not json").is_none());
     }
 
     #[test]

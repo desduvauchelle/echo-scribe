@@ -24,6 +24,10 @@ pub struct TrayHandle<R: Runtime> {
     /// The Start/Stop screen recording toggle item — relabelled when a
     /// screen recording begins or ends.
     screenrec_item: Mutex<Option<MenuItem<R>>>,
+    /// The Pause/Resume RECORDING toggle item (distinct from the hotkey-pause
+    /// item above). Hidden unless a recording is active; label flips between
+    /// "Pause recording" and "Resume recording" as the sidecar pauses/resumes.
+    screenrec_pause_item: Mutex<Option<MenuItem<R>>>,
     /// Last applied pipeline state, so we can re-apply the right icon when
     /// the user toggles "Paused" on/off without losing the underlying state.
     last_state: Mutex<TrayPipelineState>,
@@ -42,6 +46,13 @@ impl<R: Runtime> TrayHandle<R> {
             MenuItem::with_id(app, "meeting", "Start meeting", true, None::<&str>)?;
         let screenrec =
             MenuItem::with_id(app, "screenrec", "Start screen recording", true, None::<&str>)?;
+        // Pause/Resume RECORDING — created DISABLED (greyed out) since no
+        // recording is active at install. Tauri 2's MenuItem exposes
+        // set_enabled but not per-item set_visible, so "only actionable while
+        // recording" is implemented via the enabled flag: enabled + relabelled
+        // in set_screenrec_active(true), disabled again on stop.
+        let screenrec_pause =
+            MenuItem::with_id(app, "screenrec_pause", "Pause recording", false, None::<&str>)?;
         let pause = MenuItem::with_id(app, "pause", "Pause hotkeys", true, None::<&str>)?;
         let settings = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
         let sep1 = PredefinedMenuItem::separator(app)?;
@@ -49,12 +60,13 @@ impl<R: Runtime> TrayHandle<R> {
         let quit = MenuItem::with_id(app, "quit", "Quit Echo Scribe", true, None::<&str>)?;
         let menu = Menu::with_items(
             app,
-            &[&open, &sep1, &meeting, &screenrec, &pause, &settings, &sep2, &quit],
+            &[&open, &sep1, &meeting, &screenrec, &screenrec_pause, &pause, &settings, &sep2, &quit],
         )?;
 
         let pause_for_handle = pause.clone();
         let meeting_for_handle = meeting.clone();
         let screenrec_for_handle = screenrec.clone();
+        let screenrec_pause_for_handle = screenrec_pause.clone();
         let icon = TrayIconBuilder::new()
             .menu(&menu)
             .icon(load_icon(app, TrayPipelineState::Idle, false))
@@ -66,6 +78,7 @@ impl<R: Runtime> TrayHandle<R> {
             pause_item: Mutex::new(Some(pause_for_handle)),
             meeting_item: Mutex::new(Some(meeting_for_handle)),
             screenrec_item: Mutex::new(Some(screenrec_for_handle)),
+            screenrec_pause_item: Mutex::new(Some(screenrec_pause_for_handle)),
             last_state: Mutex::new(TrayPipelineState::Idle),
             paused: Mutex::new(Arc::new(AtomicBool::new(false))),
             screenrec_active: AtomicBool::new(false),
@@ -179,6 +192,38 @@ impl TrayHandle<Wry> {
                         crate::overlay::show_screenrec_setup(&app);
                     }
                 }
+                "screenrec_pause" => {
+                    // Toggle pause/resume of the ACTIVE recording (distinct from
+                    // the "pause" hotkeys item below). Read the current paused
+                    // state, flip it, and relabel the tray + emit the change.
+                    // Off the menu thread so signalling + the mutex never block it.
+                    let app = app_for_handler.clone();
+                    std::thread::spawn(move || {
+                        let st = app.state::<AppState>();
+                        let action: Option<Result<bool, String>> = {
+                            let guard = st.active_recording.lock().ok();
+                            guard.and_then(|g| {
+                                g.as_ref().map(|(h, _)| {
+                                    if h.is_paused() {
+                                        h.resume().map(|_| false) // now running
+                                    } else {
+                                        h.pause().map(|_| true) // now paused
+                                    }
+                                })
+                            })
+                        };
+                        match action {
+                            Some(Ok(now_paused)) => {
+                                if let Ok(t) = st.tray.lock() {
+                                    t.set_screenrec_paused(now_paused);
+                                }
+                                let _ = app.emit("screenrec-changed", ());
+                            }
+                            Some(Err(e)) => warn!(%e, "tray pause/resume recording failed"),
+                            None => warn!("tray pause/resume: no active recording"),
+                        }
+                    });
+                }
                 "pause" => {
                     let was_paused = paused.load(Ordering::SeqCst);
                     let now_paused = !was_paused;
@@ -241,6 +286,24 @@ impl TrayHandle<Wry> {
                 warn!(?e, "failed to relabel screenrec menu item");
             }
         }
+        // Enable/disable the Pause recording item alongside the recording state,
+        // and reset its label to "Pause recording" whenever a recording starts
+        // (a fresh recording is never paused). Greyed out when idle.
+        let pause_item = self
+            .screenrec_pause_item
+            .lock()
+            .ok()
+            .and_then(|g| g.as_ref().map(|m| m.clone()));
+        if let Some(item) = pause_item {
+            if let Err(e) = item.set_enabled(active) {
+                warn!(?e, "failed to toggle screenrec pause item enabled state");
+            }
+            if active {
+                if let Err(e) = item.set_text("Pause recording") {
+                    warn!(?e, "failed to reset screenrec pause item label");
+                }
+            }
+        }
         // Re-apply the icon. When turning ON, set_state honors screenrec_active
         // and forces Recording. When turning OFF, the flag is now false so the
         // icon reverts to the pipeline's current last_state. Read last_state and
@@ -252,6 +315,24 @@ impl TrayHandle<Wry> {
             .map(|g| *g)
             .unwrap_or(TrayPipelineState::Idle);
         self.set_state(base);
+    }
+
+    /// Relabel the Pause/Resume recording item to reflect the sidecar's paused
+    /// state. `paused == true` → "Resume recording"; `false` → "Pause
+    /// recording". Idempotent. Called from the tray handler and can be called
+    /// from command paths if pause is ever triggered from the frontend.
+    pub fn set_screenrec_paused(&self, paused: bool) {
+        let item = self
+            .screenrec_pause_item
+            .lock()
+            .ok()
+            .and_then(|g| g.as_ref().map(|m| m.clone()));
+        if let Some(item) = item {
+            let label = if paused { "Resume recording" } else { "Pause recording" };
+            if let Err(e) = item.set_text(label) {
+                warn!(?e, "failed to relabel screenrec pause item");
+            }
+        }
     }
 
     pub fn set_state(&self, state: TrayPipelineState) {

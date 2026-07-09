@@ -20,6 +20,9 @@ import {
 } from "lucide-react";
 import {
   isScreenRecording,
+  isScreenRecordingPaused,
+  pauseScreenRecording,
+  resumeScreenRecording,
   openScreenrecSetup,
   stopScreenRecording,
   listRecordings,
@@ -282,6 +285,7 @@ function UploadButton({
 export function RecordingsView() {
   const [rows, setRows] = useState<RecordingRow[]>([]);
   const [recording, setRecording] = useState(false);
+  const [paused, setPaused] = useState(false);
   const [busy, setBusy] = useState(false);
   const [selected, setSelected] = useState<RecordingRow | null>(null);
   // Detail-pane mode: "detail" = player + actions, "edit" = full editor. Kept
@@ -302,7 +306,10 @@ export function RecordingsView() {
     const next = await listRecordings();
     setRows(next);
     setSelected((cur) => (cur ? next.find((r) => r.id === cur.id) ?? cur : cur));
-    setRecording(await isScreenRecording());
+    const isRec = await isScreenRecording();
+    setRecording(isRec);
+    // Only ask for paused state while recording; idle is never paused.
+    setPaused(isRec ? await isScreenRecordingPaused() : false);
   }, []);
 
   useEffect(() => {
@@ -401,6 +408,25 @@ export function RecordingsView() {
       setBusy(false);
     }
   }, [recording, refresh]);
+
+  const onTogglePause = useCallback(async () => {
+    setBusy(true);
+    try {
+      setError(null);
+      if (paused) {
+        await resumeScreenRecording();
+      } else {
+        await pauseScreenRecording();
+      }
+      // screenrec-changed fires from Rust on the flip; refresh() re-reads the
+      // authoritative paused state rather than optimistically toggling.
+      await refresh();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }, [paused, refresh]);
 
   const onDelete = useCallback(
     async (id: string) => {
@@ -511,16 +537,48 @@ export function RecordingsView() {
   return (
     <div className="flex h-full flex-col bg-canvas text-fg">
       <div className="flex items-center justify-between border-b border-line px-6 py-4">
-        <h1 className="text-[15px] font-semibold tracking-tight">Recordings</h1>
-        <button
-          onClick={onToggle}
-          disabled={busy}
-          className={`rounded-md px-3 py-1.5 text-[13px] font-medium ${
-            recording ? "bg-red-600 text-white" : "bg-accent text-white"
-          } disabled:opacity-50`}
-        >
-          {recording ? "Stop recording" : "Record screen"}
-        </button>
+        <div className="flex items-center gap-2">
+          <h1 className="text-[15px] font-semibold tracking-tight">Recordings</h1>
+          {/* Recording indicator: reflects live + paused state. Match the pill
+              idiom — a small dot + label. Amber "Paused" when paused, else a
+              pulsing red "Recording" dot. Hidden when idle. */}
+          {recording ? (
+            <span
+              className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                paused
+                  ? "bg-amber-500/15 text-amber-400"
+                  : "bg-red-600/15 text-red-400"
+              }`}
+            >
+              <span
+                className={`h-1.5 w-1.5 rounded-full ${
+                  paused ? "bg-amber-400" : "animate-pulse bg-red-500"
+                }`}
+              />
+              {paused ? "Paused" : "Recording"}
+            </span>
+          ) : null}
+        </div>
+        <div className="flex items-center gap-2">
+          {recording ? (
+            <button
+              onClick={onTogglePause}
+              disabled={busy}
+              className="rounded-md border border-line px-3 py-1.5 text-[13px] font-medium text-fg disabled:opacity-50"
+            >
+              {paused ? "Resume" : "Pause"}
+            </button>
+          ) : null}
+          <button
+            onClick={onToggle}
+            disabled={busy}
+            className={`rounded-md px-3 py-1.5 text-[13px] font-medium ${
+              recording ? "bg-red-600 text-white" : "bg-accent text-white"
+            } disabled:opacity-50`}
+          >
+            {recording ? "Stop recording" : "Record screen"}
+          </button>
+        </div>
       </div>
 
       {error ? (

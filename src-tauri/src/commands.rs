@@ -3558,6 +3558,52 @@ pub fn is_screen_recording(state: State<'_, AppState>) -> Result<bool, String> {
     Ok(guard.is_some())
 }
 
+/// Pause the in-progress screen recording (SIGUSR1 to the sidecar). The sidecar
+/// gates video/audio/events and freezes the pause clock; nothing is captured
+/// while paused. Idempotent sidecar-side, so a redundant call is harmless.
+/// Emits `screenrec-changed` so the UI can reflect the paused indicator.
+#[tauri::command]
+pub fn pause_screen_recording(state: State<'_, AppState>, app: AppHandle) -> Result<(), String> {
+    {
+        let guard = state
+            .active_recording
+            .lock()
+            .map_err(|_| "lock poisoned".to_string())?;
+        let (handle, _) = guard.as_ref().ok_or("no recording in progress")?;
+        handle.pause()?;
+    }
+    let _ = app.emit("screenrec-changed", ());
+    Ok(())
+}
+
+/// Resume the paused screen recording (SIGUSR2 to the sidecar). Mirrors
+/// [`pause_screen_recording`].
+#[tauri::command]
+pub fn resume_screen_recording(state: State<'_, AppState>, app: AppHandle) -> Result<(), String> {
+    {
+        let guard = state
+            .active_recording
+            .lock()
+            .map_err(|_| "lock poisoned".to_string())?;
+        let (handle, _) = guard.as_ref().ok_or("no recording in progress")?;
+        handle.resume()?;
+    }
+    let _ = app.emit("screenrec-changed", ());
+    Ok(())
+}
+
+/// Whether the in-progress recording is currently paused. `false` when no
+/// recording is active. Reflects the sidecar's confirmed state (its
+/// `paused`/`resumed` events), not merely which signal was last sent.
+#[tauri::command]
+pub fn is_screen_recording_paused(state: State<'_, AppState>) -> Result<bool, String> {
+    let guard = state
+        .active_recording
+        .lock()
+        .map_err(|_| "lock poisoned".to_string())?;
+    Ok(guard.as_ref().map(|(h, _)| h.is_paused()).unwrap_or(false))
+}
+
 /// Non-command inner implementation so the tray can reuse stop logic without
 /// going through a `#[tauri::command]` wrapper (which requires `State<'_>`).
 pub fn stop_screen_recording_inner(

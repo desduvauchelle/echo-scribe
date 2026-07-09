@@ -1193,6 +1193,15 @@ export const stopScreenRecording = (): Promise<RecordingRow> =>
   invoke("stop_screen_recording");
 export const isScreenRecording = (): Promise<boolean> =>
   invoke("is_screen_recording");
+/** Pause the in-progress recording (SIGUSR1 to the sidecar). Idempotent. */
+export const pauseScreenRecording = (): Promise<void> =>
+  invoke("pause_screen_recording");
+/** Resume the paused recording (SIGUSR2 to the sidecar). Idempotent. */
+export const resumeScreenRecording = (): Promise<void> =>
+  invoke("resume_screen_recording");
+/** Whether the in-progress recording is currently paused (false when idle). */
+export const isScreenRecordingPaused = (): Promise<boolean> =>
+  invoke("is_screen_recording_paused");
 export const listRecordings = (): Promise<RecordingRow[]> =>
   invoke("list_recordings");
 export const deleteRecording = (id: string): Promise<void> =>

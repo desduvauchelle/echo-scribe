@@ -8,7 +8,13 @@ final class InputEventRecorder {
     private let outURL: URL
     private var monitors: [Any] = []
     private var lines: [String] = []
-    private var pending: [(hostTime: Double, obj: [String: Any])] = []
+    // Each pending event carries the cumulative paused duration (host-clock
+    // seconds) that had elapsed at the instant it was captured, so drainPending
+    // can subtract it from the raw offset — keeping event time on the same
+    // active-only OUTPUT clock as the shifted video/audio PTS (see the pause
+    // clock in main.swift). With zero pauses `pausedBefore` is always 0 and the
+    // offset math is byte-identical to before pause/resume existed.
+    private var pending: [(hostTime: Double, pausedBefore: Double, obj: [String: Any])] = []
     private var firstFramePTS: Double? // seconds, host clock
     private let queue = DispatchQueue(label: "input-events")
     private var lastMoveAt: Double = 0
@@ -16,6 +22,11 @@ final class InputEventRecorder {
     private(set) var nClicks = 0
     private let screenHPoints: Double
     private var keyMonitorActive = false
+    // Reads the recorder's central pause clock: (isPaused, cumulativePausedSeconds)
+    // sampled at the instant an event fires. Set by the Recorder before start().
+    // When nil (unused in tests / no pause support) events are never gated and
+    // carry a paused offset of 0, i.e. today's exact behavior.
+    var pauseState: (() -> (paused: Bool, pausedSeconds: Double))?
 
     init(outURL: URL, captureKind: String, captureRect: CGRect, pxScale: Double) {
         self.outURL = outURL
@@ -54,18 +65,29 @@ final class InputEventRecorder {
     }
 
     private func record(_ obj: [String: Any], hostTime: Double) {
+        // Privacy + alignment gate: while the recording is paused nothing is
+        // logged at all (no keystrokes/mouse), so the event track has no data
+        // spanning a paused interval. Sample the pause clock synchronously here
+        // (on the monitor's calling thread) so the snapshot matches this exact
+        // event, not whatever the clock reads by the time the async block runs.
+        let snapshot = pauseState?() ?? (paused: false, pausedSeconds: 0.0)
+        if snapshot.paused { return }
+        let pausedBefore = snapshot.pausedSeconds
         queue.async {
             self.nEvents += 1
             if let k = obj["k"] as? String, k == "down" { self.nClicks += 1 }
-            self.pending.append((hostTime, obj))
+            self.pending.append((hostTime, pausedBefore, obj))
             self.drainPending()
         }
     }
 
     private func drainPending() {
         guard let t0 = firstFramePTS else { return }
-        for (host, var obj) in pending {
-            obj["t"] = Int(((host - t0) * 1000.0).rounded())
+        for (host, pausedBefore, var obj) in pending {
+            // Subtract the paused time that elapsed before this event so its
+            // offset lands on the active-only OUTPUT clock, gap-free across any
+            // pause. pausedBefore == 0 with no pauses → identical to before.
+            obj["t"] = Int(((host - t0 - pausedBefore) * 1000.0).rounded())
             appendLine(obj)
         }
         pending.removeAll()
