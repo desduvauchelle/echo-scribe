@@ -135,8 +135,34 @@ struct State {
     /// Last successfully-parsed key points, fed back so the LLM keeps ids
     /// stable across cycles.
     prior_points: Vec<DerivedPoint>,
-    /// Last emitted suggestions (used for stale-but-display semantics).
-    last_suggestions: Vec<String>,
+    /// Recently emitted suggestions (most recent last, deduped), fed back into
+    /// the prompt so the model doesn't repeat or rephrase advice it already
+    /// gave. Bounded to `RECENT_SUGGESTIONS_CAP`.
+    recent_suggestions: Vec<String>,
+}
+
+/// How many past suggestions to carry into the prompt as "already suggested".
+/// Enough to suppress the theme-churn the HUD used to show, small enough to
+/// stay cheap in the prompt.
+const RECENT_SUGGESTIONS_CAP: usize = 6;
+
+/// Fold newly emitted suggestions into the rolling `recent` window, skipping
+/// blanks and case-insensitive duplicates, keeping the most recent `cap`.
+fn remember_suggestions(recent: &mut Vec<String>, fresh: &[String], cap: usize) {
+    for s in fresh {
+        let norm = s.trim().to_lowercase();
+        if norm.is_empty() {
+            continue;
+        }
+        if recent.iter().any(|e| e.trim().to_lowercase() == norm) {
+            continue;
+        }
+        recent.push(s.trim().to_string());
+    }
+    if recent.len() > cap {
+        let drop_n = recent.len() - cap;
+        recent.drain(..drop_n);
+    }
 }
 
 impl GuidanceEngine {
@@ -262,10 +288,10 @@ impl GuidanceEngine {
 }
 
 async fn run_one_cycle(inner: &Inner) -> Result<(), String> {
-    let (rolling, prior_json) = {
+    let (rolling, prior_json, recent) = {
         let st = inner.state.lock().unwrap();
         let prior = serde_json::to_string(&st.prior_points).unwrap_or_else(|_| "[]".into());
-        (st.rolling.clone(), prior)
+        (st.rolling.clone(), prior, st.recent_suggestions.clone())
     };
     if rolling.trim().is_empty() {
         debug!(meeting = %inner.meeting_id, "[guide] empty rolling; skipping cycle");
@@ -277,6 +303,7 @@ async fn run_one_cycle(inner: &Inner) -> Result<(), String> {
         &inner.template.notes,
         &rolling,
         Some(&prior_json),
+        &recent,
     );
 
     // 2-attempt JSON-parse loop matching the synthesizer's robustness pattern.
@@ -311,7 +338,7 @@ async fn run_one_cycle(inner: &Inner) -> Result<(), String> {
                 emit_update(inner, &resp);
                 let mut st = inner.state.lock().unwrap();
                 st.prior_points = resp.key_points.clone();
-                st.last_suggestions = resp.suggestions.clone();
+                remember_suggestions(&mut st.recent_suggestions, &resp.suggestions, RECENT_SUGGESTIONS_CAP);
                 info!(
                     meeting = %inner.meeting_id,
                     points = resp.key_points.len(),
@@ -472,6 +499,21 @@ mod tests {
             crate::meeting::Segment { speaker: crate::meeting::Speaker::Them, start_ms: 1, end_ms: 2, text: "hi".into() },
         ];
         assert_eq!(seed_text_from_history(&history, 4000), "you: hello\nthem: hi\n");
+    }
+
+    #[test]
+    fn remember_suggestions_dedups_and_bounds() {
+        let mut recent = vec![];
+        remember_suggestions(&mut recent, &["Ask about budget".into()], 6);
+        // Case-insensitive + whitespace-insensitive dedup.
+        remember_suggestions(&mut recent, &["  ask about BUDGET ".into(), "".into()], 6);
+        assert_eq!(recent, vec!["Ask about budget".to_string()]);
+
+        // Grows in order, then bounds to the most recent `cap`.
+        for i in 0..8 {
+            remember_suggestions(&mut recent, &[format!("point {i}")], 3);
+        }
+        assert_eq!(recent, vec!["point 5", "point 6", "point 7"]);
     }
 
     #[test]

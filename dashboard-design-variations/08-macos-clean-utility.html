@@ -1,0 +1,556 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Echo Scribe - macOS Clean Utility</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script>
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ["-apple-system", "BlinkMacSystemFont", "Inter", "Segoe UI", "sans-serif"],
+            mono: ["SF Mono", "JetBrains Mono", "Menlo", "monospace"]
+          },
+          boxShadow: {
+            window: "0 20px 70px rgba(31, 41, 55, 0.22), 0 1px 0 rgba(255,255,255,0.75) inset"
+          }
+        }
+      }
+    }
+  </script>
+</head>
+<body class="min-h-screen bg-[#dfe3e6] p-5 text-[#202426] antialiased transition-colors dark:bg-[#171a1d] dark:text-[#edf2ef]">
+  <div class="mx-auto h-[calc(100vh-2.5rem)] min-h-[760px] max-w-[1240px] overflow-hidden rounded-xl border border-black/20 bg-[#f6f6f4] shadow-window transition-colors dark:border-[#2a3034] dark:bg-[#111417]">
+    <header class="grid h-12 grid-cols-[76px_1fr_190px] border-b border-black/10 bg-[#eeeeec] transition-colors dark:border-[#2a3034] dark:bg-[#202327]">
+      <div class="flex items-center gap-2 px-4">
+        <span class="h-3 w-3 rounded-full bg-[#ff5f57]"></span>
+        <span class="h-3 w-3 rounded-full bg-[#ffbd2e]"></span>
+        <span class="h-3 w-3 rounded-full bg-[#28c840]"></span>
+      </div>
+      <div></div>
+      <div class="flex items-center justify-end gap-2 px-4">
+        <button id="theme-toggle" type="button" aria-pressed="false" class="inline-flex h-7 items-center gap-1.5 rounded-md border border-black/10 bg-white/70 px-2.5 text-[12px] font-medium text-[#5d6461] transition-colors hover:bg-white dark:border-[#2a3034] dark:bg-[#24282c] dark:text-[#d8dfdc] dark:hover:bg-[#2c3136]" title="Toggle theme">
+          <i data-lucide="moon" class="h-3.5 w-3.5"></i>
+          <span data-theme-label>Dark</span>
+        </button>
+        <button class="grid h-7 w-7 place-items-center rounded-md border border-black/10 bg-white/70 text-[#5d6461] transition-colors dark:border-[#2a3034] dark:bg-[#24282c] dark:text-[#c4cbc8]" title="Search"><i data-lucide="search" class="h-3.5 w-3.5"></i></button>
+        <button class="grid h-7 w-7 place-items-center rounded-md border border-black/10 bg-white/70 text-[#5d6461] transition-colors dark:border-[#2a3034] dark:bg-[#24282c] dark:text-[#c4cbc8]" title="More"><i data-lucide="more-horizontal" class="h-3.5 w-3.5"></i></button>
+      </div>
+    </header>
+
+    <div class="grid h-[calc(100%-3rem)] grid-cols-[260px_1fr]">
+      <aside class="border-r border-black/10 bg-[#ecefed] p-4 transition-colors dark:border-[#2a3034] dark:bg-[#171a1d]">
+        <div class="flex items-center gap-3">
+          <img src="assets/echo-scribe-icon.jpeg" alt="" class="h-9 w-9 rounded-lg object-cover" />
+          <div><div class="text-[14px] font-semibold">Echo Scribe</div><div class="text-[12px] text-[#69736f] dark:text-[#8f9894]">Local capture hub</div></div>
+        </div>
+
+        <nav class="mt-7 space-y-1 text-[13px]">
+          <button data-page-button="dashboard" class="flex w-full items-center gap-2 rounded-md bg-[#d9e2de] px-3 py-2 font-medium dark:bg-[#25302d]"><i data-lucide="layout-dashboard" class="h-4 w-4 text-[#1f6f5d]"></i>Dashboard</button>
+          <button data-page-button="chat" class="flex w-full items-center gap-2 rounded-md px-3 py-2 text-[#5d6461] hover:bg-white/60 dark:text-[#aeb7b3] dark:hover:bg-[#24282c]"><i data-lucide="message-square" class="h-4 w-4"></i>Chat</button>
+          <button data-page-button="recaps" class="flex w-full items-center gap-2 rounded-md px-3 py-2 text-[#5d6461] hover:bg-white/60 dark:text-[#aeb7b3] dark:hover:bg-[#24282c]"><i data-lucide="calendar" class="h-4 w-4"></i>Recaps</button>
+        </nav>
+
+        <div class="mt-6 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#87918d] dark:text-[#7f8783]">Types</div>
+        <div class="mt-2 space-y-1 text-[13px]">
+          <button class="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-[#5d6461] hover:bg-white/60 dark:text-[#aeb7b3] dark:hover:bg-[#24282c]"><i data-lucide="mic" class="h-3.5 w-3.5"></i>Voice</button>
+          <button class="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-[#5d6461] hover:bg-white/60 dark:text-[#aeb7b3] dark:hover:bg-[#24282c]"><i data-lucide="sticky-note" class="h-3.5 w-3.5"></i>Notes</button>
+          <button class="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-[#5d6461] hover:bg-white/60 dark:text-[#aeb7b3] dark:hover:bg-[#24282c]"><i data-lucide="check-square" class="h-3.5 w-3.5"></i>Tasks</button>
+          <div class="group flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-[#5d6461] hover:bg-white/60 dark:text-[#aeb7b3] dark:hover:bg-[#24282c]">
+            <i data-lucide="phone" class="h-3.5 w-3.5"></i>
+            <button class="min-w-0 flex-1 text-left">Meetings</button>
+            <button class="grid h-5 w-5 shrink-0 place-items-center rounded border border-black/10 bg-white/80 text-[#1f6f5d] opacity-80 shadow-sm hover:opacity-100 dark:border-[#2a3034] dark:bg-[#24282c] dark:text-[#5eead4]" title="Start meeting manually" aria-label="Start meeting manually">
+              <i data-lucide="plus" class="h-3.5 w-3.5"></i>
+            </button>
+          </div>
+          <div class="group flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-[#5d6461] hover:bg-white/60 dark:text-[#aeb7b3] dark:hover:bg-[#24282c]">
+            <i data-lucide="video" class="h-3.5 w-3.5"></i>
+            <button class="min-w-0 flex-1 text-left">Recordings</button>
+            <button class="grid h-5 w-5 shrink-0 place-items-center rounded border border-black/10 bg-white/80 text-[#1f6f5d] opacity-80 shadow-sm hover:opacity-100 dark:border-[#2a3034] dark:bg-[#24282c] dark:text-[#5eead4]" title="Start recording manually" aria-label="Start recording manually">
+              <i data-lucide="plus" class="h-3.5 w-3.5"></i>
+            </button>
+          </div>
+        </div>
+
+        <div class="mt-6 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#87918d] dark:text-[#7f8783]">Projects</div>
+        <div class="mt-2 space-y-1 text-[13px]">
+          <button class="flex w-full justify-between rounded-md bg-white/70 px-3 py-1.5 text-left font-medium shadow-sm dark:bg-[#24282c]"><span>Echo Scribe</span><span class="text-[#69736f] dark:text-[#8f9894]">67</span></button>
+          <button class="flex w-full justify-between rounded-md px-3 py-1.5 text-left text-[#5d6461] hover:bg-white/60 dark:text-[#aeb7b3] dark:hover:bg-[#24282c]"><span>LiveCase</span><span>42</span></button>
+          <button class="flex w-full justify-between rounded-md px-3 py-1.5 text-left text-[#5d6461] hover:bg-white/60 dark:text-[#aeb7b3] dark:hover:bg-[#24282c]"><span>LILA PA</span><span>18</span></button>
+          <button class="flex w-full justify-between rounded-md px-3 py-1.5 text-left text-[#5d6461] hover:bg-white/60 dark:text-[#aeb7b3] dark:hover:bg-[#24282c]"><span>Recursive</span><span>13</span></button>
+          <button class="flex w-full justify-between rounded-md px-3 py-1.5 text-left text-[#5d6461] hover:bg-white/60 dark:text-[#aeb7b3] dark:hover:bg-[#24282c]"><span>Website designer</span><span>9</span></button>
+        </div>
+      </aside>
+
+      <main class="min-w-0 bg-[#fbfbfa] transition-colors dark:bg-[#0d1012]">
+        <section data-page-section="dashboard" class="h-full">
+        <div class="border-b border-black/10 px-5 py-4 dark:border-[#2a3034]">
+          <div class="flex items-center justify-between">
+            <div>
+              <h1 class="text-[22px] font-semibold tracking-tight">Today</h1>
+              <p class="text-[13px] text-[#69736f] dark:text-[#8f9894]">Saturday, July 4 - 29 captures</p>
+            </div>
+            <div class="inline-flex rounded-md border border-black/10 bg-[#f1f2f0] p-0.5 text-[12px] dark:border-[#2a3034] dark:bg-black/30">
+              <button data-dashboard-tab="overview" class="rounded bg-white px-3 py-1 font-medium shadow-sm dark:bg-[#30353a] dark:text-white">Overview</button>
+              <button data-dashboard-tab="timeline" class="rounded px-3 py-1 text-[#5d6461] dark:text-[#aeb7b3]">Timeline</button>
+              <button data-dashboard-tab="stats" class="rounded px-3 py-1 text-[#5d6461] dark:text-[#aeb7b3]">Stats</button>
+            </div>
+          </div>
+        </div>
+
+        <div data-dashboard-panel="overview" class="grid h-[calc(100%-73px)] grid-rows-[auto_1fr]">
+          <section class="grid grid-cols-4 border-b border-black/10 bg-white transition-colors dark:border-[#2a3034] dark:bg-[#15191c]">
+            <div class="px-5 py-4"><div class="text-[11px] uppercase tracking-[0.08em] text-[#87918d] dark:text-[#7f8783]">Captures</div><div class="mt-2 text-3xl font-semibold">29</div><div class="mt-1 text-[12px] text-[#69736f] dark:text-[#8f9894]">1.3K words</div></div>
+            <div class="border-l border-black/10 px-5 py-4 dark:border-[#2a3034]"><div class="text-[11px] uppercase tracking-[0.08em] text-[#87918d] dark:text-[#7f8783]">This week</div><div class="mt-2 text-3xl font-semibold">537</div><div class="mt-1 text-[12px] text-[#69736f] dark:text-[#8f9894]">96.8K words</div></div>
+            <div class="border-l border-black/10 px-5 py-4 dark:border-[#2a3034]"><div class="text-[11px] uppercase tracking-[0.08em] text-[#87918d] dark:text-[#7f8783]">Open tasks</div><div class="mt-2 text-3xl font-semibold">12</div><div class="mt-1 text-[12px] text-[#69736f] dark:text-[#8f9894]">3 due today</div></div>
+            <div class="border-l border-black/10 bg-[#ecf8f4] px-5 py-4 dark:border-[#2a3034] dark:bg-[#12302b]"><div class="text-[11px] uppercase tracking-[0.08em] text-[#4e7c70] dark:text-[#99f6e4]">Time saved</div><div class="mt-2 text-3xl font-semibold text-[#1f6f5d] dark:text-[#5eead4]">31.4h</div><div class="mt-1 text-[12px] text-[#4e7c70] dark:text-[#99f6e4]/70">all time</div></div>
+          </section>
+
+          <section class="grid min-h-0 grid-cols-[minmax(420px,1fr)_360px]">
+            <div class="min-h-0 overflow-y-auto p-5">
+              <div class="flex min-h-full flex-col rounded-lg border border-black/10 bg-white shadow-sm transition-colors dark:border-[#2a3034] dark:bg-[#15191c]">
+                <div class="flex items-center justify-between border-b border-black/10 px-4 py-3">
+                  <h2 class="text-[14px] font-semibold">Capture inbox</h2>
+                </div>
+                <div class="flex-1 divide-y divide-black/10 dark:divide-[#2a3034]">
+                  <article class="grid grid-cols-[minmax(0,1fr)_92px] gap-3 bg-[#f2faf7] px-4 py-3 dark:bg-[#1a2825]">
+                    <div>
+                      <div class="flex items-center gap-1.5 text-[12px] font-medium text-[#1f6f5d]">
+                        <i data-lucide="mic" class="h-3.5 w-3.5"></i>
+                        <span>Voice</span>
+                        <span class="text-[#69736f] dark:text-[#8f9894]">Just now</span>
+                      </div>
+                      <p class="mt-1 font-mono text-[12.5px] leading-5">Recreate three native macOS desktop dashboard designs, not landing pages.</p>
+                    </div>
+                    <div class="flex flex-col items-end gap-2">
+                      <span class="text-right text-[12px] text-[#69736f] dark:text-[#8f9894]">Echo Scribe</span>
+                      <button class="grid h-7 w-7 place-items-center rounded-md border border-black/10 bg-white/80 text-[#5d6461] shadow-sm hover:bg-white dark:border-[#2a3034] dark:bg-[#24282c] dark:text-[#aeb7b3]" title="Copy capture" aria-label="Copy capture"><i data-lucide="copy" class="h-3.5 w-3.5"></i></button>
+                    </div>
+                  </article>
+                  <article class="grid grid-cols-[minmax(0,1fr)_92px] gap-3 px-4 py-3 hover:bg-[#f6f7f5] dark:hover:bg-white/[0.03]">
+                    <div>
+                      <div class="flex items-center gap-1.5 text-[12px] font-medium text-[#1f6f5d]">
+                        <i data-lucide="mic" class="h-3.5 w-3.5"></i>
+                        <span>Voice</span>
+                        <span class="text-[#69736f] dark:text-[#8f9894]">32 min</span>
+                      </div>
+                      <p class="mt-1 font-mono text-[12.5px] leading-5">Keep child series ID fallback logic when page route data is missing.</p>
+                    </div>
+                    <div class="flex flex-col items-end gap-2">
+                      <span class="text-right text-[12px] text-[#69736f] dark:text-[#8f9894]">LiveCase</span>
+                      <button class="grid h-7 w-7 place-items-center rounded-md border border-black/10 bg-white/80 text-[#5d6461] shadow-sm hover:bg-white dark:border-[#2a3034] dark:bg-[#24282c] dark:text-[#aeb7b3]" title="Copy capture" aria-label="Copy capture"><i data-lucide="copy" class="h-3.5 w-3.5"></i></button>
+                    </div>
+                  </article>
+                  <article class="grid grid-cols-[minmax(0,1fr)_92px] gap-3 px-4 py-3 hover:bg-[#f6f7f5] dark:hover:bg-white/[0.03]">
+                    <div>
+                      <div class="flex items-center gap-1.5 text-[12px] font-medium text-[#996f13]">
+                        <i data-lucide="check-square" class="h-3.5 w-3.5"></i>
+                        <span>Task</span>
+                        <span class="text-[#69736f] dark:text-[#8f9894]">1 day</span>
+                      </div>
+                      <p class="mt-1 text-[13px] leading-5">Finalize the quick case format as planned.</p>
+                    </div>
+                    <div class="flex flex-col items-end gap-2">
+                      <span class="text-right text-[12px] text-[#69736f] dark:text-[#8f9894]">Echo Scribe</span>
+                      <button class="grid h-7 w-7 place-items-center rounded-md border border-black/10 bg-white/80 text-[#5d6461] shadow-sm hover:bg-white dark:border-[#2a3034] dark:bg-[#24282c] dark:text-[#aeb7b3]" title="Copy task" aria-label="Copy task"><i data-lucide="copy" class="h-3.5 w-3.5"></i></button>
+                    </div>
+                  </article>
+                  <article class="grid grid-cols-[minmax(0,1fr)_92px] gap-3 px-4 py-3 hover:bg-[#f6f7f5] dark:hover:bg-white/[0.03]">
+                    <div>
+                      <div class="flex items-center gap-1.5 text-[12px] font-medium text-[#1f6f5d]">
+                        <i data-lucide="phone" class="h-3.5 w-3.5"></i>
+                        <span>Meeting</span>
+                        <span class="text-[#69736f] dark:text-[#8f9894]">2 days</span>
+                      </div>
+                      <p class="mt-1 text-[13px] leading-5">Product design review with dashboard layout notes and follow-up decisions.</p>
+                    </div>
+                    <div class="flex flex-col items-end gap-2">
+                      <span class="text-right text-[12px] text-[#69736f] dark:text-[#8f9894]">Echo Scribe</span>
+                      <button class="grid h-7 w-7 place-items-center rounded-md border border-black/10 bg-white/80 text-[#5d6461] shadow-sm hover:bg-white dark:border-[#2a3034] dark:bg-[#24282c] dark:text-[#aeb7b3]" title="Copy meeting" aria-label="Copy meeting"><i data-lucide="copy" class="h-3.5 w-3.5"></i></button>
+                    </div>
+                  </article>
+                  <article class="grid grid-cols-[minmax(0,1fr)_92px] gap-3 px-4 py-3 hover:bg-[#f6f7f5] dark:hover:bg-white/[0.03]">
+                    <div>
+                      <div class="flex items-center gap-1.5 text-[12px] font-medium text-[#1f6f5d]">
+                        <i data-lucide="video" class="h-3.5 w-3.5"></i>
+                        <span>Recording</span>
+                        <span class="text-[#69736f] dark:text-[#8f9894]">2 days</span>
+                      </div>
+                      <p class="mt-1 text-[13px] leading-5">Claude - Claude screen recording, uploaded and ready to review.</p>
+                    </div>
+                    <div class="flex flex-col items-end gap-2">
+                      <span class="text-right text-[12px] text-[#69736f] dark:text-[#8f9894]">Website</span>
+                      <button class="grid h-7 w-7 place-items-center rounded-md border border-black/10 bg-white/80 text-[#5d6461] shadow-sm hover:bg-white dark:border-[#2a3034] dark:bg-[#24282c] dark:text-[#aeb7b3]" title="Copy recording" aria-label="Copy recording"><i data-lucide="copy" class="h-3.5 w-3.5"></i></button>
+                    </div>
+                  </article>
+                </div>
+                <div class="flex items-center justify-between border-t border-black/10 px-4 py-3 text-[12px] text-[#69736f] dark:border-[#2a3034] dark:text-[#8f9894]">
+                  <span>Showing 1-5 of 29 captures</span>
+                  <div class="flex items-center gap-1.5">
+                    <button class="rounded-md border border-black/10 px-2 py-1 text-[#5d6461] dark:border-[#2a3034] dark:text-[#aeb7b3]">Previous</button>
+                    <button class="rounded-md bg-[#1f6f5d] px-2 py-1 font-medium text-white">1</button>
+                    <button class="rounded-md border border-black/10 px-2 py-1 text-[#5d6461] dark:border-[#2a3034] dark:text-[#aeb7b3]">2</button>
+                    <button class="rounded-md border border-black/10 px-2 py-1 text-[#5d6461] dark:border-[#2a3034] dark:text-[#aeb7b3]">Next</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <aside class="border-l border-black/10 bg-[#f2f3f1] p-5 transition-colors dark:border-[#2a3034] dark:bg-[#171a1d]">
+              <h2 class="text-[14px] font-semibold">Overview</h2>
+              <div class="mt-4 rounded-lg border border-black/10 bg-white p-4 shadow-sm transition-colors dark:border-[#2a3034] dark:bg-black/20">
+                <h3 class="text-[13px] font-semibold">Yesterday recap</h3>
+                <p class="mt-2 text-[13px] leading-6 text-[#5d6461] dark:text-[#b7c0bc]">Product design discussion focused on dashboard layout, routing behavior, and project-level capture specificity.</p>
+                <button data-modal-open="recap" class="mt-3 text-[12px] font-medium text-[#1f6f5d] dark:text-[#5eead4]">Open recap</button>
+              </div>
+              <div class="mt-4 rounded-lg border border-black/10 bg-white p-4 shadow-sm transition-colors dark:border-[#2a3034] dark:bg-black/20">
+                <h3 class="text-[13px] font-semibold">Last recording</h3>
+                <div class="mt-3 overflow-hidden rounded-md border border-black/10 dark:border-[#2a3034]">
+                  <img src="assets/current-dashboard.png" alt="" class="h-24 w-full object-cover" />
+                </div>
+                <div class="mt-3 flex items-center justify-between gap-3">
+                  <div class="min-w-0">
+                    <div class="truncate text-[13px] font-medium">Claude - Claude</div>
+                    <div class="mt-0.5 text-[12px] text-[#69736f] dark:text-[#8f9894]">0:51 - 16.6 MB</div>
+                  </div>
+                  <button data-modal-open="recording" class="rounded-md border border-black/10 px-2 py-1 text-[12px] text-[#5d6461] dark:border-[#2a3034] dark:text-[#aeb7b3]">Open</button>
+                </div>
+              </div>
+            </aside>
+          </section>
+        </div>
+        <div data-dashboard-panel="timeline" class="hidden h-[calc(100%-73px)] grid-cols-[minmax(0,1fr)_320px]">
+          <section class="min-h-0 overflow-y-auto p-5">
+            <div class="rounded-lg border border-black/10 bg-white shadow-sm transition-colors dark:border-[#2a3034] dark:bg-[#15191c]">
+              <div class="flex items-center justify-between border-b border-black/10 px-4 py-3 dark:border-[#2a3034]">
+                <h2 class="text-[14px] font-semibold">Capture timeline</h2>
+                <div class="flex items-center gap-1 rounded-md border border-black/10 bg-[#f6f7f5] p-0.5 text-[12px] dark:border-[#2a3034] dark:bg-black/20">
+                  <button class="rounded bg-white px-2 py-1 font-medium shadow-sm dark:bg-[#30353a]">Day</button>
+                  <button class="rounded px-2 py-1 text-[#69736f] dark:text-[#8f9894]">Week</button>
+                </div>
+              </div>
+              <div class="divide-y divide-black/10 dark:divide-[#2a3034]">
+                <button data-timeline-item="design" class="grid w-full grid-cols-[92px_1fr_90px] gap-4 px-4 py-4 text-left hover:bg-[#f6f7f5] dark:hover:bg-white/[0.03]">
+                  <div class="text-[12px] text-[#69736f] dark:text-[#8f9894]">9:42 AM</div>
+                  <div>
+                    <div class="flex items-center gap-2 text-[13px] font-semibold"><span class="h-2 w-2 rounded-full bg-[#1f6f5d]"></span>Dashboard design capture</div>
+                    <p class="mt-1 text-[13px] leading-5 text-[#5d6461] dark:text-[#b7c0bc]">Notes about native macOS navigation, reducing toolbar filters, and keeping project context in the side rail.</p>
+                  </div>
+                  <span class="self-start rounded-md bg-[#ecf8f4] px-2 py-1 text-center text-[12px] font-medium text-[#1f6f5d] dark:bg-[#12302b] dark:text-[#5eead4]">Voice</span>
+                </button>
+                <button data-timeline-item="meeting" class="grid w-full grid-cols-[92px_1fr_90px] gap-4 px-4 py-4 text-left hover:bg-[#f6f7f5] dark:hover:bg-white/[0.03]">
+                  <div class="text-[12px] text-[#69736f] dark:text-[#8f9894]">11:18 AM</div>
+                  <div>
+                    <div class="flex items-center gap-2 text-[13px] font-semibold"><span class="h-2 w-2 rounded-full bg-[#3b82f6]"></span>Product review</div>
+                    <p class="mt-1 text-[13px] leading-5 text-[#5d6461] dark:text-[#b7c0bc]">Meeting summary grouped decisions, open questions, and UI follow-ups into a recap.</p>
+                  </div>
+                  <span class="self-start rounded-md bg-[#eff6ff] px-2 py-1 text-center text-[12px] font-medium text-[#2563eb] dark:bg-[#10233f] dark:text-[#93c5fd]">Meeting</span>
+                </button>
+                <button data-timeline-item="task" class="grid w-full grid-cols-[92px_1fr_90px] gap-4 px-4 py-4 text-left hover:bg-[#f6f7f5] dark:hover:bg-white/[0.03]">
+                  <div class="text-[12px] text-[#69736f] dark:text-[#8f9894]">2:05 PM</div>
+                  <div>
+                    <div class="flex items-center gap-2 text-[13px] font-semibold"><span class="h-2 w-2 rounded-full bg-[#d97706]"></span>Follow-up tasks</div>
+                    <p class="mt-1 text-[13px] leading-5 text-[#5d6461] dark:text-[#b7c0bc]">Three tasks were extracted from captures and attached to Echo Scribe.</p>
+                  </div>
+                  <span class="self-start rounded-md bg-[#fff7ed] px-2 py-1 text-center text-[12px] font-medium text-[#b45309] dark:bg-[#362111] dark:text-[#fdba74]">Tasks</span>
+                </button>
+              </div>
+            </div>
+          </section>
+          <aside class="border-l border-black/10 bg-[#f2f3f1] p-5 transition-colors dark:border-[#2a3034] dark:bg-[#171a1d]">
+            <h2 class="text-[14px] font-semibold">Selected capture</h2>
+            <div class="mt-4 rounded-lg border border-black/10 bg-white p-4 shadow-sm dark:border-[#2a3034] dark:bg-black/20">
+              <div class="flex items-center gap-2 text-[12px] font-medium text-[#1f6f5d] dark:text-[#5eead4]"><i data-lucide="mic" class="h-3.5 w-3.5"></i>Voice - 9:42 AM</div>
+              <h3 class="mt-3 text-[15px] font-semibold">Dashboard design capture</h3>
+              <p class="mt-2 text-[13px] leading-6 text-[#5d6461] dark:text-[#b7c0bc]">This detail panel gives the timeline somewhere to land when a capture is selected. It can show transcript, tags, project, and quick actions.</p>
+              <div class="mt-4 flex gap-2">
+                <button class="rounded-md bg-[#1f6f5d] px-3 py-1.5 text-[12px] font-medium text-white">Open</button>
+                <button class="rounded-md border border-black/10 px-3 py-1.5 text-[12px] text-[#5d6461] dark:border-[#2a3034] dark:text-[#aeb7b3]">Copy</button>
+              </div>
+            </div>
+          </aside>
+        </div>
+        <div data-dashboard-panel="stats" class="hidden h-[calc(100%-73px)] overflow-y-auto p-5">
+          <div class="grid grid-cols-3 gap-4">
+            <div class="rounded-lg border border-black/10 bg-white p-4 shadow-sm dark:border-[#2a3034] dark:bg-[#15191c]">
+              <div class="text-[11px] uppercase tracking-[0.08em] text-[#87918d] dark:text-[#7f8783]">Capture mix</div>
+              <div class="mt-5 space-y-3">
+                <div><div class="flex justify-between text-[12px]"><span>Voice</span><span>52%</span></div><div class="mt-1 h-2 rounded-full bg-[#e3e7e4] dark:bg-[#2a3034]"><div class="h-2 w-[52%] rounded-full bg-[#1f6f5d]"></div></div></div>
+                <div><div class="flex justify-between text-[12px]"><span>Meetings</span><span>24%</span></div><div class="mt-1 h-2 rounded-full bg-[#e3e7e4] dark:bg-[#2a3034]"><div class="h-2 w-[24%] rounded-full bg-[#3b82f6]"></div></div></div>
+                <div><div class="flex justify-between text-[12px]"><span>Tasks</span><span>18%</span></div><div class="mt-1 h-2 rounded-full bg-[#e3e7e4] dark:bg-[#2a3034]"><div class="h-2 w-[18%] rounded-full bg-[#d97706]"></div></div></div>
+              </div>
+            </div>
+            <div class="rounded-lg border border-black/10 bg-white p-4 shadow-sm dark:border-[#2a3034] dark:bg-[#15191c]">
+              <div class="text-[11px] uppercase tracking-[0.08em] text-[#87918d] dark:text-[#7f8783]">Project activity</div>
+              <div class="mt-4 grid h-36 grid-cols-7 items-end gap-2">
+                <span class="h-[42%] rounded-t bg-[#b8d8cf] dark:bg-[#1f6f5d]"></span>
+                <span class="h-[68%] rounded-t bg-[#b8d8cf] dark:bg-[#1f6f5d]"></span>
+                <span class="h-[56%] rounded-t bg-[#b8d8cf] dark:bg-[#1f6f5d]"></span>
+                <span class="h-[81%] rounded-t bg-[#1f6f5d] dark:bg-[#5eead4]"></span>
+                <span class="h-[62%] rounded-t bg-[#b8d8cf] dark:bg-[#1f6f5d]"></span>
+                <span class="h-[35%] rounded-t bg-[#b8d8cf] dark:bg-[#1f6f5d]"></span>
+                <span class="h-[49%] rounded-t bg-[#b8d8cf] dark:bg-[#1f6f5d]"></span>
+              </div>
+              <div class="mt-3 flex justify-between text-[11px] text-[#69736f] dark:text-[#8f9894]"><span>Mon</span><span>Sun</span></div>
+            </div>
+            <div class="rounded-lg border border-black/10 bg-white p-4 shadow-sm dark:border-[#2a3034] dark:bg-[#15191c]">
+              <div class="text-[11px] uppercase tracking-[0.08em] text-[#87918d] dark:text-[#7f8783]">Outcomes</div>
+              <div class="mt-4 space-y-4">
+                <div><div class="text-3xl font-semibold">12</div><div class="text-[12px] text-[#69736f] dark:text-[#8f9894]">Open tasks extracted</div></div>
+                <div><div class="text-3xl font-semibold">7</div><div class="text-[12px] text-[#69736f] dark:text-[#8f9894]">Recaps generated</div></div>
+                <div><div class="text-3xl font-semibold">31.4h</div><div class="text-[12px] text-[#69736f] dark:text-[#8f9894]">Estimated time saved</div></div>
+              </div>
+            </div>
+          </div>
+          <div class="mt-4 rounded-lg border border-black/10 bg-white p-4 shadow-sm dark:border-[#2a3034] dark:bg-[#15191c]">
+            <div class="flex items-center justify-between">
+              <h2 class="text-[14px] font-semibold">Weekly trend</h2>
+              <span class="text-[12px] text-[#69736f] dark:text-[#8f9894]">537 captures this week</span>
+            </div>
+            <div class="mt-5 grid h-44 grid-cols-12 items-end gap-2">
+              <span class="h-[32%] rounded-t bg-[#cfd8d4] dark:bg-[#29343a]"></span><span class="h-[44%] rounded-t bg-[#cfd8d4] dark:bg-[#29343a]"></span><span class="h-[38%] rounded-t bg-[#cfd8d4] dark:bg-[#29343a]"></span><span class="h-[58%] rounded-t bg-[#cfd8d4] dark:bg-[#29343a]"></span><span class="h-[74%] rounded-t bg-[#1f6f5d] dark:bg-[#5eead4]"></span><span class="h-[69%] rounded-t bg-[#1f6f5d] dark:bg-[#5eead4]"></span><span class="h-[48%] rounded-t bg-[#cfd8d4] dark:bg-[#29343a]"></span><span class="h-[61%] rounded-t bg-[#cfd8d4] dark:bg-[#29343a]"></span><span class="h-[52%] rounded-t bg-[#cfd8d4] dark:bg-[#29343a]"></span><span class="h-[79%] rounded-t bg-[#1f6f5d] dark:bg-[#5eead4]"></span><span class="h-[66%] rounded-t bg-[#cfd8d4] dark:bg-[#29343a]"></span><span class="h-[57%] rounded-t bg-[#cfd8d4] dark:bg-[#29343a]"></span>
+            </div>
+          </div>
+        </div>
+        </section>
+
+        <section data-page-section="chat" class="hidden h-full">
+          <div class="grid h-full grid-cols-[280px_minmax(0,1fr)]">
+            <aside class="border-r border-black/10 bg-[#f2f3f1] p-4 dark:border-[#2a3034] dark:bg-[#171a1d]">
+              <div class="flex items-center justify-between">
+                <h1 class="text-[18px] font-semibold tracking-tight">Chat</h1>
+                <button class="grid h-7 w-7 place-items-center rounded-md border border-black/10 bg-white text-[#5d6461] dark:border-[#2a3034] dark:bg-[#24282c] dark:text-[#aeb7b3]" title="New chat"><i data-lucide="plus" class="h-4 w-4"></i></button>
+              </div>
+              <div class="mt-4 space-y-2 text-[13px]">
+                <button class="w-full rounded-md bg-white p-3 text-left shadow-sm dark:bg-[#24282c]"><div class="font-medium">What changed yesterday?</div><div class="mt-1 truncate text-[12px] text-[#69736f] dark:text-[#8f9894]">Echo Scribe dashboard and capture flow</div></button>
+                <button class="w-full rounded-md p-3 text-left text-[#5d6461] hover:bg-white/70 dark:text-[#aeb7b3] dark:hover:bg-[#24282c]"><div class="font-medium">Find open tasks</div><div class="mt-1 truncate text-[12px]">Across LiveCase and Recursive</div></button>
+                <button class="w-full rounded-md p-3 text-left text-[#5d6461] hover:bg-white/70 dark:text-[#aeb7b3] dark:hover:bg-[#24282c]"><div class="font-medium">Summarize recordings</div><div class="mt-1 truncate text-[12px]">Last screen recording</div></button>
+              </div>
+            </aside>
+            <section class="flex min-h-0 flex-col">
+              <div class="border-b border-black/10 px-5 py-4 dark:border-[#2a3034]">
+                <h2 class="text-[18px] font-semibold">Ask across captures</h2>
+                <p class="text-[13px] text-[#69736f] dark:text-[#8f9894]">Prototype view for capture-aware chat.</p>
+              </div>
+              <div class="min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
+                <div class="max-w-[72%] rounded-lg border border-black/10 bg-white p-4 text-[13px] leading-6 shadow-sm dark:border-[#2a3034] dark:bg-[#15191c]">What changed yesterday in Echo Scribe?</div>
+                <div class="ml-auto max-w-[78%] rounded-lg bg-[#1f6f5d] p-4 text-[13px] leading-6 text-white shadow-sm">Yesterday was mostly dashboard navigation cleanup: filters moved out of the top bar, projects stayed in the side rail, Chat returned to the main nav, and recap/recording cards moved to the right side.</div>
+                <div class="max-w-[78%] rounded-lg border border-black/10 bg-white p-4 text-[13px] leading-6 shadow-sm dark:border-[#2a3034] dark:bg-[#15191c]">
+                  <div class="font-semibold">Referenced captures</div>
+                  <div class="mt-3 space-y-2">
+                    <button class="flex w-full items-center justify-between rounded-md bg-[#f6f7f5] px-3 py-2 text-left dark:bg-black/20"><span>Dashboard design capture</span><span class="text-[12px] text-[#69736f] dark:text-[#8f9894]">Voice</span></button>
+                    <button class="flex w-full items-center justify-between rounded-md bg-[#f6f7f5] px-3 py-2 text-left dark:bg-black/20"><span>Product review recap</span><span class="text-[12px] text-[#69736f] dark:text-[#8f9894]">Meeting</span></button>
+                  </div>
+                </div>
+              </div>
+              <div class="border-t border-black/10 p-4 dark:border-[#2a3034]">
+                <div class="flex items-center gap-2 rounded-lg border border-black/10 bg-white p-2 shadow-sm dark:border-[#2a3034] dark:bg-[#15191c]">
+                  <input class="min-w-0 flex-1 bg-transparent px-2 text-[13px] outline-none" value="Show me open design follow-ups" aria-label="Chat prompt" />
+                  <button class="rounded-md bg-[#1f6f5d] px-3 py-1.5 text-[12px] font-medium text-white">Send</button>
+                </div>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section data-page-section="recaps" class="hidden h-full">
+          <div class="border-b border-black/10 px-5 py-4 dark:border-[#2a3034]">
+            <h1 class="text-[22px] font-semibold tracking-tight">Recaps</h1>
+            <p class="text-[13px] text-[#69736f] dark:text-[#8f9894]">Daily and meeting summaries from captured work.</p>
+          </div>
+          <div class="grid h-[calc(100%-73px)] grid-cols-[minmax(0,1fr)_340px]">
+            <section class="min-h-0 overflow-y-auto p-5">
+              <div class="grid gap-4">
+                <button data-modal-open="recap" class="rounded-lg border border-black/10 bg-white p-4 text-left shadow-sm hover:bg-[#f6f7f5] dark:border-[#2a3034] dark:bg-[#15191c] dark:hover:bg-white/[0.03]">
+                  <div class="flex items-center justify-between"><h2 class="text-[15px] font-semibold">Yesterday recap</h2><span class="text-[12px] text-[#69736f] dark:text-[#8f9894]">Jul 3</span></div>
+                  <p class="mt-2 text-[13px] leading-6 text-[#5d6461] dark:text-[#b7c0bc]">Dashboard structure, capture routing, and product design decisions from 18 captures.</p>
+                  <div class="mt-3 flex gap-2 text-[12px]"><span class="rounded bg-[#ecf8f4] px-2 py-1 text-[#1f6f5d] dark:bg-[#12302b] dark:text-[#5eead4]">6 decisions</span><span class="rounded bg-[#fff7ed] px-2 py-1 text-[#b45309] dark:bg-[#362111] dark:text-[#fdba74]">3 tasks</span></div>
+                </button>
+                <button class="rounded-lg border border-black/10 bg-white p-4 text-left shadow-sm hover:bg-[#f6f7f5] dark:border-[#2a3034] dark:bg-[#15191c] dark:hover:bg-white/[0.03]">
+                  <div class="flex items-center justify-between"><h2 class="text-[15px] font-semibold">Product review</h2><span class="text-[12px] text-[#69736f] dark:text-[#8f9894]">Jul 2</span></div>
+                  <p class="mt-2 text-[13px] leading-6 text-[#5d6461] dark:text-[#b7c0bc]">Meeting recap with layout feedback and unresolved implementation questions.</p>
+                </button>
+                <button class="rounded-lg border border-black/10 bg-white p-4 text-left shadow-sm hover:bg-[#f6f7f5] dark:border-[#2a3034] dark:bg-[#15191c] dark:hover:bg-white/[0.03]">
+                  <div class="flex items-center justify-between"><h2 class="text-[15px] font-semibold">Weekly engineering notes</h2><span class="text-[12px] text-[#69736f] dark:text-[#8f9894]">Jun 29</span></div>
+                  <p class="mt-2 text-[13px] leading-6 text-[#5d6461] dark:text-[#b7c0bc]">Condensed engineering work across Echo Scribe, LiveCase, and Recursive.</p>
+                </button>
+              </div>
+            </section>
+            <aside class="border-l border-black/10 bg-[#f2f3f1] p-5 dark:border-[#2a3034] dark:bg-[#171a1d]">
+              <h2 class="text-[14px] font-semibold">Recap preview</h2>
+              <div class="mt-4 rounded-lg border border-black/10 bg-white p-4 shadow-sm dark:border-[#2a3034] dark:bg-black/20">
+                <div class="text-[12px] text-[#69736f] dark:text-[#8f9894]">Yesterday recap</div>
+                <p class="mt-2 text-[13px] leading-6 text-[#5d6461] dark:text-[#b7c0bc]">Click a recap to open a fuller modal with decisions, tasks, captures, and copy/export actions.</p>
+                <button data-modal-open="recap" class="mt-4 rounded-md bg-[#1f6f5d] px-3 py-1.5 text-[12px] font-medium text-white">Open modal</button>
+              </div>
+            </aside>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <div id="prototype-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/30 p-5 backdrop-blur-sm">
+    <div class="w-full max-w-[720px] overflow-hidden rounded-xl border border-black/20 bg-[#fbfbfa] shadow-window transition-colors dark:border-[#2a3034] dark:bg-[#111417]">
+      <div class="flex h-11 items-center justify-between border-b border-black/10 bg-[#eeeeec] px-4 dark:border-[#2a3034] dark:bg-[#202327]">
+        <div class="flex items-center gap-2">
+          <span class="h-3 w-3 rounded-full bg-[#ff5f57]"></span>
+          <span class="h-3 w-3 rounded-full bg-[#ffbd2e]"></span>
+          <span class="h-3 w-3 rounded-full bg-[#28c840]"></span>
+        </div>
+        <button data-modal-close class="grid h-7 w-7 place-items-center rounded-md text-[#5d6461] hover:bg-black/5 dark:text-[#aeb7b3] dark:hover:bg-white/10" aria-label="Close modal"><i data-lucide="x" class="h-4 w-4"></i></button>
+      </div>
+      <div data-modal-content="recap" class="p-5">
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <div class="text-[12px] font-medium text-[#1f6f5d] dark:text-[#5eead4]">Daily recap - Jul 3</div>
+            <h2 class="mt-1 text-[22px] font-semibold tracking-tight">Yesterday recap</h2>
+            <p class="mt-2 max-w-[560px] text-[13px] leading-6 text-[#5d6461] dark:text-[#b7c0bc]">A modal preview for reading the recap without leaving the current page. It shows the shape of decisions, tasks, referenced captures, and export actions.</p>
+          </div>
+          <button class="rounded-md border border-black/10 bg-white px-3 py-1.5 text-[12px] font-medium text-[#5d6461] shadow-sm dark:border-[#2a3034] dark:bg-[#24282c] dark:text-[#aeb7b3]">Copy recap</button>
+        </div>
+        <div class="mt-5 grid grid-cols-[1fr_220px] gap-5">
+          <div class="space-y-4">
+            <section>
+              <h3 class="text-[13px] font-semibold">Decisions</h3>
+              <div class="mt-2 space-y-2 text-[13px] leading-5 text-[#5d6461] dark:text-[#b7c0bc]">
+                <div class="rounded-md bg-white p-3 shadow-sm dark:bg-[#15191c]">Keep the app feeling like a compact macOS utility instead of a landing page.</div>
+                <div class="rounded-md bg-white p-3 shadow-sm dark:bg-[#15191c]">Move projects into the left rail and keep capture types separate from project navigation.</div>
+                <div class="rounded-md bg-white p-3 shadow-sm dark:bg-[#15191c]">Use right-side cards for recent recaps and recordings, leaving the inbox to scroll.</div>
+              </div>
+            </section>
+            <section>
+              <h3 class="text-[13px] font-semibold">Tasks</h3>
+              <div class="mt-2 divide-y divide-black/10 rounded-md border border-black/10 bg-white text-[13px] dark:divide-[#2a3034] dark:border-[#2a3034] dark:bg-[#15191c]">
+                <div class="flex items-center justify-between px-3 py-2"><span>Add clickable prototype states</span><span class="text-[12px] text-[#69736f] dark:text-[#8f9894]">Today</span></div>
+                <div class="flex items-center justify-between px-3 py-2"><span>Review native sidebar spacing</span><span class="text-[12px] text-[#69736f] dark:text-[#8f9894]">Next</span></div>
+              </div>
+            </section>
+          </div>
+          <aside class="rounded-lg border border-black/10 bg-white p-4 shadow-sm dark:border-[#2a3034] dark:bg-[#15191c]">
+            <h3 class="text-[13px] font-semibold">Referenced captures</h3>
+            <div class="mt-3 space-y-2 text-[12px]">
+              <button class="flex w-full items-center gap-2 rounded-md bg-[#f6f7f5] px-2 py-2 text-left dark:bg-black/20"><i data-lucide="mic" class="h-3.5 w-3.5 text-[#1f6f5d]"></i>Dashboard design capture</button>
+              <button class="flex w-full items-center gap-2 rounded-md bg-[#f6f7f5] px-2 py-2 text-left dark:bg-black/20"><i data-lucide="phone" class="h-3.5 w-3.5 text-[#2563eb]"></i>Product review</button>
+              <button class="flex w-full items-center gap-2 rounded-md bg-[#f6f7f5] px-2 py-2 text-left dark:bg-black/20"><i data-lucide="check-square" class="h-3.5 w-3.5 text-[#b45309]"></i>Follow-up tasks</button>
+            </div>
+          </aside>
+        </div>
+      </div>
+      <div data-modal-content="recording" class="hidden p-5">
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <div class="text-[12px] font-medium text-[#1f6f5d] dark:text-[#5eead4]">Screen recording</div>
+            <h2 class="mt-1 text-[22px] font-semibold tracking-tight">Claude - Claude</h2>
+            <p class="mt-2 text-[13px] text-[#69736f] dark:text-[#8f9894]">0:51 - 16.6 MB - Website designer</p>
+          </div>
+          <button class="rounded-md bg-[#1f6f5d] px-3 py-1.5 text-[12px] font-medium text-white">Open transcript</button>
+        </div>
+        <div class="mt-5 overflow-hidden rounded-lg border border-black/10 dark:border-[#2a3034]">
+          <img src="assets/current-dashboard.png" alt="" class="h-72 w-full object-cover" />
+        </div>
+        <div class="mt-4 rounded-lg border border-black/10 bg-white p-4 text-[13px] leading-6 shadow-sm dark:border-[#2a3034] dark:bg-[#15191c]">This modal shows what opening a recording could feel like: preview, source metadata, transcript entry point, and quick actions.</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    lucide.createIcons();
+    const themeToggle = document.getElementById("theme-toggle");
+    const themeLabel = themeToggle?.querySelector("[data-theme-label]");
+    const themeIcon = themeToggle?.querySelector("i");
+    const navButtons = document.querySelectorAll("[data-page-button]");
+    const pageSections = document.querySelectorAll("[data-page-section]");
+    const dashboardTabs = document.querySelectorAll("[data-dashboard-tab]");
+    const dashboardPanels = document.querySelectorAll("[data-dashboard-panel]");
+    const modal = document.getElementById("prototype-modal");
+    const modalContents = document.querySelectorAll("[data-modal-content]");
+
+    function setTheme(isDark) {
+      document.documentElement.classList.toggle("dark", isDark);
+      themeToggle?.setAttribute("aria-pressed", String(isDark));
+      if (themeLabel) themeLabel.textContent = isDark ? "Light" : "Dark";
+      if (themeIcon) themeIcon.setAttribute("data-lucide", isDark ? "sun" : "moon");
+      lucide.createIcons();
+    }
+
+    themeToggle?.addEventListener("click", () => {
+      setTheme(!document.documentElement.classList.contains("dark"));
+    });
+
+    function setActiveButton(buttons, activeButton, activeClasses, inactiveClasses) {
+      buttons.forEach((button) => {
+        const active = button === activeButton;
+        button.classList.toggle("bg-[#d9e2de]", active);
+        button.classList.toggle("dark:bg-[#25302d]", active);
+        button.classList.toggle("font-medium", active);
+        button.classList.toggle("text-[#5d6461]", !active);
+        button.classList.toggle("dark:text-[#aeb7b3]", !active);
+      });
+    }
+
+    function showPage(page) {
+      pageSections.forEach((section) => {
+        section.classList.toggle("hidden", section.dataset.pageSection !== page);
+      });
+      const activeButton = document.querySelector(`[data-page-button="${page}"]`);
+      setActiveButton(navButtons, activeButton);
+      lucide.createIcons();
+    }
+
+    function showDashboardPanel(panelName) {
+      dashboardPanels.forEach((panel) => {
+        const active = panel.dataset.dashboardPanel === panelName;
+        panel.classList.toggle("hidden", !active);
+        if (panel.dataset.dashboardPanel === "timeline") panel.classList.toggle("grid", active);
+      });
+      dashboardTabs.forEach((tab) => {
+        const active = tab.dataset.dashboardTab === panelName;
+        tab.classList.toggle("bg-white", active);
+        tab.classList.toggle("shadow-sm", active);
+        tab.classList.toggle("font-medium", active);
+        tab.classList.toggle("dark:bg-[#30353a]", active);
+        tab.classList.toggle("dark:text-white", active);
+        tab.classList.toggle("text-[#5d6461]", !active);
+        tab.classList.toggle("dark:text-[#aeb7b3]", !active);
+      });
+    }
+
+    function openModal(name) {
+      modalContents.forEach((content) => {
+        content.classList.toggle("hidden", content.dataset.modalContent !== name);
+      });
+      modal?.classList.remove("hidden");
+      modal?.classList.add("flex");
+      lucide.createIcons();
+    }
+
+    function closeModal() {
+      modal?.classList.add("hidden");
+      modal?.classList.remove("flex");
+    }
+
+    navButtons.forEach((button) => button.addEventListener("click", () => showPage(button.dataset.pageButton)));
+    dashboardTabs.forEach((button) => button.addEventListener("click", () => showDashboardPanel(button.dataset.dashboardTab)));
+    document.querySelectorAll("[data-modal-open]").forEach((button) => button.addEventListener("click", () => openModal(button.dataset.modalOpen)));
+    document.querySelectorAll("[data-modal-close]").forEach((button) => button.addEventListener("click", closeModal));
+    modal?.addEventListener("click", (event) => {
+      if (event.target === modal) closeModal();
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") closeModal();
+    });
+
+    document.querySelectorAll('[aria-label^="Copy"]').forEach((button) => {
+      button.addEventListener("click", () => {
+        button.classList.add("bg-[#ecf8f4]", "text-[#1f6f5d]");
+        setTimeout(() => button.classList.remove("bg-[#ecf8f4]", "text-[#1f6f5d]"), 700);
+      });
+    });
+  </script>
+</body>
+</html>

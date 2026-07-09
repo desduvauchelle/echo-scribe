@@ -556,7 +556,7 @@ pub const GUIDANCE_JSON_HINT: &str = r#"{
       "label": "<short label shown to the user>",
       "status": "covered" | "partial" | "open" }
   ],
-  "suggestions": ["<one short next-best thing to ask or do>"]
+  "suggestions": ["<at most one short next-best action; omit entirely if nothing new to add>"]
 }"#;
 
 /// Build the system+user prompt for one live guidance cycle.
@@ -570,6 +570,7 @@ pub fn build_guidance_prompt(
     notes: &str,
     rolling_transcript: &str,
     prior_points_json: Option<&str>,
+    recent_suggestions: &[String],
 ) -> (Option<String>, String) {
     let system = format!(
         "You are a real-time meeting facilitator. Track whether the conversation \
@@ -581,13 +582,27 @@ pub fn build_guidance_prompt(
          points'. Do not invent new ids for the same concept.\n\
          - status: 'covered' if clearly addressed, 'partial' if touched but \
          incomplete, 'open' otherwise.\n\
-         - 3-6 key_points total. 1-3 suggestions, each ≤ 12 words, actionable, \
-         specific to the most recent transcript, not generic.\n\
+         - 3-6 key_points total.\n\
+         - suggestions: emit AT MOST ONE, and ONLY if the recent transcript \
+         introduced something new and actionable. Otherwise return an empty \
+         suggestions array — silence is correct when nothing has changed.\n\
+         - A suggestion must be ≤ 12 words, concrete, and specific to the most \
+         recent transcript. Do NOT restate the goal or notes as a suggestion, \
+         and do NOT repeat or rephrase anything under 'already suggested'.\n\
          - Output JSON only.",
     );
     let prior = prior_points_json.unwrap_or("[]");
+    let already = if recent_suggestions.is_empty() {
+        "(none yet)".to_string()
+    } else {
+        recent_suggestions
+            .iter()
+            .map(|s| format!("- {s}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
     let user = format!(
-        "Goal: {goal}\n\nNotes:\n{notes}\n\nPrevious points (carry ids forward):\n{prior}\n\nRecent transcript:\n{rolling_transcript}\n\nReturn the JSON now."
+        "Goal: {goal}\n\nNotes:\n{notes}\n\nPrevious points (carry ids forward):\n{prior}\n\nAlready suggested (do NOT repeat or rephrase):\n{already}\n\nRecent transcript:\n{rolling_transcript}\n\nReturn the JSON now."
     );
     (Some(system), user)
 }
@@ -603,6 +618,7 @@ mod guidance_prompt_tests {
             "ask about tools\nask about budget",
             "they said spreadsheets break daily",
             Some(r#"[{"id":"current_tools","label":"Current tools","status":"covered"}]"#),
+            &[],
         );
         assert!(sys.is_some());
         assert!(user.contains("Goal: Customer discovery"));
@@ -614,7 +630,33 @@ mod guidance_prompt_tests {
 
     #[test]
     fn empty_prior_defaults_to_empty_array() {
-        let (_sys, user) = build_guidance_prompt("g", "n", "t", None);
+        let (_sys, user) = build_guidance_prompt("g", "n", "t", None, &[]);
         assert!(user.contains("Previous points (carry ids forward):\n[]"));
+    }
+
+    #[test]
+    fn no_recent_suggestions_renders_placeholder() {
+        let (_sys, user) = build_guidance_prompt("g", "n", "t", None, &[]);
+        assert!(user.contains("Already suggested (do NOT repeat or rephrase):\n(none yet)"));
+    }
+
+    #[test]
+    fn recent_suggestions_are_listed_for_the_model() {
+        let recent = vec![
+            "Ask who owns the LinkedIn task".to_string(),
+            "Confirm the Titanic case decision".to_string(),
+        ];
+        let (_sys, user) = build_guidance_prompt("g", "n", "t", None, &recent);
+        assert!(user.contains("- Ask who owns the LinkedIn task"));
+        assert!(user.contains("- Confirm the Titanic case decision"));
+    }
+
+    #[test]
+    fn rules_enforce_single_suggestion_and_silence() {
+        let (sys, _user) = build_guidance_prompt("g", "n", "t", None, &[]);
+        let sys = sys.unwrap();
+        assert!(sys.contains("AT MOST ONE"), "got: {sys}");
+        assert!(sys.contains("empty suggestions array"), "got: {sys}");
+        assert!(sys.contains("Do NOT restate the goal"), "got: {sys}");
     }
 }

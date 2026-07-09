@@ -1,0 +1,22 @@
+name: Installer test
+
+on:
+  pull_request:
+    paths:
+      - install.sh
+      - scripts/test-installer.sh
+      - .github/workflows/installer.yml
+  push:
+    paths:
+      - install.sh
+      - scripts/test-installer.sh
+      - .github/workflows/installer.yml
+  workflow_dispatch:
+
+jobs:
+  installer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install fixture archive into a temporary Applications directory
+        run: bash scripts/test-installer.sh

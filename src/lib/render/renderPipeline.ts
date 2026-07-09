@@ -31,6 +31,8 @@ import {
 import {
   buildSpeedMap,
   clampTrim,
+  resolveCaptionSegments,
+  resolveWebcamScenes,
   shiftRangesForTrim,
   type EditorProject,
   type SpeedMap,
@@ -566,7 +568,11 @@ export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8A
   // scenes render even with the bubble hidden, so a scenes-only project must
   // still decode the webcam. Offset null → 0.
   const webcamSettings = project.webcam;
-  const webcamScenes = webcamSettings?.scenes ?? [];
+  // Defensive clamp at the render boundary (see `resolveWebcamScenes`): stored
+  // project_json is only shape-validated by `parseProject`, so a hand-edited /
+  // foreign array could be unsorted/overlapping and mis-pick in `webcamSceneAt`.
+  // Resolve once here — the SAME resolver the editor preview uses.
+  const webcamScenes = resolveWebcamScenes(project, durationMs);
   const wantWebcam = !!opts.webcamUrl && (!!webcamSettings?.show || webcamScenes.length > 0);
   const webcamOffsetMs = opts.webcamOffsetMs ?? 0;
 
@@ -672,7 +678,11 @@ export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8A
   // segments exist; looked up at each frame's SOURCE time via the shared
   // `captionAt`, same rule as the keystroke badge / zoom lookups (trim/speed
   // need no special handling here — see `frameInTrimWindow`/`speedMap` above).
-  const captionSegments = project.captions.enabled ? (project.captions.segments ?? []) : [];
+  // Defensive clamp at the render boundary (see `resolveCaptionSegments`): same
+  // reasoning as `webcamScenes` above — stored segments are only shape-checked,
+  // so normalize once here through the SAME resolver the preview uses. Empty
+  // when captions are disabled / never generated.
+  const captionSegments = resolveCaptionSegments(project, durationMs);
   const drawCaptions = captionSegments.length > 0;
 
   // Webcam M6 flags (auto-shrink, mirror, scenes). `showWebcamBubble` gates the

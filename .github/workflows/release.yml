@@ -4,9 +4,18 @@ on:
   push:
     tags:
       - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag to build and publish, for example v0.1.1
+        required: true
+        type: string
 
 permissions:
   contents: write
+
+env:
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
   build:
@@ -24,6 +33,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - uses: oven-sh/setup-bun@v2
 
@@ -38,7 +49,7 @@ jobs:
 
       - name: Bake version from tag
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${RELEASE_TAG#v}"
           python3 -c "
           import json, sys
           with open('src-tauri/tauri.conf.json') as f:
@@ -67,7 +78,35 @@ jobs:
             -C src-tauri/target/release/bundle/macos \
             "Echo Scribe.app"
 
-      - name: Upload to release
+      - name: Upload release asset
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.arch }}
+          path: EchoScribe-${{ matrix.arch }}.tar.gz
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Download release assets
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          merge-multiple: true
+
+      - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: "EchoScribe-${{ matrix.arch }}.tar.gz"
+          tag_name: ${{ env.RELEASE_TAG }}
+          generate_release_notes: true
+          files: EchoScribe-*.tar.gz
+
+      - name: Verify published assets
+        run: |
+          for arch in aarch64 x86_64; do
+            curl --fail --location --retry 5 --retry-all-errors --silent --show-error --head \
+              "https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/EchoScribe-${arch}.tar.gz"
+          done

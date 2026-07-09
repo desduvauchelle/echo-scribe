@@ -569,6 +569,43 @@ export function clampWebcamScenes(
   }));
 }
 
+// ---- Render-boundary resolvers (defensive clamp) ------------------------
+//
+// `webcamSceneAt` / `captionAt` binary-search their input assuming it is
+// sorted, non-overlapping, and in-bounds — the invariant the editor's write
+// paths (`applySceneEdit`, `setCaptionSegments`) maintain by running every edit
+// through `clampWebcamScenes` / `clampCaptionSegments`. But `parseProject` only
+// shape-validates the stored `project_json`; it never clamps, so hand-edited or
+// foreign JSON can carry unsorted / overlapping / out-of-bounds ranges that
+// reach the renderer and mis-pick at boundaries (wrong scene/caption, or a
+// dropped one — no crash). These two resolvers close that gap by clamping ONCE
+// at the render boundary, exactly as `buildSpeedMap` self-defends (it calls
+// `clampSpeedRanges` internally) and zoom flows through `resolveZoomBlocks`.
+// Both the export (renderPipeline) and the editor preview resolve through here,
+// so preview and export render identically. Idempotent: already-clamped input
+// is returned in its clamped form unchanged.
+
+/** The effective "cut to camera" scenes to render for `project` over a source
+ *  clip of `durationMs`: the stored scenes clamped/sorted/de-overlapped. Empty
+ *  when the recording has no webcam (`project.webcam` null) or no scenes. */
+export function resolveWebcamScenes(
+  project: EditorProject,
+  durationMs: number,
+): WebcamScene[] {
+  return clampWebcamScenes(project.webcam?.scenes ?? [], durationMs);
+}
+
+/** The effective caption segments to render for `project` over a source clip of
+ *  `durationMs`: empty when captions are disabled or were never generated,
+ *  otherwise the stored segments clamped/sorted/de-overlapped. */
+export function resolveCaptionSegments(
+  project: EditorProject,
+  durationMs: number,
+): CaptionSegment[] {
+  if (!project.captions.enabled) return [];
+  return clampCaptionSegments(project.captions.segments ?? [], durationMs);
+}
+
 // ---- Speed map + retiming math (Task 5) ---------------------------------
 //
 // A "speed map" turns SOURCE time (ms) into OUTPUT time (ms) for the retimed

@@ -7,6 +7,7 @@ use tracing::{error, info, warn};
 use crate::commands::AppState;
 
 const REPO: &str = "desduvauchelle/echo-scribe";
+const APP_EXECUTABLE: &str = "echo-scribe";
 const CHECK_INTERVAL_SECS: u64 = 24 * 60 * 60;
 const MIN_CHECK_INTERVAL_SECS: i64 = 60 * 60;
 
@@ -129,7 +130,7 @@ async fn download_and_stage(version: &str) -> bool {
         return false;
     }
 
-    let binary_path = staging_dir.join("Echo Scribe.app/Contents/MacOS/Echo Scribe");
+    let binary_path = staging_dir.join(format!("Echo Scribe.app/Contents/MacOS/{APP_EXECUTABLE}"));
     if !binary_path.exists() {
         warn!("staged binary missing — archive may be corrupt");
         let _ = std::fs::remove_dir_all(&staging_dir);

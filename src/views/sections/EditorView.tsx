@@ -44,6 +44,8 @@ import {
   resizeRange,
   resizeSpeedRange,
   resizeZoomBlock,
+  resolveCaptionSegments,
+  resolveWebcamScenes,
   shiftRangesForTrim,
   type AspectPreset,
   type Background,
@@ -289,6 +291,16 @@ export function EditorView({
   // mirrors `zoomBlocksRef`.
   const scenesRef = useRef<WebcamScene[]>(project.webcam?.scenes ?? []);
   scenesRef.current = project.webcam?.scenes ?? [];
+  // Render-boundary defensive clamp of the stored scenes / caption segments,
+  // held in refs so the rAF loop + overlay callbacks read a STABLE, pre-clamped
+  // list (mirrors `zoomBlocksRef`). `webcamSceneAt` / `captionAt` binary-search
+  // assuming sorted, non-overlapping input; the editor keeps the stored arrays
+  // clamped on every edit, but resolving through the SAME `resolveWebcamScenes`
+  // / `resolveCaptionSegments` the export uses makes the preview robust to
+  // hand-edited / foreign project_json (parse only shape-validates). Assigned
+  // from the memos below (after `durationMs` is known).
+  const previewScenesRef = useRef<WebcamScene[]>([]);
+  const previewCaptionsRef = useRef<ProjectCaptionSegment[]>([]);
 
   // Whether this recording was captured with a webcam (a `.webcam.mp4` exists).
   // Gates the whole webcam editor section and the preview/export overlay.
@@ -438,14 +450,12 @@ export function EditorView({
 
   // Compute the caption pill text for a given SOURCE time (ms). Returns null
   // unless captions are enabled and a generated segment covers `tMsSource`.
-  // Reads `project.captions.segments` directly (no ref needed — it's already
-  // captured via `projectRef`, mirroring the keystroke lookup above) through
-  // the SAME `captionAt` the export path uses, so preview and export render
-  // identical captions.
+  // Reads `previewCaptionsRef` — the render-boundary-clamped segments resolved
+  // above (empty when captions are disabled / never generated) — through the
+  // SAME `captionAt` the export path uses, so preview and export render
+  // identical captions and the binary search never sees unsorted input.
   const captionOverlayAt = useCallback((tMsSource: number): OverlayState["caption"] => {
-    const p = projectRef.current;
-    if (!p.captions.enabled || !p.captions.segments) return null;
-    return captionAt(tMsSource, p.captions.segments);
+    return captionAt(tMsSource, previewCaptionsRef.current);
   }, []);
 
   // Resolve the effective zoom timeline whenever the inputs change:
@@ -473,6 +483,22 @@ export function EditorView({
   // during render (not in an effect) so the very next paint — the "renderOnce"
   // effect fires on `project` change — already sees the new blocks.
   zoomBlocksRef.current = effectiveBlocks;
+
+  // Resolve the clamped scenes / caption segments ONCE per (scenes/captions ×
+  // duration) change (not per frame) — mirrors the zoom-blocks memo above so
+  // the rAF loop reads a STABLE, pre-clamped reference and the binary searches
+  // in `webcamSceneAt` / `captionAt` never see unsorted/overlapping input. The
+  // export path resolves through the same helpers, so preview and file match.
+  const previewScenes = useMemo(
+    () => resolveWebcamScenes(project, durationMs),
+    [project.webcam, durationMs],
+  );
+  previewScenesRef.current = previewScenes;
+  const previewCaptionSegments = useMemo(
+    () => resolveCaptionSegments(project, durationMs),
+    [project.captions, durationMs],
+  );
+  previewCaptionsRef.current = previewCaptionSegments;
 
   // Smooth the cursor move path (Task 5) once per (events-load × smoothing)
   // change — mirrors the zoom-blocks memo above so the rAF loop reads a STABLE
@@ -568,7 +594,9 @@ export function EditorView({
     // the SAME shared `webcamSceneAt` / `webcamShrinkFactor` the export uses, so
     // preview and rendered file render scenes/shrink/mirror identically.
     const wcReady = !!wv && wv.readyState >= 2 && wv.videoWidth > 0;
-    const scenes = p.webcam?.scenes ?? [];
+    // Render-boundary-clamped scenes (see `previewScenesRef`) so `webcamSceneAt`
+    // binary-searches sorted, non-overlapping input just like the export.
+    const scenes = previewScenesRef.current;
     const mirror = !!p.webcam?.mirror;
     // Scene active this frame: a scene covers the SOURCE time AND a webcam frame
     // is decodable. When the frame isn't ready, `scene` stays null → the preview
