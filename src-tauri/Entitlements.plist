@@ -8,6 +8,14 @@
     <key>com.apple.security.device.audio-input</key>
     <true/>
 
+    <!-- Required to capture video under Hardened Runtime — same rule as
+         audio-input above. Without this, macOS refuses
+         AVCaptureDevice.requestAccess(for:.video), never shows the camera
+         prompt, and the app never appears in System Settings → Camera, so the
+         webcam overlay can't be granted. -->
+    <key>com.apple.security.device.camera</key>
+    <true/>
+
     <!-- Allows the JIT-compiled regions used by llama.cpp's Metal backend.
          Without this, llm inference may crash with EXC_BAD_ACCESS. -->
     <key>com.apple.security.cs.allow-jit</key>
