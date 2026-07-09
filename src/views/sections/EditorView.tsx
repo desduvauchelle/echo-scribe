@@ -286,7 +286,15 @@ export function EditorView({
       // (parseProject leaves `webcam` null for a stale/absent field). Default:
       // shown, circle bubble, bottom-right, 20% width.
       if (webcamAvailable && parsed.webcam === null) {
-        parsed.webcam = { show: true, shape: "circle", corner: "br", sizeFrac: 0.2 };
+        parsed.webcam = {
+          show: true,
+          shape: "circle",
+          corner: "br",
+          sizeFrac: 0.2,
+          autoShrink: false,
+          mirror: false,
+          scenes: [],
+        };
       }
       setProject(parsed);
       setLoaded(true);
@@ -903,6 +911,9 @@ export function EditorView({
     shape: "circle",
     corner: "br",
     sizeFrac: 0.2,
+    autoShrink: false,
+    mirror: false,
+    scenes: [],
   };
   const setWebcam = (patch: Partial<WebcamSettings>) =>
     setProject((p) => ({ ...p, webcam: { ...WEBCAM_DEFAULTS, ...(p.webcam ?? {}), ...patch } }));
