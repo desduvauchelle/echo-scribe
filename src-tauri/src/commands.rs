@@ -4219,6 +4219,12 @@ mod clipboard_imp {
     /// the pasteboard refuses the write (e.g. another app holds an exclusive
     /// pasteboard lock) — the caller treats this as a friendly-error case, not
     /// a panic.
+    ///
+    /// This runs on a Tauri worker thread, not the main thread — `#[tauri::command]`
+    /// handlers execute off the main thread by default. No `MainThreadMarker` is
+    /// needed here (contrast `ui/dock.rs`, which requires one for
+    /// `setActivationPolicy`): Apple documents `NSPasteboard`'s basic operations
+    /// (`generalPasteboard`, `clearContents`, `writeObjects`) as thread-safe.
     pub fn copy_file_to_clipboard(path: &std::path::Path) -> Result<(), String> {
         let path_str = path.to_string_lossy();
         let ns_path = NSString::from_str(&path_str);
