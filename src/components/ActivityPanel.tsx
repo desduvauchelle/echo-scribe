@@ -36,6 +36,7 @@ import {
 import { ask } from "@tauri-apps/plugin-dialog";
 import { listen } from "@tauri-apps/api/event";
 import { parseGuideReview, parseTimeline, verdictClass } from "../lib/guideReview";
+import GuideTrendView from "./GuideTrendView";
 import { relativeTime } from "../lib/format";
 import { useActivityPanel } from "./ActivityPanelContext";
 import { useToasts } from "./ToastProvider";
@@ -1086,6 +1087,7 @@ function GuideReviewSection({ meetingId }: { meetingId: string }) {
   const [runs, setRuns] = useState<GuideRun[]>([]);
   const [openCrit, setOpenCrit] = useState<Record<string, boolean>>({});
   const [showTimeline, setShowTimeline] = useState<Record<string, boolean>>({});
+  const [trendFor, setTrendFor] = useState<{ id: string; name: string } | null>(null);
 
   const load = useCallback(async () => {
     const r = await listGuideRuns(meetingId).catch(() => [] as GuideRun[]);
@@ -1109,119 +1111,135 @@ function GuideReviewSection({ meetingId }: { meetingId: string }) {
   if (runs.length === 0) return null;
 
   return (
-    <div className="space-y-4">
-      {runs.map((run) => {
-        const review = parseGuideReview(run.review_json);
-        const timeline = parseTimeline(run.timeline_json);
-        const overallCls = OVERALL_STYLES[(review?.overall || "").toLowerCase()] ?? "bg-elevated text-muted";
-        return (
-          <div key={run.id} className="rounded-lg border border-line bg-surface-2">
-            <div className="flex flex-wrap items-center gap-2 border-b border-line px-3 py-2.5">
-              <span className="text-[13px] font-semibold text-fg">{run.template_name}</span>
-              {run.status === "ready" && review?.overall ? (
-                <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${overallCls}`}>
-                  {review.overall}
-                </span>
-              ) : null}
-              {run.status === "pending" ? (
-                <span className="text-[11px] text-muted">Generating review…</span>
-              ) : null}
-            </div>
-
-            {run.status === "failed" ? (
-              <div className="px-3 py-3 text-[12px] text-muted">
-                Guide review couldn't be generated. See Settings → Diagnostics → logs.{" "}
+    <>
+      <div className="space-y-4">
+        {runs.map((run) => {
+          const review = parseGuideReview(run.review_json);
+          const timeline = parseTimeline(run.timeline_json);
+          const overallCls = OVERALL_STYLES[(review?.overall || "").toLowerCase()] ?? "bg-elevated text-muted";
+          return (
+            <div key={run.id} className="rounded-lg border border-line bg-surface-2">
+              <div className="flex flex-wrap items-center gap-2 border-b border-line px-3 py-2.5">
+                <span className="text-[13px] font-semibold text-fg">{run.template_name}</span>
+                {run.status === "ready" && review?.overall ? (
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${overallCls}`}>
+                    {review.overall}
+                  </span>
+                ) : null}
+                {run.status === "pending" ? (
+                  <span className="text-[11px] text-muted">Generating review…</span>
+                ) : null}
                 <button
-                  className="text-accent hover:underline"
-                  onClick={async () => {
-                    await regenerateGuideReview(run.id).catch(() => {});
-                    load();
-                  }}
+                  className="ml-auto text-[11px] text-accent hover:underline"
+                  onClick={() => setTrendFor({ id: run.template_id, name: run.template_name })}
                 >
-                  Retry
+                  View trend
                 </button>
               </div>
-            ) : null}
 
-            {run.status === "ready" && review ? (
-              <div className="space-y-3 px-3 py-3">
-                {review.synthesis ? (
-                  <p className="text-[13px] leading-relaxed text-fg">{review.synthesis}</p>
-                ) : null}
+              {run.status === "failed" ? (
+                <div className="px-3 py-3 text-[12px] text-muted">
+                  Guide review couldn't be generated. See Settings → Diagnostics → logs.{" "}
+                  <button
+                    className="text-accent hover:underline"
+                    onClick={async () => {
+                      await regenerateGuideReview(run.id).catch(() => {});
+                      load();
+                    }}
+                  >
+                    Retry
+                  </button>
+                </div>
+              ) : null}
 
-                {review.scorecard.length > 0 ? (
-                  <div className="space-y-1.5">
-                    {review.scorecard.map((c, i) => {
-                      const key = `${run.id}:${i}`;
-                      const vk = verdictClass(c.verdict);
-                      const open = !!openCrit[key];
-                      return (
-                        <div key={key} className="overflow-hidden rounded-md border border-line">
-                          <button
-                            className="flex w-full items-center gap-2.5 px-2.5 py-2 text-left hover:bg-elevated"
-                            onClick={() => setOpenCrit((s) => ({ ...s, [key]: !open }))}
-                          >
-                            <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${VERDICT_STYLES[vk]}`}>
-                              {vk}
-                            </span>
-                            <span className="flex-1 text-[13px] font-medium text-fg">{c.criterion}</span>
-                            <span className="text-[11px] text-faint">{open ? "▾" : "▸"}</span>
-                          </button>
-                          {open ? (
-                            <div className="space-y-1.5 border-t border-line px-2.5 py-2 text-[12px]">
-                              {c.evidence ? (
-                                <p className="border-l-2 border-line pl-2 italic text-muted">"{c.evidence}"</p>
-                              ) : null}
-                              {c.why ? <p className="text-fg">{c.why}</p> : null}
-                              {c.tip ? (
-                                <p className="text-muted">
-                                  <span className="font-semibold text-amber-400">Try:</span> {c.tip}
-                                </p>
-                              ) : null}
-                            </div>
-                          ) : null}
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : null}
+              {run.status === "ready" && review ? (
+                <div className="space-y-3 px-3 py-3">
+                  {review.synthesis ? (
+                    <p className="text-[13px] leading-relaxed text-fg">{review.synthesis}</p>
+                  ) : null}
 
-                {review.emergent.length > 0 ? (
-                  <div>
-                    <SectionLabel>What also stood out</SectionLabel>
-                    <ul className="space-y-1 text-[12px] text-fg">
-                      {review.emergent.map((e, i) => (
-                        <li key={i} className="leading-relaxed">{e.observation}</li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
-
-                {timeline.length > 0 ? (
-                  <div className="border-t border-line pt-2">
-                    <button
-                      className="text-[12px] text-muted hover:text-fg"
-                      onClick={() => setShowTimeline((s) => ({ ...s, [run.id]: !s[run.id] }))}
-                    >
-                      {showTimeline[run.id] ? "▾" : "▸"} Live coaching timeline · {timeline.length}
-                    </button>
-                    {showTimeline[run.id] ? (
-                      <div className="mt-1.5 space-y-1">
-                        {timeline.map((t, i) => (
-                          <div key={i} className="text-[12px] text-muted">
-                            {t.suggestions.join(" · ") || "—"}
+                  {review.scorecard.length > 0 ? (
+                    <div className="space-y-1.5">
+                      {review.scorecard.map((c, i) => {
+                        const key = `${run.id}:${i}`;
+                        const vk = verdictClass(c.verdict);
+                        const open = !!openCrit[key];
+                        return (
+                          <div key={key} className="overflow-hidden rounded-md border border-line">
+                            <button
+                              className="flex w-full items-center gap-2.5 px-2.5 py-2 text-left hover:bg-elevated"
+                              onClick={() => setOpenCrit((s) => ({ ...s, [key]: !open }))}
+                            >
+                              <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${VERDICT_STYLES[vk]}`}>
+                                {vk}
+                              </span>
+                              <span className="flex-1 text-[13px] font-medium text-fg">{c.criterion}</span>
+                              <span className="text-[11px] text-faint">{open ? "▾" : "▸"}</span>
+                            </button>
+                            {open ? (
+                              <div className="space-y-1.5 border-t border-line px-2.5 py-2 text-[12px]">
+                                {c.evidence ? (
+                                  <p className="border-l-2 border-line pl-2 italic text-muted">"{c.evidence}"</p>
+                                ) : null}
+                                {c.why ? <p className="text-fg">{c.why}</p> : null}
+                                {c.tip ? (
+                                  <p className="text-muted">
+                                    <span className="font-semibold text-amber-400">Try:</span> {c.tip}
+                                  </p>
+                                ) : null}
+                              </div>
+                            ) : null}
                           </div>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+
+                  {review.emergent.length > 0 ? (
+                    <div>
+                      <SectionLabel>What also stood out</SectionLabel>
+                      <ul className="space-y-1 text-[12px] text-fg">
+                        {review.emergent.map((e, i) => (
+                          <li key={i} className="leading-relaxed">{e.observation}</li>
                         ))}
-                      </div>
-                    ) : null}
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-          </div>
-        );
-      })}
-    </div>
+                      </ul>
+                    </div>
+                  ) : null}
+
+                  {timeline.length > 0 ? (
+                    <div className="border-t border-line pt-2">
+                      <button
+                        className="text-[12px] text-muted hover:text-fg"
+                        onClick={() => setShowTimeline((s) => ({ ...s, [run.id]: !s[run.id] }))}
+                      >
+                        {showTimeline[run.id] ? "▾" : "▸"} Live coaching timeline · {timeline.length}
+                      </button>
+                      {showTimeline[run.id] ? (
+                        <div className="mt-1.5 space-y-1">
+                          {timeline.map((t, i) => (
+                            <div key={i} className="text-[12px] text-muted">
+                              {t.suggestions.join(" · ") || "—"}
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+
+      {trendFor ? (
+        <GuideTrendView
+          templateId={trendFor.id}
+          templateName={trendFor.name}
+          onClose={() => setTrendFor(null)}
+        />
+      ) : null}
+    </>
   );
 }
 
