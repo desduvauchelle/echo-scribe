@@ -1,12 +1,15 @@
 import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronRight, Download, Search as SearchIcon, X } from "lucide-react";
+import { ChevronRight, Download, Loader2, Search as SearchIcon, Tags, X } from "lucide-react";
 import {
   exportActivity,
   getDailySummary,
   getDashboardStats,
   listItems,
   listRecordings,
+  projectTaggerStatus,
+  runProjectTaggerDeterministicOnce,
+  runProjectTaggerLlmOnce,
   searchItems,
   type DailySummary,
   type DailySummarySectionItem,
@@ -127,6 +130,7 @@ export default function DashboardView({ projects }: Props) {
   const [exportOpen, setExportOpen] = useState(false);
   const [exportRange, setExportRange] = useState<ExportRangeKey>("day");
   const [exporting, setExporting] = useState(false);
+  const [tagging, setTagging] = useState(false);
   const { push: pushToast } = useToasts();
 
   const { refreshTick } = useActivityPanel();
@@ -309,6 +313,36 @@ export default function DashboardView({ projects }: Props) {
     }
   };
 
+  /** Manual trigger for the project tagger (normally runs on a background
+   *  schedule): deterministic router pass first, then the local-AI pass when a
+   *  model is loaded. Toasts the combined run summary for debugging. */
+  const runTagging = async () => {
+    setTagging(true);
+    try {
+      const det = await runProjectTaggerDeterministicOnce();
+      const status = await projectTaggerStatus().catch(() => null);
+      const llm = status?.llm_ready ? await runProjectTaggerLlmOnce() : null;
+      const aiPart = llm
+        ? `AI: assigned ${llm.assigned} of ${llm.scanned}.`
+        : "AI pass skipped — no model loaded.";
+      pushToast({
+        tone: "success",
+        message:
+          det.scanned === 0 && (llm?.scanned ?? 0) === 0
+            ? "Tagging ran — nothing queued to tag."
+            : `Router: assigned ${det.assigned} of ${det.scanned}. ${aiPart}`,
+      });
+      if (det.assigned > 0 || (llm?.assigned ?? 0) > 0) void fetchItems("reset");
+    } catch (e) {
+      pushToast({
+        tone: "error",
+        message: `Tagging failed: ${e instanceof Error ? e.message : String(e)}`,
+      });
+    } finally {
+      setTagging(false);
+    }
+  };
+
   const openSearch = () => {
     setSearchOpen(true);
     setTimeout(() => searchInputRef.current?.focus(), 0);
@@ -396,6 +430,20 @@ export default function DashboardView({ projects }: Props) {
           })}
         </div>
         <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => void runTagging()}
+            disabled={tagging}
+            aria-label="Run project tagging"
+            title="Run project tagging"
+            className="rounded-md border border-line bg-surface p-1.5 text-muted hover:bg-elevated hover:text-fg disabled:opacity-50"
+          >
+            {tagging ? (
+              <Loader2 size={14} className="animate-spin" />
+            ) : (
+              <Tags size={14} />
+            )}
+          </button>
           <div className="relative">
             <button
               type="button"
