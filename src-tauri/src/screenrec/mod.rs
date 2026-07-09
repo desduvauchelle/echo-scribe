@@ -541,6 +541,195 @@ pub fn retime_wav_samples(
     write_mono_wav(wav_out, wav.sample_rate, &out)
 }
 
+// ---- Loudness normalization ----------------------------------------------
+//
+// DSP constants for `normalize_wav_loudness`. Deliberately a SIMPLE gated-RMS
+// normalizer + soft-knee limiter — NOT EBU R128 K-weighting / true-peak. This
+// is a polish pass on already-recorded screen-capture audio, not a broadcast
+// loudness compliance tool, so we skip the K-weighting filterbank and integrated
+// gating windows and just measure gated RMS. The values below are chosen to be
+// gentle and unsurprising rather than "correct" in the R128 sense:
+//
+//   - TARGET_DBFS (−16): a comfortable speech-forward level for screen
+//     recordings played back in a browser/desktop; not so hot that a following
+//     platform re-normalizes it down, not so quiet that the viewer reaches for
+//     the volume.
+//   - GATE_DBFS (−40): blocks quieter than this are treated as silence/noise
+//     floor and EXCLUDED from the loudness measurement, so room tone and gaps
+//     between speech don't drag the measured level down (which would otherwise
+//     make us over-boost and amplify hiss). It also means true silence has no
+//     measurable loudness → gain stays 1.0 (no blow-up).
+//   - BLOCK_MS (400): RMS is measured in 400 ms blocks (a momentary-ish window);
+//     each block is gated independently. Long enough to be stable on speech,
+//     short enough that the gate can reject quiet gaps.
+//   - CEILING_DBFS (−1): after applying the single normalization gain, a
+//     soft-knee limiter tucks peaks under −1 dBFS so the boost can't clip. A
+//     tiny amount of headroom below 0 dBFS avoids inter-sample-peak overshoot on
+//     later re-encode.
+//   - MAX_GAIN (~12 dB): clamp the boost so a mostly-quiet clip with a few loud
+//     words doesn't get blown up (and its noise floor with it).
+const NORM_TARGET_DBFS: f64 = -16.0;
+const NORM_GATE_DBFS: f64 = -40.0;
+const NORM_BLOCK_MS: u64 = 400;
+const NORM_CEILING_DBFS: f64 = -1.0;
+const NORM_MAX_GAIN: f64 = 4.0; // ≈ +12 dB, keeps quiet-clip boosts sane
+
+/// Outcome of a `normalize_wav_loudness` pass, for logging. `measured_dbfs` is
+/// the gated-RMS loudness of the input (NEG_INFINITY when everything was below
+/// the gate, i.e. silence); `gain` is the linear gain actually applied
+/// (post-clamp); `limited` is whether the soft-knee limiter engaged on any
+/// sample; `ceiling_frac`/`sample_count` are for diagnostics.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LoudnessReport {
+    pub measured_dbfs: f64,
+    pub target_dbfs: f64,
+    pub gain: f64,
+    pub limited: bool,
+    pub sample_count: usize,
+}
+
+/// Convert a linear amplitude fraction (0..1 of full scale) to dBFS.
+fn lin_to_dbfs(x: f64) -> f64 {
+    20.0 * x.max(1e-12).log10()
+}
+
+/// Convert dBFS to a linear amplitude fraction (0..1 of full scale).
+fn dbfs_to_lin(db: f64) -> f64 {
+    10.0_f64.powf(db / 20.0)
+}
+
+/// Pure DSP core of `normalize_wav_loudness`: takes 48 kHz-ish mono i16 samples,
+/// returns normalized samples plus a `LoudnessReport`. Separated from the WAV
+/// I/O so it can be unit-tested and reused (mirrors how the retime path keeps
+/// its resample logic file-agnostic).
+///
+/// Algorithm (see the constants above for the rationale, and the module doc for
+/// why this is deliberately NOT EBU R128):
+///   1. Gated RMS measure: split into `BLOCK_MS` blocks; compute each block's
+///      RMS; include only blocks at/above `GATE_DBFS` in the overall measure.
+///      If NO block passes the gate (silence), the signal is left untouched
+///      (gain = 1.0) — never boost silence.
+///   2. Single gain: `gain = target / measured`, clamped to `[.., MAX_GAIN]`.
+///   3. Soft-knee limiter at `CEILING_DBFS`: apply the gain, then push any
+///      sample whose magnitude exceeds the ceiling back under it with a smooth
+///      (tanh-style) knee so the boost can't hard-clip.
+fn normalize_samples(samples: &[i16], sample_rate: u32) -> (Vec<i16>, LoudnessReport) {
+    let n = samples.len();
+    let sr = sample_rate.max(1) as u64;
+    let block_len = ((sr * NORM_BLOCK_MS) / 1000).max(1) as usize;
+    let gate_lin = dbfs_to_lin(NORM_GATE_DBFS);
+
+    // 1. Gated RMS: accumulate sum-of-squares only from blocks whose own RMS is
+    // at/above the gate. Measuring per-block-then-pooling (rather than a single
+    // global RMS) is what lets the gate exclude quiet gaps.
+    let mut gated_sum_sq = 0.0_f64;
+    let mut gated_count: usize = 0;
+    let full_scale = i16::MAX as f64;
+    let mut i = 0usize;
+    while i < n {
+        let end = (i + block_len).min(n);
+        let block = &samples[i..end];
+        let mut sum_sq = 0.0_f64;
+        for &s in block {
+            let x = (s as f64) / full_scale;
+            sum_sq += x * x;
+        }
+        let block_rms = (sum_sq / block.len() as f64).sqrt();
+        if block_rms >= gate_lin {
+            gated_sum_sq += sum_sq;
+            gated_count += block.len();
+        }
+        i = end;
+    }
+
+    // No block passed the gate → silence/near-silence. Leave untouched.
+    if gated_count == 0 {
+        return (
+            samples.to_vec(),
+            LoudnessReport {
+                measured_dbfs: f64::NEG_INFINITY,
+                target_dbfs: NORM_TARGET_DBFS,
+                gain: 1.0,
+                limited: false,
+                sample_count: n,
+            },
+        );
+    }
+
+    let measured_lin = (gated_sum_sq / gated_count as f64).sqrt();
+    let measured_dbfs = lin_to_dbfs(measured_lin);
+
+    // 2. Single normalization gain toward the target, clamped so a mostly-quiet
+    // clip can't be blown up (and its noise floor with it).
+    let target_lin = dbfs_to_lin(NORM_TARGET_DBFS);
+    let gain = (target_lin / measured_lin).clamp(0.0, NORM_MAX_GAIN);
+
+    // 3. Apply gain + soft-knee limiter at the ceiling. The limiter is a smooth
+    // tanh knee above the ceiling: below the ceiling samples are linear; above
+    // it they're compressed asymptotically toward full scale, so a boosted
+    // transient rounds off instead of hard-clipping. `1e-9` avoids treating
+    // exactly-at-unity gain as "limited" from FP noise.
+    let ceiling = dbfs_to_lin(NORM_CEILING_DBFS); // 0..1 of full scale
+    let mut limited = false;
+    let out: Vec<i16> = samples
+        .iter()
+        .map(|&s| {
+            let x = (s as f64) / full_scale * gain;
+            let mag = x.abs();
+            let y = if mag <= ceiling {
+                x
+            } else {
+                limited = true;
+                // Soft knee: map the overshoot above the ceiling through tanh so
+                // the result stays within (ceiling, 1.0). `over` is how far past
+                // the ceiling we are, in units of the remaining headroom.
+                let sign = if x < 0.0 { -1.0 } else { 1.0 };
+                let headroom = 1.0 - ceiling;
+                let over = (mag - ceiling) / headroom.max(1e-9);
+                sign * (ceiling + headroom * over.tanh())
+            };
+            (y * full_scale)
+                .round()
+                .clamp(i16::MIN as f64, i16::MAX as f64) as i16
+        })
+        .collect();
+
+    (
+        out,
+        LoudnessReport {
+            measured_dbfs,
+            target_dbfs: NORM_TARGET_DBFS,
+            gain,
+            limited,
+            sample_count: n,
+        },
+    )
+}
+
+/// Loudness-normalize a 16-bit PCM mono WAV (`wav_in`) toward −16 dBFS with a
+/// gated-RMS measure and a −1 dBFS soft-knee limiter, writing the result to
+/// `wav_out`. Thin file→file wrapper around `normalize_samples` (mirrors how
+/// `retime_wav_samples` wraps its pure resample core); returns a
+/// `LoudnessReport` for the caller to log.
+///
+/// Deliberately a simple polish pass, NOT EBU R128 — see the constants block
+/// above `normalize_samples` for the rationale. Silence is left untouched
+/// (never boost the noise floor). The input must be 16-bit PCM mono (same
+/// constraint as `trim_wav_samples`/`retime_wav_samples`; callers feed
+/// `extract_audio_at(.., 48_000)` output).
+///
+/// This is a best-effort polish step: `finalize_rendered_recording` treats any
+/// `Err` here as "skip normalization + warn", never failing the export.
+pub fn normalize_wav_loudness(
+    wav_in: &std::path::Path,
+    wav_out: &std::path::Path,
+) -> Result<LoudnessReport, String> {
+    let wav = read_mono_wav(wav_in)?;
+    let (out, report) = normalize_samples(&wav.samples, wav.sample_rate);
+    write_mono_wav(wav_out, wav.sample_rate, &out)?;
+    Ok(report)
+}
+
 /// Mux a cleaned audio WAV into the original video, writing a new mp4.
 pub fn mux_audio(
     video: &std::path::Path,
@@ -1453,6 +1642,161 @@ mod tests {
         )
         .unwrap_err();
         assert!(err.contains("rate"), "got: {err}");
+        let _ = std::fs::remove_file(&src);
+        let _ = std::fs::remove_file(&dst);
+    }
+
+    // ---- normalize_wav_loudness ------------------------------------------
+
+    /// Peak absolute sample (as a fraction of full-scale) for a slice.
+    fn peak_dbfs_frac(samples: &[i16]) -> f64 {
+        samples
+            .iter()
+            .map(|&s| (s as f64).abs() / (i16::MAX as f64))
+            .fold(0.0_f64, f64::max)
+    }
+
+    /// Un-gated full-signal RMS in dBFS, for asserting the post-normalization
+    /// level lands near the target. Mirrors the measurement the DSP does but
+    /// without the block gate (the test signals are constant-amplitude tones,
+    /// so gating is a no-op on them).
+    fn rms_dbfs(samples: &[i16]) -> f64 {
+        if samples.is_empty() {
+            return f64::NEG_INFINITY;
+        }
+        let sum_sq: f64 = samples
+            .iter()
+            .map(|&s| {
+                let n = (s as f64) / (i16::MAX as f64);
+                n * n
+            })
+            .sum();
+        let rms = (sum_sq / samples.len() as f64).sqrt();
+        20.0 * rms.max(1e-12).log10()
+    }
+
+    /// Build a full-scale-fraction sine tone: `secs` seconds at 48 kHz,
+    /// amplitude `amp` (0..1 of full scale), 220 Hz.
+    fn sine_48k(secs: f64, amp: f64) -> Vec<i16> {
+        let sr = 48_000.0;
+        let n = (secs * sr) as usize;
+        (0..n)
+            .map(|i| {
+                let t = i as f64 / sr;
+                let v = amp * (2.0 * std::f64::consts::PI * 220.0 * t).sin();
+                (v * i16::MAX as f64).round().clamp(i16::MIN as f64, i16::MAX as f64) as i16
+            })
+            .collect()
+    }
+
+    #[test]
+    fn normalize_silence_is_unchanged_and_no_gain_blowup() {
+        // All-silence (or near-silence below the gate) must NOT be boosted:
+        // every block is below the −40 dBFS gate, so there's no measurable
+        // loudness → gain stays 1.0 and the samples pass through untouched.
+        let samples: Vec<i16> = vec![0i16; 48_000]; // 1 s of digital silence
+        let src = write_test_wav("norm-silence-in", 48_000, &samples);
+        let dst = write_test_wav("norm-silence-out", 48_000, &[]);
+        let report = normalize_wav_loudness(&src, &dst).unwrap();
+        let got = read_test_wav_samples(&dst);
+        assert_eq!(got, samples, "silence must be untouched");
+        assert!(
+            (report.gain - 1.0).abs() < 1e-9,
+            "silence gain must be exactly 1.0 (no blow-up), got {}",
+            report.gain
+        );
+        let _ = std::fs::remove_file(&src);
+        let _ = std::fs::remove_file(&dst);
+    }
+
+    #[test]
+    fn normalize_quiet_speech_is_boosted_toward_target() {
+        // A quiet tone should be boosted UP toward the −16 dBFS target: the
+        // required gain must stay under the +12 dB (MAX_GAIN) clamp so it can
+        // actually reach the target. amp 0.06 → RMS ≈ −27.4 dBFS, needing
+        // ≈+11.4 dB (< clamp) to land at −16 dBFS.
+        let samples = sine_48k(1.0, 0.06);
+        let src = write_test_wav("norm-quiet-in", 48_000, &samples);
+        let dst = write_test_wav("norm-quiet-out", 48_000, &[]);
+        let report = normalize_wav_loudness(&src, &dst).unwrap();
+        let got = read_test_wav_samples(&dst);
+        assert!(report.gain > 1.5, "quiet input should be boosted, gain={}", report.gain);
+        let out_rms = rms_dbfs(&got);
+        assert!(
+            (out_rms - (-16.0)).abs() < 1.5,
+            "post-normalization RMS should land near −16 dBFS, got {out_rms}"
+        );
+        let _ = std::fs::remove_file(&src);
+        let _ = std::fs::remove_file(&dst);
+    }
+
+    #[test]
+    fn normalize_hot_signal_is_attenuated() {
+        // A hot tone (RMS well above −16 dBFS target) should be turned DOWN:
+        // applied gain < 1 and the output RMS moves toward the target.
+        let samples = sine_48k(1.0, 0.9); // amp 0.9 → RMS ≈ −4 dBFS (hot)
+        let src = write_test_wav("norm-hot-in", 48_000, &samples);
+        let dst = write_test_wav("norm-hot-out", 48_000, &[]);
+        let report = normalize_wav_loudness(&src, &dst).unwrap();
+        let got = read_test_wav_samples(&dst);
+        assert!(report.gain < 1.0, "hot input should be attenuated, gain={}", report.gain);
+        let in_rms = rms_dbfs(&samples);
+        let out_rms = rms_dbfs(&got);
+        assert!(out_rms < in_rms, "hot output RMS ({out_rms}) should be lower than input ({in_rms})");
+        let _ = std::fs::remove_file(&src);
+        let _ = std::fs::remove_file(&dst);
+    }
+
+    #[test]
+    fn normalize_peaks_never_exceed_ceiling() {
+        // After the soft-knee limiter at −1 dBFS, no output sample may exceed
+        // the ceiling (−1 dBFS ≈ 0.891 of full scale). Use a quiet input so
+        // the big normalization gain would blow past full scale WITHOUT the
+        // limiter — proving the limiter, not luck, holds the ceiling.
+        let samples = sine_48k(1.0, 0.03);
+        let src = write_test_wav("norm-ceil-in", 48_000, &samples);
+        let dst = write_test_wav("norm-ceil-out", 48_000, &[]);
+        normalize_wav_loudness(&src, &dst).unwrap();
+        let got = read_test_wav_samples(&dst);
+        let peak = peak_dbfs_frac(&got);
+        // −1 dBFS ceiling as a fraction of full scale, plus a tiny epsilon for
+        // i16 rounding.
+        let ceiling = 10.0_f64.powf(-1.0 / 20.0);
+        assert!(
+            peak <= ceiling + 1e-3,
+            "output peak {peak} exceeded the −1 dBFS ceiling {ceiling}"
+        );
+        let _ = std::fs::remove_file(&src);
+        let _ = std::fs::remove_file(&dst);
+    }
+
+    #[test]
+    fn normalize_unity_gain_round_trips_i16() {
+        // A signal already AT the target with peaks below the ceiling should
+        // pass through with (near-)unity gain and no limiting, so the i16
+        // round-trip is essentially lossless — a sanity check that the DSP
+        // isn't corrupting samples when there's nothing to do. Amp 0.224 →
+        // RMS = 0.224/√2 ≈ 0.158 ≈ −16 dBFS (the target), peak 0.224 (well
+        // under the −1 dBFS ≈ 0.891 ceiling).
+        let samples = sine_48k(1.0, 0.224);
+        let src = write_test_wav("norm-unity-in", 48_000, &samples);
+        let dst = write_test_wav("norm-unity-out", 48_000, &[]);
+        let report = normalize_wav_loudness(&src, &dst).unwrap();
+        let got = read_test_wav_samples(&dst);
+        assert!(
+            (report.gain - 1.0).abs() < 0.15,
+            "signal already at target should get ~unity gain, got {}",
+            report.gain
+        );
+        assert_eq!(got.len(), samples.len(), "sample count must be preserved");
+        // Per-sample deviation stays tiny (near-unity gain + i16 quantization).
+        let max_dev = samples
+            .iter()
+            .zip(got.iter())
+            .map(|(&a, &b)| (a as i32 - b as i32).abs())
+            .max()
+            .unwrap_or(0);
+        assert!(max_dev <= 2048, "round-trip drift too large: {max_dev}");
         let _ = std::fs::remove_file(&src);
         let _ = std::fs::remove_file(&dst);
     }

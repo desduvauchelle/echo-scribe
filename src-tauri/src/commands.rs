@@ -4309,6 +4309,9 @@ fn record_rendered_export(
 ///     POST-TRIM ms time base (the frontend shifts them via `shiftRangesForTrim`
 ///     so they already line up with the trimmed WAV). Malformed / unparseable
 ///     → logged `warn!` and skipped (retiming is dropped, export never fails).
+///   - `x-normalize-loudness` (optional) — `"true"`/`"1"` enables the loudness
+///     normalization polish pass; anything else / absent = off. Any failure of
+///     the pass degrades to un-normalized audio + `warn!` (never fails export).
 ///
 /// Flow (mirrors `run_denoise`'s staged temp-file orchestration; every failure
 /// path cleans up ALL temps):
@@ -4326,6 +4329,10 @@ fn record_rendered_export(
 ///      genuinely unsorted/overlapping ranges) FAILS the export with a
 ///      friendly message instead of muxing un-retimed audio onto
 ///      already-retimed video, which would silently desync A/V.
+///   4b. If `x-normalize-loudness` is set, loudness-normalize the (trimmed +
+///       retimed) WAV — AFTER retime so the measured level is the muxed audio.
+///       FAIL-SAFE: any error degrades to the un-normalized WAV + `warn!`
+///       (unlike retime, skipping this causes no A/V desync).
 ///   5. `mux_audio(temp video, wav, <id>.rendered.mp4)`.
 ///   6. Merge the "rendered" exports entry (replace-not-duplicate).
 #[tauri::command]
@@ -4379,6 +4386,18 @@ pub async fn finalize_rendered_recording(
         })
         .filter(|ranges| !ranges.is_empty());
 
+    // Optional loudness normalization (Task 4). Defensive parse mirroring the
+    // speed-ranges header: absent / not UTF-8 / anything other than the literal
+    // "true" → false (feature off). We never fail the export on a malformed
+    // header — normalization is a best-effort polish layer.
+    let normalize_loudness: bool = request
+        .headers()
+        .get("x-normalize-loudness")
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .map(|s| s.eq_ignore_ascii_case("true") || s == "1")
+        .unwrap_or(false);
+
     // Copy the render bytes out of the borrowed request before any await.
     let bytes: Vec<u8> = match request.body() {
         tauri::ipc::InvokeBody::Raw(b) => b.to_vec(),
@@ -4416,6 +4435,7 @@ pub async fn finalize_rendered_recording(
     let wav_full = dir.join(format!("{id}.render-audio.wav"));
     let wav_trim = dir.join(format!("{id}.render-audio-trim.wav"));
     let wav_speed = dir.join(format!("{id}.render-audio-speed.wav"));
+    let wav_norm = dir.join(format!("{id}.render-audio-norm.wav"));
     let out = dir.join(format!("{id}.rendered.mp4"));
 
     // Cleanup helper: remove every temp we might have created. `out` is the
@@ -4425,6 +4445,7 @@ pub async fn finalize_rendered_recording(
         let _ = std::fs::remove_file(&wav_full);
         let _ = std::fs::remove_file(&wav_trim);
         let _ = std::fs::remove_file(&wav_speed);
+        let _ = std::fs::remove_file(&wav_norm);
     };
 
     // 1. Write the render bytes to the temp video file.
@@ -4530,7 +4551,48 @@ pub async fn finalize_rendered_recording(
         audio_for_mux
     };
 
-    // 4. Mux the (possibly trimmed + retimed) audio into the render video → out.
+    // 3c. Optionally loudness-normalize the (trimmed + retimed) audio (Task 4).
+    // Runs AFTER retime so the level measured is the audio that will actually be
+    // muxed. FAIL-SAFE: normalization is a polish step, so ANY failure (WAV read,
+    // DSP, write, task panic) degrades to the un-normalized audio + `warn!` — it
+    // must NEVER fail the export the way a retime error does. Unlike retime,
+    // skipping normalization causes no A/V desync (same sample timing), so a
+    // silent fallback here is safe.
+    let audio_for_mux = if normalize_loudness {
+        let audio_in = audio_for_mux.clone();
+        let wav_norm_c = wav_norm.clone();
+        let normalized = tokio::task::spawn_blocking(move || {
+            crate::screenrec::normalize_wav_loudness(&audio_in, &wav_norm_c)
+        })
+        .await;
+        match normalized {
+            Ok(Ok(report)) => {
+                info!(
+                    target: "screenrec",
+                    rec = %id,
+                    measured_dbfs = report.measured_dbfs,
+                    target_dbfs = report.target_dbfs,
+                    gain = report.gain,
+                    limited = report.limited,
+                    samples = report.sample_count,
+                    "finalize: normalized audio loudness"
+                );
+                wav_norm.clone()
+            }
+            Ok(Err(e)) => {
+                warn!(target: "screenrec", rec = %id, error = %e, "finalize: loudness normalization failed; muxing un-normalized audio");
+                audio_for_mux
+            }
+            Err(_) => {
+                warn!(target: "screenrec", rec = %id, "finalize: loudness normalization task panicked; muxing un-normalized audio");
+                audio_for_mux
+            }
+        }
+    } else {
+        audio_for_mux
+    };
+
+    // 4. Mux the (possibly trimmed + retimed + normalized) audio into video → out.
     let temp_vid_c = temp_vid.clone();
     let audio_c = audio_for_mux.clone();
     let out_c = out.clone();

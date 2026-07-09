@@ -1265,13 +1265,18 @@ export const importEditorBackground = (
  *  `speedRanges` are the POST-TRIM-time speed segments (already shifted via
  *  `shiftRangesForTrim`) that Rust applies to the trimmed WAV; omit/empty for
  *  no retiming. Contract: Rust never re-derives the trim offset — it trusts the
- *  ranges are already in the trimmed audio's time base. Returns the updated
- *  row. */
+ *  ranges are already in the trimmed audio's time base.
+ *
+ *  `normalizeLoudness` toggles the loudness-normalization polish pass (gated-RMS
+ *  toward −16 dBFS + soft-knee limiter) Rust applies AFTER retime, pre-mux; it's
+ *  a best-effort step (any Rust-side failure degrades to un-normalized audio, so
+ *  it never fails the export). Only sent when `true`. Returns the updated row. */
 export const finalizeRenderedRecording = (
   id: string,
   bytes: Uint8Array,
   trim?: { startMs: number; endMs: number } | null,
   speedRanges?: { startMs: number; endMs: number; rate: number }[] | null,
+  normalizeLoudness?: boolean,
 ): Promise<RecordingRow> => {
   const headers: Record<string, string> = { "x-recording-id": id };
   if (trim) {
@@ -1286,6 +1291,9 @@ export const finalizeRenderedRecording = (
         rate: r.rate,
       })),
     );
+  }
+  if (normalizeLoudness) {
+    headers["x-normalize-loudness"] = "true";
   }
   return invoke("finalize_rendered_recording", bytes, { headers });
 };

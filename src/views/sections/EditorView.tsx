@@ -735,6 +735,10 @@ export function EditorView({
   const setKeystrokesAllKeys = (allKeys: boolean) =>
     setProject((p) => ({ ...p, keystrokes: { ...p.keystrokes, allKeys } }));
 
+  // ---- Audio ----------------------------------------------------------------
+  const setNormalizeLoudness = (normalizeLoudness: boolean) =>
+    setProject((p) => ({ ...p, audio: { ...p.audio, normalizeLoudness } }));
+
   // ---- Captions -------------------------------------------------------------
   // Gated on the recording actually having audio to transcribe (same evidence
   // the backend's `generate_captions` command itself requires — a mic or
@@ -1458,6 +1462,7 @@ export function EditorView({
         bytes,
         clamped,
         shiftedSpeed,
+        proj.audio.normalizeLoudness,
       );
 
       setExportedRevealId(recording.id);
@@ -2318,6 +2323,37 @@ export function EditorView({
                 ) : null}
               </>
             )}
+          </div>
+
+          {/* Audio section: loudness normalization polish pass (Task 4).
+              Gated on the recording having an audio source — there's nothing
+              to normalize on a silent screen capture. The toggle writes
+              `project.audio.normalizeLoudness`, saved via the same debounced
+              project path as every other section; Rust applies the gated-RMS
+              normalization (toward −16 dBFS, soft-knee limited at −1 dBFS)
+              during export as a best-effort step. */}
+          <h3 className="mb-4 mt-6 border-t border-line pt-4 text-[13px] font-semibold">
+            Audio
+          </h3>
+          <div
+            title={audioAvailable ? undefined : "This recording has no audio"}
+            className={audioAvailable ? "" : "opacity-50"}
+          >
+            <label className="mb-1 flex cursor-pointer items-center gap-2 text-[13px]">
+              <input
+                type="checkbox"
+                checked={project.audio.normalizeLoudness}
+                disabled={!audioAvailable}
+                onChange={(e) => setNormalizeLoudness(e.target.checked)}
+                className="accent-accent disabled:opacity-50"
+              />
+              Normalize loudness
+            </label>
+            <p className="text-[11px] leading-snug text-muted/80">
+              {audioAvailable
+                ? "Evens out the volume toward a consistent level on export."
+                : "This recording has no audio."}
+            </p>
           </div>
 
           {/* Webcam section: only rendered when the recording was captured with
