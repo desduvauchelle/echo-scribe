@@ -72,11 +72,13 @@ pub fn email_from_id_token(id_token: &str) -> Option<String> {
 
 use serde::Deserialize;
 
+#[cfg(target_os = "macos")]
 fn keychain_entry() -> Result<keyring::Entry, String> {
     keyring::Entry::new(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT).map_err(|e| e.to_string())
 }
 
 /// Store (or replace) the long-lived refresh token in the macOS Keychain.
+#[cfg(target_os = "macos")]
 pub fn store_refresh_token(token: &str) -> Result<(), String> {
     match keychain_entry()?.set_password(token) {
         Ok(()) => {
@@ -90,7 +92,13 @@ pub fn store_refresh_token(token: &str) -> Result<(), String> {
     }
 }
 
+#[cfg(not(target_os = "macos"))]
+pub fn store_refresh_token(_token: &str) -> Result<(), String> {
+    Err("Google Drive credential storage is not supported on this platform".to_string())
+}
+
 /// Load the refresh token, or `None` if not connected.
+#[cfg(target_os = "macos")]
 pub fn load_refresh_token() -> Option<String> {
     let entry = match keychain_entry() {
         Ok(e) => e,
@@ -111,7 +119,13 @@ pub fn load_refresh_token() -> Option<String> {
     }
 }
 
+#[cfg(not(target_os = "macos"))]
+pub fn load_refresh_token() -> Option<String> {
+    None
+}
+
 /// Delete the refresh token (disconnect). Already-absent is treated as success.
+#[cfg(target_os = "macos")]
 pub fn delete_refresh_token() -> Result<(), String> {
     match keychain_entry()?.delete_credential() {
         Ok(()) => {
@@ -124,6 +138,11 @@ pub fn delete_refresh_token() -> Result<(), String> {
             Err(e.to_string())
         }
     }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn delete_refresh_token() -> Result<(), String> {
+    Ok(())
 }
 
 #[derive(Debug, Deserialize)]

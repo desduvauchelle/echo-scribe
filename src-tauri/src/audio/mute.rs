@@ -8,6 +8,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 
+#[cfg(target_os = "macos")]
 use tracing::warn;
 
 static MUTE_WHILE_RECORDING: AtomicBool = AtomicBool::new(false);

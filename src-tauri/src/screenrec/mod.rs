@@ -202,6 +202,7 @@ pub fn list_cameras() -> Result<Cameras, String> {
 /// Returns `None` if the display id is no longer valid (e.g. unplugged
 /// between listing and picking) — `CGDisplayBounds` returns a zero rect for
 /// an invalid id, treated here as "not found" rather than a valid 0×0 display.
+#[cfg(target_os = "macos")]
 pub fn display_bounds(display_id: u32) -> Option<(f64, f64, f64, f64)> {
     let display = core_graphics::display::CGDisplay::new(display_id);
     let bounds = display.bounds();
@@ -209,6 +210,11 @@ pub fn display_bounds(display_id: u32) -> Option<(f64, f64, f64, f64)> {
         return None;
     }
     Some((bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height))
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn display_bounds(_display_id: u32) -> Option<(f64, f64, f64, f64)> {
+    None
 }
 
 /// Extract a recording's audio track to a mono WAV at `out_wav`, resampled to
@@ -1265,12 +1271,26 @@ impl ScreenrecHandle {
     /// flips only when the sidecar confirms via a `paused` event. Logs the send
     /// result. No-op with a friendly error if the child already exited.
     pub fn pause(&self) -> Result<(), String> {
-        self.signal(libc::SIGUSR1, "pause")
+        #[cfg(unix)]
+        {
+            self.signal(libc::SIGUSR1, "pause")
+        }
+        #[cfg(not(unix))]
+        {
+            self.signal(0, "pause")
+        }
     }
 
     /// Ask the sidecar to resume (SIGUSR2). See [`pause`](Self::pause).
     pub fn resume(&self) -> Result<(), String> {
-        self.signal(libc::SIGUSR2, "resume")
+        #[cfg(unix)]
+        {
+            self.signal(libc::SIGUSR2, "resume")
+        }
+        #[cfg(not(unix))]
+        {
+            self.signal(0, "resume")
+        }
     }
 
     /// Send `sig` to the sidecar, logging the outcome. Shared by pause/resume.
@@ -1594,6 +1614,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "macos")]
     #[ignore = "requires an active display/WindowServer (fails when screens are asleep)"]
     fn display_bounds_active_display_has_positive_size() {
         // Every CI/dev host running this test has at least one active

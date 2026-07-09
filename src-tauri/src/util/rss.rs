@@ -11,6 +11,7 @@
 /// macOS `getrusage` reports `ru_maxrss` in **bytes** (Linux reports KiB).
 /// This is a high-water mark — it never decreases — which is exactly what
 /// we want for "did this path ever balloon".
+#[cfg(unix)]
 pub fn max_rss_bytes() -> u64 {
     let mut usage: libc::rusage = unsafe { std::mem::zeroed() };
     let rc = unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut usage) };
@@ -23,6 +24,11 @@ pub fn max_rss_bytes() -> u64 {
     } else {
         raw * 1024
     }
+}
+
+#[cfg(not(unix))]
+pub fn max_rss_bytes() -> u64 {
+    0
 }
 
 /// Current resident set size of this process, in bytes. macOS only — uses Mach
@@ -82,6 +88,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn max_rss_is_nonzero_and_grows_with_allocation() {
         let before = max_rss_bytes();
         // Touch ~64 MiB so the peak provably moves.

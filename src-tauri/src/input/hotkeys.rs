@@ -28,6 +28,7 @@
 //!    Other events pass through unchanged.
 
 use std::sync::{Arc, RwLock};
+#[cfg(target_os = "macos")]
 use std::thread;
 
 use rdev::Key;
@@ -649,4 +650,3 @@ mod tests {
         assert_eq!(events, vec![(0, HotkeyEvent::Released)]);
     }
 }
-
