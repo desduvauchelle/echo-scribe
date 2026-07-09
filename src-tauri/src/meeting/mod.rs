@@ -7,6 +7,7 @@ use std::path::PathBuf;
 pub mod detector;
 pub mod grammar;
 pub mod guidance;
+pub mod guide_review;
 pub mod pipeline;
 pub mod recorder;
 pub mod stitch;
@@ -332,6 +333,35 @@ impl MeetingManager {
                 }
             }
             Err(e) => tracing::warn!(target: "guide", ?e, "template snapshot serialize failed"),
+        }
+
+        // Create the guide-run row (status = pending). Survives crashes; the
+        // timeline + review fill in at stop. Stash the id on the engine so
+        // stop() can find the row for this guide.
+        {
+            let now = chrono::Utc::now().to_rfc3339();
+            let run = crate::db::meeting_guide_runs::GuideRunRow {
+                id: ulid::Ulid::new().to_string(),
+                meeting_id: meeting_id.clone(),
+                template_id: template.id.clone(),
+                template_name: template.name.clone(),
+                template_json: serde_json::to_string(&template).unwrap_or_else(|_| "{}".into()),
+                slot: engine.slot() as i64,
+                started_at: now.clone(),
+                timeline_json: None,
+                review_json: None,
+                status: "pending".into(),
+                error: None,
+                generated_at: None,
+                created_at: now,
+            };
+            engine.set_run_id(run.id.clone());
+            let db = self.db.clone();
+            if let Err(e) =
+                db.with_conn(move |c| crate::db::meeting_guide_runs::insert_guide_run(c, &run))
+            {
+                tracing::warn!(target: "guide", ?e, "insert guide run row failed");
+            }
         }
 
         let mode_str = match initial_mode {
@@ -864,6 +894,63 @@ impl MeetingManager {
                 Ok(())
             })
             .map_err(|e| MeetingError::Db(e.to_string()))?;
+
+        // Step 7.5: Persist each guide's timeline now (fast), then generate its
+        // review in the background so meeting completion isn't blocked by a
+        // multi-minute LLM pass. Reviews flip status pending → ready/failed.
+        {
+            let guide_engines: Vec<_> = active.guide_engines.lock().unwrap().clone();
+            for engine in &guide_engines {
+                let Some(run_id) = engine.run_id() else { continue };
+                let timeline = engine.drain_timeline();
+                if let Ok(tlj) = serde_json::to_string(&timeline) {
+                    let db = self.db.clone();
+                    let rid = run_id.clone();
+                    if let Err(e) = db.with_conn(move |c| {
+                        crate::db::meeting_guide_runs::update_guide_run_timeline(c, &rid, Some(tlj.as_str()))
+                    }) {
+                        tracing::warn!(target: "guide", ?e, "persist guide timeline failed");
+                    }
+                }
+
+                let db = self.db.clone();
+                let llm = self.llm.clone();
+                let app = self.app_handle.clone();
+                let template = engine.template_snapshot();
+                let segs = segments.clone();
+                let mid = id.clone();
+                let rid = run_id.clone();
+                tokio::spawn(async move {
+                    match crate::meeting::guide_review::generate_review(llm, &template, &segs).await {
+                        Ok(review) => {
+                            let rj = serde_json::to_string(&review).unwrap_or_else(|_| "{}".into());
+                            let gen_at = chrono::Utc::now().to_rfc3339();
+                            let rid2 = rid.clone();
+                            if let Err(e) = db.with_conn(move |c| {
+                                crate::db::meeting_guide_runs::update_guide_run_review(
+                                    c, &rid2, Some(rj.as_str()), "ready", Some(gen_at.as_str()),
+                                )
+                            }) {
+                                tracing::error!(target: "guide", ?e, run = %rid, "persist guide review failed");
+                            } else {
+                                tracing::info!(target: "guide", run = %rid, overall = %review.overall, criteria = review.scorecard.len(), "[guide-review] ready");
+                            }
+                        }
+                        Err(e) => {
+                            tracing::error!(target: "guide", run = %rid, error = %e, "[guide-review] failed");
+                            let rid2 = rid.clone();
+                            let err = e.clone();
+                            if let Err(write_err) = db.with_conn(move |c| {
+                                crate::db::meeting_guide_runs::set_guide_run_status(c, &rid2, "failed", Some(err.as_str()))
+                            }) {
+                                tracing::warn!(target: "guide", e = ?write_err, run = %rid, "guide run status write failed");
+                            }
+                        }
+                    }
+                    let _ = app.emit("guide-review-updated", serde_json::json!({ "meetingId": mid, "runId": rid }));
+                });
+            }
+        }
 
         // Step 8: Emit "complete" event and hide the overlay.
         let _ = self.app_handle.emit(

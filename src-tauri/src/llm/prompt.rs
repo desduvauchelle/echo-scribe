@@ -545,6 +545,21 @@ mod tests {
         assert!(sys_content.contains("Tone: formal. Duration: 45m, platform: Google Meet. Be concise."), "got: {sys_content}");
         assert!(sys_content.contains("Produce a JSON object with exactly these fields:"), "got: {sys_content}");
     }
+
+    #[test]
+    fn guide_review_prompt_numbers_criteria_and_embeds_goal() {
+        let (system, user) = build_guide_review_prompt(
+            "Listen more than you speak.",
+            "speak last\n\ngive credit by name\n",
+            "You: hi\nThem: hello\n",
+        );
+        let sys = system.unwrap();
+        assert!(sys.contains("Listen more than you speak."));
+        assert!(sys.contains("1. speak last"));
+        assert!(sys.contains("2. give credit by name")); // blank line skipped, renumbered
+        assert!(sys.contains("\"scorecard\""));
+        assert!(user.contains("You: hi"));
+    }
 }
 
 /// One key point the LLM is asked to track during a guided session.
@@ -589,6 +604,37 @@ pub fn build_guidance_prompt(
     let user = format!(
         "Goal: {goal}\n\nNotes:\n{notes}\n\nPrevious points (carry ids forward):\n{prior}\n\nRecent transcript:\n{rolling_transcript}\n\nReturn the JSON now."
     );
+    (Some(system), user)
+}
+
+/// Build the prompt for a whole-transcript guide review: coaching scorecard
+/// (one graded criterion per non-empty `notes` line) + 1-2 emergent
+/// observations + a synthesis vs the `goal`. Parsed loosely into `GuideReview`.
+pub fn build_guide_review_prompt(
+    goal: &str,
+    notes: &str,
+    transcript: &str,
+) -> (Option<String>, String) {
+    let criteria: Vec<&str> = notes.lines().map(|l| l.trim()).filter(|l| !l.is_empty()).collect();
+    let numbered = criteria
+        .iter()
+        .enumerate()
+        .map(|(i, c)| format!("{}. {}", i + 1, c))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let system = format!(
+        "You are a communication coach reviewing a meeting transcript. The user is the speaker labeled 'You'; the other side is labeled 'Them'. \
+Assess how well the USER met the objective, criterion by criterion, using only evidence from the transcript.\n\
+Objective: {goal}\n\
+Criteria:\n{numbered}\n\n\
+Produce a JSON object with exactly these fields:\n\
+- \"overall\": one of \"strong\", \"mixed\", \"weak\".\n\
+- \"synthesis\": a 2-4 sentence narrative of how the conversation went against the objective.\n\
+- \"scorecard\": an array with ONE object per criterion above, in the same order: {{ \"criterion\": the criterion text, \"verdict\": \"met\" | \"partial\" | \"missed\", \"evidence\": a short quote or paraphrase from the transcript, \"why\": a one-line assessment, \"tip\": one concrete thing to try next time (empty string when verdict is \"met\") }}.\n\
+- \"emergent\": an array of 1-2 objects {{ \"observation\": something notable NOT covered by the criteria, \"evidence\": a short quote or paraphrase }}.\n\
+Output JSON only — no preamble, no commentary, no markdown fences."
+    );
+    let user = format!("Transcript:\n\n{transcript}\n\nProduce the JSON now.");
     (Some(system), user)
 }
 

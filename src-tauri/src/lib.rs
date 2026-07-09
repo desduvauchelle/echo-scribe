@@ -331,6 +331,9 @@ pub fn run() {
             commands::guide_trigger_now,
             commands::attach_guide,
             commands::detach_guide,
+            commands::list_guide_runs,
+            commands::guide_runs_for_template,
+            commands::regenerate_guide_review,
             commands::get_live_transcript,
             commands::get_active_guides,
             commands::show_meeting_hud,
@@ -579,6 +582,14 @@ pub fn run() {
                 if !orphans.is_empty() {
                     crate::meeting::finalize_orphans_as_failed(db_ref, &orphans);
                     let _ = app.emit("meetings-recovered", serde_json::json!({"ids": orphans}));
+                }
+
+                // Reap guide runs left 'pending' by an interrupted review so
+                // the UI can offer Retry instead of a permanent spinner.
+                match db_ref.with_conn(|c| crate::db::meeting_guide_runs::fail_interrupted_pending_runs(c)) {
+                    Ok(n) if n > 0 => tracing::info!(target: "guide", reaped = n, "marked interrupted guide runs as failed"),
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!(target: "guide", ?e, "reaping interrupted guide runs failed"),
                 }
             }
 

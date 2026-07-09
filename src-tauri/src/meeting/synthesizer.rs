@@ -60,7 +60,7 @@ pub fn flatten_transcript(segments: &[Segment]) -> String {
 /// inside the typical 8192-token context window.
 const MAX_TRANSCRIPT_BYTES: usize = 18_000;
 
-async fn condense_transcript(llm: &impl crate::llm::LlmGenerator, text: &str) -> Result<String, String> {
+pub(crate) async fn condense_transcript(llm: &impl crate::llm::LlmGenerator, text: &str) -> Result<String, String> {
     let mut chunks = Vec::new();
     let mut current_chunk = String::new();
     

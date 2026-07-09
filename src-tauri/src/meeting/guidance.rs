@@ -49,6 +49,17 @@ pub struct DerivedPoint {
     pub status: String,
 }
 
+/// One persisted snapshot of the live guidance, captured when the key points
+/// or suggestions changed. Stored (JSON) on the meeting's guide run so the
+/// coaching stream can be reviewed after the call.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TimelineEntry {
+    /// RFC3339 wall-clock time the entry was captured.
+    pub at: String,
+    pub key_points: Vec<DerivedPoint>,
+    pub suggestions: Vec<String>,
+}
+
 /// One LLM response, mirrored exactly to the JSON schema we ask for.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct GuidanceResponse {
@@ -124,6 +135,8 @@ struct Inner {
     /// gate so the loop can't enqueue over itself.
     in_flight: AtomicBool,
     state: Mutex<State>,
+    /// The `meeting_guide_runs.id` this engine writes its timeline/review to.
+    run_id: Mutex<Option<String>>,
 }
 
 #[derive(Default)]
@@ -137,6 +150,43 @@ struct State {
     prior_points: Vec<DerivedPoint>,
     /// Last emitted suggestions (used for stale-but-display semantics).
     last_suggestions: Vec<String>,
+    /// Deduped live-guidance history, flushed to the DB at meeting stop.
+    timeline: Vec<TimelineEntry>,
+}
+
+/// Max timeline entries kept per guide run (deduped changes over the call).
+const TIMELINE_CAP: usize = 200;
+
+/// Append a timeline entry only if the key points or suggestions differ from
+/// the last entry. `now` is an RFC3339 timestamp supplied by the caller.
+fn push_timeline_if_changed(st: &mut State, now: &str, key_points: &[DerivedPoint], suggestions: &[String]) {
+    let changed = st
+        .timeline
+        .last()
+        .map_or(true, |e| e.key_points.as_slice() != key_points || e.suggestions.as_slice() != suggestions);
+    if changed {
+        st.timeline.push(TimelineEntry {
+            at: now.to_string(),
+            key_points: key_points.to_vec(),
+            suggestions: suggestions.to_vec(),
+        });
+    }
+}
+
+/// Keep the most recent `TIMELINE_CAP` entries; warn (no silent truncation)
+/// when the buffer overran. `meeting_id` is only for the log line.
+fn cap_timeline(all: Vec<TimelineEntry>, meeting_id: &str) -> Vec<TimelineEntry> {
+    if all.len() > TIMELINE_CAP {
+        warn!(
+            target: "guide",
+            meeting = %meeting_id,
+            dropped = all.len() - TIMELINE_CAP,
+            "[guide] timeline exceeded cap; keeping most recent {TIMELINE_CAP}"
+        );
+        all[all.len() - TIMELINE_CAP..].to_vec()
+    } else {
+        all
+    }
 }
 
 impl GuidanceEngine {
@@ -160,6 +210,7 @@ impl GuidanceEngine {
                 mode: Mutex::new(initial_mode),
                 in_flight: AtomicBool::new(false),
                 state: Mutex::new(State::default()),
+                run_id: Mutex::new(None),
             }),
         }
     }
@@ -229,6 +280,25 @@ impl GuidanceEngine {
     /// mid-meeting with the recent transcript so its first cycle has context.
     pub fn seed_rolling(&self, text: String) {
         self.inner.state.lock().unwrap().rolling = text;
+    }
+
+    /// The `meeting_guide_runs.id` this engine writes its timeline/review to.
+    /// Set by the meeting lifecycle right after the run row is inserted.
+    pub fn set_run_id(&self, id: String) {
+        *self.inner.run_id.lock().unwrap() = Some(id);
+    }
+
+    pub fn run_id(&self) -> Option<String> {
+        self.inner.run_id.lock().unwrap().clone()
+    }
+
+    /// Take the accumulated timeline, capped at the most recent 200 entries.
+    pub fn drain_timeline(&self) -> Vec<TimelineEntry> {
+        let all = {
+            let mut st = self.inner.state.lock().unwrap();
+            std::mem::take(&mut st.timeline)
+        };
+        cap_timeline(all, &self.inner.meeting_id)
     }
 
     /// Run one cycle. Returns immediately if a cycle is already in flight
@@ -309,7 +379,9 @@ async fn run_one_cycle(inner: &Inner) -> Result<(), String> {
         match serde_json::from_str::<GuidanceResponse>(&trimmed) {
             Ok(resp) => {
                 emit_update(inner, &resp);
+                let now = chrono::Utc::now().to_rfc3339();
                 let mut st = inner.state.lock().unwrap();
+                push_timeline_if_changed(&mut st, &now, &resp.key_points, &resp.suggestions);
                 st.prior_points = resp.key_points.clone();
                 st.last_suggestions = resp.suggestions.clone();
                 info!(
@@ -331,7 +403,7 @@ async fn run_one_cycle(inner: &Inner) -> Result<(), String> {
 /// Crude {...} isolator that handles a leading prose preamble or a markdown
 /// code fence by returning the substring from the first `{` to the matching
 /// closing `}` (counting nesting). Returns `None` if no balanced object.
-fn isolate_json_object(s: &str) -> Option<String> {
+pub(crate) fn isolate_json_object(s: &str) -> Option<String> {
     let bytes = s.as_bytes();
     let start = bytes.iter().position(|&b| b == b'{')?;
     let mut depth = 0i32;
@@ -479,5 +551,33 @@ mod tests {
         assert_eq!(next_free_slot(&[]), 0);
         assert_eq!(next_free_slot(&[0]), 1);
         assert_eq!(next_free_slot(&[1]), 0);
+    }
+
+    #[test]
+    fn timeline_dedups_identical_consecutive_entries() {
+        let mut st = State::default();
+        let kp = vec![DerivedPoint { id: "a".into(), label: "L".into(), status: "open".into() }];
+        // Only push when changed vs the last entry (what run_one_cycle does).
+        push_timeline_if_changed(&mut st, "t1", &kp, &["s1".to_string()]);
+        push_timeline_if_changed(&mut st, "t2", &kp, &["s1".to_string()]); // identical → skipped
+        push_timeline_if_changed(&mut st, "t3", &kp, &["s2".to_string()]); // suggestions changed → pushed
+        assert_eq!(st.timeline.len(), 2);
+        assert_eq!(st.timeline[0].suggestions, vec!["s1".to_string()]);
+        assert_eq!(st.timeline[1].suggestions, vec!["s2".to_string()]);
+    }
+
+    #[test]
+    fn cap_timeline_keeps_most_recent_200() {
+        let all: Vec<TimelineEntry> = (0..250u64)
+            .map(|i| TimelineEntry { at: format!("t{i}"), key_points: vec![], suggestions: vec![] })
+            .collect();
+        let capped = cap_timeline(all, "m");
+        assert_eq!(capped.len(), 200);
+        assert_eq!(capped[0].at, "t50"); // dropped the oldest 50
+
+        let small: Vec<TimelineEntry> = (0..3u64)
+            .map(|i| TimelineEntry { at: format!("t{i}"), key_points: vec![], suggestions: vec![] })
+            .collect();
+        assert_eq!(cap_timeline(small, "m").len(), 3); // under cap → untouched
     }
 }
