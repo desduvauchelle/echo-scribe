@@ -79,6 +79,8 @@ import {
   MOTION_BLUR_SAMPLES,
   outputLayout,
   smoothCursorPath,
+  webcamSceneAt,
+  webcamShrinkFactor,
   zoomStateAt,
   type Appearance,
   type CursorSample,
@@ -539,17 +541,41 @@ export function EditorView({
     // readyState anyway to avoid drawing a blank/black bubble on first paint.
     const wv = webcamVideoRef.current;
     if (wv && wv.playbackRate !== rate) wv.playbackRate = rate;
+    // Webcam frame is drawable when the hidden element has decoded data. Shared
+    // between the "cut to camera" scene layout and the corner bubble (M6). Uses
+    // the SAME shared `webcamSceneAt` / `webcamShrinkFactor` the export uses, so
+    // preview and rendered file render scenes/shrink/mirror identically.
+    const wcReady = !!wv && wv.readyState >= 2 && wv.videoWidth > 0;
+    const scenes = p.webcam?.scenes ?? [];
+    const mirror = !!p.webcam?.mirror;
+    // Scene active this frame: a scene covers the SOURCE time AND a webcam frame
+    // is decodable. When the frame isn't ready, `scene` stays null → the preview
+    // falls back to the normal screen layout (never black), matching export.
+    const scene: OverlayState["scene"] =
+      wcReady && scenes.length > 0 && webcamSceneAt(tMsSource, scenes)
+        ? { frame: wv!, mirror }
+        : null;
+    // Corner bubble: shown, frame ready, and NOT superseded by a scene. Auto-
+    // shrink follows the frame's primary zoom scale at tMsSource (one value per
+    // frame, stable across the blur sub-samples).
     const webcam: OverlayState["webcam"] =
-      p.webcam?.show && wv && wv.readyState >= 2 && wv.videoWidth > 0
+      p.webcam?.show && wcReady && !scene
         ? {
-            frame: wv,
+            frame: wv!,
             shape: p.webcam.shape,
             corner: p.webcam.corner,
             sizeFrac: p.webcam.sizeFrac,
+            scaleFactor:
+              p.webcam.autoShrink && blocks.length
+                ? webcamShrinkFactor(zoomStateAt(tMsSource, blocks).scale)
+                : 1,
+            mirror,
           }
         : null;
     const keystroke = keystrokeOverlayAt(tMsSource);
     const caption = captionOverlayAt(tMsSource);
+    // Motion blur collapses during a scene (zoom ignored ⇒ identical sub-samples).
+    const frameZoomSamples = scene ? [zoomSamples[0]] : zoomSamples;
     drawCompositeBlurred(
       ctx,
       video,
@@ -558,8 +584,8 @@ export function EditorView({
       outW,
       outH,
       appearance,
-      zoomSamples,
-      { cursor, webcam, keystroke, caption },
+      frameZoomSamples,
+      { cursor, webcam, keystroke, caption, scene },
       cursorDrawScale(p.cursor.scale, pxScale),
       bgImageRef.current,
     );
@@ -1505,10 +1531,15 @@ export function EditorView({
         durationMs,
         project: proj,
         bgImage,
-        // Webcam overlay: only when the recording HAS a webcam file AND the
-        // (snapshotted) project is showing it. The pipeline treats any webcam
-        // demux/decode failure as non-fatal (renders without the overlay).
-        webcamUrl: webcamSrc && proj.webcam?.show ? webcamSrc : null,
+        // Webcam overlay: pass the webcam file when the recording HAS one AND
+        // the (snapshotted) project either shows the bubble OR has at least one
+        // "cut to camera" scene (scenes render even with the bubble hidden —
+        // M6). `renderRecording` re-derives the same `show || scenes>0` gate;
+        // any webcam demux/decode failure is non-fatal (renders without it).
+        webcamUrl:
+          webcamSrc && (proj.webcam?.show || (proj.webcam?.scenes.length ?? 0) > 0)
+            ? webcamSrc
+            : null,
         webcamOffsetMs,
         onProgress: (p) => {
           setExportPhase(p.phase);

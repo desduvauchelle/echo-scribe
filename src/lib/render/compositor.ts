@@ -13,7 +13,7 @@
 import type { ZoomBlock, EventsHeader, RecEvent } from "../autoZoom";
 // `AspectPreset`/`CaptionSegment` are owned by editorProject.ts (part of the
 // persisted project schema); type-only import keeps zero runtime coupling.
-import type { AspectPreset, CaptionSegment } from "../editorProject";
+import type { AspectPreset, CaptionSegment, WebcamScene } from "../editorProject";
 import { keyLabel, modsLabel } from "../keycodes";
 
 export type Appearance = {
@@ -184,12 +184,32 @@ export type OverlayState = {
    *  out before an idle gap — the compositor multiplies it into the glyph +
    *  ripple opacity). null = no cursor to draw. */
   cursor: { x: number; y: number; clickAge: number | null; alpha: number } | null;
-  /** A webcam frame to composite as a corner PiP. null = no webcam. */
+  /** A webcam frame to composite as a corner PiP. null = no webcam (bubble off,
+   *  or no co-occurring webcam frame). Ignored while `scene` is active (a scene
+   *  replaces the whole layout — the bubble is not also drawn). */
   webcam: {
     frame: CanvasImageSource;
     shape: "circle" | "rounded";
     corner: string;
     sizeFrac: number;
+    /** Auto-shrink multiplier on the bubble size (`webcamShrinkFactor` of the
+     *  frame's primary zoom scale) — 1 when `autoShrink` is off, so the rect is
+     *  byte-identical to pre-M6. Applied inside `webcamRect`, corner-anchored. */
+    scaleFactor: number;
+    /** Flip the bubble horizontally (mirror) inside its clip. false pre-M6. */
+    mirror: boolean;
+  } | null;
+  /** A "cut to camera" scene active this frame (M6): the webcam frame is drawn
+   *  cover-cropped into the FULL content rect instead of the screen frame, and
+   *  the screen frame / cursor / keystroke badge / zoom are all suppressed
+   *  (captions still draw). null = not in a scene (normal layout). The CALLER
+   *  sets this non-null ONLY when a scene covers this SOURCE time AND a webcam
+   *  frame is available — so a null-frame instant falls back to the normal
+   *  screen layout automatically (never a black frame). */
+  scene: {
+    frame: CanvasImageSource;
+    /** Flip horizontally (mirror) inside the scene clip. Mirrors the bubble. */
+    mirror: boolean;
   } | null;
   /** The keystroke badge to draw this frame (label text + fade alpha), or
    *  null when no qualifying key event is in the display window. Callers
@@ -557,8 +577,66 @@ export function captionAt(tMs: number, segments: CaptionSegment[]): string | nul
   return tMs < seg.endMs ? seg.text : null;
 }
 
+/**
+ * The camera "cut to camera" scene active at SOURCE time `tMs`, given a
+ * recording's webcam scenes — or `null` when none covers it. Returns just the
+ * scene `id` (the caller needs only "are we in a scene, and which one"; the
+ * render treats every scene identically). Scenes are assumed non-overlapping
+ * and sorted ascending by `startMs` (the invariant `clampWebcamScenes`
+ * maintains — this function does not re-sort or de-overlap). Each scene is a
+ * half-open `[startMs, endMs)` window, mirroring `captionAt`: the start edge is
+ * inside, the end edge is not, so touching scenes resolve unambiguously to the
+ * later one at their shared boundary.
+ *
+ * Binary search: O(log n) largest index with `scenes[i].startMs <= tMs`, then a
+ * single check that `tMs` still falls before that scene's `endMs` (handles gaps
+ * between scenes, which are legal). Pure — no drawing, no globals. Both the
+ * preview (EditorView) and the export (renderPipeline) call this exact function
+ * so scenes render identically. Empty `scenes` → always null (pre-M6 projects
+ * render byte-identically).
+ */
+export function webcamSceneAt(tMs: number, scenes: WebcamScene[]): { id: string } | null {
+  if (scenes.length === 0) return null;
+
+  let lo = -1;
+  let a = 0;
+  let b = scenes.length - 1;
+  while (a <= b) {
+    const mid = (a + b) >> 1;
+    if (scenes[mid].startMs <= tMs) {
+      lo = mid;
+      a = mid + 1;
+    } else {
+      b = mid - 1;
+    }
+  }
+  if (lo < 0) return null;
+
+  const scene = scenes[lo];
+  return tMs < scene.endMs ? { id: scene.id } : null;
+}
+
 /** Margin (px, output space) between the webcam PiP and the frame edge. */
 const WEBCAM_MARGIN = 24;
+
+/** clamp `n` into [0, 1]. */
+function clamp01(n: number): number {
+  return n < 0 ? 0 : n > 1 ? 1 : n;
+}
+
+/**
+ * Auto-shrink multiplier for the webcam bubble given the frame's current zoom
+ * `scale`. `1 − 0.45 · clamp01((scale − 1)/(2 − 1))`: at no zoom (scale ≤ 1) the
+ * factor is 1 (bubble unshrunk); at ≥2× zoom it saturates at 0.55; between 1×
+ * and 2× it ramps linearly. Because `zoomStateAt`'s scale is already eased over
+ * the transition ramps, feeding it here makes the shrink animate for free.
+ * Pure math. Applied as a multiplier on the bubble size ONLY when
+ * `webcam.autoShrink` is on (the caller passes 1 otherwise, leaving the rect
+ * byte-identical to pre-M6).
+ */
+export function webcamShrinkFactor(zoomScale: number): number {
+  return 1 - 0.45 * clamp01((zoomScale - 1) / (2 - 1));
+}
 
 /**
  * Cover-fit ("aspect-fill") source-rect math: the largest centered
@@ -603,10 +681,19 @@ export function coverCrop(
 
 /**
  * Corner-anchored placement rect for the webcam picture-in-picture, in output
- * pixels. Width is `sizeFrac * outW`; height derives from the shape's aspect:
+ * pixels. Width is `sizeFrac * outW * scaleFactor`; height derives from the
+ * shape's aspect:
  *   - `circle`  → 1:1 (square; the caller masks it to a circle)
  *   - `rounded` → 4:3 (height = width * 3/4)
  * The rect sits `WEBCAM_MARGIN` px from the two edges of the chosen corner.
+ *
+ * `scaleFactor` (default 1) is the auto-shrink multiplier (`webcamShrinkFactor`)
+ * — applied to w AND h. Crucially the anchor stays the CORNER, not the center:
+ * x/y are re-derived from the margin against the SHRUNK size, so the bubble
+ * shrinks toward its corner (its far edge stays flush to the margin) rather than
+ * collapsing about its midpoint. At `scaleFactor = 1` the rect is byte-identical
+ * to the pre-M6 result (the arg is omitted on the no-shrink path).
+ *
  * Pure math — no drawing.
  */
 export function webcamRect(
@@ -615,8 +702,9 @@ export function webcamRect(
   corner: string,
   sizeFrac: number,
   shape: "circle" | "rounded" = "rounded",
+  scaleFactor: number = 1,
 ): { x: number; y: number; w: number; h: number } {
-  const w = sizeFrac * outW;
+  const w = sizeFrac * outW * scaleFactor;
   const h = shape === "circle" ? w : w * 0.75; // 1:1 for circle, 4:3 for rounded
   const right = corner === "br" || corner === "tr";
   const bottom = corner === "br" || corner === "bl";
@@ -1077,6 +1165,68 @@ export function cursorDrawScale(cursorScale: number, pxScale: number): number {
 }
 
 /**
+ * Cover-fill a webcam `frame` into the rect `x,y,w,h`, optionally mirrored
+ * (horizontal flip). Assumes the caller has ALREADY set up the destination clip
+ * path (circle / rounded-rect / content rect) and wrapped the call in
+ * save/restore — this only sets the flip transform and draws. Mirror is a
+ * negative-x scale about the rect's horizontal center (`translate(2x+w) →
+ * scale(-1,1)`), so the flip happens INSIDE the clip and the frame stays pinned
+ * to the same rect. Cover-crop keeps the camera un-stretched (center-cropped to
+ * the rect's aspect); a frame with unknown intrinsic size falls back to a plain
+ * stretch (mirrors the pre-M6 bubble behavior). Pure draw.
+ */
+function drawWebcamCover(
+  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+  frame: CanvasImageSource,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  mirror: boolean,
+): void {
+  if (mirror) {
+    // Reflect across the rect's vertical center line so the mirrored draw lands
+    // back on [x, x+w] (not off-canvas): x' = (2x + w) − x.
+    ctx.translate(2 * x + w, 0);
+    ctx.scale(-1, 1);
+  }
+  const iw = imgWidth(frame);
+  const ih = imgHeight(frame);
+  if (iw > 0 && ih > 0) {
+    const c = coverCrop(iw, ih, w, h);
+    ctx.drawImage(frame, c.sx, c.sy, c.sw, c.sh, x, y, w, h);
+  } else {
+    // Unknown intrinsic size (e.g. a not-yet-decoded VideoFrame) — plain stretch.
+    ctx.drawImage(frame, x, y, w, h);
+  }
+}
+
+/**
+ * Draw a "cut to camera" scene: the webcam frame cover-cropped into the full
+ * CONTENT rect (rounded by the appearance corner radius, optionally mirrored),
+ * replacing the screen frame. Background/padding are already painted by the
+ * caller; the screen frame, cursor, keystroke badge, and zoom are all suppressed
+ * for the scene (captions still draw, handled by the caller). Extracted so
+ * `drawCompositeV2`'s scene branch stays readable. Pure draw.
+ */
+function drawSceneLayer(
+  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+  frame: CanvasImageSource,
+  dx: number,
+  dy: number,
+  dw: number,
+  dh: number,
+  cornerRadius: number,
+  mirror: boolean,
+): void {
+  ctx.save();
+  roundedRectPath(ctx, dx, dy, dw, dh, cornerRadius);
+  ctx.clip();
+  drawWebcamCover(ctx, frame, dx, dy, dw, dh, mirror);
+  ctx.restore();
+}
+
+/**
  * Paint one output frame with the M2 layer stack:
  *   1. Background (solid / gradient / cover-fit `bgImage`).
  *   2. Padded + rounded + zoomed source frame.
@@ -1108,11 +1258,34 @@ export function drawCompositeV2(
   bgImage: CanvasImageSource | null,
 ): void {
   drawBackground(ctx, appearance.background, outW, outH, bgImage);
+
+  // The CONTENT rect (padded/letterboxed frame area) — the scene fills it, and
+  // the cursor / caption / keystroke overlays position relative to it (never the
+  // full canvas) so a letterboxed aspect doesn't shift them.
+  const { dx, dy, dw, dh } = contentRect(frameW, frameH, appearance);
+
+  // "Cut to camera" scene (M6): the webcam frame REPLACES the screen frame,
+  // filling the content rect; the screen frame, cursor overlay, webcam bubble,
+  // keystroke badge, and zoom are all suppressed. Captions still draw (below).
+  // The caller only sets `overlay.scene` when a webcam frame is available at
+  // this instant, so a null-frame moment falls through to the normal layout
+  // (never a black frame). Motion blur collapses during a scene (zoom ignored ⇒
+  // every sub-sample is identical) — see `drawCompositeBlurred`.
+  if (overlay.scene) {
+    if (dw > 0 && dh > 0) {
+      drawSceneLayer(ctx, overlay.scene.frame, dx, dy, dw, dh, appearance.cornerRadius, overlay.scene.mirror);
+    }
+    // Captions still overlay a scene (bottom-center of the content rect). The
+    // keystroke badge is intentionally suppressed during a scene, so it never
+    // needs to shift up here.
+    if (overlay.caption && dw > 0 && dh > 0) {
+      drawCaptionPill(ctx, overlay.caption, dx, dy, dw, dh);
+    }
+    return;
+  }
+
   drawFrameLayer(ctx, frame, frameW, frameH, outW, outH, appearance, zoom);
 
-  // Cursor + webcam overlays position relative to the CONTENT rect (the drawn
-  // frame), not the full canvas — so a letterboxed aspect doesn't shift them.
-  const { dx, dy, dw, dh } = contentRect(frameW, frameH, appearance);
   if (dw <= 0 || dh <= 0) return;
 
   // 3. Cursor overlay. `overlay.cursor` is in normalized capture space; map it
@@ -1183,7 +1356,17 @@ export function drawCompositeV2(
   //    Task 1). Pinned by "ratified M2.1" test in tests/compositor.test.ts.
   if (overlay.webcam) {
     const shape = overlay.webcam.shape;
-    const r = webcamRect(outW, outH, overlay.webcam.corner, overlay.webcam.sizeFrac, shape);
+    // Auto-shrink (M6): `scaleFactor` (1 when off) multiplies the bubble size
+    // inside `webcamRect`, corner-anchored so the bubble shrinks toward its
+    // corner (its far edge stays flush to the margin), not about its center.
+    const r = webcamRect(
+      outW,
+      outH,
+      overlay.webcam.corner,
+      overlay.webcam.sizeFrac,
+      shape,
+      overlay.webcam.scaleFactor,
+    );
     const wx = r.x;
     const wy = r.y;
     ctx.save();
@@ -1195,19 +1378,9 @@ export function drawCompositeV2(
       roundedRectPath(ctx, wx, wy, r.w, r.h, 16);
     }
     ctx.clip();
-    // Aspect-fill the webcam frame into the PiP rect: crop the source (a
-    // 16:9-ish camera frame) to the mask's aspect (1:1 circle / 4:3 rounded)
-    // and draw it edge-to-edge — center-cropped, never stretched.
-    const iw = imgWidth(overlay.webcam.frame);
-    const ih = imgHeight(overlay.webcam.frame);
-    if (iw > 0 && ih > 0) {
-      const c = coverCrop(iw, ih, r.w, r.h);
-      ctx.drawImage(overlay.webcam.frame, c.sx, c.sy, c.sw, c.sh, wx, wy, r.w, r.h);
-    } else {
-      // Frame with unknown intrinsic size (e.g. a not-yet-decoded VideoFrame) —
-      // fall back to a plain stretch into the rect rather than dropping it.
-      ctx.drawImage(overlay.webcam.frame, wx, wy, r.w, r.h);
-    }
+    // Aspect-fill the webcam frame into the PiP rect (cover-crop, never
+    // stretched), optionally mirrored (M6) inside the clip.
+    drawWebcamCover(ctx, overlay.webcam.frame, wx, wy, r.w, r.h, overlay.webcam.mirror);
     ctx.restore();
   }
 

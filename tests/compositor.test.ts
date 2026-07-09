@@ -11,6 +11,8 @@ import {
   canvasToCapture,
   keystrokeBadgeAt,
   captionAt,
+  webcamShrinkFactor,
+  webcamSceneAt,
   smoothCursorPath,
   motionBlurSamples,
   drawCompositeBlurred,
@@ -23,7 +25,7 @@ import {
   type ZoomState,
 } from "../src/lib/render/compositor";
 import type { ZoomBlock, EventsHeader, RecEvent } from "../src/lib/autoZoom";
-import type { CaptionSegment } from "../src/lib/editorProject";
+import type { CaptionSegment, WebcamScene } from "../src/lib/editorProject";
 
 const block: ZoomBlock = { startMs: 2000, endMs: 6000, cx: 0.3, cy: 0.7, scale: 2, mode: "auto" };
 
@@ -412,6 +414,149 @@ describe("webcamRect", () => {
     // 96px padding band — impossible under M2's content-anchored placement.
     expect(r.x + r.w).toBeGreaterThan(L.contentX + L.contentW);
     expect(r.y + r.h).toBeGreaterThan(L.contentY + L.contentH);
+  });
+
+  // --- scaleFactor (auto-shrink) — bubble shrinks TOWARD its corner anchor ---
+  const OUT_W2 = 1920;
+  const OUT_H2 = 1080;
+  const MARGIN2 = 24;
+
+  test("scaleFactor defaults to 1 (unshrunk) — omitted arg is byte-identical", () => {
+    const base = webcamRect(OUT_W2, OUT_H2, "br", 0.2, "circle");
+    const explicit = webcamRect(OUT_W2, OUT_H2, "br", 0.2, "circle", 1);
+    expect(explicit).toEqual(base);
+  });
+
+  test("scaleFactor multiplies w and h", () => {
+    const base = webcamRect(OUT_W2, OUT_H2, "br", 0.2, "circle");
+    const shrunk = webcamRect(OUT_W2, OUT_H2, "br", 0.2, "circle", 0.55);
+    expect(shrunk.w).toBeCloseTo(base.w * 0.55);
+    expect(shrunk.h).toBeCloseTo(base.h * 0.55);
+  });
+
+  test("shrink stays pinned to the bottom-right corner (shrinks toward corner, not center)", () => {
+    const shrunk = webcamRect(OUT_W2, OUT_H2, "br", 0.2, "circle", 0.55);
+    // far edges stay flush to the corner margin
+    expect(shrunk.x + shrunk.w).toBeCloseTo(OUT_W2 - MARGIN2);
+    expect(shrunk.y + shrunk.h).toBeCloseTo(OUT_H2 - MARGIN2);
+  });
+
+  test("shrink stays pinned to the top-left corner", () => {
+    const shrunk = webcamRect(OUT_W2, OUT_H2, "tl", 0.2, "rounded", 0.6);
+    // near edges stay flush to the corner margin (top-left anchor is invariant)
+    expect(shrunk.x).toBeCloseTo(MARGIN2);
+    expect(shrunk.y).toBeCloseTo(MARGIN2);
+  });
+
+  test("shrink stays pinned to the top-right corner", () => {
+    const shrunk = webcamRect(OUT_W2, OUT_H2, "tr", 0.2, "rounded", 0.7);
+    expect(shrunk.x + shrunk.w).toBeCloseTo(OUT_W2 - MARGIN2);
+    expect(shrunk.y).toBeCloseTo(MARGIN2);
+  });
+
+  test("shrink stays pinned to the bottom-left corner", () => {
+    const shrunk = webcamRect(OUT_W2, OUT_H2, "bl", 0.2, "rounded", 0.8);
+    expect(shrunk.x).toBeCloseTo(MARGIN2);
+    expect(shrunk.y + shrunk.h).toBeCloseTo(OUT_H2 - MARGIN2);
+  });
+});
+
+describe("webcamShrinkFactor", () => {
+  test("no zoom (scale 1) -> factor 1 (unshrunk)", () => {
+    expect(webcamShrinkFactor(1)).toBeCloseTo(1);
+  });
+
+  test("at 2x zoom -> 0.55 (max shrink endpoint)", () => {
+    expect(webcamShrinkFactor(2)).toBeCloseTo(0.55);
+  });
+
+  test("midpoint 1.5x zoom -> 0.775 (linear between endpoints)", () => {
+    // 1 - 0.45 * ((1.5 - 1)/(2 - 1)) = 1 - 0.45*0.5 = 0.775
+    expect(webcamShrinkFactor(1.5)).toBeCloseTo(0.775);
+  });
+
+  test("beyond 2x clamps at 0.55 (clamp01 on the numerator)", () => {
+    expect(webcamShrinkFactor(3)).toBeCloseTo(0.55);
+    expect(webcamShrinkFactor(10)).toBeCloseTo(0.55);
+  });
+
+  test("below 1x clamps at 1 (never grows the bubble)", () => {
+    expect(webcamShrinkFactor(0.5)).toBeCloseTo(1);
+    expect(webcamShrinkFactor(0)).toBeCloseTo(1);
+  });
+
+  test("monotonic non-increasing over the ramp", () => {
+    const a = webcamShrinkFactor(1);
+    const b = webcamShrinkFactor(1.25);
+    const c = webcamShrinkFactor(1.75);
+    const d = webcamShrinkFactor(2);
+    expect(a).toBeGreaterThanOrEqual(b);
+    expect(b).toBeGreaterThanOrEqual(c);
+    expect(c).toBeGreaterThanOrEqual(d);
+  });
+});
+
+describe("webcamSceneAt", () => {
+  const sc = (startMs: number, endMs: number, id: string): WebcamScene => ({
+    id,
+    startMs,
+    endMs,
+  });
+
+  test("no scenes -> null", () => {
+    expect(webcamSceneAt(1000, [])).toBeNull();
+  });
+
+  test("time inside a scene returns its id", () => {
+    const scenes = [sc(1000, 2000, "s1")];
+    expect(webcamSceneAt(1500, scenes)).toEqual({ id: "s1" });
+  });
+
+  test("time before the first scene -> null", () => {
+    const scenes = [sc(1000, 2000, "s1")];
+    expect(webcamSceneAt(500, scenes)).toBeNull();
+  });
+
+  test("time after the last scene -> null", () => {
+    const scenes = [sc(1000, 2000, "s1")];
+    expect(webcamSceneAt(2500, scenes)).toBeNull();
+  });
+
+  test("exactly at startMs is inside (half-open [start, end))", () => {
+    const scenes = [sc(1000, 2000, "s1")];
+    expect(webcamSceneAt(1000, scenes)).toEqual({ id: "s1" });
+  });
+
+  test("exactly at endMs is outside (half-open [start, end))", () => {
+    const scenes = [sc(1000, 2000, "s1")];
+    expect(webcamSceneAt(2000, scenes)).toBeNull();
+  });
+
+  test("gap between two scenes -> null", () => {
+    const scenes = [sc(0, 1000, "a"), sc(2000, 3000, "b")];
+    expect(webcamSceneAt(1500, scenes)).toBeNull();
+  });
+
+  test("touching scenes (startMs === prev.endMs) resolve to the later one at the boundary", () => {
+    const scenes = [sc(0, 1000, "a"), sc(1000, 2000, "b")];
+    expect(webcamSceneAt(999, scenes)).toEqual({ id: "a" });
+    expect(webcamSceneAt(1000, scenes)).toEqual({ id: "b" });
+  });
+
+  test("finds the correct scene among many (binary search correctness)", () => {
+    const scenes = [
+      sc(0, 1000, "a"),
+      sc(1000, 2000, "b"),
+      sc(2000, 3000, "c"),
+      sc(3000, 4000, "d"),
+      sc(4000, 5000, "e"),
+    ];
+    expect(webcamSceneAt(500, scenes)).toEqual({ id: "a" });
+    expect(webcamSceneAt(1000, scenes)).toEqual({ id: "b" });
+    expect(webcamSceneAt(1999, scenes)).toEqual({ id: "b" });
+    expect(webcamSceneAt(3500, scenes)).toEqual({ id: "d" });
+    expect(webcamSceneAt(4999, scenes)).toEqual({ id: "e" });
+    expect(webcamSceneAt(5000, scenes)).toBeNull();
   });
 });
 
@@ -1188,7 +1333,7 @@ describe("drawCompositeBlurred (accumulation weights)", () => {
     background: { type: "gradient", from: "#111", to: "#000" },
   };
   const frame = { width: 1920, height: 1080 } as unknown as CanvasImageSource;
-  const overlay: OverlayState = { cursor: null, webcam: null, keystroke: null, caption: null };
+  const overlay: OverlayState = { cursor: null, webcam: null, keystroke: null, caption: null, scene: null };
 
   test("single sample draws the frame exactly once and restores globalAlpha", () => {
     const { ctx, drawImageAlphas, getDepth } = makeCtxStub();
@@ -1245,6 +1390,228 @@ describe("drawCompositeBlurred (accumulation weights)", () => {
     expect(drawImageAlphas[3]).toBeCloseTo(1 / 4);
     // Restored afterward.
     expect(ctx.globalAlpha).toBeCloseTo(1);
+  });
+});
+
+describe("drawCompositeV2 — camera scene + mirror (draw structure)", () => {
+  // Stub that records drawImage count and any non-identity horizontal flips
+  // (scale(-1, …)) so we can assert the scene replaces the frame and mirror
+  // flips inside the clip. Only the methods the composite calls are stubbed.
+  function makeCtxStub() {
+    let drawImageCount = 0;
+    let flipped = false; // true once a scale(-1, …) (mirror) is seen
+    let depth = 0;
+    let maxDepth = 0;
+    const ctx = {
+      globalAlpha: 1,
+      fillStyle: "" as string | CanvasGradient,
+      strokeStyle: "",
+      lineWidth: 1,
+      font: "",
+      textAlign: "",
+      textBaseline: "",
+      shadowColor: "",
+      shadowBlur: 0,
+      shadowOffsetX: 0,
+      shadowOffsetY: 0,
+      lineJoin: "",
+      save() {
+        depth++;
+        maxDepth = Math.max(maxDepth, depth);
+      },
+      restore() {
+        depth--;
+      },
+      beginPath() {},
+      closePath() {},
+      moveTo() {},
+      lineTo() {},
+      arc() {},
+      arcTo() {},
+      clip() {},
+      fill() {},
+      stroke() {},
+      fillRect() {},
+      translate() {},
+      scale(sx: number) {
+        if (sx < 0) flipped = true;
+      },
+      fillText() {},
+      measureText() {
+        return { width: 10 };
+      },
+      createLinearGradient() {
+        return { addColorStop() {} };
+      },
+      drawImage() {
+        drawImageCount++;
+      },
+    };
+    return {
+      ctx,
+      getDrawImageCount: () => drawImageCount,
+      wasFlipped: () => flipped,
+      getDepth: () => depth,
+    };
+  }
+
+  const appearance: Appearance = {
+    padding: 96,
+    cornerRadius: 16,
+    aspect: "auto",
+    background: { type: "solid", color: "#000" },
+  };
+  const screenFrame = { width: 1920, height: 1080 } as unknown as CanvasImageSource;
+  const camFrame = { width: 1280, height: 720 } as unknown as CanvasImageSource;
+  const zoom: ZoomState = { cx: 0.5, cy: 0.5, scale: 1 };
+  const baseOverlay: OverlayState = {
+    cursor: null,
+    webcam: null,
+    keystroke: null,
+    caption: null,
+    scene: null,
+  };
+
+  test("scene draws ONE image (the webcam into the content rect) — the screen frame is replaced, not composited", () => {
+    const { ctx, getDrawImageCount, getDepth } = makeCtxStub();
+    drawCompositeBlurred(
+      ctx as unknown as CanvasRenderingContext2D,
+      screenFrame,
+      1920,
+      1080,
+      2112,
+      1272,
+      appearance,
+      [zoom],
+      { ...baseOverlay, scene: { frame: camFrame, mirror: false } },
+      1.5,
+      null,
+    );
+    // Exactly one drawImage: the scene's webcam cover-draw. The screen frame is
+    // NOT drawn (it is replaced by the scene), and no bubble is drawn.
+    expect(getDrawImageCount()).toBe(1);
+    expect(getDepth()).toBe(0); // balanced save/restore
+  });
+
+  test("scene with mirror flips horizontally (scale(-1,1)) inside the clip", () => {
+    const { ctx, wasFlipped } = makeCtxStub();
+    drawCompositeBlurred(
+      ctx as unknown as CanvasRenderingContext2D,
+      screenFrame,
+      1920,
+      1080,
+      2112,
+      1272,
+      appearance,
+      [zoom],
+      { ...baseOverlay, scene: { frame: camFrame, mirror: true } },
+      1.5,
+      null,
+    );
+    expect(wasFlipped()).toBe(true);
+  });
+
+  test("scene without mirror does NOT flip", () => {
+    const { ctx, wasFlipped } = makeCtxStub();
+    drawCompositeBlurred(
+      ctx as unknown as CanvasRenderingContext2D,
+      screenFrame,
+      1920,
+      1080,
+      2112,
+      1272,
+      appearance,
+      [zoom],
+      { ...baseOverlay, scene: { frame: camFrame, mirror: false } },
+      1.5,
+      null,
+    );
+    expect(wasFlipped()).toBe(false);
+  });
+
+  test("scene suppresses the cursor overlay (no extra cursor draws)", () => {
+    const { ctx, getDrawImageCount } = makeCtxStub();
+    drawCompositeBlurred(
+      ctx as unknown as CanvasRenderingContext2D,
+      screenFrame,
+      1920,
+      1080,
+      2112,
+      1272,
+      appearance,
+      [zoom],
+      {
+        ...baseOverlay,
+        // A cursor that WOULD draw in the normal layout — must be ignored here.
+        cursor: { x: 0.5, y: 0.5, clickAge: null, alpha: 1 },
+        scene: { frame: camFrame, mirror: false },
+      },
+      1.5,
+      null,
+    );
+    // Still exactly one image (the cursor draws via path fills/strokes, not
+    // drawImage, but its presence would add save/clip work; the count staying at
+    // 1 confirms only the scene layer ran).
+    expect(getDrawImageCount()).toBe(1);
+  });
+
+  test("bubble mirror flips the bubble draw inside its clip", () => {
+    const { ctx, wasFlipped, getDrawImageCount } = makeCtxStub();
+    drawCompositeBlurred(
+      ctx as unknown as CanvasRenderingContext2D,
+      screenFrame,
+      1920,
+      1080,
+      2112,
+      1272,
+      appearance,
+      [zoom],
+      {
+        ...baseOverlay,
+        webcam: {
+          frame: camFrame,
+          shape: "rounded",
+          corner: "br",
+          sizeFrac: 0.2,
+          scaleFactor: 1,
+          mirror: true,
+        },
+      },
+      1.5,
+      null,
+    );
+    // Two images: the screen frame + the mirrored bubble.
+    expect(getDrawImageCount()).toBe(2);
+    expect(wasFlipped()).toBe(true);
+  });
+
+  test("bubble with mirror off + scaleFactor 1 does NOT flip (pre-M6 bubble path)", () => {
+    const { ctx, wasFlipped, getDrawImageCount } = makeCtxStub();
+    drawCompositeBlurred(
+      ctx as unknown as CanvasRenderingContext2D,
+      screenFrame,
+      1920,
+      1080,
+      2112,
+      1272,
+      appearance,
+      [zoom],
+      {
+        ...baseOverlay,
+        webcam: {
+          frame: camFrame,
+          shape: "rounded",
+          corner: "br",
+          sizeFrac: 0.2,
+          scaleFactor: 1,
+          mirror: false,
+        },
+      },
+      1.5,
+      null,
+    );
+    expect(getDrawImageCount()).toBe(2); // screen + bubble
+    expect(wasFlipped()).toBe(false);
   });
 });
 
