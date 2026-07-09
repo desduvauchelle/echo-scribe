@@ -940,9 +940,11 @@ impl MeetingManager {
                             tracing::error!(target: "guide", run = %rid, error = %e, "[guide-review] failed");
                             let rid2 = rid.clone();
                             let err = e.clone();
-                            let _ = db.with_conn(move |c| {
+                            if let Err(write_err) = db.with_conn(move |c| {
                                 crate::db::meeting_guide_runs::set_guide_run_status(c, &rid2, "failed", Some(err.as_str()))
-                            });
+                            }) {
+                                tracing::warn!(target: "guide", e = ?write_err, run = %rid, "guide run status write failed");
+                            }
                         }
                     }
                     let _ = app.emit("guide-review-updated", serde_json::json!({ "meetingId": mid, "runId": rid }));

@@ -98,6 +98,21 @@ pub fn set_guide_run_status(
     Ok(())
 }
 
+/// Mark as `failed` any guide runs still `pending` whose meeting has already
+/// completed — these were interrupted (app quit/crash) between meeting stop and
+/// the background review finishing. Lets the UI's Retry path recover them.
+/// Returns the number of rows reaped.
+pub fn fail_interrupted_pending_runs(conn: &Connection) -> Result<usize, DbError> {
+    let n = conn.execute(
+        "UPDATE meeting_guide_runs
+         SET status = 'failed', error = 'interrupted before review completed'
+         WHERE status = 'pending'
+           AND meeting_id IN (SELECT item_id FROM meetings WHERE status = 'complete')",
+        [],
+    )?;
+    Ok(n)
+}
+
 pub fn get_guide_run(conn: &Connection, id: &str) -> Result<Option<GuideRunRow>, DbError> {
     conn.query_row(
         &format!("SELECT {COLS} FROM meeting_guide_runs WHERE id = ?1"),
@@ -220,5 +235,31 @@ mod tests {
         let rows = list_guide_runs_for_template(&c, "builtin-leadership", 10).unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].id, "r2");
+    }
+
+    #[test]
+    fn fail_interrupted_pending_runs_only_touches_completed_meetings() {
+        let c = fresh();
+        // Two meetings: one complete, one still recording.
+        c.execute(
+            "INSERT INTO meetings (item_id, started_at, status, failed_chunk_count, mic_only)
+             VALUES ('m-done', '2026-07-08T00:00:00Z', 'complete', 0, 0),
+                    ('m-live', '2026-07-08T00:00:00Z', 'recording', 0, 0)",
+            [],
+        ).unwrap();
+        // A pending run under each, plus a ready run under the complete one.
+        insert_guide_run(&c, &make("r-done-pending", "m-done")).unwrap();
+        insert_guide_run(&c, &make("r-live-pending", "m-live")).unwrap();
+        let mut ready = make("r-done-ready", "m-done");
+        ready.status = "ready".into();
+        insert_guide_run(&c, &ready).unwrap();
+
+        let n = fail_interrupted_pending_runs(&c).unwrap();
+        assert_eq!(n, 1); // only r-done-pending
+        assert_eq!(get_guide_run(&c, "r-done-pending").unwrap().unwrap().status, "failed");
+        assert_eq!(get_guide_run(&c, "r-done-pending").unwrap().unwrap().error.as_deref(),
+                   Some("interrupted before review completed"));
+        assert_eq!(get_guide_run(&c, "r-live-pending").unwrap().unwrap().status, "pending"); // untouched
+        assert_eq!(get_guide_run(&c, "r-done-ready").unwrap().unwrap().status, "ready");     // untouched
     }
 }

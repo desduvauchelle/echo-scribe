@@ -60,6 +60,10 @@ export function aggregateTrend(runs: GuideRun[]): TrendData {
     }
   }
 
+  // Cells are keyed by exact criterion TEXT from the newest run's scorecard.
+  // If a template's `notes` lines were edited between meetings, older runs'
+  // renamed criteria fall through to "unknown" (grey) rather than aligning —
+  // that grey is expected drift, not a data bug.
   const columns: TrendColumn[] = parsed.map(({ run, review }) => {
     const byName = new Map((review?.scorecard ?? []).map((c) => [c.criterion, verdictClass(c.verdict)]));
     return {

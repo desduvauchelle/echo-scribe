@@ -3386,9 +3386,11 @@ pub async fn regenerate_guide_review(
 
     // Mark pending, regenerate, persist.
     let rid = run_id.clone();
-    let _ = db.with_conn(move |c| {
+    if let Err(e) = db.with_conn(move |c| {
         crate::db::meeting_guide_runs::set_guide_run_status(c, &rid, "pending", None)
-    });
+    }) {
+        tracing::warn!(target: "guide", ?e, %run_id, "guide run status write failed");
+    }
 
     match crate::meeting::guide_review::generate_review(llm, &template, &env.segments).await {
         Ok(review) => {
@@ -3406,9 +3408,11 @@ pub async fn regenerate_guide_review(
         Err(e) => {
             let rid = run_id.clone();
             let err = e.clone();
-            let _ = db.with_conn(move |c| {
+            if let Err(write_err) = db.with_conn(move |c| {
                 crate::db::meeting_guide_runs::set_guide_run_status(c, &rid, "failed", Some(err.as_str()))
-            });
+            }) {
+                tracing::warn!(target: "guide", e = ?write_err, %run_id, "guide run status write failed");
+            }
             Err(e)
         }
     }

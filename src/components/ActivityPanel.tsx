@@ -1084,10 +1084,12 @@ const OVERALL_STYLES: Record<string, string> = {
 };
 
 function GuideReviewSection({ meetingId }: { meetingId: string }) {
+  const toasts = useToasts();
   const [runs, setRuns] = useState<GuideRun[]>([]);
   const [openCrit, setOpenCrit] = useState<Record<string, boolean>>({});
   const [showTimeline, setShowTimeline] = useState<Record<string, boolean>>({});
   const [trendFor, setTrendFor] = useState<{ id: string; name: string } | null>(null);
+  const [retrying, setRetrying] = useState<Record<string, boolean>>({});
 
   const load = useCallback(async () => {
     const r = await listGuideRuns(meetingId).catch(() => [] as GuideRun[]);
@@ -1141,13 +1143,24 @@ function GuideReviewSection({ meetingId }: { meetingId: string }) {
                 <div className="px-3 py-3 text-[12px] text-muted">
                   Guide review couldn't be generated. See Settings → Diagnostics → logs.{" "}
                   <button
-                    className="text-accent hover:underline"
+                    className="text-accent hover:underline disabled:cursor-not-allowed disabled:opacity-60"
+                    disabled={!!retrying[run.id]}
                     onClick={async () => {
-                      await regenerateGuideReview(run.id).catch(() => {});
-                      load();
+                      setRetrying((s) => ({ ...s, [run.id]: true }));
+                      try {
+                        await regenerateGuideReview(run.id);
+                      } catch {
+                        toasts.push({
+                          tone: "error",
+                          message: "Couldn't regenerate the guide review. See Settings → Diagnostics → logs.",
+                        });
+                      } finally {
+                        setRetrying((s) => ({ ...s, [run.id]: false }));
+                        load();
+                      }
                     }}
                   >
-                    Retry
+                    {retrying[run.id] ? "Retrying…" : "Retry"}
                   </button>
                 </div>
               ) : null}

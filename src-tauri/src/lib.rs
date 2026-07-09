@@ -577,6 +577,14 @@ pub fn run() {
                     crate::meeting::finalize_orphans_as_failed(db_ref, &orphans);
                     let _ = app.emit("meetings-recovered", serde_json::json!({"ids": orphans}));
                 }
+
+                // Reap guide runs left 'pending' by an interrupted review so
+                // the UI can offer Retry instead of a permanent spinner.
+                match db_ref.with_conn(|c| crate::db::meeting_guide_runs::fail_interrupted_pending_runs(c)) {
+                    Ok(n) if n > 0 => tracing::info!(target: "guide", reaped = n, "marked interrupted guide runs as failed"),
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!(target: "guide", ?e, "reaping interrupted guide runs failed"),
+                }
             }
 
             // Spawn the meeting detector loop (NSWorkspace polling + CoreAudio).
