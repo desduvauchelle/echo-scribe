@@ -70,6 +70,12 @@ jobs:
         run: bash scripts/build-calmatch.sh
 
       - name: Build app bundle
+        # Force ad-hoc signing for distribution. The committed tauri.conf.json
+        # pins a local self-signed identity ("Echo Scribe Local Dev") so local
+        # rebuilds keep their TCC grants; that cert doesn't exist on CI runners,
+        # so override to ad-hoc here (env wins over config).
+        env:
+          APPLE_SIGNING_IDENTITY: "-"
         run: bun tauri build --bundles app
 
       - name: Package

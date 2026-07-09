@@ -11,7 +11,12 @@ Build features so failures are *debuggable without a rebuild*. This is not optio
 
 ## Build + reinstall workflow (macOS)
 
-**Default: SKIP the TCC reset.** Most rebuilds keep the same bundle identifier + Info.plist usage descriptions + entitlements; macOS Sequoia+ then re-binds prior permission grants to the new ad-hoc-signed binary automatically. The user's stated preference for this project is "skip TCC unless I say otherwise."
+**Signing identity (stable — this is why permissions now persist).** `tauri.conf.json` → `bundle.macOS.signingIdentity` is set to the SHA-1 `F6FD1D39BE4E52054A6B72E1EC5E90A03F5E5B77`, a self-signed **"Echo Scribe Local Dev"** code-signing identity in the login keychain. Because every build is signed with the *same* cert, its designated requirement is constant (`identifier "com.echoscribe.app" and certificate root = H"f6fd…"`), so macOS keeps TCC grants (including Screen Recording) across reinstalls — no more per-rebuild re-granting. Do **not** revert the committed config to `"-"` (ad-hoc), which changes the signature every build and drops grants.
+
+- **CI / release builds stay ad-hoc.** The cert is local-only, so `release.yml` sets `APPLE_SIGNING_IDENTITY: "-"` on the build step (env overrides the config value). That's how distribution builds keep working without the cert. Don't remove that env override, and don't add signing secrets to CI.
+- **If a local build fails with "no identity found", or reinstalls suddenly start dropping permissions again**, the login keychain lost the identity — re-import it: `"$HOME/Library/Application Support/EchoScribeSigning/reimport.sh"` (p12 password `echoscribe`). The identity is referenced by hash to dodge an ambiguous stale keyless copy of the same name in the System keychain. The very first codesign after an import can fail once (keychain ACL priming) — just rebuild.
+
+**Default: SKIP the TCC reset.** Most rebuilds keep the same bundle identifier + Info.plist usage descriptions + entitlements + signing identity; macOS Sequoia+ then re-binds prior permission grants to the newly-signed binary automatically. The user's stated preference for this project is "skip TCC unless I say otherwise."
 
 **Only reset TCC when this rebuild changes anything permission-related**, e.g.:
 
