@@ -53,6 +53,8 @@ import {
   CORNER_MIN,
   CURSOR_SCALE_MIN,
   CURSOR_SCALE_MAX,
+  CURSOR_SMOOTHING_MIN,
+  CURSOR_SMOOTHING_MAX,
   WEBCAM_SIZE_MIN,
   WEBCAM_SIZE_MAX,
   ZOOM_SCALE_MIN,
@@ -70,14 +72,18 @@ import {
   captionAt,
   cursorDrawScale,
   cursorStateAt,
-  drawCompositeV2,
+  drawCompositeBlurred,
   keystrokeBadgeAlpha,
   keystrokeBadgeAt,
+  motionBlurSamples,
+  MOTION_BLUR_SAMPLES,
   outputLayout,
+  smoothCursorPath,
   zoomStateAt,
   type Appearance,
   type CursorSample,
   type OverlayState,
+  type ZoomState,
 } from "../../lib/render/compositor";
 import {
   materializeBlocks,
@@ -128,9 +134,22 @@ function fmtTimeDs(ms: number): string {
   return `${m}:${String(s).padStart(2, "0")}.${d}`;
 }
 
+/** Whether the live preview applies motion blur during zoom transitions (Task
+ *  5). Kept as a module constant so it can be flipped to `false` (confining
+ *  blur to the export only) if the ×N ramp draws ever cause preview jank on
+ *  low-end hardware. Blur is self-limiting — `motionBlurSamples` returns a
+ *  single sample outside transition ramps, so the extra cost applies only to
+ *  the brief ramps — so the WYSIWYG default is ON. */
+const PREVIEW_MOTION_BLUR = true;
+
+/** Frame interval (ms) the preview passes to `motionBlurSamples` for the
+ *  sub-sample time step — the export's TARGET_FPS (30) interval, so the preview
+ *  smears over the same ~1-frame window the exported file will. */
+const PREVIEW_FRAME_INTERVAL_MS = 1000 / 30;
+
 /**
  * Full-pane per-recording editor. Left: a live canvas preview driven by a hidden
- * <video> and a rAF loop through `drawCompositeV2` at the project's appearance.
+ * <video> and a rAF loop through `drawCompositeBlurred` at the project's appearance.
  * Right: appearance controls (padding, corner radius, background). Every change
  * updates local state, re-renders the canvas live, and saves (debounced) via
  * `setRecordingProject`. Works for recordings with `events_path` NULL — cursor
@@ -210,6 +229,12 @@ export function EditorView({
   const eventsRef = useRef<RecEvent[]>([]);
   const cursorMovesRef = useRef<CursorSample[]>([]);
   const cursorDownsRef = useRef<CursorSample[]>([]);
+  // Smoothed cursor move path (Task 5), recomputed only when the events load or
+  // `cursor.smoothing` changes (memoized below, synced to this ref during
+  // render — the SAME once-per-load precompute the export does, never per
+  // frame). The rAF loop binary-searches this instead of the raw moves so the
+  // preview and export smooth identically. strength 0 ⇒ identity path.
+  const smoothedMovesRef = useRef<CursorSample[]>([]);
   // Pre-split `k: "key"` events, alongside the existing moves/downs split —
   // the keystroke badge lookup (`keystrokeBadgeAt`) scans this per frame, so
   // splitting it once here (rather than filtering `eventsRef` every frame)
@@ -345,7 +370,11 @@ export function EditorView({
       if (!p.cursor.enabled || !cursorAvailable) return null;
       const header = eventsHeaderRef.current;
       if (!header) return null;
-      return cursorStateAt(tMsSource, cursorMovesRef.current, cursorDownsRef.current, header);
+      // Read the pre-smoothed path (Task 5); pass the hideIdle flag so the
+      // cursor fades out before idle gaps. Both mirror the export exactly.
+      return cursorStateAt(tMsSource, smoothedMovesRef.current, cursorDownsRef.current, header, {
+        hideIdle: p.cursor.hideIdle,
+      });
     },
     [cursorAvailable],
   );
@@ -413,6 +442,21 @@ export function EditorView({
   // effect fires on `project` change — already sees the new blocks.
   zoomBlocksRef.current = effectiveBlocks;
 
+  // Smooth the cursor move path (Task 5) once per (events-load × smoothing)
+  // change — mirrors the zoom-blocks memo above so the rAF loop reads a STABLE
+  // reference and never re-smooths per frame. strength 0 returns the raw path
+  // unchanged (identity), so the default look is untouched. Synced to the ref
+  // during render (not an effect) so the very next paint sees it.
+  const cursorSmoothing = project.cursor.smoothing;
+  const smoothedMoves = useMemo(
+    () => smoothCursorPath(cursorMovesRef.current, cursorSmoothing),
+    // `eventsReady` gates the load (moves populated); `cursorSmoothing` is the
+    // only project field that changes the output.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [eventsReady, cursorSmoothing],
+  );
+  smoothedMovesRef.current = smoothedMoves;
+
   // Drop a stale selection if its block no longer exists (e.g. mode switched to
   // "off"/"auto", or the block was deleted). Runs after the memo so it reacts to
   // the resolved list, never mid-drag on the ref.
@@ -423,7 +467,7 @@ export function EditorView({
     }
   }, [effectiveBlocks, selectedBlockId]);
 
-  // rAF render loop: draw the current video frame through drawCompositeV2 at
+  // rAF render loop: draw the current video frame through drawCompositeBlurred at
   // whatever appearance is current. Runs whenever the video is playing OR when
   // a control changed while paused (we always request one more frame on state
   // change via the `renderOnce` effect below).
@@ -466,7 +510,17 @@ export function EditorView({
     const rate = activeSpeedRate(tMsSource, speedRangesRef.current);
     if (video.playbackRate !== rate) video.playbackRate = rate;
     const blocks = zoomBlocksRef.current;
-    const zoom = blocks.length ? zoomStateAt(tMsSource, blocks) : { cx: 0.5, cy: 0.5, scale: 1 };
+    // Motion blur (Task 5): compute the zoom sub-samples for this frame. Off /
+    // static stretches ⇒ a single current-time state (`drawCompositeBlurred`
+    // then does one plain draw — byte-identical to pre-M4). The preview applies
+    // blur too (WYSIWYG), and it is self-limiting: `motionBlurSamples` only
+    // returns N>1 during a transition ramp, so the ×N cost is confined to the
+    // brief ramps. If preview jank is ever observed, set PREVIEW_MOTION_BLUR to
+    // false to confine blur to the export (the export path is unaffected).
+    const blurN = PREVIEW_MOTION_BLUR && p.motionBlur && blocks.length ? MOTION_BLUR_SAMPLES : 1;
+    const zoomSamples: ZoomState[] = blocks.length
+      ? motionBlurSamples(tMsSource, blocks, blurN, PREVIEW_FRAME_INTERVAL_MS)
+      : [{ cx: 0.5, cy: 0.5, scale: 1 }];
     const cursor = cursorOverlayAt(tMsSource);
     const pxScale = eventsHeaderRef.current?.capture.px_scale ?? 1;
     // Webcam overlay: feed the hidden webcam <video> as the frame source when
@@ -488,7 +542,7 @@ export function EditorView({
         : null;
     const keystroke = keystrokeOverlayAt(tMsSource);
     const caption = captionOverlayAt(tMsSource);
-    drawCompositeV2(
+    drawCompositeBlurred(
       ctx,
       video,
       vw,
@@ -496,7 +550,7 @@ export function EditorView({
       outW,
       outH,
       appearance,
-      zoom,
+      zoomSamples,
       { cursor, webcam, keystroke, caption },
       cursorDrawScale(p.cursor.scale, pxScale),
       bgImageRef.current,
@@ -722,12 +776,18 @@ export function EditorView({
     setProject((p) => ({ ...p, appearance: { ...p.appearance, aspect } }));
   const setBackground = (background: Background) =>
     setProject((p) => ({ ...p, appearance: { ...p.appearance, background } }));
+  const setMotionBlur = (motionBlur: boolean) =>
+    setProject((p) => ({ ...p, motionBlur }));
 
   // ---- Cursor updaters ----------------------------------------------------
   const setCursorEnabled = (enabled: boolean) =>
     setProject((p) => ({ ...p, cursor: { ...p.cursor, enabled } }));
   const setCursorScale = (scale: number) =>
     setProject((p) => ({ ...p, cursor: { ...p.cursor, scale } }));
+  const setCursorSmoothing = (smoothing: number) =>
+    setProject((p) => ({ ...p, cursor: { ...p.cursor, smoothing } }));
+  const setCursorHideIdle = (hideIdle: boolean) =>
+    setProject((p) => ({ ...p, cursor: { ...p.cursor, hideIdle } }));
 
   // ---- Keystroke overlay updaters ------------------------------------------
   const setKeystrokesEnabled = (enabled: boolean) =>
@@ -1896,6 +1956,21 @@ export function EditorView({
             ))}
           </div>
 
+          <label className="mb-5 flex cursor-pointer items-center gap-2 text-[13px]">
+            <input
+              type="checkbox"
+              checked={project.motionBlur}
+              onChange={(e) => setMotionBlur(e.target.checked)}
+              className="accent-accent"
+            />
+            <span className="flex flex-col">
+              <span>Motion blur</span>
+              <span className="text-[11px] leading-snug text-muted">
+                Smears zoom transitions for a smoother, cinematic feel.
+              </span>
+            </span>
+          </label>
+
           <div className="mb-2 text-[12px] text-muted">Background</div>
           <div className="mb-3 flex gap-2">
             <button
@@ -2179,8 +2254,36 @@ export function EditorView({
               value={project.cursor.scale}
               disabled={!cursorAvailable || !project.cursor.enabled}
               onChange={(e) => setCursorScale(Number(e.target.value))}
-              className="mb-2 w-full accent-accent disabled:opacity-50"
+              className="mb-3 w-full accent-accent disabled:opacity-50"
             />
+            <label className="mb-1 flex items-center justify-between text-[12px] text-muted">
+              <span>Smoothing</span>
+              <span className="tabular-nums text-fg">
+                {project.cursor.smoothing === 0
+                  ? "Off"
+                  : `${Math.round(project.cursor.smoothing * 100)}%`}
+              </span>
+            </label>
+            <input
+              type="range"
+              min={CURSOR_SMOOTHING_MIN}
+              max={CURSOR_SMOOTHING_MAX}
+              step={0.1}
+              value={project.cursor.smoothing}
+              disabled={!cursorAvailable || !project.cursor.enabled}
+              onChange={(e) => setCursorSmoothing(Number(e.target.value))}
+              className="mb-3 w-full accent-accent disabled:opacity-50"
+            />
+            <label className="mb-2 flex cursor-pointer items-center gap-2 text-[12px] text-muted">
+              <input
+                type="checkbox"
+                checked={project.cursor.hideIdle}
+                disabled={!cursorAvailable || !project.cursor.enabled}
+                onChange={(e) => setCursorHideIdle(e.target.checked)}
+                className="accent-accent disabled:opacity-50"
+              />
+              Hide when idle
+            </label>
             {!cursorAvailable ? (
               <p className="text-[11px] leading-snug text-muted">
                 Record with &lsquo;Enhance cursor&rsquo; to enable

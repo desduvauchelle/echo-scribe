@@ -11,10 +11,15 @@ import {
   canvasToCapture,
   keystrokeBadgeAt,
   captionAt,
+  smoothCursorPath,
+  motionBlurSamples,
+  drawCompositeBlurred,
   CAPTION_STRIP_HEIGHT_FRAC,
   keystrokeBottomMargin,
+  type Appearance,
   type CursorSample,
   type OutputLayout,
+  type OverlayState,
   type ZoomState,
 } from "../src/lib/render/compositor";
 import type { ZoomBlock, EventsHeader, RecEvent } from "../src/lib/autoZoom";
@@ -669,6 +674,60 @@ describe("cursorStateAt", () => {
     expect(s).not.toBeNull();
     expect(s!.clickAge).toBeCloseTo(0);
   });
+
+  // ---- Hide-when-idle alpha fade -----------------------------------------
+  // With `hideIdle`, the cursor's alpha fades 1→0 over the last 500ms before an
+  // idle gap (a stretch with no move sample within CURSOR_MAX_GAP_MS = 2000ms
+  // ahead). Default (hideIdle off) → alpha is always 1, so pre-M4 projects
+  // render identically.
+
+  test("alpha defaults to 1 with no opts (identity — pre-M4 behaviour)", () => {
+    const s = cursorStateAt(1000, moves, [], header);
+    expect(s).not.toBeNull();
+    expect(s!.alpha).toBe(1);
+  });
+
+  test("alpha is always 1 when hideIdle is off, even right before the vanish edge", () => {
+    // Held on the last sample at t=2000; the idle-fade window (if on) is
+    // [3500, 4000]. At t=3750 (mid-fade) hideIdle OFF must still be full alpha.
+    const s = cursorStateAt(3750, moves, [], header, { hideIdle: false });
+    expect(s).not.toBeNull();
+    expect(s!.alpha).toBe(1);
+  });
+
+  test("hideIdle: alpha is 1 well before the idle gap", () => {
+    // Held on the last sample at t=2000 (within 2000ms). At t=2500 the cursor
+    // is 1500ms from the t=4000 vanish edge — well outside the 500ms fade — so
+    // alpha is still full.
+    const s = cursorStateAt(2500, moves, [], header, { hideIdle: true });
+    expect(s).not.toBeNull();
+    expect(s!.alpha).toBeCloseTo(1);
+  });
+
+  test("hideIdle: alpha fades toward 0 approaching the vanish edge", () => {
+    // Held on the last sample at t=2000. It vanishes once tMs - lastT > 2000,
+    // i.e. at t=4000. The fade covers the last 500ms before that: [3500, 4000].
+    // At t=3750 (halfway into the fade) alpha ≈ 0.5.
+    const s = cursorStateAt(3750, moves, [], header, { hideIdle: true });
+    expect(s).not.toBeNull();
+    expect(s!.alpha).toBeGreaterThan(0);
+    expect(s!.alpha).toBeLessThan(1);
+    expect(s!.alpha).toBeCloseTo(0.5, 1);
+  });
+
+  test("hideIdle: alpha is (near) 0 at the very edge of the vanish gap", () => {
+    // t=3990 → 10ms before the t=4000 vanish edge → alpha ≈ 0.02.
+    const s = cursorStateAt(3990, moves, [], header, { hideIdle: true });
+    expect(s).not.toBeNull();
+    expect(s!.alpha).toBeLessThan(0.1);
+  });
+
+  test("hideIdle: mid-motion (next sample close) keeps full alpha", () => {
+    // Between the two 1s-apart samples there's no idle gap ahead, so no fade.
+    const s = cursorStateAt(1500, moves, [], header, { hideIdle: true });
+    expect(s).not.toBeNull();
+    expect(s!.alpha).toBeCloseTo(1);
+  });
 });
 
 describe("cursorDrawScale", () => {
@@ -897,6 +956,295 @@ describe("captionAt", () => {
     const segments = [seg(0, 1000, "first"), seg(1000, 2000, "second")];
     expect(captionAt(999, segments)).toBe("first");
     expect(captionAt(1000, segments)).toBe("second");
+  });
+});
+
+describe("smoothCursorPath", () => {
+  // A jagged path: alternating x with a rising trend, so smoothing has
+  // something to visibly reduce. Timestamps are strictly ascending.
+  const jagged: CursorSample[] = [
+    { t: 0, x: 100, y: 200 },
+    { t: 100, x: 140, y: 180 },
+    { t: 200, x: 105, y: 240 },
+    { t: 300, x: 160, y: 190 },
+    { t: 400, x: 120, y: 260 },
+    { t: 500, x: 180, y: 210 },
+    { t: 600, x: 130, y: 280 },
+    { t: 700, x: 200, y: 230 },
+  ];
+
+  test("strength 0 returns the input unchanged (identity)", () => {
+    const out = smoothCursorPath(jagged, 0);
+    expect(out.length).toBe(jagged.length);
+    out.forEach((p, i) => {
+      expect(p.t).toBe(jagged[i].t);
+      expect(p.x).toBe(jagged[i].x);
+      expect(p.y).toBe(jagged[i].y);
+    });
+  });
+
+  test("timestamps are preserved at every strength (source-time invariant)", () => {
+    for (const s of [0, 0.25, 0.5, 0.75, 1]) {
+      const out = smoothCursorPath(jagged, s);
+      expect(out.length).toBe(jagged.length);
+      out.forEach((p, i) => expect(p.t).toBe(jagged[i].t));
+    }
+  });
+
+  test("endpoints are pinned at any strength (first + last unchanged)", () => {
+    for (const s of [0.1, 0.5, 0.9, 1]) {
+      const out = smoothCursorPath(jagged, s);
+      const first = out[0];
+      const last = out[out.length - 1];
+      expect(first.x).toBeCloseTo(jagged[0].x);
+      expect(first.y).toBeCloseTo(jagged[0].y);
+      expect(last.x).toBeCloseTo(jagged[jagged.length - 1].x);
+      expect(last.y).toBeCloseTo(jagged[jagged.length - 1].y);
+    }
+  });
+
+  test("strength 1 reduces path jaggedness (total variation drops)", () => {
+    // Total variation = sum of segment lengths. Smoothing a jagged path must
+    // strictly reduce it (the smoothed polyline is shorter / less zig-zaggy).
+    const tv = (pts: CursorSample[]): number => {
+      let sum = 0;
+      for (let i = 1; i < pts.length; i++) {
+        sum += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+      }
+      return sum;
+    };
+    const smoothed = smoothCursorPath(jagged, 1);
+    expect(tv(smoothed)).toBeLessThan(tv(jagged));
+  });
+
+  test("strength 1 keeps every smoothed point within a bounded deviation of the original", () => {
+    // A local averaging filter can never push a point outside the coordinate
+    // range of its neighbourhood, so the deviation is bounded by the path's
+    // own local spread — assert a concrete, comfortably-loose cap.
+    const smoothed = smoothCursorPath(jagged, 1);
+    const xs = jagged.map((p) => p.x);
+    const ys = jagged.map((p) => p.y);
+    const spread = Math.max(...xs) - Math.min(...xs) + (Math.max(...ys) - Math.min(...ys));
+    smoothed.forEach((p, i) => {
+      const dev = Math.hypot(p.x - jagged[i].x, p.y - jagged[i].y);
+      // No smoothed point moves more than the full path spread (a very loose,
+      // always-true-for-an-average bound that a runaway/overshoot would break).
+      expect(dev).toBeLessThanOrEqual(spread);
+    });
+  });
+
+  test("stronger smoothing deviates at least as much as weaker (monotone in strength)", () => {
+    // At an interior point, a higher strength blends more of the average in, so
+    // the deviation from the original is monotonically non-decreasing.
+    const mid = 3; // an interior, jagged sample
+    const devAt = (s: number): number => {
+      const out = smoothCursorPath(jagged, s);
+      return Math.hypot(out[mid].x - jagged[mid].x, out[mid].y - jagged[mid].y);
+    };
+    expect(devAt(0.25)).toBeLessThanOrEqual(devAt(0.5) + 1e-9);
+    expect(devAt(0.5)).toBeLessThanOrEqual(devAt(1) + 1e-9);
+  });
+
+  test("degenerate inputs are returned unchanged (0/1/2 samples)", () => {
+    expect(smoothCursorPath([], 1)).toEqual([]);
+    const one = [{ t: 0, x: 1, y: 2 }];
+    expect(smoothCursorPath(one, 1)).toEqual(one);
+    const two = [
+      { t: 0, x: 1, y: 2 },
+      { t: 10, x: 3, y: 4 },
+    ];
+    // Two samples are both endpoints → nothing to smooth; returned unchanged.
+    expect(smoothCursorPath(two, 1)).toEqual(two);
+  });
+
+  test("does not mutate the input array", () => {
+    const copy = jagged.map((p) => ({ ...p }));
+    smoothCursorPath(jagged, 1);
+    jagged.forEach((p, i) => {
+      expect(p.x).toBe(copy[i].x);
+      expect(p.y).toBe(copy[i].y);
+    });
+  });
+});
+
+describe("motionBlurSamples", () => {
+  const block: ZoomBlock = { startMs: 2000, endMs: 6000, cx: 0.3, cy: 0.7, scale: 2, mode: "auto" };
+  const N = 4;
+  // The per-sub-sample time step the helper walks back over: one frame interval
+  // (1/30 s ≈ 33.33 ms) split into N. The tests only rely on it being > 0.
+  const frameIntervalMs = 1000 / 30;
+
+  test("no blocks → a single sample (identity zoom)", () => {
+    const samples = motionBlurSamples(4000, [], N, frameIntervalMs);
+    expect(samples.length).toBe(1);
+    expect(samples[0]).toEqual({ cx: 0.5, cy: 0.5, scale: 1 });
+  });
+
+  test("on the plateau (fully inside, no ramp) → a single sample", () => {
+    // t=4000 is mid-block, far from either ramp edge — the zoom state is
+    // constant across the sub-sample window, so no blur is needed: 1 sample.
+    const samples = motionBlurSamples(4000, [block], N, frameIntervalMs);
+    expect(samples.length).toBe(1);
+    expect(samples[0]).toEqual({ cx: 0.3, cy: 0.7, scale: 2 });
+  });
+
+  test("outside every block → a single sample (identity)", () => {
+    expect(motionBlurSamples(0, [block], N, frameIntervalMs).length).toBe(1);
+    expect(motionBlurSamples(10000, [block], N, frameIntervalMs).length).toBe(1);
+  });
+
+  test("mid rising ramp → N sub-samples, all distinct in scale", () => {
+    // t=2250 is inside the [2000, 2500] rising ramp (transition 500). The zoom
+    // scale is changing, so the N sub-samples (at t, t-Δ, t-2Δ, t-3Δ) differ.
+    const samples = motionBlurSamples(2250, [block], N, frameIntervalMs);
+    expect(samples.length).toBe(N);
+    const scales = samples.map((s) => s.scale);
+    const uniq = new Set(scales.map((v) => v.toFixed(6)));
+    expect(uniq.size).toBe(N); // all distinct
+  });
+
+  test("mid falling ramp → N sub-samples, all distinct in scale", () => {
+    // t=5750 is inside the [5500, 6000] falling ramp.
+    const samples = motionBlurSamples(5750, [block], N, frameIntervalMs);
+    expect(samples.length).toBe(N);
+    const uniq = new Set(samples.map((s) => s.scale.toFixed(6)));
+    expect(uniq.size).toBe(N);
+  });
+
+  test("the first sub-sample is the current-time zoom state (present frame)", () => {
+    // Blur accumulates from the current frame backward; sub-sample[0] must be
+    // exactly zoomStateAt(t) so the newest frame is drawn at its true state.
+    const t = 2250;
+    const samples = motionBlurSamples(t, [block], N, frameIntervalMs);
+    expect(samples[0]).toEqual(zoomStateAt(t, [block]));
+  });
+
+  test("n <= 1 collapses to a single current-time sample regardless of ramp", () => {
+    expect(motionBlurSamples(2250, [block], 1, frameIntervalMs).length).toBe(1);
+    expect(motionBlurSamples(2250, [block], 0, frameIntervalMs)).toEqual([
+      zoomStateAt(2250, [block]),
+    ]);
+  });
+});
+
+describe("drawCompositeBlurred (accumulation weights)", () => {
+  // A minimal 2D-context stub that records the `globalAlpha` in effect at each
+  // `drawImage` (the frame-layer draw) and tracks save/restore depth. Only the
+  // methods drawCompositeV2 actually calls are stubbed; the rest are no-ops.
+  function makeCtxStub() {
+    const drawImageAlphas: number[] = [];
+    let depth = 0;
+    let maxDepth = 0;
+    const ctx = {
+      globalAlpha: 1,
+      fillStyle: "" as string | CanvasGradient,
+      strokeStyle: "",
+      lineWidth: 1,
+      font: "",
+      textAlign: "",
+      textBaseline: "",
+      shadowColor: "",
+      shadowBlur: 0,
+      shadowOffsetX: 0,
+      shadowOffsetY: 0,
+      lineJoin: "",
+      save() {
+        depth++;
+        maxDepth = Math.max(maxDepth, depth);
+      },
+      restore() {
+        depth--;
+      },
+      beginPath() {},
+      closePath() {},
+      moveTo() {},
+      lineTo() {},
+      arc() {},
+      arcTo() {},
+      clip() {},
+      fill() {},
+      stroke() {},
+      fillRect() {},
+      translate() {},
+      scale() {},
+      fillText() {},
+      measureText() {
+        return { width: 10 };
+      },
+      createLinearGradient() {
+        return { addColorStop() {} };
+      },
+      drawImage() {
+        drawImageAlphas.push(ctx.globalAlpha);
+      },
+    };
+    return { ctx, drawImageAlphas, getMaxDepth: () => maxDepth, getDepth: () => depth };
+  }
+
+  const appearance: Appearance = {
+    padding: 96,
+    cornerRadius: 16,
+    aspect: "auto",
+    background: { type: "gradient", from: "#111", to: "#000" },
+  };
+  const frame = { width: 1920, height: 1080 } as unknown as CanvasImageSource;
+  const overlay: OverlayState = { cursor: null, webcam: null, keystroke: null, caption: null };
+
+  test("single sample draws the frame exactly once and restores globalAlpha", () => {
+    const { ctx, drawImageAlphas, getDepth } = makeCtxStub();
+    ctx.globalAlpha = 1;
+    drawCompositeBlurred(
+      ctx as unknown as CanvasRenderingContext2D,
+      frame,
+      1920,
+      1080,
+      2112,
+      1272,
+      appearance,
+      [{ cx: 0.5, cy: 0.5, scale: 1 }],
+      overlay,
+      1.5,
+      null,
+    );
+    // Exactly one frame draw (the drawFrameLayer drawImage), at full alpha.
+    expect(drawImageAlphas.length).toBe(1);
+    expect(drawImageAlphas[0]).toBeCloseTo(1);
+    // globalAlpha left as it was (balanced save/restore inside).
+    expect(ctx.globalAlpha).toBeCloseTo(1);
+    expect(getDepth()).toBe(0);
+  });
+
+  test("N samples draw the frame N times at incrementally-averaging alphas 1/(k+1)", () => {
+    const { ctx, drawImageAlphas } = makeCtxStub();
+    ctx.globalAlpha = 1;
+    const samples: ZoomState[] = [
+      { cx: 0.5, cy: 0.5, scale: 1.4 },
+      { cx: 0.5, cy: 0.5, scale: 1.3 },
+      { cx: 0.5, cy: 0.5, scale: 1.2 },
+      { cx: 0.5, cy: 0.5, scale: 1.1 },
+    ];
+    drawCompositeBlurred(
+      ctx as unknown as CanvasRenderingContext2D,
+      frame,
+      1920,
+      1080,
+      2112,
+      1272,
+      appearance,
+      samples,
+      overlay,
+      1.5,
+      null,
+    );
+    // Four frame draws at 1/1, 1/2, 1/3, 1/4 — the exact equal-weight-average
+    // accumulation (pass 0 opaque, so no black residue over the backdrop).
+    expect(drawImageAlphas.length).toBe(4);
+    expect(drawImageAlphas[0]).toBeCloseTo(1);
+    expect(drawImageAlphas[1]).toBeCloseTo(1 / 2);
+    expect(drawImageAlphas[2]).toBeCloseTo(1 / 3);
+    expect(drawImageAlphas[3]).toBeCloseTo(1 / 4);
+    // Restored afterward.
+    expect(ctx.globalAlpha).toBeCloseTo(1);
   });
 });
 

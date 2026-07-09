@@ -39,14 +39,17 @@ import {
   captionAt,
   cursorDrawScale,
   cursorStateAt,
-  drawCompositeV2,
+  drawCompositeBlurred,
   keystrokeBadgeAlpha,
   keystrokeBadgeAt,
+  motionBlurSamples,
+  MOTION_BLUR_SAMPLES,
   outputLayout,
-  zoomStateAt,
+  smoothCursorPath,
   type Appearance,
   type CursorSample,
   type OverlayState,
+  type ZoomState,
 } from "./compositor";
 import type { RecEvent } from "../autoZoom";
 
@@ -636,12 +639,26 @@ export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8A
     zoomBlocks = resolveZoomBlocks(project, null, [], durationMs);
   }
   const drawCursor = project.cursor.enabled && cursorHeader !== null && cursorMoves.length > 0;
+  // Cursor smoothing (Task 5): de-jitter the move path ONCE here (not per
+  // frame) — the SAME shared `smoothCursorPath` the editor preview memoizes, so
+  // preview and export smooth identically. strength 0 ⇒ identity (unchanged
+  // path), so a pre-M4 project renders the exact same cursor track. Timestamps
+  // are preserved, keeping the SOURCE-time lookup below valid.
+  const smoothedMoves = smoothCursorPath(cursorMoves, project.cursor.smoothing);
+  const cursorHideIdle = project.cursor.hideIdle;
   const cursorScale = cursorDrawScale(
     project.cursor.scale,
     cursorHeader?.capture.px_scale ?? 1,
   );
   const drawKeystrokes = project.keystrokes.enabled && keyEvents.length > 0;
   const keystrokesAllKeys = project.keystrokes.allKeys;
+  // Motion blur (Task 5): on only when the project opts in AND there's a zoom
+  // timeline to transition through (blur only smears the pan/zoom ramps). Off
+  // ⇒ N=1 → `motionBlurSamples` returns a single state → a plain `drawCompositeV2`
+  // via `drawCompositeBlurred` (byte-identical to pre-M4). Export always applies
+  // blur when enabled (the preview may skip it under jank — see EditorView).
+  const motionBlurN = project.motionBlur && zoomBlocks.length ? MOTION_BLUR_SAMPLES : 1;
+  const frameIntervalMs = 1000 / TARGET_FPS;
 
   // Caption overlay (Task 3): unlike zoom/cursor/keystrokes, captions come
   // straight from the project (`generateCaptions`'s output persisted via the
@@ -777,11 +794,20 @@ export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8A
         pendingComposites++;
         compositeChain = compositeChain.then(async () => {
           try {
-            const zoom = zoomBlocks.length ? zoomStateAt(tMsSource, zoomBlocks) : { cx: 0.5, cy: 0.5, scale: 1 };
+            // Zoom sub-samples for this frame: a single current-time state when
+            // blur is off / on a static stretch, or N eased states across the
+            // last frame interval when inside a transition ramp (see
+            // `motionBlurSamples`). `drawCompositeBlurred` accumulates them.
+            const zoomSamples: ZoomState[] = zoomBlocks.length
+              ? motionBlurSamples(tMsSource, zoomBlocks, motionBlurN, frameIntervalMs)
+              : [{ cx: 0.5, cy: 0.5, scale: 1 }];
             // Synthetic cursor overlay, looked up at SOURCE time (same rule as
-            // zoom: trim re-anchoring must not shift the cursor track).
+            // zoom: trim re-anchoring must not shift the cursor track). Uses the
+            // pre-smoothed move path + the hideIdle fade flag (Task 5).
             const cursor = drawCursor
-              ? cursorStateAt(tMsSource, cursorMoves, cursorDowns, cursorHeader!)
+              ? cursorStateAt(tMsSource, smoothedMoves, cursorDowns, cursorHeader!, {
+                  hideIdle: cursorHideIdle,
+                })
               : null;
             // Keystroke badge overlay, looked up at SOURCE time — same rule as
             // zoom/cursor. Mirrors the editor preview's `keystrokeOverlayAt`.
@@ -808,7 +834,7 @@ export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8A
                 };
               }
             }
-            drawCompositeV2(
+            drawCompositeBlurred(
               ctx,
               frame,
               frame.displayWidth,
@@ -816,7 +842,7 @@ export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8A
               outW,
               outH,
               appearance,
-              zoom,
+              zoomSamples,
               { cursor, webcam, keystroke, caption },
               cursorScale,
               bgImage,

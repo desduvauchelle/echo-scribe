@@ -179,8 +179,11 @@ export type CursorSample = { t: number; x: number; y: number }; // capture-space
 
 export type OverlayState = {
   /** Normalized 0..1 capture-space cursor position; `clickAge` = ms since the
-   *  last mouse-down (null if none recent). null = no cursor to draw. */
-  cursor: { x: number; y: number; clickAge: number | null } | null;
+   *  last mouse-down (null if none recent); `alpha` = draw opacity 0..1 (1 =
+   *  fully opaque, the default; < 1 only when `hideIdle` is fading the cursor
+   *  out before an idle gap — the compositor multiplies it into the glyph +
+   *  ripple opacity). null = no cursor to draw. */
+  cursor: { x: number; y: number; clickAge: number | null; alpha: number } | null;
   /** A webcam frame to composite as a corner PiP. null = no webcam. */
   webcam: {
     frame: CanvasImageSource;
@@ -215,6 +218,11 @@ const CURSOR_MAX_GAP_MS = 2000;
  *  the compositor's `CLICK_RIPPLE_MS`. */
 const CURSOR_CLICK_WINDOW_MS = 400;
 
+/** Hide-when-idle fade window (ms): with `hideIdle`, the cursor's alpha ramps
+ *  1→0 over the last this-many ms before it would vanish at an idle gap edge
+ *  (`CURSOR_MAX_GAP_MS`), rather than popping out abruptly. */
+const CURSOR_IDLE_FADE_MS = 500;
+
 /**
  * Interpolated cursor state at time `tMs`, in normalized 0..1 capture-space
  * coords (mapped through `header.capture.rect` = `[x, y, w, h]` in the same
@@ -233,6 +241,14 @@ const CURSOR_CLICK_WINDOW_MS = 400;
  * (down is in the future — shouldn't happen given the ≤ tMs filter, but clamped
  * defensively).
  *
+ * `alpha` (draw opacity, 0..1): always 1 unless `opts.hideIdle` is set. With
+ * `hideIdle`, while the cursor is being HELD on a lone sample across a coming
+ * idle gap, its alpha ramps 1→0 over the last `CURSOR_IDLE_FADE_MS` before it
+ * would vanish (at `CURSOR_MAX_GAP_MS` from that sample) — so it fades out
+ * instead of popping. During real motion (interpolating between two close
+ * samples) there is no idle gap ahead, so alpha stays 1. Default off ⇒ alpha is
+ * always 1 (pre-M4 projects render identically).
+ *
  * Pure; `moves` and `downs` are assumed sorted ascending by `t` (they are as
  * written by the sidecar and split by the caller).
  */
@@ -241,14 +257,25 @@ export function cursorStateAt(
   moves: CursorSample[],
   downs: CursorSample[],
   header: EventsHeader,
+  opts?: { hideIdle?: boolean },
 ): OverlayState["cursor"] {
   if (moves.length === 0) return null;
 
+  const hideIdle = opts?.hideIdle === true;
   const [rx, ry, rw, rh] = header.capture.rect;
   const norm = (m: CursorSample): { x: number; y: number } => ({
     x: rw > 0 ? (m.x - rx) / rw : 0,
     y: rh > 0 ? (m.y - ry) / rh : 0,
   });
+
+  /** Idle-fade opacity while HELD `distToVanishMs` before the vanish edge:
+   *  1 outside the fade window, ramping linearly to 0 as it closes on 0. */
+  const heldAlpha = (distToVanishMs: number): number => {
+    if (!hideIdle) return 1;
+    if (distToVanishMs >= CURSOR_IDLE_FADE_MS) return 1;
+    if (distToVanishMs <= 0) return 0;
+    return distToVanishMs / CURSOR_IDLE_FADE_MS;
+  };
 
   const clickAge = clickAgeAt(tMs, downs);
 
@@ -268,29 +295,39 @@ export function cursorStateAt(
     }
   }
 
-  // Before the first sample: hold the first if within the gap.
+  // Before the first sample: hold the first if within the gap. Fading in as we
+  // approach the first sample would be surprising (the cursor is arriving, not
+  // idling out), so this hold stays full-alpha — the idle fade is a trailing
+  // effect (see the after-last branch).
   if (lo < 0) {
     const first = moves[0];
     if (first.t - tMs > CURSOR_MAX_GAP_MS) return null;
     const p = norm(first);
-    return { x: p.x, y: p.y, clickAge };
+    return { x: p.x, y: p.y, clickAge, alpha: 1 };
   }
 
   const left = moves[lo];
 
   // Exact hit on a sample is always real recorded data — return it directly,
   // regardless of how far the neighbors are (the gap check only governs
-  // *interpolation* between two samples, below).
+  // *interpolation* between two samples, below). When holding it across a
+  // coming idle gap (no next sample within CURSOR_MAX_GAP_MS), fade toward the
+  // vanish edge so hideIdle dissolves rather than pops.
   if (left.t === tMs) {
     const p = norm(left);
-    return { x: p.x, y: p.y, clickAge };
+    const next = moves[lo + 1];
+    const idleAhead = next === undefined || next.t - tMs > CURSOR_MAX_GAP_MS;
+    const alpha = idleAhead ? heldAlpha(CURSOR_MAX_GAP_MS) : 1;
+    return { x: p.x, y: p.y, clickAge, alpha };
   }
 
-  // After the last sample: hold it if within the gap.
+  // After the last sample: hold it if within the gap, fading out over the last
+  // CURSOR_IDLE_FADE_MS before the vanish edge (tMs - left.t == CURSOR_MAX_GAP_MS).
   if (lo === moves.length - 1) {
     if (tMs - left.t > CURSOR_MAX_GAP_MS) return null;
     const p = norm(left);
-    return { x: p.x, y: p.y, clickAge };
+    const distToVanish = CURSOR_MAX_GAP_MS - (tMs - left.t);
+    return { x: p.x, y: p.y, clickAge, alpha: heldAlpha(distToVanish) };
   }
 
   // Interpolate between `left` (t < tMs) and `right` (t > tMs). If the two
@@ -303,10 +340,12 @@ export function cursorStateAt(
   const f = span > 0 ? (tMs - left.t) / span : 0;
   const pl = norm(left);
   const pr = norm(right);
+  // Real motion between two close samples: no idle gap ahead, full alpha.
   return {
     x: pl.x + (pr.x - pl.x) * f,
     y: pl.y + (pr.y - pl.y) * f,
     clickAge,
+    alpha: 1,
   };
 }
 
@@ -331,6 +370,80 @@ function clickAgeAt(tMs: number, downs: CursorSample[]): number | null {
   const age = tMs - downs[idx].t;
   if (age < 0 || age > CURSOR_CLICK_WINDOW_MS) return null;
   return age;
+}
+
+// ---- Cursor path smoothing -----------------------------------------------
+
+/** Half-width (in samples) of the smoothing window at full strength. The window
+ *  spans `2 * SMOOTH_HALF_WINDOW + 1` samples (here 5 → a 11-tap triangular
+ *  kernel), a light de-jitter that softens hand-jitter without lagging the
+ *  cursor noticeably. Kept small on purpose: cursor moves are sampled densely,
+ *  and a wide window would round off intentional fast flicks. */
+const SMOOTH_HALF_WINDOW = 5;
+
+/**
+ * Smooth a cursor move path to take the hand-jitter off the synthetic cursor,
+ * `strength` in [0,1] (0 = off). Pure; precomputed ONCE per events load
+ * (memoized like the zoom blocks) and consumed by `cursorStateAt` unchanged —
+ * the smoothed samples keep their original timestamps, so this never shifts the
+ * source-time track (the binding SOURCE-time invariant).
+ *
+ * Algorithm — triangular (weighted) moving average, blended by strength:
+ *   - For each interior sample `i`, compute a triangular-weighted average of the
+ *     x/y of the samples in `[i - w, i + w]` (`w = SMOOTH_HALF_WINDOW`), with
+ *     weights falling off linearly from the center. The window is clamped at the
+ *     ends so it never reads out of bounds.
+ *   - The output point is `lerp(original, average, strength)` — so strength 0 is
+ *     a byte-for-byte identity (the pinned test), and higher strength blends
+ *     progressively more of the smoothed average in.
+ *   - The FIRST and LAST samples are always returned unchanged (endpoints
+ *     pinned) so the path starts/ends exactly where it really did.
+ *
+ * Chosen over centripetal Catmull-Rom / one-euro because a moving average (a)
+ * keeps the original timestamps (Catmull-Rom resampling would invent new ones,
+ * and one-euro introduces phase lag — both fight the source-time invariant),
+ * (b) can never overshoot the local coordinate range (bounded deviation — a
+ * spline can ring/overshoot), and (c) pins endpoints trivially. `strength` is
+ * clamped to [0,1]; a path of ≤ 2 samples (all endpoints) is returned as-is.
+ */
+export function smoothCursorPath(moves: CursorSample[], strength: number): CursorSample[] {
+  const s = Number.isFinite(strength) ? Math.max(0, Math.min(1, strength)) : 0;
+  const n = moves.length;
+  // Nothing to smooth: strength 0 (identity), or a path that is all endpoints.
+  if (s <= 0 || n <= 2) return moves.map((m) => ({ ...m }));
+
+  const w = SMOOTH_HALF_WINDOW;
+  const out: CursorSample[] = new Array(n);
+  for (let i = 0; i < n; i++) {
+    // Pin the endpoints exactly.
+    if (i === 0 || i === n - 1) {
+      out[i] = { ...moves[i] };
+      continue;
+    }
+    // Triangular-weighted average over the clamped window. Weight for offset k
+    // (|k| <= w) is `w + 1 - |k|`, peaking at the center and falling to 1 at the
+    // window edge; clamping at the array bounds keeps it in range.
+    let sumX = 0;
+    let sumY = 0;
+    let sumW = 0;
+    for (let k = -w; k <= w; k++) {
+      const j = i + k;
+      if (j < 0 || j >= n) continue;
+      const weight = w + 1 - Math.abs(k);
+      sumX += moves[j].x * weight;
+      sumY += moves[j].y * weight;
+      sumW += weight;
+    }
+    const avgX = sumX / sumW;
+    const avgY = sumY / sumW;
+    // Blend original → average by strength.
+    out[i] = {
+      t: moves[i].t,
+      x: moves[i].x + (avgX - moves[i].x) * s,
+      y: moves[i].y + (avgY - moves[i].y) * s,
+    };
+  }
+  return out;
 }
 
 // ---- Keystroke badge lookup ----------------------------------------------
@@ -575,6 +688,63 @@ export function zoomStateAt(
     return { cx: block.cx, cy: block.cy, scale: block.scale };
   }
   return { ...IDENTITY };
+}
+
+/** Two zoom states are the "same" (no visible motion between them) when their
+ *  pan/zoom differs by less than this. Used to collapse a motion-blur request
+ *  on a static stretch (plateau / outside any block) back to a single sample. */
+const ZOOM_STATE_EPSILON = 1e-6;
+
+function zoomStatesEqual(a: ZoomState, b: ZoomState): boolean {
+  return (
+    Math.abs(a.cx - b.cx) < ZOOM_STATE_EPSILON &&
+    Math.abs(a.cy - b.cy) < ZOOM_STATE_EPSILON &&
+    Math.abs(a.scale - b.scale) < ZOOM_STATE_EPSILON
+  );
+}
+
+/**
+ * The zoom states to composite for a motion-blurred frame at time `tMs`. Pure —
+ * the render loop (preview + export) draws the SAME decoded frame once per
+ * returned state with `globalAlpha = 1/samples.length` and accumulates, which
+ * smears the pan/zoom motion during a transition ramp (Screen-Studio-style
+ * motion blur) without needing extra decoded frames.
+ *
+ * Contract:
+ *   - Returns the CURRENT-time state first (`samples[0] === zoomStateAt(tMs)`),
+ *     then `n - 1` earlier states at `tMs - k·Δ` where `Δ = frameIntervalMs / n`
+ *     (`k = 1..n-1`) — i.e. the blur trails BACKWARD from the present frame over
+ *     roughly one frame interval, split into `n` sub-steps.
+ *   - On a STATIC stretch — outside every block, or fully inside a block's
+ *     plateau — every sub-sample resolves to the same zoom state, so there is no
+ *     motion to blur: it collapses to a SINGLE sample (draw cost ×1, not ×n).
+ *     This is what keeps blur's cost confined to the ~2·transition ramps per
+ *     block (the only place the state actually changes frame-to-frame).
+ *   - `n <= 1` (blur off / degenerate) also yields the single current sample.
+ * `transitionMs` matches `zoomStateAt`'s default so preview and export agree.
+ */
+export function motionBlurSamples(
+  tMs: number,
+  blocks: ZoomBlock[],
+  n: number,
+  frameIntervalMs: number,
+  transitionMs: number = DEFAULT_TRANSITION_MS,
+): ZoomState[] {
+  const current = zoomStateAt(tMs, blocks, transitionMs);
+  const count = Math.floor(n);
+  if (count <= 1 || !(frameIntervalMs > 0)) return [current];
+
+  const dt = frameIntervalMs / count;
+  const samples: ZoomState[] = [current];
+  let allSame = true;
+  for (let k = 1; k < count; k++) {
+    const s = zoomStateAt(tMs - k * dt, blocks, transitionMs);
+    if (!zoomStatesEqual(s, current)) allSame = false;
+    samples.push(s);
+  }
+  // Static window (plateau / outside any block): nothing moved across the
+  // sub-sample span → collapse to a single draw (no blur cost).
+  return allSame ? [current] : samples;
 }
 
 /**
@@ -966,6 +1136,13 @@ export function drawCompositeV2(
       ctx.save();
       roundedRectPath(ctx, dx, dy, dw, dh, appearance.cornerRadius);
       ctx.clip();
+      // Hide-when-idle fade: multiply the whole cursor layer (glyph + ripple)
+      // by the overlay's alpha (1 by default, < 1 only while `hideIdle` dissolves
+      // the idle cursor). Multiply into any existing globalAlpha (the motion-blur
+      // accumulation path sets 1/N before calling) rather than assigning, so the
+      // two compose. Guarded so a value of 1 leaves the context untouched
+      // (pre-M4 output byte-identical).
+      if (overlay.cursor.alpha < 1) ctx.globalAlpha *= Math.max(0, overlay.cursor.alpha);
       // Click ripple: an expanding, fading ring anchored at the cursor point
       // (which, at a click, sits on the down coords) for CLICK_RIPPLE_MS after a
       // down. Radius/opacity animate over clickAge/CLICK_RIPPLE_MS; the size is
@@ -1063,6 +1240,75 @@ export function drawCompositeV2(
   }
 }
 
+/** Number of motion-blur sub-samples composited during a zoom transition ramp.
+ *  Matches the `n` passed to `motionBlurSamples`; kept here so preview and
+ *  export use the identical sample count (no drift). */
+export const MOTION_BLUR_SAMPLES = 4;
+
+/**
+ * Paint one output frame, optionally motion-blurred across a zoom transition.
+ * The SINGLE composite entry point both the preview (EditorView rAF) and the
+ * export (renderPipeline) call, so the two never drift.
+ *
+ * `zoomSamples` is the list from `motionBlurSamples(tMsSource, blocks, N, …)`:
+ *   - length 1 (blur off, or a static plateau/outside-block stretch where every
+ *     sub-sample resolved to the same zoom) → a SINGLE `drawCompositeV2` at that
+ *     state. This is byte-for-byte the pre-M4 path, so blur-off / non-transition
+ *     frames render identically.
+ *   - length N (inside a transition ramp) → draw the SAME decoded frame once per
+ *     zoom sub-sample and INCREMENTALLY AVERAGE them: sub-sample `k` is drawn
+ *     with `globalAlpha = 1/(k+1)` (source-over). Pass 0 is fully opaque, then
+ *     each later pass blends in so the buffer holds the exact equal-weight
+ *     average of all sub-samples drawn so far — `(F0+…+Fk)/(k+1)`. This avoids
+ *     the residual-darkening a flat `1/N` would leave over the opaque backdrop
+ *     (`(1-1/N)^N` of black would survive), so the letterbox/background bands
+ *     keep their full brightness while the frame/cursor smear across the
+ *     changing pan/zoom. Cost is ×N ONLY on ramp frames.
+ *
+ * The overlays are drawn on every sub-sample (folded into the same average) so
+ * they smear with the same motion as the frame — correct for the cursor (which
+ * tracks the zoom) and visually coherent for the pills/webcam during the brief
+ * ramp.
+ */
+export function drawCompositeBlurred(
+  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+  frame: CanvasImageSource,
+  frameW: number,
+  frameH: number,
+  outW: number,
+  outH: number,
+  appearance: Appearance,
+  zoomSamples: ZoomState[],
+  overlay: OverlayState,
+  cursorScale: number,
+  bgImage: CanvasImageSource | null,
+): void {
+  if (zoomSamples.length <= 1) {
+    drawCompositeV2(
+      ctx,
+      frame,
+      frameW,
+      frameH,
+      outW,
+      outH,
+      appearance,
+      zoomSamples[0] ?? { ...IDENTITY },
+      overlay,
+      cursorScale,
+      bgImage,
+    );
+    return;
+  }
+  const prevAlpha = ctx.globalAlpha;
+  // Incremental averaging: pass k at 1/(k+1) yields an exact equal-weight mean
+  // of the sub-samples (pass 0 opaque → no black residue), see the doc above.
+  for (let k = 0; k < zoomSamples.length; k++) {
+    ctx.globalAlpha = 1 / (k + 1);
+    drawCompositeV2(ctx, frame, frameW, frameH, outW, outH, appearance, zoomSamples[k], overlay, cursorScale, bgImage);
+  }
+  ctx.globalAlpha = prevAlpha;
+}
+
 /** Font size (px) for the keystroke badge / caption pill as a fraction of the
  *  content width, clamped to a sane on-screen range regardless of output
  *  resolution. Shared by both pills so their text reads at the same size. */
@@ -1140,7 +1386,11 @@ function drawKeystrokeBadge(
   const pillX = dx + dw / 2 - pillW / 2;
   const pillY = dy + dh - bottomMargin - pillH;
 
-  ctx.globalAlpha = a;
+  // Multiply into the ambient globalAlpha (1 normally; 1/(k+1) inside the
+  // motion-blur accumulation) rather than assigning, so the badge composes with
+  // the averaging weight during a zoom ramp. At ambient 1 this is exactly `a`
+  // (pre-M4 output unchanged).
+  ctx.globalAlpha *= a;
   roundedRectPath(ctx, pillX, pillY, pillW, pillH, pillH / 2);
   ctx.fillStyle = "rgba(20,20,24,0.72)";
   ctx.fill();
