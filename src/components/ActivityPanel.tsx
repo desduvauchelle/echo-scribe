@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Copy, Eye, Pencil, RotateCcw, Trash2, X } from "lucide-react";
+import { Copy, Eye, Loader, Pencil, RotateCcw, Trash2, X } from "lucide-react";
 import Markdown from "./Markdown";
 import {
   completeTask,
@@ -35,6 +35,7 @@ import { relativeTime } from "../lib/format";
 import { useActivityPanel } from "./ActivityPanelContext";
 import { useToasts } from "./ToastProvider";
 import ItemDetailPanel from "./ItemDetailPanel";
+import { meetingStatusDisplay } from "../lib/meetingStatus";
 
 export default function ActivityPanel() {
   const { selectedItemId, close } = useActivityPanel();
@@ -734,9 +735,30 @@ function MeetingView({
     : null;
   const projectName = projects.find((p) => p.id === item.project_id)?.name ?? null;
 
+  const statusDisplay = meetingStatusDisplay(meeting.status);
+
   return (
     <div className="space-y-5">
       <MeetingTitle meeting={meeting} summary={summary} onMeetingChange={onMeetingChange} />
+
+      {meeting.status !== "complete" ? (
+        <div
+          className={`flex items-start gap-2.5 rounded-md border px-3 py-2 text-[12px] ${
+            statusDisplay.tone === "danger"
+              ? "border-danger/30 bg-danger/10 text-danger"
+              : "border-accent/30 bg-accent-soft text-accent"
+          }`}
+          role="status"
+        >
+          {statusDisplay.spinner ? (
+            <Loader size={14} className="mt-0.5 shrink-0 animate-spin" />
+          ) : null}
+          <div className="min-w-0">
+            <div className="font-medium">{statusDisplay.label}</div>
+            <div className="text-[11px] opacity-80">{statusDisplay.description}</div>
+          </div>
+        </div>
+      ) : null}
 
       <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted">
         <span className="rounded-full bg-elevated px-2 py-0.5 text-fg">Meeting</span>
@@ -791,7 +813,7 @@ function MeetingView({
         <dl className="space-y-1 text-[11px]">
           <div className="flex gap-2">
             <dt className="w-24 shrink-0 text-faint">Status</dt>
-            <dd className="text-muted">{meeting.status}</dd>
+            <dd className="text-muted">{statusDisplay.label || "Complete"}</dd>
           </div>
           {meeting.detected_app_name ? (
             <div className="flex gap-2">

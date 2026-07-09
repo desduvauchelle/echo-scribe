@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlignLeft, Folder, ListChecks } from "lucide-react";
+import { AlignLeft, Folder, ListChecks, Loader } from "lucide-react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
   isMeetingActive,
@@ -12,6 +12,7 @@ import {
   type MeetingRow,
   type MeetingStatus,
 } from "../../lib/api";
+import { meetingStatusDisplay } from "../../lib/meetingStatus";
 import { useToasts } from "../../components/ToastProvider";
 import { useActivityPanel } from "../../components/ActivityPanelContext";
 
@@ -278,6 +279,7 @@ export function MeetingsView() {
               const firstPoint = parsed?.summary?.[0] ?? "";
               const summaryCount = parsed?.summary?.length ?? 0;
               const actionCount = parsed?.action_items?.length ?? 0;
+              const sd = meetingStatusDisplay(r.status);
               return (
                 <li
                   key={r.item_id}
@@ -294,27 +296,45 @@ export function MeetingsView() {
                       })}
                     </div>
                     <div className="flex shrink-0 items-center gap-2.5 text-xs text-muted">
-                      {summaryCount > 0 && (
+                      {sd.pill ? (
                         <span
-                          className="inline-flex items-center gap-1"
-                          title={`${summaryCount} summary point${summaryCount === 1 ? "" : "s"}`}
+                          className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                            sd.tone === "danger"
+                              ? "bg-danger/15 text-danger"
+                              : "bg-accent-soft text-accent"
+                          }`}
+                          title={sd.description}
                         >
-                          <AlignLeft size={13} strokeWidth={2} />
-                          {summaryCount}
+                          {sd.spinner && (
+                            <Loader size={11} strokeWidth={2} className="animate-spin" />
+                          )}
+                          {sd.label}
                         </span>
+                      ) : (
+                        <>
+                          {summaryCount > 0 && (
+                            <span
+                              className="inline-flex items-center gap-1"
+                              title={`${summaryCount} summary point${summaryCount === 1 ? "" : "s"}`}
+                            >
+                              <AlignLeft size={13} strokeWidth={2} />
+                              {summaryCount}
+                            </span>
+                          )}
+                          {actionCount > 0 && (
+                            <span
+                              className="inline-flex items-center gap-1"
+                              title={`${actionCount} action item${actionCount === 1 ? "" : "s"}`}
+                            >
+                              <ListChecks size={13} strokeWidth={2} />
+                              {actionCount}
+                            </span>
+                          )}
+                          <span title="Duration">
+                            {Math.round((r.duration_ms ?? 0) / 60000)}m
+                          </span>
+                        </>
                       )}
-                      {actionCount > 0 && (
-                        <span
-                          className="inline-flex items-center gap-1"
-                          title={`${actionCount} action item${actionCount === 1 ? "" : "s"}`}
-                        >
-                          <ListChecks size={13} strokeWidth={2} />
-                          {actionCount}
-                        </span>
-                      )}
-                      <span title="Duration">
-                        {Math.round((r.duration_ms ?? 0) / 60000)}m
-                      </span>
                     </div>
                   </div>
                   {r.project_name && (
