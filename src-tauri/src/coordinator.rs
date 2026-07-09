@@ -1291,6 +1291,15 @@ fn persist_log_capture(
     db.with_conn(|c| crate::db::items::insert_item(c, &item))
         .map_err(|e| format!("insert item: {e}"))?;
 
+    // Unclassified captures join the auto-tagging queue.
+    if final_project_id.is_none() {
+        let id_for_tag = id.clone();
+        let now_for_tag = now.clone();
+        let _ = db.with_conn(move |c| {
+            crate::db::project_tag_jobs::enqueue(c, &id_for_tag, &now_for_tag)
+        });
+    }
+
     // Record lifecycle event.
     {
         let detail = format!("via log_capture as {}", kind.as_str());

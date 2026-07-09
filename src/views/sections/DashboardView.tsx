@@ -7,10 +7,9 @@ import {
   getDashboardStats,
   listItems,
   listRecordings,
-  projectTaggerStatus,
-  runProjectTaggerDeterministicOnce,
-  runProjectTaggerLlmOnce,
+  runProjectTaggerAll,
   searchItems,
+  type ProjectTaggerProgress,
   type DailySummary,
   type DailySummarySectionItem,
   type DashboardStats,
@@ -131,6 +130,7 @@ export default function DashboardView({ projects }: Props) {
   const [exportRange, setExportRange] = useState<ExportRangeKey>("day");
   const [exporting, setExporting] = useState(false);
   const [tagging, setTagging] = useState(false);
+  const [tagProgress, setTagProgress] = useState<ProjectTaggerProgress | null>(null);
   const { push: pushToast } = useToasts();
 
   const { refreshTick } = useActivityPanel();
@@ -285,7 +285,7 @@ export default function DashboardView({ projects }: Props) {
     e.type === "item" ? (
       <ItemCard key={e.key} item={e.item} projects={projects} />
     ) : (
-      <RecordingCard key={e.key} rec={e.rec} />
+      <RecordingCard key={e.key} rec={e.rec} projects={projects} />
     );
 
   const runExport = async (format: "markdown" | "csv") => {
@@ -313,46 +313,60 @@ export default function DashboardView({ projects }: Props) {
     }
   };
 
-  /** Manual trigger for the project tagger (normally runs on a background
-   *  schedule): deterministic router pass first, then the local-AI pass when a
-   *  model is loaded. Toasts the combined run summary for debugging. */
+  /** Manual "tag everything now": queues every untagged capture (all item
+   *  kinds + recordings), then works through the whole queue — router first,
+   *  local AI where the router can't decide. Progress streams back via
+   *  `tagger:progress` events and shows on the button. */
   const runTagging = async () => {
     setTagging(true);
+    setTagProgress(null);
+    let unlisten: (() => void) | null = null;
     try {
-      const det = await runProjectTaggerDeterministicOnce();
-      const status = await projectTaggerStatus().catch(() => null);
-      const llm = status?.llm_ready ? await runProjectTaggerLlmOnce() : null;
-      const assigned = det.assigned + (llm?.assigned ?? 0);
-      if (det.scanned === 0 && (llm?.scanned ?? 0) === 0) {
+      unlisten = await listen<ProjectTaggerProgress>("tagger:progress", (e) => {
+        setTagProgress(e.payload);
+      });
+      const s = await runProjectTaggerAll();
+      const undecided = s.scanned - s.assigned;
+      if (s.scanned === 0) {
         pushToast({
           tone: "success",
-          message: "Tagging ran — no untagged items were waiting.",
+          message: "Tagging ran — everything already has a project.",
         });
-      } else if (llm?.sample_error && assigned === 0) {
+      } else if (s.sample_error && s.assigned === 0) {
         pushToast({
           tone: "error",
-          message: `Tagging couldn't assign any of ${det.scanned} items. AI error: ${llm.sample_error}`,
+          durationMs: 20_000,
+          message: `Tagging checked ${s.scanned} captures but couldn't assign any. AI error: ${s.sample_error}`,
         });
       } else {
         const notes = [
-          !llm ? "AI pass skipped — no local model loaded." : null,
-          llm?.sample_error ? `Some items hit an AI error: ${llm.sample_error}` : null,
+          undecided > 0
+            ? `${undecided} had no clear project and will be retried later.`
+            : null,
+          s.sample_error ? `Some hit an AI error: ${s.sample_error}` : null,
         ]
           .filter(Boolean)
           .join(" ");
         pushToast({
           tone: "success",
-          message: `Tagging finished: ${assigned} of ${det.scanned} items matched to a project.${notes ? ` ${notes}` : ""}`,
+          durationMs: 15_000,
+          message: `Tagging finished: ${s.assigned} of ${s.scanned} captures assigned to a project.${notes ? ` ${notes}` : ""}`,
         });
       }
-      if (assigned > 0) void fetchItems("reset");
+      if (s.assigned > 0) {
+        void fetchItems("reset");
+        void loadRecordings();
+      }
     } catch (e) {
       pushToast({
         tone: "error",
+        durationMs: 20_000,
         message: `Tagging failed: ${e instanceof Error ? e.message : String(e)}`,
       });
     } finally {
+      unlisten?.();
       setTagging(false);
+      setTagProgress(null);
     }
   };
 
@@ -447,12 +461,20 @@ export default function DashboardView({ projects }: Props) {
             type="button"
             onClick={() => void runTagging()}
             disabled={tagging}
-            aria-label="Run project tagging"
-            title="Run project tagging"
-            className="rounded-md border border-line bg-surface p-1.5 text-muted hover:bg-elevated hover:text-fg disabled:opacity-50"
+            aria-label="Tag all captures"
+            title="Tag all untagged captures with a project"
+            className="flex items-center gap-1.5 rounded-md border border-line bg-surface p-1.5 text-muted hover:bg-elevated hover:text-fg disabled:opacity-70"
           >
             {tagging ? (
-              <Loader2 size={14} className="animate-spin" />
+              <>
+                <Loader2 size={14} className="animate-spin" />
+                {tagProgress ? (
+                  <span className="text-[11px] tabular-nums">
+                    {tagProgress.processed}/{tagProgress.total}
+                    {tagProgress.assigned > 0 ? ` · ${tagProgress.assigned} tagged` : ""}
+                  </span>
+                ) : null}
+              </>
             ) : (
               <Tags size={14} />
             )}

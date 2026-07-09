@@ -1557,6 +1557,47 @@ pub fn run_project_tagger_deterministic_once(
     .map_err(|e| e.to_string())
 }
 
+/// Payload for `tagger:progress` events emitted during `run_project_tagger_all`.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ProjectTaggerProgress {
+    pub processed: u32,
+    pub total: u32,
+    pub assigned: u32,
+}
+
+/// Manual "tag everything now": backfill every untagged item + recording into
+/// the queue, then walk the whole queue once (router first, then local AI when
+/// loaded). Emits `tagger:progress` after each job so the UI can show a live
+/// counter.
+#[tauri::command]
+pub async fn run_project_tagger_all(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<crate::project_tagger::ProjectTaggerRunSummary, String> {
+    let db = require_db(&state)?.clone();
+    let now = chrono_now_iso();
+    let dow = crate::classifier::dow_from_iso(&now).to_string();
+    let llm_arc = Arc::clone(&state.llm);
+    let llm: Option<&crate::llm::Llm> = if llm_arc.ready() {
+        Some(llm_arc.as_ref())
+    } else {
+        None
+    };
+    let on_progress = |s: &crate::project_tagger::ProjectTaggerRunSummary, total: u32| {
+        let _ = app.emit(
+            "tagger:progress",
+            ProjectTaggerProgress {
+                processed: s.scanned,
+                total,
+                assigned: s.assigned,
+            },
+        );
+    };
+    crate::project_tagger::run_full_pass_db(&db, llm, &now, &dow, on_progress)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub async fn run_project_tagger_llm_once(
     state: State<'_, AppState>,
@@ -3663,6 +3704,9 @@ pub fn stop_screen_recording_inner(
         webcam_offset_ms: info.webcam_offset_ms,
         n_events: info.n_events,
         n_clicks: info.n_clicks,
+        project_id: None,
+        confidence: None,
+        classified_by: None,
     };
     let db = state
         .db
@@ -3670,6 +3714,15 @@ pub fn stop_screen_recording_inner(
         .ok_or_else(|| "database not available".to_string())?;
     db.with_conn(|c| crate::db::recordings::insert(c, &row))
         .map_err(|e| e.to_string())?;
+    // New recordings join the project-tagging queue (classified once a title
+    // or transcript exists).
+    {
+        let rec_id = row.id.clone();
+        let now = chrono_now_iso();
+        let _ = db.with_conn(move |c| {
+            crate::db::project_tag_jobs::enqueue_recording(c, &rec_id, &now)
+        });
+    }
     // Flip tray icon back to idle.
     if let Ok(t) = state.tray.lock() {
         t.set_screenrec_active(false);
@@ -3880,6 +3933,13 @@ pub async fn transcribe_recording(
         let db = require_db(&state)?;
         db.with_conn(|c| crate::db::recordings::set_transcript(c, &id, &text))
             .map_err(|e| e.to_string())?;
+        // A transcript is new classification signal — reopen the recording's
+        // tag job in case an earlier pass ran on the bare title.
+        let rec_id = id.clone();
+        let now = chrono_now_iso();
+        let _ = db.with_conn(move |c| {
+            crate::db::project_tag_jobs::reopen(c, &rec_id, &now)
+        });
     }
 
     Ok(text)

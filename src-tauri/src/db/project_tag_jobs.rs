@@ -10,6 +10,11 @@ pub const STATUS_DEFERRED: &str = "deferred";
 pub const STATUS_DONE: &str = "done";
 pub const STATUS_FAILED: &str = "failed";
 
+/// Job targets: `item_id` points at either an `items` row or a `recordings`
+/// row depending on `target`.
+pub const TARGET_ITEM: &str = "item";
+pub const TARGET_RECORDING: &str = "recording";
+
 #[derive(Debug, Clone, Copy, Default, serde::Serialize, PartialEq, Eq)]
 pub struct ProjectTagJobCounts {
     pub pending: u32,
@@ -21,6 +26,7 @@ pub struct ProjectTagJobCounts {
 #[derive(Debug, Clone, serde::Serialize, PartialEq, Eq)]
 pub struct ProjectTagJob {
     pub item_id: String,
+    pub target: String,
     pub status: String,
     pub attempts: u32,
     pub next_run_at: Option<String>,
@@ -30,11 +36,36 @@ pub struct ProjectTagJob {
 }
 
 pub fn enqueue(conn: &Connection, item_id: &str, now_iso: &str) -> Result<(), DbError> {
+    enqueue_target(conn, item_id, TARGET_ITEM, now_iso)
+}
+
+pub fn enqueue_recording(conn: &Connection, recording_id: &str, now_iso: &str) -> Result<(), DbError> {
+    enqueue_target(conn, recording_id, TARGET_RECORDING, now_iso)
+}
+
+fn enqueue_target(
+    conn: &Connection,
+    id: &str,
+    target: &str,
+    now_iso: &str,
+) -> Result<(), DbError> {
     conn.execute(
         "INSERT OR IGNORE INTO project_tag_jobs
-            (item_id, status, attempts, next_run_at, last_error, created_at, updated_at)
-         VALUES (?1, ?2, 0, NULL, NULL, ?3, ?3)",
-        params![item_id, STATUS_PENDING, now_iso],
+            (item_id, target, status, attempts, next_run_at, last_error, created_at, updated_at)
+         VALUES (?1, ?2, ?3, 0, NULL, NULL, ?4, ?4)",
+        params![id, target, STATUS_PENDING, now_iso],
+    )?;
+    Ok(())
+}
+
+/// Re-open a done/failed job so its target gets reconsidered. Used when a
+/// recording's transcript arrives after the job already ran on title alone.
+pub fn reopen(conn: &Connection, id: &str, now_iso: &str) -> Result<(), DbError> {
+    conn.execute(
+        "UPDATE project_tag_jobs
+            SET status = ?1, next_run_at = NULL, last_error = NULL, updated_at = ?2
+          WHERE item_id = ?3",
+        params![STATUS_PENDING, now_iso, id],
     )?;
     Ok(())
 }
@@ -68,6 +99,47 @@ pub fn enqueue_backfill(
     Ok(ids.len() as u32)
 }
 
+/// Enqueue every untagged capture — items of all sources/kinds plus
+/// recordings — that isn't already in the queue. Returns how many jobs were
+/// added.
+pub fn enqueue_backfill_all(conn: &Connection, now_iso: &str) -> Result<u32, DbError> {
+    let mut added = 0u32;
+    {
+        let mut stmt = conn.prepare(
+            "SELECT id
+               FROM items
+              WHERE deleted_at IS NULL
+                AND project_id IS NULL
+                AND id NOT IN (SELECT item_id FROM project_tag_jobs)
+              ORDER BY captured_at DESC",
+        )?;
+        let ids = stmt
+            .query_map([], |r| r.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        for id in &ids {
+            enqueue(conn, id, now_iso)?;
+            added += 1;
+        }
+    }
+    {
+        let mut stmt = conn.prepare(
+            "SELECT id
+               FROM recordings
+              WHERE project_id IS NULL
+                AND id NOT IN (SELECT item_id FROM project_tag_jobs)
+              ORDER BY created_at DESC",
+        )?;
+        let ids = stmt
+            .query_map([], |r| r.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        for id in &ids {
+            enqueue_recording(conn, id, now_iso)?;
+            added += 1;
+        }
+    }
+    Ok(added)
+}
+
 pub fn list_runnable(
     conn: &Connection,
     limit: u32,
@@ -75,7 +147,7 @@ pub fn list_runnable(
 ) -> Result<Vec<ProjectTagJob>, DbError> {
     let limit = limit.clamp(1, 500);
     let mut stmt = conn.prepare(
-        "SELECT item_id, status, attempts, next_run_at, last_error, created_at, updated_at
+        "SELECT item_id, target, status, attempts, next_run_at, last_error, created_at, updated_at
            FROM project_tag_jobs
           WHERE status = ?1
              OR (status = ?2 AND (next_run_at IS NULL OR next_run_at <= ?3))
@@ -87,6 +159,7 @@ pub fn list_runnable(
         |r| {
             Ok(ProjectTagJob {
                 item_id: r.get("item_id")?,
+                target: r.get("target")?,
                 status: r.get("status")?,
                 attempts: r.get::<_, i64>("attempts")?.max(0) as u32,
                 next_run_at: r.get("next_run_at")?,
@@ -101,6 +174,20 @@ pub fn list_runnable(
         out.push(row?);
     }
     Ok(out)
+}
+
+/// How many jobs are runnable right now (pending, or deferred past their
+/// retry time). Drives the manual full run's progress denominator.
+pub fn count_runnable(conn: &Connection, now_iso: &str) -> Result<u32, DbError> {
+    let n: i64 = conn.query_row(
+        "SELECT COUNT(*)
+           FROM project_tag_jobs
+          WHERE status = ?1
+             OR (status = ?2 AND (next_run_at IS NULL OR next_run_at <= ?3))",
+        params![STATUS_PENDING, STATUS_DEFERRED, now_iso],
+        |r| r.get(0),
+    )?;
+    Ok(n.max(0) as u32)
 }
 
 pub fn mark_done(conn: &Connection, item_id: &str, now_iso: &str) -> Result<(), DbError> {

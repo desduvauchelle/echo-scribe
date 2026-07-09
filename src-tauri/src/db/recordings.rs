@@ -52,6 +52,13 @@ pub struct RecordingRow {
     pub n_events: Option<i64>,
     /// Click-down events recorded (subset of `n_events`). `None` when absent.
     pub n_clicks: Option<i64>,
+    /// Project this recording was classified into (same semantics as
+    /// `items.project_id`). `None` = untagged.
+    pub project_id: Option<String>,
+    /// Classifier confidence for `project_id`.
+    pub confidence: Option<f64>,
+    /// Which classifier assigned the project (`router-v1` / `ai-background`).
+    pub classified_by: Option<String>,
 }
 
 pub fn insert(conn: &Connection, r: &RecordingRow) -> Result<(), DbError> {
@@ -101,7 +108,8 @@ pub fn list(conn: &Connection) -> Result<Vec<RecordingRow>, DbError> {
                 source_label, has_mic, has_sysaudio, thumb_path, drive_file_id,
                 drive_link, upload_status, upload_error, exports, title, transcript,
                 denoised_path, events_path, project_json, webcam_path, cursor_hidden,
-                webcam_offset_ms, n_events, n_clicks
+                webcam_offset_ms, n_events, n_clicks,
+                project_id, confidence, classified_by
          FROM recordings
          ORDER BY created_at DESC",
     )?;
@@ -117,7 +125,8 @@ pub fn get(conn: &Connection, id: &str) -> Result<Option<RecordingRow>, DbError>
                 source_label, has_mic, has_sysaudio, thumb_path, drive_file_id,
                 drive_link, upload_status, upload_error, exports, title, transcript,
                 denoised_path, events_path, project_json, webcam_path, cursor_hidden,
-                webcam_offset_ms, n_events, n_clicks
+                webcam_offset_ms, n_events, n_clicks,
+                project_id, confidence, classified_by
          FROM recordings WHERE id = ?1",
         [id],
         row_to_recording,
@@ -186,6 +195,23 @@ pub fn set_transcript(conn: &Connection, id: &str, transcript: &str) -> Result<(
     Ok(())
 }
 
+/// Assign a recording to a project (mirror of `items::apply_classification`).
+pub fn apply_classification(
+    conn: &Connection,
+    id: &str,
+    project_id: &str,
+    confidence: f32,
+    classified_by: &str,
+) -> Result<(), DbError> {
+    conn.execute(
+        "UPDATE recordings
+            SET project_id = ?1, confidence = ?2, classified_by = ?3
+          WHERE id = ?4",
+        params![project_id, confidence as f64, classified_by, id],
+    )?;
+    Ok(())
+}
+
 /// Set or clear the denoised-file path for a recording.
 pub fn set_denoised_path(conn: &Connection, id: &str, path: Option<&str>) -> Result<(), DbError> {
     conn.execute(
@@ -243,6 +269,9 @@ fn row_to_recording(row: &rusqlite::Row<'_>) -> rusqlite::Result<RecordingRow> {
         webcam_offset_ms: row.get(23)?,
         n_events: row.get(24)?,
         n_clicks: row.get(25)?,
+        project_id: row.get(26)?,
+        confidence: row.get(27)?,
+        classified_by: row.get(28)?,
     })
 }
 
@@ -285,6 +314,9 @@ mod tests {
             webcam_offset_ms: None,
             n_events: None,
             n_clicks: None,
+            project_id: None,
+            confidence: None,
+            classified_by: None,
         }
     }
 

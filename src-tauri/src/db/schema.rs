@@ -383,6 +383,19 @@ ALTER TABLE recordings ADD COLUMN n_events INTEGER;
 ALTER TABLE recordings ADD COLUMN n_clicks INTEGER;
 "#,
     ),
+    (
+        // Project tagging for recordings: recordings get the same
+        // project/confidence/classified_by triple items have, and tag jobs
+        // gain a target discriminator ('item' | 'recording') so one queue
+        // serves both tables.
+        26,
+        r#"
+ALTER TABLE recordings ADD COLUMN project_id TEXT;
+ALTER TABLE recordings ADD COLUMN confidence REAL;
+ALTER TABLE recordings ADD COLUMN classified_by TEXT;
+ALTER TABLE project_tag_jobs ADD COLUMN target TEXT NOT NULL DEFAULT 'item';
+"#,
+    ),
 ];
 
 const META_TABLE_SQL: &str = r#"
@@ -444,7 +457,7 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(v, "25");
+        assert_eq!(v, "26");
     }
 
     #[test]
@@ -598,7 +611,7 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(version, "25");
+        assert_eq!(version, "26");
     }
 
     #[test]

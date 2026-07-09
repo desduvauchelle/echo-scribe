@@ -1,6 +1,6 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { Film, Globe, Loader } from "lucide-react";
-import type { RecordingRow } from "../lib/api";
+import type { Project, RecordingRow } from "../lib/api";
 import { revealRecording } from "../lib/api";
 import { relativeTime } from "../lib/format";
 
@@ -23,13 +23,16 @@ function fmtSize(bytes: number | null): string {
 
 type Props = {
   rec: RecordingRow;
+  /** Optional map of project_id → project for rendering the pill. */
+  projects?: Map<string, Project>;
   /** Override the default action (reveal in Finder), e.g. open Recordings view. */
   onOpen?: (rec: RecordingRow) => void;
 };
 
 /** Compact recording row for the unified activity feed. Full management
  *  (transcribe, denoise, upload, export) lives in the Recordings view. */
-export default function RecordingCard({ rec, onOpen }: Props) {
+export default function RecordingCard({ rec, projects, onOpen }: Props) {
+  const project = rec.project_id ? projects?.get(rec.project_id) : null;
   const handleClick = () => {
     if (onOpen) onOpen(rec);
     else void revealRecording(rec.id);
@@ -73,6 +76,11 @@ export default function RecordingCard({ rec, onOpen }: Props) {
           <span>{relativeTime(new Date(rec.created_at).toISOString())}</span>
           <span>·</span>
           <span>{fmtSize(rec.size_bytes)}</span>
+          {project ? (
+            <span className="rounded-full bg-elevated px-2 py-0.5 text-fg">
+              {project.name}
+            </span>
+          ) : null}
           {rec.upload_status === "uploading" ? (
             <span className="inline-flex items-center gap-1 text-muted">
               <Loader size={11} className="animate-spin" /> Uploading

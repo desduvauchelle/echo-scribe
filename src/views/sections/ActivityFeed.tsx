@@ -186,7 +186,7 @@ export default function ActivityFeed({
     e.type === "item" ? (
       <ItemCard key={e.key} item={e.item} projects={projects} />
     ) : (
-      <RecordingCard key={e.key} rec={e.rec} />
+      <RecordingCard key={e.key} rec={e.rec} projects={projects} />
     );
 
   const handleRename = async () => {

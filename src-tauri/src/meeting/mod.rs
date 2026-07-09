@@ -852,6 +852,14 @@ impl MeetingManager {
                             "UPDATE items SET project_id = ?1 WHERE id = ?2",
                             rusqlite::params![pid, id_db3],
                         )?;
+                    } else {
+                        // Synthesis couldn't name a project — let the
+                        // auto-tagger retry with the router + classifier.
+                        crate::db::project_tag_jobs::enqueue(
+                            conn,
+                            &id_db3,
+                            &chrono::Utc::now().to_rfc3339(),
+                        )?;
                     }
                     if !s.tags.is_empty() {
                         crate::db::items::replace_tags(conn, &id_db3, &s.tags)?;
@@ -876,6 +884,9 @@ impl MeetingManager {
                              VALUES (?1, ?2, 'meeting', 'task', ?3, ?4, ?4)",
                             rusqlite::params![task_id, action.text, task_project_id, now_iso],
                         )?;
+                        if task_project_id.is_none() {
+                            crate::db::project_tag_jobs::enqueue(conn, &task_id, &now_iso)?;
+                        }
                         conn.execute(
                             "INSERT INTO tasks (item_id, deadline, completed_at) VALUES (?1, NULL, NULL)",
                             rusqlite::params![task_id],
@@ -1115,6 +1126,12 @@ impl MeetingManager {
                             "UPDATE items SET project_id = ?1 WHERE id = ?2",
                             rusqlite::params![pid, id_for_db],
                         )?;
+                    } else {
+                        crate::db::project_tag_jobs::enqueue(
+                            conn,
+                            &id_for_db,
+                            &chrono::Utc::now().to_rfc3339(),
+                        )?;
                     }
                     if !meeting_tags.is_empty() {
                         crate::db::items::replace_tags(conn, &id_for_db, &meeting_tags)?;
@@ -1138,6 +1155,9 @@ impl MeetingManager {
                                  VALUES (?1, ?2, 'meeting', 'task', ?3, ?4, ?4)",
                                 rusqlite::params![task_id, action.text, task_project_id, now_iso],
                             )?;
+                            if task_project_id.is_none() {
+                                crate::db::project_tag_jobs::enqueue(conn, &task_id, &now_iso)?;
+                            }
                             conn.execute(
                                 "INSERT INTO tasks (item_id, deadline, completed_at) VALUES (?1, NULL, NULL)",
                                 rusqlite::params![task_id],

@@ -449,6 +449,19 @@ export const runProjectTaggerLlmOnce = (
 ): Promise<ProjectTaggerRunSummary> =>
   invoke("run_project_tagger_llm_once", { limit: limit ?? null });
 
+/** Payload of `tagger:progress` events emitted during runProjectTaggerAll. */
+export type ProjectTaggerProgress = {
+  processed: number;
+  total: number;
+  assigned: number;
+};
+
+/** Backfill every untagged item + recording into the tag queue, then walk the
+ *  whole queue once (router, then local AI). Long-running; listen for
+ *  `tagger:progress` events for a live counter. */
+export const runProjectTaggerAll = (): Promise<ProjectTaggerRunSummary> =>
+  invoke("run_project_tagger_all");
+
 export const listTasks = (args: {
   include_completed?: boolean;
   project_id?: string | null;
@@ -1168,6 +1181,9 @@ export type RecordingRow = {
   webcam_offset_ms: number | null;
   n_events: number | null;
   n_clicks: number | null;
+  project_id: string | null;
+  confidence: number | null;
+  classified_by: string | null;
 };
 
 export const startScreenRecording = (p: {

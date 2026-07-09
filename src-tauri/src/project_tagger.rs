@@ -1,7 +1,9 @@
 //! Deferred project auto-tagging: deterministic routing and batch worker glue.
 
 use crate::coordinator::{PipelineState, StateHandle};
+use crate::db::items::Item;
 use crate::db::projects::Project;
+use crate::db::recordings::RecordingRow;
 use crate::db::{items, project_tag_jobs, Db, DbError};
 use crate::input::focus::FocusContext;
 use crate::llm::LlmGenerator;
@@ -26,6 +28,134 @@ pub struct ProjectTaggerRunSummary {
     pub sample_error: Option<String>,
 }
 
+/// Retry backoffs. Undecidable content gets a long pause (its content rarely
+/// changes, so retrying sooner just burns LLM time), transient errors a short
+/// one. Without these, deferred jobs sit at the queue head with
+/// `next_run_at = NULL` and every pass re-scans the same stuck batch forever.
+const UNDECIDED_BACKOFF_HOURS: i64 = 24;
+const ERROR_BACKOFF_HOURS: i64 = 1;
+
+fn iso_plus_hours(now_iso: &str, hours: i64) -> Option<String> {
+    chrono::DateTime::parse_from_rfc3339(now_iso)
+        .ok()
+        .map(|t| {
+            (t + chrono::Duration::hours(hours))
+                .format("%Y-%m-%dT%H:%M:%SZ")
+                .to_string()
+        })
+}
+
+/// What a tag job points at, reduced to the classifier's input.
+enum TagTarget {
+    Item(Item),
+    Recording {
+        id: String,
+        text: String,
+        /// False when the recording has neither a user title nor a
+        /// transcript — "Captured from: Entire screen" alone would just make
+        /// the classifier guess.
+        classifiable: bool,
+    },
+}
+
+impl TagTarget {
+    fn text(&self) -> &str {
+        match self {
+            TagTarget::Item(item) => &item.content,
+            TagTarget::Recording { text, .. } => text,
+        }
+    }
+
+    fn focus(&self) -> Option<FocusContext> {
+        match self {
+            TagTarget::Item(item) => parse_focus_context(item.capture_context.as_deref()),
+            TagTarget::Recording { .. } => None,
+        }
+    }
+
+    fn classifiable(&self) -> bool {
+        match self {
+            TagTarget::Item(_) => true,
+            TagTarget::Recording { classifiable, .. } => *classifiable,
+        }
+    }
+
+    fn apply(
+        &self,
+        conn: &Connection,
+        project_id: &str,
+        confidence: f32,
+        classified_by: &str,
+        tags: &[String],
+    ) -> Result<(), DbError> {
+        match self {
+            TagTarget::Item(item) => {
+                items::apply_classification(conn, &item.id, project_id, confidence, classified_by)?;
+                if !tags.is_empty() {
+                    items::replace_tags(conn, &item.id, tags)?;
+                }
+            }
+            TagTarget::Recording { id, .. } => {
+                crate::db::recordings::apply_classification(
+                    conn,
+                    id,
+                    project_id,
+                    confidence,
+                    classified_by,
+                )?;
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Load a job's target. `Ok(None)` = the job is moot (row gone, deleted, or
+/// already tagged) and should be marked done.
+fn load_target(
+    conn: &Connection,
+    job: &project_tag_jobs::ProjectTagJob,
+) -> Result<Option<TagTarget>, DbError> {
+    if job.target == project_tag_jobs::TARGET_RECORDING {
+        let Some(r) = crate::db::recordings::get(conn, &job.item_id)? else {
+            return Ok(None);
+        };
+        if r.project_id.is_some() {
+            return Ok(None);
+        }
+        let classifiable = r.title.as_deref().is_some_and(|t| !t.trim().is_empty())
+            || r.transcript.as_deref().is_some_and(|t| !t.trim().is_empty());
+        Ok(Some(TagTarget::Recording {
+            text: recording_text(&r),
+            id: r.id,
+            classifiable,
+        }))
+    } else {
+        match items::get_item(conn, &job.item_id)? {
+            Some(item) if item.deleted_at.is_none() && item.project_id.is_none() => {
+                Ok(Some(TagTarget::Item(item)))
+            }
+            _ => Ok(None),
+        }
+    }
+}
+
+/// Classifier input for a recording: title + capture source + transcript,
+/// capped so a long meeting doesn't blow up the prompt.
+fn recording_text(r: &RecordingRow) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    if let Some(t) = r.title.as_deref().filter(|t| !t.trim().is_empty()) {
+        parts.push(format!("Recording title: {t}"));
+    }
+    if let Some(s) = r.source_label.as_deref().filter(|s| !s.trim().is_empty()) {
+        parts.push(format!("Captured from: {s}"));
+    }
+    if let Some(tr) = r.transcript.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
+        let capped: String = tr.chars().take(4000).collect();
+        parts.push(format!("Transcript:\n{capped}"));
+    }
+    parts.join("\n")
+}
+
 pub fn run_deterministic_batch(
     conn: &Connection,
     limit: u32,
@@ -37,32 +167,33 @@ pub fn run_deterministic_batch(
 
     for job in jobs {
         summary.scanned += 1;
-        let item = match items::get_item(conn, &job.item_id)? {
-            Some(item) if item.deleted_at.is_none() => item,
-            _ => {
-                project_tag_jobs::mark_done(conn, &job.item_id, now_iso)?;
-                summary.deferred += 1;
-                continue;
-            }
-        };
-        if item.project_id.is_some() {
+        let Some(target) = load_target(conn, &job)? else {
             project_tag_jobs::mark_done(conn, &job.item_id, now_iso)?;
             summary.deferred += 1;
             continue;
-        }
-        let focus = parse_focus_context(item.capture_context.as_deref());
-        let route = route_deterministically(&item.content, focus.as_ref(), &projects);
-        if let Some(project_id) = route.project_id {
-            items::apply_classification(
+        };
+        if !target.classifiable() {
+            let until = iso_plus_hours(now_iso, UNDECIDED_BACKOFF_HOURS);
+            project_tag_jobs::defer(
                 conn,
-                &item.id,
-                &project_id,
-                route.confidence,
-                "router-v1",
+                &job.item_id,
+                until.as_deref(),
+                Some("recording has no title or transcript yet"),
+                now_iso,
             )?;
+            summary.deferred += 1;
+            continue;
+        }
+        let focus = target.focus();
+        let route = route_deterministically(target.text(), focus.as_ref(), &projects);
+        if let Some(project_id) = route.project_id {
+            target.apply(conn, &project_id, route.confidence, "router-v1", &[])?;
             project_tag_jobs::mark_done(conn, &job.item_id, now_iso)?;
             summary.assigned += 1;
         } else {
+            // NULL next_run_at on purpose: the LLM pass that follows should
+            // pick these up immediately. The LLM pass applies the real
+            // backoff when it also can't decide.
             project_tag_jobs::defer(
                 conn,
                 &job.item_id,
@@ -91,23 +222,27 @@ pub async fn run_llm_batch<L: LlmGenerator + ?Sized>(
 
     for job in jobs {
         summary.scanned += 1;
-        let item = match items::get_item(conn, &job.item_id)? {
-            Some(item) if item.deleted_at.is_none() => item,
-            _ => {
-                project_tag_jobs::mark_done(conn, &job.item_id, now_iso)?;
-                summary.deferred += 1;
-                continue;
-            }
-        };
-        if item.project_id.is_some() {
+        let Some(target) = load_target(conn, &job)? else {
             project_tag_jobs::mark_done(conn, &job.item_id, now_iso)?;
             summary.deferred += 1;
             continue;
+        };
+        if !target.classifiable() {
+            let until = iso_plus_hours(now_iso, UNDECIDED_BACKOFF_HOURS);
+            project_tag_jobs::defer(
+                conn,
+                &job.item_id,
+                until.as_deref(),
+                Some("recording has no title or transcript yet"),
+                now_iso,
+            )?;
+            summary.deferred += 1;
+            continue;
         }
-        let focus = parse_focus_context(item.capture_context.as_deref());
+        let focus = target.focus();
         match crate::classifier::classify(
             llm,
-            &item.content,
+            target.text(),
             &projects,
             &recents,
             now_iso,
@@ -116,37 +251,19 @@ pub async fn run_llm_batch<L: LlmGenerator + ?Sized>(
         )
         .await
         {
-            Ok(c) if c.confidence >= 0.6 => {
-                if let Some(project_id) = c.project_id {
-                    items::apply_classification(
-                        conn,
-                        &item.id,
-                        &project_id,
-                        c.confidence,
-                        "ai-background",
-                    )?;
-                    if !c.tags.is_empty() {
-                        items::replace_tags(conn, &item.id, &c.tags)?;
-                    }
-                    project_tag_jobs::mark_done(conn, &job.item_id, now_iso)?;
-                    summary.assigned += 1;
-                } else {
-                    project_tag_jobs::defer(
-                        conn,
-                        &job.item_id,
-                        None,
-                        Some("llm returned no existing project"),
-                        now_iso,
-                    )?;
-                    summary.deferred += 1;
-                }
+            Ok(c) if c.confidence >= 0.6 && c.project_id.is_some() => {
+                let project_id = c.project_id.unwrap();
+                target.apply(conn, &project_id, c.confidence, "ai-background", &c.tags)?;
+                project_tag_jobs::mark_done(conn, &job.item_id, now_iso)?;
+                summary.assigned += 1;
             }
             Ok(_) => {
+                let until = iso_plus_hours(now_iso, UNDECIDED_BACKOFF_HOURS);
                 project_tag_jobs::defer(
                     conn,
                     &job.item_id,
-                    None,
-                    Some("llm confidence below threshold"),
+                    until.as_deref(),
+                    Some("ai could not confidently match an existing project"),
                     now_iso,
                 )?;
                 summary.deferred += 1;
@@ -154,7 +271,8 @@ pub async fn run_llm_batch<L: LlmGenerator + ?Sized>(
             Err(e) => {
                 let msg = format!("llm classification failed: {e}");
                 warn!(target: "project_tagger", item_id = %job.item_id, error = %e, "llm classification failed");
-                project_tag_jobs::defer(conn, &job.item_id, None, Some(&msg), now_iso)?;
+                let until = iso_plus_hours(now_iso, ERROR_BACKOFF_HOURS);
+                project_tag_jobs::defer(conn, &job.item_id, until.as_deref(), Some(&msg), now_iso)?;
                 summary.sample_error.get_or_insert(msg);
                 summary.deferred += 1;
             }
@@ -178,23 +296,29 @@ pub async fn run_llm_batch_db<L: LlmGenerator + ?Sized>(
 
     for job in jobs {
         summary.scanned += 1;
-        let item = match db.with_conn(|c| items::get_item(c, &job.item_id))? {
-            Some(item) if item.deleted_at.is_none() => item,
-            _ => {
-                db.with_conn(|c| project_tag_jobs::mark_done(c, &job.item_id, now_iso))?;
-                summary.deferred += 1;
-                continue;
-            }
-        };
-        if item.project_id.is_some() {
+        let Some(target) = db.with_conn(|c| load_target(c, &job))? else {
             db.with_conn(|c| project_tag_jobs::mark_done(c, &job.item_id, now_iso))?;
             summary.deferred += 1;
             continue;
+        };
+        if !target.classifiable() {
+            let until = iso_plus_hours(now_iso, UNDECIDED_BACKOFF_HOURS);
+            db.with_conn(|c| {
+                project_tag_jobs::defer(
+                    c,
+                    &job.item_id,
+                    until.as_deref(),
+                    Some("recording has no title or transcript yet"),
+                    now_iso,
+                )
+            })?;
+            summary.deferred += 1;
+            continue;
         }
-        let focus = parse_focus_context(item.capture_context.as_deref());
+        let focus = target.focus();
         let classified = crate::classifier::classify(
             llm,
-            &item.content,
+            target.text(),
             &projects,
             &recents,
             now_iso,
@@ -203,42 +327,22 @@ pub async fn run_llm_batch_db<L: LlmGenerator + ?Sized>(
         )
         .await;
         match classified {
-            Ok(c) if c.confidence >= 0.6 => {
-                if let Some(project_id) = c.project_id {
-                    db.with_conn(|conn| {
-                        items::apply_classification(
-                            conn,
-                            &item.id,
-                            &project_id,
-                            c.confidence,
-                            "ai-background",
-                        )?;
-                        if !c.tags.is_empty() {
-                            items::replace_tags(conn, &item.id, &c.tags)?;
-                        }
-                        project_tag_jobs::mark_done(conn, &job.item_id, now_iso)
-                    })?;
-                    summary.assigned += 1;
-                } else {
-                    db.with_conn(|conn| {
-                        project_tag_jobs::defer(
-                            conn,
-                            &job.item_id,
-                            None,
-                            Some("llm returned no existing project"),
-                            now_iso,
-                        )
-                    })?;
-                    summary.deferred += 1;
-                }
+            Ok(c) if c.confidence >= 0.6 && c.project_id.is_some() => {
+                let project_id = c.project_id.unwrap();
+                db.with_conn(|conn| {
+                    target.apply(conn, &project_id, c.confidence, "ai-background", &c.tags)?;
+                    project_tag_jobs::mark_done(conn, &job.item_id, now_iso)
+                })?;
+                summary.assigned += 1;
             }
             Ok(_) => {
+                let until = iso_plus_hours(now_iso, UNDECIDED_BACKOFF_HOURS);
                 db.with_conn(|conn| {
                     project_tag_jobs::defer(
                         conn,
                         &job.item_id,
-                        None,
-                        Some("llm confidence below threshold"),
+                        until.as_deref(),
+                        Some("ai could not confidently match an existing project"),
                         now_iso,
                     )
                 })?;
@@ -247,8 +351,9 @@ pub async fn run_llm_batch_db<L: LlmGenerator + ?Sized>(
             Err(e) => {
                 let msg = format!("llm classification failed: {e}");
                 warn!(target: "project_tagger", item_id = %job.item_id, error = %e, "llm classification failed");
+                let until = iso_plus_hours(now_iso, ERROR_BACKOFF_HOURS);
                 db.with_conn(|conn| {
-                    project_tag_jobs::defer(conn, &job.item_id, None, Some(&msg), now_iso)
+                    project_tag_jobs::defer(conn, &job.item_id, until.as_deref(), Some(&msg), now_iso)
                 })?;
                 summary.sample_error.get_or_insert(msg);
                 summary.deferred += 1;
@@ -256,6 +361,138 @@ pub async fn run_llm_batch_db<L: LlmGenerator + ?Sized>(
         }
     }
 
+    Ok(summary)
+}
+
+/// One-shot "tag everything" pass for the manual dashboard trigger: enqueue
+/// every untagged capture, then walk the whole queue once — router first
+/// (free), then the LLM when the router can't decide. Each job is visited at
+/// most once per run. `on_progress(summary, total)` fires after every job so
+/// the UI can show a live counter.
+pub async fn run_full_pass_db<L: LlmGenerator + ?Sized>(
+    db: &Db,
+    llm: Option<&L>,
+    now_iso: &str,
+    now_dow: &str,
+    mut on_progress: impl FnMut(&ProjectTaggerRunSummary, u32),
+) -> Result<ProjectTaggerRunSummary, DbError> {
+    db.with_conn(|c| project_tag_jobs::enqueue_backfill_all(c, now_iso))?;
+    let total = db.with_conn(|c| project_tag_jobs::count_runnable(c, now_iso))?;
+    let projects = db.with_conn(|c| crate::db::projects::list_projects(c, false))?;
+    let recents = db.with_conn(|c| items::list_items(c, None, None, 5, 0))?;
+    let mut summary = ProjectTaggerRunSummary::default();
+    let mut seen = std::collections::HashSet::new();
+
+    loop {
+        let jobs = db.with_conn(|c| project_tag_jobs::list_runnable(c, 500, now_iso))?;
+        let fresh: Vec<_> = jobs
+            .into_iter()
+            .filter(|j| seen.insert(j.item_id.clone()))
+            .collect();
+        if fresh.is_empty() {
+            break;
+        }
+        for job in fresh {
+            summary.scanned += 1;
+            let Some(target) = db.with_conn(|c| load_target(c, &job))? else {
+                db.with_conn(|c| project_tag_jobs::mark_done(c, &job.item_id, now_iso))?;
+                on_progress(&summary, total);
+                continue;
+            };
+            if !target.classifiable() {
+                let until = iso_plus_hours(now_iso, UNDECIDED_BACKOFF_HOURS);
+                db.with_conn(|c| {
+                    project_tag_jobs::defer(
+                        c,
+                        &job.item_id,
+                        until.as_deref(),
+                        Some("recording has no title or transcript yet"),
+                        now_iso,
+                    )
+                })?;
+                summary.deferred += 1;
+                on_progress(&summary, total);
+                continue;
+            }
+            let focus = target.focus();
+            let route = route_deterministically(target.text(), focus.as_ref(), &projects);
+            if let Some(project_id) = route.project_id {
+                db.with_conn(|conn| {
+                    target.apply(conn, &project_id, route.confidence, "router-v1", &[])?;
+                    project_tag_jobs::mark_done(conn, &job.item_id, now_iso)
+                })?;
+                summary.assigned += 1;
+                on_progress(&summary, total);
+                continue;
+            }
+            let Some(llm) = llm else {
+                db.with_conn(|c| {
+                    project_tag_jobs::defer(
+                        c,
+                        &job.item_id,
+                        None,
+                        Some("no clear deterministic route"),
+                        now_iso,
+                    )
+                })?;
+                summary.deferred += 1;
+                on_progress(&summary, total);
+                continue;
+            };
+            let classified = crate::classifier::classify(
+                llm,
+                target.text(),
+                &projects,
+                &recents,
+                now_iso,
+                now_dow,
+                focus.as_ref(),
+            )
+            .await;
+            match classified {
+                Ok(c) if c.confidence >= 0.6 && c.project_id.is_some() => {
+                    let project_id = c.project_id.unwrap();
+                    db.with_conn(|conn| {
+                        target.apply(conn, &project_id, c.confidence, "ai-background", &c.tags)?;
+                        project_tag_jobs::mark_done(conn, &job.item_id, now_iso)
+                    })?;
+                    summary.assigned += 1;
+                }
+                Ok(_) => {
+                    let until = iso_plus_hours(now_iso, UNDECIDED_BACKOFF_HOURS);
+                    db.with_conn(|conn| {
+                        project_tag_jobs::defer(
+                            conn,
+                            &job.item_id,
+                            until.as_deref(),
+                            Some("ai could not confidently match an existing project"),
+                            now_iso,
+                        )
+                    })?;
+                    summary.deferred += 1;
+                }
+                Err(e) => {
+                    let msg = format!("llm classification failed: {e}");
+                    warn!(target: "project_tagger", item_id = %job.item_id, error = %e, "llm classification failed");
+                    let until = iso_plus_hours(now_iso, ERROR_BACKOFF_HOURS);
+                    db.with_conn(|conn| {
+                        project_tag_jobs::defer(
+                            conn,
+                            &job.item_id,
+                            until.as_deref(),
+                            Some(&msg),
+                            now_iso,
+                        )
+                    })?;
+                    summary.sample_error.get_or_insert(msg);
+                    summary.deferred += 1;
+                }
+            }
+            on_progress(&summary, total);
+        }
+    }
+
+    info!(target: "project_tagger", ?summary, "manual full pass complete");
     Ok(summary)
 }
 
