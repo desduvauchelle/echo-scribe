@@ -712,3 +712,28 @@ export function moveZoomBlock(
     i === index ? { ...b, startMs: start, endMs: start + len } : b,
   );
 }
+
+/** Path of the editor's `"rendered"` entry inside a recording row's `exports`
+ *  JSON, or `null` when the recording has never been editor-exported (or the
+ *  JSON is malformed). Lets the post-export "Reveal in Finder" affordance
+ *  target `<id>.rendered.mp4` instead of the original recording. */
+export function renderedExportPath(exportsJson: string): string | null {
+  try {
+    const v: unknown = JSON.parse(exportsJson);
+    if (!Array.isArray(v)) return null;
+    for (const e of v) {
+      if (
+        e &&
+        typeof e === "object" &&
+        (e as { quality?: unknown }).quality === "rendered" &&
+        typeof (e as { path?: unknown }).path === "string" &&
+        (e as { path: string }).path.length > 0
+      ) {
+        return (e as { path: string }).path;
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}

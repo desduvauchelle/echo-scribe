@@ -7,6 +7,7 @@ import {
   parseProject,
   placeSpeedRange,
   resizeSpeedRange,
+  renderedExportPath,
   shiftRangesForTrim,
   clampZoomCenter,
   nextZoomBlockId,
@@ -882,5 +883,30 @@ describe("resizeSpeedRange", () => {
 
   test("no-op resize returns the same array reference", () => {
     expect(resizeSpeedRange(three, 1, "start", 4_000, 12_000)).toBe(three);
+  });
+});
+
+describe("renderedExportPath", () => {
+  test("returns the rendered entry's path", () => {
+    const json = JSON.stringify([
+      { quality: "720", path: "/r/rec1-720.mp4", size: 1 },
+      { quality: "rendered", path: "/r/rec1.rendered.mp4", size: 2 },
+    ]);
+    expect(renderedExportPath(json)).toBe("/r/rec1.rendered.mp4");
+  });
+
+  test("returns null when no rendered entry exists", () => {
+    const json = JSON.stringify([{ quality: "720", path: "/r/rec1-720.mp4", size: 1 }]);
+    expect(renderedExportPath(json)).toBeNull();
+    expect(renderedExportPath("[]")).toBeNull();
+  });
+
+  test("tolerates malformed or non-array JSON", () => {
+    expect(renderedExportPath("")).toBeNull();
+    expect(renderedExportPath("not json")).toBeNull();
+    expect(renderedExportPath("{}")).toBeNull();
+    // rendered entry with a missing/empty path is treated as absent
+    expect(renderedExportPath(JSON.stringify([{ quality: "rendered", size: 2 }]))).toBeNull();
+    expect(renderedExportPath(JSON.stringify([{ quality: "rendered", path: "", size: 2 }]))).toBeNull();
   });
 });

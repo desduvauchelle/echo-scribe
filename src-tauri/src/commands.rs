@@ -3563,6 +3563,35 @@ pub fn delete_recording(state: State<'_, AppState>, id: String) -> Result<(), St
                 }
             }
         }
+        // Editor/export artifacts have no dedicated DB column — sweep
+        // `<id>.bg.*` imports and `<id>.rendered.mp4` by name, plus transcode
+        // outputs recorded in the exports JSON, or they leak on delete.
+        match crate::screenrec::recordings_dir() {
+            Ok(dir) => {
+                let mut leftovers = editor_artifact_files(&dir, &id);
+                for p in export_paths(&row.exports) {
+                    let p = std::path::PathBuf::from(p);
+                    // Only touch files we placed in the recordings dir.
+                    if p.parent() == Some(dir.as_path()) && p.exists() && !leftovers.contains(&p)
+                    {
+                        leftovers.push(p);
+                    }
+                }
+                for path in leftovers {
+                    match std::fs::remove_file(&path) {
+                        Ok(()) => {
+                            info!(target: "screenrec", recording_id = %id, path = %path.display(), "deleted editor/export artifact")
+                        }
+                        Err(e) => {
+                            tracing::warn!(target: "screenrec", recording_id = %id, path = %path.display(), %e, "failed to delete editor/export artifact")
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!(target: "screenrec", recording_id = %id, %e, "recordings dir unavailable; skipped editor artifact cleanup")
+            }
+        }
     }
     db.with_conn(|c| crate::db::recordings::delete(c, &id))
         .map_err(|e| e.to_string())
@@ -3806,6 +3835,33 @@ pub fn reveal_recording(state: State<'_, AppState>, id: String) -> Result<(), St
     Ok(())
 }
 
+/// Reveal a specific file inside the recordings folder in Finder. Unlike
+/// `reveal_recording` (which reveals a recording's ORIGINAL file), this takes
+/// an explicit path so the post-export UI can point Finder at the just-created
+/// `<id>.rendered.mp4`. The containment check keeps this from becoming a
+/// reveal-any-path primitive.
+#[tauri::command]
+pub fn reveal_recording_file(path: String) -> Result<(), String> {
+    let dir = crate::screenrec::recordings_dir().map_err(|e| {
+        error!(target: "screenrec", error = %e, "reveal_recording_file: recordings_dir failed");
+        "Could not locate the recordings folder.".to_string()
+    })?;
+    let target = validate_reveal_path(&dir, &path).map_err(|e| {
+        error!(target: "screenrec", path = %path, error = %e, "reveal_recording_file: rejected path");
+        "Could not find that file in the recordings folder.".to_string()
+    })?;
+    std::process::Command::new("open")
+        .arg("-R")
+        .arg(&target)
+        .spawn()
+        .map_err(|e| {
+            error!(target: "screenrec", path = %target.display(), error = %e, "reveal_recording_file: open -R failed");
+            "Could not open Finder. See Settings → Diagnostics → logs for details.".to_string()
+        })?;
+    info!(target: "screenrec", path = %target.display(), "revealed recordings file in Finder");
+    Ok(())
+}
+
 /// Transcode a recording to `quality` ("1080"|"720"|"480"), store the output
 /// next to the source as `<stem>-<quality>.mp4`, and merge it into the row's
 /// `exports` JSON (replacing any prior export of the same quality). Returns the
@@ -3929,6 +3985,67 @@ fn editor_bg_extension(src_path: &str) -> Result<String, String> {
     }
 }
 
+/// Existing `<id>.bg.<ext>` background imports for `id` in `dir`, sorted by
+/// file name. Swept by directory scan (not a DB column) because backgrounds
+/// are only referenced from the opaque editor-project JSON.
+fn editor_bg_files(dir: &std::path::Path, id: &str) -> Vec<std::path::PathBuf> {
+    let prefix = format!("{id}.bg.");
+    let mut out: Vec<std::path::PathBuf> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| e.file_name().to_string_lossy().starts_with(&prefix))
+        .map(|e| e.path())
+        .collect();
+    out.sort();
+    out
+}
+
+/// Editor artifacts of `id` in `dir` that no DB column tracks: imported
+/// backgrounds (`<id>.bg.*`) plus the editor export (`<id>.rendered.mp4`).
+/// Listing only — callers decide whether to delete.
+fn editor_artifact_files(dir: &std::path::Path, id: &str) -> Vec<std::path::PathBuf> {
+    let mut out = editor_bg_files(dir, id);
+    let rendered = dir.join(format!("{id}.rendered.mp4"));
+    if rendered.exists() {
+        out.push(rendered);
+    }
+    out
+}
+
+/// File paths recorded in a recording's `exports` JSON (transcode + rendered
+/// outputs). Tolerates malformed JSON by returning empty — callers are cleanup
+/// paths that must never fail the surrounding delete.
+fn export_paths(exports_json: &str) -> Vec<String> {
+    serde_json::from_str::<Vec<serde_json::Value>>(exports_json)
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|e| e.get("path").and_then(|p| p.as_str()).map(str::to_string))
+        .collect()
+}
+
+/// Resolve `path` and require it to be an existing file inside `dir` (the
+/// recordings folder). Canonicalizes both sides so `..` segments and the
+/// macOS `/var` → `/private/var` symlink can't dodge the containment check.
+fn validate_reveal_path(
+    dir: &std::path::Path,
+    path: &str,
+) -> Result<std::path::PathBuf, String> {
+    let dir = dir
+        .canonicalize()
+        .map_err(|e| format!("recordings dir unavailable: {e}"))?;
+    let p = std::path::Path::new(path)
+        .canonicalize()
+        .map_err(|e| format!("file not found: {e}"))?;
+    if !p.starts_with(&dir) {
+        return Err(format!(
+            "path {} is outside the recordings folder",
+            p.display()
+        ));
+    }
+    Ok(p)
+}
+
 /// Copy a user-picked image into the recordings dir as `<id>.bg.<ext>` so it can
 /// be referenced by an editor project's `background: {type:"image", path}`.
 /// Validates the source exists, is a file, and has an allowed extension.
@@ -3964,6 +4081,25 @@ pub fn import_editor_background(
         "Could not locate the recordings folder.".to_string()
     })?;
     let dest = dir.join(format!("{id}.bg.{ext}"));
+
+    // A recording has at most one background: sweep any previously imported
+    // `<id>.bg.*` with a different extension so switching formats (png → jpg)
+    // doesn't orphan the old image. `dest` itself is left for fs::copy to
+    // overwrite (and skipping it also means we never delete the source when
+    // the user re-picks the currently imported file).
+    for stale in editor_bg_files(&dir, &id) {
+        if stale == dest {
+            continue;
+        }
+        match std::fs::remove_file(&stale) {
+            Ok(()) => {
+                info!(target: "screenrec", rec = %id, path = %stale.display(), "removed stale editor background")
+            }
+            Err(e) => {
+                tracing::warn!(target: "screenrec", rec = %id, path = %stale.display(), error = %e, "failed to remove stale editor background")
+            }
+        }
+    }
 
     std::fs::copy(src, &dest).map_err(|e| {
         error!(target: "screenrec", rec = %id, from = %src_path, to = %dest.display(), error = %e, "import_editor_background: copy failed");
@@ -4776,5 +4912,92 @@ mod tests {
         let q = build_rag_query("meeting! project?");
         assert!(q.contains("\"meeting\""));
         assert!(q.contains("\"project\""));
+    }
+
+    /// Create an empty file named `name` inside `dir`.
+    fn touch(dir: &std::path::Path, name: &str) {
+        std::fs::write(dir.join(name), b"x").unwrap();
+    }
+
+    fn file_names(paths: &[std::path::PathBuf]) -> Vec<String> {
+        paths
+            .iter()
+            .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+            .collect()
+    }
+
+    #[test]
+    fn editor_bg_files_lists_only_this_ids_backgrounds() {
+        let dir = tempfile::tempdir().unwrap();
+        touch(dir.path(), "rec1.bg.png");
+        touch(dir.path(), "rec1.bg.jpg");
+        touch(dir.path(), "rec1.mp4"); // main recording, not a background
+        touch(dir.path(), "rec1.rendered.mp4"); // rendered export, not a background
+        touch(dir.path(), "rec12.bg.png"); // id sharing a prefix must not match
+        touch(dir.path(), "other.bg.png");
+
+        let names = file_names(&editor_bg_files(dir.path(), "rec1"));
+        assert_eq!(names, vec!["rec1.bg.jpg", "rec1.bg.png"]);
+        assert!(editor_bg_files(dir.path(), "rec99").is_empty());
+    }
+
+    #[test]
+    fn editor_artifact_files_includes_backgrounds_and_rendered_export() {
+        let dir = tempfile::tempdir().unwrap();
+        touch(dir.path(), "rec1.bg.webp");
+        touch(dir.path(), "rec1.rendered.mp4");
+        touch(dir.path(), "rec1.mp4"); // main file is deleted via its DB path, not the sweep
+        touch(dir.path(), "rec2.rendered.mp4"); // other recording's export
+
+        let names = file_names(&editor_artifact_files(dir.path(), "rec1"));
+        assert_eq!(names, vec!["rec1.bg.webp", "rec1.rendered.mp4"]);
+        // No artifacts → empty, never an error.
+        assert!(editor_artifact_files(dir.path(), "rec3").is_empty());
+    }
+
+    #[test]
+    fn export_paths_reads_paths_and_tolerates_bad_json() {
+        let json = r#"[
+            {"quality":"720","path":"/r/rec1-720.mp4","size":1},
+            {"quality":"rendered","path":"/r/rec1.rendered.mp4","size":2},
+            {"quality":"nopath","size":3}
+        ]"#;
+        assert_eq!(
+            export_paths(json),
+            vec!["/r/rec1-720.mp4", "/r/rec1.rendered.mp4"]
+        );
+        assert!(export_paths("").is_empty());
+        assert!(export_paths("not json").is_empty());
+        assert!(export_paths("{}").is_empty());
+    }
+
+    #[test]
+    fn validate_reveal_path_requires_existing_file_inside_dir() {
+        let root = tempfile::tempdir().unwrap();
+        let outside_root = tempfile::tempdir().unwrap();
+        let inside = root.path().join("a.mp4");
+        std::fs::write(&inside, b"x").unwrap();
+        let outside = outside_root.path().join("b.mp4");
+        std::fs::write(&outside, b"x").unwrap();
+
+        // A real file inside the dir passes (canonicalized).
+        assert!(validate_reveal_path(root.path(), inside.to_str().unwrap()).is_ok());
+        // A real file elsewhere is rejected.
+        assert!(validate_reveal_path(root.path(), outside.to_str().unwrap()).is_err());
+        // `..` traversal that escapes the dir is rejected even when it
+        // resolves to a real file (both tempdirs share a parent).
+        let sneaky = format!(
+            "{}/../{}/b.mp4",
+            root.path().display(),
+            outside_root
+                .path()
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+        );
+        assert!(validate_reveal_path(root.path(), &sneaky).is_err());
+        // Missing files are rejected.
+        let missing = root.path().join("nope.mp4");
+        assert!(validate_reveal_path(root.path(), missing.to_str().unwrap()).is_err());
     }
 }

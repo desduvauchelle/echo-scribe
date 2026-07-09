@@ -1197,6 +1197,12 @@ export const denoiseRecording = (id: string): Promise<void> =>
 export const revealRecording = (id: string): Promise<void> =>
   invoke("reveal_recording", { id });
 
+/** Reveal a specific file inside the recordings folder (e.g. the editor's
+ *  `<id>.rendered.mp4`). Rejects with a friendly message when the path is
+ *  missing or outside the recordings dir. */
+export const revealRecordingFile = (path: string): Promise<void> =>
+  invoke("reveal_recording_file", { path });
+
 export const exportRecording = (
   id: string,
   quality: "1080" | "720" | "480",

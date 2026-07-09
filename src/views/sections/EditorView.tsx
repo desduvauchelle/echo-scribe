@@ -20,6 +20,7 @@ import {
   readRecordingEvents,
   finalizeRenderedRecording,
   revealRecording,
+  revealRecordingFile,
   type RecordingRow,
 } from "../../lib/api";
 import {
@@ -32,6 +33,7 @@ import {
   parseProject,
   placeSpeedRange,
   placeZoomBlock,
+  renderedExportPath,
   resizeSpeedRange,
   resizeZoomBlock,
   shiftRangesForTrim,
@@ -151,6 +153,10 @@ export function EditorView({
   const [exportPct, setExportPct] = useState(0);
   // Path to the just-exported mp4 (for the Reveal-in-Finder affordance).
   const [exportedRevealId, setExportedRevealId] = useState<string | null>(null);
+  // Absolute path of the just-created `<id>.rendered.mp4`, so "Reveal in
+  // Finder" targets the export rather than the original recording. Falls back
+  // to `revealRecording(id)` when unknown.
+  const [exportedRevealPath, setExportedRevealPath] = useState<string | null>(null);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   // Second hidden <video> for the webcam file, time-synced to the main video.
@@ -1334,9 +1340,15 @@ export function EditorView({
         clampSpeedRanges(proj.speed, durationMs),
         clamped,
       );
-      await finalizeRenderedRecording(recording.id, bytes, clamped, shiftedSpeed);
+      const updated = await finalizeRenderedRecording(
+        recording.id,
+        bytes,
+        clamped,
+        shiftedSpeed,
+      );
 
       setExportedRevealId(recording.id);
+      setExportedRevealPath(renderedExportPath(updated.exports));
       toasts.push({ tone: "success", message: "Export complete." });
     } catch (e) {
       console.error("[export] failed", e);
@@ -1381,7 +1393,15 @@ export function EditorView({
         </h2>
         {exportedRevealId && !exporting ? (
           <button
-            onClick={() => void revealRecording(exportedRevealId)}
+            onClick={() => {
+              const reveal = exportedRevealPath
+                ? revealRecordingFile(exportedRevealPath)
+                : revealRecording(exportedRevealId);
+              reveal.catch((e) => {
+                console.error("[editor] reveal failed", e);
+                toasts.push({ tone: "error", message: String(e) });
+              });
+            }}
             className="flex items-center gap-1.5 rounded-md border border-line px-2.5 py-1.5 text-[13px] hover:bg-surface"
           >
             <FolderOpen size={15} /> Reveal in Finder
