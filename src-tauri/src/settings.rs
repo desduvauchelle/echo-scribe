@@ -55,6 +55,7 @@ const KEY_SCREENREC_MIC_ENABLED: &str = "screenrec_mic_enabled";
 const KEY_SCREENREC_MIC_DEVICE: &str = "screenrec_mic_device";
 const KEY_SCREENREC_HIDE_CURSOR: &str = "screenrec_hide_cursor";
 const KEY_SCREENREC_CAMERA_UID: &str = "screenrec_camera_uid";
+const KEY_SCREENREC_COUNTDOWN: &str = "screenrec_countdown";
 const KEY_DRIVE_CLIENT_ID: &str = "drive_client_id";
 const KEY_DRIVE_CLIENT_SECRET: &str = "drive_client_secret";
 const KEY_DRIVE_ACCOUNT_EMAIL: &str = "drive_account_email";
@@ -1105,6 +1106,24 @@ impl SettingsStore {
     pub fn set_screenrec_camera_uid(&self, uid: String) -> Result<(), SettingsError> {
         self.store
             .set(KEY_SCREENREC_CAMERA_UID, serde_json::Value::String(uid));
+        self.store
+            .save()
+            .map_err(|e| SettingsError::Store(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Whether the pre-record countdown (3→2→1) is enabled. Defaults to
+    /// `false` — recording starts immediately unless the user opts in.
+    pub fn screenrec_countdown(&self) -> bool {
+        self.store
+            .get(KEY_SCREENREC_COUNTDOWN)
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+    }
+
+    pub fn set_screenrec_countdown(&self, on: bool) -> Result<(), SettingsError> {
+        self.store
+            .set(KEY_SCREENREC_COUNTDOWN, serde_json::Value::Bool(on));
         self.store
             .save()
             .map_err(|e| SettingsError::Store(e.to_string()))?;

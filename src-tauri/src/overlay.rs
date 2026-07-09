@@ -1,6 +1,6 @@
 use tauri::{AppHandle, Emitter, Manager, Wry};
 use tauri::webview::WebviewWindowBuilder;
-use tracing::{debug, error};
+use tracing::{debug, error, info, warn};
 
 const OVERLAY_WIDTH: f64 = 172.0;
 const MEETING_OVERLAY_WIDTH: f64 = 236.0;
@@ -609,6 +609,185 @@ pub fn hide_camera_preview(app_handle: &AppHandle<Wry>) {
         // Ask the page to stop the MediaStream tracks so the camera's in-use
         // indicator clears promptly, then hide the window.
         let _ = w.emit("camera-preview-stop", ());
+        let _ = w.hide();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Area picker (drag-to-select a screen region for "Area" source recording)
+// ---------------------------------------------------------------------------
+//
+// Coordinate space, source of truth: `crate::screenrec::display_bounds`
+// (CGDisplayBounds, keyed by the SAME id `--list-sources` / `start_screen_recording`
+// use as `display_id`) returns `(x, y, w, h)` in GLOBAL POINTS with the primary
+// display's top-left corner as the origin (+y down) — exactly the space the
+// sidecar's `--rect` flag and recorded-events file use. Tauri's `LogicalPosition`/
+// `LogicalSize` on macOS are ALSO points in that same global space (macOS bakes
+// the scale factor into the physical/logical split, so "logical" == "points"
+// here), so `display_bounds`'s output is passed straight into `.position()`/
+// `.inner_size()` below with no further conversion. The picker webview itself
+// then works in CSS px, which are 1:1 with those same logical points (no meta
+// viewport scaling) — the frontend's drag rect (CSS px within the picker,
+// which is sized to exactly the display's point-space frame) is therefore
+// ALREADY in the display's local point space; the picker page adds the
+// display's global origin (received alongside `area-picker-start`) to produce
+// the final global-points rect it emits back.
+
+/// Creates the area-picker window (hidden by default). Sized/positioned lazily
+/// in `show_area_picker` since the target display isn't known until then.
+pub fn create_area_picker(app_handle: &AppHandle<Wry>) {
+    if app_handle.get_webview_window("area_picker").is_some() {
+        debug!("area_picker window already exists; skipping create");
+        return;
+    }
+    match WebviewWindowBuilder::new(
+        app_handle,
+        "area_picker",
+        tauri::WebviewUrl::App("src/area-picker/index.html".into()),
+    )
+    .title("Select area")
+    .position(0.0, 0.0)
+    .inner_size(1.0, 1.0)
+    .resizable(false)
+    .shadow(false)
+    .maximizable(false)
+    .minimizable(false)
+    .closable(false)
+    .accept_first_mouse(true)
+    .decorations(false)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .transparent(true)
+    .focused(true)
+    .visible(false)
+    .build()
+    {
+        Ok(_) => debug!("area_picker window created (hidden)"),
+        Err(e) => error!("failed to create area_picker window: {}", e),
+    }
+}
+
+/// Shows the area picker sized/positioned to cover exactly `display_id`'s
+/// bounds, and tells the page which display's global origin to add to its
+/// local (CSS px) drag rect. Returns `Err` (friendly message, already logged)
+/// if the display id no longer resolves — the caller must not show a picker
+/// with stale/zero geometry.
+pub fn show_area_picker(app_handle: &AppHandle<Wry>, display_id: u32) -> Result<(), String> {
+    let (x, y, w, h) = crate::screenrec::display_bounds(display_id).ok_or_else(|| {
+        error!(target: "screenrec", display_id, "show_area_picker: display not found");
+        "That display is no longer available. Reopen the recording setup and pick a display again.".to_string()
+    })?;
+    if app_handle.get_webview_window("area_picker").is_none() {
+        create_area_picker(app_handle);
+    }
+    let w_handle = app_handle
+        .get_webview_window("area_picker")
+        .ok_or_else(|| "area picker window missing after create".to_string())?;
+    let _ = w_handle.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
+    let _ = w_handle.set_size(tauri::Size::Logical(tauri::LogicalSize { width: w, height: h }));
+    if let Err(e) = w_handle.show() {
+        error!(target: "screenrec", ?e, "area_picker show failed");
+    }
+    let _ = w_handle.set_always_on_top(true);
+    let _ = w_handle.set_focus();
+    if let Err(e) = w_handle.emit(
+        "area-picker-start",
+        serde_json::json!({ "display_id": display_id, "origin_x": x, "origin_y": y, "width": w, "height": h }),
+    ) {
+        warn!(target: "screenrec", ?e, "area-picker-start emit failed");
+    }
+    info!(target: "screenrec", display_id, x, y, w, h, "area picker shown");
+    Ok(())
+}
+
+/// Hides the area picker unconditionally. Safe to call on every path
+/// (confirm, Esc-cancel, re-select, setup-window close) — no-op if the
+/// window was never created or is already hidden.
+pub fn hide_area_picker(app_handle: &AppHandle<Wry>) {
+    if let Some(w) = app_handle.get_webview_window("area_picker") {
+        let _ = w.hide();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Pre-record countdown (3→2→1 overlay shown before recording starts)
+// ---------------------------------------------------------------------------
+
+const COUNTDOWN_SIZE: f64 = 160.0;
+
+/// Creates the countdown window (hidden by default). Sized/positioned lazily
+/// in `show_countdown` since the target display isn't known until then.
+pub fn create_countdown(app_handle: &AppHandle<Wry>) {
+    if app_handle.get_webview_window("countdown").is_some() {
+        debug!("countdown window already exists; skipping create");
+        return;
+    }
+    match WebviewWindowBuilder::new(
+        app_handle,
+        "countdown",
+        tauri::WebviewUrl::App("src/countdown/index.html".into()),
+    )
+    .title("Starting…")
+    .position(0.0, 0.0)
+    .inner_size(COUNTDOWN_SIZE, COUNTDOWN_SIZE)
+    .resizable(false)
+    .shadow(false)
+    .maximizable(false)
+    .minimizable(false)
+    .closable(false)
+    .accept_first_mouse(true)
+    .decorations(false)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .transparent(true)
+    .focused(true)
+    .visible(false)
+    .build()
+    {
+        Ok(_) => debug!("countdown window created (hidden)"),
+        Err(e) => error!("failed to create countdown window: {}", e),
+    }
+}
+
+/// Shows the countdown window centered on `display_id`'s bounds and tells the
+/// page to start ticking from `seconds`. Returns `Err` (friendly, already
+/// logged) if the display id no longer resolves.
+pub fn show_countdown(app_handle: &AppHandle<Wry>, display_id: u32, seconds: u32) -> Result<(), String> {
+    let (dx, dy, dw, dh) = crate::screenrec::display_bounds(display_id).ok_or_else(|| {
+        error!(target: "screenrec", display_id, "show_countdown: display not found");
+        "That display is no longer available. Reopen the recording setup and pick a display again.".to_string()
+    })?;
+    if app_handle.get_webview_window("countdown").is_none() {
+        create_countdown(app_handle);
+    }
+    let w_handle = app_handle
+        .get_webview_window("countdown")
+        .ok_or_else(|| "countdown window missing after create".to_string())?;
+    let x = dx + (dw - COUNTDOWN_SIZE) / 2.0;
+    let y = dy + (dh - COUNTDOWN_SIZE) / 2.0;
+    let _ = w_handle.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
+    let _ = w_handle.set_size(tauri::Size::Logical(tauri::LogicalSize {
+        width: COUNTDOWN_SIZE,
+        height: COUNTDOWN_SIZE,
+    }));
+    if let Err(e) = w_handle.show() {
+        error!(target: "screenrec", ?e, "countdown show failed");
+    }
+    let _ = w_handle.set_always_on_top(true);
+    let _ = w_handle.set_focus();
+    if let Err(e) = w_handle.emit("countdown-start", serde_json::json!({ "seconds": seconds })) {
+        warn!(target: "screenrec", ?e, "countdown-start emit failed");
+    }
+    info!(target: "screenrec", display_id, seconds, "countdown shown");
+    Ok(())
+}
+
+/// Hides the countdown window unconditionally. Safe to call on every path
+/// (natural finish, Esc-cancel, recording-start failure) — no-op if the
+/// window was never created or is already hidden.
+pub fn hide_countdown(app_handle: &AppHandle<Wry>) {
+    if let Some(w) = app_handle.get_webview_window("countdown") {
+        let _ = w.emit("countdown-stop", ());
         let _ = w.hide();
     }
 }

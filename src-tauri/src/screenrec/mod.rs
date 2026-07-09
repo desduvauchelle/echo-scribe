@@ -182,6 +182,35 @@ pub fn list_cameras() -> Result<Cameras, String> {
     }
 }
 
+/// Bounds (`x, y, width, height`) of a display, in GLOBAL POINTS with the
+/// primary display's top-left corner as the origin (`+y` down) — the exact
+/// space the sidecar's `--rect` flag and recorded-events file use (see
+/// `InputEvents.swift`'s header comment and `main.swift`'s crop-origin math).
+///
+/// Source of truth: `CGDisplayBounds` (via the `core-graphics` crate), keyed
+/// by the SAME id `--list-sources` returns as `DisplaySource.id` — on macOS
+/// `SCDisplay.displayID` IS the `CGDirectDisplayID` (see `main.swift`'s
+/// `--list-sources` handler, which reads `d.displayID` directly). This means
+/// no separate matching/correlation step against Tauri's `Monitor` API is
+/// needed: `CGDisplayBounds(display_id)` already returns exactly the frame
+/// the area picker needs to size + position itself on, in the coordinate
+/// space the resulting crop rect must be expressed in. Tauri's `Monitor`
+/// struct is deliberately NOT used here — it exposes physical-pixel size +
+/// position with no display id, so there is no way to correlate a `Monitor`
+/// back to a specific `CGDirectDisplayID` without guessing by resolution.
+///
+/// Returns `None` if the display id is no longer valid (e.g. unplugged
+/// between listing and picking) — `CGDisplayBounds` returns a zero rect for
+/// an invalid id, treated here as "not found" rather than a valid 0×0 display.
+pub fn display_bounds(display_id: u32) -> Option<(f64, f64, f64, f64)> {
+    let display = core_graphics::display::CGDisplay::new(display_id);
+    let bounds = display.bounds();
+    if bounds.size.width <= 0.0 || bounds.size.height <= 0.0 {
+        return None;
+    }
+    Some((bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height))
+}
+
 /// Extract a recording's audio track to a mono WAV at `out_wav`, resampled to
 /// `rate` Hz. Returns `Ok(())` on success. The Err string is user-facing; the
 /// special value `"no_audio"` is returned when the recording has no audio track
@@ -1372,6 +1401,33 @@ mod tests {
         let display = (0.0, 0.0, 1920.0, 1080.0);
         assert_eq!(clamp_rect_to_display((10.0, 10.0, 0.0, 100.0), display), None);
         assert_eq!(clamp_rect_to_display((10.0, 10.0, 100.0, -5.0), display), None);
+    }
+
+    // ---- display_bounds ---------------------------------------------------
+
+    #[test]
+    fn display_bounds_invalid_id_returns_none() {
+        // Verified empirically (not guessed): `CGDisplayBounds` returns a
+        // zero-size CGRect for an id with no matching display. NOTE: id `0`
+        // is `kCGNullDirectDisplayID` but does NOT reliably zero out —
+        // observed returning the main display's real bounds on this host —
+        // so it is deliberately NOT used as the "invalid" case here. A
+        // clearly-never-allocated large id is the reliable invalid case.
+        assert_eq!(display_bounds(u32::MAX), None);
+        assert_eq!(display_bounds(999_999), None);
+    }
+
+    #[test]
+    fn display_bounds_active_display_has_positive_size() {
+        // Every CI/dev host running this test has at least one active
+        // display (headless Mac test runners still report a virtual one).
+        // This exercises the real (non-invalid) branch without hardcoding
+        // a specific resolution.
+        let active = core_graphics::display::CGDisplay::active_displays()
+            .expect("active_displays should succeed on any Mac test host");
+        assert!(!active.is_empty(), "expected at least one active display");
+        let (_, _, w, h) = display_bounds(active[0]).expect("bounds for an active display id");
+        assert!(w > 0.0 && h > 0.0);
     }
 
     // ---- rect_from_vec ---------------------------------------------------

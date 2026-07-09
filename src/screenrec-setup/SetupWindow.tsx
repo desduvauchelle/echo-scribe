@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import {
   listScreenSources,
   listInputDevices,
@@ -10,13 +11,24 @@ import {
   startScreenRecording,
   requestCameraAccess,
   openCameraSettings,
+  showAreaPicker,
+  closeAreaPicker,
+  showCountdownOverlay,
+  hideCountdownOverlay,
   type DisplaySource,
   type WindowSource,
   type InputDevice,
   type CameraSource,
+  type AreaPickerResultPayload,
 } from "../lib/api";
 
-type SourceKind = "screen" | "window";
+type SourceKind = "screen" | "window" | "area";
+
+/** ~1s per tick, matching the countdown page's own TICK_MS — kept as a
+ *  named constant here (rather than importing the page's constant) since
+ *  this is a separate window/bundle; see src/countdown/Countdown.tsx. */
+const COUNTDOWN_TICK_MS = 1000;
+const COUNTDOWN_SECONDS = 3;
 
 const SetupWindow: React.FC = () => {
   const [loading, setLoading] = useState(true);
@@ -29,6 +41,13 @@ const SetupWindow: React.FC = () => {
   const [windows, setWindows] = useState<WindowSource[]>([]);
   const [selectedDisplayId, setSelectedDisplayId] = useState<number | null>(null);
   const [selectedWindowId, setSelectedWindowId] = useState<number | null>(null);
+
+  // Area state ("area" source kind): the picker runs on `selectedDisplayId`
+  // (the same display dropdown "screen" uses) and reports back a GLOBAL
+  // points rect via the `area-picker-result` event. `null` = no selection
+  // yet (Start is disabled until one exists).
+  const [areaRect, setAreaRect] = useState<[number, number, number, number] | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   // Audio state
   const [sysaudio, setSysaudio] = useState(true);
@@ -56,7 +75,19 @@ const SetupWindow: React.FC = () => {
   // the mic/accessibility flows use elsewhere in the app.
   const [cameraPermissionDenied, setCameraPermissionDenied] = useState(false);
 
+  // Countdown state: 3s pre-record tick, persisted with the other prefs.
+  // Default OFF.
+  const [countdownEnabled, setCountdownEnabled] = useState(false);
+
   const [starting, setStarting] = useState(false);
+  // Timer id for the pending post-countdown startScreenRecording call, so a
+  // cancel (Esc in the countdown window) can abort it before it fires.
+  const countdownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Resolver for the in-flight countdown wait promise (see handleStart). The
+  // countdown-cancelled listener calls this (with `cancelled: true`) so the
+  // await in handleStart wakes up immediately instead of hanging until a
+  // timer that was just cleared would have fired.
+  const countdownResolveRef = useRef<((cancelled: boolean) => void) | null>(null);
 
   useEffect(() => {
     Promise.all([listScreenSources(), listInputDevices(), getScreenrecAudioPrefs()])
@@ -73,6 +104,7 @@ const SetupWindow: React.FC = () => {
         setSysaudio(prefs.sysaudio);
         setMicEnabled(prefs.mic_enabled);
         setHideCursor(prefs.hide_cursor);
+        setCountdownEnabled(prefs.countdown);
         // Use saved mic device, or fall back to first available device
         const savedDevice = prefs.mic_device;
         if (savedDevice) {
@@ -98,8 +130,73 @@ const SetupWindow: React.FC = () => {
       .catch((e) => setCameraError(String(e)));
   }, []);
 
+  // Area picker result + countdown cancellation listeners. Both are
+  // long-lived for the setup window's whole mounted lifetime (not tied to
+  // sourceKind/pickerOpen) so a result that arrives after a re-render still
+  // lands correctly.
+  useEffect(() => {
+    let unlistenPicker: (() => void) | undefined;
+    let unlistenCountdownCancel: (() => void) | undefined;
+
+    (async () => {
+      unlistenPicker = await listen<AreaPickerResultPayload>(
+        "area-picker-result",
+        (event) => {
+          setPickerOpen(false);
+          const rect = event.payload?.rect ?? null;
+          if (rect) {
+            setAreaRect(rect);
+          }
+          // A cancelled/no-op picker keeps whatever rect (if any) was
+          // already selected — cancelling a re-select must not clear a
+          // previously-confirmed area.
+        },
+      );
+      unlistenCountdownCancel = await listen("countdown-cancelled", () => {
+        // The Rust side already re-shows this window; abort the pending
+        // start call (wake the awaited promise with cancelled=true rather
+        // than letting the cleared timer never fire) and reset the
+        // "starting…" UI state.
+        if (countdownTimerRef.current !== null) {
+          clearTimeout(countdownTimerRef.current);
+          countdownTimerRef.current = null;
+        }
+        countdownResolveRef.current?.(true);
+        countdownResolveRef.current = null;
+        setStarting(false);
+      });
+    })();
+
+    return () => {
+      unlistenPicker?.();
+      unlistenCountdownCancel?.();
+      if (countdownTimerRef.current !== null) {
+        clearTimeout(countdownTimerRef.current);
+        countdownTimerRef.current = null;
+      }
+    };
+  }, []);
+
   const handleCancel = async () => {
+    // Never strand the picker overlay if the user dismisses setup while a
+    // pick is in progress.
+    if (pickerOpen) {
+      await closeAreaPicker();
+      setPickerOpen(false);
+    }
     await getCurrentWindow().hide();
+  };
+
+  const handleSelectArea = async () => {
+    if (selectedDisplayId === null) return;
+    setStartError(null);
+    setPickerOpen(true);
+    try {
+      await showAreaPicker(selectedDisplayId);
+    } catch (e) {
+      setPickerOpen(false);
+      setStartError(String(e));
+    }
   };
 
   // The uid actually recorded with: only when the camera is enabled AND the
@@ -110,50 +207,121 @@ const SetupWindow: React.FC = () => {
     return cameras[0].uid;
   })();
 
+  // Actually invokes startScreenRecording with the currently-selected
+  // params. Shared by the immediate-start path and the post-countdown path
+  // so the two can never drift (same source label / rect / audio / camera
+  // logic either way). Throws on failure — callers decide how to surface it.
+  const doStartRecording = async () => {
+    let sourceLabel = "";
+    if (sourceKind === "screen") {
+      const display = displays.find((d) => d.id === selectedDisplayId);
+      sourceLabel = display?.label ?? "Screen";
+    } else if (sourceKind === "window") {
+      const win = windows.find((w) => w.id === selectedWindowId);
+      sourceLabel = win ? `${win.app} — ${win.title}` : "Window";
+    } else {
+      const display = displays.find((d) => d.id === selectedDisplayId);
+      sourceLabel = display ? `Area of ${display.label}` : "Area";
+    }
+
+    await startScreenRecording({
+      // The area picker always runs on a specific display, so an "area"
+      // recording is still a display-path capture (with a crop rect) —
+      // window_id stays null.
+      display_id: sourceKind !== "window" ? selectedDisplayId : null,
+      window_id: sourceKind === "window" ? selectedWindowId : null,
+      mic_device: micEnabled && micDevice ? micDevice : null,
+      sysaudio,
+      source_label: sourceLabel,
+      hide_cursor: hideCursor,
+      camera_uid: effectiveCameraUid || null,
+      rect: sourceKind === "area" ? areaRect : null,
+    });
+  };
+
   const handleStart = async () => {
     setStartError(null);
     setStarting(true);
     try {
-      // Persist audio + cursor + camera prefs ("" = camera off)
+      // Persist audio + cursor + camera + countdown prefs ("" = camera off)
       await setScreenrecAudioPrefs({
         sysaudio,
         mic_enabled: micEnabled,
         mic_device: micDevice,
         hide_cursor: hideCursor,
         camera_uid: effectiveCameraUid,
+        countdown: countdownEnabled,
       });
 
-      // Build source label
-      let sourceLabel = "";
-      if (sourceKind === "screen") {
-        const display = displays.find((d) => d.id === selectedDisplayId);
-        sourceLabel = display?.label ?? "Screen";
-      } else {
-        const win = windows.find((w) => w.id === selectedWindowId);
-        sourceLabel = win ? `${win.app} — ${win.title}` : "Window";
+      if (!countdownEnabled) {
+        await doStartRecording();
+        await getCurrentWindow().hide();
+        setStarting(false);
+        return;
       }
 
-      await startScreenRecording({
-        display_id: sourceKind === "screen" ? selectedDisplayId : null,
-        window_id: sourceKind === "window" ? selectedWindowId : null,
-        mic_device: micEnabled && micDevice ? micDevice : null,
-        sysaudio,
-        source_label: sourceLabel,
-        hide_cursor: hideCursor,
-        camera_uid: effectiveCameraUid || null,
-      });
+      // Countdown path: hide setup, show the countdown overlay on the
+      // target display, wait for it to finish, then start recording
+      // unchanged. `selectedDisplayId` is the target display in every
+      // sourceKind — "window" has no display to center on, so the
+      // countdown falls back to the primary display's bounds via a
+      // 0-fallback id only if no display list is available at all (should
+      // not normally happen since displays are always enumerated).
+      const countdownDisplayId =
+        (sourceKind === "window" ? displays[0]?.id : selectedDisplayId) ??
+        displays[0]?.id ??
+        null;
+      if (countdownDisplayId === null) {
+        // No display to center on — degrade to immediate start rather than
+        // failing the recording outright.
+        await doStartRecording();
+        await getCurrentWindow().hide();
+        setStarting(false);
+        return;
+      }
 
       await getCurrentWindow().hide();
-    } catch (e) {
-      setStartError(String(e));
-    } finally {
+      await showCountdownOverlay(countdownDisplayId, COUNTDOWN_SECONDS);
+
+      // Wait for the countdown to finish OR to be cancelled. The
+      // countdown-cancelled listener resolves this same promise with
+      // `cancelled: true` (see the listener effect above) so an Esc-cancel
+      // wakes this await immediately instead of leaving it hanging until a
+      // timer that was just cleared would otherwise have fired.
+      const cancelled = await new Promise<boolean>((resolve) => {
+        countdownResolveRef.current = resolve;
+        countdownTimerRef.current = setTimeout(() => {
+          countdownTimerRef.current = null;
+          countdownResolveRef.current = null;
+          resolve(false);
+        }, COUNTDOWN_SECONDS * COUNTDOWN_TICK_MS);
+      });
+      if (cancelled) {
+        // countdown-cancelled already reset `starting` and re-showed setup;
+        // nothing left to do here.
+        return;
+      }
+
+      await hideCountdownOverlay();
+      await doStartRecording();
       setStarting(false);
+    } catch (e) {
+      // Recording-start failure on the countdown path: the setup window is
+      // currently hidden (we hid it before/after the countdown), so bring
+      // it back so the user can see the error and retry — mirrors the
+      // immediate-start path where the window never left the foreground.
+      await hideCountdownOverlay();
+      setStartError(String(e));
+      setStarting(false);
+      await getCurrentWindow().show();
+      await getCurrentWindow().setFocus();
     }
   };
 
   const isStartDisabled =
     starting ||
-    (sourceKind === "window" && selectedWindowId === null);
+    (sourceKind === "window" && selectedWindowId === null) ||
+    (sourceKind === "area" && areaRect === null);
 
   if (loading) {
     return (
@@ -201,10 +369,19 @@ const SetupWindow: React.FC = () => {
             >
               Window
             </button>
+            <button
+              style={{
+                ...styles.segment,
+                ...(sourceKind === "area" ? styles.segmentActive : {}),
+              }}
+              onClick={() => setSourceKind("area")}
+            >
+              Area
+            </button>
           </div>
         </section>
 
-        {/* Display / Window picker */}
+        {/* Display / Window / Area picker */}
         <section style={styles.section}>
           {sourceKind === "screen" ? (
             <>
@@ -225,7 +402,7 @@ const SetupWindow: React.FC = () => {
                 </select>
               )}
             </>
-          ) : (
+          ) : sourceKind === "window" ? (
             <>
               <label style={styles.sectionLabel}>Window</label>
               {windows.length === 0 ? (
@@ -261,6 +438,54 @@ const SetupWindow: React.FC = () => {
                     </button>
                   ))}
                 </div>
+              )}
+            </>
+          ) : (
+            <>
+              <label style={styles.sectionLabel}>Display</label>
+              {displays.length === 0 ? (
+                <p style={styles.emptyText}>No displays found</p>
+              ) : (
+                <select
+                  style={styles.select}
+                  value={selectedDisplayId ?? ""}
+                  onChange={(e) => {
+                    setSelectedDisplayId(Number(e.target.value));
+                    // A picked rect is only meaningful for the display it
+                    // was picked on — switching displays invalidates it.
+                    setAreaRect(null);
+                  }}
+                >
+                  {displays.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.label}
+                    </option>
+                  ))}
+                </select>
+              )}
+
+              <div style={styles.areaPickerRow}>
+                <button
+                  style={styles.selectAreaButton}
+                  onClick={handleSelectArea}
+                  disabled={selectedDisplayId === null || pickerOpen}
+                >
+                  {pickerOpen
+                    ? "Selecting…"
+                    : areaRect
+                      ? "Re-select area"
+                      : "Select area"}
+                </button>
+                {areaRect && (
+                  <span style={styles.areaRectReadout}>
+                    {Math.round(areaRect[2])}×{Math.round(areaRect[3])}
+                  </span>
+                )}
+              </div>
+              {!areaRect && !pickerOpen && (
+                <p style={styles.hintText}>
+                  Drag to select the region to record.
+                </p>
               )}
             </>
           )}
@@ -333,6 +558,22 @@ const SetupWindow: React.FC = () => {
             Records without the system cursor so the editor can draw a larger,
             stylized cursor with click effects.
           </p>
+        </section>
+
+        {/* Countdown section */}
+        <section style={styles.section}>
+          <label style={styles.sectionLabel}>Countdown</label>
+          <label style={styles.toggleRow}>
+            <input
+              type="checkbox"
+              style={styles.checkbox}
+              checked={countdownEnabled}
+              onChange={(e) => setCountdownEnabled(e.target.checked)}
+            />
+            <span style={styles.toggleLabel}>
+              Show a 3-second countdown before recording starts
+            </span>
+          </label>
         </section>
 
         {/* Camera section */}
@@ -603,6 +844,27 @@ const styles: Record<string, React.CSSProperties> = {
     textOverflow: "ellipsis",
     whiteSpace: "nowrap" as React.CSSProperties["whiteSpace"],
     fontSize: "12px",
+  },
+  areaPickerRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: "10px",
+    marginTop: "8px",
+  },
+  selectAreaButton: {
+    padding: "7px 14px",
+    backgroundColor: "var(--color-surface)",
+    color: "var(--color-fg)",
+    border: "1px solid var(--color-line)",
+    borderRadius: "7px",
+    fontSize: "13px",
+    fontWeight: 500,
+    cursor: "pointer",
+  },
+  areaRectReadout: {
+    fontSize: "12px",
+    color: "var(--color-muted)",
+    fontVariantNumeric: "tabular-nums",
   },
   toggleRow: {
     display: "flex",

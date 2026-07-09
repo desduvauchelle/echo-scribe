@@ -1354,6 +1354,8 @@ export type ScreenrecAudioPrefs = {
   hide_cursor: boolean;
   /** UID of the webcam to record alongside the capture; "" = webcam off. */
   camera_uid: string;
+  /** Pre-record 3→2→1 countdown before Start actually begins recording. */
+  countdown: boolean;
 };
 export const getScreenrecAudioPrefs = (): Promise<ScreenrecAudioPrefs> =>
   invoke("get_screenrec_audio_prefs");
@@ -1361,6 +1363,62 @@ export const setScreenrecAudioPrefs = (prefs: ScreenrecAudioPrefs): Promise<void
   invoke("set_screenrec_audio_prefs", { prefs });
 export const openScreenrecSetup = (): Promise<void> =>
   invoke("open_screenrec_setup");
+
+/** Bounds `[x, y, width, height]` of a display (GLOBAL points, top-left
+ *  origin — the same space `startScreenRecording`'s `rect` param and the
+ *  area-picker/countdown windows use), keyed by the SAME id `listScreenSources`
+ *  returns as `DisplaySource.id`. Rejects with a friendly message if the
+ *  display is no longer attached. */
+export const getDisplayBounds = (
+  displayId: number,
+): Promise<[number, number, number, number]> =>
+  invoke("get_display_bounds", { displayId });
+
+// --- Area picker ---
+
+/** Show the full-screen area-picker overlay on `displayId`. The picker page
+ *  reports back via the `area-picker-result` event (see `listenAreaPickerResult`
+ *  below), NOT this promise's resolution — this only confirms the overlay
+ *  was shown. */
+export const showAreaPicker = (displayId: number): Promise<void> =>
+  invoke("show_area_picker", { displayId });
+
+/** Hide the area-picker overlay unconditionally (no-op if not showing). */
+export const closeAreaPicker = (): Promise<void> => invoke("close_area_picker");
+
+export type AreaPickerResultPayload = {
+  rect: [number, number, number, number] | null;
+};
+
+/** Called by the area-picker page itself on confirm (mouse-up, `rect` =
+ *  `[x, y, w, h]` GLOBAL points) or cancel (Esc, `rect` = null). Rust hides
+ *  the picker window unconditionally as part of handling this call, then
+ *  forwards the result to the setup window's `area-picker-result` event. */
+export const submitAreaPickerResult = (
+  rect: [number, number, number, number] | null,
+): Promise<void> => invoke("submit_area_picker_result", { rect });
+
+// --- Countdown ---
+
+/** Show the pre-record countdown overlay centered on `displayId`, ticking
+ *  from `seconds` down to 1 (~1s per tick). */
+export const showCountdownOverlay = (
+  displayId: number,
+  seconds: number,
+): Promise<void> => invoke("show_countdown_overlay", { displayId, seconds });
+
+/** Hide the countdown overlay unconditionally (no-op if not showing). Call
+ *  on every path that ends the countdown flow (natural finish, Esc-cancel,
+ *  and — critically — any `startScreenRecording` failure) so the
+ *  always-on-top overlay can never be stranded on screen. */
+export const hideCountdownOverlay = (): Promise<void> =>
+  invoke("hide_countdown_overlay");
+
+/** Called by the countdown page itself when the user presses Esc. Hides the
+ *  countdown and re-shows the setup window — the setup page does not need to
+ *  react beyond listening for `countdown-cancelled` if it wants to reset its
+ *  "starting…" UI state. */
+export const cancelCountdown = (): Promise<void> => invoke("cancel_countdown");
 
 // --- Embedding index (chat memory v2) ---
 

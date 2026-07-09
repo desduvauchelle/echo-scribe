@@ -37,7 +37,8 @@ use tracing_subscriber::EnvFilter;
 use crate::asr::pipeline::AsrPipeline;
 use crate::asr::registry;
 use crate::commands::{
-    apply_update_and_restart, archive_project, cancel_log_capture, chat_with_memory, complete_task,
+    apply_update_and_restart, archive_project, cancel_countdown, cancel_log_capture, chat_with_memory,
+    close_area_picker, complete_task,
     download_embedding_model, embedding_index_status,
     get_edit_selection_binding, update_edit_selection_binding,
     confirm_log_capture, count_items, count_items_for_project, create_chat_session, create_project,
@@ -50,12 +51,14 @@ use crate::commands::{
     get_action_counter, get_action_trigger_word, get_active_llm_model_id,
     get_active_speech_model_id, get_app_launcher_enabled, get_asr_unload_secs,
     get_audio_feedback_enabled, get_auto_file_enabled, get_auto_file_threshold, get_common_actions,
-    get_custom_words, get_dashboard_stats, get_default_filler_words, get_drive_client_id,
+    get_custom_words, get_dashboard_stats, get_default_filler_words, get_display_bounds,
+    get_drive_client_id,
     get_drive_prefs, get_export_confidence_threshold, get_filler_removal_enabled, get_filler_words,
     get_format_templates, get_item, get_llm_unload_secs, get_log_capture_binding,
     get_mute_while_recording, get_onboarding_completed, get_project_auto_tagging_enabled,
     get_recording_project, get_screenrec_audio_prefs, get_trigger_word_routing_enabled,
     get_voice_at_cursor_binding,
+    hide_countdown_overlay,
     import_editor_background,
     is_pipeline_running, is_screen_recording, list_cameras, list_chat_sessions, list_claude_sessions,
     list_item_events, list_items, list_llm_models, list_projects, list_recordings,
@@ -80,7 +83,9 @@ use crate::commands::{
     set_mute_while_recording, set_onboarding_completed, set_project_auto_tagging_enabled,
     set_rebinding, set_recording_project, set_screenrec_audio_prefs, set_task_deadline,
     set_trigger_word_routing_enabled,
+    show_area_picker, show_countdown_overlay,
     show_main_window, start_pipeline, start_screen_recording, stop_screen_recording,
+    submit_area_picker_result,
     test_llm_inference, transcribe_recording, unarchive_project, uncomplete_task, undo_log_capture,
     platform_capabilities, update_action_binding, update_item, update_log_capture_binding,
     update_project, update_voice_at_cursor_binding, upload_recording, AppState,
@@ -166,6 +171,24 @@ pub fn run() {
                     api.prevent_close();
                     let _ = window.hide();
                     crate::ui::dock::set_dock_visible(false);
+                }
+            } else if window.label() == "screenrec_setup" {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    // Same rationale as "main": the window is reused across
+                    // recordings (`show_screenrec_setup` shows an existing
+                    // instance rather than recreating), so destroying it on
+                    // a native close-button click would leave the NEXT
+                    // "New Recording" needing to rebuild it from scratch —
+                    // and, worse, orphan the always-on-top area-picker /
+                    // countdown overlays if either is open at the time (they
+                    // have no window-close listener of their own to react
+                    // to their OWNER closing). Hide instead, and clean up
+                    // any overlay that might still be showing.
+                    api.prevent_close();
+                    let _ = window.hide();
+                    let app = window.app_handle();
+                    crate::overlay::hide_area_picker(app);
+                    crate::overlay::hide_countdown(app);
                 }
             }
         })
@@ -367,6 +390,13 @@ pub fn run() {
             get_screenrec_audio_prefs,
             set_screenrec_audio_prefs,
             open_screenrec_setup,
+            get_display_bounds,
+            show_area_picker,
+            close_area_picker,
+            submit_area_picker_result,
+            show_countdown_overlay,
+            hide_countdown_overlay,
+            cancel_countdown,
             drive_status,
             drive_connect,
             drive_disconnect,
@@ -728,6 +758,8 @@ pub fn run() {
             if capabilities.screen_recording {
                 crate::overlay::create_screenrec_setup(&app.handle().clone());
                 crate::overlay::create_camera_preview(&app.handle().clone());
+                crate::overlay::create_area_picker(&app.handle().clone());
+                crate::overlay::create_countdown(&app.handle().clone());
             }
 
             // If permissions are already green at startup AND a model is

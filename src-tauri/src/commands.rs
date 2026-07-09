@@ -4749,6 +4749,101 @@ pub fn list_screen_sources() -> Result<crate::screenrec::Sources, String> {
     crate::screenrec::list_sources()
 }
 
+// ----- Area picker commands -----
+
+/// Show the full-screen area-picker overlay on `display_id`. See
+/// `overlay::show_area_picker` for the coordinate-space contract.
+#[tauri::command]
+pub fn show_area_picker(app: AppHandle, display_id: u32) -> Result<(), String> {
+    crate::overlay::show_area_picker(&app, display_id)
+}
+
+/// Hide the area-picker overlay unconditionally. Called by the setup window
+/// on every path that should dismiss the picker without a result (e.g. it
+/// re-shows itself before the picker reports back, or the setup window
+/// itself is closing).
+#[tauri::command]
+pub fn close_area_picker(app: AppHandle) {
+    crate::overlay::hide_area_picker(&app);
+}
+
+/// Called by the area-picker page when the user confirms a drag (mouse-up)
+/// or cancels (Esc). Hides the picker unconditionally (so a cancel can never
+/// strand the always-on-top overlay) and, on confirm, forwards the rect to
+/// the setup window via an `area-picker-result` event. `rect` is `None` on
+/// cancel; `Some([x, y, w, h])` (GLOBAL points) on confirm.
+#[tauri::command]
+pub fn submit_area_picker_result(app: AppHandle, rect: Option<[f64; 4]>) {
+    crate::overlay::hide_area_picker(&app);
+    match rect {
+        Some(r) => {
+            info!(target: "screenrec", ?r, "area picker confirmed");
+            if let Some(setup) = app.get_webview_window("screenrec_setup") {
+                if let Err(e) = setup.emit("area-picker-result", serde_json::json!({ "rect": r })) {
+                    warn!(target: "screenrec", ?e, "area-picker-result emit failed");
+                }
+            }
+        }
+        None => {
+            info!(target: "screenrec", "area picker cancelled");
+            if let Some(setup) = app.get_webview_window("screenrec_setup") {
+                if let Err(e) = setup.emit("area-picker-result", serde_json::json!({ "rect": null })) {
+                    warn!(target: "screenrec", ?e, "area-picker-result (cancel) emit failed");
+                }
+            }
+        }
+    }
+}
+
+// ----- Countdown commands -----
+
+/// Show the pre-record countdown overlay centered on `display_id`, ticking
+/// from `seconds`. See `overlay::show_countdown` for the coordinate-space
+/// contract.
+#[tauri::command]
+pub fn show_countdown_overlay(app: AppHandle, display_id: u32, seconds: u32) -> Result<(), String> {
+    crate::overlay::show_countdown(&app, display_id, seconds)
+}
+
+/// Hide the countdown overlay unconditionally. Called on natural completion,
+/// Esc-cancel, and every recording-start failure path so the always-on-top
+/// overlay can never be stranded.
+#[tauri::command]
+pub fn hide_countdown_overlay(app: AppHandle) {
+    crate::overlay::hide_countdown(&app);
+}
+
+/// Called by the countdown page when the user presses Esc. Hides the
+/// countdown and tells the setup window to re-show itself.
+#[tauri::command]
+pub fn cancel_countdown(app: AppHandle) {
+    info!(target: "screenrec", "countdown cancelled");
+    crate::overlay::hide_countdown(&app);
+    if let Some(setup) = app.get_webview_window("screenrec_setup") {
+        if let Err(e) = setup.emit("countdown-cancelled", ()) {
+            warn!(target: "screenrec", ?e, "countdown-cancelled emit failed");
+        }
+    }
+    crate::overlay::show_screenrec_setup(&app);
+}
+
+/// Bounds (`[x, y, width, height]`, GLOBAL POINTS, top-left origin) of the
+/// display with the given `--list-sources` id — the SAME id `start_screen_recording`
+/// takes as `display_id` and the coordinate space its `rect` param expects.
+/// Backs both the area picker (sizes/positions the overlay to cover exactly
+/// the target display) and the countdown window (centers on the target
+/// display). See `crate::screenrec::display_bounds` for the source-of-truth
+/// rationale (CGDisplayBounds, keyed by CGDirectDisplayID == SCDisplay.displayID).
+#[tauri::command]
+pub fn get_display_bounds(display_id: u32) -> Result<[f64; 4], String> {
+    crate::screenrec::display_bounds(display_id)
+        .map(|(x, y, w, h)| [x, y, w, h])
+        .ok_or_else(|| {
+            warn!(target: "screenrec", display_id, "get_display_bounds: display not found");
+            "That display is no longer available. Reopen the recording setup and pick a display again.".to_string()
+        })
+}
+
 /// List available cameras for webcam recording via the sidecar's
 /// `--list-cameras`. On failure returns the friendly message from
 /// `list_cameras_error` (raw detail is logged).
@@ -4771,6 +4866,10 @@ pub struct ScreenrecAudioPrefs {
     // `#[serde(default)]` for the same forward/backward-compat reason as above.
     #[serde(default)]
     pub camera_uid: String,
+    // Whether the pre-record countdown (3→2→1) is enabled. `#[serde(default)]`
+    // for the same forward/backward-compat reason as `hide_cursor`/`camera_uid`.
+    #[serde(default)]
+    pub countdown: bool,
 }
 
 #[tauri::command]
@@ -4783,6 +4882,7 @@ pub fn get_screenrec_audio_prefs(
         mic_device: state.settings.screenrec_mic_device(),
         hide_cursor: state.settings.screenrec_hide_cursor(),
         camera_uid: state.settings.screenrec_camera_uid(),
+        countdown: state.settings.screenrec_countdown(),
     })
 }
 
@@ -4810,6 +4910,10 @@ pub fn set_screenrec_audio_prefs(
     state
         .settings
         .set_screenrec_camera_uid(prefs.camera_uid)
+        .map_err(|e| e.to_string())?;
+    state
+        .settings
+        .set_screenrec_countdown(prefs.countdown)
         .map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -5143,9 +5247,9 @@ mod tests {
 
     #[test]
     fn screenrec_audio_prefs_serde_defaults() {
-        // A prefs blob written before camera_uid/hide_cursor existed must still
-        // deserialize cleanly (both #[serde(default)]) so upgrading users don't
-        // hit an error on the missing keys.
+        // A prefs blob written before camera_uid/hide_cursor/countdown existed
+        // must still deserialize cleanly (all #[serde(default)]) so upgrading
+        // users don't hit an error on the missing keys.
         let old = r#"{"sysaudio":true,"mic_enabled":false,"mic_device":"Mic X"}"#;
         let prefs: ScreenrecAudioPrefs = serde_json::from_str(old).expect("old prefs deserialize");
         assert!(prefs.sysaudio);
@@ -5153,20 +5257,31 @@ mod tests {
         assert_eq!(prefs.mic_device, "Mic X");
         assert!(!prefs.hide_cursor);
         assert_eq!(prefs.camera_uid, "");
+        assert!(!prefs.countdown);
 
-        // Full round-trip with camera_uid set survives serialize -> deserialize.
+        // A blob written after hide_cursor/camera_uid but before countdown
+        // existed must also still deserialize cleanly (countdown -> false).
+        let mid = r#"{"sysaudio":true,"mic_enabled":false,"mic_device":"Mic X","hide_cursor":true,"camera_uid":"cam-1"}"#;
+        let prefs: ScreenrecAudioPrefs = serde_json::from_str(mid).expect("mid prefs deserialize");
+        assert!(prefs.hide_cursor);
+        assert_eq!(prefs.camera_uid, "cam-1");
+        assert!(!prefs.countdown);
+
+        // Full round-trip with every field set survives serialize -> deserialize.
         let full = ScreenrecAudioPrefs {
             sysaudio: false,
             mic_enabled: true,
             mic_device: "Mic Y".into(),
             hide_cursor: true,
             camera_uid: "cam-uid-123".into(),
+            countdown: true,
         };
         let json = serde_json::to_string(&full).unwrap();
         let back: ScreenrecAudioPrefs = serde_json::from_str(&json).unwrap();
         assert_eq!(back.camera_uid, "cam-uid-123");
         assert!(back.hide_cursor);
         assert_eq!(back.mic_device, "Mic Y");
+        assert!(back.countdown);
     }
 
     #[test]

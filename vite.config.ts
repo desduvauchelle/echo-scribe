@@ -21,6 +21,8 @@ export default defineConfig({
         "meeting-hud": resolve(__dirname, "src/meeting-hud/index.html"),
         "screenrec-setup": resolve(__dirname, "src/screenrec-setup/index.html"),
         "camera-preview": resolve(__dirname, "src/camera-preview/index.html"),
+        "area-picker": resolve(__dirname, "src/area-picker/index.html"),
+        countdown: resolve(__dirname, "src/countdown/index.html"),
       },
     },
   },
