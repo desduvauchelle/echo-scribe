@@ -20,7 +20,7 @@
 // Codec negotiation is runtime-probed (VideoEncoder.isConfigSupported): H.264
 // High first, then HEVC, then VP9 — recorded in the render report.
 
-import { createFile, DataStream, MP4BoxBuffer, type Sample } from "mp4box";
+import { createFile, DataStream, Endianness, MP4BoxBuffer, type Sample } from "mp4box";
 import { ArrayBufferTarget, Muxer } from "mp4-muxer";
 import { GIFEncoder, quantize, applyPalette } from "gifenc";
 import {
@@ -350,7 +350,11 @@ function extractDescription(
     | undefined;
   const box = entry?.avcC ?? entry?.hvcC;
   if (!box) return undefined;
-  const stream = new DataStream(undefined, 0, DataStream.ENDIANNESS);
+  // MP4 box fields are big-endian. DataStream.ENDIANNESS is the *platform*
+  // order (little-endian on Mac), which byte-swaps the u16 SPS/PPS length
+  // fields inside avcC and makes VideoDecoder.configure throw
+  // "Failed to parse avcC".
+  const stream = new DataStream(undefined, 0, Endianness.BIG_ENDIAN);
   box.write(stream);
   // The DataStream backing buffer may be over-allocated; use its virtual
   // byteLength. The written box includes an 8-byte header (size + fourcc); the
@@ -657,6 +661,7 @@ class Mp4Sink implements FrameSink {
   private readonly encoder: VideoEncoder;
   private readonly minFrameIntervalUs = 1_000_000 / TARGET_FPS;
   private encodedFrames = 0;
+  private muxedChunks = 0;
   private encodeError: unknown = null;
 
   private constructor(outW: number, outH: number, codec: CodecChoice) {
@@ -668,7 +673,28 @@ class Mp4Sink implements FrameSink {
       fastStart: "in-memory",
     });
     this.encoder = new VideoEncoder({
-      output: (chunk, meta) => this.muxer.addVideoChunk(chunk, meta),
+      output: (chunk, meta) => {
+        // A muxer throw inside this WebCodecs callback is otherwise swallowed
+        // by the browser (no rejection anywhere) — the render then stalls or
+        // finalizes a broken file with zero diagnostics. Route it through
+        // encodeError so the feed loop aborts with the real cause.
+        try {
+          if (this.muxedChunks < 3) {
+            console.info(
+              "[render] mux chunk",
+              this.muxedChunks,
+              "ts=", chunk.timestamp,
+              "type=", chunk.type,
+              "decoderConfig?", Boolean(meta?.decoderConfig),
+            );
+          }
+          this.muxedChunks += 1;
+          this.muxer.addVideoChunk(chunk, meta);
+        } catch (e) {
+          this.encodeError = e;
+          console.error("[render] muxer rejected chunk", e);
+        }
+      },
       error: (e) => {
         this.encodeError = e;
         console.error("[render] VideoEncoder error", e);
@@ -1033,6 +1059,14 @@ export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8A
           onProgress({ phase: "encode", pct: Math.min(99, Math.round((processedFrames / totalFrames) * 100)) });
           return;
         }
+        // The FIRST kept frame must land on grid slot 0: capture starts a few
+        // frames after t=0 (ScreenCaptureKit warm-up), so its natural slot is
+        // often 2–3, and mp4-muxer (strict mode) rejects a track whose first
+        // sample isn't at timestamp 0 — which used to kill the whole export.
+        // Pulling only this frame back keeps every later frame on its natural
+        // slot, so audio (muxed from source t=0 in Rust) stays in sync; the
+        // screen content didn't change before the first capture anyway.
+        const emitGridIndex = lastGridIndex === -1 ? 0 : gridIndex;
         lastGridIndex = gridIndex;
 
         // Enqueue the composite for this kept frame onto the serialized chain.
@@ -1135,7 +1169,7 @@ export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8A
             // same `speedMap`); GIF reads the pixels, quantizes, and writes an
             // indexed frame with a per-slot centisecond delay. Neither retains
             // the canvas past this call, so memory stays bounded.
-            sink.emit(canvas, ctx, gridIndex);
+            sink.emit(canvas, ctx, emitGridIndex);
             processedFrames++;
             onProgress({ phase: "encode", pct: Math.min(99, Math.round((processedFrames / totalFrames) * 100)) });
           } catch (e) {
