@@ -229,11 +229,29 @@ pub async fn refresh_access_token(client_id: &str, client_secret: &str) -> Resul
     if !resp.status().is_success() {
         let body = resp.text().await.unwrap_or_default();
         warn!(target: "drive", body = %body, "Drive token refresh failed");
+        // `invalid_grant` means Google revoked/expired the refresh token itself
+        // (password change, access revoked in the Google account, server-side
+        // expiry). It will never work again — drop it so the UI flips to
+        // "not connected" and offers the Connect button.
+        if body.contains("invalid_grant") {
+            if let Err(e) = delete_refresh_token() {
+                warn!(target: "drive", error = %e, "failed to clear revoked refresh token");
+            } else {
+                info!(target: "drive", "cleared revoked refresh token; reconnect required");
+            }
+            return Err(RECONNECT_REQUIRED.into());
+        }
         return Err(format!("token refresh failed: {body}"));
     }
     let tok: TokenResponse = resp.json().await.map_err(|e| e.to_string())?;
     Ok(tok.access_token)
 }
+
+/// Sentinel error returned when Google permanently rejected the refresh token
+/// (`invalid_grant`) and the user must run the Connect flow again. Callers
+/// match on this to show a reconnect-specific message instead of a generic
+/// upload failure.
+pub const RECONNECT_REQUIRED: &str = "drive_reconnect_required";
 
 /// Run the full connect flow: bind a loopback listener, open the browser to the
 /// consent page, capture the `code`, exchange it, persist the refresh token, and

@@ -5551,7 +5551,11 @@ pub async fn upload_recording(
         Err(e) => {
             // Full technical detail to the log; a short, friendly message to the UI.
             error!(target: "drive", error = %e, "Drive upload failed");
-            let friendly = "Upload to Drive failed. See Settings → Diagnostics → logs for details.";
+            let friendly = if e.contains(crate::screenrec::drive::RECONNECT_REQUIRED) {
+                "Google Drive access expired — reconnect in Settings → Google Drive, then retry the upload."
+            } else {
+                "Upload to Drive failed. See Settings → Diagnostics → logs for details."
+            };
             {
                 let db = require_db(&state)?;
                 db.with_conn(|c| {
