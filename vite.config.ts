@@ -23,6 +23,7 @@ export default defineConfig({
         "camera-preview": resolve(__dirname, "src/camera-preview/index.html"),
         "area-picker": resolve(__dirname, "src/area-picker/index.html"),
         countdown: resolve(__dirname, "src/countdown/index.html"),
+        editor: resolve(__dirname, "src/editor/index.html"),
       },
     },
   },

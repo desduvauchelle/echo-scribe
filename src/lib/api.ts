@@ -1229,6 +1229,9 @@ export const isScreenRecordingPaused = (): Promise<boolean> =>
   invoke("is_screen_recording_paused");
 export const listRecordings = (): Promise<RecordingRow[]> =>
   invoke("list_recordings");
+/** Open (or focus) the dedicated editor window for a recording. */
+export const openRecordingEditor = (id: string, title?: string): Promise<void> =>
+  invoke("open_recording_editor", { id, title: title ?? null });
 export const deleteRecording = (id: string): Promise<void> =>
   invoke("delete_recording", { id });
 export const renameRecording = (id: string, title: string): Promise<void> =>

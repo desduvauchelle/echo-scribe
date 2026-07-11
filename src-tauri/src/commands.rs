@@ -272,6 +272,56 @@ pub fn log_export_error(message: String) {
     error!(target: "screenrec", %message, "video export failed");
 }
 
+/// Open (or focus) a dedicated editor window for a recording. One window per
+/// recording (label `editor-<id>`), so re-clicking Edit brings the existing
+/// window forward instead of spawning a duplicate. The recording id reaches
+/// the page via an initialization script — no query string on the asset URL.
+#[tauri::command]
+pub fn open_recording_editor(
+    app: AppHandle,
+    id: String,
+    title: Option<String>,
+) -> Result<(), String> {
+    // Window labels only allow [a-zA-Z0-9-/:_]; recording ids should already
+    // comply, but filter defensively so a weird id can't fail the window build.
+    let safe: String = id
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
+        .collect();
+    let label = format!("editor-{safe}");
+    if let Some(w) = app.get_webview_window(&label) {
+        let _ = w.set_focus();
+        info!(target: "screenrec", %label, "editor window already open; focusing");
+        return Ok(());
+    }
+    let window_title = title
+        .as_deref()
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+        .map(|t| format!("Edit — {t}"))
+        .unwrap_or_else(|| "Edit recording".to_string());
+    let init = format!(
+        "window.__EDITOR_RECORDING_ID__ = {};",
+        serde_json::to_string(&id).map_err(|e| e.to_string())?
+    );
+    tauri::WebviewWindowBuilder::new(
+        &app,
+        &label,
+        tauri::WebviewUrl::App("src/editor/index.html".into()),
+    )
+    .title(&window_title)
+    .inner_size(1280.0, 860.0)
+    .min_inner_size(980.0, 640.0)
+    .initialization_script(&init)
+    .build()
+    .map_err(|e| {
+        error!(target: "screenrec", error = %e, "failed to open editor window");
+        format!("Could not open the editor window: {e}")
+    })?;
+    info!(target: "screenrec", %label, "opened editor window");
+    Ok(())
+}
+
 /// Trigger the macOS Accessibility prompt. The dialog is a side effect; the
 /// returned bool is the current trust state (typically `false` on first
 /// call — the user still has to flip the toggle in System Settings).
