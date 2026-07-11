@@ -5551,8 +5551,15 @@ pub async fn upload_recording(
         Err(e) => {
             // Full technical detail to the log; a short, friendly message to the UI.
             error!(target: "drive", error = %e, "Drive upload failed");
-            let friendly = if e.contains(crate::screenrec::drive::RECONNECT_REQUIRED) {
-                "Google Drive access expired — reconnect in Settings → Google Drive, then retry the upload."
+            // Both shapes mean the same thing to the user: there is no usable
+            // Drive authorization (token revoked server-side, or none stored —
+            // e.g. right after an invalid_grant cleared it). The frontend
+            // matches the sentinel prefix to offer a reconnect flow instead of
+            // a dead-end error.
+            let needs_reconnect = e.contains(crate::screenrec::drive::RECONNECT_REQUIRED)
+                || e.contains("not connected to Drive");
+            let friendly = if needs_reconnect {
+                "Google Drive isn't connected — reconnect to upload."
             } else {
                 "Upload to Drive failed. See Settings → Diagnostics → logs for details."
             };
@@ -5564,7 +5571,11 @@ pub async fn upload_recording(
                 .map_err(|e| e.to_string())?;
             }
             let _ = app.emit("screenrec-changed", ());
-            return Err(friendly.into());
+            return Err(if needs_reconnect {
+                format!("{}: {friendly}", crate::screenrec::drive::RECONNECT_REQUIRED)
+            } else {
+                friendly.to_string()
+            });
         }
     }
     let _ = app.emit("screenrec-changed", ());
