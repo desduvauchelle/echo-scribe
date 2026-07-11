@@ -86,6 +86,26 @@ import {
   clampMasks,
   resizeMaskRect,
 } from "../../lib/editorProject";
+
+const BACKGROUND_PRESETS = [
+  ["midnight-glass", "Midnight glass"],
+  ["terracotta-arches", "Terracotta arches"],
+  ["alpine-blue-hour", "Alpine blue hour"],
+  ["emerald-folds", "Emerald folds"],
+  ["indigo-aurora", "Indigo aurora"],
+  ["zen-sand", "Zen sand"],
+  ["ocean-dawn", "Ocean dawn"],
+  ["cobalt-coral", "Cobalt coral"],
+  ["topographic-night", "Topographic night"],
+  ["golden-dunes", "Golden dunes"],
+  ["foggy-forest", "Foggy forest"],
+  ["ice-crystal", "Ice crystal"],
+  ["rainy-city", "Rainy city"],
+] as const;
+
+const presetBackgroundPath = (name: string) => `/editor-backgrounds/${name}.jpg`;
+const backgroundImageSrc = (path: string) =>
+  path.startsWith("/editor-backgrounds/") ? path : convertFileSrc(path);
 import { renderRecording, type RenderProgress } from "../../lib/render/renderPipeline";
 import {
   canvasToCapture,
@@ -167,6 +187,17 @@ function fmtTimeDs(ms: number): string {
   return `${m}:${String(s).padStart(2, "0")}.${d}`;
 }
 
+/** Compact human ETA for the export button. Quantized to 5s steps above 15s
+ *  so the countdown ticks calmly instead of flickering every progress event. */
+function fmtEta(secs: number): string {
+  const s = Math.max(1, Math.round(secs));
+  const q = s > 15 ? Math.round(s / 5) * 5 : s;
+  if (q < 60) return `${q}s`;
+  const m = Math.floor(q / 60);
+  const r = q % 60;
+  return r ? `${m}m ${r}s` : `${m}m`;
+}
+
 /** Whether the live preview applies motion blur during zoom transitions (Task
  *  5). Kept as a module constant so it can be flipped to `false` (confining
  *  blur to the export only) if the ×N ramp draws ever cause preview jank on
@@ -225,6 +256,9 @@ export function EditorView({
     RenderProgress["phase"] | "finalizing" | null
   >(null);
   const [exportPct, setExportPct] = useState(0);
+  // Estimated seconds until the current export phase completes (null until
+  // enough progress has accrued to extrapolate a rate; resets on phase change).
+  const [exportEta, setExportEta] = useState<number | null>(null);
   // Output format for the export button. Session-local only (NOT persisted to
   // the project) — MP4 is the default; GIF renders a silent, 15fps, ≤960px-wide
   // animated GIF via the same composite pipeline (no audio).
@@ -400,7 +434,7 @@ export function EditorView({
       return;
     }
     let cancelled = false;
-    void loadImage(convertFileSrc(bgPath))
+    void loadImage(backgroundImageSrc(bgPath))
       .then((img) => {
         if (!cancelled) bgImageRef.current = img;
       })
@@ -2154,7 +2188,14 @@ export function EditorView({
   const onExport = useCallback(async () => {
     setExportPhase("decode");
     setExportPct(0);
+    setExportEta(null);
     setExportedRevealId(null);
+    // Per-phase ETA tracking (closure-local: one export run, one tracker).
+    // Each phase has its own throughput, so the rate resets on phase change.
+    let etaPhaseSeen: string | null = null;
+    let etaT0 = 0;
+    let etaPct0 = 0;
+    let etaSmoothed: number | null = null;
     try {
       // Snapshot the current project so mid-export slider moves don't affect
       // the render. Force-disable the synthetic cursor when the recording
@@ -2188,7 +2229,7 @@ export function EditorView({
       let bgImage: CanvasImageSource | null = null;
       if (proj.appearance.background.type === "image") {
         try {
-          bgImage = await loadImage(convertFileSrc(proj.appearance.background.path));
+          bgImage = await loadImage(backgroundImageSrc(proj.appearance.background.path));
         } catch (e) {
           console.warn("[export] background image failed to load; using fallback", e);
         }
@@ -2222,6 +2263,24 @@ export function EditorView({
         onProgress: (p) => {
           setExportPhase(p.phase);
           setExportPct(p.pct);
+          // ETA = linear extrapolation of this phase's progress rate, lightly
+          // EMA-smoothed; shown only once enough progress has accrued for the
+          // rate to mean something (avoids wild estimates in the first ticks).
+          const now = performance.now();
+          if (p.phase !== etaPhaseSeen) {
+            etaPhaseSeen = p.phase;
+            etaT0 = now;
+            etaPct0 = p.pct;
+            etaSmoothed = null;
+            setExportEta(null);
+            return;
+          }
+          const dPct = p.pct - etaPct0;
+          const dtSecs = (now - etaT0) / 1000;
+          if (dPct < 3 || dtSecs < 1) return;
+          const raw = (dtSecs * (100 - p.pct)) / dPct;
+          etaSmoothed = etaSmoothed === null ? raw : etaSmoothed * 0.7 + raw * 0.3;
+          setExportEta(etaSmoothed);
         },
       });
 
@@ -2231,6 +2290,7 @@ export function EditorView({
         // writes `<id>.rendered.gif` and records the "rendered-gif" export row.
         setExportPhase("finalizing");
         setExportPct(100);
+        setExportEta(null);
         updated = await saveRenderedGif(recording.id, bytes);
         setExportedRevealPath(renderedExportPath(updated.exports, "rendered-gif"));
       } else {
@@ -2241,6 +2301,7 @@ export function EditorView({
         // speed map uses) so Rust applies them directly to the trimmed WAV.
         setExportPhase("finalizing");
         setExportPct(100);
+        setExportEta(null);
         const clamped = clampTrim(proj.trim, durationMs);
         const shiftedSpeed = shiftRangesForTrim(
           clampSpeedRanges(proj.speed, durationMs),
@@ -2278,6 +2339,7 @@ export function EditorView({
     } finally {
       setExportPhase(null);
       setExportPct(0);
+      setExportEta(null);
     }
   }, [recording.id, recording.events_path, cursorAvailable, src, webcamSrc, webcamOffsetMs, duration, exportFormat, toasts]);
 
@@ -2366,14 +2428,22 @@ export function EditorView({
         <button
           onClick={() => void onExport()}
           disabled={exporting || !loaded}
-          className="flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-[13px] font-medium text-white disabled:opacity-50"
+          // While exporting: a fixed min-width + tabular digits so the button
+          // doesn't change size as the percentage/ETA tick (no width wiggle).
+          className={`flex items-center justify-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-[13px] font-medium text-white disabled:opacity-50 ${
+            exporting ? "min-w-[230px] tabular-nums" : ""
+          }`}
         >
           {exporting ? (
-            <Loader size={15} className="animate-spin" />
+            <Loader size={15} className="shrink-0 animate-spin" />
           ) : (
             <Download size={15} />
           )}
-          {exporting ? `${exportLabel}… ${exportPct}%` : "Export"}
+          {exporting
+            ? `${exportLabel}… ${exportPct}%${
+                exportEta !== null ? ` · ~${fmtEta(exportEta)} left` : ""
+              }`
+            : "Export"}
         </button>
       </div>
 
@@ -2937,7 +3007,12 @@ export function EditorView({
             <button
               className={seg(bg.type === "image")}
               onClick={() => {
-                if (bg.type !== "image") void pickImage();
+                if (bg.type !== "image") {
+                  setBackground({
+                    type: "image",
+                    path: presetBackgroundPath(BACKGROUND_PRESETS[0][0]),
+                  });
+                }
               }}
             >
               Image
@@ -2981,9 +3056,37 @@ export function EditorView({
 
           {bg.type === "image" ? (
             <div className="space-y-2">
+              <div className="grid max-h-64 grid-cols-2 gap-2 overflow-y-auto pr-1">
+                {BACKGROUND_PRESETS.map(([name, label]) => {
+                  const path = presetBackgroundPath(name);
+                  const selected = bg.path === path;
+                  return (
+                    <button
+                      key={name}
+                      type="button"
+                      onClick={() => setBackground({ type: "image", path })}
+                      aria-label={`Use ${label} background`}
+                      aria-pressed={selected}
+                      title={label}
+                      className={`overflow-hidden rounded-md border-2 transition ${
+                        selected
+                          ? "border-accent ring-1 ring-accent"
+                          : "border-transparent hover:border-line"
+                      }`}
+                    >
+                      <img
+                        src={path}
+                        alt=""
+                        className="aspect-video w-full object-cover"
+                        loading="lazy"
+                      />
+                    </button>
+                  );
+                })}
+              </div>
               <div className="overflow-hidden rounded-md border border-line bg-black">
                 <img
-                  src={convertFileSrc(bg.path)}
+                  src={backgroundImageSrc(bg.path)}
                   alt="Background"
                   className="h-24 w-full object-cover"
                 />
