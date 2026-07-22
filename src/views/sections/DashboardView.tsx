@@ -6,6 +6,7 @@ import {
   getDailySummary,
   getDashboardStats,
   listItems,
+  listMeetings,
   listRecordings,
   runProjectTaggerAll,
   searchItems,
@@ -15,13 +16,21 @@ import {
   type DashboardStats,
   type Item,
   type ItemKind,
+  type MeetingRow,
   type Project,
   type RecordingRow,
 } from "../../lib/api";
 import { useToasts } from "../../components/ToastProvider";
 import ItemCard from "../../components/ItemCard";
+import MeetingCard from "../../components/MeetingCard";
 import RecordingCard from "../../components/RecordingCard";
-import { mergeFeed, recordingMatches, type FeedEntry } from "../../lib/feed";
+import {
+  clampMeetingsToPage,
+  itemTs,
+  mergeFeed,
+  recordingMatches,
+  type FeedEntry,
+} from "../../lib/feed";
 import { compactNumber } from "../../lib/format";
 import { useActivityPanel } from "../../components/ActivityPanelContext";
 import { SkeletonList } from "./ActivityFeed";
@@ -113,6 +122,7 @@ export default function DashboardView({ projects }: Props) {
   const [summary, setSummary] = useState<DailySummary | null>(null);
   const [items, setItems] = useState<Item[]>([]);
   const [recordings, setRecordings] = useState<RecordingRow[]>([]);
+  const [meetings, setMeetings] = useState<MeetingRow[]>([]);
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -149,11 +159,20 @@ export default function DashboardView({ projects }: Props) {
     }
   }, []);
 
+  const loadMeetings = useCallback(async () => {
+    try {
+      setMeetings(await listMeetings());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, []);
+
   const fetchItems = useCallback(async (mode: "reset" | "append") => {
     if (mode === "append") setLoadingMore(true);
     try {
       const nextOffset = mode === "reset" ? 0 : offset;
       // "all" and "recording" are not item kinds → no server-side kind filter.
+      // "meeting" never reaches here — it's served from `meetings`.
       const kf = kindRef.current;
       const kind = kf === "all" || kf === "recording" ? undefined : kf;
       const page = await listItems({ kind, limit: PAGE_SIZE, offset: nextOffset });
@@ -189,12 +208,19 @@ export default function DashboardView({ projects }: Props) {
   useEffect(() => {
     void loadAll();
     void loadRecordings();
-  }, [loadAll, loadRecordings]);
+    void loadMeetings();
+  }, [loadAll, loadRecordings, loadMeetings]);
 
-  // Fetch items on mount and whenever the kind filter changes. Tasks and
-  // Recordings use their own data path, so skip the item fetch for those.
+  // Fetch items on mount and whenever the kind filter changes. Tasks,
+  // Meetings and Recordings use their own data path, so skip the item fetch
+  // for those.
   useEffect(() => {
-    if (kindFilter === "task" || kindFilter === "recording") return;
+    if (
+      kindFilter === "task" ||
+      kindFilter === "recording" ||
+      kindFilter === "meeting"
+    )
+      return;
     void fetchItems("reset");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kindFilter]);
@@ -203,6 +229,7 @@ export default function DashboardView({ projects }: Props) {
     if (refreshTick === 0) return;
     void fetchItems("reset");
     void loadRecordings();
+    void loadMeetings();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshTick]);
 
@@ -214,14 +241,24 @@ export default function DashboardView({ projects }: Props) {
         if (cancelled) return;
         void fetchItems("reset");
         void loadRecordings();
+        void loadMeetings();
       };
-      const u1 = await listen("item:created", handler);
-      const u2 = await listen("app:refresh", handler);
+      const meetingHandler = () => {
+        if (cancelled) return;
+        void loadMeetings();
+      };
+      const subs = await Promise.all([
+        listen("item:created", handler),
+        listen("app:refresh", handler),
+        // A meeting's card changes as it moves through recording →
+        // transcribing → summarizing → complete.
+        listen("meeting-status", meetingHandler),
+        listen("meeting-complete", meetingHandler),
+      ]);
       if (cancelled) {
-        u1();
-        u2();
+        subs.forEach((u) => u());
       } else {
-        unlisteners.push(u1, u2);
+        unlisteners.push(...subs);
       }
     })();
     return () => {
@@ -262,15 +299,36 @@ export default function DashboardView({ projects }: Props) {
   const isSearching = searchOpen && query.trim() !== "";
   const isTasks = kindFilter === "task";
   const isRecordings = kindFilter === "recording";
+  const isMeetings = kindFilter === "meeting";
 
-  // Browse feed: recordings interleave with items under "All" and "Recordings".
+  // Meetings keyed by their item id, so a meeting-kind search hit can be
+  // rendered as a meeting card rather than a bare item.
+  const meetingsById = useMemo(
+    () => new Map(meetings.map((m) => [m.item_id, m])),
+    [meetings],
+  );
+
+  // Browse feed: recordings and meetings interleave with items under "All";
+  // the single-kind filters show only their own source.
   const browseEntries = useMemo(() => {
     if (kindFilter === "recording") return mergeFeed([], recordings);
-    if (kindFilter === "all") return mergeFeed(items, recordings);
+    if (kindFilter === "meeting") return mergeFeed([], [], meetings);
+    if (kindFilter === "all") {
+      // Items page 50 at a time but meetings arrive all at once — hold back
+      // meetings older than the loaded page so they don't stack up above the
+      // "Load more" button.
+      const oldest = items.length > 0 ? itemTs(items[items.length - 1]) : null;
+      return mergeFeed(
+        items,
+        recordings,
+        clampMeetingsToPage(meetings, oldest, hasMore),
+      );
+    }
     return mergeFeed(items, []);
-  }, [kindFilter, items, recordings]);
+  }, [kindFilter, items, recordings, meetings, hasMore]);
 
-  // Search feed: items from FTS + recordings matched client-side on title/transcript.
+  // Search feed: items from FTS + recordings matched client-side on
+  // title/transcript. Meeting-kind hits are swapped for their meeting row.
   const searchEntries = useMemo(() => {
     const q = query.trim();
     const recs =
@@ -278,15 +336,19 @@ export default function DashboardView({ projects }: Props) {
         ? recordings.filter((r) => recordingMatches(r, q))
         : [];
     const its = kindFilter === "recording" ? [] : searchResults;
-    return mergeFeed(its, recs);
-  }, [kindFilter, query, searchResults, recordings]);
+    const hitMeetings = its
+      .map((i) => meetingsById.get(i.id))
+      .filter((m): m is MeetingRow => m !== undefined);
+    return mergeFeed(its, recs, hitMeetings);
+  }, [kindFilter, query, searchResults, recordings, meetingsById]);
 
-  const renderEntry = (e: FeedEntry) =>
-    e.type === "item" ? (
-      <ItemCard key={e.key} item={e.item} projects={projects} />
-    ) : (
-      <RecordingCard key={e.key} rec={e.rec} projects={projects} />
-    );
+  const renderEntry = (e: FeedEntry) => {
+    if (e.type === "meeting")
+      return <MeetingCard key={e.key} mtg={e.mtg} projects={projects} />;
+    if (e.type === "recording")
+      return <RecordingCard key={e.key} rec={e.rec} projects={projects} />;
+    return <ItemCard key={e.key} item={e.item} projects={projects} />;
+  };
 
   const runExport = async (format: "markdown" | "csv") => {
     setExporting(true);
@@ -568,7 +630,11 @@ export default function DashboardView({ projects }: Props) {
         </div>
       ) : (
         <div className="mt-3 flex flex-col gap-2 pb-4">
-          {browseEntries.length === 0 && !error && hasMore && !isRecordings ? (
+          {browseEntries.length === 0 &&
+          !error &&
+          hasMore &&
+          !isRecordings &&
+          !isMeetings ? (
             <SkeletonList />
           ) : browseEntries.length === 0 ? (
             <p className="rounded-lg border border-line bg-surface/40 px-4 py-6 text-center text-xs text-muted">
@@ -577,7 +643,7 @@ export default function DashboardView({ projects }: Props) {
           ) : (
             <>
               {browseEntries.map(renderEntry)}
-              {hasMore && !isRecordings ? (
+              {hasMore && !isRecordings && !isMeetings ? (
                 <div className="my-3 flex justify-center">
                   <button
                     type="button"

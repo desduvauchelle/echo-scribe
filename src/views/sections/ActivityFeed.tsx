@@ -182,12 +182,14 @@ export default function ActivityFeed({
     return mergeFeed(filteredItems, recs);
   }, [filteredItems, recordings, kindFilter]);
 
-  const renderEntry = (e: FeedEntry) =>
-    e.type === "item" ? (
-      <ItemCard key={e.key} item={e.item} projects={projects} />
-    ) : (
-      <RecordingCard key={e.key} rec={e.rec} projects={projects} />
-    );
+  // No meetings are passed to mergeFeed here, so "meeting" entries can't occur
+  // in this feed — meeting items render as ordinary item cards.
+  const renderEntry = (e: FeedEntry) => {
+    if (e.type === "recording")
+      return <RecordingCard key={e.key} rec={e.rec} projects={projects} />;
+    if (e.type === "meeting") return null;
+    return <ItemCard key={e.key} item={e.item} projects={projects} />;
+  };
 
   const handleRename = async () => {
     if (!project) return;

@@ -162,15 +162,12 @@ pub fn list_items(
         sql.push_str(" AND project_id = ?");
         args.push(Box::new(pid.to_string()));
     }
-    // Meetings are surfaced both by their own `kind` and by any item captured
-    // during a meeting (`source = 'meeting'`), e.g. meeting-derived tasks.
+    // `kind` is exact — "meeting" means the meeting itself, not the tasks and
+    // notes captured during it (those carry `source = 'meeting'` but their own
+    // kind, and belong under their own filter).
     if let Some(k) = kind {
-        if k == "meeting" {
-            sql.push_str(" AND (kind = 'meeting' OR source = 'meeting')");
-        } else {
-            sql.push_str(" AND kind = ?");
-            args.push(Box::new(k.to_string()));
-        }
+        sql.push_str(" AND kind = ?");
+        args.push(Box::new(k.to_string()));
     }
     sql.push_str(" ORDER BY captured_at DESC LIMIT ? OFFSET ?");
     args.push(Box::new(limit as i64));
@@ -451,8 +448,9 @@ mod tests {
         assert_eq!(sorted_ids("note"), vec!["n1"]);
         // task filter = all kind='task' (standalone + meeting-derived).
         assert_eq!(sorted_ids("task"), vec!["k1", "m2"]);
-        // meeting filter = kind='meeting' OR source='meeting' (meeting + its task).
-        assert_eq!(sorted_ids("meeting"), vec!["m1", "m2"]);
+        // meeting filter = kind='meeting' only. The meeting-derived task (m2)
+        // has source='meeting' but is a task, so it stays out.
+        assert_eq!(sorted_ids("meeting"), vec!["m1"]);
         assert_eq!(list_items(&conn, None, Some("transcription"), 50, 0).unwrap().len(), 5);
     }
 

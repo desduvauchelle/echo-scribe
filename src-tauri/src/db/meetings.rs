@@ -1,3 +1,4 @@
+use crate::db::items::Item;
 use crate::db::DbError;
 use crate::meeting::MeetingStatus;
 use rusqlite::{params, Connection, OptionalExtension};
@@ -210,6 +211,24 @@ pub fn link_action(conn: &Connection, meeting_id: &str, item_id: &str, created_a
     Ok(())
 }
 
+/// Items promoted out of a meeting's summary (its action items), oldest-first
+/// so they read in the order the meeting produced them. Soft-deleted items are
+/// excluded. Empty for meetings whose actions were never promoted to items.
+pub fn list_action_items(conn: &Connection, meeting_id: &str) -> Result<Vec<Item>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT i.id, i.content, i.source, i.kind, i.project_id, i.captured_at,
+                i.created_at, i.deleted_at, i.confidence, i.classified_by, i.capture_context
+         FROM meeting_action_links l
+         JOIN items i ON i.id = l.item_id
+         WHERE l.meeting_id = ?1 AND i.deleted_at IS NULL
+         ORDER BY l.created_at ASC",
+    )?;
+    let rows = stmt
+        .query_map([meeting_id], crate::db::items::row_to_item_for_join)?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+
 pub fn delete_meeting(conn: &Connection, item_id: &str) -> Result<(), DbError> {
     conn.execute("DELETE FROM meetings WHERE item_id = ?1", [item_id])?;
     Ok(())
@@ -302,6 +321,34 @@ mod tests {
             guide_template_json: None,
             project_name: None,
         }
+    }
+
+    #[test]
+    fn list_action_items_returns_links_oldest_first_and_skips_deleted() {
+        let conn = fresh();
+        insert_test_meeting(&conn, "m-1");
+        for (id, at) in [("a-2", "2026-05-03T01:00:00Z"), ("a-1", "2026-05-03T00:30:00Z"), ("a-3", "2026-05-03T02:00:00Z")] {
+            conn.execute(
+                "INSERT INTO items (id, content, source, kind, captured_at, created_at)
+                 VALUES (?1, 'follow up', 'meeting', 'task', ?2, ?2)",
+                params![id, at],
+            )
+            .unwrap();
+            link_action(&conn, "m-1", id, at).unwrap();
+        }
+        // Soft-deleted action items drop out of the list.
+        conn.execute("UPDATE items SET deleted_at = '2026-05-04T00:00:00Z' WHERE id = 'a-3'", []).unwrap();
+
+        let ids: Vec<String> = list_action_items(&conn, "m-1")
+            .unwrap()
+            .iter()
+            .map(|i| i.id.clone())
+            .collect();
+        assert_eq!(ids, vec!["a-1", "a-2"]);
+
+        // A meeting with no promoted actions is empty, not an error.
+        insert_test_meeting(&conn, "m-2");
+        assert!(list_action_items(&conn, "m-2").unwrap().is_empty());
     }
 
     #[test]

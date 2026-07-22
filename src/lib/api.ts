@@ -898,6 +898,10 @@ export const isMeetingActive = (): Promise<boolean> => invoke("is_meeting_active
 export const getMeeting = (id: string): Promise<MeetingRow | null> =>
   invoke("get_meeting", { id });
 export const listMeetings = (): Promise<MeetingRow[]> => invoke("list_meetings");
+/** Action items promoted out of a meeting into their own item rows. Empty for
+ *  meetings whose summary actions were never promoted. */
+export const listMeetingActionItems = (id: string): Promise<Item[]> =>
+  invoke("list_meeting_action_items", { id });
 export const updateMeetingNotes = (id: string, notes: string): Promise<void> =>
   invoke("update_meeting_notes", { id, notes });
 export const renameMeeting = (id: string, title: string): Promise<void> =>

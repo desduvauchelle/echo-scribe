@@ -2864,6 +2864,22 @@ pub fn list_meetings(
         .map_err(|e| e.to_string())
 }
 
+/// Action items promoted out of a meeting into their own item rows. Used by
+/// the dashboard meeting card to nest a meeting's tasks under it instead of
+/// scattering them through the feed.
+#[tauri::command]
+pub fn list_meeting_action_items(
+    state: tauri::State<'_, AppState>,
+    id: String,
+) -> Result<Vec<crate::db::items::Item>, String> {
+    let db = state.db.as_ref().ok_or("db unavailable")?;
+    db.with_conn(move |conn| crate::db::meetings::list_action_items(conn, &id))
+        .map_err(|e| {
+            tracing::error!(target: "meetings", error = %e, "list_meeting_action_items failed");
+            "Couldn't load this meeting's action items. See Settings → Diagnostics → logs for details.".to_string()
+        })
+}
+
 #[tauri::command]
 pub fn update_meeting_notes(
     state: tauri::State<'_, AppState>,

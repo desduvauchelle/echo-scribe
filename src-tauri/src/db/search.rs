@@ -7,8 +7,8 @@ use super::DbError;
 
 /// Search items by FTS5 MATCH expression. Soft-deleted items are excluded.
 /// Results are ordered by FTS rank (most relevant first).
-/// `kind` optionally restricts results to one item kind; the special value
-/// `"meeting"` matches `kind = 'meeting' OR source = 'meeting'` (mirrors
+/// `kind` optionally restricts results to one exact item kind — `"meeting"`
+/// matches the meeting itself, not items captured during it (mirrors
 /// `db::items::list_items`).
 pub fn search_items(
     conn: &Connection,
@@ -30,12 +30,8 @@ pub fn search_items(
     let mut args: Vec<Box<dyn rusqlite::ToSql>> =
         vec![Box::new(query.to_string()), Box::new(limit as i64)];
     if let Some(k) = kind {
-        if k == "meeting" {
-            sql.push_str(" AND (items.kind = 'meeting' OR items.source = 'meeting')");
-        } else {
-            sql.push_str(" AND items.kind = ?3");
-            args.push(Box::new(k.to_string()));
-        }
+        sql.push_str(" AND items.kind = ?3");
+        args.push(Box::new(k.to_string()));
     }
     sql.push_str(" ORDER BY rank LIMIT ?2");
 
@@ -220,6 +216,12 @@ mod tests {
         )
         .unwrap();
 
+        // Meeting-derived task: source = meeting but kind = task.
+        let mut mtask = make_item("m2", "alpha planning follow-up");
+        mtask.kind = Some(crate::db::items::ItemKind::Task);
+        mtask.source = crate::db::items::ItemSource::Meeting;
+        insert_item(&conn, &mtask).unwrap();
+
         let ids = |kind: Option<&str>| {
             let mut v: Vec<String> = search_items(&conn, "alpha", kind, 50)
                 .unwrap()
@@ -230,9 +232,10 @@ mod tests {
             v
         };
 
-        assert_eq!(ids(None), vec!["k1", "m1", "n1"]);
+        assert_eq!(ids(None), vec!["k1", "m1", "m2", "n1"]);
         assert_eq!(ids(Some("note")), vec!["n1"]);
-        assert_eq!(ids(Some("task")), vec!["k1"]);
+        assert_eq!(ids(Some("task")), vec!["k1", "m2"]);
+        // Exact kind: the meeting, not the task it produced.
         assert_eq!(ids(Some("meeting")), vec!["m1"]);
     }
 
