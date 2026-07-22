@@ -3,9 +3,25 @@
   <head>
     <meta charset="utf-8" />
     <title>Editor</title>
+    <script>
+      // Resolve the stored theme preference (src/lib/theme.ts) before first
+      // paint so the pre-mount background matches the active theme.
+      (function () {
+        try {
+          var pref = localStorage.getItem("echoScribe.themePref");
+          var light =
+            pref === "light" ||
+            (pref !== "dark" &&
+              matchMedia("(prefers-color-scheme: light)").matches);
+          document.documentElement.dataset.theme = light ? "light" : "dark";
+        } catch (e) {
+          /* default dark */
+        }
+      })();
+    </script>
     <style>
-      /* Match the app window background so there's no white flash before
-         React mounts (tauri.conf backgroundColor is 10,10,10). */
+      /* Match the app window background so there's no wrong-color flash
+         before React mounts (tauri.conf backgroundColor is 10,10,10). */
       html,
       body,
       #root {
@@ -14,6 +30,11 @@
         width: 100%;
         height: 100%;
         background: #0a0a0a;
+      }
+      html[data-theme="light"],
+      html[data-theme="light"] body,
+      html[data-theme="light"] #root {
+        background: #f2f5f4;
       }
     </style>
   </head>

@@ -24,6 +24,7 @@ import { RecordingsView } from "./sections/RecordingsView";
 import ChatView from "./sections/ChatView";
 import DashboardView from "./sections/DashboardView";
 import DailyView from "./sections/DailyView";
+import ThemeToggle from "../components/ThemeToggle";
 
 export type MainSection =
   | { kind: "chat" }
@@ -193,16 +194,17 @@ export default function Main({ onOpenSettings }: Props) {
           ) : null}
         </div>
 
-        <div className="mt-auto border-t border-line p-2">
+        <div className="mt-auto flex items-center gap-1 border-t border-line p-2">
           <button
             type="button"
             onClick={onOpenSettings}
-            className="flex w-full cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] text-muted transition-colors hover:bg-elevated hover:text-fg"
+            className="flex flex-1 cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] text-muted transition-colors hover:bg-elevated hover:text-fg"
             title="Open settings"
           >
             <SettingsIcon size={14} strokeWidth={1.75} />
             <span>Settings</span>
           </button>
+          <ThemeToggle />
         </div>
       </aside>
 

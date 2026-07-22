@@ -29,6 +29,30 @@
   --color-danger: #f87171;
 }
 
+/* Light theme overrides. src/lib/theme.ts resolves the stored preference
+   (auto/light/dark) and stamps the result on <html data-theme="...">; the
+   default @theme values above are the dark palette. */
+:root[data-theme="light"] {
+  --color-canvas: #f2f5f4;
+  --color-surface: #ffffff;
+  --color-elevated: #e7edeb;
+  --color-line: #dde5e3;
+  --color-line-strong: #c8d4d1;
+
+  --color-fg: #17211f;
+  --color-muted: #5b6f6a;
+  --color-faint: #8a9a95;
+
+  --color-accent: #0d9488;
+  --color-accent-hover: #0f766e;
+  --color-accent-soft: rgba(13, 148, 136, 0.10);
+  --color-accent-ring: rgba(13, 148, 136, 0.35);
+
+  --color-success: #059669;
+  --color-warning: #b45309;
+  --color-danger: #dc2626;
+}
+
 html, body, #root {
   height: 100%;
   margin: 0;
@@ -67,6 +91,14 @@ h1, h2, h3, h4, h5, h6 {
   background: transparent;
 }
 
+:root[data-theme="light"] ::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.14);
+}
+
+:root[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.28);
+}
+
 *:focus-visible {
   outline: 2px solid var(--color-accent-ring);
   outline-offset: 2px;
@@ -93,6 +125,10 @@ button.no-press {
 
 .drag-bar:hover {
   background: rgba(255, 255, 255, 0.04);
+}
+
+:root[data-theme="light"] .drag-bar:hover {
+  background: rgba(0, 0, 0, 0.04);
 }
 
 @media (prefers-reduced-motion: reduce) {

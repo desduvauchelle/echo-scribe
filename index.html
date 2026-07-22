@@ -5,6 +5,25 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Tauri + React + Typescript</title>
+    <script>
+      // Resolve the stored theme preference (src/lib/theme.ts) before first
+      // paint so the pre-mount background matches the active theme.
+      (function () {
+        try {
+          var pref = localStorage.getItem("echoScribe.themePref");
+          var light =
+            pref === "light" ||
+            (pref !== "dark" &&
+              matchMedia("(prefers-color-scheme: light)").matches);
+          document.documentElement.dataset.theme = light ? "light" : "dark";
+          document.documentElement.style.backgroundColor = light
+            ? "#f2f5f4"
+            : "#080e0d";
+        } catch (e) {
+          /* default dark */
+        }
+      })();
+    </script>
   </head>
 
   <body>
