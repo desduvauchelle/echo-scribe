@@ -56,7 +56,10 @@ if CommandLine.arguments.contains("--list-sources") {
     if #available(macOS 14.0, *) {
         Task {
             do {
-                let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+                // onScreenWindowsOnly MUST be false: windows on other Spaces
+                // (Mission Control desktops) are "off screen" and would be
+                // omitted entirely, making them unrecordable from the picker.
+                let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
                 let displays = content.displays.map { d -> [String: Any] in
                     ["id": d.displayID, "width": d.width, "height": d.height,
                      "label": "Display \(d.displayID) (\(d.width)×\(d.height))"]
@@ -74,8 +77,11 @@ if CommandLine.arguments.contains("--list-sources") {
                 ]
                 var windows: [[String: Any]] = []
                 for w in content.windows {
+                    // No isOnScreen requirement: windows on other Spaces (and
+                    // minimized windows) report isOnScreen == false but are
+                    // valid capture targets via desktopIndependentWindow.
                     guard let title = w.title, !title.isEmpty,
-                          let app = w.owningApplication?.applicationName, w.isOnScreen,
+                          let app = w.owningApplication?.applicationName,
                           w.frame.width > 80, w.frame.height > 80,
                           // Normal app windows live on layer 0; menubar, Dock,
                           // notifications, wallpaper, backstop all sit on other layers.
@@ -1304,7 +1310,10 @@ func clampDims(_ w: Int, _ h: Int) -> (Int, Int) {
 @MainActor
 func run() async {
     do {
-        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+        // onScreenWindowsOnly MUST be false to match --list-sources: a window
+        // picked on another Space is off-screen here and would otherwise fail
+        // the windowID lookup below with "window not found".
+        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
 
         emit([
             "event": "diag", "phase": "record_query",
