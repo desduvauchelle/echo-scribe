@@ -104,19 +104,24 @@ export default function Main({ onOpenSettings }: Props) {
           <div className="text-[13px] font-semibold tracking-tight text-fg">
             Echo Scribe
           </div>
-          {binding ? (
-            <div className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-line bg-elevated px-2 py-0.5 text-[10px] text-muted">
-              <span className="relative flex h-1.5 w-1.5">
-                <span className="absolute inline-flex h-full w-full rounded-full bg-accent opacity-60" />
-                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-accent" />
-              </span>
-              <Mic size={10} strokeWidth={2} className="text-accent" />
-              <span className="font-medium text-fg">
-                {formatBinding(binding)}
-              </span>
-              <span>to dictate</span>
-            </div>
-          ) : null}
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            {binding ? (
+              <div
+                title={`${formatBinding(binding)} to dictate`}
+                className="inline-flex items-center gap-1.5 rounded-full border border-line bg-elevated px-2 py-0.5 text-[10px] text-muted"
+              >
+                <span className="relative flex h-1.5 w-1.5">
+                  <span className="absolute inline-flex h-full w-full rounded-full bg-accent opacity-60" />
+                  <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-accent" />
+                </span>
+                <Mic size={10} strokeWidth={2} className="text-accent" />
+                <span className="font-medium text-fg">
+                  {formatBinding(binding)}
+                </span>
+              </div>
+            ) : null}
+            <SidebarRecordButton />
+          </div>
         </div>
 
         <nav className="flex flex-col gap-0.5 px-2">
@@ -174,7 +179,6 @@ export default function Main({ onOpenSettings }: Props) {
         </div>
 
         <div className="mt-auto flex flex-col gap-2 border-t border-line p-2">
-          <SidebarRecordButton />
           <div className="flex items-center gap-1">
             <button
               type="button"

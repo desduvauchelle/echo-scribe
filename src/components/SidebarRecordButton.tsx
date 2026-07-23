@@ -3,11 +3,12 @@ import { uiGates } from "../lib/capabilities";
 import { useMeetingRecorder } from "../lib/useMeetingRecorder";
 
 /**
- * Sidebar Record button: one-click start/stop of a full capture (system audio
- * + mic) that is logged as a meeting (transcript + summary + notes come for
- * free through the existing meeting pipeline). Shares recorder state with the
- * Meetings tab and the recording overlay via `useMeetingRecorder`. macOS-only —
- * gated on system-audio capability, so it is hidden on Windows.
+ * Compact Record pill for the sidebar header, sitting next to the dictation
+ * shortcut hint. One click toggles the existing manual meeting recorder (system
+ * audio + mic → transcript + summary + notes). Shares recorder state with the
+ * Meetings tab and recording overlay via `useMeetingRecorder`. macOS-only —
+ * gated on system-audio capability, so it is hidden on Windows. The label stays
+ * terse ("Record" / "Stop"); the full meaning lives in the tooltip.
  */
 export default function SidebarRecordButton() {
   const caps = useCapabilities();
@@ -22,23 +23,19 @@ export default function SidebarRecordButton() {
       disabled={busy}
       aria-pressed={active}
       title={active ? "Stop recording" : "Record system audio + mic as a meeting"}
-      className={`flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] font-medium transition-colors ${
+      className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-medium transition-colors ${
         active
-          ? "bg-danger text-white hover:bg-danger/90"
-          : "text-muted hover:bg-elevated hover:text-fg"
+          ? "border-danger/30 bg-danger/15 text-danger hover:bg-danger/20"
+          : "border-line bg-elevated text-muted hover:text-fg"
       } ${busy ? "cursor-default opacity-60" : "cursor-pointer"}`}
     >
-      <span className="relative inline-flex h-2 w-2">
+      <span className="relative flex h-1.5 w-1.5">
         {active ? (
-          <>
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white opacity-75" />
-            <span className="relative inline-flex h-2 w-2 rounded-full bg-white" />
-          </>
-        ) : (
-          <span className="relative inline-flex h-2 w-2 rounded-full bg-danger" />
-        )}
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-danger opacity-75" />
+        ) : null}
+        <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-danger" />
       </span>
-      <span>{active ? "Stop recording" : "Record"}</span>
+      <span>{active ? "Stop" : "Record"}</span>
     </button>
   );
 }
