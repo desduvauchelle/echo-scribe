@@ -1,12 +1,12 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { Film, Globe, Loader } from "lucide-react";
 import type { Project, RecordingRow } from "../lib/api";
-import { revealRecording } from "../lib/api";
+import { openRecordingEditor } from "../lib/api";
 import { relativeTime } from "../lib/format";
-
-function displayName(r: RecordingRow): string {
-  return r.title?.trim() || r.source_label || "Recording";
-}
+import { useToasts } from "./ToastProvider";
+import RecordingActionsMenu, {
+  recordingDisplayName,
+} from "./RecordingActionsMenu";
 
 function fmtDuration(ms: number | null): string {
   if (!ms) return "0:00";
@@ -25,23 +25,38 @@ type Props = {
   rec: RecordingRow;
   /** Optional map of project_id → project for rendering the pill. */
   projects?: Map<string, Project>;
-  /** Override the default action (reveal in Finder), e.g. open Recordings view. */
+  /** Override the default action (open the editor window). */
   onOpen?: (rec: RecordingRow) => void;
 };
 
-/** Compact recording row for the unified activity feed. Full management
- *  (transcribe, denoise, upload, export) lives in the Recordings view. */
+/** Recording row for the unified activity feed. Clicking opens the editor
+ *  window; the kebab menu holds the rest of the management actions
+ *  (upload, reveal, transcribe, export, delete). */
 export default function RecordingCard({ rec, projects, onOpen }: Props) {
   const project = rec.project_id ? projects?.get(rec.project_id) : null;
+  const toasts = useToasts();
   const handleClick = () => {
     if (onOpen) onOpen(rec);
-    else void revealRecording(rec.id);
+    else
+      void openRecordingEditor(rec.id, recordingDisplayName(rec)).catch((e) =>
+        toasts.push({
+          tone: "error",
+          message: e instanceof Error ? e.message : String(e),
+        }),
+      );
   };
 
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       onClick={handleClick}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          handleClick();
+        }
+      }}
       className="group flex w-full cursor-pointer items-center gap-3 rounded-md border border-line bg-surface px-3 py-2 text-left transition-colors hover:border-line-strong hover:bg-elevated"
     >
       <div className="relative h-12 w-20 shrink-0 overflow-hidden rounded bg-elevated">
@@ -69,7 +84,7 @@ export default function RecordingCard({ rec, projects, onOpen }: Props) {
             <Film size={12} strokeWidth={2} />
           </span>
           <span className="truncate text-[13px] font-medium text-fg">
-            {displayName(rec)}
+            {recordingDisplayName(rec)}
           </span>
         </div>
         <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-muted">
@@ -96,6 +111,8 @@ export default function RecordingCard({ rec, projects, onOpen }: Props) {
           ) : null}
         </div>
       </div>
-    </button>
+
+      <RecordingActionsMenu rec={rec} />
+    </div>
   );
 }

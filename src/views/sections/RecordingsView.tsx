@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useToasts } from "../../components/ToastProvider";
+import { DriveReconnectModal } from "../../components/RecordingActionsMenu";
 import {
   Check,
   ChevronDown,
@@ -33,7 +34,6 @@ import {
   exportRecording,
   uploadRecording,
   type UploadQuality,
-  driveConnect,
   getDrivePrefs,
   openRecordingEditor,
   type RecordingRow,
@@ -189,84 +189,6 @@ function SplitButton({
           </div>
         </>
       ) : null}
-    </div>
-  );
-}
-
-// Blocking modal shown when an upload fails because Google Drive authorization
-// is gone (revoked/expired token, or never connected). Explains why and runs
-// the OAuth connect flow inline; on success the caller resumes the upload.
-function DriveReconnectModal({
-  onReconnected,
-  onClose,
-}: {
-  onReconnected: () => void;
-  onClose: () => void;
-}) {
-  const [connecting, setConnecting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const connect = async () => {
-    setConnecting(true);
-    setError(null);
-    try {
-      // Opens the browser consent page and resolves once Google redirects
-      // back to the app's loopback listener (or errors after ~3 minutes).
-      await driveConnect();
-      onReconnected();
-    } catch (e) {
-      setError(String(e));
-      setConnecting(false);
-    }
-  };
-
-  return (
-    <div
-      className="fixed inset-0 z-[80] grid place-items-center bg-black/50"
-      onClick={connecting ? undefined : onClose}
-    >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label="Reconnect Google Drive"
-        className="w-[400px] rounded-lg border border-line bg-canvas p-5 shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h2 className="text-[14px] font-semibold tracking-tight">
-          Google Drive is disconnected
-        </h2>
-        <p className="mt-2 text-[12.5px] leading-relaxed text-muted">
-          Google no longer accepts this app&apos;s authorization. This happens
-          after a password change, after revoking the app in your Google
-          account, or when Google expires the grant on its own. Reconnect to
-          continue — this upload will resume automatically.
-        </p>
-        {error ? <p className="mt-2 text-[12px] text-danger">{error}</p> : null}
-        <div className="mt-4 flex justify-end gap-2">
-          <button
-            onClick={onClose}
-            disabled={connecting}
-            className="rounded-md border border-line px-3 py-1.5 text-[12.5px] text-muted hover:bg-surface disabled:opacity-50"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={() => void connect()}
-            disabled={connecting}
-            className="flex items-center gap-1.5 rounded-md border border-accent bg-accent/15 px-3 py-1.5 text-[12.5px] font-medium text-fg hover:bg-accent/25 disabled:opacity-50"
-          >
-            {connecting ? (
-              <>
-                <Loader size={13} className="animate-spin" /> Waiting for Google…
-              </>
-            ) : (
-              <>
-                <CloudUpload size={13} /> Reconnect Google Drive
-              </>
-            )}
-          </button>
-        </div>
-      </div>
     </div>
   );
 }
