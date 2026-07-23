@@ -21,6 +21,7 @@ import { ToastProvider, useToasts } from "./components/ToastProvider";
 import UpdateBanner from "./components/UpdateBanner";
 import { ActivityPanelProvider } from "./components/ActivityPanelContext";
 import ActivityPanel from "./components/ActivityPanel";
+import RecordingDetailPanel from "./components/RecordingDetailPanel";
 import { useVoicePasteFocus } from "./lib/voicePasteFocus";
 import { PlatformCapabilitiesProvider } from "./lib/capabilitiesContext";
 
@@ -33,6 +34,7 @@ export default function App() {
         <ActivityPanelProvider>
           <AppShell />
           <ActivityPanel />
+          <RecordingDetailPanel />
         </ActivityPanelProvider>
       </PlatformCapabilitiesProvider>
     </ToastProvider>

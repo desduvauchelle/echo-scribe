@@ -1,9 +1,8 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { Film, Globe, Loader } from "lucide-react";
 import type { Project, RecordingRow } from "../lib/api";
-import { openRecordingEditor } from "../lib/api";
 import { relativeTime } from "../lib/format";
-import { useToasts } from "./ToastProvider";
+import { useActivityPanel } from "./ActivityPanelContext";
 import RecordingActionsMenu, {
   recordingDisplayName,
 } from "./RecordingActionsMenu";
@@ -25,35 +24,29 @@ type Props = {
   rec: RecordingRow;
   /** Optional map of project_id → project for rendering the pill. */
   projects?: Map<string, Project>;
-  /** Override the default action (open the editor window). */
+  /** Override the default action (open the detail slide-over). */
   onOpen?: (rec: RecordingRow) => void;
 };
 
-/** Recording row for the unified activity feed. Clicking opens the editor
- *  window; the kebab menu holds the rest of the management actions
- *  (upload, reveal, transcribe, export, delete). */
+/** Recording row for the unified activity feed. Clicking slides in the detail
+ *  panel (video, upload, transcript, edit); the kebab menu offers the same
+ *  actions without opening it. */
 export default function RecordingCard({ rec, projects, onOpen }: Props) {
   const project = rec.project_id ? projects?.get(rec.project_id) : null;
-  const toasts = useToasts();
+  const { openRecording } = useActivityPanel();
   const handleClick = () => {
     if (onOpen) onOpen(rec);
-    else
-      void openRecordingEditor(rec.id, recordingDisplayName(rec)).catch((e) =>
-        toasts.push({
-          tone: "error",
-          message: e instanceof Error ? e.message : String(e),
-        }),
-      );
+    else openRecording(rec.id);
   };
 
   return (
-    <div className="group relative flex w-full cursor-pointer items-center gap-3 rounded-md border border-line bg-surface px-3 py-2 text-left transition-colors hover:border-line-strong hover:bg-elevated">
+    <div className="group relative flex w-full cursor-pointer items-center gap-3 rounded-lg border border-line bg-surface px-3.5 py-3 text-left transition-colors hover:border-line-strong hover:bg-elevated">
       {/* Primary action: full-card overlay button. The actions menu sits
           above it (relative z-10) so it stays independently clickable. */}
       <button
         type="button"
         onClick={handleClick}
-        className="absolute inset-0 cursor-pointer rounded-md"
+        className="absolute inset-0 cursor-pointer rounded-lg"
         aria-label={`Open recording: ${recordingDisplayName(rec)}`}
       />
       <div className="relative h-12 w-20 shrink-0 overflow-hidden rounded bg-elevated">
@@ -84,7 +77,7 @@ export default function RecordingCard({ rec, projects, onOpen }: Props) {
             {recordingDisplayName(rec)}
           </span>
         </div>
-        <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-muted">
+        <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-muted">
           <span>{relativeTime(new Date(rec.created_at).toISOString())}</span>
           <span>·</span>
           <span>{fmtSize(rec.size_bytes)}</span>
