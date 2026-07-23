@@ -1395,6 +1395,15 @@ export const saveRenderedGif = (
 ): Promise<RecordingRow> =>
   invoke("save_rendered_gif", bytes, { headers: { "x-recording-id": id } });
 
+/** Replace the recording's thumbnail with the poster frame of an edited
+ *  export (raw JPEG bytes). Written to `<id>.edited.jpg` + thumb_path update,
+ *  so the library shows the edited look. Best-effort from the editor. */
+export const setRecordingThumbnail = (
+  id: string,
+  bytes: Uint8Array,
+): Promise<void> =>
+  invoke("set_recording_thumbnail", bytes, { headers: { "x-recording-id": id } });
+
 export type DriveStatus = {
   connected: boolean;
   email: string | null;
@@ -1516,6 +1525,17 @@ export const hideCountdownOverlay = (): Promise<void> =>
  *  react beyond listening for `countdown-cancelled` if it wants to reset its
  *  "starting…" UI state. */
 export const cancelCountdown = (): Promise<void> => invoke("cancel_countdown");
+
+/** Show the floating camera self-view for the named camera. Used by the setup
+ *  window to PRE-WARM the camera as soon as it's enabled in the picker (the
+ *  self-view page keeps its stream when shown again for the same camera, so
+ *  recording start hands over seamlessly). */
+export const showCameraPreview = (cameraName: string): Promise<void> =>
+  invoke("show_camera_preview", { cameraName });
+
+/** Hide the self-view and release the camera (setup dismissed / camera
+ *  disabled without starting a recording). */
+export const hideCameraPreview = (): Promise<void> => invoke("hide_camera_preview");
 
 /** Called by the countdown page itself when its own visual tick reaches
  *  zero. The countdown page is the single clock for "when did the countdown

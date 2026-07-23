@@ -490,6 +490,12 @@ pub fn show_screenrec_setup(app_handle: &AppHandle<Wry>) {
         // a window can promote it to key; orderFront semantics avoid makeKeyAndOrderFront).
         let _ = w.set_always_on_top(true);
         let _ = w.set_focus();
+        // Tell the (persistent, hide-don't-destroy) page it's on screen again —
+        // it gates the camera pre-warm on this, since its mount effect only
+        // runs once at app startup.
+        if let Err(e) = w.emit("screenrec-setup-shown", ()) {
+            tracing::warn!(target: "screenrec", ?e, "screenrec-setup-shown emit failed");
+        }
     }
 }
 

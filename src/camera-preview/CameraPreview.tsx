@@ -24,10 +24,17 @@ const CameraPreview: React.FC = () => {
   // Monotonic token so a late-arriving getUserMedia from a previous start can't
   // clobber the stream of a newer start (or a stop that happened in between).
   const startTokenRef = useRef(0);
+  // The camera name the LIVE stream was started for — lets a repeated
+  // `camera-preview-start` for the same camera keep the running stream instead
+  // of cycling the device (the pre-warm flow shows the preview during setup,
+  // then `start_screen_recording` shows it again at capture start; reopening
+  // there powered the camera off/on right as the recorder attached).
+  const activeCameraRef = useRef<string | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
 
   const stopStream = () => {
     startTokenRef.current += 1; // invalidate any in-flight start
+    activeCameraRef.current = undefined;
     const s = streamRef.current;
     if (s) {
       s.getTracks().forEach((t) => t.stop());
@@ -39,38 +46,64 @@ const CameraPreview: React.FC = () => {
   };
 
   const startStream = async (cameraName: string | undefined) => {
+    // Idempotent: same camera already live → keep the stream, never cycle the
+    // device. (A live stream with a DIFFERENT camera falls through to the
+    // teardown + reopen below.)
+    if (
+      streamRef.current &&
+      activeCameraRef.current === cameraName &&
+      streamRef.current.getVideoTracks().some((t) => t.readyState === "live")
+    ) {
+      return;
+    }
     // Tear down any existing stream first so we never hold two.
     stopStream();
     const token = startTokenRef.current;
     setError(null);
     try {
-      // Kick a bare getUserMedia first: on a fresh origin, device labels are
-      // empty until the page has been granted camera access at least once, so
-      // enumerateDevices() would return unlabeled entries and defeat the
-      // name→label match. This initial grant populates the labels. wry
-      // auto-grants the WKWebView permission, so this never blocks on a prompt.
-      let stream = await navigator.mediaDevices.getUserMedia({ video: true });
-
-      // Now try to switch to the specific camera by matching its label.
-      if (cameraName) {
+      // Resolve the requested camera by LABEL before opening anything: if a
+      // prior grant already populated device labels, we open the right device
+      // directly — a single acquisition, no LED off/on cycle. Only a fresh
+      // origin (empty labels) needs the probe stream below.
+      const findByLabel = async () => {
+        if (!cameraName) return undefined;
         const devices = await navigator.mediaDevices.enumerateDevices();
-        const match = devices.find(
-          (d) => d.kind === "videoinput" && d.label === cameraName,
-        );
-        if (match && match.deviceId) {
-          const preferred = await navigator.mediaDevices.getUserMedia({
-            video: { deviceId: { exact: match.deviceId } },
-          });
-          // Swap: stop the temporary default-camera stream, keep the matched one.
-          stream.getTracks().forEach((t) => t.stop());
-          stream = preferred;
-        } else {
-          // Label matching is best-effort (AVFoundation localizedName vs
-          // MediaDeviceInfo.label). Preview-only: the recording still uses
-          // the camera the user picked.
-          console.warn(
-            `[camera-preview] no device label matched "${cameraName}"; showing default camera`,
-          );
+        return devices.find((d) => d.kind === "videoinput" && d.label === cameraName);
+      };
+
+      let stream: MediaStream;
+      const direct = await findByLabel();
+      if (direct?.deviceId) {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { deviceId: { exact: direct.deviceId } },
+        });
+      } else {
+        // Labels not populated yet (or no name requested): open the default
+        // camera. This grant populates labels; wry auto-grants the WKWebView
+        // permission, so it never blocks on a prompt.
+        stream = await navigator.mediaDevices.getUserMedia({ video: true });
+
+        // If a specific camera was requested and the probe stream is NOT
+        // already that device, switch — opening the matched device BEFORE
+        // stopping the probe so the pipeline never fully releases the camera
+        // mid-swap. When the probe already IS the target (single-camera setups,
+        // target == default), keep it: zero extra opens.
+        if (cameraName && stream.getVideoTracks()[0]?.label !== cameraName) {
+          const match = await findByLabel();
+          if (match?.deviceId) {
+            const preferred = await navigator.mediaDevices.getUserMedia({
+              video: { deviceId: { exact: match.deviceId } },
+            });
+            stream.getTracks().forEach((t) => t.stop());
+            stream = preferred;
+          } else {
+            // Label matching is best-effort (AVFoundation localizedName vs
+            // MediaDeviceInfo.label). Preview-only: the recording still uses
+            // the camera the user picked.
+            console.warn(
+              `[camera-preview] no device label matched "${cameraName}"; showing default camera`,
+            );
+          }
         }
       }
 
@@ -81,6 +114,7 @@ const CameraPreview: React.FC = () => {
       }
 
       streamRef.current = stream;
+      activeCameraRef.current = cameraName;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         // Defensive: muted + playsInline should autoplay, but call play()

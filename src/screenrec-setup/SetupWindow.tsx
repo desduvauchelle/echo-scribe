@@ -15,6 +15,8 @@ import {
   closeAreaPicker,
   showCountdownOverlay,
   hideCountdownOverlay,
+  showCameraPreview,
+  hideCameraPreview,
   type DisplaySource,
   type WindowSource,
   type InputDevice,
@@ -81,6 +83,13 @@ const SetupWindow: React.FC = () => {
   // Default OFF.
   const [countdownEnabled, setCountdownEnabled] = useState(false);
 
+  // Whether this (persistent, hide-don't-destroy) window is currently on
+  // screen. Set by the `screenrec-setup-shown` event from Rust and cleared at
+  // every local hide point. Gates the camera pre-warm effect below: the
+  // camera must never be opened while setup is hidden (e.g. prefs restoring
+  // `cameraEnabled` at app startup).
+  const [setupVisible, setSetupVisible] = useState(false);
+
   const [starting, setStarting] = useState(false);
   // Resolver for the in-flight countdown wait promise (see handleStart).
   // Either the `countdown-finished` listener (cancelled=false) or the
@@ -141,6 +150,7 @@ const SetupWindow: React.FC = () => {
     let unlistenPicker: (() => void) | undefined;
     let unlistenCountdownCancel: (() => void) | undefined;
     let unlistenCountdownFinish: (() => void) | undefined;
+    let unlistenShown: (() => void) | undefined;
 
     (async () => {
       unlistenPicker = await listen<AreaPickerResultPayload>(
@@ -177,12 +187,16 @@ const SetupWindow: React.FC = () => {
         countdownResolveRef.current(false);
         countdownResolveRef.current = null;
       });
+      unlistenShown = await listen("screenrec-setup-shown", () => {
+        setSetupVisible(true);
+      });
     })();
 
     return () => {
       unlistenPicker?.();
       unlistenCountdownCancel?.();
       unlistenCountdownFinish?.();
+      unlistenShown?.();
     };
   }, []);
 
@@ -193,6 +207,9 @@ const SetupWindow: React.FC = () => {
       await closeAreaPicker();
       setPickerOpen(false);
     }
+    // Dismissing setup without starting: release the pre-warmed camera too.
+    setSetupVisible(false);
+    void hideCameraPreview().catch(() => {});
     await getCurrentWindow().hide();
   };
 
@@ -215,6 +232,27 @@ const SetupWindow: React.FC = () => {
     if (cameras.some((c) => c.uid === cameraUid)) return cameraUid;
     return cameras[0].uid;
   })();
+
+  // Camera pre-warm: as soon as the camera is enabled in this (visible) setup
+  // window, show the floating self-view — which opens the device. By the time
+  // the countdown ends and the Swift recorder attaches, the camera is already
+  // powered and streaming, so recording starts in ~a frame instead of several
+  // seconds of cold USB negotiation (and the user frames their shot before
+  // recording, not during it). The self-view page is idempotent (same camera →
+  // keeps its stream), so `start_screen_recording`'s own show call hands over
+  // seamlessly. Gated on `setupVisible` so prefs restoring `cameraEnabled` at
+  // app startup can never open the camera with no UI on screen. Deliberately
+  // NOT hidden when setup hides to start recording — the recording flow owns
+  // it from there (and the stop path always hides it).
+  useEffect(() => {
+    if (!setupVisible) return;
+    if (effectiveCameraUid) {
+      const name = cameras.find((c) => c.uid === effectiveCameraUid)?.name;
+      if (name) void showCameraPreview(name).catch(() => {});
+    } else {
+      void hideCameraPreview().catch(() => {});
+    }
+  }, [setupVisible, effectiveCameraUid, cameras]);
 
   // Actually invokes startScreenRecording with the currently-selected
   // params. Shared by the immediate-start path and the post-countdown path
@@ -264,6 +302,7 @@ const SetupWindow: React.FC = () => {
 
       if (!countdownEnabled) {
         await doStartRecording();
+        setSetupVisible(false); // recording owns the self-view from here
         await getCurrentWindow().hide();
         setStarting(false);
         return;
@@ -284,11 +323,17 @@ const SetupWindow: React.FC = () => {
         // No display to center on — degrade to immediate start rather than
         // failing the recording outright.
         await doStartRecording();
+        setSetupVisible(false); // recording owns the self-view from here
         await getCurrentWindow().hide();
         setStarting(false);
         return;
       }
 
+      // Hidden for the countdown; the pre-warmed self-view deliberately stays
+      // up (the user sees themselves during 3-2-1, and the camera stays hot
+      // for the recorder). `screenrec-setup-shown` flips this back on the
+      // countdown-cancel path (Rust re-shows this window).
+      setSetupVisible(false);
       await getCurrentWindow().hide();
       await showCountdownOverlay(countdownDisplayId, COUNTDOWN_SECONDS);
 
@@ -325,6 +370,9 @@ const SetupWindow: React.FC = () => {
       setStarting(false);
       await getCurrentWindow().show();
       await getCurrentWindow().setFocus();
+      // Local show() bypasses Rust's shown event — restore the visible flag so
+      // the pre-warm effect stays live for a retry.
+      setSetupVisible(true);
     }
   };
 

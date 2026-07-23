@@ -4949,7 +4949,12 @@ pub async fn finalize_rendered_recording(
             info!(target: "screenrec", rec = %id, path = %out_path, size = vid_size, "finalize: saved video-only render");
             let state = app.state::<AppState>();
             let db = require_db(&state)?;
-            return record_rendered_export(db, &id, &existing_exports, "rendered", &out_path, vid_size);
+            let row =
+                record_rendered_export(db, &id, &existing_exports, "rendered", &out_path, vid_size)?;
+            // Refresh any open list/detail view — the upload button flips to
+            // "Edited" only once it sees the new exports row.
+            let _ = app.emit("screenrec-changed", ());
+            return Ok(row);
         }
         error!(target: "screenrec", rec = %id, error = %e, "finalize: audio extraction failed");
         cleanup();
@@ -5176,7 +5181,78 @@ pub async fn finalize_rendered_recording(
 
     let state = app.state::<AppState>();
     let db = require_db(&state)?;
-    record_rendered_export(db, &id, &existing_exports, "rendered", &out_path, final_size)
+    let row = record_rendered_export(db, &id, &existing_exports, "rendered", &out_path, final_size)?;
+    // Refresh any open list/detail view — the upload button flips to "Edited"
+    // only once it sees the new exports row (the editor runs in its own
+    // window, so without this the dashboard kept a stale row and uploaded the
+    // RAW capture even after an export).
+    let _ = app.emit("screenrec-changed", ());
+    Ok(row)
+}
+
+/// Replace a recording's thumbnail with the poster frame of an editor export
+/// (raw JPEG bytes as the IPC body, `x-recording-id` header — same transport
+/// as `save_rendered_gif`). Written to `<id>.edited.jpg` (a NEW filename, so
+/// every `<img>` holding the old `convertFileSrc` URL refetches instead of
+/// showing a stale cached image) and pointed at via `thumb_path`. Best-effort
+/// from the caller's perspective: the editor fires it after a successful MP4
+/// export and ignores failures (the export itself already succeeded).
+#[tauri::command]
+pub async fn set_recording_thumbnail(
+    app: AppHandle,
+    request: tauri::ipc::Request<'_>,
+) -> Result<(), String> {
+    let id = request
+        .headers()
+        .get("x-recording-id")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string())
+        .ok_or_else(|| {
+            error!(target: "screenrec", "set_recording_thumbnail missing x-recording-id header");
+            "internal error: missing recording id".to_string()
+        })?;
+    let bytes: Vec<u8> = match request.body() {
+        tauri::ipc::InvokeBody::Raw(b) => b.to_vec(),
+        tauri::ipc::InvokeBody::Json(_) => {
+            error!(target: "screenrec", rec = %id, "set_recording_thumbnail received JSON body, expected raw bytes");
+            return Err("internal error: thumbnail bytes not received".to_string());
+        }
+    };
+    if bytes.is_empty() {
+        error!(target: "screenrec", rec = %id, "set_recording_thumbnail received empty body");
+        return Err("thumbnail render produced no data".to_string());
+    }
+
+    // DB-gate before writing anything.
+    {
+        let state = app.state::<AppState>();
+        let db = require_db(&state)?;
+        db.with_conn(|c| crate::db::recordings::get(c, &id))
+            .map_err(|e| e.to_string())?
+            .ok_or("recording not found")?;
+    }
+
+    let dir = crate::screenrec::recordings_dir().map_err(|e| e.to_string())?;
+    let dest = dir.join(format!("{id}.edited.jpg"));
+    std::fs::write(&dest, &bytes).map_err(|e| {
+        error!(target: "screenrec", rec = %id, path = %dest.display(), error = %e, "set_recording_thumbnail: write failed");
+        "Could not save the updated thumbnail. See Settings → Diagnostics → logs for details."
+            .to_string()
+    })?;
+
+    let thumb = dest.to_string_lossy().to_string();
+    {
+        let state = app.state::<AppState>();
+        let db = require_db(&state)?;
+        db.with_conn(|c| crate::db::recordings::update_thumb(c, &id, &thumb))
+            .map_err(|e| {
+                error!(target: "screenrec", rec = %id, error = %e, "set_recording_thumbnail: DB update failed");
+                e.to_string()
+            })?;
+    }
+    info!(target: "screenrec", rec = %id, path = %thumb, bytes = bytes.len(), "updated thumbnail from edited export");
+    let _ = app.emit("screenrec-changed", ());
+    Ok(())
 }
 
 /// Save an editor GIF export: take the frontend's fully-rendered animated GIF
@@ -5262,6 +5338,30 @@ pub async fn save_rendered_gif(
 #[tauri::command]
 pub fn open_screenrec_setup(app: AppHandle) -> Result<(), String> {
     crate::overlay::show_screenrec_setup(&app);
+    Ok(())
+}
+
+/// Show the floating camera self-view for `camera_name` — used by the setup
+/// window to PRE-WARM the camera the moment it's enabled in the picker, so the
+/// device is already powered and streaming when the recorder attaches at
+/// capture start (previously the camera's first open happened after the
+/// countdown, costing seconds of cold USB negotiation and an on/off/on cycle).
+/// The self-view page is idempotent: showing again with the same camera keeps
+/// the running stream.
+#[tauri::command]
+pub fn show_camera_preview(app: AppHandle, camera_name: String) -> Result<(), String> {
+    info!(target: "screenrec", camera = %camera_name, "showing camera self-view (pre-warm)");
+    crate::overlay::show_camera_preview(&app, &camera_name);
+    Ok(())
+}
+
+/// Hide the self-view and release the camera. Called by the setup window when
+/// the camera is disabled or setup is dismissed without starting a recording
+/// (the recording stop path hides it independently).
+#[tauri::command]
+pub fn hide_camera_preview(app: AppHandle) -> Result<(), String> {
+    info!(target: "screenrec", "hiding camera self-view");
+    crate::overlay::hide_camera_preview(&app);
     Ok(())
 }
 

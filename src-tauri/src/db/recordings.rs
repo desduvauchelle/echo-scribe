@@ -148,6 +148,17 @@ pub fn update_exports(conn: &Connection, id: &str, exports_json: &str) -> Result
     Ok(())
 }
 
+/// Point the recording at a new thumbnail image (e.g. the poster frame of an
+/// editor export, so the library shows the edited look instead of the raw
+/// capture's first frame).
+pub fn update_thumb(conn: &Connection, id: &str, thumb_path: &str) -> Result<(), DbError> {
+    conn.execute(
+        "UPDATE recordings SET thumb_path = ?2 WHERE id = ?1",
+        params![id, thumb_path],
+    )?;
+    Ok(())
+}
+
 pub fn update_upload_status(
     conn: &Connection,
     id: &str,

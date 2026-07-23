@@ -20,6 +20,7 @@ import { useToasts } from "../../components/ToastProvider";
 import {
   getRecordingProject,
   setRecordingProject,
+  setRecordingThumbnail,
   getEditorDefaults,
   setEditorDefaults,
   importEditorBackground,
@@ -2457,6 +2458,13 @@ export function EditorView({
       // branch out from under the just-rendered bytes.
       const format = exportFormat;
 
+      // Poster frame (MP4 only): the pipeline hands us the first composited
+      // output frame as JPEG; after a successful finalize it becomes the
+      // recording's library thumbnail so the list shows the EDITED look.
+      // (Holder object, not a bare `let` — TS control-flow analysis ignores
+      // assignments made inside the onPoster callback.)
+      const posterRef: { blob: Blob | null } = { blob: null };
+
       const bytes = await renderRecording({
         fileUrl: src,
         eventsJsonl,
@@ -2476,6 +2484,7 @@ export function EditorView({
             ? webcamSrc
             : null,
         webcamOffsetMs,
+        onPoster: format === "mp4" ? (blob) => (posterRef.blob = blob) : undefined,
         onProgress: (p) => {
           setExportPhase(p.phase);
           setExportPct(p.pct);
@@ -2533,6 +2542,16 @@ export function EditorView({
           proj.audio.denoise,
         );
         setExportedRevealPath(renderedExportPath(updated.exports));
+        // Refresh the library thumbnail to the edited export's poster frame.
+        // Best-effort: the export already succeeded — a poster failure only
+        // means the old thumbnail sticks around.
+        const poster = posterRef.blob;
+        if (poster) {
+          void poster
+            .arrayBuffer()
+            .then((buf) => setRecordingThumbnail(recording.id, new Uint8Array(buf)))
+            .catch((e) => console.warn("[export] thumbnail update failed:", e));
+        }
       }
 
       setExportedRevealId(recording.id);
