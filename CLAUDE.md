@@ -70,6 +70,15 @@ bun run dev
 
 # Rust unit tests
 cd src-tauri && cargo test --lib && cd ..
+
+# Onboarding e2e (Playwright + mocked Tauri IPC in e2e/; CI runs this on every PR)
+bun run test:e2e
+
+# Install + first-launch smoke test: real install.sh + real bundle launch with
+# ECHO_SCRIBE_SMOKE=1 in a throwaway HOME. Release CI runs this per arch and
+# blocks publishing on failure. Locally (after a build):
+tar -czf EchoScribe-aarch64.tar.gz -C src-tauri/target/release/bundle/macos "Echo Scribe.app"
+bash scripts/smoke-test.sh EchoScribe-aarch64.tar.gz
 ```
 
 Don't run `bun tauri dev` from a subagent — it spawns a window that won't terminate cleanly.

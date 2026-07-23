@@ -62,6 +62,13 @@ src-tauri/gen/
 dist-ssr/
 *.local
 
+# Playwright (e2e onboarding suite)
+test-results/
+playwright-report/
+
+# Locally packaged release tarballs (smoke-test input)
+EchoScribe-*.tar.gz
+
 # Worktrees
 .worktrees/
 .claude/worktrees/

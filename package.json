@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc && bun --bun x vite build",
     "test:installer": "bash scripts/test-installer.sh",
+    "test:e2e": "playwright test",
     "preview": "vite preview",
     "tauri": "tauri"
   },
@@ -27,6 +28,7 @@
     "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@tailwindcss/vite": "^4.2.4",
     "@tauri-apps/cli": "^2",
     "@types/react": "^19.1.8",
