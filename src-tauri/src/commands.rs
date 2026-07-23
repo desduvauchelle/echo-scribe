@@ -710,6 +710,18 @@ pub fn ensure_pipeline_started(state: &AppState, app: &AppHandle) {
     spawn_listener(Arc::clone(&state.action_binding), ac_tx, Arc::clone(&state.rebinding));
     spawn_listener(Arc::clone(&state.edit_selection_binding), es_tx, Arc::clone(&state.rebinding));
 
+    // macOS drives the coordinator from the CGEventTap listeners above.
+    // Non-macOS has no tap, so register the global-shortcut trigger.
+    #[cfg(not(target_os = "macos"))]
+    {
+        if let Err(e) = crate::input::trigger::register_default_dictation_shortcut(
+            app,
+            coord_tx.clone(),
+        ) {
+            tracing::warn!(target: "trigger", %e, "dictation hotkey unavailable");
+        }
+    }
+
     // Adapter tasks: tag + forward into the coordinator channel. We use
     // `tokio::spawn` rather than a dedicated thread because these are pure
     // async pumps with no `!Send` state.
