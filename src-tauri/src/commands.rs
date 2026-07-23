@@ -555,6 +555,24 @@ pub fn cancel_log_capture(state: State<'_, AppState>) -> Result<(), String> {
     Ok(())
 }
 
+/// Start/stop dictation from the in-app Record button. `true` begins capture,
+/// `false` ends it (transcribe + paste). Mirrors a push-to-talk hotkey but as a
+/// toggle. Works on every platform that has `direct_voice_capture`.
+#[tauri::command]
+pub fn set_dictation_active(state: State<'_, AppState>, active: bool) -> Result<(), String> {
+    let ev = crate::input::trigger::shortcut_state_to_hotkey(active);
+    let guard = state
+        .coord_tx
+        .lock()
+        .map_err(|_| "coord_tx lock poisoned".to_string())?;
+    let tx = guard
+        .as_ref()
+        .ok_or_else(|| "dictation pipeline is not running yet".to_string())?;
+    tx.send(CoordinatorMsg::Hotkey(Action::VoiceAtCursor, ev))
+        .map_err(|e| format!("failed to send dictation event: {e}"))?;
+    Ok(())
+}
+
 #[tauri::command]
 pub fn start_pipeline(state: State<'_, AppState>, app: AppHandle) -> Result<(), String> {
     if !state.asr.ready() {
