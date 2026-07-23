@@ -30,7 +30,8 @@ describe("uiGates", () => {
     expect(g.showRecordingsNav).toBe(false);
     expect(g.showSelfUpdate).toBe(false);
     expect(g.showSystemAudio).toBe(false);
-    expect(g.showCalendar).toBe(false);
+    expect(g.showDrive).toBe(false);
+    expect(g.showNativePermissions).toBe(false);
   });
 
   test("macOS caps show everything", () => {
@@ -39,6 +40,8 @@ describe("uiGates", () => {
     expect(g.showMeetingsNav).toBe(true);
     expect(g.showRecordingsNav).toBe(true);
     expect(g.showSelfUpdate).toBe(true);
+    expect(g.showDrive).toBe(true);
+    expect(g.showNativePermissions).toBe(true);
   });
 
   test("DEFAULT_CAPS is conservative (nothing but local_database)", () => {
