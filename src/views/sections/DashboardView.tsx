@@ -1,6 +1,20 @@
 import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronRight, Download, Loader2, Search as SearchIcon, Tags, X } from "lucide-react";
+import {
+  CheckSquare,
+  ChevronRight,
+  Download,
+  LayoutGrid,
+  Loader2,
+  Mic,
+  Phone,
+  Search as SearchIcon,
+  StickyNote,
+  Tags,
+  Video,
+  X,
+  type LucideIcon,
+} from "lucide-react";
 import {
   exportActivity,
   getDailySummary,
@@ -493,26 +507,27 @@ export default function DashboardView({ projects }: Props) {
         <div className="flex flex-wrap items-center gap-1.5">
           {(
             [
-              ["all", "All"],
-              ["transcription", "Transcriptions"],
-              ["note", "Notes"],
-              ["task", "Tasks"],
-              ["meeting", "Meetings"],
-              ["recording", "Recordings"],
-            ] as [KindFilter, string][]
-          ).map(([value, label]) => {
+              ["all", "All", LayoutGrid],
+              ["transcription", "Transcriptions", Mic],
+              ["note", "Notes", StickyNote],
+              ["task", "Tasks", CheckSquare],
+              ["meeting", "Meetings", Phone],
+              ["recording", "Recordings", Video],
+            ] as [KindFilter, string, LucideIcon][]
+          ).map(([value, label, Icon]) => {
             const active = value === kindFilter;
             return (
               <button
                 key={value}
                 type="button"
                 onClick={() => setKindFilter(value)}
-                className={`rounded-full px-3 py-1 text-xs transition-colors ${
+                className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs transition-colors ${
                   active
                     ? "bg-fg text-canvas"
                     : "border border-line bg-surface text-muted hover:bg-elevated"
                 }`}
               >
+                <Icon size={12} strokeWidth={2} />
                 {label}
               </button>
             );
