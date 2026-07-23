@@ -1386,9 +1386,13 @@ export const setDriveClientCredentials = (
   clientId: string,
   clientSecret: string,
 ): Promise<void> => invoke("set_drive_client_credentials", { clientId, clientSecret });
+/** Upload quality choices: `"rendered"` = the EDITED export from the editor
+ *  (trim/zoom/webcam/background applied); the rest transcode/pass the original. */
+export type UploadQuality = "rendered" | "original" | "1080" | "720" | "480";
+
 export const uploadRecording = (
   id: string,
-  quality: "original" | "1080" | "720" | "480",
+  quality: UploadQuality,
   makePublic?: boolean,
 ): Promise<RecordingRow> =>
   invoke("upload_recording", { id, quality, makePublic: makePublic ?? null });

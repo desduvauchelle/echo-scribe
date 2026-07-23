@@ -32,6 +32,7 @@ import {
   transcribeRecording,
   exportRecording,
   uploadRecording,
+  type UploadQuality,
   driveConnect,
   getDrivePrefs,
   openRecordingEditor,
@@ -272,25 +273,33 @@ function DriveReconnectModal({
 
 // Upload-to-Drive control: a split button whose dropdown lets the user pick
 // the file's sharing visibility (per-video override of the Settings default)
-// and the export quality. The primary click uploads at 1080p with the default
-// visibility. Visibility is applied to the file on Drive, never the folder.
+// and the export quality. The primary click uploads the EDITED export when the
+// recording has one (the version the user made in the editor — what they mean
+// by "upload this"), else 1080p; the dropdown always offers every choice.
+// Visibility is applied to the file on Drive, never the folder.
 function UploadButton({
   defaultPublic,
+  hasEdited,
   busy,
   disabled,
   onUpload,
 }: {
   defaultPublic: boolean;
+  /** True when the recording has an editor export (`exports` has a "rendered"
+   *  entry) — makes "Edited" the primary-click default and lists it first. */
+  hasEdited: boolean;
   busy?: boolean;
   disabled?: boolean;
-  onUpload: (quality: "original" | "1080" | "720" | "480", makePublic: boolean) => void;
+  onUpload: (quality: UploadQuality, makePublic: boolean) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [isPublic, setIsPublic] = useState(defaultPublic);
   // Re-sync when the Settings default loads/changes (defaultPublic starts stale).
   useEffect(() => setIsPublic(defaultPublic), [defaultPublic]);
 
-  const qualities: { label: string; value: "original" | "1080" | "720" | "480" }[] = [
+  const primary: UploadQuality = hasEdited ? "rendered" : "1080";
+  const qualities: { label: string; value: UploadQuality }[] = [
+    ...(hasEdited ? [{ label: "Edited", value: "rendered" as UploadQuality }] : []),
     { label: "Original", value: "original" },
     { label: "1080p", value: "1080" },
     { label: "720p", value: "720" },
@@ -305,7 +314,7 @@ function UploadButton({
     <div className="group/tt relative flex shrink-0">
       <button
         aria-label="Upload to Drive"
-        onClick={() => onUpload("1080", isPublic)}
+        onClick={() => onUpload(primary, isPublic)}
         disabled={disabled}
         className="grid h-8 w-8 place-items-center rounded-l-md border border-line text-fg hover:bg-surface disabled:opacity-50"
       >
@@ -321,7 +330,7 @@ function UploadButton({
       </button>
       {open ? null : (
         <span className="pointer-events-none absolute left-1/2 top-full z-[60] mt-1.5 -translate-x-1/2 whitespace-nowrap rounded border border-line bg-elevated px-2 py-1 text-[11px] text-fg opacity-0 shadow-lg transition-opacity duration-100 group-hover/tt:opacity-100">
-          Upload to Drive (1080p)
+          Upload to Drive ({hasEdited ? "edited version" : "1080p"})
         </span>
       )}
       {open ? (
@@ -582,14 +591,14 @@ export function RecordingsView() {
   // reconnect modal's primary action can resume it after OAuth succeeds.
   const [reconnect, setReconnect] = useState<{
     id: string;
-    quality: "original" | "1080" | "720" | "480";
+    quality: UploadQuality;
     makePublic: boolean;
   } | null>(null);
 
   const onUpload = useCallback(
     async (
       id: string,
-      quality: "original" | "1080" | "720" | "480",
+      quality: UploadQuality,
       makePublic: boolean,
     ) => {
       setUploading(true);
@@ -800,6 +809,9 @@ export function RecordingsView() {
                 />
                 <UploadButton
                   defaultPublic={defaultPublic}
+                  hasEdited={parseExports(selected.exports).some(
+                    (e) => e.quality === "rendered",
+                  )}
                   busy={uploading}
                   disabled={uploading || exporting !== null}
                   onUpload={(quality, makePublic) =>

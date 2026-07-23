@@ -5514,8 +5514,16 @@ pub fn set_drive_prefs(
     Ok(())
 }
 
-/// Upload a recording at `quality` ("original"|"1080"|"720"|"480") to Drive and
-/// return the updated row (with `drive_link`). Non-"original" exports first.
+/// Upload a recording at `quality` ("rendered"|"original"|"1080"|"720"|"480")
+/// to Drive and return the updated row (with `drive_link`).
+///
+/// - `"rendered"` uploads the EDITED export produced by the editor
+///   (`finalize_rendered_recording`'s entry in the row's `exports` JSON) — the
+///   version with trim/zoom/webcam/background applied. Fails with a friendly
+///   message when no edited export exists (or its file has been deleted), so
+///   the UI can tell the user to export from the editor first.
+/// - `"original"` uploads the raw recording file.
+/// - Size presets transcode the ORIGINAL first (`crate::screenrec::export`).
 #[tauri::command]
 pub async fn upload_recording(
     state: State<'_, AppState>,
@@ -5550,7 +5558,40 @@ pub async fn upload_recording(
     let _ = app.emit("screenrec-changed", ());
 
     // Resolve the file to upload (export first if a quality preset was chosen).
-    let upload_path: std::path::PathBuf = if quality == "original" {
+    let upload_path: std::path::PathBuf = if quality == "rendered" {
+        // The edited export recorded by finalize_rendered_recording. Friendly
+        // errors here — the raw detail (exports JSON state / missing path) goes
+        // to the log, the returned string is shown in the UI as-is.
+        let rendered = serde_json::from_str::<Vec<serde_json::Value>>(&row.exports)
+            .unwrap_or_default()
+            .into_iter()
+            .find(|e| e.get("quality").and_then(|q| q.as_str()) == Some("rendered"))
+            .and_then(|e| e.get("path").and_then(|p| p.as_str()).map(|p| p.to_string()));
+        let Some(path) = rendered else {
+            error!(target: "drive", rec = %id, exports = %row.exports, "upload: no rendered export recorded");
+            // Reset the "uploading" status set above before bailing.
+            let db = require_db(&state)?;
+            let friendly = "No edited version yet — open the editor and export first.";
+            let _ = db.with_conn(|c| {
+                crate::db::recordings::update_upload_status(c, &id, "error", Some(friendly))
+            });
+            let _ = app.emit("screenrec-changed", ());
+            return Err(friendly.to_string());
+        };
+        let p = std::path::PathBuf::from(&path);
+        if !p.is_file() {
+            error!(target: "drive", rec = %id, path = %p.display(), "upload: rendered export file missing on disk");
+            let db = require_db(&state)?;
+            let friendly = "The edited export file is missing — re-export from the editor.";
+            let _ = db.with_conn(|c| {
+                crate::db::recordings::update_upload_status(c, &id, "error", Some(friendly))
+            });
+            let _ = app.emit("screenrec-changed", ());
+            return Err(friendly.to_string());
+        }
+        info!(target: "drive", rec = %id, path = %p.display(), "uploading rendered (edited) export");
+        p
+    } else if quality == "original" {
         std::path::PathBuf::from(&row.file_path)
     } else {
         let src = std::path::PathBuf::from(&row.file_path);
