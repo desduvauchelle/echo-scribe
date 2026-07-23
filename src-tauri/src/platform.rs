@@ -18,8 +18,11 @@ impl Capabilities {
 
     pub fn for_os(os: &str) -> Self {
         let macos = os == "macos";
+        let windows = os == "windows";
         Self {
-            direct_voice_capture: macos,
+            // Dictation loop works on macOS and Windows (cpal mic, Parakeet
+            // ASR, arboard+enigo paste). Other platforms stay off until proven.
+            direct_voice_capture: macos || windows,
             local_database: true,
             meeting_auto_detect: macos,
             system_audio_capture: macos,
@@ -47,12 +50,14 @@ mod tests {
     #[test]
     fn windows_capabilities_disable_macos_sidecar_features() {
         let caps = Capabilities::for_os("windows");
+        // Sidecar-backed features remain off on Windows.
         assert!(!caps.meeting_auto_detect);
         assert!(!caps.system_audio_capture);
         assert!(!caps.calendar_matching);
         assert!(!caps.screen_recording);
         assert!(!caps.bundle_self_update);
-        assert!(!caps.direct_voice_capture);
+        // Core dictation loop is enabled on Windows (cpal + Parakeet + paste).
+        assert!(caps.direct_voice_capture);
         assert!(caps.local_database);
     }
 }
