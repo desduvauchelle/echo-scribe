@@ -5,6 +5,7 @@ import {
   getOnboardingCompleted,
   listSpeechModels,
   permissionsStatus,
+  smokeCheckpoint,
   startPipeline,
   undoLogCapture,
   type LogCaptureAutoFiled,
@@ -59,6 +60,14 @@ function AppShell() {
   // dictating into our own chat input works (the recording overlay
   // momentarily steals first-responder).
   useVoicePasteFocus();
+
+  // CI smoke-mode check-in: tell the backend routing settled on a real
+  // view. No-op outside ECHO_SCRIBE_SMOKE=1 (see src-tauri/src/smoke.rs).
+  useEffect(() => {
+    if (view !== "checking") {
+      void smokeCheckpoint(view).catch(() => {});
+    }
+  }, [view]);
 
   // Surface backend ASR errors as toasts.
   useEffect(() => {

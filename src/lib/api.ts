@@ -632,6 +632,10 @@ export const getOnboardingCompleted = (): Promise<boolean> =>
 export const setOnboardingCompleted = (completed: boolean): Promise<void> =>
   invoke("set_onboarding_completed", { completed });
 
+/** CI smoke-mode check-in; no-op in normal runs (see src-tauri/src/smoke.rs). */
+export const smokeCheckpoint = (view: string): Promise<void> =>
+  invoke("smoke_checkpoint", { view });
+
 // ----- Tray-driven UI helpers -----
 
 export const showMainWindow = (): Promise<void> => invoke("show_main_window");

@@ -84,6 +84,13 @@ jobs:
             -C src-tauri/target/release/bundle/macos \
             "Echo Scribe.app"
 
+      - name: Install + first-launch smoke test
+        # Runs the real install.sh against the tarball we just built, then
+        # launches the installed app with ECHO_SCRIBE_SMOKE=1 and requires it
+        # to self-report a rendered frontend + packaged sidecars. A failure
+        # here blocks the release from publishing.
+        run: bash scripts/smoke-test.sh "EchoScribe-${{ matrix.arch }}.tar.gz"
+
       - name: Upload release asset
         uses: actions/upload-artifact@v4
         with:

@@ -20,6 +20,7 @@ pub mod permissions;
 pub mod project_tagger;
 pub mod screenrec;
 pub mod settings;
+pub mod smoke;
 pub(crate) mod temporal;
 pub mod ui;
 pub mod updater;
@@ -158,6 +159,10 @@ pub fn run() {
     let mut guard_slot: Option<WorkerGuard> = Some(guard);
 
     info!(log_dir = %dir.display(), "starting Echo Scribe Phase 6");
+
+    // CI-only: ECHO_SCRIBE_SMOKE=1 arms a first-launch watchdog that fails
+    // the process if the frontend never renders. No-op otherwise.
+    smoke::arm_watchdog();
 
     // ORT runs CPU-only. We dropped `ort-coreml` after measuring that CoreML
     // only accepted ~30% of model ops and added a ~50s first-run graph
@@ -426,6 +431,7 @@ pub fn run() {
             upload_recording,
             download_embedding_model,
             embedding_index_status,
+            smoke::smoke_checkpoint,
         ])
         .setup(move |app| {
             // Tray.
