@@ -946,6 +946,67 @@ export function canvasToCapture(
   return canvasToCaptureUnclamped(clickX, clickY, layout, zoom);
 }
 
+/**
+ * `ctx.drawImage(src, sx, sy, sw, sh, dx, dy, dw, dh)` that actually honors the
+ * source rect for EVERY CanvasImageSource — including WebCodecs `VideoFrame`s.
+ *
+ * WHY: WKWebView's 2D canvas IGNORES the 9-arg drawImage source rectangle when
+ * the source is a `VideoFrame` (WebKit's `drawImage(WebCodecsVideoFrame&, …)`
+ * takes the srcRect parameter unnamed/unused and paints the full frame into
+ * the dest rect). The export pipeline draws decoded
+ * `VideoFrame`s, so every source-rect draw silently became a full-frame
+ * stretch: the webcam bubble squished the whole 4:3 frame into its square
+ * instead of cover-cropping, and pan/zoom (a source-window sample) wouldn't
+ * magnify. The preview draws `HTMLVideoElement`s (unaffected), which is why
+ * preview and export disagreed.
+ *
+ * FIX: express the identical crop in DESTINATION space, which WebKit handles
+ * for all sources — clip to the dest rect, then draw the FULL source scaled by
+ * `dw/sw` (and `dh/sh`) and offset by `-sx`/`-sy` in that scale, so the wanted
+ * source window lands exactly on `(dx,dy,dw,dh)` and everything else is
+ * clipped away. Mathematically identical to the 9-arg form, so using it for
+ * ALL sources keeps preview and export on the same code path (WYSIWYG).
+ *
+ * Fast path: a full-source draw (sx=sy=0, sw/sh = intrinsic size) needs no
+ * crop → plain 4-arg draw, no clip (the common no-zoom case stays cheap). An
+ * unknown intrinsic size (0×0) falls back to the plain stretch — same as the
+ * pre-fix behavior for a not-yet-decodable source.
+ */
+function drawImageSourceRect(
+  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+  src: CanvasImageSource,
+  sx: number,
+  sy: number,
+  sw: number,
+  sh: number,
+  dx: number,
+  dy: number,
+  dw: number,
+  dh: number,
+): void {
+  if (sw <= 0 || sh <= 0 || dw <= 0 || dh <= 0) return;
+  const iw = imgWidth(src);
+  const ih = imgHeight(src);
+  if (iw <= 0 || ih <= 0) {
+    // Unknown intrinsic size — plain stretch (pre-fix fallback behavior).
+    ctx.drawImage(src, dx, dy, dw, dh);
+    return;
+  }
+  if (sx === 0 && sy === 0 && sw === iw && sh === ih) {
+    // Full-source draw: no crop needed, skip the clip.
+    ctx.drawImage(src, dx, dy, dw, dh);
+    return;
+  }
+  const kx = dw / sw;
+  const ky = dh / sh;
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(dx, dy, dw, dh);
+  ctx.clip();
+  ctx.drawImage(src, dx - sx * kx, dy - sy * ky, iw * kx, ih * ky);
+  ctx.restore();
+}
+
 /** Trace a rounded-rectangle path on `ctx` (does not fill/stroke). */
 function roundedRectPath(
   ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
@@ -1119,7 +1180,10 @@ function drawFrameLayer(
   ctx.save();
   roundedRectPath(ctx, dx, dy, dw, dh, appearance.cornerRadius);
   ctx.clip();
-  ctx.drawImage(frame, sx, sy, sampleW, sampleH, dx, dy, dw, dh);
+  // Source-rect draw via the dest-space helper: WKWebView ignores the 9-arg
+  // drawImage source rect for VideoFrame sources (the export path), which
+  // silently disabled zoom in exports — see `drawImageSourceRect`.
+  drawImageSourceRect(ctx, frame, sx, sy, sampleW, sampleH, dx, dy, dw, dh);
   ctx.restore();
 }
 
@@ -1465,7 +1529,11 @@ function drawWebcamCover(
   const ih = imgHeight(frame);
   if (iw > 0 && ih > 0) {
     const c = coverCrop(iw, ih, w, h);
-    ctx.drawImage(frame, c.sx, c.sy, c.sw, c.sh, x, y, w, h);
+    // Source-rect draw via the dest-space helper: WKWebView ignores the 9-arg
+    // drawImage source rect for VideoFrame sources (the export path), which
+    // squished the full webcam frame into the bubble instead of cover-cropping
+    // — see `drawImageSourceRect`.
+    drawImageSourceRect(ctx, frame, c.sx, c.sy, c.sw, c.sh, x, y, w, h);
   } else {
     // Unknown intrinsic size (e.g. a not-yet-decoded VideoFrame) — plain stretch.
     ctx.drawImage(frame, x, y, w, h);

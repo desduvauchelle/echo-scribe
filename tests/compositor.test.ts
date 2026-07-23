@@ -1459,6 +1459,7 @@ describe("drawCompositeBlurred (accumulation weights)", () => {
       lineTo() {},
       arc() {},
       arcTo() {},
+      rect() {}, // drawImageSourceRect's dest-rect clip (zoomed draws)
       clip() {},
       fill() {},
       stroke() {},
@@ -1581,6 +1582,7 @@ describe("drawCompositeV2 — camera scene + mirror (draw structure)", () => {
       lineTo() {},
       arc() {},
       arcTo() {},
+      rect() {}, // drawImageSourceRect's dest-rect clip (cover-cropped draws)
       clip() {},
       fill() {},
       stroke() {},
@@ -1939,7 +1941,11 @@ describe("drawCompositeV2 — masks (draw structure)", () => {
     );
     // No visible highlight rect → no dim pass at all.
     expect(getFillRules()).toEqual([]);
-    expect(getRectCount()).toBe(0);
+    // ONE rect, and it is NOT a mask path: the zoomed frame draw samples a
+    // source sub-window, so `drawImageSourceRect` clips to the content rect
+    // (dest-space crop — the WKWebView VideoFrame source-rect workaround).
+    // The scale-1 tests above see no such rect (full-source fast path).
+    expect(getRectCount()).toBe(1);
   });
 
   test("pixelate reads back the region and redraws it (mosaic) when an OffscreenCanvas is available", () => {
