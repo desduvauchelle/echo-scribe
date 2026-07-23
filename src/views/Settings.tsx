@@ -25,6 +25,8 @@ import GuideTemplateManager from "../components/GuideTemplateManager";
 import PermissionsSection from "../components/PermissionsSection";
 import StartAtLoginToggle from "../components/StartAtLoginToggle";
 import TranscriptionSettings from "../components/TranscriptionSettings";
+import { useCapabilities } from "../lib/capabilitiesContext";
+import { uiGates } from "../lib/capabilities";
 import {
   diagnosticsLogDir,
   diagnosticsOpenLogFolder,
@@ -178,10 +180,35 @@ type Props = {
 
 export default function Settings({ onBack }: Props) {
   const [page, setPage] = useState<PageId>("dictation");
-  const activeItem = NAV_GROUPS.flatMap((g) => g.items).find(
+  const gates = uiGates(useCapabilities());
+
+  // Drop nav items gated behind macOS-only capabilities, then drop any group
+  // that ends up empty. Everything not explicitly gated stays visible.
+  const visibleGroups: NavGroup[] = NAV_GROUPS.map((group) => ({
+    ...group,
+    items: group.items.filter((item) => {
+      if (item.id === "meetings") return gates.showMeetingsNav;
+      if (item.id === "drive") return gates.showDrive;
+      if (item.id === "permissions") return gates.showNativePermissions;
+      return true;
+    }),
+  })).filter((group) => group.items.length > 0);
+
+  const activeItem = visibleGroups.flatMap((g) => g.items).find(
     (i) => i.id === page,
-  )!;
-  const ActivePage = PAGES[page];
+  );
+
+  // Fallback: if the persisted/default page id isn't visible on this platform
+  // (e.g. a Windows build inherited "meetings" from a synced macOS profile),
+  // redirect to the first visible page instead of rendering nothing.
+  useEffect(() => {
+    if (!activeItem) {
+      const firstVisible = visibleGroups[0]?.items[0]?.id;
+      if (firstVisible) setPage(firstVisible);
+    }
+  }, [activeItem, visibleGroups]);
+
+  const ActivePage = activeItem ? PAGES[page] : null;
 
   return (
     <div className="min-h-full bg-canvas px-4 py-8 text-fg">
@@ -199,7 +226,7 @@ export default function Settings({ onBack }: Props) {
           {/* Left sidebar */}
           <nav className="sticky top-4 w-[200px] shrink-0 rounded-xl border border-line bg-surface p-3 shadow-lg shadow-black/30">
             <div className="flex flex-col gap-4">
-              {NAV_GROUPS.map((group) => (
+              {visibleGroups.map((group) => (
                 <div key={group.label} className="flex flex-col gap-0.5">
                   <div className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-faint">
                     {group.label}
@@ -234,15 +261,19 @@ export default function Settings({ onBack }: Props) {
 
           {/* Content panel */}
           <div className="min-w-0 flex-1 rounded-xl border border-line bg-surface p-6 shadow-lg shadow-black/30">
-            <header className="mb-6 border-b border-line pb-4">
-              <h1 className="text-[15px] font-semibold tracking-tight text-fg">
-                {activeItem.label}
-              </h1>
-              <p className="mt-1 text-xs leading-relaxed text-muted">
-                {PAGE_DESC[page]}
-              </p>
-            </header>
-            <ActivePage />
+            {activeItem && ActivePage ? (
+              <>
+                <header className="mb-6 border-b border-line pb-4">
+                  <h1 className="text-[15px] font-semibold tracking-tight text-fg">
+                    {activeItem.label}
+                  </h1>
+                  <p className="mt-1 text-xs leading-relaxed text-muted">
+                    {PAGE_DESC[page]}
+                  </p>
+                </header>
+                <ActivePage />
+              </>
+            ) : null}
           </div>
         </div>
       </div>
@@ -1192,6 +1223,8 @@ function MeetingsPage() {
 }
 
 function GeneralPage() {
+  const gates = uiGates(useCapabilities());
+
   return (
     <div className="flex flex-col gap-8">
       <Section
@@ -1201,12 +1234,16 @@ function GeneralPage() {
         <AudioFeedbackToggle />
       </Section>
 
-      <Section
-        title="Mute while recording"
-        subtitle="Pause music and system audio while the hotkey is held, then restore it when you release."
-      >
-        <MuteWhileRecordingToggle />
-      </Section>
+      {/* Mute-while-recording is implemented via osascript volume control
+       *  (audio/mute.rs), which is macOS-only — hide on other platforms. */}
+      {gates.showSystemAudio && (
+        <Section
+          title="Mute while recording"
+          subtitle="Pause music and system audio while the hotkey is held, then restore it when you release."
+        >
+          <MuteWhileRecordingToggle />
+        </Section>
+      )}
 
       <Section
         title="Daily recap"

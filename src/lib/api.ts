@@ -146,6 +146,9 @@ export const confirmLogCapture = (args: {
 export const cancelLogCapture = (): Promise<void> =>
   invoke("cancel_log_capture");
 
+export const setDictationActive = (active: boolean): Promise<void> =>
+  invoke("set_dictation_active", { active });
+
 export const startPipeline = (): Promise<void> => invoke("start_pipeline");
 
 export const isPipelineRunning = (): Promise<boolean> =>

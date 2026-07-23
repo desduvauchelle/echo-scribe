@@ -21,16 +21,19 @@ import UpdateBanner from "./components/UpdateBanner";
 import { ActivityPanelProvider } from "./components/ActivityPanelContext";
 import ActivityPanel from "./components/ActivityPanel";
 import { useVoicePasteFocus } from "./lib/voicePasteFocus";
+import { PlatformCapabilitiesProvider } from "./lib/capabilitiesContext";
 
 type View = "checking" | "onboarding" | "main" | "settings";
 
 export default function App() {
   return (
     <ToastProvider>
-      <ActivityPanelProvider>
-        <AppShell />
-        <ActivityPanel />
-      </ActivityPanelProvider>
+      <PlatformCapabilitiesProvider>
+        <ActivityPanelProvider>
+          <AppShell />
+          <ActivityPanel />
+        </ActivityPanelProvider>
+      </PlatformCapabilitiesProvider>
     </ToastProvider>
   );
 }

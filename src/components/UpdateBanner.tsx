@@ -2,12 +2,15 @@ import { useEffect, useState } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { ArrowDownToLine, X } from "lucide-react";
 import { applyUpdateAndRestart, dismissUpdate } from "../lib/api";
+import { useCapabilities } from "../lib/capabilitiesContext";
+import { uiGates } from "../lib/capabilities";
 
 type UpdateInfo = {
   version: string;
 };
 
 export default function UpdateBanner() {
+  const caps = useCapabilities();
   const [updateVersion, setUpdateVersion] = useState<string | null>(null);
 
   useEffect(() => {
@@ -26,6 +29,7 @@ export default function UpdateBanner() {
     };
   }, []);
 
+  if (!uiGates(caps).showSelfUpdate) return null;
   if (!updateVersion) return null;
 
   const handleRestart = async () => {

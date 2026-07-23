@@ -555,6 +555,24 @@ pub fn cancel_log_capture(state: State<'_, AppState>) -> Result<(), String> {
     Ok(())
 }
 
+/// Start/stop dictation from the in-app Record button. `true` begins capture,
+/// `false` ends it (transcribe + paste). Mirrors a push-to-talk hotkey but as a
+/// toggle. Works on every platform that has `direct_voice_capture`.
+#[tauri::command]
+pub fn set_dictation_active(state: State<'_, AppState>, active: bool) -> Result<(), String> {
+    let ev = crate::input::trigger::shortcut_state_to_hotkey(active);
+    let guard = state
+        .coord_tx
+        .lock()
+        .map_err(|_| "coord_tx lock poisoned".to_string())?;
+    let tx = guard
+        .as_ref()
+        .ok_or_else(|| "dictation pipeline is not running yet".to_string())?;
+    tx.send(CoordinatorMsg::Hotkey(Action::VoiceAtCursor, ev))
+        .map_err(|e| format!("failed to send dictation event: {e}"))?;
+    Ok(())
+}
+
 #[tauri::command]
 pub fn start_pipeline(state: State<'_, AppState>, app: AppHandle) -> Result<(), String> {
     if !state.asr.ready() {
@@ -709,6 +727,18 @@ pub fn ensure_pipeline_started(state: &AppState, app: &AppHandle) {
     spawn_listener(Arc::clone(&state.log_capture_binding), lc_tx, Arc::clone(&state.rebinding));
     spawn_listener(Arc::clone(&state.action_binding), ac_tx, Arc::clone(&state.rebinding));
     spawn_listener(Arc::clone(&state.edit_selection_binding), es_tx, Arc::clone(&state.rebinding));
+
+    // macOS drives the coordinator from the CGEventTap listeners above.
+    // Non-macOS has no tap, so register the global-shortcut trigger.
+    #[cfg(not(target_os = "macos"))]
+    {
+        if let Err(e) = crate::input::trigger::register_default_dictation_shortcut(
+            app,
+            coord_tx.clone(),
+        ) {
+            tracing::warn!(target: "trigger", %e, "dictation hotkey unavailable");
+        }
+    }
 
     // Adapter tasks: tag + forward into the coordinator channel. We use
     // `tokio::spawn` rather than a dedicated thread because these are pure
