@@ -31,6 +31,7 @@ describe("uiGates", () => {
     expect(g.showSystemAudio).toBe(false);
     expect(g.showDrive).toBe(false);
     expect(g.showNativePermissions).toBe(false);
+    expect(g.showMeetingRecord).toBe(false);
   });
 
   test("macOS caps show everything", () => {
@@ -40,6 +41,12 @@ describe("uiGates", () => {
     expect(g.showSelfUpdate).toBe(true);
     expect(g.showDrive).toBe(true);
     expect(g.showNativePermissions).toBe(true);
+    expect(g.showMeetingRecord).toBe(true);
+  });
+
+  test("showMeetingRecord follows system_audio_capture", () => {
+    expect(uiGates({ ...windowsCaps, system_audio_capture: false }).showMeetingRecord).toBe(false);
+    expect(uiGates({ ...windowsCaps, system_audio_capture: true }).showMeetingRecord).toBe(true);
   });
 
   test("DEFAULT_CAPS is conservative (nothing but local_database)", () => {

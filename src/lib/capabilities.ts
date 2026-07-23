@@ -19,6 +19,7 @@ export type UiGates = {
   showSystemAudio: boolean;
   showDrive: boolean;
   showNativePermissions: boolean;
+  showMeetingRecord: boolean;
 };
 
 /** Map raw platform capabilities to UI visibility decisions. Pure — the single
@@ -37,5 +38,8 @@ export function uiGates(caps: PlatformCapabilities): UiGates {
     // capabilities is present, which today only happens on macOS.
     showNativePermissions:
       caps.screen_recording || caps.calendar_matching || caps.system_audio_capture,
+    // The sidebar Record button captures system audio + mic as a meeting, so it
+    // needs the same macOS-only system-audio capability (hidden on Windows).
+    showMeetingRecord: caps.system_audio_capture,
   };
 }
