@@ -17,7 +17,7 @@
 
   --color-fg: #e8f0ee;
   --color-muted: #8fa89f;
-  --color-faint: #6b8480;
+  --color-faint: #7d968f;
 
   --color-accent: #2dd4bf;
   --color-accent-hover: #5eead4;
@@ -40,17 +40,17 @@
   --color-line-strong: #c8d4d1;
 
   --color-fg: #17211f;
-  --color-muted: #5b6f6a;
-  --color-faint: #8a9a95;
+  --color-muted: #526059;
+  --color-faint: #5b6f6a;
 
-  --color-accent: #0d9488;
-  --color-accent-hover: #0f766e;
+  --color-accent: #0f766e;
+  --color-accent-hover: #0d6a63;
   --color-accent-soft: rgba(13, 148, 136, 0.10);
   --color-accent-ring: rgba(13, 148, 136, 0.35);
 
-  --color-success: #059669;
-  --color-warning: #b45309;
-  --color-danger: #dc2626;
+  --color-success: #047857;
+  --color-warning: #92400e;
+  --color-danger: #b91c1c;
 }
 
 html, body, #root {
@@ -99,8 +99,10 @@ h1, h2, h3, h4, h5, h6 {
   background: rgba(0, 0, 0, 0.28);
 }
 
+/* Solid accent (not the alpha ring) so the outline meets the 3:1 non-text
+   contrast minimum in both themes. */
 *:focus-visible {
-  outline: 2px solid var(--color-accent-ring);
+  outline: 2px solid var(--color-accent);
   outline-offset: 2px;
   border-radius: 4px;
 }

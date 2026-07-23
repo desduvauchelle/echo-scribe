@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type SyntheticEvent } from "react";
 import {
   ArrowLeft,
   Mic,
@@ -400,6 +400,19 @@ function ExportSettings() {
     };
   }, []);
 
+  // Persist on mouse, touch AND keyboard interaction — arrow-key changes on
+  // the range input never fire mouseup/touchend.
+  const commitThreshold = async (e: SyntheticEvent<HTMLInputElement>) => {
+    const next = Number((e.target as HTMLInputElement).value);
+    try {
+      await setExportConfidenceThreshold(next);
+    } catch {
+      getExportConfidenceThreshold()
+        .then(setThresholdLocal)
+        .catch(() => {});
+    }
+  };
+
   return (
     <Section
       title="Markdown export"
@@ -422,26 +435,10 @@ function ExportSettings() {
             step={0.05}
             value={threshold}
             onChange={(e) => setThresholdLocal(Number(e.target.value))}
-            onMouseUp={async (e) => {
-              const next = Number((e.target as HTMLInputElement).value);
-              try {
-                await setExportConfidenceThreshold(next);
-              } catch {
-                getExportConfidenceThreshold()
-                  .then(setThresholdLocal)
-                  .catch(() => {});
-              }
-            }}
-            onTouchEnd={async (e) => {
-              const next = Number((e.target as HTMLInputElement).value);
-              try {
-                await setExportConfidenceThreshold(next);
-              } catch {
-                getExportConfidenceThreshold()
-                  .then(setThresholdLocal)
-                  .catch(() => {});
-              }
-            }}
+            onMouseUp={commitThreshold}
+            onTouchEnd={commitThreshold}
+            onKeyUp={commitThreshold}
+            onBlur={commitThreshold}
             className="w-full"
           />
         </label>
@@ -575,6 +572,20 @@ function AutoFileSettings() {
     };
   }, []);
 
+  // Persist on mouse, touch AND keyboard interaction — arrow-key changes on
+  // the range input never fire mouseup/touchend.
+  const commitAutoFileThreshold = async (
+    e: SyntheticEvent<HTMLInputElement>,
+  ) => {
+    const next = Number((e.target as HTMLInputElement).value);
+    try {
+      await setAutoFileThreshold(next);
+    } catch {
+      // Reload from backend on error.
+      getAutoFileThreshold().then(setAutoFileThresholdLocal).catch(() => {});
+    }
+  };
+
   return (
     <Section
       title="Auto-file confident captures"
@@ -615,23 +626,10 @@ function AutoFileSettings() {
             disabled={!autoFileEnabled}
             value={autoFileThreshold}
             onChange={(e) => setAutoFileThresholdLocal(Number(e.target.value))}
-            onMouseUp={async (e) => {
-              const next = Number((e.target as HTMLInputElement).value);
-              try {
-                await setAutoFileThreshold(next);
-              } catch {
-                // Reload from backend on error.
-                getAutoFileThreshold().then(setAutoFileThresholdLocal).catch(() => {});
-              }
-            }}
-            onTouchEnd={async (e) => {
-              const next = Number((e.target as HTMLInputElement).value);
-              try {
-                await setAutoFileThreshold(next);
-              } catch {
-                getAutoFileThreshold().then(setAutoFileThresholdLocal).catch(() => {});
-              }
-            }}
+            onMouseUp={commitAutoFileThreshold}
+            onTouchEnd={commitAutoFileThreshold}
+            onKeyUp={commitAutoFileThreshold}
+            onBlur={commitAutoFileThreshold}
             className="w-full"
           />
         </label>

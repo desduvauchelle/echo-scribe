@@ -71,12 +71,16 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastCtx.Provider value={ctx}>
       {children}
-      <div className="pointer-events-none fixed bottom-4 right-4 z-[80] flex max-w-[420px] flex-col gap-2">
+      <div
+        aria-live="polite"
+        className="pointer-events-none fixed bottom-4 right-4 z-[80] flex max-w-[420px] flex-col gap-2"
+      >
         {toasts.map((t) => {
           const Icon = TONE_ICON[t.tone];
           return (
             <div
               key={t.id}
+              role={t.tone === "error" ? "alert" : "status"}
               className={`pointer-events-auto flex items-start gap-2 rounded-md border ${TONE_BORDER[t.tone]} bg-surface px-3 py-2 text-[13px] text-fg shadow-lg shadow-black/40`}
             >
               <Icon

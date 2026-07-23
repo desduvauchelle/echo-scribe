@@ -281,11 +281,12 @@ export function MeetingsView() {
               const actionCount = parsed?.action_items?.length ?? 0;
               const sd = meetingStatusDisplay(r.status);
               return (
-                <li
-                  key={r.item_id}
-                  className="cursor-pointer rounded-md bg-surface-2 p-3 hover:bg-surface-3"
-                  onClick={() => openItem(r.item_id)}
-                >
+                <li key={r.item_id}>
+                  <button
+                    type="button"
+                    className="block w-full cursor-pointer rounded-md bg-surface-2 p-3 text-left hover:bg-surface-3"
+                    onClick={() => openItem(r.item_id)}
+                  >
                   <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0 truncate text-sm font-medium">
                       {r.detected_app_name ?? "Manual"} ·{" "}
@@ -351,6 +352,7 @@ export function MeetingsView() {
                   {firstPoint && (
                     <div className="mt-1.5 text-xs text-muted">{firstPoint}</div>
                   )}
+                  </button>
                 </li>
               );
             })}
