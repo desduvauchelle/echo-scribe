@@ -101,7 +101,7 @@ describe("defaultProject", () => {
 
   test("zoom/speed/keystrokes defaults present", () => {
     const p = defaultProject();
-    expect(p.zoom).toEqual({ mode: "auto", blocks: null });
+    expect(p.zoom).toEqual({ mode: "auto", blocks: null, suppressed: [] });
     expect(p.speed).toEqual([]);
     expect(p.keystrokes).toEqual({ enabled: false, allKeys: false });
   });
@@ -109,7 +109,7 @@ describe("defaultProject", () => {
   test("captions/audio/motionBlur defaults present (M4)", () => {
     const p = defaultProject();
     expect(p.captions).toEqual({ enabled: false, segments: null });
-    expect(p.audio).toEqual({ normalizeLoudness: false, music: null });
+    expect(p.audio).toEqual({ normalizeLoudness: false, denoise: false, music: null });
     expect(p.motionBlur).toBe(false);
   });
 
@@ -329,7 +329,7 @@ describe("parseProject — webcam autoShrink/mirror/scenes (M6)", () => {
 describe("parseProject — zoom", () => {
   test("missing zoom -> default (mode auto, blocks null)", () => {
     const p = parseProject(JSON.stringify({ appearance: { padding: 20 } }));
-    expect(p.zoom).toEqual({ mode: "auto", blocks: null });
+    expect(p.zoom).toEqual({ mode: "auto", blocks: null, suppressed: [] });
   });
 
   test("valid custom mode with blocks survives", () => {
@@ -337,7 +337,7 @@ describe("parseProject — zoom", () => {
       { startMs: 0, endMs: 1000, cx: 0.5, cy: 0.5, scale: 2, mode: "manual" as const, id: "z1" },
     ];
     const p = parseProject(JSON.stringify({ zoom: { mode: "custom", blocks } }));
-    expect(p.zoom).toEqual({ mode: "custom", blocks });
+    expect(p.zoom).toEqual({ mode: "custom", blocks, suppressed: [] });
   });
 
   test("unknown mode falls back to auto (tolerant)", () => {
@@ -501,9 +501,10 @@ describe("parseProject — captions", () => {
 });
 
 describe("parseProject — audio", () => {
-  test("missing audio -> default (normalizeLoudness false, music null)", () => {
+  test("missing audio -> default (normalizeLoudness false, denoise false, music null)", () => {
     expect(parseProject(JSON.stringify({ appearance: { padding: 20 } })).audio).toEqual({
       normalizeLoudness: false,
+      denoise: false,
       music: null,
     });
   });
@@ -511,18 +512,25 @@ describe("parseProject — audio", () => {
   test("valid audio survives", () => {
     expect(
       parseProject(JSON.stringify({ audio: { normalizeLoudness: true } })).audio,
-    ).toEqual({ normalizeLoudness: true, music: null });
+    ).toEqual({ normalizeLoudness: true, denoise: false, music: null });
   });
 
-  test("non-boolean normalizeLoudness falls back to default", () => {
+  test("valid denoise survives", () => {
     expect(
-      parseProject(JSON.stringify({ audio: { normalizeLoudness: "yes" } })).audio,
-    ).toEqual({ normalizeLoudness: false, music: null });
+      parseProject(JSON.stringify({ audio: { denoise: true } })).audio,
+    ).toEqual({ normalizeLoudness: false, denoise: true, music: null });
+  });
+
+  test("non-boolean normalizeLoudness/denoise fall back to default", () => {
+    expect(
+      parseProject(JSON.stringify({ audio: { normalizeLoudness: "yes", denoise: 1 } })).audio,
+    ).toEqual({ normalizeLoudness: false, denoise: false, music: null });
   });
 
   test("non-object audio -> default", () => {
     expect(parseProject(JSON.stringify({ audio: "nope" })).audio).toEqual({
       normalizeLoudness: false,
+      denoise: false,
       music: null,
     });
   });
@@ -1313,6 +1321,7 @@ describe("round-trip stability", () => {
         blocks: [
           { startMs: 0, endMs: 1000, cx: 0.5, cy: 0.5, scale: 2, mode: "manual" as const, id: "z1" },
         ],
+        suppressed: [],
       },
       speed: [{ startMs: 0, endMs: 1000, rate: 2 }],
       keystrokes: { enabled: true, allKeys: true },
@@ -1320,7 +1329,7 @@ describe("round-trip stability", () => {
         enabled: true,
         segments: [{ startMs: 0, endMs: 1000, text: "hello there" }],
       },
-      audio: { normalizeLoudness: true, music: { path: "/abs/music.mp3", volume: 0.7 } },
+      audio: { normalizeLoudness: true, denoise: false, music: { path: "/abs/music.mp3", volume: 0.7 } },
       motionBlur: true,
       masks: [
         { id: "m1", startMs: 0, endMs: 1000, rect: { x: 0.1, y: 0.2, w: 0.3, h: 0.4 }, kind: "pixelate" as const },
@@ -1381,6 +1390,7 @@ describe("round-trip stability", () => {
     expect(p.zoom).toEqual({
       mode: "custom",
       blocks: [{ startMs: 0, endMs: 1000, cx: 0.5, cy: 0.5, scale: 2, mode: "manual", id: "z1" }],
+      suppressed: [],
     });
 
     // The M5 masks field is absent in the fixture → defaults to [] (no masks).
@@ -1436,13 +1446,14 @@ describe("round-trip stability", () => {
     expect(p.zoom).toEqual({
       mode: "custom",
       blocks: [{ startMs: 0, endMs: 1000, cx: 0.5, cy: 0.5, scale: 2, mode: "manual", id: "z1" }],
+      suppressed: [],
     });
     expect(p.speed).toEqual([{ startMs: 0, endMs: 1000, rate: 2 }]);
     expect(p.keystrokes).toEqual({ enabled: true, allKeys: true });
 
     // New M4 fields default OFF/neutral so render behavior is unchanged.
     expect(p.captions).toEqual({ enabled: false, segments: null });
-    expect(p.audio).toEqual({ normalizeLoudness: false, music: null });
+    expect(p.audio).toEqual({ normalizeLoudness: false, denoise: false, music: null });
     expect(p.motionBlur).toBe(false);
     expect(p.cursor.smoothing).toBe(0);
     expect(p.cursor.hideIdle).toBe(false);

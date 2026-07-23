@@ -327,8 +327,25 @@ export function resolveZoomBlocks(
       return [];
     case "custom":
       return project.zoom.blocks ?? [];
-    case "auto":
+    case "auto": {
       if (!header) return [];
-      return materializeBlocks(header, events, durationMs);
+      const blocks = materializeBlocks(header, events, durationMs);
+      const suppressed = project.zoom.suppressed;
+      if (!suppressed || suppressed.length === 0) return blocks;
+      // Drop any auto block the user deleted ("suppress just that one"): a
+      // block is suppressed when one of the stored markers falls inside its
+      // [startMs, endMs) span. Markers are interior timestamps (block
+      // midpoints), so they track the block across re-generation even if its
+      // edges shift slightly; blocks never overlap, so at most one is hit.
+      return blocks.filter((b) => !suppressed.some((t) => t >= b.startMs && t < b.endMs));
+    }
   }
+}
+
+/** The interior marker stored in `zoom.suppressed` when the user deletes an
+ *  auto block: its rounded midpoint. Guaranteed to lie inside `[startMs,
+ *  endMs)` so `resolveZoomBlocks` re-identifies the same block on the next
+ *  render. Pure. */
+export function zoomSuppressMarker(block: { startMs: number; endMs: number }): number {
+  return Math.round((block.startMs + block.endMs) / 2);
 }

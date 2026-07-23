@@ -3280,6 +3280,21 @@ pub fn set_format_templates(
         .map_err(|e| e.to_string())
 }
 
+/// Global editor defaults ("auto-remember"): an opaque JSON string owned by the
+/// frontend (schema lives in `editorProject.ts`). `null` until first saved.
+#[tauri::command]
+pub fn get_editor_defaults(state: State<'_, AppState>) -> Option<String> {
+    state.settings.editor_defaults()
+}
+
+#[tauri::command]
+pub fn set_editor_defaults(state: State<'_, AppState>, json: String) -> Result<(), String> {
+    state
+        .settings
+        .set_editor_defaults(&json)
+        .map_err(|e| e.to_string())
+}
+
 // ---------------------------------------------------------------------------
 
 // Daily recap commands
@@ -4832,6 +4847,17 @@ pub async fn finalize_rendered_recording(
         .map(|s| s.eq_ignore_ascii_case("true") || s == "1")
         .unwrap_or(false);
 
+    // Optional RNNoise denoise pass (same defensive parse as the normalize
+    // header: absent / not UTF-8 / anything other than "true"/"1" → false).
+    // Best-effort like normalization — a failure never fails the export.
+    let denoise: bool = request
+        .headers()
+        .get("x-denoise")
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .map(|s| s.eq_ignore_ascii_case("true") || s == "1")
+        .unwrap_or(false);
+
     // Optional background-music track (Task 7). Defensive parse mirroring
     // x-speed-ranges: absent / not UTF-8 / not JSON / wrong shape → None
     // (feature off). We never fail the export on a malformed header — music
@@ -4887,6 +4913,7 @@ pub async fn finalize_rendered_recording(
     let wav_full = dir.join(format!("{id}.render-audio.wav"));
     let wav_trim = dir.join(format!("{id}.render-audio-trim.wav"));
     let wav_speed = dir.join(format!("{id}.render-audio-speed.wav"));
+    let wav_dn = dir.join(format!("{id}.render-audio-dn.wav"));
     let wav_norm = dir.join(format!("{id}.render-audio-norm.wav"));
     let wav_music = dir.join(format!("{id}.render-music.wav"));
     let wav_mixed = dir.join(format!("{id}.render-audio-mixed.wav"));
@@ -4899,6 +4926,7 @@ pub async fn finalize_rendered_recording(
         let _ = std::fs::remove_file(&wav_full);
         let _ = std::fs::remove_file(&wav_trim);
         let _ = std::fs::remove_file(&wav_speed);
+        let _ = std::fs::remove_file(&wav_dn);
         let _ = std::fs::remove_file(&wav_norm);
         let _ = std::fs::remove_file(&wav_music);
         let _ = std::fs::remove_file(&wav_mixed);
@@ -5007,13 +5035,45 @@ pub async fn finalize_rendered_recording(
         audio_for_mux
     };
 
-    // 3c. Optionally loudness-normalize the (trimmed + retimed) audio (Task 4).
-    // Runs AFTER retime so the level measured is the audio that will actually be
-    // muxed. FAIL-SAFE: normalization is a polish step, so ANY failure (WAV read,
-    // DSP, write, task panic) degrades to the un-normalized audio + `warn!` — it
-    // must NEVER fail the export the way a retime error does. Unlike retime,
-    // skipping normalization causes no A/V desync (same sample timing), so a
-    // silent fallback here is safe.
+    // 3b2. Optionally RNNoise-denoise the (trimmed + retimed) audio. Runs
+    // BEFORE normalize so loudness is measured on the cleaned signal, and after
+    // retime so denoise sees the exact samples that will be muxed. The WAV is
+    // 48kHz mono (extract_audio_at) — exactly what `denoise_wav` expects.
+    // FAIL-SAFE like normalize: ANY failure (read/DSP/write/panic) degrades to
+    // the un-denoised audio + `warn!` and never fails the export (denoise
+    // preserves sample timing, so skipping it causes no A/V desync).
+    let audio_for_mux = if denoise {
+        let audio_in = audio_for_mux.clone();
+        let wav_dn_c = wav_dn.clone();
+        let denoised = tokio::task::spawn_blocking(move || {
+            crate::denoise::denoise_wav(&audio_in, &wav_dn_c, |_pct| {})
+        })
+        .await;
+        match denoised {
+            Ok(Ok(())) => {
+                info!(target: "screenrec", rec = %id, "finalize: denoised export audio");
+                wav_dn.clone()
+            }
+            Ok(Err(e)) => {
+                warn!(target: "screenrec", rec = %id, error = %e, "finalize: denoise failed; muxing un-denoised audio");
+                audio_for_mux
+            }
+            Err(_) => {
+                warn!(target: "screenrec", rec = %id, "finalize: denoise task panicked; muxing un-denoised audio");
+                audio_for_mux
+            }
+        }
+    } else {
+        audio_for_mux
+    };
+
+    // 3c. Optionally loudness-normalize the (trimmed + retimed + denoised) audio
+    // (Task 4). Runs AFTER retime/denoise so the level measured is the audio
+    // that will actually be muxed. FAIL-SAFE: normalization is a polish step, so
+    // ANY failure (WAV read, DSP, write, task panic) degrades to the
+    // un-normalized audio + `warn!` — it must NEVER fail the export the way a
+    // retime error does. Unlike retime, skipping normalization causes no A/V
+    // desync (same sample timing), so a silent fallback here is safe.
     let audio_for_mux = if normalize_loudness {
         let audio_in = audio_for_mux.clone();
         let wav_norm_c = wav_norm.clone();

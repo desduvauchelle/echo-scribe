@@ -20,6 +20,8 @@ import { useToasts } from "../../components/ToastProvider";
 import {
   getRecordingProject,
   setRecordingProject,
+  getEditorDefaults,
+  setEditorDefaults,
   importEditorBackground,
   readRecordingEvents,
   finalizeRenderedRecording,
@@ -32,16 +34,20 @@ import {
   type RecordingRow,
 } from "../../lib/api";
 import {
+  applyEditorDefaults,
   clampCaptionSegments,
   clampSpeedRanges,
   clampTrim,
   clampWebcamScenes,
   clampZoomCenter,
   defaultProject,
+  extractEditorDefaults,
+  mergeEditorDefaults,
   moveRange,
   moveZoomBlock,
   nextRangeId,
   nextZoomBlockId,
+  parseEditorDefaults,
   parseProject,
   placeRange,
   placeSpeedRange,
@@ -56,6 +62,7 @@ import {
   type AspectPreset,
   type Background,
   type CaptionSegment as ProjectCaptionSegment,
+  type EditorDefaults,
   type EditorProject,
   type Mask,
   type SpeedRange,
@@ -131,9 +138,9 @@ import {
   type ZoomState,
 } from "../../lib/render/compositor";
 import {
-  materializeBlocks,
   parseEventsJsonl,
   resolveZoomBlocks,
+  zoomSuppressMarker,
   type EventsHeader,
   type RecEvent,
   type ZoomBlock,
@@ -280,6 +287,15 @@ export function EditorView({
   const projectRef = useRef(project);
   projectRef.current = project;
   const saveTimer = useRef<number | null>(null);
+  // Global editor defaults ("auto-remember"): the last-known blob, the debounce
+  // timer for writing changes back, a per-recording "primed" guard (so merely
+  // OPENING a recording never overwrites the global defaults — only user
+  // changes do), and the last remembered-field snapshot (JSON) to detect when a
+  // remembered field actually changed. See the auto-remember effect below.
+  const editorDefaultsRef = useRef<EditorDefaults>({});
+  const defaultsTimer = useRef<number | null>(null);
+  const defaultsPrimedForRef = useRef<string | null>(null);
+  const lastDefaultsSnapshotRef = useRef<string | null>(null);
   // Latest duration (ms) in a ref so drag handlers and the playback-clamp
   // tick can read it without depending on (and re-subscribing per) render.
   const durationMsRef = useRef(0);
@@ -397,27 +413,38 @@ export function EditorView({
   useEffect(() => {
     let cancelled = false;
     setLoaded(false);
-    void getRecordingProject(recording.id).then((json) => {
-      if (cancelled) return;
-      const parsed = parseProject(json);
-      // Initialize webcam defaults the first time we open a recording that HAS
-      // a webcam file but whose persisted project has no webcam settings yet
-      // (parseProject leaves `webcam` null for a stale/absent field). Default:
-      // shown, circle bubble, bottom-right, 20% width.
-      if (webcamAvailable && parsed.webcam === null) {
-        parsed.webcam = {
-          show: true,
-          shape: "circle",
-          corner: "br",
-          sizeFrac: 0.2,
-          autoShrink: false,
-          mirror: false,
-          scenes: [],
-        };
-      }
-      setProject(parsed);
-      setLoaded(true);
-    });
+    // Load the recording's project AND the global editor defaults together. A
+    // recording with NO saved project yet (`json` null/empty) is "brand new":
+    // we seed it from the remembered defaults. A recording that already has a
+    // saved project keeps its own settings verbatim — auto-remember never
+    // reaches back and overwrites past edits.
+    void Promise.all([getRecordingProject(recording.id), getEditorDefaults()]).then(
+      ([json, defaultsJson]) => {
+        if (cancelled) return;
+        const isNewProject = !json;
+        const parsed = parseProject(json);
+        // Initialize webcam defaults the first time we open a recording that HAS
+        // a webcam file but whose persisted project has no webcam settings yet
+        // (parseProject leaves `webcam` null for a stale/absent field). Default:
+        // shown, circle bubble, bottom-right, 20% width. Runs BEFORE the
+        // defaults overlay so remembered camera size/corner can apply.
+        if (webcamAvailable && parsed.webcam === null) {
+          parsed.webcam = {
+            show: true,
+            shape: "circle",
+            corner: "br",
+            sizeFrac: 0.2,
+            autoShrink: false,
+            mirror: false,
+            scenes: [],
+          };
+        }
+        const defaults = parseEditorDefaults(defaultsJson);
+        editorDefaultsRef.current = defaults;
+        setProject(isNewProject ? applyEditorDefaults(parsed, defaults) : parsed);
+        setLoaded(true);
+      },
+    );
     return () => {
       cancelled = true;
     };
@@ -859,6 +886,36 @@ export function EditorView({
     };
   }, [project, loaded, recording.id, toasts]);
 
+  // Auto-remember: when a remembered field (zoom on/off, camera size/corner,
+  // cursor size, aspect, background, padding) changes in the editor, persist it
+  // as the global default for the NEXT new recording. Deliberately NO effect
+  // cleanup: we must not clear a pending write when an unrelated project change
+  // (e.g. a trim drag) re-runs this effect — the timer is only cleared right
+  // before scheduling a newer write. The first run per recording just primes
+  // the snapshot WITHOUT writing, so opening a recording never overwrites the
+  // global defaults with its own existing settings — only real edits do. A
+  // write failure is silent (a non-blocking convenience, unlike the project
+  // autosave which toasts).
+  useEffect(() => {
+    if (!loaded) return;
+    const snapshot = extractEditorDefaults(project);
+    const snapJson = JSON.stringify(snapshot);
+    if (defaultsPrimedForRef.current !== recording.id) {
+      defaultsPrimedForRef.current = recording.id;
+      lastDefaultsSnapshotRef.current = snapJson;
+      return;
+    }
+    if (snapJson === lastDefaultsSnapshotRef.current) return; // no remembered field changed
+    lastDefaultsSnapshotRef.current = snapJson;
+    const merged = mergeEditorDefaults(editorDefaultsRef.current, snapshot);
+    editorDefaultsRef.current = merged;
+    if (defaultsTimer.current !== null) window.clearTimeout(defaultsTimer.current);
+    defaultsTimer.current = window.setTimeout(() => {
+      defaultsTimer.current = null;
+      void setEditorDefaults(JSON.stringify(merged)).catch(() => {});
+    }, SAVE_DEBOUNCE_MS);
+  }, [project, loaded, recording.id]);
+
   // Flush any pending debounced save on true unmount only (empty deps means
   // this cleanup runs exactly once). Reads refs exclusively — loadedRef and
   // projectRef mirror the latest state without retriggering this effect, and
@@ -982,6 +1039,9 @@ export function EditorView({
   // ---- Audio ----------------------------------------------------------------
   const setNormalizeLoudness = (normalizeLoudness: boolean) =>
     setProject((p) => ({ ...p, audio: { ...p.audio, normalizeLoudness } }));
+
+  const setDenoise = (denoise: boolean) =>
+    setProject((p) => ({ ...p, audio: { ...p.audio, denoise } }));
 
   // ---- Background music (Task 7) ---------------------------------------------
   const [musicImporting, setMusicImporting] = useState(false);
@@ -1538,18 +1598,14 @@ export function EditorView({
         if (p.zoom.mode === "custom") {
           blocks = p.zoom.blocks ?? [];
         } else {
-          // auto (or off, defensively): materialize from clicks. Off has no auto
-          // blocks to speak of, but an edit only reaches here from a visible lane
-          // (custom/auto), so this is effectively the auto path.
-          blocks = materializeBlocks(
-            eventsHeaderRef.current ?? { k: "header", v: 1, capture: { kind: "display", rect: [0, 0, 1, 1], px_scale: 1 }, screen_h: 1 },
-            eventsRef.current,
-            durMs,
-          );
+          // auto (or off, defensively): materialize the CURRENTLY-VISIBLE auto
+          // blocks — `resolveZoomBlocks` already excludes any the user
+          // suppressed, so a suppressed block never reappears on conversion.
+          blocks = resolveZoomBlocks(p, eventsHeaderRef.current, eventsRef.current, durMs);
         }
         const next = fn(blocks);
         if (p.zoom.mode === "custom" && next === blocks) return p; // no-op edit
-        return { ...p, zoom: { mode: "custom", blocks: next } };
+        return { ...p, zoom: { ...p.zoom, mode: "custom", blocks: next } };
       });
     },
     [],
@@ -1644,22 +1700,78 @@ export function EditorView({
   const setZoomMode = useCallback((mode: ZoomMode) => {
     setProject((p) => {
       if (p.zoom.mode === mode) return p;
-      // Switching to custom while auto: materialize so the chips are editable.
+      // Switching to custom while auto: materialize the currently-visible auto
+      // blocks (suppression already applied) so the chips are editable.
       if (mode === "custom") {
         const blocks =
           p.zoom.mode === "custom"
             ? p.zoom.blocks ?? []
-            : materializeBlocks(
-                eventsHeaderRef.current ?? { k: "header", v: 1, capture: { kind: "display", rect: [0, 0, 1, 1], px_scale: 1 }, screen_h: 1 },
+            : resolveZoomBlocks(
+                p,
+                eventsHeaderRef.current,
                 eventsRef.current,
                 durationMsRef.current || 0,
               );
-        return { ...p, zoom: { mode: "custom", blocks } };
+        return { ...p, zoom: { ...p.zoom, mode: "custom", blocks } };
       }
       // auto / off: blocks go null (contract: non-null only in custom).
-      return { ...p, zoom: { mode, blocks: null } };
+      // `suppressed` is carried along so per-block deletions survive a toggle.
+      return { ...p, zoom: { ...p.zoom, mode, blocks: null } };
     });
   }, []);
+
+  // Top-level Zoom On/Off toggle. Off → "off". On → "auto", but only when
+  // currently off (a project already in "custom" stays custom so the toggle
+  // doesn't silently discard hand-edited blocks — power users switch modes via
+  // the selector beneath it).
+  const setZoomEnabled = useCallback(
+    (enabled: boolean) => {
+      if (!enabled) {
+        setZoomMode("off");
+        return;
+      }
+      setProject((p) => {
+        if (p.zoom.mode !== "off") return p; // already on (auto or custom)
+        return { ...p, zoom: { ...p.zoom, mode: "auto", blocks: null } };
+      });
+    },
+    [setZoomMode],
+  );
+
+  // "Remove all zooms": a clean no-zoom slate for THIS recording — mode off,
+  // blocks and suppression markers cleared. (Because zoom-on/off is a
+  // remembered default, leaving it off also becomes the default for the next
+  // new recording; the button copy notes this.)
+  const removeAllZooms = useCallback(() => {
+    setSelectedBlockId(null);
+    setProject((p) => ({ ...p, zoom: { mode: "off", blocks: null, suppressed: [] } }));
+  }, []);
+
+  // Delete a single AUTO block without leaving auto mode ("suppress just that
+  // one"): record its interior marker so `resolveZoomBlocks` drops it while the
+  // rest keep auto-generating. In custom mode, deletion removes the stored
+  // block instead (see `deleteBlock`); this handler is only wired to auto chips.
+  const suppressAutoBlock = useCallback((id: string) => {
+    setProject((p) => {
+      if (p.zoom.mode !== "auto") return p;
+      const block = zoomBlocksRef.current.find((b) => b.id === id);
+      if (!block) return p;
+      const marker = zoomSuppressMarker(block);
+      if (p.zoom.suppressed.includes(marker)) return p;
+      return { ...p, zoom: { ...p.zoom, suppressed: [...p.zoom.suppressed, marker] } };
+    });
+    setSelectedBlockId(null);
+  }, []);
+
+  // Unified "delete this zoom" for the chip/inspector controls: suppress in
+  // auto mode (keep the rest automatic), remove the stored block in custom.
+  const deleteZoomAt = useCallback(
+    (id: string) => {
+      if (projectRef.current.zoom.mode === "auto") suppressAutoBlock(id);
+      else deleteBlock(id);
+    },
+    [suppressAutoBlock, deleteBlock],
+  );
 
   const resetToAuto = useCallback(async () => {
     const confirmed = await ask(
@@ -1668,7 +1780,7 @@ export function EditorView({
     );
     if (!confirmed) return;
     setSelectedBlockId(null);
-    setProject((p) => ({ ...p, zoom: { mode: "auto", blocks: null } }));
+    setProject((p) => ({ ...p, zoom: { mode: "auto", blocks: null, suppressed: [] } }));
   }, []);
 
   // ---- Zoom lane pointer drag (chip body + edges) -------------------------
@@ -2314,6 +2426,7 @@ export function EditorView({
           shiftedSpeed,
           proj.audio.normalizeLoudness,
           proj.audio.music,
+          proj.audio.denoise,
         );
         setExportedRevealPath(renderedExportPath(updated.exports));
       }
@@ -2680,7 +2793,7 @@ export function EditorView({
                             onPointerUp={onZoomPointerUp}
                             onPointerCancel={onZoomPointerUp}
                             title={`${isAuto ? "Auto" : "Manual"} zoom ×${b.scale.toFixed(1)}`}
-                            className={`absolute inset-y-0.5 flex cursor-grab items-center justify-center overflow-hidden rounded-sm border text-[10px] font-medium active:cursor-grabbing ${
+                            className={`group absolute inset-y-0.5 flex cursor-grab items-center justify-center overflow-hidden rounded-sm border text-[10px] font-medium active:cursor-grabbing ${
                               selected
                                 ? "border-accent bg-accent/40 text-fg ring-1 ring-accent"
                                 : isAuto
@@ -2692,6 +2805,27 @@ export function EditorView({
                             <span className="pointer-events-none truncate px-2">
                               ×{b.scale.toFixed(1)}
                             </span>
+                            {/* Delete: suppress this one (auto) / remove it
+                                (custom). Stops propagation so it doesn't start a
+                                chip drag. Revealed on hover. */}
+                            {b.id != null ? (
+                              <button
+                                type="button"
+                                title={
+                                  isAuto
+                                    ? "Delete this zoom (keeps the rest automatic)"
+                                    : "Delete this zoom"
+                                }
+                                onPointerDown={(e) => e.stopPropagation()}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  deleteZoomAt(b.id!);
+                                }}
+                                className="absolute right-0 top-0 z-10 hidden h-3.5 w-3.5 items-center justify-center rounded-bl bg-black/50 text-[10px] leading-none text-white hover:bg-red-600 group-hover:flex"
+                              >
+                                ×
+                              </button>
+                            ) : null}
                             {/* Left resize edge */}
                             <div
                               onPointerDown={
@@ -3102,53 +3236,76 @@ export function EditorView({
             </div>
           ) : null}
 
-          {/* Zoom section: mode select (Auto / Custom / Off) + reset-to-auto,
-              an "Add zoom" button, and an inspector for the selected block.
-              Gated identically to the lane. */}
+          {/* Zoom section: a top-level On/Off switch (default On) with the
+              Auto/Custom mode selector, "Add zoom", "Reset to auto", the
+              selected-block inspector, and "Remove all zooms" beneath it when
+              on. Gated identically to the lane. */}
           {zoomGateOpen ? (
             <>
-              <h3 className="mb-3 mt-6 border-t border-line pt-4 text-[13px] font-semibold">
-                Zoom
-              </h3>
-
-              <div className="mb-3 flex gap-2">
-                {(
-                  [
-                    ["auto", "Auto"],
-                    ["custom", "Custom"],
-                    ["off", "Off"],
-                  ] as const
-                ).map(([value, label]) => (
-                  <button
-                    key={value}
-                    className={seg(project.zoom.mode === value)}
-                    onClick={() => setZoomMode(value)}
-                    aria-pressed={project.zoom.mode === value}
-                  >
-                    {label}
-                  </button>
-                ))}
+              <div className="mb-3 mt-6 flex items-center justify-between border-t border-line pt-4">
+                <h3 className="text-[13px] font-semibold">Zoom</h3>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={project.zoom.mode !== "off"}
+                  aria-label="Auto-zoom on clicks"
+                  title={project.zoom.mode !== "off" ? "Turn zoom off" : "Turn zoom on"}
+                  onClick={() => setZoomEnabled(project.zoom.mode === "off")}
+                  className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
+                    project.zoom.mode !== "off" ? "bg-accent" : "bg-line"
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition-transform ${
+                      project.zoom.mode !== "off" ? "translate-x-4" : "translate-x-0.5"
+                    }`}
+                  />
+                </button>
               </div>
 
-              {project.zoom.mode !== "off" ? (
-                <div className="mb-3 flex gap-2">
-                  <button
-                    onClick={addZoomBlock}
-                    disabled={duration <= 0}
-                    className="flex flex-1 items-center justify-center gap-1.5 rounded-md border border-line px-3 py-1.5 text-[12px] font-medium hover:bg-surface disabled:opacity-50"
-                  >
-                    <Plus size={14} /> Add zoom
-                  </button>
-                  <button
-                    onClick={() => void resetToAuto()}
-                    disabled={project.zoom.mode === "auto"}
-                    className="flex items-center justify-center gap-1.5 rounded-md border border-line px-3 py-1.5 text-[12px] font-medium hover:bg-surface disabled:opacity-50"
-                    title="Discard hand-edited blocks and use click-driven auto-zoom"
-                  >
-                    <RotateCcw size={13} /> Reset to auto
-                  </button>
-                </div>
-              ) : null}
+              {project.zoom.mode === "off" ? (
+                <p className="mb-2 text-[11px] leading-snug text-muted/80">
+                  Zoom is off for this recording. Turn it on to auto-zoom on your clicks.
+                </p>
+              ) : (
+                <>
+                  <div className="mb-3 flex gap-2">
+                    {(
+                      [
+                        ["auto", "Auto"],
+                        ["custom", "Custom"],
+                      ] as const
+                    ).map(([value, label]) => (
+                      <button
+                        key={value}
+                        className={seg(project.zoom.mode === value)}
+                        onClick={() => setZoomMode(value)}
+                        aria-pressed={project.zoom.mode === value}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="mb-3 flex gap-2">
+                    <button
+                      onClick={addZoomBlock}
+                      disabled={duration <= 0}
+                      className="flex flex-1 items-center justify-center gap-1.5 rounded-md border border-line px-3 py-1.5 text-[12px] font-medium hover:bg-surface disabled:opacity-50"
+                    >
+                      <Plus size={14} /> Add zoom
+                    </button>
+                    <button
+                      onClick={() => void resetToAuto()}
+                      disabled={project.zoom.mode === "auto"}
+                      className="flex items-center justify-center gap-1.5 rounded-md border border-line px-3 py-1.5 text-[12px] font-medium hover:bg-surface disabled:opacity-50"
+                      title="Discard hand-edited blocks and use click-driven auto-zoom"
+                    >
+                      <RotateCcw size={13} /> Reset to auto
+                    </button>
+                  </div>
+                </>
+              )}
 
               {/* Inspector row for the selected block. */}
               {project.zoom.mode !== "off" && selectedBlock ? (
@@ -3165,7 +3322,12 @@ export function EditorView({
                     </span>
                     <button
                       onClick={() =>
-                        selectedBlock.id != null && deleteBlock(selectedBlock.id)
+                        selectedBlock.id != null && deleteZoomAt(selectedBlock.id)
+                      }
+                      title={
+                        selectedBlock.mode === "auto"
+                          ? "Delete this zoom (keeps the rest automatic)"
+                          : "Delete this zoom"
                       }
                       className="flex items-center gap-1 rounded-md border border-line px-2 py-0.5 text-[11px] font-medium text-fg hover:bg-surface"
                     >
@@ -3198,6 +3360,20 @@ export function EditorView({
                 <p className="mb-2 text-[11px] leading-snug text-muted/80">
                   Select a zoom block on the timeline to edit it.
                 </p>
+              ) : null}
+
+              {/* Remove all zooms: a clean no-zoom slate for THIS recording
+                  (turns zoom off, clears suppressions + custom blocks). Because
+                  zoom on/off is a remembered default, leaving it off also
+                  becomes the default for the next new recording. */}
+              {project.zoom.mode !== "off" ? (
+                <button
+                  onClick={removeAllZooms}
+                  title="Turn zoom off for this recording and clear every zoom"
+                  className="flex w-full items-center justify-center gap-1.5 rounded-md border border-line px-3 py-1.5 text-[12px] font-medium text-muted hover:bg-surface hover:text-fg"
+                >
+                  <Trash2 size={13} /> Remove all zooms
+                </button>
               ) : null}
             </>
           ) : null}
@@ -3484,6 +3660,21 @@ export function EditorView({
             title={audioAvailable ? undefined : "This recording has no audio"}
             className={audioAvailable ? "" : "opacity-50"}
           >
+            <label className="mb-1 flex cursor-pointer items-center gap-2 text-[13px]">
+              <input
+                type="checkbox"
+                checked={project.audio.denoise}
+                disabled={!audioAvailable}
+                onChange={(e) => setDenoise(e.target.checked)}
+                className="accent-accent disabled:opacity-50"
+              />
+              Reduce background noise
+            </label>
+            <p className="mb-3 text-[11px] leading-snug text-muted/80">
+              {audioAvailable
+                ? "Runs noise removal on your voice at export (in addition to the automatic cleanup)."
+                : "This recording has no audio."}
+            </p>
             <label className="mb-1 flex cursor-pointer items-center gap-2 text-[13px]">
               <input
                 type="checkbox"

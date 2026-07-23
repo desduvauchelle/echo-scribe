@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   materializeBlocks,
   resolveZoomBlocks,
+  zoomSuppressMarker,
   type EventsHeader,
   type RecEvent,
   type ZoomBlock,
@@ -16,9 +17,12 @@ const header: EventsHeader = {
 };
 const click = (t: number, x: number, y: number): RecEvent => ({ t, k: "down", b: "l", x, y });
 
-/** A project with the given zoom settings, other fields at defaults. */
-function projectWithZoom(zoom: EditorProject["zoom"]): EditorProject {
-  return { ...defaultProject(), zoom };
+/** A project with the given zoom settings, other fields at defaults.
+ *  `suppressed` defaults to `[]` so existing callers stay concise. */
+function projectWithZoom(
+  zoom: Omit<EditorProject["zoom"], "suppressed"> & { suppressed?: number[] },
+): EditorProject {
+  return { ...defaultProject(), zoom: { suppressed: [], ...zoom } };
 }
 
 // Two well-separated clicks -> two auto blocks (see generateAutoZoom tests).
@@ -101,5 +105,69 @@ describe("resolveZoomBlocks", () => {
     const a = resolveZoomBlocks(project, header, twoClickEvents, 30000);
     const b = resolveZoomBlocks(project, header, twoClickEvents, 30000);
     expect(a).toEqual(b);
+  });
+});
+
+describe("resolveZoomBlocks — auto suppression", () => {
+  test("empty suppressed is a no-op", () => {
+    const project = projectWithZoom({ mode: "auto", blocks: null, suppressed: [] });
+    expect(resolveZoomBlocks(project, header, twoClickEvents, 30000)).toEqual(
+      materializeBlocks(header, twoClickEvents, 30000),
+    );
+  });
+
+  test("suppressing one block's marker drops exactly that block, keeps the rest auto", () => {
+    const all = materializeBlocks(header, twoClickEvents, 30000);
+    expect(all.length).toBe(2);
+    const marker = zoomSuppressMarker(all[0]);
+    const project = projectWithZoom({ mode: "auto", blocks: null, suppressed: [marker] });
+    const resolved = resolveZoomBlocks(project, header, twoClickEvents, 30000);
+    // The first block is gone; the second is untouched (still auto-generated).
+    expect(resolved).toEqual([all[1]]);
+  });
+
+  test("a marker inside the second block drops only the second", () => {
+    const all = materializeBlocks(header, twoClickEvents, 30000);
+    const project = projectWithZoom({
+      mode: "auto",
+      blocks: null,
+      suppressed: [zoomSuppressMarker(all[1])],
+    });
+    expect(resolveZoomBlocks(project, header, twoClickEvents, 30000)).toEqual([all[0]]);
+  });
+
+  test("suppressing every block yields []", () => {
+    const all = materializeBlocks(header, twoClickEvents, 30000);
+    const project = projectWithZoom({
+      mode: "auto",
+      blocks: null,
+      suppressed: all.map(zoomSuppressMarker),
+    });
+    expect(resolveZoomBlocks(project, header, twoClickEvents, 30000)).toEqual([]);
+  });
+
+  test("a marker matching no block leaves all blocks intact", () => {
+    const all = materializeBlocks(header, twoClickEvents, 30000);
+    const project = projectWithZoom({ mode: "auto", blocks: null, suppressed: [999999] });
+    expect(resolveZoomBlocks(project, header, twoClickEvents, 30000)).toEqual(all);
+  });
+
+  test("suppressed is ignored in custom mode (blocks win verbatim)", () => {
+    const stored: ZoomBlock[] = [
+      { id: "z1", startMs: 200, endMs: 2600, cx: 0.4, cy: 0.6, scale: 2, mode: "manual" },
+    ];
+    const project = projectWithZoom({
+      mode: "custom",
+      blocks: stored,
+      suppressed: [zoomSuppressMarker(stored[0])],
+    });
+    expect(resolveZoomBlocks(project, header, twoClickEvents, 30000)).toEqual(stored);
+  });
+
+  test("zoomSuppressMarker returns an interior timestamp", () => {
+    const marker = zoomSuppressMarker({ startMs: 1000, endMs: 3000 });
+    expect(marker).toBe(2000);
+    expect(marker).toBeGreaterThanOrEqual(1000);
+    expect(marker).toBeLessThan(3000);
   });
 });

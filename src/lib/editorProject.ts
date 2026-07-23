@@ -38,6 +38,12 @@ export type ZoomMode = "auto" | "custom" | "off";
 export type ZoomSettings = {
   mode: ZoomMode;
   blocks: ZoomBlock[] | null; // non-null only when mode === "custom"
+  // Source-time midpoints (ms) of individual AUTO blocks the user deleted while
+  // staying in "auto" mode ("suppress just that one"): the resolver drops any
+  // auto block that contains one of these timestamps, so the rest keep
+  // auto-generating. Keyed by an interior timestamp (not an id) so it survives
+  // re-generation. Only meaningful in "auto" mode; carried along otherwise.
+  suppressed: number[];
 };
 
 /** A speed-ramp segment over source (pre-speed) time. Non-overlapping;
@@ -67,7 +73,14 @@ export type CaptionSettings = {
  *  `MUSIC_VOLUME_MIN`/`MUSIC_VOLUME_MAX`); `null` means no music track. */
 export type MusicSettings = { path: string; volume: number } | null;
 
-export type AudioSettings = { normalizeLoudness: boolean; music: MusicSettings };
+export type AudioSettings = {
+  normalizeLoudness: boolean;
+  // Run RNNoise denoise on the voice audio at export (in addition to any
+  // capture-time cleanup). Applied before `normalizeLoudness` in the export
+  // audio chain. Per-recording; not part of the global editor defaults.
+  denoise: boolean;
+  music: MusicSettings;
+};
 
 /** A privacy/emphasis mask over a rectangular region of the CAPTURE frame,
  *  active over a source-time window. `rect` is in normalized capture coords
@@ -153,11 +166,11 @@ export function defaultProject(): EditorProject {
     },
     cursor: { enabled: false, scale: 1.5, smoothing: 0, hideIdle: false },
     webcam: null,
-    zoom: { mode: "auto", blocks: null },
+    zoom: { mode: "auto", blocks: null, suppressed: [] },
     speed: [],
     keystrokes: { enabled: false, allKeys: false },
     captions: { enabled: false, segments: null },
-    audio: { normalizeLoudness: false, music: null },
+    audio: { normalizeLoudness: false, denoise: false, music: null },
     motionBlur: false,
     masks: [],
   };
@@ -296,19 +309,34 @@ function isValidZoomBlock(v: unknown): v is ZoomBlock {
   );
 }
 
+/** Parses the `zoom.suppressed` field: a list of source-time (ms) markers of
+ *  deleted auto blocks. Non-array (or absent) -> `[]`; non-finite/negative
+ *  entries are dropped; survivors are rounded to integers. */
+function parseSuppressed(v: unknown): number[] {
+  if (!Array.isArray(v)) return [];
+  const out: number[] = [];
+  for (const n of v) {
+    if (typeof n === "number" && Number.isFinite(n) && n >= 0) out.push(Math.round(n));
+  }
+  return out;
+}
+
 /** Parses the `zoom` field. Unknown mode -> "auto". `blocks` is tolerant:
  *  a non-array (or absent) value becomes `null`, and shape-invalid entries
  *  are dropped from an array. Per the data contract, blocks are only ever
  *  materialized when `mode === "custom"` — any other mode forces `blocks`
- *  back to `null` on parse, even if the stored JSON has a stale array. */
+ *  back to `null` on parse, even if the stored JSON has a stale array.
+ *  `suppressed` (deleted auto-block markers) is parsed for every mode — it
+ *  survives mode toggles, and is only consulted by the auto-mode resolver. */
 function parseZoom(v: unknown, fallback: ZoomSettings): ZoomSettings {
   if (!isObject(v)) return fallback;
   const mode = parseZoomMode(v.mode);
-  if (mode !== "custom") return { mode, blocks: null };
+  const suppressed = parseSuppressed(v.suppressed);
+  if (mode !== "custom") return { mode, blocks: null, suppressed };
 
-  if (!Array.isArray(v.blocks)) return { mode, blocks: null };
+  if (!Array.isArray(v.blocks)) return { mode, blocks: null, suppressed };
   const blocks = v.blocks.filter(isValidZoomBlock);
-  return { mode, blocks };
+  return { mode, blocks, suppressed };
 }
 
 /** Shape-checks a single persisted speed range (rate bound is enforced by
@@ -433,6 +461,7 @@ function parseAudio(v: unknown, fallback: AudioSettings): AudioSettings {
   return {
     normalizeLoudness:
       typeof v.normalizeLoudness === "boolean" ? v.normalizeLoudness : fallback.normalizeLoudness,
+    denoise: typeof v.denoise === "boolean" ? v.denoise : fallback.denoise,
     music: parseMusic(v.music),
   };
 }
@@ -1268,6 +1297,164 @@ export function moveZoomBlock(
  *  to that format (or the JSON is malformed). Lets the post-export "Reveal in
  *  Finder" affordance target `<id>.rendered.mp4` (`"rendered"`, the default) or
  *  `<id>.rendered.gif` (`"rendered-gif"`) instead of the original recording. */
+// ---- Global editor defaults ("auto-remember") ---------------------------
+//
+// A small, cross-recording preference blob persisted app-wide (Tauri settings
+// store, key `editor_defaults`, as an opaque JSON string — Rust never parses
+// it, exactly like `project_json`). It is a SUBSET of `EditorProject`: only the
+// fields the user asked to remember. It is applied ONLY when seeding a
+// brand-new project (a recording opened with no saved `project_json`); a
+// recording that already has a saved project keeps its own settings verbatim.
+// Auto-remember writes it back whenever one of these fields changes in the
+// editor. Every field is optional so a partial/older blob merges cleanly.
+
+export type EditorDefaults = {
+  zoomEnabled?: boolean; // maps to zoom.mode: true -> "auto", false -> "off"
+  webcamSizeFrac?: number;
+  webcamCorner?: WebcamSettings["corner"];
+  cursorEnabled?: boolean;
+  cursorScale?: number;
+  aspect?: AspectPreset;
+  background?: Background;
+  padding?: number;
+  cornerRadius?: number;
+};
+
+/** Validating background parse that returns `undefined` (not a fallback) when
+ *  the value is missing/malformed — for the optional `EditorDefaults.background`
+ *  field, where "absent" must stay absent rather than collapse to a default. */
+function parseBackgroundOpt(v: unknown): Background | undefined {
+  if (!isObject(v)) return undefined;
+  const sentinel: Background = { type: "solid", color: " none" };
+  const parsed = parseBackground(v, sentinel);
+  return parsed === sentinel ? undefined : parsed;
+}
+
+/** Tolerant parse of the persisted `editor_defaults` JSON string into an
+ *  `EditorDefaults`. Null/empty/garbage -> `{}` (no remembered defaults); each
+ *  field is validated/clamped independently and simply omitted when absent or
+ *  malformed. Never throws. */
+export function parseEditorDefaults(json: string | null): EditorDefaults {
+  if (!json) return {};
+  let raw: unknown;
+  try {
+    raw = JSON.parse(json);
+  } catch {
+    return {};
+  }
+  if (!isObject(raw)) return {};
+
+  const d: EditorDefaults = {};
+  if (typeof raw.zoomEnabled === "boolean") d.zoomEnabled = raw.zoomEnabled;
+  if (typeof raw.webcamSizeFrac === "number" && Number.isFinite(raw.webcamSizeFrac)) {
+    d.webcamSizeFrac = clamp(raw.webcamSizeFrac, WEBCAM_SIZE_MIN, WEBCAM_SIZE_MAX);
+  }
+  if (
+    raw.webcamCorner === "br" ||
+    raw.webcamCorner === "bl" ||
+    raw.webcamCorner === "tr" ||
+    raw.webcamCorner === "tl"
+  ) {
+    d.webcamCorner = raw.webcamCorner;
+  }
+  if (typeof raw.cursorEnabled === "boolean") d.cursorEnabled = raw.cursorEnabled;
+  if (typeof raw.cursorScale === "number" && Number.isFinite(raw.cursorScale)) {
+    d.cursorScale = clamp(raw.cursorScale, CURSOR_SCALE_MIN, CURSOR_SCALE_MAX);
+  }
+  if (typeof raw.aspect === "string" && (ASPECT_VALUES as readonly string[]).includes(raw.aspect)) {
+    d.aspect = raw.aspect as AspectPreset;
+  }
+  const bg = parseBackgroundOpt(raw.background);
+  if (bg !== undefined) d.background = bg;
+  if (typeof raw.padding === "number" && Number.isFinite(raw.padding)) {
+    d.padding = clamp(raw.padding, PADDING_MIN, PADDING_MAX);
+  }
+  if (typeof raw.cornerRadius === "number" && Number.isFinite(raw.cornerRadius)) {
+    d.cornerRadius = clamp(raw.cornerRadius, CORNER_MIN, CORNER_MAX);
+  }
+  return d;
+}
+
+/** Snapshot the remembered fields out of a project (for an auto-remember
+ *  write). Webcam size/corner are included ONLY when the recording actually
+ *  has a webcam — so editing a webcam-less recording never clobbers a
+ *  previously-remembered camera size/position (the caller merges this partial
+ *  onto the stored blob). "Zoom on" means any mode other than "off". */
+export function extractEditorDefaults(project: EditorProject): EditorDefaults {
+  const d: EditorDefaults = {
+    zoomEnabled: project.zoom.mode !== "off",
+    cursorEnabled: project.cursor.enabled,
+    cursorScale: project.cursor.scale,
+    aspect: project.appearance.aspect,
+    background: project.appearance.background,
+    padding: project.appearance.padding,
+    cornerRadius: project.appearance.cornerRadius,
+  };
+  if (project.webcam) {
+    d.webcamSizeFrac = project.webcam.sizeFrac;
+    d.webcamCorner = project.webcam.corner;
+  }
+  return d;
+}
+
+/** Merge a fresh partial onto stored defaults — `next`'s present keys win,
+ *  absent keys keep `prev`'s value (so a webcam-less snapshot preserves the
+ *  remembered camera fields). Pure. */
+export function mergeEditorDefaults(prev: EditorDefaults, next: EditorDefaults): EditorDefaults {
+  return { ...prev, ...next };
+}
+
+/** Overlay remembered defaults onto a project — used ONLY to seed a brand-new
+ *  project (no saved `project_json`). Each remembered field is applied and
+ *  re-clamped through the same bounds as parsing. Webcam fields apply only when
+ *  the project has a webcam. `zoomEnabled` maps to auto/off (a fresh project's
+ *  zoom is never custom). Pure — returns a new project, never mutates input. */
+export function applyEditorDefaults(
+  project: EditorProject,
+  defaults: EditorDefaults,
+): EditorProject {
+  const appearance = { ...project.appearance };
+  if (defaults.aspect !== undefined) appearance.aspect = parseAspect(defaults.aspect);
+  if (defaults.background !== undefined) {
+    appearance.background = parseBackground(defaults.background, appearance.background);
+  }
+  if (defaults.padding !== undefined) {
+    appearance.padding = clamp(num(defaults.padding, appearance.padding), PADDING_MIN, PADDING_MAX);
+  }
+  if (defaults.cornerRadius !== undefined) {
+    appearance.cornerRadius = clamp(
+      num(defaults.cornerRadius, appearance.cornerRadius),
+      CORNER_MIN,
+      CORNER_MAX,
+    );
+  }
+
+  const cursor = { ...project.cursor };
+  if (defaults.cursorEnabled !== undefined) cursor.enabled = defaults.cursorEnabled;
+  if (defaults.cursorScale !== undefined) {
+    cursor.scale = clamp(num(defaults.cursorScale, cursor.scale), CURSOR_SCALE_MIN, CURSOR_SCALE_MAX);
+  }
+
+  let zoom = project.zoom;
+  if (defaults.zoomEnabled !== undefined) {
+    zoom = defaults.zoomEnabled
+      ? { mode: "auto", blocks: null, suppressed: [] }
+      : { mode: "off", blocks: null, suppressed: [] };
+  }
+
+  let webcam = project.webcam;
+  if (webcam) {
+    const w = { ...webcam };
+    if (defaults.webcamSizeFrac !== undefined) {
+      w.sizeFrac = clamp(num(defaults.webcamSizeFrac, w.sizeFrac), WEBCAM_SIZE_MIN, WEBCAM_SIZE_MAX);
+    }
+    if (defaults.webcamCorner !== undefined) w.corner = defaults.webcamCorner;
+    webcam = w;
+  }
+
+  return { ...project, appearance, cursor, zoom, webcam };
+}
+
 export function renderedExportPath(
   exportsJson: string,
   quality: "rendered" | "rendered-gif" = "rendered",

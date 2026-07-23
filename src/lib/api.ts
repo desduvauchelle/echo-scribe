@@ -1324,7 +1324,12 @@ export const importEditorBackground = (
  *  AFTER normalize, pre-mux — `{path, volume}` rides as the `x-music` JSON
  *  header. Best-effort like normalization: any Rust-side failure (missing
  *  file, decode error) degrades to music-less audio, never fails the export.
- *  Only sent when non-null. Returns the updated row. */
+ *  Only sent when non-null.
+ *
+ *  `denoise` toggles an RNNoise noise-removal pass Rust runs on the voice audio
+ *  BEFORE normalize (rides as `x-denoise`). Best-effort like normalization: any
+ *  Rust-side failure degrades to the un-denoised audio, never fails the export.
+ *  Only sent when `true`. Returns the updated row. */
 export const finalizeRenderedRecording = (
   id: string,
   bytes: Uint8Array,
@@ -1332,6 +1337,7 @@ export const finalizeRenderedRecording = (
   speedRanges?: { startMs: number; endMs: number; rate: number }[] | null,
   normalizeLoudness?: boolean,
   music?: { path: string; volume: number } | null,
+  denoise?: boolean,
 ): Promise<RecordingRow> => {
   const headers: Record<string, string> = { "x-recording-id": id };
   if (trim) {
@@ -1347,6 +1353,9 @@ export const finalizeRenderedRecording = (
       })),
     );
   }
+  if (denoise) {
+    headers["x-denoise"] = "true";
+  }
   if (normalizeLoudness) {
     headers["x-normalize-loudness"] = "true";
   }
@@ -1355,6 +1364,15 @@ export const finalizeRenderedRecording = (
   }
   return invoke("finalize_rendered_recording", bytes, { headers });
 };
+
+/** The persisted global editor defaults blob (opaque JSON string), or null when
+ *  none have been saved yet. Parse with `parseEditorDefaults`. */
+export const getEditorDefaults = (): Promise<string | null> => invoke("get_editor_defaults");
+
+/** Persist the global editor defaults blob (an opaque JSON string produced by
+ *  the caller). Used by the editor's auto-remember write. */
+export const setEditorDefaults = (json: string): Promise<void> =>
+  invoke("set_editor_defaults", { json });
 
 /** Copy a file inside the recordings folder to the system clipboard as a file
  *  reference (macOS NSPasteboard) — a paste in Finder/Mail/Slack pastes the

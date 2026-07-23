@@ -64,6 +64,7 @@ const KEY_DRIVE_FOLDER_NAME: &str = "drive_folder_name";
 const KEY_DRIVE_MAKE_PUBLIC: &str = "drive_make_public";
 const KEY_FORMAT_TEMPLATES: &str = "format_templates";
 const KEY_FORMAT_TEMPLATES_SEEDED: &str = "format_templates_seeded";
+const KEY_EDITOR_DEFAULTS: &str = "editor_defaults";
 
 pub const DEFAULT_MEETING_SUMMARY_PROMPT: &str = "You are an expert meeting note-taker. You receive a transcript of a {duration_minutes}-minute conversation captured from {app}. The transcript labels each segment as 'You:' (the user) or 'Them:' (the other side).";
 
@@ -242,6 +243,27 @@ impl SettingsStore {
             KEY_SPEECH_MODEL_ID,
             serde_json::Value::String(id.to_string()),
         );
+        self.store
+            .save()
+            .map_err(|e| SettingsError::Store(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Returns the persisted global editor defaults ("auto-remember") as an
+    /// opaque JSON string, or `None` if none have been saved yet. Rust never
+    /// parses this — the frontend owns the schema (mirrors `project_json`).
+    pub fn editor_defaults(&self) -> Option<String> {
+        self.store.get(KEY_EDITOR_DEFAULTS).and_then(|v| {
+            v.as_str()
+                .map(|s| s.to_string())
+                .or_else(|| serde_json::from_value::<String>(v).ok())
+        })
+    }
+
+    /// Persist the global editor defaults blob (an opaque JSON string).
+    pub fn set_editor_defaults(&self, json: &str) -> Result<(), SettingsError> {
+        self.store
+            .set(KEY_EDITOR_DEFAULTS, serde_json::Value::String(json.to_string()));
         self.store
             .save()
             .map_err(|e| SettingsError::Store(e.to_string()))?;
