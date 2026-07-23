@@ -150,6 +150,7 @@ function FillerWordsCard() {
       <div className={enabled ? "" : "pointer-events-none opacity-50"}>
         <ChipListCard
           inline
+          disabled={!enabled}
           title="Filler list"
           subtitle="Edit the list. Multi-word phrases like 'you know' work."
           placeholder="Add a filler"
@@ -174,9 +175,11 @@ function ChipListCard(props: {
   onChange: (next: string[]) => void;
   validate?: (word: string) => boolean;
   inline?: boolean;
+  /** Disables every interactive control (used when the parent toggle is off). */
+  disabled?: boolean;
   rightAction?: { label: string; onClick: () => void };
 }) {
-  const { title, subtitle, placeholder, words, onChange, validate, inline, rightAction } = props;
+  const { title, subtitle, placeholder, words, onChange, validate, inline, disabled, rightAction } = props;
   const [input, setInput] = useState("");
 
   const add = () => {
@@ -210,6 +213,7 @@ function ChipListCard(props: {
           <button
             type="button"
             onClick={rightAction.onClick}
+            disabled={disabled}
             className="shrink-0 rounded border border-line px-2 py-1 text-xs text-muted hover:bg-elevated"
           >
             {rightAction.label}
@@ -229,12 +233,14 @@ function ChipListCard(props: {
             }
           }}
           placeholder={placeholder}
+          aria-label={placeholder}
+          disabled={disabled}
           className="flex-1 rounded-md border border-line bg-surface px-3 py-1.5 text-sm focus:border-accent focus:outline-none"
         />
         <button
           type="button"
           onClick={add}
-          disabled={!input.trim() || (!!validate && !validate(input.trim()))}
+          disabled={disabled || !input.trim() || (!!validate && !validate(input.trim()))}
           className="rounded-md bg-danger/15 px-3 py-1.5 text-xs font-semibold text-danger hover:bg-danger/15 disabled:opacity-40"
         >
           Add
@@ -256,6 +262,7 @@ function ChipListCard(props: {
               <button
                 type="button"
                 onClick={() => remove(w)}
+                disabled={disabled}
                 className="text-faint hover:text-fg"
                 aria-label={`Remove ${w}`}
               >

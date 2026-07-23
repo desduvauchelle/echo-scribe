@@ -34,22 +34,52 @@ type StartPayload = {
  * this window — so there is no path that can leave the picker stranded
  * on-screen.
  */
+/** Default keyboard-selection rect: centered, half the surface in each
+ *  dimension. Created on the first arrow-key press (no mouse needed). */
+const defaultKeyboardRect = (): Rect => {
+  const w = Math.round(window.innerWidth / 2);
+  const h = Math.round(window.innerHeight / 2);
+  return {
+    x: Math.round((window.innerWidth - w) / 2),
+    y: Math.round((window.innerHeight - h) / 2),
+    w,
+    h,
+  };
+};
+
+const KB_STEP_PX = 20;
+
 const AreaPicker: React.FC = () => {
   const [display, setDisplay] = useState<StartPayload | null>(null);
   const [dragStart, setDragStart] = useState<Point | null>(null);
   const [dragCurrent, setDragCurrent] = useState<Point | null>(null);
+  // Keyboard-driven selection rect (arrow keys move, Shift+arrows resize,
+  // Enter confirms). Cleared when a mouse drag starts.
+  const [kbRect, setKbRect] = useState<Rect | null>(null);
   // Mirrors dragStart/dragCurrent in a ref so the Esc keydown handler (bound
   // once) always reads the latest drag state without re-binding per frame.
   const draggingRef = useRef(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  // Mirror display/kbRect in refs so the keydown handler (bound once) reads
+  // the latest values without re-binding.
+  const displayRef = useRef<StartPayload | null>(null);
+  const kbRectRef = useRef<Rect | null>(null);
+  displayRef.current = display;
+  kbRectRef.current = kbRect;
 
   useEffect(() => {
+    // Focus the root so keyboard interaction works without a preceding click.
+    rootRef.current?.focus();
+
     let unlistenStart: (() => void) | undefined;
     (async () => {
       unlistenStart = await listen<StartPayload>("area-picker-start", (event) => {
         setDisplay(event.payload);
         setDragStart(null);
         setDragCurrent(null);
+        setKbRect(null);
         draggingRef.current = false;
+        rootRef.current?.focus();
       });
     })();
 
@@ -57,6 +87,46 @@ const AreaPicker: React.FC = () => {
       if (e.key === "Escape") {
         e.preventDefault();
         void submitAreaPickerResult(null);
+        return;
+      }
+      // Keyboard selection: arrow keys move the rect (Shift+arrows resize),
+      // Enter confirms — the same commit path mouseup uses.
+      if (
+        e.key === "ArrowLeft" ||
+        e.key === "ArrowRight" ||
+        e.key === "ArrowUp" ||
+        e.key === "ArrowDown"
+      ) {
+        e.preventDefault();
+        const dx = e.key === "ArrowLeft" ? -KB_STEP_PX : e.key === "ArrowRight" ? KB_STEP_PX : 0;
+        const dy = e.key === "ArrowUp" ? -KB_STEP_PX : e.key === "ArrowDown" ? KB_STEP_PX : 0;
+        setKbRect((prev) => {
+          const base = prev ?? defaultKeyboardRect();
+          const maxW = window.innerWidth;
+          const maxH = window.innerHeight;
+          if (e.shiftKey) {
+            // Resize from the top-left anchor, floored at a usable minimum.
+            const w = Math.min(Math.max(base.w + dx, 40), maxW - base.x);
+            const h = Math.min(Math.max(base.h + dy, 40), maxH - base.y);
+            return { ...base, w, h };
+          }
+          const x = Math.min(Math.max(base.x + dx, 0), maxW - base.w);
+          const y = Math.min(Math.max(base.y + dy, 0), maxH - base.h);
+          return { ...base, x, y };
+        });
+        return;
+      }
+      if (e.key === "Enter") {
+        const rect = kbRectRef.current;
+        const disp = displayRef.current;
+        if (!rect || !disp) return;
+        e.preventDefault();
+        const globalRect = localRectToGlobal(
+          rect,
+          { x: disp.origin_x, y: disp.origin_y },
+          { width: disp.width, height: disp.height },
+        );
+        void submitAreaPickerResult(globalRect);
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -72,6 +142,7 @@ const AreaPicker: React.FC = () => {
     const p = { x: e.clientX, y: e.clientY };
     setDragStart(p);
     setDragCurrent(p);
+    setKbRect(null); // mouse takes over from any keyboard selection
     draggingRef.current = true;
   };
 
@@ -102,11 +173,14 @@ const AreaPicker: React.FC = () => {
     void submitAreaPickerResult(globalRect);
   };
 
+  // Active selection: a live mouse drag wins; otherwise the keyboard rect.
   const local: Rect | null =
-    dragStart && dragCurrent ? dragToLocalRect(dragStart, dragCurrent) : null;
+    dragStart && dragCurrent ? dragToLocalRect(dragStart, dragCurrent) : kbRect;
 
   return (
     <div
+      ref={rootRef}
+      tabIndex={-1}
       style={styles.root}
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
@@ -141,7 +215,12 @@ const AreaPicker: React.FC = () => {
         <>
           {/* No selection yet: dim the whole surface uniformly. */}
           <div style={styles.backdrop} />
-          <div style={styles.hint}>Drag to select a region · Esc to cancel</div>
+          <div style={styles.hint}>
+            <div>Drag to select a region · Esc to cancel</div>
+            <div style={styles.hintSub}>
+              Arrow keys move, Shift+arrows resize, Enter confirms
+            </div>
+          </div>
         </>
       )}
     </div>
@@ -179,6 +258,12 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 600,
     whiteSpace: "nowrap",
     pointerEvents: "none",
+  },
+  hintSub: {
+    marginTop: 2,
+    fontSize: 11,
+    color: "rgba(255,255,255,0.65)",
+    textAlign: "center",
   },
   hint: {
     position: "absolute",

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Copy, Eye, Loader, Pencil, RotateCcw, Trash2, X } from "lucide-react";
 import Markdown from "./Markdown";
+import { useFocusTrap } from "./a11y/Dialog";
 import {
   completeTask,
   createProject,
@@ -46,6 +47,8 @@ import { meetingStatusDisplay } from "../lib/meetingStatus";
 export default function ActivityPanel() {
   const { selectedItemId, close } = useActivityPanel();
   const open = selectedItemId !== null;
+  const panelRef = useRef<HTMLElement>(null);
+  useFocusTrap(panelRef, open);
 
   useEffect(() => {
     if (!open) return;
@@ -66,11 +69,14 @@ export default function ActivityPanel() {
         aria-hidden="true"
       />
       <aside
+        ref={panelRef}
+        tabIndex={-1}
         className={`fixed inset-y-0 right-0 z-50 flex w-[480px] max-w-[90vw] flex-col border-l border-line bg-canvas shadow-2xl transition-transform duration-200 ease-out ${
           open ? "translate-x-0" : "translate-x-full"
         }`}
         role="dialog"
         aria-modal="true"
+        aria-labelledby="activity-panel-title"
       >
         {open && selectedItemId ? (
           <PanelBody itemId={selectedItemId} onClose={close} />
@@ -186,7 +192,7 @@ function PanelBody({ itemId, onClose }: { itemId: string; onClose: () => void })
   return (
     <>
       <header className="flex items-center justify-between border-b border-line px-4 py-3">
-        <div className="min-w-0 text-sm font-medium text-fg">
+        <div id="activity-panel-title" className="min-w-0 text-sm font-medium text-fg">
           {loading ? "Loading…" : item ? activityTitle(item, meeting) : "Activity"}
         </div>
         <button
@@ -381,7 +387,7 @@ function ContentSection({ item, onChange }: { item: Item; onChange: (i: Item) =>
         <SectionLabel>Content</SectionLabel>
         <div className="flex items-center gap-2">
           {editing ? (
-            <span className="text-[10px] text-faint">
+            <span role="status" className="text-[10px] text-faint">
               {saving ? "Saving…" : draft !== item.content ? "Unsaved" : "Saved"}
             </span>
           ) : null}
@@ -915,7 +921,7 @@ function MeetingTitle({
           <div className="mb-1.5 flex items-center justify-between">
             <SectionLabel>Meeting title</SectionLabel>
             <div className="flex items-center gap-2">
-              {savingTitle ? <span className="text-[10px] text-faint">Saving…</span> : null}
+              {savingTitle ? <span role="status" className="text-[10px] text-faint">Saving…</span> : null}
               <EditToggle editing onClick={() => setEditing(false)} />
             </div>
           </div>
@@ -936,7 +942,7 @@ function MeetingTitle({
             type="button"
             onClick={() => setEditing(true)}
             aria-label="Edit title"
-            className="mt-1 shrink-0 rounded p-1 text-faint opacity-0 transition hover:bg-elevated hover:text-fg group-hover:opacity-100"
+            className="mt-1 shrink-0 rounded p-1 text-faint opacity-0 transition hover:bg-elevated hover:text-fg group-hover:opacity-100 focus-visible:opacity-100"
           >
             <Pencil size={13} strokeWidth={2.25} />
           </button>
@@ -989,7 +995,7 @@ function MeetingRecap({
         <SectionLabel>Summary</SectionLabel>
         <div className="flex items-center gap-2">
           {editing ? (
-            <span className="text-[10px] text-faint">
+            <span role="status" className="text-[10px] text-faint">
               {saving ? "Saving…" : draft !== item.content ? "Unsaved" : "Saved"}
             </span>
           ) : null}
@@ -1062,7 +1068,7 @@ function NotesSection({
         <SectionLabel>Notes</SectionLabel>
         <div className="flex items-center gap-2">
           {editing ? (
-            <span className="text-[10px] text-faint">
+            <span role="status" className="text-[10px] text-faint">
               {saving ? "Saving…" : notesDraft !== current ? "Unsaved" : "Saved"}
             </span>
           ) : null}
@@ -1202,6 +1208,7 @@ function GuideReviewSection({ meetingId }: { meetingId: string }) {
                         return (
                           <div key={key} className="overflow-hidden rounded-md border border-line">
                             <button
+                              aria-expanded={open}
                               className="flex w-full items-center gap-2.5 px-2.5 py-2 text-left hover:bg-elevated"
                               onClick={() => setOpenCrit((s) => ({ ...s, [key]: !open }))}
                             >
@@ -1244,6 +1251,7 @@ function GuideReviewSection({ meetingId }: { meetingId: string }) {
                   {timeline.length > 0 ? (
                     <div className="border-t border-line pt-2">
                       <button
+                        aria-expanded={!!showTimeline[run.id]}
                         className="text-[12px] text-muted hover:text-fg"
                         onClick={() => setShowTimeline((s) => ({ ...s, [run.id]: !s[run.id] }))}
                       >
@@ -1333,6 +1341,7 @@ function CalendarMatchPanel({
         <SectionLabel>Calendar match</SectionLabel>
         <button
           type="button"
+          aria-expanded={expanded}
           onClick={() => {
             const next = !expanded;
             setExpanded(next);

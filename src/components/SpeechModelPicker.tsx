@@ -26,7 +26,11 @@ const ACCENT_TRACK = "bg-elevated";
 function SegmentBar({ value, max = 5 }: { value: number; max?: number }) {
   const v = Math.max(0, Math.min(max, Math.round(value)));
   return (
-    <div className="flex items-center gap-1">
+    <div
+      role="img"
+      aria-label={`${v} of ${max}`}
+      className="flex items-center gap-1"
+    >
       {Array.from({ length: max }).map((_, i) => (
         <span
           key={i}
@@ -130,7 +134,24 @@ function ModelCard({
 
       {isDownloading && downloading ? (
         <div className="mt-3">
-          <div className="h-1.5 w-full overflow-hidden rounded-full bg-elevated">
+          <div
+            role="progressbar"
+            aria-label="Download progress"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={
+              downloading.bytes_total > 0
+                ? Math.min(
+                    100,
+                    Math.round(
+                      (downloading.bytes_downloaded / downloading.bytes_total) *
+                        100,
+                    ),
+                  )
+                : 0
+            }
+            className="h-1.5 w-full overflow-hidden rounded-full bg-elevated"
+          >
             <div
               className="h-full bg-danger transition-all"
               style={{

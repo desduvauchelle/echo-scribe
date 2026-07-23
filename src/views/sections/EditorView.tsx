@@ -1272,6 +1272,54 @@ export function EditorView({
     dragHandleRef.current = null;
   }, []);
 
+  // Keyboard path for the trim handles: Arrow keys nudge by 100ms (Shift:
+  // 1000ms), Home/End jump to the handle's bounds. Funnels through the same
+  // `setTrim` (→ clampTrim) the pointer path uses, so all clamp/ordering
+  // semantics stay identical.
+  const onTrimHandleKeyDown = useCallback(
+    (handle: "start" | "end") => (e: React.KeyboardEvent<HTMLDivElement>) => {
+      const currentTrim =
+        projectRef.current.trim ?? { startMs: 0, endMs: durationMsRef.current };
+      const stepMs = e.shiftKey ? 1000 : 100;
+      let value: number | null = null;
+      const base = handle === "start" ? currentTrim.startMs : currentTrim.endMs;
+      if (e.key === "ArrowLeft") value = base - stepMs;
+      else if (e.key === "ArrowRight") value = base + stepMs;
+      else if (e.key === "Home") value = handle === "start" ? 0 : currentTrim.startMs;
+      else if (e.key === "End") value = handle === "start" ? currentTrim.endMs : durationMsRef.current;
+      if (value === null) return;
+      e.preventDefault();
+      setTrim(
+        handle === "start"
+          ? { startMs: value, endMs: currentTrim.endMs }
+          : { startMs: currentTrim.startMs, endMs: value },
+      );
+    },
+    [setTrim],
+  );
+
+  // Shared keyboard path for the timeline chips (zoom/speed/camera/mask):
+  // Enter/Space selects the chip (same as a pointer-down click would), and
+  // Arrow keys nudge the block by 100ms (Shift: 1000ms) via the lane's own
+  // move function — the same state-update path the body drag uses.
+  const chipKeyDown = useCallback(
+    (
+      select: () => void,
+      nudge: (deltaMs: number) => void,
+    ) => (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        select();
+      } else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+        e.preventDefault();
+        select();
+        const stepMs = e.shiftKey ? 1000 : 100;
+        nudge(e.key === "ArrowLeft" ? -stepMs : stepMs);
+      }
+    },
+    [],
+  );
+
   // Click-to-seek on the shared timeline track body: map the click x to a time
   // and seek the playhead (onScrub re-clamps into the trim window). Chip / handle
   // pointerdowns call stopPropagation, so this only fires on empty track space —
@@ -1525,6 +1573,21 @@ export function EditorView({
     [applyMaskEdit],
   );
 
+  // Set one field of the selected mask's rect directly (numeric inputs in the
+  // inspector, normalized 0..1). Clamping to [0,1] happens in `applyMaskEdit`'s
+  // `clampMasks` pass — the same invariant every pointer edit goes through.
+  const setMaskRectField = useCallback(
+    (id: string, field: "x" | "y" | "w" | "h", value: number) => {
+      if (!Number.isFinite(value)) return;
+      applyMaskEdit((masks) =>
+        masks.map((m) =>
+          m.id === id ? { ...m, rect: { ...m.rect, [field]: value } } : m,
+        ),
+      );
+    },
+    [applyMaskEdit],
+  );
+
   // Drop a stale mask selection if it no longer exists (e.g. deleted from
   // another path, or the recording changed). Mirrors the scene/zoom effects.
   useEffect(() => {
@@ -1644,6 +1707,22 @@ export function EditorView({
           if (b.id !== id) return b;
           const c = clampZoomCenter(b.cx, b.cy, scale);
           return { ...b, scale, cx: c.cx, cy: c.cy };
+        }),
+      );
+    },
+    [applyBlockEdit],
+  );
+
+  // Set a block's zoom center directly (numeric inputs in the inspector) —
+  // same clamp (`clampZoomCenter` at the block's own scale) the preview-click
+  // path applies, so a typed center can never leave the frame.
+  const setBlockCenter = useCallback(
+    (id: string, patch: { cx?: number; cy?: number }) => {
+      applyBlockEdit((blocks) =>
+        blocks.map((b) => {
+          if (b.id !== id) return b;
+          const c = clampZoomCenter(patch.cx ?? b.cx, patch.cy ?? b.cy, b.scale);
+          return { ...b, cx: c.cx, cy: c.cy };
         }),
       );
     },
@@ -1896,6 +1975,31 @@ export function EditorView({
     (idx: number) => {
       applySpeedEdit((ranges) => ranges.filter((_, i) => i !== idx));
       setSelectedSpeedIdx(null);
+    },
+    [applySpeedEdit],
+  );
+
+  // Keyboard nudge for a speed chip: slide the range by deltaMs keeping its
+  // length, with the same stay-in-[0,dur] + neighbour-stop clamp the pointer
+  // body-drag applies inline in `onSpeedPointerMove`.
+  const nudgeSpeedRange = useCallback(
+    (idx: number, deltaMs: number) => {
+      applySpeedEdit((ranges) => {
+        const r = ranges[idx];
+        if (!r) return ranges;
+        const durMs = durationMsRef.current || 0;
+        const lenMs = r.endMs - r.startMs;
+        const prev = ranges[idx - 1];
+        const next = ranges[idx + 1];
+        const lo = prev ? prev.endMs : 0;
+        const hi = (next ? next.startMs : durMs) - lenMs;
+        let start = Math.round(r.startMs + deltaMs);
+        start = Math.min(Math.max(start, lo), Math.max(lo, hi));
+        if (start === r.startMs) return ranges;
+        return ranges.map((rr, i) =>
+          i === idx ? { ...rr, startMs: start, endMs: start + lenMs } : rr,
+        );
+      });
     },
     [applySpeedEdit],
   );
@@ -2567,6 +2671,8 @@ export function EditorView({
             <canvas
               ref={canvasRef}
               onClick={pickMode ? onPreviewClick : undefined}
+              role="img"
+              aria-label="Video preview"
               className={`max-h-full max-w-full object-contain ${
                 pickMode ? "cursor-crosshair" : ""
               }`}
@@ -2669,6 +2775,8 @@ export function EditorView({
               step={0.01}
               value={Math.min(Math.max(current, trimStartMs / 1000), trimEndMs / 1000 || 0)}
               onChange={(e) => onScrub(Number(e.target.value))}
+              aria-label="Playback position"
+              aria-valuetext={`${fmtTime(current)} of ${fmtTime(duration)}`}
               className="min-w-0 flex-1 accent-accent"
             />
             <span className="shrink-0 text-[12px] tabular-nums text-muted">
@@ -2717,11 +2825,14 @@ export function EditorView({
                   onPointerMove={onTimelinePointerMove}
                   onPointerUp={onTimelinePointerUp}
                   onPointerCancel={onTimelinePointerUp}
+                  onKeyDown={onTrimHandleKeyDown("start")}
+                  tabIndex={0}
                   role="slider"
                   aria-label="Trim start"
                   aria-valuemin={0}
                   aria-valuemax={trimEndMs}
                   aria-valuenow={trimStartMs}
+                  aria-valuetext={fmtTimeDs(trimStartMs)}
                   className="absolute inset-y-0 z-30 w-3 -translate-x-1/2 cursor-ew-resize rounded-sm bg-accent"
                   style={{ left: `${(trimStartMs / (duration * 1000)) * 100}%` }}
                 />
@@ -2731,11 +2842,14 @@ export function EditorView({
                   onPointerMove={onTimelinePointerMove}
                   onPointerUp={onTimelinePointerUp}
                   onPointerCancel={onTimelinePointerUp}
+                  onKeyDown={onTrimHandleKeyDown("end")}
+                  tabIndex={0}
                   role="slider"
                   aria-label="Trim end"
                   aria-valuemin={trimStartMs}
                   aria-valuemax={duration * 1000}
                   aria-valuenow={trimEndMs}
+                  aria-valuetext={fmtTimeDs(trimEndMs)}
                   className="absolute inset-y-0 z-30 w-3 -translate-x-1/2 cursor-ew-resize rounded-sm bg-accent"
                   style={{ left: `${(trimEndMs / (duration * 1000)) * 100}%` }}
                 />
@@ -2792,6 +2906,17 @@ export function EditorView({
                             onPointerMove={onZoomPointerMove}
                             onPointerUp={onZoomPointerUp}
                             onPointerCancel={onZoomPointerUp}
+                            onKeyDown={
+                              b.id != null
+                                ? chipKeyDown(
+                                    () => setSelectedBlockId(b.id!),
+                                    (deltaMs) => moveBlock(b.id!, b.startMs + deltaMs),
+                                  )
+                                : undefined
+                            }
+                            tabIndex={b.id != null ? 0 : undefined}
+                            role={b.id != null ? "button" : undefined}
+                            aria-label={`${isAuto ? "Auto" : "Manual"} zoom ×${b.scale.toFixed(1)}, ${fmtTimeDs(b.startMs)} to ${fmtTimeDs(b.endMs)}`}
                             title={`${isAuto ? "Auto" : "Manual"} zoom ×${b.scale.toFixed(1)}`}
                             className={`group absolute inset-y-0.5 flex cursor-grab items-center justify-center overflow-hidden rounded-sm border text-[10px] font-medium active:cursor-grabbing ${
                               selected
@@ -2821,7 +2946,7 @@ export function EditorView({
                                   e.stopPropagation();
                                   deleteZoomAt(b.id!);
                                 }}
-                                className="absolute right-0 top-0 z-10 hidden h-3.5 w-3.5 items-center justify-center rounded-bl bg-black/50 text-[10px] leading-none text-white hover:bg-red-600 group-hover:flex"
+                                className="absolute right-0 top-0 z-10 hidden h-3.5 w-3.5 items-center justify-center rounded-bl bg-black/50 text-[10px] leading-none text-white hover:bg-red-600 focus:flex group-hover:flex group-focus-within:flex"
                               >
                                 ×
                               </button>
@@ -2880,6 +3005,13 @@ export function EditorView({
                           onPointerMove={onSpeedPointerMove}
                           onPointerUp={onSpeedPointerUp}
                           onPointerCancel={onSpeedPointerUp}
+                          onKeyDown={chipKeyDown(
+                            () => setSelectedSpeedIdx(i),
+                            (deltaMs) => nudgeSpeedRange(i, deltaMs),
+                          )}
+                          tabIndex={0}
+                          role="button"
+                          aria-label={`Speed ×${r.rate.toFixed(2)} segment, ${fmtTimeDs(r.startMs)} to ${fmtTimeDs(r.endMs)}`}
                           title={`Speed ×${r.rate.toFixed(2)}`}
                           className={`absolute inset-y-0.5 flex cursor-grab items-center justify-center overflow-hidden rounded-sm border text-[10px] font-medium active:cursor-grabbing ${
                             selected
@@ -2942,6 +3074,13 @@ export function EditorView({
                             onPointerMove={onScenePointerMove}
                             onPointerUp={onScenePointerUp}
                             onPointerCancel={onScenePointerUp}
+                            onKeyDown={chipKeyDown(
+                              () => setSelectedSceneId(s.id),
+                              (deltaMs) => moveScene(s.id, s.startMs + deltaMs),
+                            )}
+                            tabIndex={0}
+                            role="button"
+                            aria-label={`Camera scene, ${fmtTimeDs(s.startMs)} to ${fmtTimeDs(s.endMs)}`}
                             title={`Camera scene ${fmtTimeDs(s.startMs)}–${fmtTimeDs(s.endMs)}`}
                             className={`absolute inset-y-0.5 flex cursor-grab items-center justify-center overflow-hidden rounded-sm border text-[10px] font-medium active:cursor-grabbing ${
                               selected
@@ -3006,6 +3145,13 @@ export function EditorView({
                           onPointerMove={onMaskPointerMove}
                           onPointerUp={onMaskPointerUp}
                           onPointerCancel={onMaskPointerUp}
+                          onKeyDown={chipKeyDown(
+                            () => setSelectedMaskId(m.id),
+                            (deltaMs) => moveMask(m.id, m.startMs + deltaMs),
+                          )}
+                          tabIndex={0}
+                          role="button"
+                          aria-label={`${m.kind === "pixelate" ? "Pixelate" : "Highlight"} mask, ${fmtTimeDs(m.startMs)} to ${fmtTimeDs(m.endMs)}`}
                           title={`${m.kind === "pixelate" ? "Pixelate" : "Highlight"} mask ${fmtTimeDs(m.startMs)}–${fmtTimeDs(m.endMs)}`}
                           className={`absolute inset-y-0.5 flex cursor-grab items-center justify-center overflow-hidden rounded-sm border text-[10px] font-medium active:cursor-grabbing ${
                             selected
@@ -3056,6 +3202,7 @@ export function EditorView({
             min={PADDING_MIN}
             max={PADDING_MAX}
             value={project.appearance.padding}
+            aria-label="Padding"
             onChange={(e) => setPadding(Number(e.target.value))}
             className="mb-5 w-full accent-accent"
           />
@@ -3069,6 +3216,7 @@ export function EditorView({
             min={CORNER_MIN}
             max={CORNER_MAX}
             value={project.appearance.cornerRadius}
+            aria-label="Corner radius"
             onChange={(e) => setCornerRadius(Number(e.target.value))}
             className="mb-5 w-full accent-accent"
           />
@@ -3346,12 +3494,43 @@ export function EditorView({
                     max={ZOOM_SCALE_MAX}
                     step={0.1}
                     value={Math.min(Math.max(selectedBlock.scale, ZOOM_SCALE_MIN), ZOOM_SCALE_MAX)}
+                    aria-label="Zoom level"
                     onChange={(e) =>
                       selectedBlock.id != null &&
                       setBlockScale(selectedBlock.id, Number(e.target.value))
                     }
                     className="mb-2 w-full accent-accent"
                   />
+                  {/* Numeric center inputs: keyboard-accessible equivalent of
+                      the preview-click center pick, in percent of the frame. */}
+                  <div className="mb-2 grid grid-cols-2 gap-2">
+                    {(
+                      [
+                        ["cx", "Center X (%)", selectedBlock.cx],
+                        ["cy", "Center Y (%)", selectedBlock.cy],
+                      ] as const
+                    ).map(([field, label, value]) => (
+                      <label
+                        key={field}
+                        className="flex flex-col gap-1 text-[11px] text-muted"
+                      >
+                        {label}
+                        <input
+                          type="number"
+                          min={0}
+                          max={100}
+                          step={1}
+                          value={Math.round(value * 100)}
+                          onChange={(e) => {
+                            const pct = Number(e.target.value);
+                            if (!Number.isFinite(pct) || selectedBlock.id == null) return;
+                            setBlockCenter(selectedBlock.id, { [field]: pct / 100 });
+                          }}
+                          className="rounded border border-line bg-transparent px-1.5 py-1 text-[12px] tabular-nums text-fg focus:border-accent focus:outline-none"
+                        />
+                      </label>
+                    ))}
+                  </div>
                   <p className="text-[11px] leading-snug text-muted/80">
                     Click the preview to set this block&rsquo;s center.
                   </p>
@@ -3420,6 +3599,7 @@ export function EditorView({
                 max={SPEED_RATE_MAX}
                 step={0.25}
                 value={Math.min(Math.max(selectedSpeed.rate, SPEED_RATE_MIN), SPEED_RATE_MAX)}
+                aria-label="Playback rate"
                 onChange={(e) => setSpeedRate(selectedSpeedIdx, Number(e.target.value))}
                 className="mb-2 w-full accent-accent"
               />
@@ -3471,6 +3651,7 @@ export function EditorView({
               step={0.1}
               value={project.cursor.scale}
               disabled={!cursorAvailable || !project.cursor.enabled}
+              aria-label="Cursor size"
               onChange={(e) => setCursorScale(Number(e.target.value))}
               className="mb-3 w-full accent-accent disabled:opacity-50"
             />
@@ -3489,6 +3670,7 @@ export function EditorView({
               step={0.1}
               value={project.cursor.smoothing}
               disabled={!cursorAvailable || !project.cursor.enabled}
+              aria-label="Cursor smoothing"
               onChange={(e) => setCursorSmoothing(Number(e.target.value))}
               className="mb-3 w-full accent-accent disabled:opacity-50"
             />
@@ -3626,6 +3808,7 @@ export function EditorView({
                             <textarea
                               value={s.text}
                               onChange={(e) => editCaptionSegment(i, e.target.value)}
+                              aria-label={`Caption at ${fmtTimeDs(s.startMs)}`}
                               rows={1}
                               className="min-w-0 flex-1 resize-none rounded border border-line bg-transparent px-1.5 py-1 text-[12px] leading-snug focus:border-accent focus:outline-none"
                             />
@@ -3824,6 +4007,7 @@ export function EditorView({
                 step={0.01}
                 value={project.webcam?.sizeFrac ?? 0.2}
                 disabled={!project.webcam?.show}
+                aria-label="Webcam size"
                 onChange={(e) => setWebcam({ sizeFrac: Number(e.target.value) })}
                 className="mb-2 w-full accent-accent disabled:opacity-50"
               />
@@ -3939,6 +4123,41 @@ export function EditorView({
                 >
                   Highlight
                 </button>
+              </div>
+
+              {/* Numeric rect inputs: keyboard-accessible equivalent of the
+                  on-preview drag box, in percent of the frame. Writes funnel
+                  through `setMaskRectField` → `applyMaskEdit` (clampMasks). */}
+              <div className="mb-2 grid grid-cols-4 gap-2">
+                {(
+                  [
+                    ["x", "X (%)", selectedMask.rect.x],
+                    ["y", "Y (%)", selectedMask.rect.y],
+                    ["w", "W (%)", selectedMask.rect.w],
+                    ["h", "H (%)", selectedMask.rect.h],
+                  ] as const
+                ).map(([field, label, value]) => (
+                  <label
+                    key={field}
+                    className="flex flex-col gap-1 text-[11px] text-muted"
+                  >
+                    {label}
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      step={1}
+                      value={Math.round(value * 100)}
+                      aria-label={`Mask ${field === "w" ? "width" : field === "h" ? "height" : field.toUpperCase()} percent`}
+                      onChange={(e) => {
+                        const pct = Number(e.target.value);
+                        if (!Number.isFinite(pct)) return;
+                        setMaskRectField(selectedMask.id, field, pct / 100);
+                      }}
+                      className="min-w-0 rounded border border-line bg-transparent px-1.5 py-1 text-[12px] tabular-nums text-fg focus:border-accent focus:outline-none"
+                    />
+                  </label>
+                ))}
               </div>
 
               <p className="text-[11px] leading-snug text-muted/80">

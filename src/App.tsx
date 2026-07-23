@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import {
@@ -329,6 +329,7 @@ function AppShell() {
             }
             setMeetingPrompt(null);
           }}
+          onDismiss={() => setMeetingPrompt(null)}
         />
       ) : null}
     </>
@@ -395,19 +396,40 @@ function MeetingDetectedPrompt({
   bundleId: _bundleId,
   appName,
   onDecision,
+  onDismiss,
 }: {
   bundleId: string;
   appName: string;
   onDecision: (d: "always" | "once" | "never") => void;
+  onDismiss: () => void;
 }) {
+  const firstButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    firstButtonRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onDismiss();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onDismiss]);
+
   return (
-    <div className="meeting-detected-prompt fixed bottom-6 right-6 z-50 max-w-sm rounded-lg bg-surface p-4 shadow-lg ring-1 ring-border">
+    <div
+      role="alertdialog"
+      aria-label={`${appName} meeting detected`}
+      className="meeting-detected-prompt fixed bottom-6 right-6 z-50 max-w-sm rounded-lg bg-surface p-4 shadow-lg ring-1 ring-border"
+    >
       <div className="text-sm font-medium">{appName} meeting detected</div>
       <div className="mt-1 text-xs text-muted">
         Record this meeting locally? Audio stays on your machine.
       </div>
       <div className="mt-3 flex gap-2">
         <button
+          ref={firstButtonRef}
           className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white"
           onClick={() => onDecision("once")}
         >

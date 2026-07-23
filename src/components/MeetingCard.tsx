@@ -70,7 +70,7 @@ export default function MeetingCard({ mtg, projects }: Props) {
       >
         <div className="pt-0.5">
           <span className="inline-flex h-5 w-5 items-center justify-center rounded-md bg-accent-soft text-accent">
-            <Users size={12} strokeWidth={2} />
+            <Users size={12} strokeWidth={2} aria-hidden="true" />
           </span>
         </div>
 
@@ -89,9 +89,17 @@ export default function MeetingCard({ mtg, projects }: Props) {
                 title={status.description}
               >
                 {status.spinner ? (
-                  <Loader size={11} strokeWidth={2} className="animate-spin" />
+                  <Loader
+                    size={11}
+                    strokeWidth={2}
+                    className="animate-spin"
+                    aria-hidden="true"
+                  />
                 ) : null}
                 {status.label}
+                {status.description ? (
+                  <span className="sr-only">{status.description}</span>
+                ) : null}
               </span>
             ) : null}
           </div>
@@ -126,7 +134,7 @@ export default function MeetingCard({ mtg, projects }: Props) {
                 className="inline-flex items-center gap-1"
                 title={`${summaryPoints.length} summary point${summaryPoints.length === 1 ? "" : "s"}`}
               >
-                <AlignLeft size={11} strokeWidth={2} />
+                <AlignLeft size={11} strokeWidth={2} aria-hidden="true" />
                 {summaryPoints.length}
               </span>
             ) : null}
@@ -143,11 +151,11 @@ export default function MeetingCard({ mtg, projects }: Props) {
             className="flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-[11px] text-muted transition-colors hover:bg-elevated hover:text-fg"
           >
             {expanded ? (
-              <ChevronDown size={12} strokeWidth={2} />
+              <ChevronDown size={12} strokeWidth={2} aria-hidden="true" />
             ) : (
-              <ChevronRight size={12} strokeWidth={2} />
+              <ChevronRight size={12} strokeWidth={2} aria-hidden="true" />
             )}
-            <ListChecks size={12} strokeWidth={2} />
+            <ListChecks size={12} strokeWidth={2} aria-hidden="true" />
             {actionCount} action item{actionCount === 1 ? "" : "s"}
           </button>
 
@@ -155,7 +163,7 @@ export default function MeetingCard({ mtg, projects }: Props) {
             <div className="flex flex-col gap-1.5 px-3 pb-2.5">
               {loadingActions ? (
                 <span className="inline-flex items-center gap-1.5 py-1 text-[11px] text-muted">
-                  <Loader size={11} className="animate-spin" /> Loading…
+                  <Loader size={11} className="animate-spin" aria-hidden="true" /> Loading…
                 </span>
               ) : actions && actions.length > 0 ? (
                 actions.map((it) => (

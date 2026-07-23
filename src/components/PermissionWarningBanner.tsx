@@ -43,7 +43,10 @@ export default function PermissionWarningBanner({ onOpenSettings }: Props) {
   if (missing.length === 0) return null;
 
   return (
-    <div className="flex items-center justify-between gap-3 border-b border-warning/40 bg-warning/10 px-4 py-2 text-xs text-warning">
+    <div
+      role="alert"
+      className="flex items-center justify-between gap-3 border-b border-warning/40 bg-warning/10 px-4 py-2 text-xs text-warning"
+    >
       <span>
         <strong>Permission missing:</strong> {missing.join(" + ")}.{" "}
         {coreBroken

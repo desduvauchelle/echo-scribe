@@ -101,7 +101,9 @@ const Countdown: React.FC = () => {
 
   return (
     <div style={styles.root}>
-      <div style={styles.number}>{tick}</div>
+      <div style={styles.number} role="timer" aria-live="assertive">
+        {tick}
+      </div>
     </div>
   );
 };

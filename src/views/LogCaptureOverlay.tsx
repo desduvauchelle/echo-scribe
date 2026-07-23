@@ -142,25 +142,42 @@ export default function LogCaptureOverlay() {
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="log-capture-title"
+    >
       <div className="w-full max-w-[520px] rounded-xl border border-line bg-surface p-6 text-fg shadow-2xl">
         {stage.kind === "recording" ? (
           <div>
-            <h2 className="text-lg font-semibold tracking-tight">
+            <h2
+              id="log-capture-title"
+              className="text-lg font-semibold tracking-tight"
+            >
               Log capture
             </h2>
-            <p className="mt-2 text-sm text-muted">
+            <p className="mt-2 text-sm text-muted" role="status">
               Recording — release the shortcut to stop.
             </p>
-            <div className="mt-4 flex items-center gap-2 text-xs text-muted">
-              <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-danger" />
+            <div
+              className="mt-4 flex items-center gap-2 text-xs text-muted"
+              role="status"
+            >
+              <span
+                aria-hidden="true"
+                className="inline-block h-2 w-2 animate-pulse rounded-full bg-danger motion-reduce:animate-none"
+              />
               Listening…
             </div>
           </div>
         ) : edit ? (
           <div className="flex flex-col gap-4">
             <div>
-              <h2 className="text-lg font-semibold tracking-tight">
+              <h2
+                id="log-capture-title"
+                className="text-lg font-semibold tracking-tight"
+              >
                 Review capture
               </h2>
               {stage.error ? (
@@ -187,6 +204,7 @@ export default function LogCaptureOverlay() {
               <span className="text-muted">Transcript</span>
               <textarea
                 rows={4}
+                autoFocus
                 value={edit.content}
                 onChange={(e) =>
                   setEdit({ ...edit, content: e.target.value })

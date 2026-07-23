@@ -21,15 +21,15 @@ type Props = {
   onCancel: () => void;
 };
 
-const COLOR_PALETTE = [
-  "#ef4444", // red
-  "#f97316", // orange
-  "#eab308", // yellow
-  "#22c55e", // green
-  "#06b6d4", // cyan
-  "#3b82f6", // blue
-  "#8b5cf6", // violet
-  "#ec4899", // pink
+const COLOR_PALETTE: Array<{ value: string; name: string }> = [
+  { value: "#ef4444", name: "Red" },
+  { value: "#f97316", name: "Orange" },
+  { value: "#eab308", name: "Yellow" },
+  { value: "#22c55e", name: "Green" },
+  { value: "#06b6d4", name: "Cyan" },
+  { value: "#3b82f6", name: "Blue" },
+  { value: "#8b5cf6", name: "Violet" },
+  { value: "#ec4899", name: "Pink" },
 ];
 
 export default function ProjectEditor({
@@ -348,6 +348,7 @@ export default function ProjectEditor({
             onKeyDown={handleKeywordsKey}
             onBlur={() => keywordsInput.trim() && addKeyword(keywordsInput)}
             placeholder={keywords.length === 0 ? "Type and press Enter" : ""}
+            aria-label="Keywords"
             className="flex-1 min-w-24 bg-transparent text-sm focus:outline-none"
           />
         </div>
@@ -415,11 +416,12 @@ export default function ProjectEditor({
           {COLOR_PALETTE.map((c) => (
             <button
               type="button"
-              key={c}
-              onClick={() => setColor(c === color ? null : c)}
-              className={`h-6 w-6 rounded-full border-2 ${c === color ? "border-fg" : "border-transparent"}`}
-              style={{ backgroundColor: c }}
-              aria-label={`Color ${c}`}
+              key={c.value}
+              onClick={() => setColor(c.value === color ? null : c.value)}
+              className={`h-6 w-6 rounded-full border-2 ${c.value === color ? "border-fg" : "border-transparent"}`}
+              style={{ backgroundColor: c.value }}
+              aria-pressed={c.value === color}
+              aria-label={c.name}
             />
           ))}
           <input
@@ -427,6 +429,7 @@ export default function ProjectEditor({
             value={color ?? ""}
             onChange={(e) => setColor(e.target.value || null)}
             placeholder="#hex"
+            aria-label="Custom color hex"
             className="w-20 rounded-md border border-line bg-canvas px-2 py-1 text-xs focus:border-accent focus:outline-none"
           />
           {color && (
@@ -589,6 +592,7 @@ function RoutingChipEditor({
           }}
           onBlur={() => input.trim() && add(input)}
           placeholder={values.length === 0 ? placeholder : ""}
+          aria-label={label}
           className="flex-1 min-w-32 bg-transparent text-sm focus:outline-none"
         />
       </div>

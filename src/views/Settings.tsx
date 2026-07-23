@@ -25,6 +25,7 @@ import GuideTemplateManager from "../components/GuideTemplateManager";
 import PermissionsSection from "../components/PermissionsSection";
 import StartAtLoginToggle from "../components/StartAtLoginToggle";
 import TranscriptionSettings from "../components/TranscriptionSettings";
+import Dialog from "../components/a11y/Dialog";
 import { useCapabilities } from "../lib/capabilitiesContext";
 import { uiGates } from "../lib/capabilities";
 import {
@@ -237,6 +238,7 @@ export default function Settings({ onBack }: Props) {
                       <button
                         key={id}
                         type="button"
+                        aria-current={active ? "page" : undefined}
                         onClick={() => setPage(id)}
                         className={[
                           "flex cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-[13px] font-medium transition-colors",
@@ -884,7 +886,13 @@ function SummaryPromptModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-backdrop">
+    <Dialog
+      onClose={onClose}
+      labelledBy="summary-prompt-modal-title"
+      dismissible={!busy}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-backdrop"
+      panelClassName="w-full max-w-[680px] rounded-xl border border-line bg-surface p-6 text-fg shadow-2xl flex flex-col max-h-[90vh] animate-card"
+    >
       <style>{`
         @keyframes modal-backdrop-fade {
           from { opacity: 0; background-color: rgba(0, 0, 0, 0); backdrop-filter: blur(0px); }
@@ -901,11 +909,13 @@ function SummaryPromptModal({
           animation: modal-card-appear 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
         }
       `}</style>
-      <div className="w-full max-w-[680px] rounded-xl border border-line bg-surface p-6 text-fg shadow-2xl flex flex-col max-h-[90vh] animate-card">
         {/* Header */}
         <div className="flex items-start justify-between border-b border-line pb-4">
           <div>
-            <h2 className="text-base font-semibold tracking-tight flex items-center gap-1.5">
+            <h2
+              id="summary-prompt-modal-title"
+              className="text-base font-semibold tracking-tight flex items-center gap-1.5"
+            >
               <Sparkles size={14} className="text-accent animate-pulse" />
               Meeting Summary Guidelines
             </h2>
@@ -916,6 +926,7 @@ function SummaryPromptModal({
           <button
             type="button"
             onClick={onClose}
+            aria-label="Close"
             className="rounded-md p-1.5 text-muted hover:bg-elevated hover:text-fg transition-colors"
           >
             <X size={14} />
@@ -1014,8 +1025,7 @@ function SummaryPromptModal({
             {busy ? "Saving..." : "Save Guidelines"}
           </button>
         </div>
-      </div>
-    </div>
+    </Dialog>
   );
 }
 
@@ -2424,15 +2434,13 @@ function DriveClientSetupModal(props: {
   onCancel: () => void;
 }) {
   return (
-    <div
+    <Dialog
+      onClose={props.onCancel}
+      labelledBy="drive-client-setup-title"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-      onClick={props.onCancel}
+      panelClassName="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-lg border border-line bg-canvas p-5 text-fg shadow-xl"
     >
-      <div
-        className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-lg border border-line bg-canvas p-5 text-fg shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h3 className="mb-3 text-[15px] font-semibold">
+        <h3 id="drive-client-setup-title" className="mb-3 text-[15px] font-semibold">
           Set up your own Google OAuth client
         </h3>
         <ol className="mb-4 list-decimal space-y-2 pl-5 text-[12px] leading-relaxed text-muted">
@@ -2501,8 +2509,7 @@ function DriveClientSetupModal(props: {
             {props.saving ? "Saving…" : "Save"}
           </button>
         </div>
-      </div>
-    </div>
+    </Dialog>
   );
 }
 

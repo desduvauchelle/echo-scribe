@@ -73,6 +73,7 @@ function TabButton({
     <button
       type="button"
       onClick={onClick}
+      aria-current={active ? "true" : undefined}
       className={`rounded-md px-2.5 py-1 text-[11px] font-medium transition ${
         active
           ? "bg-fg text-canvas"
@@ -216,13 +217,14 @@ function SessionsTab({ itemId }: { itemId: string }) {
               <button
                 type="button"
                 onClick={() => void handleExpandChat(s.id)}
+                aria-expanded={expandedChat === s.id}
                 className="flex w-full items-center gap-2 rounded px-1.5 py-1 text-left text-[11px] hover:bg-elevated"
               >
                 <span className="text-faint">
                   {expandedChat === s.id ? (
-                    <ChevronDown size={11} strokeWidth={2.25} />
+                    <ChevronDown size={11} strokeWidth={2.25} aria-hidden="true" />
                   ) : (
-                    <ChevronRight size={11} strokeWidth={2.25} />
+                    <ChevronRight size={11} strokeWidth={2.25} aria-hidden="true" />
                   )}
                 </span>
                 <span className="truncate font-medium text-muted">
@@ -275,13 +277,14 @@ function SessionsTab({ itemId }: { itemId: string }) {
               <button
                 type="button"
                 onClick={() => void handleExpandClaude(s.session_id)}
+                aria-expanded={expandedClaude === s.session_id}
                 className="flex w-full items-center gap-2 rounded px-1.5 py-1 text-left text-[11px] hover:bg-elevated"
               >
                 <span className="text-faint">
                   {expandedClaude === s.session_id ? (
-                    <ChevronDown size={11} strokeWidth={2.25} />
+                    <ChevronDown size={11} strokeWidth={2.25} aria-hidden="true" />
                   ) : (
-                    <ChevronRight size={11} strokeWidth={2.25} />
+                    <ChevronRight size={11} strokeWidth={2.25} aria-hidden="true" />
                   )}
                 </span>
                 <span className="truncate font-medium text-muted">

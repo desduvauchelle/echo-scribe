@@ -131,6 +131,7 @@ const CameraPreview: React.FC = () => {
         autoPlay
         muted
         playsInline
+        aria-label="Camera preview"
         data-tauri-drag-region
       />
       {error && <div style={styles.error}>{error}</div>}

@@ -64,8 +64,12 @@ export default function EditorWindow() {
 
   if (!recording) {
     return (
-      <div className="grid h-screen place-items-center bg-canvas text-muted">
-        <Loader size={20} className="animate-spin" />
+      <div
+        className="grid h-screen place-items-center bg-canvas text-muted"
+        role="status"
+      >
+        <Loader size={20} className="animate-spin" aria-hidden="true" />
+        <span className="sr-only">Loading recording…</span>
       </div>
     );
   }

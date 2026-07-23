@@ -131,7 +131,7 @@ const RecordingOverlay: React.FC = () => {
 
       <div className="overlay-middle">
         {isRecording && (
-          <div className="bars-container">
+          <div className="bars-container" aria-hidden="true">
             {levels.map((v, i) => (
               <div
                 key={i}
@@ -146,13 +146,17 @@ const RecordingOverlay: React.FC = () => {
           </div>
         )}
         {state === "transcribing" && (
-          <div className="status-text">Transcribing…</div>
+          <div className="status-text" role="status" aria-live="polite">
+            Transcribing…
+          </div>
         )}
         {isProcessing && (
-          <div className="status-text">{processingLabel}</div>
+          <div className="status-text" role="status" aria-live="polite">
+            {processingLabel}
+          </div>
         )}
         {isMeeting && (
-          <div className="status-text">
+          <div className="status-text" role="status" aria-live="polite">
             {meetingAppName ? `Recording · ${meetingAppName}` : "Recording meeting"}
           </div>
         )}
@@ -162,6 +166,7 @@ const RecordingOverlay: React.FC = () => {
         {isRecording && (
           <button
             className="cancel-button"
+            aria-label="Cancel recording"
             onClick={() => {
               import("@tauri-apps/api/event").then(({ emit }) =>
                 emit("overlay-cancel"),

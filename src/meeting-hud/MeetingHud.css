@@ -129,6 +129,9 @@
   animation: hud-spin 0.9s linear infinite;
 }
 @keyframes hud-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .spinner { animation: none; }
+}
 
 .add-guide { padding: 6px 0; position: relative; }
 .add-guide .add {

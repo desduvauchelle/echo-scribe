@@ -20,20 +20,20 @@ function KindIcon({ kind, source }: { kind: Item["kind"]; source: Item["source"]
   if (kind === "task") {
     return (
       <span className="inline-flex h-5 w-5 items-center justify-center rounded-md bg-warning/15 text-warning">
-        <CheckSquare size={12} strokeWidth={2} />
+        <CheckSquare size={12} strokeWidth={2} aria-hidden="true" />
       </span>
     );
   }
   if (source === "voice_at_cursor") {
     return (
       <span className="inline-flex h-5 w-5 items-center justify-center rounded-md bg-accent-soft text-accent">
-        <Mic size={12} strokeWidth={2} />
+        <Mic size={12} strokeWidth={2} aria-hidden="true" />
       </span>
     );
   }
   return (
     <span className="inline-flex h-5 w-5 items-center justify-center rounded-md bg-elevated text-muted">
-      <StickyNote size={12} strokeWidth={2} />
+      <StickyNote size={12} strokeWidth={2} aria-hidden="true" />
     </span>
   );
 }
@@ -91,15 +91,21 @@ export default function ItemCard({
     : "text-[13px] text-fg";
 
   return (
-    <button
-      type="button"
-      onClick={() => openItem(item.id)}
-      className={`group flex w-full cursor-pointer gap-3 rounded-md border border-line bg-surface ${
+    <div
+      className={`group relative flex w-full gap-3 rounded-md border border-line bg-surface ${
         compact ? "px-3 py-2" : "p-4"
       } text-left transition-colors hover:border-line-strong hover:bg-elevated ${
         isVoice ? "border-l-2 border-l-accent/70" : ""
       }`}
     >
+      {/* Primary action: full-card overlay button. Secondary controls sit
+          above it (relative z-10) so they stay clickable. */}
+      <button
+        type="button"
+        onClick={() => openItem(item.id)}
+        className="absolute inset-0 cursor-pointer rounded-md"
+        aria-label={`Open ${item.kind === "task" ? "task" : "note"}: ${item.content.slice(0, 80)}`}
+      />
       <div className="pt-0.5">
         <KindIcon kind={item.kind} source={item.source} />
       </div>
@@ -127,13 +133,13 @@ export default function ItemCard({
         </div>
       </div>
       <div
-        className="flex shrink-0 flex-col items-end gap-1"
+        className="relative z-10 flex shrink-0 flex-col items-end gap-1"
         onClick={(e) => e.stopPropagation()}
       >
         {isVoice ? <CopyContentButton value={item.content} /> : null}
         {rightSlot}
       </div>
-    </button>
+    </div>
   );
 }
 
@@ -142,7 +148,7 @@ function CopyContentButton({ value }: { value: string }) {
   return (
     <button
       type="button"
-      aria-label="Copy transcription"
+      aria-label={copied ? "Copied" : "Copy transcription"}
       title="Copy transcription"
       onClick={(e) => {
         e.stopPropagation();
@@ -154,7 +160,11 @@ function CopyContentButton({ value }: { value: string }) {
         copied ? "border-green-500/40 text-green-500 opacity-100" : "border-line text-muted"
       }`}
     >
-      {copied ? <Check size={13} /> : <Copy size={13} />}
+      {copied ? (
+        <Check size={13} aria-hidden="true" />
+      ) : (
+        <Copy size={13} aria-hidden="true" />
+      )}
     </button>
   );
 }

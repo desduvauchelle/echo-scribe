@@ -367,6 +367,7 @@ const SetupWindow: React.FC = () => {
                 ...(sourceKind === "screen" ? styles.segmentActive : {}),
               }}
               onClick={() => setSourceKind("screen")}
+              aria-pressed={sourceKind === "screen"}
             >
               Entire Screen
             </button>
@@ -376,6 +377,7 @@ const SetupWindow: React.FC = () => {
                 ...(sourceKind === "window" ? styles.segmentActive : {}),
               }}
               onClick={() => setSourceKind("window")}
+              aria-pressed={sourceKind === "window"}
             >
               Window
             </button>
@@ -385,6 +387,7 @@ const SetupWindow: React.FC = () => {
                 ...(sourceKind === "area" ? styles.segmentActive : {}),
               }}
               onClick={() => setSourceKind("area")}
+              aria-pressed={sourceKind === "area"}
             >
               Area
             </button>
@@ -401,6 +404,7 @@ const SetupWindow: React.FC = () => {
               ) : (
                 <select
                   style={styles.select}
+                  aria-label="Display"
                   value={selectedDisplayId ?? ""}
                   onChange={(e) => setSelectedDisplayId(Number(e.target.value))}
                 >
@@ -458,6 +462,7 @@ const SetupWindow: React.FC = () => {
               ) : (
                 <select
                   style={styles.select}
+                  aria-label="Display"
                   value={selectedDisplayId ?? ""}
                   onChange={(e) => {
                     setSelectedDisplayId(Number(e.target.value));
@@ -535,6 +540,7 @@ const SetupWindow: React.FC = () => {
               ) : (
                 <select
                   style={styles.select}
+                  aria-label="Microphone device"
                   value={micDevice}
                   onChange={(e) => setMicDevice(e.target.value)}
                 >
@@ -663,6 +669,7 @@ const SetupWindow: React.FC = () => {
             <div style={styles.micSelectWrapper}>
               <select
                 style={styles.select}
+                aria-label="Camera device"
                 value={effectiveCameraUid}
                 onChange={(e) => setCameraUid(e.target.value)}
               >
@@ -782,7 +789,6 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: "13px",
     appearance: "auto" as React.CSSProperties["appearance"],
     cursor: "pointer",
-    outline: "none",
   },
   windowList: {
     display: "flex",

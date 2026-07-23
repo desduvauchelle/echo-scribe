@@ -35,6 +35,8 @@ import {
   type RecordingRow,
 } from "../../lib/api";
 import { useToasts } from "../../components/ToastProvider";
+import Menu from "../../components/a11y/Menu";
+import Dialog from "../../components/a11y/Dialog";
 import ItemCard from "../../components/ItemCard";
 import MeetingCard from "../../components/MeetingCard";
 import RecordingCard from "../../components/RecordingCard";
@@ -487,6 +489,7 @@ export default function DashboardView({ projects }: Props) {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search captures…"
+            aria-label="Search captures"
             className="flex-1 bg-transparent text-[13px] text-fg outline-none placeholder:text-faint"
             onKeyDown={(e) => {
               if (e.key === "Escape") closeSearch();
@@ -520,6 +523,7 @@ export default function DashboardView({ projects }: Props) {
               <button
                 key={value}
                 type="button"
+                aria-pressed={active}
                 onClick={() => setKindFilter(value)}
                 className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs transition-colors ${
                   active
@@ -543,7 +547,7 @@ export default function DashboardView({ projects }: Props) {
             className="flex items-center gap-1.5 rounded-md border border-line bg-surface p-1.5 text-muted hover:bg-elevated hover:text-fg disabled:opacity-70"
           >
             {tagging ? (
-              <>
+              <span aria-live="polite" className="flex items-center gap-1.5">
                 <Loader2 size={14} className="animate-spin" />
                 {tagProgress ? (
                   <span className="text-[11px] tabular-nums">
@@ -551,27 +555,26 @@ export default function DashboardView({ projects }: Props) {
                     {tagProgress.assigned > 0 ? ` · ${tagProgress.assigned} tagged` : ""}
                   </span>
                 ) : null}
-              </>
+              </span>
             ) : (
               <Tags size={14} />
             )}
           </button>
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => setExportOpen((o) => !o)}
-              aria-label="Export activity"
-              title="Export activity"
-              className="rounded-md border border-line bg-surface p-1.5 text-muted hover:bg-elevated hover:text-fg"
-            >
-              <Download size={14} />
-            </button>
-            {exportOpen ? (
-              <>
-                <div
-                  className="fixed inset-0 z-10"
-                  onClick={() => setExportOpen(false)}
-                />
+          <Menu
+            open={exportOpen}
+            onOpenChange={setExportOpen}
+            renderTrigger={(props) => (
+              <button
+                {...props}
+                type="button"
+                aria-label="Export activity"
+                title="Export activity"
+                className="rounded-md border border-line bg-surface p-1.5 text-muted hover:bg-elevated hover:text-fg"
+              >
+                <Download size={14} />
+              </button>
+            )}
+          >
                 <div className="absolute right-0 top-full z-20 mt-1.5 w-56 rounded-lg border border-line bg-canvas p-3 shadow-xl">
                   <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.08em] text-muted">
                     Export activity
@@ -611,9 +614,7 @@ export default function DashboardView({ projects }: Props) {
                     </button>
                   </div>
                 </div>
-              </>
-            ) : null}
-          </div>
+          </Menu>
           {!searchOpen ? (
             <button
               type="button"
@@ -798,25 +799,18 @@ function RecapModal({
   dateLabel: string;
   onClose: () => void;
 }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
   return (
-    <div
+    <Dialog
+      onClose={onClose}
+      labelledBy="recap-modal-title"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6"
-      onClick={onClose}
+      panelClassName="flex max-h-[80vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-line bg-canvas shadow-xl"
     >
-      <div
-        className="flex max-h-[80vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-line bg-canvas shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
         <header className="flex items-center justify-between border-b border-line px-6 py-4">
-          <h2 className="text-base font-semibold tracking-tight text-fg">
+          <h2
+            id="recap-modal-title"
+            className="text-base font-semibold tracking-tight text-fg"
+          >
             {dateLabel}
           </h2>
           <button
@@ -843,8 +837,7 @@ function RecapModal({
             items={summary.sections.things_that_came_up ?? []}
           />
         </div>
-      </div>
-    </div>
+    </Dialog>
   );
 }
 

@@ -278,7 +278,7 @@ export default function Onboarding({ initialStatus, onStarted, resumeNotice }: P
     <div className="flex min-h-full items-center justify-center bg-canvas px-6 py-12 text-fg">
       <div className="w-full max-w-[480px] rounded-xl border border-line bg-surface p-6 shadow-xl shadow-black/40">
         <div className="mb-3 inline-flex h-9 w-9 items-center justify-center rounded-lg bg-accent-soft text-accent">
-          <Mic size={18} strokeWidth={2} />
+          <Mic size={18} strokeWidth={2} aria-hidden="true" />
         </div>
         <h1 className="text-xl font-semibold tracking-tight text-fg">
           Welcome to Echo Scribe
@@ -290,7 +290,10 @@ export default function Onboarding({ initialStatus, onStarted, resumeNotice }: P
         </p>
 
         {resumeNotice ? (
-          <div className="mt-4 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
+          <div
+            role="alert"
+            className="mt-4 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning"
+          >
             {resumeNotice}
           </div>
         ) : null}
@@ -368,12 +371,12 @@ export default function Onboarding({ initialStatus, onStarted, resumeNotice }: P
 
           <div>
             <div className="flex items-center justify-between gap-3">
-              <div className="text-[13px] font-semibold tracking-tight text-fg">
+              <h2 className="text-[13px] font-semibold tracking-tight text-fg">
                 Local AI model{" "}
                 <span className="text-xs font-normal text-muted">
                   (optional)
                 </span>
-              </div>
+              </h2>
               {llmReady ? (
                 <span className="inline-flex items-center rounded-full bg-success/15 px-2 py-0.5 text-xs text-success">
                   Ready
@@ -407,9 +410,9 @@ export default function Onboarding({ initialStatus, onStarted, resumeNotice }: P
           <div className="h-px bg-elevated" />
 
           <div>
-            <div className="text-[13px] font-semibold tracking-tight text-fg">
+            <h2 className="text-[13px] font-semibold tracking-tight text-fg">
               Dictation shortcut
-            </div>
+            </h2>
             <p className="mt-1 text-sm text-muted">
               Press and hold to record. Default is Right Control — change it
               here if that conflicts with another app.
@@ -424,9 +427,9 @@ export default function Onboarding({ initialStatus, onStarted, resumeNotice }: P
           </div>
 
           <div>
-            <div className="text-[13px] font-semibold tracking-tight text-fg">
+            <h2 className="text-[13px] font-semibold tracking-tight text-fg">
               Log capture shortcut
-            </div>
+            </h2>
             <p className="mt-1 text-sm text-muted">
               Press and hold to capture a thought or task. Default is Right
               Option — Echo Scribe will classify it locally and pop a review
@@ -460,7 +463,9 @@ export default function Onboarding({ initialStatus, onStarted, resumeNotice }: P
         </button>
 
         {error ? (
-          <p className="mt-3 text-xs text-warning">{error}</p>
+          <p role="alert" className="mt-3 text-xs text-warning">
+            {error}
+          </p>
         ) : null}
 
         <div className="mt-6 border-t border-line pt-3">

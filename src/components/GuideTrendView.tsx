@@ -1,12 +1,20 @@
 import { useCallback, useEffect, useState } from "react";
 import { guideRunsForTemplate, type GuideRun } from "../lib/api";
 import { aggregateTrend, type TrendData } from "../lib/guideReview";
+import Dialog from "./a11y/Dialog";
 
 const CELL: Record<string, string> = {
   met: "bg-emerald-500/70",
   partial: "bg-amber-500/70",
   missed: "bg-red-500/70",
   unknown: "bg-elevated",
+};
+
+const CELL_LABEL: Record<string, string> = {
+  met: "Met",
+  partial: "Partially met",
+  missed: "Missed",
+  unknown: "No data",
 };
 
 export default function GuideTrendView({
@@ -30,17 +38,17 @@ export default function GuideTrendView({
   }, [load]);
 
   return (
-    <div
+    <Dialog
+      onClose={onClose}
+      labelledBy="guide-trend-title"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-      onClick={onClose}
+      panelClassName="max-h-[85vh] w-full max-w-3xl overflow-auto rounded-xl border border-line bg-surface p-5"
     >
-      <div
-        className="max-h-[85vh] w-full max-w-3xl overflow-auto rounded-xl border border-line bg-surface p-5"
-        onClick={(e) => e.stopPropagation()}
-      >
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-[15px] font-semibold text-fg">{templateName} — across your calls</h2>
-          <button className="text-muted hover:text-fg" onClick={onClose}>✕</button>
+          <h2 id="guide-trend-title" className="text-[15px] font-semibold text-fg">
+            {templateName} — across your calls
+          </h2>
+          <button aria-label="Close" className="text-muted hover:text-fg" onClick={onClose}>✕</button>
         </div>
 
         {!data || data.columns.length === 0 ? (
@@ -79,11 +87,20 @@ export default function GuideTrendView({
                   {data.criteria.map((crit, i) => (
                     <tr key={crit}>
                       <td className="whitespace-nowrap pr-2 font-medium text-fg">{crit}</td>
-                      {data.columns.map((c) => (
-                        <td key={c.runId} className="p-0">
-                          <div className={`mx-auto h-5 w-5 rounded ${CELL[c.cells[i]] ?? CELL.unknown}`} />
-                        </td>
-                      ))}
+                      {data.columns.map((c) => {
+                        const state = c.cells[i] in CELL ? c.cells[i] : "unknown";
+                        const label = `${crit}, ${c.startedAt.slice(5, 10)}: ${CELL_LABEL[state]}`;
+                        return (
+                          <td key={c.runId} className="p-0">
+                            <div
+                              role="img"
+                              aria-label={label}
+                              title={label}
+                              className={`mx-auto h-5 w-5 rounded ${CELL[state]}`}
+                            />
+                          </td>
+                        );
+                      })}
                       <td className="px-1 text-center tabular-nums text-muted">
                         {data.hits[i]}/{data.columns.length}
                       </td>
@@ -94,7 +111,6 @@ export default function GuideTrendView({
             </div>
           </>
         )}
-      </div>
-    </div>
+    </Dialog>
   );
 }

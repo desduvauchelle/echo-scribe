@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useToasts } from "../../components/ToastProvider";
 import { DriveReconnectModal } from "../../components/RecordingActionsMenu";
+import { useMenuDismiss } from "../../components/a11y/Menu";
 import {
   Check,
   ChevronDown,
@@ -56,6 +57,18 @@ function fmtSize(bytes: number | null): string {
   return mb >= 1 ? `${mb.toFixed(1)} MB` : `${(bytes / 1024).toFixed(0)} KB`;
 }
 
+/** Build a data-URI WebVTT track from a plain transcript. We have no timing
+ *  data, so the whole transcript is a single cue spanning the recording. */
+function transcriptVttUrl(transcript: string, durationMs: number | null): string {
+  const totalS = Math.max(1, Math.round((durationMs ?? 3_600_000) / 1000));
+  const ts = (s: number) =>
+    `${String(Math.floor(s / 3600)).padStart(2, "0")}:${String(
+      Math.floor((s % 3600) / 60),
+    ).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}.000`;
+  const vtt = `WEBVTT\n\n${ts(0)} --> ${ts(totalS)}\n${transcript.trim()}\n`;
+  return `data:text/vtt;charset=utf-8,${encodeURIComponent(vtt)}`;
+}
+
 type ExportVariant = { quality: string; path: string; size: number };
 
 function parseExports(json: string): ExportVariant[] {
@@ -72,7 +85,7 @@ function Tooltip({ label, children }: { label: string; children: ReactNode }) {
   return (
     <span className="group/tt relative inline-flex shrink-0">
       {children}
-      <span className="pointer-events-none absolute left-1/2 top-full z-[60] mt-1.5 -translate-x-1/2 whitespace-nowrap rounded border border-line bg-elevated px-2 py-1 text-[11px] text-fg opacity-0 shadow-lg transition-opacity duration-100 group-hover/tt:opacity-100">
+      <span className="pointer-events-none absolute left-1/2 top-full z-[60] mt-1.5 -translate-x-1/2 whitespace-nowrap rounded border border-line bg-elevated px-2 py-1 text-[11px] text-fg opacity-0 shadow-lg transition-opacity duration-100 group-hover/tt:opacity-100 group-focus-within/tt:opacity-100">
         {label}
       </span>
     </span>
@@ -89,7 +102,7 @@ function CopyButton({ value }: { value: string }) {
         setCopied(true);
         window.setTimeout(() => setCopied(false), 1200);
       }}
-      aria-label="Copy"
+      aria-label={copied ? "Copied" : "Copy"}
       className={`grid h-7 w-7 shrink-0 place-items-center rounded-md border hover:bg-surface ${
         copied ? "border-green-500/40 text-green-500" : "border-line text-fg"
       }`}
@@ -147,8 +160,16 @@ function SplitButton({
   disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const caretRef = useRef<HTMLButtonElement>(null);
+  useMenuDismiss({
+    open,
+    onClose: () => setOpen(false),
+    containerRef,
+    triggerRef: caretRef,
+  });
   return (
-    <div className="group/tt relative flex shrink-0">
+    <div ref={containerRef} className="group/tt relative flex shrink-0">
       <button
         aria-label={title}
         onClick={() => onSelect(defaultValue)}
@@ -158,7 +179,10 @@ function SplitButton({
         {busy ? <Loader size={16} className="animate-spin" /> : icon}
       </button>
       <button
+        ref={caretRef}
         aria-label="Choose resolution"
+        aria-haspopup="menu"
+        aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
         disabled={disabled}
         className="grid h-8 w-5 place-items-center rounded-r-md border border-l-0 border-line text-muted hover:bg-surface disabled:opacity-50"
@@ -166,13 +190,12 @@ function SplitButton({
         <ChevronDown size={13} />
       </button>
       {open ? null : (
-        <span className="pointer-events-none absolute left-1/2 top-full z-[60] mt-1.5 -translate-x-1/2 whitespace-nowrap rounded border border-line bg-elevated px-2 py-1 text-[11px] text-fg opacity-0 shadow-lg transition-opacity duration-100 group-hover/tt:opacity-100">
+        <span className="pointer-events-none absolute left-1/2 top-full z-[60] mt-1.5 -translate-x-1/2 whitespace-nowrap rounded border border-line bg-elevated px-2 py-1 text-[11px] text-fg opacity-0 shadow-lg transition-opacity duration-100 group-hover/tt:opacity-100 group-focus-within/tt:opacity-100">
           {title}
         </span>
       )}
       {open ? (
         <>
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
           <div className="absolute right-0 top-full z-50 mt-1 min-w-[110px] overflow-hidden rounded-md border border-line bg-canvas py-1 shadow-lg">
             {options.map((o) => (
               <button
@@ -215,6 +238,14 @@ function UploadButton({
   onUpload: (quality: UploadQuality, makePublic: boolean) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const caretRef = useRef<HTMLButtonElement>(null);
+  useMenuDismiss({
+    open,
+    onClose: () => setOpen(false),
+    containerRef,
+    triggerRef: caretRef,
+  });
   const [isPublic, setIsPublic] = useState(defaultPublic);
   // Re-sync when the Settings default loads/changes (defaultPublic starts stale).
   useEffect(() => setIsPublic(defaultPublic), [defaultPublic]);
@@ -233,7 +264,7 @@ function UploadButton({
     }`;
 
   return (
-    <div className="group/tt relative flex shrink-0">
+    <div ref={containerRef} className="group/tt relative flex shrink-0">
       <button
         aria-label="Upload to Drive"
         onClick={() => onUpload(primary, isPublic)}
@@ -243,7 +274,10 @@ function UploadButton({
         {busy ? <Loader size={16} className="animate-spin" /> : <CloudUpload size={16} />}
       </button>
       <button
+        ref={caretRef}
         aria-label="Upload options"
+        aria-haspopup="menu"
+        aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
         disabled={disabled}
         className="grid h-8 w-5 place-items-center rounded-r-md border border-l-0 border-line text-muted hover:bg-surface disabled:opacity-50"
@@ -251,13 +285,12 @@ function UploadButton({
         <ChevronDown size={13} />
       </button>
       {open ? null : (
-        <span className="pointer-events-none absolute left-1/2 top-full z-[60] mt-1.5 -translate-x-1/2 whitespace-nowrap rounded border border-line bg-elevated px-2 py-1 text-[11px] text-fg opacity-0 shadow-lg transition-opacity duration-100 group-hover/tt:opacity-100">
+        <span className="pointer-events-none absolute left-1/2 top-full z-[60] mt-1.5 -translate-x-1/2 whitespace-nowrap rounded border border-line bg-elevated px-2 py-1 text-[11px] text-fg opacity-0 shadow-lg transition-opacity duration-100 group-hover/tt:opacity-100 group-focus-within/tt:opacity-100">
           Upload to Drive ({hasEdited ? "edited version" : "1080p"})
         </span>
       )}
       {open ? (
         <>
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
           <div className="absolute right-0 top-full z-50 mt-1 min-w-[170px] overflow-hidden rounded-md border border-line bg-canvas py-1 shadow-lg">
             <div className="px-3 pb-1 pt-1 text-[10px] font-medium uppercase tracking-wide text-muted">
               Sharing
@@ -613,7 +646,10 @@ export function RecordingsView() {
       </div>
 
       {error ? (
-        <div className="border-b border-line bg-red-950/40 px-6 py-2 text-[12px] text-red-300">
+        <div
+          role="alert"
+          className="border-b border-line bg-red-950/40 px-6 py-2 text-[12px] text-red-300"
+        >
           {error}
         </div>
       ) : null}
@@ -666,6 +702,7 @@ export function RecordingsView() {
                 <div className="mb-3 flex items-center gap-2">
                   <input
                     autoFocus
+                    aria-label="Recording name"
                     value={nameInput}
                     onChange={(e) => setNameInput(e.target.value)}
                     onKeyDown={(e) => {
@@ -706,7 +743,19 @@ export function RecordingsView() {
                 src={convertFileSrc(selected.denoised_path ?? selected.file_path)}
                 controls
                 className="w-full rounded-lg bg-black"
-              />
+              >
+                {selected.transcript?.trim() ? (
+                  <track
+                    kind="captions"
+                    label="Transcript"
+                    srcLang="en"
+                    src={transcriptVttUrl(
+                      selected.transcript,
+                      selected.duration_ms,
+                    )}
+                  />
+                ) : null}
+              </video>
               <div className="mt-4 flex items-center gap-2">
                 <IconButton
                   title="Reveal in Finder"

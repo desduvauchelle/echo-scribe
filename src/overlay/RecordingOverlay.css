@@ -87,6 +87,13 @@
   }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .status-text {
+    animation: none;
+    opacity: 1;
+  }
+}
+
 .cancel-button {
   width: 24px;
   height: 24px;

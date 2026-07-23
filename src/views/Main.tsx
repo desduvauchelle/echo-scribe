@@ -114,10 +114,16 @@ export default function Main({ onOpenSettings }: Props) {
                   <span className="absolute inline-flex h-full w-full rounded-full bg-accent opacity-60" />
                   <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-accent" />
                 </span>
-                <Mic size={10} strokeWidth={2} className="text-accent" />
+                <Mic
+                  size={10}
+                  strokeWidth={2}
+                  className="text-accent"
+                  aria-hidden="true"
+                />
                 <span className="font-medium text-fg">
                   {formatBinding(binding)}
                 </span>
+                <span className="sr-only">to dictate</span>
               </div>
             ) : null}
             <SidebarRecordButton />
@@ -151,9 +157,14 @@ export default function Main({ onOpenSettings }: Props) {
           <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted">
             Projects
           </span>
-          <Folder size={11} strokeWidth={2} className="text-faint" />
+          <Folder
+            size={11}
+            strokeWidth={2}
+            className="text-faint"
+            aria-hidden="true"
+          />
         </div>
-        <div className="flex flex-col gap-0.5 px-2">
+        <nav aria-label="Projects" className="flex flex-col gap-0.5 px-2">
           {visibleProjects.length === 0 ? (
             <div className="px-3 py-1 text-xs text-muted">No projects yet</div>
           ) : (
@@ -176,7 +187,7 @@ export default function Main({ onOpenSettings }: Props) {
               {showAllProjects ? "Show fewer" : `Show all (${projects.length})`}
             </button>
           ) : null}
-        </div>
+        </nav>
 
         <div className="mt-auto flex flex-col gap-2 border-t border-line p-2">
           <div className="flex items-center gap-1">
@@ -186,7 +197,7 @@ export default function Main({ onOpenSettings }: Props) {
               className="flex flex-1 cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] text-muted transition-colors hover:bg-elevated hover:text-fg"
               title="Open settings"
             >
-              <SettingsIcon size={14} strokeWidth={1.75} />
+              <SettingsIcon size={14} strokeWidth={1.75} aria-hidden="true" />
               <span>Settings</span>
             </button>
             <ThemeToggle />
@@ -214,6 +225,7 @@ function NavItem({
     <button
       type="button"
       onClick={onClick}
+      aria-current={active ? "page" : undefined}
       className={`group relative flex cursor-pointer items-center gap-2 truncate rounded-md py-1.5 pl-3 pr-2 text-left text-[13px] transition-colors ${
         active
           ? "bg-accent-soft text-fg"
@@ -230,6 +242,7 @@ function NavItem({
       <Icon
         size={14}
         strokeWidth={1.75}
+        aria-hidden="true"
         className={
           active
             ? "text-accent"

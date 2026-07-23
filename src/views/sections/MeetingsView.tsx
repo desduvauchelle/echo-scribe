@@ -13,6 +13,7 @@ import {
   type MeetingStatus,
 } from "../../lib/api";
 import { meetingStatusDisplay } from "../../lib/meetingStatus";
+import Menu from "../../components/a11y/Menu";
 import { useToasts } from "../../components/ToastProvider";
 import { useActivityPanel } from "../../components/ActivityPanelContext";
 
@@ -200,28 +201,31 @@ export function MeetingsView() {
         <h2 className="text-lg font-semibold">Meetings</h2>
         <div className="flex items-center gap-2">
           {!active && templates.length > 0 && (
-            <div className="relative">
-              <button
-                className="rounded-md border border-line px-3 py-1 text-sm text-muted hover:text-fg disabled:opacity-50"
-                disabled={busy}
-                onClick={() => setPickerOpen((o) => !o)}
-              >
-                Start guided session
-              </button>
-              {pickerOpen && (
-                <div className="absolute right-0 z-10 mt-1 w-56 rounded-md border border-line bg-surface p-1 shadow-lg">
-                  {templates.map((t) => (
-                    <button
-                      key={t.id}
-                      className="block w-full truncate rounded px-2 py-1 text-left text-sm text-fg hover:bg-elevated"
-                      onClick={() => onStartGuided(t.id)}
-                    >
-                      {t.name}
-                    </button>
-                  ))}
-                </div>
+            <Menu
+              open={pickerOpen}
+              onOpenChange={setPickerOpen}
+              renderTrigger={(props) => (
+                <button
+                  {...props}
+                  className="rounded-md border border-line px-3 py-1 text-sm text-muted hover:text-fg disabled:opacity-50"
+                  disabled={busy}
+                >
+                  Start guided session
+                </button>
               )}
-            </div>
+            >
+              <div className="absolute right-0 z-10 mt-1 w-56 rounded-md border border-line bg-surface p-1 shadow-lg">
+                {templates.map((t) => (
+                  <button
+                    key={t.id}
+                    className="block w-full truncate rounded px-2 py-1 text-left text-sm text-fg hover:bg-elevated"
+                    onClick={() => onStartGuided(t.id)}
+                  >
+                    {t.name}
+                  </button>
+                ))}
+              </div>
+            </Menu>
           )}
           {toggleButton}
         </div>
@@ -375,6 +379,7 @@ function FilterChip({
   return (
     <button
       onClick={onClick}
+      aria-pressed={active}
       className={`rounded-full px-3 py-1 text-xs ${
         active ? "bg-accent text-white" : "bg-surface-2 text-fg"
       }`}

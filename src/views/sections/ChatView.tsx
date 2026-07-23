@@ -136,7 +136,7 @@ export default function ChatView({ projects }: Props) {
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       void send();
     }
@@ -153,6 +153,7 @@ export default function ChatView({ projects }: Props) {
               onChange={(e) =>
                 setProjectFilter(e.target.value === "" ? null : e.target.value)
               }
+              aria-label="Filter by project"
               className="mb-2 w-full rounded border border-line bg-surface px-2 py-1 text-xs text-muted focus:border-accent focus:outline-none"
             >
               <option value="">All projects</option>
@@ -168,7 +169,7 @@ export default function ChatView({ projects }: Props) {
             onClick={() => void handleNewChat()}
             className="flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-md bg-accent-soft py-1.5 text-xs font-medium text-accent transition-colors hover:bg-accent/25"
           >
-            <Plus size={12} strokeWidth={2.25} />
+            <Plus size={12} strokeWidth={2.25} aria-hidden="true" />
             New Chat
           </button>
         </div>
@@ -204,11 +205,11 @@ export default function ChatView({ projects }: Props) {
           </p>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-6 py-4">
+        <div className="flex-1 overflow-y-auto px-6 py-4" aria-live="polite">
           {!activeSessionId ? (
             <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
               <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent-soft text-accent">
-                <MessageSquare size={20} strokeWidth={1.75} />
+                <MessageSquare size={20} strokeWidth={1.75} aria-hidden="true" />
               </div>
               <p className="text-sm font-medium text-fg">
                 Chat with your memory
@@ -220,7 +221,7 @@ export default function ChatView({ projects }: Props) {
           ) : messages.length === 0 && !loading ? (
             <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
               <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent-soft text-accent">
-                <Sparkles size={20} strokeWidth={1.75} />
+                <Sparkles size={20} strokeWidth={1.75} aria-hidden="true" />
               </div>
               <p className="text-sm font-medium text-fg">
                 New conversation
@@ -258,6 +259,7 @@ export default function ChatView({ projects }: Props) {
                   : "Start a new chat first"
               }
               rows={2}
+              aria-label="Message"
               className="flex-1 resize-none rounded-md border border-line bg-canvas px-3 py-2 text-sm focus:border-accent focus:outline-none disabled:opacity-40"
               disabled={loading || !activeSessionId}
             />
@@ -267,7 +269,7 @@ export default function ChatView({ projects }: Props) {
               disabled={!input.trim() || loading || !activeSessionId}
               className="inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-accent px-3 py-2 text-xs font-semibold text-canvas transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-40"
             >
-              <Send size={12} strokeWidth={2.25} />
+              <Send size={12} strokeWidth={2.25} aria-hidden="true" />
               Send
             </button>
           </div>
@@ -292,27 +294,27 @@ function SessionRow({
   onDelete: (e: React.MouseEvent) => void;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`group flex w-full items-center justify-between px-3 py-2 text-left text-xs hover:bg-elevated/60 ${
+    <div
+      className={`group flex w-full items-center justify-between px-3 py-2 text-xs hover:bg-elevated/60 ${
         active ? "bg-elevated text-fg" : "text-muted"
       }`}
     >
-      <span className="truncate">{session.name}</span>
-      <span
-        role="button"
-        tabIndex={0}
+      <button
+        type="button"
+        onClick={onClick}
+        className="min-w-0 flex-1 cursor-pointer truncate text-left"
+      >
+        {session.name}
+      </button>
+      <button
+        type="button"
         onClick={onDelete}
-        onKeyDown={(e) =>
-          e.key === "Enter" && onDelete(e as unknown as React.MouseEvent)
-        }
-        className="ml-1 inline-flex shrink-0 cursor-pointer items-center rounded p-0.5 text-faint opacity-0 transition-colors hover:bg-elevated hover:text-danger group-hover:opacity-100"
+        className="ml-1 inline-flex shrink-0 cursor-pointer items-center rounded p-0.5 text-faint opacity-0 transition-colors hover:bg-elevated hover:text-danger focus-visible:opacity-100 group-hover:opacity-100"
         aria-label="Delete session"
       >
-        <X size={11} strokeWidth={2.25} />
-      </span>
-    </button>
+        <X size={11} strokeWidth={2.25} aria-hidden="true" />
+      </button>
+    </div>
   );
 }
 
@@ -335,7 +337,7 @@ function MessageBubble({
       >
         {!isUser ? (
           <p className="mb-1 inline-flex items-center gap-1 text-[10px] font-medium uppercase tracking-wider text-accent/80">
-            <Sparkles size={9} strokeWidth={2.5} />
+            <Sparkles size={9} strokeWidth={2.5} aria-hidden="true" />
             Echo Scribe AI
           </p>
         ) : null}
@@ -358,9 +360,9 @@ function SourcesPanel({ sources }: { sources: ContextSource[] }) {
         className="flex cursor-pointer items-center gap-1 text-[10px] text-faint transition-colors hover:text-muted"
       >
         {open ? (
-          <ChevronDown size={10} strokeWidth={2.25} />
+          <ChevronDown size={10} strokeWidth={2.25} aria-hidden="true" />
         ) : (
-          <ChevronRight size={10} strokeWidth={2.25} />
+          <ChevronRight size={10} strokeWidth={2.25} aria-hidden="true" />
         )}
         <span>
           {sources.length} source{sources.length !== 1 ? "s" : ""} used

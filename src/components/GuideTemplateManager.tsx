@@ -87,24 +87,28 @@ export default function GuideTemplateManager() {
       <input
         className="rounded-md border border-line bg-canvas px-2 py-1 text-sm focus:border-accent focus:outline-none"
         placeholder="Name (e.g. Customer discovery)"
+        aria-label="Template name"
         value={draft.name}
         onChange={(e) => setDraft({ ...draft, name: e.target.value })}
       />
       <input
         className="rounded-md border border-line bg-canvas px-2 py-1 text-sm focus:border-accent focus:outline-none"
         placeholder="Short description"
+        aria-label="Description"
         value={draft.description}
         onChange={(e) => setDraft({ ...draft, description: e.target.value })}
       />
       <textarea
         className="min-h-[48px] rounded-md border border-line bg-canvas px-2 py-1 text-sm focus:border-accent focus:outline-none"
         placeholder="Goal — what should this conversation achieve?"
+        aria-label="Goal"
         value={draft.goal}
         onChange={(e) => setDraft({ ...draft, goal: e.target.value })}
       />
       <textarea
         className="min-h-[96px] rounded-md border border-line bg-canvas px-2 py-1 text-sm focus:border-accent focus:outline-none"
         placeholder="Notes — questions to ask, talking points, context"
+        aria-label="Notes"
         value={draft.notes}
         onChange={(e) => setDraft({ ...draft, notes: e.target.value })}
       />

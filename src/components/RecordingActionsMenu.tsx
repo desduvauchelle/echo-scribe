@@ -24,6 +24,8 @@ import {
 } from "../lib/api";
 import { useToasts } from "./ToastProvider";
 import { useActivityPanel } from "./ActivityPanelContext";
+import Menu from "./a11y/Menu";
+import Dialog from "./a11y/Dialog";
 
 export function recordingDisplayName(r: RecordingRow): string {
   return r.title?.trim() || r.source_label || "Recording";
@@ -66,17 +68,13 @@ export function DriveReconnectModal({
   };
 
   return (
-    <div
+    <Dialog
+      onClose={onClose}
+      label="Reconnect Google Drive"
+      dismissible={!connecting}
       className="fixed inset-0 z-[80] grid place-items-center bg-black/50"
-      onClick={connecting ? undefined : onClose}
+      panelClassName="w-[400px] rounded-lg border border-line bg-canvas p-5 shadow-xl"
     >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label="Reconnect Google Drive"
-        className="w-[400px] rounded-lg border border-line bg-canvas p-5 shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
         <h2 className="text-[14px] font-semibold tracking-tight">
           Google Drive is disconnected
         </h2>
@@ -111,8 +109,7 @@ export function DriveReconnectModal({
             )}
           </button>
         </div>
-      </div>
-    </div>
+    </Dialog>
   );
 }
 
@@ -241,17 +238,20 @@ export default function RecordingActionsMenu({ rec }: { rec: RecordingRow }) {
           }}
         />
       ) : null}
-      <button
-        type="button"
-        aria-label="Recording actions"
-        onClick={() => setOpen((o) => !o)}
-        className="grid h-7 w-7 place-items-center rounded-md text-muted hover:bg-elevated hover:text-fg"
+      <Menu
+        open={open}
+        onOpenChange={setOpen}
+        renderTrigger={(props) => (
+          <button
+            {...props}
+            type="button"
+            aria-label="Recording actions"
+            className="grid h-7 w-7 place-items-center rounded-md text-muted hover:bg-elevated hover:text-fg"
+          >
+            {busy ? <Loader size={14} className="animate-spin" /> : <MoreHorizontal size={15} />}
+          </button>
+        )}
       >
-        {busy ? <Loader size={14} className="animate-spin" /> : <MoreHorizontal size={15} />}
-      </button>
-      {open ? (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
           <div className="absolute right-0 top-full z-50 mt-1 min-w-[190px] overflow-hidden rounded-md border border-line bg-canvas py-1 shadow-lg">
             <button
               type="button"
@@ -293,8 +293,7 @@ export default function RecordingActionsMenu({ rec }: { rec: RecordingRow }) {
               <Trash2 size={14} /> Delete
             </button>
           </div>
-        </>
-      ) : null}
+      </Menu>
     </div>
   );
 }

@@ -194,7 +194,7 @@ export default function DailyView({ initialDate }: Props) {
               aria-label="Dismiss"
               className="shrink-0 rounded p-0.5 hover:bg-canvas"
             >
-              <X size={14} />
+              <X size={14} aria-hidden="true" />
             </button>
           </div>
         )}
@@ -218,9 +218,12 @@ export default function DailyView({ initialDate }: Props) {
             aria-label="Previous day"
             className="rounded-md p-1 hover:bg-elevated"
           >
-            <ChevronLeft size={18} />
+            <ChevronLeft size={18} aria-hidden="true" />
           </button>
-          <h2 className="text-lg font-semibold tracking-tight text-fg">
+          <h2
+            aria-live="polite"
+            className="text-lg font-semibold tracking-tight text-fg"
+          >
             {dayLabel(date)}
           </h2>
           <button
@@ -228,7 +231,7 @@ export default function DailyView({ initialDate }: Props) {
             aria-label="Next day"
             className="rounded-md p-1 hover:bg-elevated"
           >
-            <ChevronRight size={18} />
+            <ChevronRight size={18} aria-hidden="true" />
           </button>
         </header>
 
@@ -246,7 +249,7 @@ export default function DailyView({ initialDate }: Props) {
               disabled={regenerating}
               className="mt-3 inline-flex items-center gap-1.5 rounded-md border border-line bg-elevated px-3 py-1 text-xs text-fg hover:bg-elevated/70 disabled:opacity-50"
             >
-              <RefreshCw size={14} />
+              <RefreshCw size={14} aria-hidden="true" />
               {regenerating ? "Generating…" : "Generate now"}
             </button>
           </div>
@@ -266,7 +269,7 @@ export default function DailyView({ initialDate }: Props) {
               disabled={regenerating}
               className="mt-3 inline-flex items-center gap-1.5 rounded-md border border-line bg-elevated px-3 py-1 text-xs text-fg hover:bg-elevated/70 disabled:opacity-50"
             >
-              <RefreshCw size={14} />
+              <RefreshCw size={14} aria-hidden="true" />
               {regenerating ? "Retrying…" : "Retry"}
             </button>
           </div>

@@ -293,16 +293,26 @@ export default function MeetingHud() {
               if (!showTranscript) backfillTranscript();
             }}
             title="Toggle live transcript"
+            aria-label="Toggle live transcript"
+            aria-pressed={showTranscript}
           >
-            ☰
+            <span aria-hidden="true">☰</span>
           </button>
-          <button onClick={() => getCurrentWindow().hide()} title="Hide (meeting keeps recording)">
-            ─
+          <button
+            onClick={() => getCurrentWindow().hide()}
+            title="Hide (meeting keeps recording)"
+            aria-label="Hide window (meeting keeps recording)"
+          >
+            <span aria-hidden="true">─</span>
           </button>
         </span>
       </header>
 
-      {toast && <div className="toast">{toast}</div>}
+      {toast && (
+        <div className="toast" role="status" aria-live="polite">
+          {toast}
+        </div>
+      )}
 
       <div className="body">
         <section className="guides">
@@ -332,8 +342,13 @@ export default function MeetingHud() {
                       <button className="mode" onClick={() => onToggleMode(s)}>On-demand</button>
                     </>
                   )}
-                  <button className="end" onClick={() => onDetach(s.sessionId)} title="End this guide">
-                    ×
+                  <button
+                    className="end"
+                    onClick={() => onDetach(s.sessionId)}
+                    title="End this guide"
+                    aria-label="End this guide"
+                  >
+                    <span aria-hidden="true">×</span>
                   </button>
                 </span>
               </div>
@@ -377,7 +392,7 @@ export default function MeetingHud() {
           </div>
         </section>
 
-        <section className="feed">
+        <section className="feed" aria-live="polite">
           {cards.length === 0 ? (
             <div className="empty">Guidance cards appear here — newest on top.</div>
           ) : (

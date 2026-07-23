@@ -42,9 +42,12 @@ export default function UpdateBanner() {
   };
 
   return (
-    <div className="flex items-center justify-between gap-3 border-b border-accent/40 bg-accent-soft px-4 py-2 text-xs text-accent">
+    <div
+      role="status"
+      className="flex items-center justify-between gap-3 border-b border-accent/40 bg-accent-soft px-4 py-2 text-xs text-accent"
+    >
       <span className="inline-flex items-center gap-1.5">
-        <ArrowDownToLine size={12} strokeWidth={2} />
+        <ArrowDownToLine size={12} strokeWidth={2} aria-hidden="true" />
         Echo Scribe {updateVersion} is ready
       </span>
       <div className="flex items-center gap-2">
@@ -61,7 +64,7 @@ export default function UpdateBanner() {
           className="shrink-0 cursor-pointer rounded p-0.5 text-accent/70 transition-colors hover:bg-accent/15 hover:text-accent"
           aria-label="Dismiss update"
         >
-          <X size={12} strokeWidth={2} />
+          <X size={12} strokeWidth={2} aria-hidden="true" />
         </button>
       </div>
     </div>
