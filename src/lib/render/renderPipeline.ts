@@ -140,6 +140,12 @@ export type RenderRecordingOpts = {
    *  decode→composite loop, so every effect rides along identically. */
   format?: "mp4" | "gif";
   onProgress: (p: RenderProgress) => void;
+  /** Fired ONCE with the first composited output frame as a JPEG blob — the
+   *  export's poster. The caller uses it to refresh the recording's library
+   *  thumbnail so it shows the EDITED look (background, padding, zoom, webcam
+   *  bubble) instead of the raw capture's first frame. Encoding failures are
+   *  swallowed (a poster is polish; it must never fail the export). */
+  onPoster?: (jpeg: Blob) => void;
 };
 
 /** The applied trim window in SOURCE-time ms. `startMs`=0 / `endMs`=durationMs
@@ -333,51 +339,88 @@ type TrakForEdits = {
   mdia?: { mdhd?: { timescale?: number } };
 };
 
+/** One elst segment mapped into µs: media range `[mediaStartUs, mediaEndUs)`
+ *  is presented starting at `movieStartUs` on the movie timeline. */
+export type EditSegment = { mediaStartUs: number; mediaEndUs: number; movieStartUs: number };
+
 /**
- * The presentation offset (µs) to SUBTRACT from a track's raw sample
- * timestamps (media timeline) to get MOVIE-timeline time — i.e. the timeline
- * an HTMLVideoElement plays, the editor's trim handles select against, and the
- * Rust audio trim slices in.
+ * Build the MEDIA→MOVIE piecewise mapping from a track's edit list.
  *
  * mp4box hands out `s.cts` in the MEDIA timeline and never applies the track's
- * edit list. Screen captures write a warm-up edit (elst `media_time` > 0 trims
- * the first frames of the capture session), so demuxing raw cts silently
- * shifted every rendered frame LATE by that edit — while the audio WAV (whose
- * extractor honors edit lists) stayed on movie time. Net effect: exported
- * audio led the video by the edit offset (~80ms on a real capture), most
- * noticeable after a start trim. This helper closes that gap at the demux
- * boundary so the whole pipeline downstream (trim window, zoom/cursor lookup,
- * output re-anchoring) keeps working in one timeline.
+ * edit list, while everything else in the system — the editor preview
+ * (HTMLVideoElement), the trim handles, the Rust audio trim, and the stored
+ * `webcam_offset_ms` — works on the MOVIE timeline. Two real capture cases:
+ *   - The main screen recording writes a warm-up edit (elst media_time > 0)
+ *     that used to shift every exported frame ~80ms late vs the audio.
+ *   - A webcam capture whose session was interrupted mid-recording (camera
+ *     yanked by a competing open) writes MULTIPLE segments with a media gap
+ *     between them; a single-offset model left every frame after the gap
+ *     ~100ms late vs the editor preview.
  *
  * Semantics (ISO 14496-12 elst):
- *   - No edts/elst/entries → 0 (media == movie).
- *   - Leading empty edits (`media_time === -1`, duration in MOVIE timescale)
- *     DELAY the content on the movie timeline → contribute negatively.
- *   - The first normal entry's `media_time` (MEDIA timescale) is the media
- *     time shown at the segment start → contributes positively.
- *   - Missing/invalid timescales → 0 (never NaN/Infinity; a wrong-but-finite
- *     timeline beats a poisoned one).
- * Multi-segment lists beyond the first normal entry are not modeled (captures
- * never write them); the first normal entry decides.
+ *   - No edts/elst/entries or invalid media timescale → `[]` (identity —
+ *     never NaN/Infinity; a wrong-but-finite timeline beats a poisoned one).
+ *   - Empty edits (`media_time === -1`, duration in MOVIE timescale) insert
+ *     presentation delay before the next segment.
+ *   - Normal entries lay out consecutively on the movie timeline; each maps
+ *     `segment_duration` (movie timescale) worth of media starting at its
+ *     `media_time` (media timescale).
  */
-export function videoEditOffsetUs(trak: TrakForEdits, movieTimescale: number): number {
+export function buildEditSegments(trak: TrakForEdits, movieTimescale: number): EditSegment[] {
   const entries = trak?.edts?.elst?.entries;
-  if (!Array.isArray(entries) || entries.length === 0) return 0;
+  if (!Array.isArray(entries) || entries.length === 0) return [];
   const mediaTs = trak?.mdia?.mdhd?.timescale;
-  if (typeof mediaTs !== "number" || !Number.isFinite(mediaTs) || mediaTs <= 0) return 0;
+  if (typeof mediaTs !== "number" || !Number.isFinite(mediaTs) || mediaTs <= 0) return [];
+  if (!Number.isFinite(movieTimescale) || movieTimescale <= 0) return [];
 
-  let emptyLeadUs = 0;
+  const segments: EditSegment[] = [];
+  let movieCursorUs = 0;
   for (const e of entries) {
+    const segLenUs = (e.segment_duration * 1_000_000) / movieTimescale;
     if (e.media_time === -1) {
-      // Empty edit: nothing is presented for its duration (movie timescale).
-      if (Number.isFinite(movieTimescale) && movieTimescale > 0) {
-        emptyLeadUs += (e.segment_duration * 1_000_000) / movieTimescale;
-      }
+      movieCursorUs += segLenUs; // empty edit: presentation delay
       continue;
     }
-    return (e.media_time * 1_000_000) / mediaTs - emptyLeadUs;
+    const mediaStartUs = (e.media_time * 1_000_000) / mediaTs;
+    segments.push({ mediaStartUs, mediaEndUs: mediaStartUs + segLenUs, movieStartUs: movieCursorUs });
+    movieCursorUs += segLenUs;
   }
-  return -emptyLeadUs;
+  return segments;
+}
+
+/**
+ * Map a MEDIA-timeline timestamp (µs) onto the MOVIE timeline through the
+ * segments from `buildEditSegments`. Piecewise-linear and monotonic:
+ *   - `[]` → identity (no edit list).
+ *   - Inside a segment → that segment's linear shift.
+ *   - Before the first segment → extrapolated backwards (negative movie time;
+ *     such warm-up frames are dropped post-decode by `frameInTrimWindow`).
+ *   - In a media GAP between segments (frames captured during a session
+ *     interruption that playback skips) → collapsed onto the boundary instant,
+ *     where the next segment's first real frame supersedes them.
+ *   - At/after the last segment's start → that segment's shift, extended past
+ *     its nominal end so tail samples keep monotonically increasing.
+ */
+export function mediaToMovieUs(segments: EditSegment[], mediaUs: number): number {
+  if (segments.length === 0) return mediaUs;
+  const first = segments[0];
+  if (mediaUs < first.mediaStartUs) {
+    return first.movieStartUs + (mediaUs - first.mediaStartUs);
+  }
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i];
+    const isLast = i === segments.length - 1;
+    if (mediaUs < seg.mediaEndUs || isLast) {
+      if (mediaUs >= seg.mediaStartUs) {
+        return seg.movieStartUs + (mediaUs - seg.mediaStartUs);
+      }
+      // In the gap before this segment: collapse to its start instant.
+      return seg.movieStartUs;
+    }
+  }
+  // Unreachable (the last segment absorbs everything at/after its start).
+  const last = segments[segments.length - 1];
+  return last.movieStartUs + (mediaUs - last.mediaStartUs);
 }
 
 /** A demuxed video track: its samples-as-chunks plus the decoder config. */
@@ -427,10 +470,11 @@ export function demux(bytes: ArrayBuffer): Promise<DemuxResult> {
     let decoderConfig: VideoDecoderConfig | null = null;
     let codedWidth = 0;
     let codedHeight = 0;
-    // Edit-list presentation offset (µs), subtracted from every sample cts so
-    // chunk timestamps are MOVIE time — the same timeline the editor's trim
-    // window and the Rust audio trim use. See `videoEditOffsetUs`.
-    let editOffsetUs = 0;
+    // Edit-list MEDIA→MOVIE mapping, applied to every sample cts so chunk
+    // timestamps are MOVIE time — the same timeline the editor preview, the
+    // trim window, the Rust audio trim, and webcam_offset_ms all use. Empty =
+    // identity. See `buildEditSegments`/`mediaToMovieUs`.
+    let editSegments: EditSegment[] = [];
 
     file.onError = (module: string, msg: string) => {
       reject(new Error(`mp4box demux error (${module}): ${msg}`));
@@ -445,7 +489,7 @@ export function demux(bytes: ArrayBuffer): Promise<DemuxResult> {
       videoTrackId = video.id;
       codedWidth = video.video?.width ?? video.track_width;
       codedHeight = video.video?.height ?? video.track_height;
-      editOffsetUs = videoEditOffsetUs(
+      editSegments = buildEditSegments(
         file.getTrackById(videoTrackId) as unknown as TrakForEdits,
         info.timescale,
       );
@@ -467,11 +511,13 @@ export function demux(bytes: ArrayBuffer): Promise<DemuxResult> {
           new EncodedVideoChunk({
             type: s.is_sync ? "key" : "delta",
             // mp4box timestamps are in track timescale units (MEDIA timeline)
-            // → microseconds, shifted onto the MOVIE timeline by the track's
-            // edit list. Warm-up frames the edit trims land at negative movie
-            // time; they're still fed to the decoder (they can be reference
-            // frames) and dropped post-decode by `frameInTrimWindow`.
-            timestamp: (s.cts * 1_000_000) / s.timescale - editOffsetUs,
+            // → microseconds, mapped onto the MOVIE timeline through the
+            // track's edit list (piecewise — a session-interrupted capture
+            // writes multiple segments). Warm-up frames the edit trims land at
+            // negative movie time; they're still fed to the decoder (they can
+            // be reference frames) and dropped post-decode by
+            // `frameInTrimWindow`.
+            timestamp: mediaToMovieUs(editSegments, (s.cts * 1_000_000) / s.timescale),
             duration: (s.duration * 1_000_000) / s.timescale,
             data: s.data,
           }),
@@ -866,7 +912,9 @@ class GifSink implements FrameSink {
  * into an inline "% " display.
  */
 export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8Array> {
-  const { fileUrl, eventsJsonl, durationMs, project, bgImage, onProgress } = opts;
+  const { fileUrl, eventsJsonl, durationMs, project, bgImage, onProgress, onPoster } = opts;
+  // One-shot latch for `onPoster` (first composited frame → JPEG poster).
+  let posterSent = false;
   const appearance: Appearance = project.appearance;
 
   // Webcam SOURCE is opened when the row carries a webcam file AND the project
@@ -1236,6 +1284,18 @@ export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8A
             // same `speedMap`); GIF reads the pixels, quantizes, and writes an
             // indexed frame with a per-slot centisecond delay. Neither retains
             // the canvas past this call, so memory stays bounded.
+            // Poster: JPEG-encode the FIRST composited frame before the sink
+            // consumes the canvas. Awaited inside the serialized chain (runs
+            // once), so the canvas can't be redrawn mid-encode. Failures are
+            // swallowed — the poster is polish, never an export blocker.
+            if (!posterSent && onPoster) {
+              posterSent = true;
+              try {
+                onPoster(await canvas.convertToBlob({ type: "image/jpeg", quality: 0.85 }));
+              } catch (e) {
+                console.warn("[render] poster encode failed:", e);
+              }
+            }
             sink.emit(canvas, ctx, emitGridIndex);
             processedFrames++;
             onProgress({ phase: "encode", pct: Math.min(99, Math.round((processedFrames / totalFrames) * 100)) });
