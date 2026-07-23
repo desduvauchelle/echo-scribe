@@ -21,7 +21,6 @@ import ChatView from "./sections/ChatView";
 import DashboardView from "./sections/DashboardView";
 import DailyView from "./sections/DailyView";
 import ThemeToggle from "../components/ThemeToggle";
-import DictationButton from "../components/DictationButton";
 
 export type MainSection =
   | { kind: "chat" }
@@ -174,7 +173,6 @@ export default function Main({ onOpenSettings }: Props) {
         </div>
 
         <div className="mt-auto flex flex-col gap-2 border-t border-line p-2">
-          <DictationButton />
           <div className="flex items-center gap-1">
             <button
               type="button"

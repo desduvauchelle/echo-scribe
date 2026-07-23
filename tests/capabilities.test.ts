@@ -23,9 +23,8 @@ const macCaps: PlatformCapabilities = {
 };
 
 describe("uiGates", () => {
-  test("Windows caps hide macOS-only surfaces but keep dictation", () => {
+  test("Windows caps hide macOS-only surfaces", () => {
     const g = uiGates(windowsCaps);
-    expect(g.showDictation).toBe(true);
     expect(g.showMeetingsNav).toBe(false);
     expect(g.showRecordingsNav).toBe(false);
     expect(g.showSelfUpdate).toBe(false);
@@ -36,7 +35,6 @@ describe("uiGates", () => {
 
   test("macOS caps show everything", () => {
     const g = uiGates(macCaps);
-    expect(g.showDictation).toBe(true);
     expect(g.showMeetingsNav).toBe(true);
     expect(g.showRecordingsNav).toBe(true);
     expect(g.showSelfUpdate).toBe(true);

@@ -15,7 +15,6 @@ export const DEFAULT_CAPS: PlatformCapabilities = {
 export type UiGates = {
   showMeetingsNav: boolean;
   showRecordingsNav: boolean;
-  showDictation: boolean;
   showSelfUpdate: boolean;
   showSystemAudio: boolean;
   showDrive: boolean;
@@ -29,7 +28,6 @@ export function uiGates(caps: PlatformCapabilities): UiGates {
   return {
     showMeetingsNav: caps.meeting_auto_detect,
     showRecordingsNav: caps.screen_recording,
-    showDictation: caps.direct_voice_capture,
     showSelfUpdate: caps.bundle_self_update,
     showSystemAudio: caps.system_audio_capture,
     // Google Drive upload targets screen recordings, so it needs the same gate.
