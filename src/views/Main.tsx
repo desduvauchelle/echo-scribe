@@ -2,13 +2,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   CalendarDays,
   Folder,
-  Phone,
   Hash,
   LayoutDashboard,
   MessageSquare,
   Mic,
   Settings as SettingsIcon,
-  Video,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -19,22 +17,16 @@ import {
 } from "../lib/api";
 import { formatBinding } from "../lib/binding";
 import ActivityFeed from "./sections/ActivityFeed";
-import { MeetingsView } from "./sections/MeetingsView";
-import { RecordingsView } from "./sections/RecordingsView";
 import ChatView from "./sections/ChatView";
 import DashboardView from "./sections/DashboardView";
 import DailyView from "./sections/DailyView";
 import ThemeToggle from "../components/ThemeToggle";
 import DictationButton from "../components/DictationButton";
-import { useCapabilities } from "../lib/capabilitiesContext";
-import { uiGates } from "../lib/capabilities";
 
 export type MainSection =
   | { kind: "chat" }
   | { kind: "dashboard" }
   | { kind: "daily"; date?: string }
-  | { kind: "meetings" }
-  | { kind: "recordings" }
   | { kind: "project"; id: string };
 
 type Props = {
@@ -42,7 +34,6 @@ type Props = {
 };
 
 export default function Main({ onOpenSettings }: Props) {
-  const gates = uiGates(useCapabilities());
   const [section, setSection] = useState<MainSection>({ kind: "dashboard" });
   const [projects, setProjects] = useState<Project[]>([]);
   const [showAllProjects, setShowAllProjects] = useState(false);
@@ -103,10 +94,6 @@ export default function Main({ onOpenSettings }: Props) {
         return <DashboardView projects={projectMap} />;
       case "daily":
         return <DailyView initialDate={section.date} />;
-      case "meetings":
-        return gates.showMeetingsNav ? <MeetingsView /> : <DashboardView projects={projectMap} />;
-      case "recordings":
-        return gates.showRecordingsNav ? <RecordingsView /> : <DashboardView projects={projectMap} />;
     }
   };
 
@@ -145,22 +132,6 @@ export default function Main({ onOpenSettings }: Props) {
             active={section.kind === "chat"}
             onClick={() => setSection({ kind: "chat" })}
           />
-          {gates.showMeetingsNav && (
-            <NavItem
-              icon={Phone}
-              label="Meetings"
-              active={section.kind === "meetings"}
-              onClick={() => setSection({ kind: "meetings" })}
-            />
-          )}
-          {gates.showRecordingsNav && (
-            <NavItem
-              icon={Video}
-              label="Recordings"
-              active={section.kind === "recordings"}
-              onClick={() => setSection({ kind: "recordings" })}
-            />
-          )}
           <NavItem
             icon={CalendarDays}
             label="Daily"
