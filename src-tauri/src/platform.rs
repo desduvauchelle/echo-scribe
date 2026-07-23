@@ -60,4 +60,15 @@ mod tests {
         assert!(caps.direct_voice_capture);
         assert!(caps.local_database);
     }
+
+    #[test]
+    fn non_macos_never_enables_sidecar_loops() {
+        for os in ["windows", "linux"] {
+            let caps = Capabilities::for_os(os);
+            assert!(!caps.meeting_auto_detect, "{os} must not auto-detect meetings");
+            assert!(!caps.screen_recording, "{os} must not screen record");
+            assert!(!caps.system_audio_capture, "{os} must not capture system audio");
+            assert!(!caps.calendar_matching, "{os} must not match calendars");
+        }
+    }
 }
