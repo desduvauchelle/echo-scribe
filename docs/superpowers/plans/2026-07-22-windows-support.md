@@ -25,12 +25,15 @@
 - `src-tauri/src/lib.rs` — register the global-shortcut plugin; register the new dictation command.
 - `src-tauri/src/input/trigger.rs` — **new**: platform-agnostic helpers that map trigger inputs to `HotkeyEvent` (unit-testable), + the Windows global-shortcut registration.
 - `src-tauri/src/commands.rs` — wire the Windows trigger into `ensure_pipeline_started`; add `set_dictation_active` command.
-- `src/lib/capabilities.tsx` — **new**: `PlatformCapabilitiesProvider` + `useCapabilities()`.
+- `src/lib/capabilities.ts` — **new**: `DEFAULT_CAPS` + pure UI-gate selectors (`uiGates(caps)`). **Unit-tested with `bun:test`.**
+- `src/lib/capabilitiesContext.tsx` — **new**: thin React `PlatformCapabilitiesProvider` + `useCapabilities()` (untested, per codebase convention for `.tsx`).
 - `src/App.tsx` — wrap the tree in the provider.
 - `src/components/DictationButton.tsx` — **new**: in-app Record toggle, gated on `direct_voice_capture`.
-- `src/views/Main.tsx`, `src/views/Settings.tsx`, `src/components/UpdateBanner.tsx` — gate macOS-only surfaces.
+- `src/views/Main.tsx`, `src/components/UpdateBanner.tsx` — gate macOS-only surfaces via `uiGates`.
 - `src/lib/api.ts` — add `setDictationActive` binding.
 - `.github/workflows/windows.yml` — publish the NSIS installer on tag.
+
+**Frontend testing note (binds Tasks 5-7):** This project tests **pure logic only** with **`bun:test`** (`import { describe, expect, test } from "bun:test"`), run via **`bun test`**. There is **no** `@testing-library/react`, jsdom, or vitest, and **no `.test.tsx` render tests** anywhere. Do **not** add any of those. Put all gating logic in pure functions in `.ts` files and test those; keep `.tsx` components thin and untested, exactly like the project's existing components. Typecheck `.tsx` via `bun run build` (runs `tsc`).
 
 ---
 
@@ -332,26 +335,31 @@ git commit -m "feat(dictation): set_dictation_active command for in-app trigger"
 
 ---
 
-### Task 5: Frontend capabilities provider
+### Task 5: Frontend capabilities — pure gates + provider
 
 **Files:**
-- Create: `src/lib/capabilities.tsx`
-- Create: `src/lib/capabilities.test.tsx`
+- Create: `src/lib/capabilities.ts` (pure: `DEFAULT_CAPS`, `uiGates`)
+- Create: `src/lib/capabilities.test.ts` (bun:test)
+- Create: `src/lib/capabilitiesContext.tsx` (thin React context/provider/hook)
 - Modify: `src/App.tsx` (wrap the tree)
 
 **Interfaces:**
-- Consumes: `platformCapabilities()` and `PlatformCapabilities` from `src/lib/api.ts`.
-- Produces: `<PlatformCapabilitiesProvider>` and `useCapabilities(): PlatformCapabilities` (all flags default to `false` until loaded, except nothing is assumed true).
+- Consumes: `PlatformCapabilities` from `src/lib/api.ts`; `platformCapabilities()`.
+- Produces:
+  - `DEFAULT_CAPS: PlatformCapabilities` (everything `false` except `local_database`)
+  - `uiGates(caps): { showMeetingsNav, showRecordingsNav, showDictation, showSelfUpdate, showSystemAudio, showCalendar }` — all `boolean`
+  - `<PlatformCapabilitiesProvider>` and `useCapabilities(): PlatformCapabilities`
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Write the failing pure-logic test (bun:test)**
 
-Create `src/lib/capabilities.test.tsx`:
+Create `src/lib/capabilities.test.ts`:
 
-```tsx
-import { render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi, beforeEach } from "vitest";
+```ts
+import { describe, expect, test } from "bun:test";
+import { DEFAULT_CAPS, uiGates } from "./capabilities";
+import type { PlatformCapabilities } from "./api";
 
-const mockCaps = {
+const windowsCaps: PlatformCapabilities = {
   direct_voice_capture: true,
   local_database: true,
   meeting_auto_detect: false,
@@ -361,53 +369,59 @@ const mockCaps = {
   bundle_self_update: false,
 };
 
-vi.mock("./api", () => ({
-  platformCapabilities: vi.fn(() => Promise.resolve(mockCaps)),
-}));
+const macCaps: PlatformCapabilities = {
+  direct_voice_capture: true,
+  local_database: true,
+  meeting_auto_detect: true,
+  system_audio_capture: true,
+  calendar_matching: true,
+  screen_recording: true,
+  bundle_self_update: true,
+};
 
-import { PlatformCapabilitiesProvider, useCapabilities } from "./capabilities";
+describe("uiGates", () => {
+  test("Windows caps hide macOS-only surfaces but keep dictation", () => {
+    const g = uiGates(windowsCaps);
+    expect(g.showDictation).toBe(true);
+    expect(g.showMeetingsNav).toBe(false);
+    expect(g.showRecordingsNav).toBe(false);
+    expect(g.showSelfUpdate).toBe(false);
+    expect(g.showSystemAudio).toBe(false);
+    expect(g.showCalendar).toBe(false);
+  });
 
-function Probe() {
-  const caps = useCapabilities();
-  return (
-    <div>
-      <span data-testid="voice">{String(caps.direct_voice_capture)}</span>
-      <span data-testid="screen">{String(caps.screen_recording)}</span>
-    </div>
-  );
-}
+  test("macOS caps show everything", () => {
+    const g = uiGates(macCaps);
+    expect(g.showDictation).toBe(true);
+    expect(g.showMeetingsNav).toBe(true);
+    expect(g.showRecordingsNav).toBe(true);
+    expect(g.showSelfUpdate).toBe(true);
+  });
 
-describe("PlatformCapabilitiesProvider", () => {
-  beforeEach(() => vi.clearAllMocks());
-
-  it("provides fetched capability flags", async () => {
-    render(
-      <PlatformCapabilitiesProvider>
-        <Probe />
-      </PlatformCapabilitiesProvider>,
-    );
-    await waitFor(() => expect(screen.getByTestId("voice").textContent).toBe("true"));
-    expect(screen.getByTestId("screen").textContent).toBe("false");
+  test("DEFAULT_CAPS is conservative (nothing but local_database)", () => {
+    expect(DEFAULT_CAPS.local_database).toBe(true);
+    expect(DEFAULT_CAPS.direct_voice_capture).toBe(false);
+    expect(DEFAULT_CAPS.screen_recording).toBe(false);
+    expect(uiGates(DEFAULT_CAPS).showMeetingsNav).toBe(false);
   });
 });
 ```
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `bunx vitest run src/lib/capabilities.test.tsx`
+Run: `bun test src/lib/capabilities.test.ts`
 Expected: FAIL — `./capabilities` module does not exist.
 
-- [ ] **Step 3: Implement the provider**
+- [ ] **Step 3: Implement the pure module**
 
-Create `src/lib/capabilities.tsx`:
+Create `src/lib/capabilities.ts`:
 
-```tsx
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import { platformCapabilities, type PlatformCapabilities } from "./api";
+```ts
+import type { PlatformCapabilities } from "./api";
 
 // Conservative defaults: assume nothing is available until the backend answers,
 // so we never flash a macOS-only surface on Windows during load.
-const DEFAULT_CAPS: PlatformCapabilities = {
+export const DEFAULT_CAPS: PlatformCapabilities = {
   direct_voice_capture: false,
   local_database: true,
   meeting_auto_detect: false,
@@ -416,6 +430,44 @@ const DEFAULT_CAPS: PlatformCapabilities = {
   screen_recording: false,
   bundle_self_update: false,
 };
+
+export type UiGates = {
+  showMeetingsNav: boolean;
+  showRecordingsNav: boolean;
+  showDictation: boolean;
+  showSelfUpdate: boolean;
+  showSystemAudio: boolean;
+  showCalendar: boolean;
+};
+
+/** Map raw platform capabilities to UI visibility decisions. Pure — the single
+ *  source of truth for what shows on which platform, so gating is testable
+ *  without rendering. */
+export function uiGates(caps: PlatformCapabilities): UiGates {
+  return {
+    showMeetingsNav: caps.meeting_auto_detect,
+    showRecordingsNav: caps.screen_recording,
+    showDictation: caps.direct_voice_capture,
+    showSelfUpdate: caps.bundle_self_update,
+    showSystemAudio: caps.system_audio_capture,
+    showCalendar: caps.calendar_matching,
+  };
+}
+```
+
+- [ ] **Step 4: Run the test to verify it passes**
+
+Run: `bun test src/lib/capabilities.test.ts`
+Expected: PASS (3 tests).
+
+- [ ] **Step 5: Implement the thin React context**
+
+Create `src/lib/capabilitiesContext.tsx` (no test — matches the codebase convention of not DOM-testing `.tsx`):
+
+```tsx
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { platformCapabilities, type PlatformCapabilities } from "./api";
+import { DEFAULT_CAPS } from "./capabilities";
 
 const CapabilitiesContext = createContext<PlatformCapabilities>(DEFAULT_CAPS);
 
@@ -445,17 +497,12 @@ export function useCapabilities(): PlatformCapabilities {
 }
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
-
-Run: `bunx vitest run src/lib/capabilities.test.tsx`
-Expected: PASS.
-
-- [ ] **Step 5: Wrap the app**
+- [ ] **Step 6: Wrap the app**
 
 In `src/App.tsx`, import the provider and wrap the existing tree inside `ToastProvider`:
 
 ```tsx
-import { PlatformCapabilitiesProvider } from "./lib/capabilities";
+import { PlatformCapabilitiesProvider } from "./lib/capabilitiesContext";
 
 export default function App() {
   return (
@@ -471,78 +518,40 @@ export default function App() {
 }
 ```
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Typecheck and commit**
+
+Run: `bun run build` — Expected: PASS (tsc clean).
 
 ```bash
-git add src/lib/capabilities.tsx src/lib/capabilities.test.tsx src/App.tsx
-git commit -m "feat(ui): PlatformCapabilities provider + useCapabilities hook"
+git add src/lib/capabilities.ts src/lib/capabilities.test.ts src/lib/capabilitiesContext.tsx src/App.tsx
+git commit -m "feat(ui): pure capability gates + PlatformCapabilities provider"
 ```
 
 ---
 
 ### Task 6: In-app Record button
 
+The button's *logic* (when to show it) lives in `uiGates().showDictation`, already
+tested in Task 5. The component itself is thin presentational `.tsx` — verified by
+typecheck, consistent with the codebase's untested-component convention. No render test.
+
 **Files:**
 - Create: `src/components/DictationButton.tsx`
-- Create: `src/components/DictationButton.test.tsx`
 - Modify: `src/views/Main.tsx` (render the button in the top bar)
 
 **Interfaces:**
-- Consumes: `useCapabilities()`, `setDictationActive` from `src/lib/api.ts`.
-- Produces: `<DictationButton />` — renders only when `direct_voice_capture` is true; toggles capture.
+- Consumes: `useCapabilities()` (from `capabilitiesContext`), `uiGates` (from `capabilities`), `setDictationActive` (from `api`).
+- Produces: `<DictationButton />` — renders only when `uiGates(caps).showDictation`; toggles capture.
 
-- [ ] **Step 1: Write the failing test**
-
-Create `src/components/DictationButton.test.tsx`:
-
-```tsx
-import { render, screen, fireEvent } from "@testing-library/react";
-import { describe, expect, it, vi, beforeEach } from "vitest";
-
-const setDictationActive = vi.fn(() => Promise.resolve());
-vi.mock("../lib/api", () => ({ setDictationActive: (a: boolean) => setDictationActive(a) }));
-
-const caps = { direct_voice_capture: true };
-vi.mock("../lib/capabilities", () => ({ useCapabilities: () => caps }));
-
-import DictationButton from "./DictationButton";
-
-describe("DictationButton", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    caps.direct_voice_capture = true;
-  });
-
-  it("toggles dictation active state on click", async () => {
-    render(<DictationButton />);
-    const btn = screen.getByRole("button", { name: /record|dictate|stop/i });
-    fireEvent.click(btn);
-    expect(setDictationActive).toHaveBeenCalledWith(true);
-    fireEvent.click(btn);
-    expect(setDictationActive).toHaveBeenCalledWith(false);
-  });
-
-  it("renders nothing when direct_voice_capture is false", () => {
-    caps.direct_voice_capture = false;
-    const { container } = render(<DictationButton />);
-    expect(container.firstChild).toBeNull();
-  });
-});
-```
-
-- [ ] **Step 2: Run the test to verify it fails**
-
-Run: `bunx vitest run src/components/DictationButton.test.tsx`
-Expected: FAIL — `./DictationButton` does not exist.
-
-- [ ] **Step 3: Implement the button**
+- [ ] **Step 1: Implement the button**
 
 Create `src/components/DictationButton.tsx`:
 
 ```tsx
 import { useState } from "react";
 import { setDictationActive } from "../lib/api";
-import { useCapabilities } from "../lib/capabilities";
+import { useCapabilities } from "../lib/capabilitiesContext";
+import { uiGates } from "../lib/capabilities";
 
 /// In-app dictation trigger. A toggle: first click starts capture, second stops
 /// it (transcribe + paste). Complements the global hotkey and needs no global
@@ -551,7 +560,7 @@ export default function DictationButton() {
   const caps = useCapabilities();
   const [active, setActive] = useState(false);
 
-  if (!caps.direct_voice_capture) return null;
+  if (!uiGates(caps).showDictation) return null;
 
   const toggle = async () => {
     const next = !active;
@@ -581,12 +590,7 @@ export default function DictationButton() {
 }
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
-
-Run: `bunx vitest run src/components/DictationButton.test.tsx`
-Expected: PASS (both cases).
-
-- [ ] **Step 5: Mount it in the top bar**
+- [ ] **Step 2: Mount it in the top bar**
 
 In `src/views/Main.tsx`, import `DictationButton` and render it in the header/top-bar region (near the Settings control). Add:
 
@@ -596,10 +600,15 @@ import DictationButton from "../components/DictationButton";
 
 and place `<DictationButton />` in the top-bar JSX (the row that holds the Settings/theme controls).
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 3: Typecheck and run the full suite**
+
+Run: `bun run build` — Expected: PASS (tsc clean, `showDictation` gate wired).
+Run: `bun test` — Expected: PASS (Task 5's `uiGates` tests + all existing tests green).
+
+- [ ] **Step 4: Commit**
 
 ```bash
-git add src/components/DictationButton.tsx src/components/DictationButton.test.tsx src/views/Main.tsx
+git add src/components/DictationButton.tsx src/views/Main.tsx
 git commit -m "feat(ui): in-app dictation Record button"
 ```
 
@@ -607,120 +616,117 @@ git commit -m "feat(ui): in-app dictation Record button"
 
 ### Task 7: Gate macOS-only surfaces
 
+The gating decisions are pure (`uiGates`, already tested in Task 5). This task wires
+them into the nav and banner. Components stay untested `.tsx` per codebase convention;
+the deliverable is verified by typecheck + the full existing suite staying green.
+
 **Files:**
-- Modify: `src/views/Main.tsx` (hide Meetings + Recordings nav)
+- Modify: `src/views/Main.tsx` (hide Meetings + Recordings nav; guard their routes)
 - Modify: `src/components/UpdateBanner.tsx` (hide when no self-update)
-- Modify: `src/views/Main.tsx` test or create `src/views/Main.gating.test.tsx`
 
 **Interfaces:**
-- Consumes: `useCapabilities()`.
+- Consumes: `useCapabilities()` (from `capabilitiesContext`), `uiGates` (from `capabilities`).
 
-- [ ] **Step 1: Write the failing gating test**
+- [ ] **Step 1: Add a route-gating regression test to the pure module**
 
-Create `src/views/Main.gating.test.tsx`:
+Append to `src/lib/capabilities.test.ts`:
 
-```tsx
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+```ts
+import { describe as describeRoutes, expect as expectR, test as testR } from "bun:test";
 
-const caps = {
-  direct_voice_capture: true,
-  local_database: true,
-  meeting_auto_detect: false,
-  system_audio_capture: false,
-  calendar_matching: false,
-  screen_recording: false,
-  bundle_self_update: false,
-};
-vi.mock("../lib/capabilities", () => ({ useCapabilities: () => caps }));
-
-import { MacOnlyNav } from "./Main";
-
-describe("Main nav gating", () => {
-  it("hides Meetings and Recordings when their capabilities are false", () => {
-    render(<MacOnlyNav />);
-    expect(screen.queryByText("Meetings")).toBeNull();
-    expect(screen.queryByText("Recordings")).toBeNull();
+// A stale saved section must not render a gated view. The route guard uses the
+// same gate flags, so assert the flags a Windows build would see.
+describeRoutes("route gating flags", () => {
+  testR("Windows hides meetings + recordings routes", () => {
+    const g = uiGates(windowsCaps);
+    expectR(g.showMeetingsNav).toBe(false);
+    expectR(g.showRecordingsNav).toBe(false);
   });
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+(Reuse the `windowsCaps`/`uiGates` already imported at the top of the file — do not
+redeclare them.)
 
-Run: `bunx vitest run src/views/Main.gating.test.tsx`
-Expected: FAIL — `MacOnlyNav` is not exported.
+- [ ] **Step 2: Run the test to verify it passes with the current module**
 
-- [ ] **Step 3: Extract and gate the macOS-only nav items**
+Run: `bun test src/lib/capabilities.test.ts`
+Expected: PASS (the gates already return the right values from Task 5; this pins the
+route-guard contract before wiring the UI).
 
-In `src/views/Main.tsx`, wrap the `Meetings` and `Recordings` `NavItem`s in a small exported component that reads capabilities. Replace the two inline `NavItem`s (lines ~144-155) with `<MacOnlyNav section={section} setSection={setSection} />` and add:
+- [ ] **Step 3: Gate the macOS-only nav items in Main.tsx**
+
+At the top of `src/views/Main.tsx` add:
 
 ```tsx
-export function MacOnlyNav(props?: {
-  section?: MainSection;
-  setSection?: (s: MainSection) => void;
-}) {
-  const caps = useCapabilities();
-  return (
-    <>
-      {caps.meeting_auto_detect && (
-        <NavItem
-          label="Meetings"
-          active={props?.section?.kind === "meetings"}
-          onClick={() => props?.setSection?.({ kind: "meetings" })}
-        />
-      )}
-      {caps.screen_recording && (
-        <NavItem
-          label="Recordings"
-          active={props?.section?.kind === "recordings"}
-          onClick={() => props?.setSection?.({ kind: "recordings" })}
-        />
-      )}
-    </>
-  );
-}
+import { useCapabilities } from "../lib/capabilitiesContext";
+import { uiGates } from "../lib/capabilities";
 ```
 
-Add `import { useCapabilities } from "../lib/capabilities";` at the top of `Main.tsx`. (Keep the original `NavItem` icon props — copy them from the lines you are replacing so the icons stay identical.)
+In the component body, read the gates once (near the existing `const [section, setSection] = useState(...)`):
+
+```tsx
+  const gates = uiGates(useCapabilities());
+```
+
+Wrap the existing `Meetings` and `Recordings` `NavItem`s (the two at lines ~144-155) so each renders only when its gate is true — keep every existing prop (icon, label, active, onClick) exactly as-is, just add the guard:
+
+```tsx
+          {gates.showMeetingsNav && (
+            <NavItem
+              /* ...copy the existing Meetings NavItem props verbatim... */
+              label="Meetings"
+              active={section.kind === "meetings"}
+              onClick={() => setSection({ kind: "meetings" })}
+            />
+          )}
+          {gates.showRecordingsNav && (
+            <NavItem
+              /* ...copy the existing Recordings NavItem props verbatim... */
+              label="Recordings"
+              active={section.kind === "recordings"}
+              onClick={() => setSection({ kind: "recordings" })}
+            />
+          )}
+```
 
 - [ ] **Step 4: Guard the section routes too**
 
-In the `switch (section.kind)` in `Main.tsx`, make the `"meetings"` and `"recordings"` cases fall through to the dashboard when their capability is false, so a stale route can't render a gated view:
+In the `switch (section.kind)` in `Main.tsx`, make the `"meetings"` and `"recordings"` cases fall through to the dashboard when their gate is false, so a stale saved route can't render a gated view:
 
 ```tsx
       case "meetings":
-        return caps.meeting_auto_detect ? <MeetingsView /> : <DashboardView />;
+        return gates.showMeetingsNav ? <MeetingsView /> : <DashboardView />;
       case "recordings":
-        return caps.screen_recording ? <RecordingsView /> : <DashboardView />;
+        return gates.showRecordingsNav ? <RecordingsView /> : <DashboardView />;
 ```
 
-(Read `const caps = useCapabilities();` once at the top of the component that owns this switch.)
+(`gates` is already in scope from Step 3.)
 
 - [ ] **Step 5: Gate the UpdateBanner**
 
-In `src/components/UpdateBanner.tsx`, at the top of the component body add:
+In `src/components/UpdateBanner.tsx`, add the imports and, at the very top of the component body (before any other hooks return JSX), the guard:
 
 ```tsx
-  const caps = useCapabilities();
-  if (!caps.bundle_self_update) return null;
+import { useCapabilities } from "../lib/capabilitiesContext";
+import { uiGates } from "../lib/capabilities";
 ```
 
-with `import { useCapabilities } from "../lib/capabilities";`.
+```tsx
+  if (!uiGates(useCapabilities()).showSelfUpdate) return null;
+```
 
-- [ ] **Step 6: Run the gating test to verify it passes**
+(Place the guard so it does not violate the Rules of Hooks — put `useCapabilities()` with the other top-level hooks; if the component early-returns before other hooks run, move this call above them.)
 
-Run: `bunx vitest run src/views/Main.gating.test.tsx`
-Expected: PASS.
+- [ ] **Step 6: Typecheck and run the full suite**
 
-- [ ] **Step 7: Run the full frontend suite**
+Run: `bun run build` — Expected: PASS (tsc clean).
+Run: `bun test` — Expected: PASS (existing 529 + new `uiGates` tests green).
 
-Run: `bunx vitest run`
-Expected: PASS (513+ existing tests still green).
-
-- [ ] **Step 8: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add src/views/Main.tsx src/views/Main.gating.test.tsx src/components/UpdateBanner.tsx
+git add src/views/Main.tsx src/components/UpdateBanner.tsx src/lib/capabilities.test.ts
 git commit -m "feat(ui): gate Meetings/Recordings/self-update on non-macOS"
 ```
 
