@@ -33,6 +33,7 @@ import {
   type MeetingRow,
   type Project,
   type RecordingRow,
+  type StatsCategoryKey,
 } from "../../lib/api";
 import { useToasts } from "../../components/ToastProvider";
 import Menu from "../../components/a11y/Menu";
@@ -40,9 +41,14 @@ import Dialog from "../../components/a11y/Dialog";
 import ItemCard from "../../components/ItemCard";
 import MeetingCard from "../../components/MeetingCard";
 import RecordingCard from "../../components/RecordingCard";
+import ScreenRecordButton from "../../components/ScreenRecordButton";
 import {
-  clampMeetingsToPage,
-  itemTs,
+  StatsCategoryTabs,
+  categoryMeta,
+  formatDuration,
+} from "../../components/StatsCategoryTabs";
+import {
+  mergeBrowseFeed,
   mergeFeed,
   recordingMatches,
   type FeedEntry,
@@ -52,11 +58,11 @@ import { useActivityPanel } from "../../components/ActivityPanelContext";
 import { SkeletonList } from "./ActivityFeed";
 import TasksView from "./TasksView";
 
-const SECONDS_SAVED_PER_CAPTURE = 30;
 const PAGE_SIZE = 50;
 
 type Props = {
   projects: Map<string, Project>;
+  onOpenStats: (category: StatsCategoryKey) => void;
 };
 
 type KindFilter = "all" | ItemKind | "recording";
@@ -78,13 +84,6 @@ function dayLabel(iso: string): string {
     month: "long",
     day: "numeric",
   });
-}
-
-function formatSaved(count: number): string {
-  const secs = count * SECONDS_SAVED_PER_CAPTURE;
-  if (secs < 60) return `${secs}s`;
-  if (secs < 3600) return `${Math.round(secs / 60)}m`;
-  return `${(secs / 3600).toFixed(1)}h`;
 }
 
 type ExportRangeKey = "day" | "today" | "week" | "month" | "all";
@@ -133,8 +132,10 @@ function emptyLabel(kind: KindFilter): string {
   return EMPTY_LABELS[kind];
 }
 
-export default function DashboardView({ projects }: Props) {
+export default function DashboardView({ projects, onOpenStats }: Props) {
   const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [statsCategory, setStatsCategory] =
+    useState<StatsCategoryKey>("transcriptions");
   const [summary, setSummary] = useState<DailySummary | null>(null);
   const [items, setItems] = useState<Item[]>([]);
   const [recordings, setRecordings] = useState<RecordingRow[]>([]);
@@ -330,15 +331,7 @@ export default function DashboardView({ projects }: Props) {
     if (kindFilter === "recording") return mergeFeed([], recordings);
     if (kindFilter === "meeting") return mergeFeed([], [], meetings);
     if (kindFilter === "all") {
-      // Items page 50 at a time but meetings arrive all at once — hold back
-      // meetings older than the loaded page so they don't stack up above the
-      // "Load more" button.
-      const oldest = items.length > 0 ? itemTs(items[items.length - 1]) : null;
-      return mergeFeed(
-        items,
-        recordings,
-        clampMeetingsToPage(meetings, oldest, hasMore),
-      );
+      return mergeBrowseFeed(items, recordings, meetings, hasMore);
     }
     return mergeFeed(items, []);
   }, [kindFilter, items, recordings, meetings, hasMore]);
@@ -470,7 +463,17 @@ export default function DashboardView({ projects }: Props) {
     <div className="flex h-full flex-col overflow-y-auto px-6 py-6">
       <h1 className="mb-4 text-lg font-semibold tracking-tight">Dashboard</h1>
 
-      {!isSearching && (stats ? <StatStrip stats={stats} /> : <div className="h-12" />)}
+      {!isSearching &&
+        (stats ? (
+          <StatStrip
+            stats={stats}
+            category={statsCategory}
+            onCategoryChange={setStatsCategory}
+            onOpen={() => onOpenStats(statsCategory)}
+          />
+        ) : (
+          <div className="h-32" />
+        ))}
 
       {!isSearching && (
         <RecapCard
@@ -538,6 +541,7 @@ export default function DashboardView({ projects }: Props) {
           })}
         </div>
         <div className="flex items-center gap-1.5">
+          <ScreenRecordButton variant="header" />
           <button
             type="button"
             onClick={() => void runTagging()}
@@ -687,23 +691,87 @@ export default function DashboardView({ projects }: Props) {
   );
 }
 
-function StatStrip({ stats }: { stats: DashboardStats }) {
+function StatStrip({
+  stats,
+  category,
+  onCategoryChange,
+  onOpen,
+}: {
+  stats: DashboardStats;
+  category: StatsCategoryKey;
+  onCategoryChange: (category: StatsCategoryKey) => void;
+  onOpen: () => void;
+}) {
+  const selected = stats.categories[category];
+  const meta = categoryMeta(category);
+  const timed = category === "meetings" || category === "recordings";
+
   return (
-    <div className="flex flex-wrap items-stretch gap-x-8 gap-y-3 rounded-xl border border-line bg-surface px-6 py-5">
-      <Stat label="Today" value={compactNumber(stats.today.transcriptions)} sub={`${compactNumber(stats.today.words)} words`} />
-      <Stat label="Week" value={compactNumber(stats.week.transcriptions)} sub={`${compactNumber(stats.week.words)} words`} />
-      <Stat
-        label="All time"
-        value={compactNumber(stats.all_time.transcriptions)}
-        sub={`${compactNumber(stats.all_time.words)} words`}
-      />
-      <Divider />
-      <Stat
-        label="Saved (all time)"
-        value={formatSaved(stats.all_time.transcriptions)}
-        sub="vs typing"
-        tone="success"
-      />
+    <div
+      role="button"
+      tabIndex={0}
+      aria-label={`Open detailed ${meta.label.toLowerCase()} statistics`}
+      onClick={onOpen}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") onOpen();
+      }}
+      className="group rounded-xl border border-line bg-surface px-5 py-4 transition-colors hover:border-faint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+    >
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <StatsCategoryTabs
+          compact
+          value={category}
+          onChange={onCategoryChange}
+        />
+        <span className="flex shrink-0 items-center gap-1 text-[11px] font-medium text-muted transition-colors group-hover:text-fg">
+          View stats
+          <ChevronRight size={13} aria-hidden="true" />
+        </span>
+      </div>
+      <div className="flex flex-wrap items-stretch gap-x-8 gap-y-3">
+        <Stat
+          label="Today"
+          value={compactNumber(selected.today.count)}
+          sub={`${selected.today.count === 1 ? meta.singular : meta.label.toLowerCase()}`}
+        />
+        <Stat
+          label="This week"
+          value={compactNumber(selected.week.count)}
+          sub={timed ? formatDuration(selected.week.duration_ms) : `${compactNumber(selected.week.words)} words`}
+          subTooltip={timed ? undefined : `${selected.week.words.toLocaleString()} words`}
+        />
+        <Divider />
+        {timed ? (
+          <>
+            <Stat
+              label="Time this week"
+              value={formatDuration(selected.week.duration_ms)}
+              sub={`${selected.week.count} ${selected.week.count === 1 ? meta.singular : meta.label.toLowerCase()}`}
+              tone="success"
+            />
+            <Stat
+              label="Time all time"
+              value={formatDuration(selected.all_time.duration_ms)}
+              sub={`${selected.all_time.count.toLocaleString()} total`}
+            />
+          </>
+        ) : (
+          <>
+            <Stat
+              label="Words this week"
+              value={compactNumber(selected.week.words)}
+              sub={`${selected.week.words.toLocaleString()} exact`}
+              tone="success"
+            />
+            <Stat
+              label="All time"
+              value={compactNumber(selected.all_time.count)}
+              sub={`${compactNumber(selected.all_time.words)} words`}
+              subTooltip={`${selected.all_time.words.toLocaleString()} words`}
+            />
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -716,11 +784,13 @@ function Stat({
   label,
   value,
   sub,
+  subTooltip,
   tone,
 }: {
   label: string;
   value: string | number;
   sub: string;
+  subTooltip?: string;
   tone?: "success";
 }) {
   return (
@@ -735,7 +805,23 @@ function Stat({
       >
         {value}
       </span>
-      <span className="text-xs text-muted">{sub}</span>
+      {subTooltip ? (
+        <span
+          className="group/tooltip relative w-fit cursor-help text-xs text-muted outline-none"
+          tabIndex={0}
+          aria-label={`${sub}. Exact count: ${subTooltip}`}
+        >
+          <span className="border-b border-dotted border-muted/50">{sub}</span>
+          <span
+            role="tooltip"
+            className="pointer-events-none absolute left-1/2 top-full z-[60] mt-1.5 -translate-x-1/2 whitespace-nowrap rounded border border-line bg-elevated px-2 py-1 text-[11px] text-fg opacity-0 shadow-lg transition-opacity duration-100 group-hover/tooltip:opacity-100 group-focus-visible/tooltip:opacity-100"
+          >
+            {subTooltip}
+          </span>
+        </span>
+      ) : (
+        <span className="text-xs text-muted">{sub}</span>
+      )}
     </div>
   );
 }
