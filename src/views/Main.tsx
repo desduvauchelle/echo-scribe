@@ -26,6 +26,8 @@ import DashboardView from "./sections/DashboardView";
 import DailyView from "./sections/DailyView";
 import ThemeToggle from "../components/ThemeToggle";
 import DictationButton from "../components/DictationButton";
+import { useCapabilities } from "../lib/capabilitiesContext";
+import { uiGates } from "../lib/capabilities";
 
 export type MainSection =
   | { kind: "chat" }
@@ -40,6 +42,7 @@ type Props = {
 };
 
 export default function Main({ onOpenSettings }: Props) {
+  const gates = uiGates(useCapabilities());
   const [section, setSection] = useState<MainSection>({ kind: "dashboard" });
   const [projects, setProjects] = useState<Project[]>([]);
   const [showAllProjects, setShowAllProjects] = useState(false);
@@ -101,9 +104,9 @@ export default function Main({ onOpenSettings }: Props) {
       case "daily":
         return <DailyView initialDate={section.date} />;
       case "meetings":
-        return <MeetingsView />;
+        return gates.showMeetingsNav ? <MeetingsView /> : <DashboardView projects={projectMap} />;
       case "recordings":
-        return <RecordingsView />;
+        return gates.showRecordingsNav ? <RecordingsView /> : <DashboardView projects={projectMap} />;
     }
   };
 
@@ -142,18 +145,22 @@ export default function Main({ onOpenSettings }: Props) {
             active={section.kind === "chat"}
             onClick={() => setSection({ kind: "chat" })}
           />
-          <NavItem
-            icon={Phone}
-            label="Meetings"
-            active={section.kind === "meetings"}
-            onClick={() => setSection({ kind: "meetings" })}
-          />
-          <NavItem
-            icon={Video}
-            label="Recordings"
-            active={section.kind === "recordings"}
-            onClick={() => setSection({ kind: "recordings" })}
-          />
+          {gates.showMeetingsNav && (
+            <NavItem
+              icon={Phone}
+              label="Meetings"
+              active={section.kind === "meetings"}
+              onClick={() => setSection({ kind: "meetings" })}
+            />
+          )}
+          {gates.showRecordingsNav && (
+            <NavItem
+              icon={Video}
+              label="Recordings"
+              active={section.kind === "recordings"}
+              onClick={() => setSection({ kind: "recordings" })}
+            />
+          )}
           <NavItem
             icon={CalendarDays}
             label="Daily"

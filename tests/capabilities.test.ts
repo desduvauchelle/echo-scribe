@@ -48,3 +48,13 @@ describe("uiGates", () => {
     expect(uiGates(DEFAULT_CAPS).showMeetingsNav).toBe(false);
   });
 });
+
+// A stale saved section must not render a gated view. The route guard uses the
+// same gate flags, so assert the flags a Windows build would see.
+describe("route gating flags", () => {
+  test("Windows hides meetings + recordings routes", () => {
+    const g = uiGates(windowsCaps);
+    expect(g.showMeetingsNav).toBe(false);
+    expect(g.showRecordingsNav).toBe(false);
+  });
+});
