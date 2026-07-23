@@ -327,6 +327,59 @@ async function pickCodec(width: number, height: number): Promise<CodecChoice> {
   throw new Error("This Mac's browser engine can't encode video (no supported codec). See console for details.");
 }
 
+/** The subset of an mp4box `trak` box the edit-list offset needs. */
+type TrakForEdits = {
+  edts?: { elst?: { entries?: Array<{ segment_duration: number; media_time: number }> } };
+  mdia?: { mdhd?: { timescale?: number } };
+};
+
+/**
+ * The presentation offset (µs) to SUBTRACT from a track's raw sample
+ * timestamps (media timeline) to get MOVIE-timeline time — i.e. the timeline
+ * an HTMLVideoElement plays, the editor's trim handles select against, and the
+ * Rust audio trim slices in.
+ *
+ * mp4box hands out `s.cts` in the MEDIA timeline and never applies the track's
+ * edit list. Screen captures write a warm-up edit (elst `media_time` > 0 trims
+ * the first frames of the capture session), so demuxing raw cts silently
+ * shifted every rendered frame LATE by that edit — while the audio WAV (whose
+ * extractor honors edit lists) stayed on movie time. Net effect: exported
+ * audio led the video by the edit offset (~80ms on a real capture), most
+ * noticeable after a start trim. This helper closes that gap at the demux
+ * boundary so the whole pipeline downstream (trim window, zoom/cursor lookup,
+ * output re-anchoring) keeps working in one timeline.
+ *
+ * Semantics (ISO 14496-12 elst):
+ *   - No edts/elst/entries → 0 (media == movie).
+ *   - Leading empty edits (`media_time === -1`, duration in MOVIE timescale)
+ *     DELAY the content on the movie timeline → contribute negatively.
+ *   - The first normal entry's `media_time` (MEDIA timescale) is the media
+ *     time shown at the segment start → contributes positively.
+ *   - Missing/invalid timescales → 0 (never NaN/Infinity; a wrong-but-finite
+ *     timeline beats a poisoned one).
+ * Multi-segment lists beyond the first normal entry are not modeled (captures
+ * never write them); the first normal entry decides.
+ */
+export function videoEditOffsetUs(trak: TrakForEdits, movieTimescale: number): number {
+  const entries = trak?.edts?.elst?.entries;
+  if (!Array.isArray(entries) || entries.length === 0) return 0;
+  const mediaTs = trak?.mdia?.mdhd?.timescale;
+  if (typeof mediaTs !== "number" || !Number.isFinite(mediaTs) || mediaTs <= 0) return 0;
+
+  let emptyLeadUs = 0;
+  for (const e of entries) {
+    if (e.media_time === -1) {
+      // Empty edit: nothing is presented for its duration (movie timescale).
+      if (Number.isFinite(movieTimescale) && movieTimescale > 0) {
+        emptyLeadUs += (e.segment_duration * 1_000_000) / movieTimescale;
+      }
+      continue;
+    }
+    return (e.media_time * 1_000_000) / mediaTs - emptyLeadUs;
+  }
+  return -emptyLeadUs;
+}
+
 /** A demuxed video track: its samples-as-chunks plus the decoder config. */
 type DemuxResult = {
   chunks: EncodedVideoChunk[];
@@ -363,8 +416,10 @@ function extractDescription(
   return full.slice(8);
 }
 
-/** Demux the MP4 bytes into decodable video chunks + a decoder config. */
-function demux(bytes: ArrayBuffer): Promise<DemuxResult> {
+/** Demux the MP4 bytes into decodable video chunks + a decoder config.
+ *  Exported for tests (tests/renderEditList.test.ts + scratch probes) — the
+ *  render entry point is still `renderRecording`. */
+export function demux(bytes: ArrayBuffer): Promise<DemuxResult> {
   return new Promise<DemuxResult>((resolve, reject) => {
     const file = createFile();
     const chunks: EncodedVideoChunk[] = [];
@@ -372,6 +427,10 @@ function demux(bytes: ArrayBuffer): Promise<DemuxResult> {
     let decoderConfig: VideoDecoderConfig | null = null;
     let codedWidth = 0;
     let codedHeight = 0;
+    // Edit-list presentation offset (µs), subtracted from every sample cts so
+    // chunk timestamps are MOVIE time — the same timeline the editor's trim
+    // window and the Rust audio trim use. See `videoEditOffsetUs`.
+    let editOffsetUs = 0;
 
     file.onError = (module: string, msg: string) => {
       reject(new Error(`mp4box demux error (${module}): ${msg}`));
@@ -386,6 +445,10 @@ function demux(bytes: ArrayBuffer): Promise<DemuxResult> {
       videoTrackId = video.id;
       codedWidth = video.video?.width ?? video.track_width;
       codedHeight = video.video?.height ?? video.track_height;
+      editOffsetUs = videoEditOffsetUs(
+        file.getTrackById(videoTrackId) as unknown as TrakForEdits,
+        info.timescale,
+      );
       const description = extractDescription(file, videoTrackId);
       decoderConfig = {
         codec: video.codec,
@@ -403,8 +466,12 @@ function demux(bytes: ArrayBuffer): Promise<DemuxResult> {
         chunks.push(
           new EncodedVideoChunk({
             type: s.is_sync ? "key" : "delta",
-            // mp4box timestamps are in track timescale units → microseconds.
-            timestamp: (s.cts * 1_000_000) / s.timescale,
+            // mp4box timestamps are in track timescale units (MEDIA timeline)
+            // → microseconds, shifted onto the MOVIE timeline by the track's
+            // edit list. Warm-up frames the edit trims land at negative movie
+            // time; they're still fed to the decoder (they can be reference
+            // frames) and dropped post-decode by `frameInTrimWindow`.
+            timestamp: (s.cts * 1_000_000) / s.timescale - editOffsetUs,
             duration: (s.duration * 1_000_000) / s.timescale,
             data: s.data,
           }),
