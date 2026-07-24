@@ -7,6 +7,7 @@ use std::path::PathBuf;
 pub mod detector;
 pub mod grammar;
 pub mod guidance;
+pub mod guide_review;
 pub mod pipeline;
 pub mod recorder;
 pub mod stitch;
@@ -148,14 +149,16 @@ struct ActiveMeeting {
     /// Calendar event we matched at start time. Refined at stop time when we
     /// know the actual end timestamp.
     calendar_match: Option<crate::calendar::CalendarMatch>,
-    /// Full focus snapshot at meeting-start time (app, window, URL, content,
-    /// project hints). Also persisted on the item row as capture_context.
-    start_focus: Option<crate::input::focus::FocusContext>,
     recorder: Recorder,
     chunk_drain_handle: tokio::task::JoinHandle<()>,
     pipeline: Option<Pipeline>,
-    guide_template: Option<crate::db::guide_templates::GuideTemplate>,
-    guide_engine: Option<crate::meeting::guidance::GuidanceEngine>,
+    /// Guide engines attached to this meeting (0..=2). Mutated by
+    /// attach_guide/detach_guide while the segment observer reads it — the
+    /// observer clones the Vec under the lock, then dispatches lock-free.
+    guide_engines: Arc<std::sync::Mutex<Vec<crate::meeting::guidance::GuidanceEngine>>>,
+    /// Full transcript so far, in stitch order. Backs the HUD's live
+    /// transcript backlog (`get_live_transcript`) and guide seeding.
+    transcript: Arc<std::sync::Mutex<Vec<Segment>>>,
 }
 
 /// Optional context captured at meeting-start time, fed into the synthesis
@@ -165,16 +168,7 @@ pub struct MeetingStartContext {
     pub window_title: Option<String>,
     pub browser_url: Option<String>,
     pub browser_tab_title: Option<String>,
-    /// Full focus snapshot at meeting-start time. Persisted on the meeting's
-    /// item row (capture_context) so the background project tagger can route
-    /// the meeting from the same signals dictation items get, and rendered
-    /// into the synthesis prompt (content title/URL, project hints).
-    pub focus: Option<crate::input::focus::FocusContext>,
     pub calendar_match: Option<crate::calendar::CalendarMatch>,
-    /// The guide template to attach to this session (None for a normal
-    /// auto-detected/manual meeting). When `Some`, `start()` persists the
-    /// snapshot atomically and constructs a `GuidanceEngine`.
-    pub guide_template: Option<crate::db::guide_templates::GuideTemplate>,
 }
 
 impl MeetingManager {
@@ -215,9 +209,209 @@ impl MeetingManager {
         self.state.lock().await.as_ref().map(|a| a.item_id.clone())
     }
 
-    /// Returns a clone of the active session's GuidanceEngine handle, if any.
-    pub async fn guide_engine(&self) -> Option<crate::meeting::guidance::GuidanceEngine> {
-        self.state.lock().await.as_ref().and_then(|a| a.guide_engine.clone())
+    /// Engine lookup by guide session id (HUD commands).
+    pub async fn guide_engine_by_id(
+        &self,
+        session_id: &str,
+    ) -> Option<crate::meeting::guidance::GuidanceEngine> {
+        self.state.lock().await.as_ref().and_then(|a| {
+            a.guide_engines
+                .lock()
+                .unwrap()
+                .iter()
+                .find(|e| e.session_id() == session_id)
+                .cloned()
+        })
+    }
+
+    /// Snapshot of the live transcript (empty when no meeting is active).
+    pub async fn transcript_snapshot(&self) -> Vec<Segment> {
+        self.state
+            .lock()
+            .await
+            .as_ref()
+            .map(|a| a.transcript.lock().unwrap().clone())
+            .unwrap_or_default()
+    }
+
+    /// Snapshot of active guide sessions in HUD `guide-init` payload shape.
+    /// Lets the HUD recover state on (re)mount instead of depending on
+    /// having been alive when `guide-init` fired.
+    pub async fn active_guides_snapshot(&self) -> Vec<serde_json::Value> {
+        self.state
+            .lock()
+            .await
+            .as_ref()
+            .map(|a| {
+                a.guide_engines
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .map(|e| {
+                        let t = e.template_snapshot();
+                        serde_json::json!({
+                            "sessionId": e.session_id(),
+                            "slot": e.slot(),
+                            "templateName": t.name,
+                            "goal": t.goal,
+                            "mode": match e.mode() {
+                                crate::meeting::guidance::Mode::Auto => "auto",
+                                crate::meeting::guidance::Mode::OnDemand => "on_demand",
+                            },
+                        })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Attach a guide template to the active meeting. Caps at two concurrent
+    /// guides. Seeds the new engine with the recent transcript, persists the
+    /// template snapshot on the meeting row, shows the HUD, and (in Auto
+    /// mode) fires an immediate first cycle.
+    pub async fn attach_guide(
+        &self,
+        template: crate::db::guide_templates::GuideTemplate,
+    ) -> Result<String, String> {
+        let (meeting_id, engines_arc, transcript_arc) = {
+            let guard = self.state.lock().await;
+            let active = guard.as_ref().ok_or("No meeting is recording")?;
+            (
+                active.item_id.clone(),
+                active.guide_engines.clone(),
+                active.transcript.clone(),
+            )
+        };
+
+        let initial_mode = match crate::settings::SettingsStore::load(&self.app_handle)
+            .ok()
+            .and_then(|s| s.guide_overlay_mode())
+        {
+            Some(crate::meeting::guidance::Mode::OnDemand) => {
+                crate::meeting::guidance::Mode::OnDemand
+            }
+            _ => crate::meeting::guidance::Mode::Auto,
+        };
+        let session_id = uuid::Uuid::new_v4().to_string();
+
+        let engine = {
+            let mut engines = engines_arc.lock().unwrap();
+            if engines.len() >= 2 {
+                tracing::info!(target: "guide", template = %template.name, "attach rejected: cap reached");
+                return Err("Two guides are already running. Close one to add another.".into());
+            }
+            let slot = crate::meeting::guidance::next_free_slot(
+                &engines.iter().map(|e| e.slot()).collect::<Vec<_>>(),
+            );
+            let engine = crate::meeting::guidance::GuidanceEngine::new(
+                session_id.clone(),
+                slot,
+                meeting_id.clone(),
+                template.clone(),
+                self.llm.clone(),
+                self.app_handle.clone(),
+                initial_mode,
+            );
+            let seed = crate::meeting::guidance::seed_text_from_history(
+                &transcript_arc.lock().unwrap(),
+                crate::meeting::guidance::ROLLING_BYTES,
+            );
+            if !seed.is_empty() {
+                engine.seed_rolling(seed);
+            }
+            engines.push(engine.clone());
+            engine
+        };
+
+        match serde_json::to_value(&template) {
+            Ok(snap) => {
+                let mid = meeting_id.clone();
+                if let Err(e) = self.db.with_conn(move |c| {
+                    crate::db::meetings::append_guide_template_snapshot(c, &mid, &snap)
+                }) {
+                    tracing::warn!(target: "guide", ?e, "persisting guide template snapshot failed");
+                }
+            }
+            Err(e) => tracing::warn!(target: "guide", ?e, "template snapshot serialize failed"),
+        }
+
+        // Create the guide-run row (status = pending). Survives crashes; the
+        // timeline + review fill in at stop. Stash the id on the engine so
+        // stop() can find the row for this guide.
+        {
+            let now = chrono::Utc::now().to_rfc3339();
+            let run = crate::db::meeting_guide_runs::GuideRunRow {
+                id: ulid::Ulid::new().to_string(),
+                meeting_id: meeting_id.clone(),
+                template_id: template.id.clone(),
+                template_name: template.name.clone(),
+                template_json: serde_json::to_string(&template).unwrap_or_else(|_| "{}".into()),
+                slot: engine.slot() as i64,
+                started_at: now.clone(),
+                timeline_json: None,
+                review_json: None,
+                status: "pending".into(),
+                error: None,
+                generated_at: None,
+                created_at: now,
+            };
+            engine.set_run_id(run.id.clone());
+            let db = self.db.clone();
+            if let Err(e) =
+                db.with_conn(move |c| crate::db::meeting_guide_runs::insert_guide_run(c, &run))
+            {
+                tracing::warn!(target: "guide", ?e, "insert guide run row failed");
+            }
+        }
+
+        let mode_str = match initial_mode {
+            crate::meeting::guidance::Mode::Auto => "auto",
+            crate::meeting::guidance::Mode::OnDemand => "on_demand",
+        };
+        crate::overlay::show_meeting_hud(&self.app_handle, Some("guides"));
+        crate::overlay::emit_guide_init(
+            &self.app_handle,
+            serde_json::json!({
+                "sessionId": session_id,
+                "slot": engine.slot(),
+                "templateName": template.name,
+                "goal": template.goal,
+                "mode": mode_str,
+            }),
+        );
+        if matches!(initial_mode, crate::meeting::guidance::Mode::Auto) {
+            // Harmless when the seed was empty: the cycle no-ops on an
+            // empty rolling window.
+            engine.fire_cycle();
+        }
+        tracing::info!(
+            target: "guide",
+            session = %session_id,
+            template = %template.name,
+            slot = engine.slot(),
+            "guide attached"
+        );
+        Ok(session_id)
+    }
+
+    /// Detach one guide session. The meeting keeps recording.
+    pub async fn detach_guide(&self, session_id: &str) -> Result<(), String> {
+        let guard = self.state.lock().await;
+        let active = guard.as_ref().ok_or("No meeting is recording")?;
+        let removed = {
+            let mut engines = active.guide_engines.lock().unwrap();
+            let before = engines.len();
+            engines.retain(|e| e.session_id() != session_id);
+            before != engines.len()
+        };
+        if !removed {
+            return Err("Guide session not found".into());
+        }
+        let _ = self
+            .app_handle
+            .emit("guide-detached", serde_json::json!({ "sessionId": session_id }));
+        tracing::info!(target: "guide", session = %session_id, "guide detached");
+        Ok(())
     }
 
     pub async fn start(
@@ -247,16 +441,12 @@ impl MeetingManager {
             .clone()
             .map(|n| format!("Meeting with {n}"))
             .unwrap_or_else(|| "Untitled meeting".into());
-        let capture_context_json = start_context
-            .focus
-            .as_ref()
-            .and_then(|f| serde_json::to_string(f).ok());
         self.db
             .with_conn(move |conn| {
                 conn.execute(
-                    "INSERT INTO items (id, content, source, kind, captured_at, created_at, capture_context)
-                     VALUES (?1, ?2, 'meeting', 'meeting', ?3, ?3, ?4)",
-                    rusqlite::params![id_for_db, title, started_for_db, capture_context_json],
+                    "INSERT INTO items (id, content, source, kind, captured_at, created_at)
+                     VALUES (?1, ?2, 'meeting', 'meeting', ?3, ?3)",
+                    rusqlite::params![id_for_db, title, started_for_db],
                 )?;
                 crate::db::meetings::insert_meeting(
                     conn,
@@ -319,68 +509,38 @@ impl MeetingManager {
             }
         });
 
-        // Build the pipeline. If a guide template is attached, also build
-        // the guidance engine and install its segment observer BEFORE the
-        // drain task spawns (the observer is captured at spawn time).
+        // Build the pipeline with an always-installed segment observer. It
+        // feeds (a) the transcript history + live `meeting-segment` events
+        // and (b) whatever guide engines are attached at dispatch time —
+        // which is what lets guides attach/detach mid-meeting even though
+        // the observer itself is captured once at spawn_drain time.
         let mut pipeline = Pipeline::new(self.asr.clone(), dir.join("failed"));
-        let guide_template = start_context.guide_template.clone();
-        let guide_engine = if let Some(template) = guide_template.clone() {
-            // Persist the immutable snapshot now. Mirrors B1's post-hoc
-            // update_guide_template call but happens inside start() so a
-            // bad write doesn't escape into the active meeting state.
-            let id_for_snap = id.clone();
-            if let Ok(snap) = serde_json::to_string(&template) {
-                if let Err(e) = self.db.with_conn(move |c| {
-                    crate::db::meetings::update_guide_template(c, &id_for_snap, Some(snap.as_str()))
-                }) {
-                    tracing::warn!(?e, "persisting guide template snapshot failed");
+        let guide_engines: Arc<std::sync::Mutex<Vec<crate::meeting::guidance::GuidanceEngine>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
+        let transcript: Arc<std::sync::Mutex<Vec<Segment>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
+        {
+            let engines_obs = guide_engines.clone();
+            let transcript_obs = transcript.clone();
+            let app_obs = self.app_handle.clone();
+            let id_obs = id.clone();
+            let cb: crate::meeting::pipeline::SegmentObserver = std::sync::Arc::new(move |seg| {
+                transcript_obs.lock().unwrap().push(seg.clone());
+                if let Err(e) = app_obs.emit(
+                    "meeting-segment",
+                    serde_json::json!({ "meetingId": id_obs, "segment": seg }),
+                ) {
+                    tracing::warn!(target: "hud", ?e, "meeting-segment emit failed");
                 }
-            }
-            // Initial mode comes from persisted setting (Auto by default).
-            let initial_mode = match crate::settings::SettingsStore::load(&self.app_handle)
-                .ok()
-                .and_then(|s| s.guide_overlay_mode())
-            {
-                Some(crate::meeting::guidance::Mode::OnDemand) => {
-                    crate::meeting::guidance::Mode::OnDemand
-                }
-                _ => crate::meeting::guidance::Mode::Auto,
-            };
-            let engine = crate::meeting::guidance::GuidanceEngine::new(
-                id.clone(),
-                template,
-                self.llm.clone(),
-                self.app_handle.clone(),
-                initial_mode,
-            );
-            // Wire the per-segment observer: forward into the engine, then
-            // fire a cycle if Auto mode says so.
-            let engine_obs = engine.clone();
-            let cb: crate::meeting::pipeline::SegmentObserver =
-                std::sync::Arc::new(move |seg| {
-                    let should_fire = engine_obs.ingest_segment(&seg);
-                    if should_fire {
-                        engine_obs.fire_cycle();
+                let engines: Vec<_> = engines_obs.lock().unwrap().clone();
+                for engine in engines {
+                    if engine.ingest_segment(&seg) {
+                        engine.fire_cycle();
                     }
-                });
+                }
+            });
             pipeline = pipeline.with_observer(cb);
-            // Show the HUD with template name + goal + mode so the shell can
-            // render immediately (before the first LLM cycle completes).
-            let mode_str = match initial_mode {
-                crate::meeting::guidance::Mode::Auto => "auto",
-                crate::meeting::guidance::Mode::OnDemand => "on_demand",
-            };
-            let engine_template = engine.template_snapshot();
-            crate::overlay::show_guide_overlay(
-                &self.app_handle,
-                &engine_template.name,
-                &engine_template.goal,
-                mode_str,
-            );
-            Some(engine)
-        } else {
-            None
-        };
+        }
         let chunk_drain_handle = pipeline.spawn_drain(chunk_rx);
 
         let _ = self.app_handle.emit(
@@ -488,12 +648,11 @@ impl MeetingManager {
             start_browser_url: start_context.browser_url,
             start_browser_tab_title: start_context.browser_tab_title,
             calendar_match,
-            start_focus: start_context.focus,
             recorder,
             chunk_drain_handle,
             pipeline: Some(pipeline),
-            guide_template,
-            guide_engine,
+            guide_engines,
+            transcript,
         });
         Ok(id)
     }
@@ -615,9 +774,7 @@ impl MeetingManager {
             window_title: active.start_window_title.clone(),
             browser_url: active.start_browser_url.clone(),
             browser_tab_title: active.start_browser_tab_title.clone(),
-            focus: active.start_focus.clone(),
             calendar_match: refined_match.clone(),
-            guide_template: None,
         };
         let settings = crate::settings::SettingsStore::load(&self.app_handle).ok();
         let custom_prompt = settings.as_ref().map(|s| s.meeting_summary_prompt());
@@ -683,19 +840,25 @@ impl MeetingManager {
                 )?;
 
                 // If synthesis succeeded, assign project/tags and create tasks.
-                let mut project_assigned = false;
                 if let Some(s) = &synthesis_for_db {
                     let meeting_project_id = resolve_project_name(
                         conn,
                         s.project_name.as_deref(),
                         &existing_projects_clone,
                     )?;
-                    project_assigned = meeting_project_id.is_some();
 
                     if let Some(ref pid) = meeting_project_id {
                         conn.execute(
                             "UPDATE items SET project_id = ?1 WHERE id = ?2",
                             rusqlite::params![pid, id_db3],
+                        )?;
+                    } else {
+                        // Synthesis couldn't name a project — let the
+                        // auto-tagger retry with the router + classifier.
+                        crate::db::project_tag_jobs::enqueue(
+                            conn,
+                            &id_db3,
+                            &chrono::Utc::now().to_rfc3339(),
                         )?;
                     }
                     if !s.tags.is_empty() {
@@ -721,6 +884,9 @@ impl MeetingManager {
                              VALUES (?1, ?2, 'meeting', 'task', ?3, ?4, ?4)",
                             rusqlite::params![task_id, action.text, task_project_id, now_iso],
                         )?;
+                        if task_project_id.is_none() {
+                            crate::db::project_tag_jobs::enqueue(conn, &task_id, &now_iso)?;
+                        }
                         conn.execute(
                             "INSERT INTO tasks (item_id, deadline, completed_at) VALUES (?1, NULL, NULL)",
                             rusqlite::params![task_id],
@@ -736,20 +902,66 @@ impl MeetingManager {
                         crate::db::meetings::link_action(conn, &id_db3, &task_id, &now_iso)?;
                     }
                 }
-                // No project assigned (synthesis failed or returned null):
-                // hand the meeting to the background project tagger, which
-                // retries with the transcript keywords + capture context.
-                if !project_assigned {
-                    crate::db::project_tag_jobs::enqueue(conn, &id_db3, &ended_at)?;
-                    tracing::info!(
-                        target: "project_tagger",
-                        meeting = %id_db3,
-                        "meeting finalized without a project; enqueued for background tagging"
-                    );
-                }
                 Ok(())
             })
             .map_err(|e| MeetingError::Db(e.to_string()))?;
+
+        // Step 7.5: Persist each guide's timeline now (fast), then generate its
+        // review in the background so meeting completion isn't blocked by a
+        // multi-minute LLM pass. Reviews flip status pending → ready/failed.
+        {
+            let guide_engines: Vec<_> = active.guide_engines.lock().unwrap().clone();
+            for engine in &guide_engines {
+                let Some(run_id) = engine.run_id() else { continue };
+                let timeline = engine.drain_timeline();
+                if let Ok(tlj) = serde_json::to_string(&timeline) {
+                    let db = self.db.clone();
+                    let rid = run_id.clone();
+                    if let Err(e) = db.with_conn(move |c| {
+                        crate::db::meeting_guide_runs::update_guide_run_timeline(c, &rid, Some(tlj.as_str()))
+                    }) {
+                        tracing::warn!(target: "guide", ?e, "persist guide timeline failed");
+                    }
+                }
+
+                let db = self.db.clone();
+                let llm = self.llm.clone();
+                let app = self.app_handle.clone();
+                let template = engine.template_snapshot();
+                let segs = segments.clone();
+                let mid = id.clone();
+                let rid = run_id.clone();
+                tokio::spawn(async move {
+                    match crate::meeting::guide_review::generate_review(llm, &template, &segs).await {
+                        Ok(review) => {
+                            let rj = serde_json::to_string(&review).unwrap_or_else(|_| "{}".into());
+                            let gen_at = chrono::Utc::now().to_rfc3339();
+                            let rid2 = rid.clone();
+                            if let Err(e) = db.with_conn(move |c| {
+                                crate::db::meeting_guide_runs::update_guide_run_review(
+                                    c, &rid2, Some(rj.as_str()), "ready", Some(gen_at.as_str()),
+                                )
+                            }) {
+                                tracing::error!(target: "guide", ?e, run = %rid, "persist guide review failed");
+                            } else {
+                                tracing::info!(target: "guide", run = %rid, overall = %review.overall, criteria = review.scorecard.len(), "[guide-review] ready");
+                            }
+                        }
+                        Err(e) => {
+                            tracing::error!(target: "guide", run = %rid, error = %e, "[guide-review] failed");
+                            let rid2 = rid.clone();
+                            let err = e.clone();
+                            if let Err(write_err) = db.with_conn(move |c| {
+                                crate::db::meeting_guide_runs::set_guide_run_status(c, &rid2, "failed", Some(err.as_str()))
+                            }) {
+                                tracing::warn!(target: "guide", e = ?write_err, run = %rid, "guide run status write failed");
+                            }
+                        }
+                    }
+                    let _ = app.emit("guide-review-updated", serde_json::json!({ "meetingId": mid, "runId": rid }));
+                });
+            }
+        }
 
         // Step 8: Emit "complete" event and hide the overlay.
         let _ = self.app_handle.emit(
@@ -757,7 +969,7 @@ impl MeetingManager {
             serde_json::json!({"id": id}),
         );
         crate::overlay::hide_recording_overlay(&self.app_handle);
-        crate::overlay::hide_guide_overlay(&self.app_handle);
+        crate::overlay::hide_meeting_hud(&self.app_handle);
 
         // Native desktop notification so the user sees the saved meeting is
         // ready even when no Echo Scribe window is visible. Title falls back
@@ -851,32 +1063,16 @@ impl MeetingManager {
             .with_conn(|conn| crate::db::projects::list_projects(conn, false))
             .unwrap_or_default();
 
-        // Retry path: rebuild the start context from what was persisted —
-        // the calendar match snapshot on the meeting row, and the focus
-        // snapshot (window/URL/content/project hints) on the item row — so
-        // attendees / topic / routing hints don't disappear on retry.
+        // Retry path: window/URL context wasn't persisted, but the
+        // calendar match snapshot is — surface it back into the prompt so
+        // attendees / topic don't disappear on retry.
         let persisted_match: Option<crate::calendar::CalendarMatch> = row
             .calendar_match_json
             .as_deref()
             .and_then(|s| serde_json::from_str(s).ok());
-        let persisted_focus: Option<crate::input::focus::FocusContext> = {
-            let id_for_item = id.to_string();
-            self.db
-                .with_conn(move |conn| crate::db::items::get_item(conn, &id_for_item))
-                .ok()
-                .flatten()
-                .and_then(|item| item.capture_context)
-                .and_then(|s| serde_json::from_str(&s).ok())
-        };
         let retry_context = MeetingStartContext {
-            window_title: persisted_focus.as_ref().and_then(|f| f.window_title.clone()),
-            browser_url: persisted_focus.as_ref().and_then(|f| f.browser_url.clone()),
-            browser_tab_title: persisted_focus
-                .as_ref()
-                .and_then(|f| f.browser_tab_title.clone()),
-            focus: persisted_focus,
             calendar_match: persisted_match,
-            guide_template: None,
+            ..Default::default()
         };
         let settings = crate::settings::SettingsStore::load(&self.app_handle).ok();
         let custom_prompt = settings.as_ref().map(|s| s.meeting_summary_prompt());
@@ -931,10 +1127,11 @@ impl MeetingManager {
                             rusqlite::params![pid, id_for_db],
                         )?;
                     } else {
-                        // Still unrouted after retry — let the background
-                        // tagger keep trying with transcript + context.
-                        let now_iso = chrono::Utc::now().to_rfc3339();
-                        crate::db::project_tag_jobs::enqueue(conn, &id_for_db, &now_iso)?;
+                        crate::db::project_tag_jobs::enqueue(
+                            conn,
+                            &id_for_db,
+                            &chrono::Utc::now().to_rfc3339(),
+                        )?;
                     }
                     if !meeting_tags.is_empty() {
                         crate::db::items::replace_tags(conn, &id_for_db, &meeting_tags)?;
@@ -958,6 +1155,9 @@ impl MeetingManager {
                                  VALUES (?1, ?2, 'meeting', 'task', ?3, ?4, ?4)",
                                 rusqlite::params![task_id, action.text, task_project_id, now_iso],
                             )?;
+                            if task_project_id.is_none() {
+                                crate::db::project_tag_jobs::enqueue(conn, &task_id, &now_iso)?;
+                            }
                             conn.execute(
                                 "INSERT INTO tasks (item_id, deadline, completed_at) VALUES (?1, NULL, NULL)",
                                 rusqlite::params![task_id],

@@ -660,12 +660,18 @@ fn force_state(state: &StateHandle, to: PipelineState) {
 }
 
 /// Serialise a `FocusContext` to a compact JSON string for storage.
-/// Serialises the whole struct so it round-trips through
-/// `serde_json::from_str::<FocusContext>` in the background tagger — a
-/// hand-rolled subset here previously omitted `pid` and made every stored
-/// context fail to parse back.
 fn serialise_context(ctx: &crate::input::focus::FocusContext) -> Option<String> {
-    serde_json::to_string(ctx).ok()
+    serde_json::to_string(&serde_json::json!({
+        "app_name":          ctx.app_name,
+        "window_title":      ctx.window_title,
+        "browser_url":       ctx.browser_url,
+        "browser_tab_title": ctx.browser_tab_title,
+        "content_title":     ctx.content_title,
+        "content_url":       ctx.content_url,
+        "content_source":    ctx.content_source,
+        "bundle_id":         ctx.bundle_id,
+    }))
+    .ok()
 }
 
 /// Insert an item row + append a `voice.captured` event to the disk log.

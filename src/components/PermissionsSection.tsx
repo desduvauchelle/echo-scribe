@@ -16,10 +16,6 @@ import {
 } from "../lib/api";
 import PermissionRow from "./PermissionRow";
 import { useToasts } from "./ToastProvider";
-import {
-  isPermissionRecheckBusy,
-  type PermissionRefreshReason,
-} from "../lib/permissionsUi";
 
 /// Manage Microphone + Accessibility from Settings. Mirrors the onboarding
 /// flow so users can re-grant after a reinstall or revoked permission without
@@ -34,31 +30,26 @@ export default function PermissionsSection() {
     calendars: false,
     camera: false,
   });
-  const [refreshReason, setRefreshReason] =
-    useState<PermissionRefreshReason | null>(null);
+  const [checking, setChecking] = useState(false);
   const [resetting, setResetting] = useState(false);
   const intervalRef = useRef<number | null>(null);
   const toasts = useToasts();
 
-  const refresh = async (reason: PermissionRefreshReason = "manual") => {
-    if (reason === "manual") {
-      setRefreshReason(reason);
-    }
+  const refresh = async () => {
+    setChecking(true);
     try {
       const s = await permissionsStatus();
       setStatus(s);
     } catch {
       /* ignore */
     } finally {
-      if (reason === "manual") {
-        setRefreshReason(null);
-      }
+      setChecking(false);
     }
   };
 
   useEffect(() => {
-    void refresh("auto");
-    intervalRef.current = window.setInterval(() => void refresh("auto"), 1500);
+    void refresh();
+    intervalRef.current = window.setInterval(() => void refresh(), 1500);
     return () => {
       if (intervalRef.current !== null) {
         window.clearInterval(intervalRef.current);
@@ -171,7 +162,6 @@ export default function PermissionsSection() {
   };
 
   const [confirmReset, setConfirmReset] = useState(false);
-  const recheckBusy = isPermissionRecheckBusy(refreshReason);
 
   const handleReset = async () => {
     setResetting(true);
@@ -202,8 +192,8 @@ export default function PermissionsSection() {
         subtitle="Echo Scribe needs your microphone to capture what you say."
         granted={status.microphone}
         onGrant={() => void handleGrantMicrophone()}
-        onRecheck={() => void refresh("manual")}
-        recheckBusy={recheckBusy}
+        onRecheck={() => void refresh()}
+        recheckBusy={checking}
       />
 
       <div className="h-px bg-elevated" />
@@ -213,8 +203,8 @@ export default function PermissionsSection() {
         subtitle="Required to paste transcribed text at the cursor in any app."
         granted={status.accessibility}
         onGrant={() => void handleGrantAccessibility()}
-        onRecheck={() => void refresh("manual")}
-        recheckBusy={recheckBusy}
+        onRecheck={() => void refresh()}
+        recheckBusy={checking}
       />
 
       <div className="h-px bg-elevated" />
@@ -224,8 +214,8 @@ export default function PermissionsSection() {
         subtitle="Lets Echo Scribe capture the other participant's audio during Zoom, Google Meet, and similar meetings. Without it, only your microphone is recorded."
         granted={status.screen_recording}
         onGrant={() => void handleGrantScreenRecording()}
-        onRecheck={() => void refresh("manual")}
-        recheckBusy={recheckBusy}
+        onRecheck={() => void refresh()}
+        recheckBusy={checking}
       />
 
       <div className="h-px bg-elevated" />
@@ -246,8 +236,8 @@ export default function PermissionsSection() {
         subtitle="Matches each meeting to your calendar invite so summaries name attendees and reference the meeting topic. The calendar data never leaves your Mac."
         granted={status.calendars}
         onGrant={() => void handleGrantCalendars()}
-        onRecheck={() => void refresh("manual")}
-        recheckBusy={recheckBusy}
+        onRecheck={() => void refresh()}
+        recheckBusy={checking}
       />
 
       <div className="h-px bg-elevated" />

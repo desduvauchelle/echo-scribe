@@ -2,7 +2,6 @@
 //! Reads raw Int16 PCM from stdout, surfaces stderr events, and respawns once on crash.
 
 use std::io::{BufRead, BufReader, Read};
-use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -212,55 +211,6 @@ impl Syscap {
         warn!("syscap did not exit within 2s, sending SIGKILL");
         let _ = child.kill();
         let _ = child.wait();
-    }
-}
-
-/// Probe the Screen Recording grant for the meeting-audio sidecar process
-/// without prompting. Returns `None` if the sidecar cannot be launched or does
-/// not answer quickly.
-pub fn screen_capture_access_authorized_sync() -> Option<bool> {
-    let bin = Syscap::resolve_binary().ok()?;
-    run_screen_capture_access_command(&bin, "--probe", Duration::from_millis(500))
-}
-
-/// Request the Screen Recording grant for the meeting-audio sidecar process.
-/// Returns `None` if the sidecar cannot be launched or the prompt does not
-/// resolve in a bounded time.
-pub fn request_screen_capture_access() -> Option<bool> {
-    let bin = Syscap::resolve_binary().ok()?;
-    run_screen_capture_access_command(&bin, "--request", Duration::from_secs(60))
-}
-
-fn run_screen_capture_access_command(
-    bin: &Path,
-    arg: &str,
-    timeout: Duration,
-) -> Option<bool> {
-    let mut child = Command::new(bin)
-        .arg(arg)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .stdin(Stdio::null())
-        .spawn()
-        .ok()?;
-    let deadline = Instant::now() + timeout;
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => return Some(status.success()),
-            Ok(None) if Instant::now() < deadline => {
-                std::thread::sleep(Duration::from_millis(25));
-            }
-            Ok(None) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return None;
-            }
-            Err(_) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return None;
-            }
-        }
     }
 }
 

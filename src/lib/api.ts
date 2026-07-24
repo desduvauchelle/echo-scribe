@@ -219,8 +219,6 @@ export type ParsedCaptureContext = {
   content_title?: string | null;
   content_url?: string | null;
   content_source?: string | null;
-  /** Derived project-name candidates (repo/folder slugs, site hosts). */
-  project_hints?: string[] | null;
 };
 
 export function parseCaptureContext(raw: string | null | undefined): ParsedCaptureContext | null {
@@ -1065,20 +1063,6 @@ export const listRecentDailySummaries = (
 
 export const regenerateDailySummary = (date: string): Promise<DailySummary> =>
   invoke("daily_summary_regenerate", { date });
-
-/** Export stored daily recaps in the inclusive local-date range
- *  [sinceDate, untilDate] (both `YYYY-MM-DD`) to one Markdown file in
- *  ~/Downloads. The backend reveals the file in Finder on success. */
-export const exportDailySummaries = (args: {
-  sinceDate: string;
-  untilDate: string;
-  rangeLabel: string;
-}): Promise<ActivityExportOutcome> =>
-  invoke("export_daily_summaries", {
-    sinceDate: args.sinceDate,
-    untilDate: args.untilDate,
-    rangeLabel: args.rangeLabel,
-  });
 
 export const getDailyRecapSettings = (): Promise<DailyRecapSettings> =>
   invoke("daily_recap_settings_get");

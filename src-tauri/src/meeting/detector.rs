@@ -332,7 +332,7 @@ pub fn spawn(
             );
 
             let frontmost = cand.bundle_id.clone();
-            let mut ctx = crate::input::focus::FocusContext {
+            let ctx = crate::input::focus::FocusContext {
                 pid: ctx.pid,
                 bundle_id: Some(cand.bundle_id.clone()),
                 app_name: Some(cand.display_name.clone()),
@@ -342,9 +342,7 @@ pub fn spawn(
                 content_title: cand.browser_tab_title.clone(),
                 content_url: cand.browser_url.clone(),
                 content_source: cand.browser_tab_title.as_ref().map(|_| "browser_tab".into()),
-                project_hints: Vec::new(),
             };
-            ctx.project_hints = crate::input::focus::derive_project_hints(&ctx);
             let display_name = display_name.as_str();
 
             // Per-app preference.
@@ -361,7 +359,6 @@ pub fn spawn(
                         window_title: ctx.window_title.clone(),
                         browser_url: ctx.browser_url.clone(),
                         browser_tab_title: ctx.browser_tab_title.clone(),
-                        focus: Some(ctx.clone()),
                         calendar_match: None,
                     };
                     if let Err(e) = manager

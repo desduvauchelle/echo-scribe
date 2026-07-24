@@ -1,15 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
-import { ChevronLeft, ChevronRight, Download, RefreshCw, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, RefreshCw, X } from "lucide-react";
 import {
   dailyRecapNotificationPermissionStatus,
-  exportDailySummaries,
   getDailySummary,
   listRecentDailySummaries,
   regenerateDailySummary,
   type DailySummary,
   type DailySummarySectionItem,
 } from "../../lib/api";
-import { useToasts } from "../../components/ToastProvider";
 
 const FIRST_RUN_FLAG = "daily_recap_first_run_dismissed";
 
@@ -44,15 +42,6 @@ function shiftDate(iso: string, deltaDays: number): string {
   return `${yy}-${mm}-${dd}`;
 }
 
-function shiftMonths(iso: string, deltaMonths: number): string {
-  const [y, m, d] = iso.split("-").map(Number);
-  const dt = new Date(y, m - 1 + deltaMonths, d);
-  const yy = dt.getFullYear();
-  const mm = String(dt.getMonth() + 1).padStart(2, "0");
-  const dd = String(dt.getDate()).padStart(2, "0");
-  return `${yy}-${mm}-${dd}`;
-}
-
 function dayLabel(iso: string): string {
   const [y, m, d] = iso.split("-").map(Number);
   const dt = new Date(y, m - 1, d);
@@ -79,9 +68,6 @@ export default function DailyView({ initialDate }: Props) {
   const [permissionGranted, setPermissionGranted] = useState<boolean | null>(
     null,
   );
-  const [exportOpen, setExportOpen] = useState(false);
-  const [exporting, setExporting] = useState(false);
-  const { push: pushToast } = useToasts();
 
   useEffect(() => {
     let cancelled = false;
@@ -155,66 +141,7 @@ export default function DailyView({ initialDate }: Props) {
     }
   }, [date]);
 
-  const runExport = useCallback(
-    async (opt: { since: string; until: string; rangeLabel: string }) => {
-      setExporting(true);
-      try {
-        const res = await exportDailySummaries({
-          sinceDate: opt.since,
-          untilDate: opt.until,
-          rangeLabel: opt.rangeLabel,
-        });
-        pushToast({
-          tone: "success",
-          message: `Exported ${res.count} recap${res.count === 1 ? "" : "s"} to Downloads.`,
-        });
-        setExportOpen(false);
-      } catch (e) {
-        // Backend returns a friendly message and logs the detail.
-        pushToast({
-          tone: "error",
-          message: e instanceof Error ? e.message : String(e),
-        });
-      } finally {
-        setExporting(false);
-      }
-    },
-    [pushToast],
-  );
-
   const isToday = date === todayLocalIso();
-
-  const today = todayLocalIso();
-  const exportOptions: {
-    key: string;
-    label: string;
-    since: string;
-    until: string;
-    rangeLabel: string;
-  }[] = [
-    { key: "day", label: "This day", since: date, until: date, rangeLabel: dayLabel(date) },
-    {
-      key: "week",
-      label: "Past 7 days",
-      since: shiftDate(today, -6),
-      until: today,
-      rangeLabel: "Past 7 days",
-    },
-    {
-      key: "month",
-      label: "Past month",
-      since: shiftMonths(today, -1),
-      until: today,
-      rangeLabel: "Past month",
-    },
-    {
-      key: "sixmonths",
-      label: "Past 6 months",
-      since: shiftMonths(today, -6),
-      until: today,
-      rangeLabel: "Past 6 months",
-    },
-  ];
 
   return (
     <div className="flex h-full bg-canvas text-fg">
@@ -306,48 +233,6 @@ export default function DailyView({ initialDate }: Props) {
           >
             <ChevronRight size={18} aria-hidden="true" />
           </button>
-
-          <div className="relative ml-auto">
-            <button
-              type="button"
-              onClick={() => setExportOpen((o) => !o)}
-              aria-label="Download recap as Markdown"
-              title="Download as Markdown"
-              className="flex items-center gap-1.5 rounded-md border border-line bg-surface px-2.5 py-1.5 text-xs text-muted hover:bg-elevated hover:text-fg"
-            >
-              <Download size={14} />
-              Download
-            </button>
-            {exportOpen ? (
-              <>
-                <div
-                  className="fixed inset-0 z-10"
-                  onClick={() => setExportOpen(false)}
-                />
-                <div className="absolute right-0 top-full z-20 mt-1.5 w-52 rounded-lg border border-line bg-canvas p-3 shadow-xl">
-                  <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.08em] text-muted">
-                    Download as Markdown
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    {exportOptions.map((opt) => (
-                      <button
-                        key={opt.key}
-                        type="button"
-                        disabled={exporting}
-                        onClick={() => void runExport(opt)}
-                        className="rounded px-2 py-1 text-left text-xs text-muted transition-colors hover:bg-elevated hover:text-fg disabled:opacity-50"
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                  {exporting ? (
-                    <p className="mt-2 text-[11px] text-muted">Exporting…</p>
-                  ) : null}
-                </div>
-              </>
-            ) : null}
-          </div>
         </header>
 
         {loading && <p className="text-sm text-muted">Loading…</p>}

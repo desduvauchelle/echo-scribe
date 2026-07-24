@@ -100,11 +100,6 @@ import {
 import { useToasts } from "../components/ToastProvider";
 import { useUpdateCheck } from "../lib/useUpdateCheck";
 import { ask } from "@tauri-apps/plugin-dialog";
-import {
-  formatTriggerPhraseInput,
-  parseTriggerPhraseInput,
-  updateTemplateName,
-} from "../lib/formatTemplates";
 
 type PageId =
   | "dictation"
@@ -1892,6 +1887,13 @@ function FormatTemplatesSection() {
     setTemplates(templates.map((t) => (t.id === id ? { ...t, ...patch } : t)));
   };
 
+  const slugify = (s: string) =>
+    s
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "")
+      .slice(0, 32) || `tpl_${Date.now().toString(36)}`;
+
   const addNew = () => {
     if (!templates) return;
     let base = "new_template";
@@ -1923,6 +1925,21 @@ function FormatTemplatesSection() {
     if (!ok) return;
     const next = templates.filter((t) => t.id !== id);
     await persist(next);
+  };
+
+  const renameId = (oldId: string, newName: string) => {
+    if (!templates) return;
+    const newId = slugify(newName);
+    if (newId === oldId || templates.some((t) => t.id === newId)) {
+      // keep id stable if collision or unchanged; just update name
+      updateOne(oldId, { name: newName });
+      return;
+    }
+    setTemplates(
+      templates.map((t) =>
+        t.id === oldId ? { ...t, id: newId, name: newName } : t,
+      ),
+    );
   };
 
   if (templates === null) {
@@ -1957,10 +1974,7 @@ function FormatTemplatesSection() {
               <input
                 type="text"
                 value={t.name}
-                onChange={(e) => {
-                  const next = updateTemplateName(t, e.target.value);
-                  updateOne(t.id, { name: next.name });
-                }}
+                onChange={(e) => renameId(t.id, e.target.value)}
                 className="flex-1 bg-surface border border-line rounded-md px-2.5 py-1 text-sm font-semibold text-fg focus:outline-none focus:border-accent"
                 placeholder="Template name"
               />
@@ -1983,10 +1997,13 @@ function FormatTemplatesSection() {
               </label>
               <input
                 type="text"
-                value={formatTriggerPhraseInput(t.trigger_phrases)}
+                value={t.trigger_phrases.join(", ")}
                 onChange={(e) =>
                   updateOne(t.id, {
-                    trigger_phrases: parseTriggerPhraseInput(e.target.value),
+                    trigger_phrases: e.target.value
+                      .split(",")
+                      .map((p) => p.trim())
+                      .filter((p) => p.length > 0),
                   })
                 }
                 className="bg-surface border border-line rounded-md px-2.5 py-1 text-xs text-fg focus:outline-none focus:border-accent"

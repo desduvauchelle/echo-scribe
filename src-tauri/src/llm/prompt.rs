@@ -224,39 +224,6 @@ fn build_start_context_block(ctx: &crate::meeting::MeetingStartContext) -> Strin
         out.push_str(u.trim());
         out.push('\n');
     }
-    if let Some(focus) = ctx.focus.as_ref() {
-        // Content title/URL (AX document, focused tab, etc.) are often the
-        // only topic signal for native apps whose window title is just the
-        // app name. Skip when redundant with lines already rendered.
-        if let Some(t) = focus.content_title.as_deref().filter(|s| !s.trim().is_empty()) {
-            let already = [ctx.window_title.as_deref(), ctx.browser_tab_title.as_deref()]
-                .into_iter()
-                .flatten()
-                .any(|s| s.trim() == t.trim());
-            if !already {
-                out.push_str("- Content: ");
-                out.push_str(t.trim());
-                out.push('\n');
-            }
-        }
-        if let Some(u) = focus.content_url.as_deref().filter(|s| !s.trim().is_empty()) {
-            let already = ctx
-                .browser_url
-                .as_deref()
-                .map(|s| s.trim() == u.trim())
-                .unwrap_or(false);
-            if !already {
-                out.push_str("- Content URL: ");
-                out.push_str(u.trim());
-                out.push('\n');
-            }
-        }
-        if !focus.project_hints.is_empty() {
-            out.push_str("- Project hint(s): ");
-            out.push_str(&focus.project_hints.join(", "));
-            out.push('\n');
-        }
-    }
     if let Some(cm) = ctx.calendar_match.as_ref() {
         out.push_str(&render_calendar_match_block(cm));
     }
@@ -460,7 +427,7 @@ mod tests {
             window_title: Some("Weekly Standup - Zoom Meeting".into()),
             browser_url: Some("https://meet.google.com/abc-defg-hij".into()),
             browser_tab_title: Some("Meeting – Alice, Bob".into()),
-            ..Default::default()
+            calendar_match: None,
         };
         let (_sys, user) =
             build_meeting_synthesis_prompt("You: hi\n", Some("Zoom"), 30, &[], &ctx, None);
@@ -468,31 +435,6 @@ mod tests {
         assert!(user.contains("Weekly Standup - Zoom Meeting"));
         assert!(user.contains("https://meet.google.com/abc-defg-hij"));
         assert!(user.contains("Meeting – Alice, Bob"));
-    }
-
-    #[test]
-    fn meeting_synthesis_includes_content_and_project_hints() {
-        let mut focus = crate::input::focus::FocusContext {
-            app_name: Some("Ghostty".into()),
-            window_title: Some("✳ standup — echo-scribe".into()),
-            content_title: Some("Sprint board Q3".into()),
-            content_url: Some("file:///Users/denis/Documents/code/echo-scribe".into()),
-            ..Default::default()
-        };
-        focus.project_hints = crate::input::focus::derive_project_hints(&focus);
-        let ctx = crate::meeting::MeetingStartContext {
-            window_title: focus.window_title.clone(),
-            focus: Some(focus),
-            ..Default::default()
-        };
-        let (_sys, user) =
-            build_meeting_synthesis_prompt("You: hi\n", Some("Zoom"), 5, &[], &ctx, None);
-        assert!(user.contains("- Content: Sprint board Q3"), "{user}");
-        assert!(
-            user.contains("- Content URL: file:///Users/denis/Documents/code/echo-scribe"),
-            "{user}"
-        );
-        assert!(user.contains("- Project hint(s): echo-scribe"), "{user}");
     }
 
     #[test]
@@ -574,8 +516,9 @@ mod tests {
         // the renderer should not repeat it.
         let ctx = crate::meeting::MeetingStartContext {
             window_title: Some("Echo Scribe — pricing".into()),
+            browser_url: None,
             browser_tab_title: Some("Echo Scribe — pricing".into()),
-            ..Default::default()
+            calendar_match: None,
         };
         let (_sys, user) =
             build_meeting_synthesis_prompt("You: hi\n", None, 1, &[], &ctx, None);
@@ -602,6 +545,21 @@ mod tests {
         assert!(sys_content.contains("Tone: formal. Duration: 45m, platform: Google Meet. Be concise."), "got: {sys_content}");
         assert!(sys_content.contains("Produce a JSON object with exactly these fields:"), "got: {sys_content}");
     }
+
+    #[test]
+    fn guide_review_prompt_numbers_criteria_and_embeds_goal() {
+        let (system, user) = build_guide_review_prompt(
+            "Listen more than you speak.",
+            "speak last\n\ngive credit by name\n",
+            "You: hi\nThem: hello\n",
+        );
+        let sys = system.unwrap();
+        assert!(sys.contains("Listen more than you speak."));
+        assert!(sys.contains("1. speak last"));
+        assert!(sys.contains("2. give credit by name")); // blank line skipped, renumbered
+        assert!(sys.contains("\"scorecard\""));
+        assert!(user.contains("You: hi"));
+    }
 }
 
 /// One key point the LLM is asked to track during a guided session.
@@ -613,7 +571,7 @@ pub const GUIDANCE_JSON_HINT: &str = r#"{
       "label": "<short label shown to the user>",
       "status": "covered" | "partial" | "open" }
   ],
-  "suggestions": ["<one short next-best thing to ask or do>"]
+  "suggestions": ["<at most one short next-best action; omit entirely if nothing new to add>"]
 }"#;
 
 /// Build the system+user prompt for one live guidance cycle.
@@ -627,6 +585,7 @@ pub fn build_guidance_prompt(
     notes: &str,
     rolling_transcript: &str,
     prior_points_json: Option<&str>,
+    recent_suggestions: &[String],
 ) -> (Option<String>, String) {
     let system = format!(
         "You are a real-time meeting facilitator. Track whether the conversation \
@@ -638,14 +597,59 @@ pub fn build_guidance_prompt(
          points'. Do not invent new ids for the same concept.\n\
          - status: 'covered' if clearly addressed, 'partial' if touched but \
          incomplete, 'open' otherwise.\n\
-         - 3-6 key_points total. 1-3 suggestions, each ≤ 12 words, actionable, \
-         specific to the most recent transcript, not generic.\n\
+         - 3-6 key_points total.\n\
+         - suggestions: emit AT MOST ONE, and ONLY if the recent transcript \
+         introduced something new and actionable. Otherwise return an empty \
+         suggestions array — silence is correct when nothing has changed.\n\
+         - A suggestion must be ≤ 12 words, concrete, and specific to the most \
+         recent transcript. Do NOT restate the goal or notes as a suggestion, \
+         and do NOT repeat or rephrase anything under 'already suggested'.\n\
          - Output JSON only.",
     );
     let prior = prior_points_json.unwrap_or("[]");
+    let already = if recent_suggestions.is_empty() {
+        "(none yet)".to_string()
+    } else {
+        recent_suggestions
+            .iter()
+            .map(|s| format!("- {s}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
     let user = format!(
-        "Goal: {goal}\n\nNotes:\n{notes}\n\nPrevious points (carry ids forward):\n{prior}\n\nRecent transcript:\n{rolling_transcript}\n\nReturn the JSON now."
+        "Goal: {goal}\n\nNotes:\n{notes}\n\nPrevious points (carry ids forward):\n{prior}\n\nAlready suggested (do NOT repeat or rephrase):\n{already}\n\nRecent transcript:\n{rolling_transcript}\n\nReturn the JSON now."
     );
+    (Some(system), user)
+}
+
+/// Build the prompt for a whole-transcript guide review: coaching scorecard
+/// (one graded criterion per non-empty `notes` line) + 1-2 emergent
+/// observations + a synthesis vs the `goal`. Parsed loosely into `GuideReview`.
+pub fn build_guide_review_prompt(
+    goal: &str,
+    notes: &str,
+    transcript: &str,
+) -> (Option<String>, String) {
+    let criteria: Vec<&str> = notes.lines().map(|l| l.trim()).filter(|l| !l.is_empty()).collect();
+    let numbered = criteria
+        .iter()
+        .enumerate()
+        .map(|(i, c)| format!("{}. {}", i + 1, c))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let system = format!(
+        "You are a communication coach reviewing a meeting transcript. The user is the speaker labeled 'You'; the other side is labeled 'Them'. \
+Assess how well the USER met the objective, criterion by criterion, using only evidence from the transcript.\n\
+Objective: {goal}\n\
+Criteria:\n{numbered}\n\n\
+Produce a JSON object with exactly these fields:\n\
+- \"overall\": one of \"strong\", \"mixed\", \"weak\".\n\
+- \"synthesis\": a 2-4 sentence narrative of how the conversation went against the objective.\n\
+- \"scorecard\": an array with ONE object per criterion above, in the same order: {{ \"criterion\": the criterion text, \"verdict\": \"met\" | \"partial\" | \"missed\", \"evidence\": a short quote or paraphrase from the transcript, \"why\": a one-line assessment, \"tip\": one concrete thing to try next time (empty string when verdict is \"met\") }}.\n\
+- \"emergent\": an array of 1-2 objects {{ \"observation\": something notable NOT covered by the criteria, \"evidence\": a short quote or paraphrase }}.\n\
+Output JSON only — no preamble, no commentary, no markdown fences."
+    );
+    let user = format!("Transcript:\n\n{transcript}\n\nProduce the JSON now.");
     (Some(system), user)
 }
 
@@ -660,6 +664,7 @@ mod guidance_prompt_tests {
             "ask about tools\nask about budget",
             "they said spreadsheets break daily",
             Some(r#"[{"id":"current_tools","label":"Current tools","status":"covered"}]"#),
+            &[],
         );
         assert!(sys.is_some());
         assert!(user.contains("Goal: Customer discovery"));
@@ -671,7 +676,33 @@ mod guidance_prompt_tests {
 
     #[test]
     fn empty_prior_defaults_to_empty_array() {
-        let (_sys, user) = build_guidance_prompt("g", "n", "t", None);
+        let (_sys, user) = build_guidance_prompt("g", "n", "t", None, &[]);
         assert!(user.contains("Previous points (carry ids forward):\n[]"));
+    }
+
+    #[test]
+    fn no_recent_suggestions_renders_placeholder() {
+        let (_sys, user) = build_guidance_prompt("g", "n", "t", None, &[]);
+        assert!(user.contains("Already suggested (do NOT repeat or rephrase):\n(none yet)"));
+    }
+
+    #[test]
+    fn recent_suggestions_are_listed_for_the_model() {
+        let recent = vec![
+            "Ask who owns the LinkedIn task".to_string(),
+            "Confirm the Titanic case decision".to_string(),
+        ];
+        let (_sys, user) = build_guidance_prompt("g", "n", "t", None, &recent);
+        assert!(user.contains("- Ask who owns the LinkedIn task"));
+        assert!(user.contains("- Confirm the Titanic case decision"));
+    }
+
+    #[test]
+    fn rules_enforce_single_suggestion_and_silence() {
+        let (sys, _user) = build_guidance_prompt("g", "n", "t", None, &[]);
+        let sys = sys.unwrap();
+        assert!(sys.contains("AT MOST ONE"), "got: {sys}");
+        assert!(sys.contains("empty suggestions array"), "got: {sys}");
+        assert!(sys.contains("Do NOT restate the goal"), "got: {sys}");
     }
 }

@@ -32,9 +32,6 @@ if [[ ! -d "$BUNDLE" ]]; then
     exit 1
 fi
 
-echo "==> Stabilizing macOS sidecar signatures…"
-bash scripts/sign-macos-bundle.sh "$BUNDLE"
-
 echo "==> Quitting any running instance…"
 osascript -e 'tell application "Echo Scribe" to quit' 2>/dev/null || true
 pkill -f "Echo Scribe" 2>/dev/null || true
