@@ -30,6 +30,10 @@ jobs:
 
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
+    # Apple Silicon is the required artifact. The Intel (macos-13) runner is
+    # being wound down by GitHub and has hung "awaiting a runner" before, so
+    # make its failure non-blocking: the release still publishes on aarch64.
+    continue-on-error: ${{ matrix.arch == 'x86_64' }}
 
     steps:
       - uses: actions/checkout@v4
@@ -119,7 +123,11 @@ jobs:
 
       - name: Verify published assets
         run: |
-          for arch in aarch64 x86_64; do
-            curl --fail --location --retry 5 --retry-all-errors --silent --show-error --head \
-              "https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/EchoScribe-${arch}.tar.gz"
-          done
+          # aarch64 is required — fail the release if it's missing.
+          curl --fail --location --retry 5 --retry-all-errors --silent --show-error --head \
+            "https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/EchoScribe-aarch64.tar.gz"
+          # x86_64 is best-effort (Intel runner may have been skipped) — warn only.
+          if ! curl --fail --location --retry 5 --retry-all-errors --silent --show-error --head \
+            "https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/EchoScribe-x86_64.tar.gz"; then
+            echo "::warning::EchoScribe-x86_64.tar.gz was not published (Intel build failed or was skipped)."
+          fi
