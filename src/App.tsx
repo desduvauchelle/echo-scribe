@@ -23,6 +23,7 @@ import { ActivityPanelProvider } from "./components/ActivityPanelContext";
 import ActivityPanel from "./components/ActivityPanel";
 import RecordingDetailPanel from "./components/RecordingDetailPanel";
 import { useVoicePasteFocus } from "./lib/voicePasteFocus";
+import { useUpdateCheck } from "./lib/useUpdateCheck";
 import { PlatformCapabilitiesProvider } from "./lib/capabilitiesContext";
 
 type View = "checking" | "onboarding" | "main" | "settings";
@@ -241,6 +242,44 @@ function AppShell() {
       if (unlisten) unlisten();
     };
   }, []);
+
+  // "Check for Updates…" in the app menu runs the same flow as the Settings
+  // button; the backend brings this window forward before emitting so the
+  // resulting toast is visible.
+  const { check: checkForUpdates } = useUpdateCheck();
+  useEffect(() => {
+    let unlisten: UnlistenFn | null = null;
+    let cancelled = false;
+    (async () => {
+      const fn = await listen("menu:check-updates", () => {
+        void checkForUpdates();
+      });
+      if (cancelled) fn();
+      else unlisten = fn;
+    })();
+    return () => {
+      cancelled = true;
+      if (unlisten) unlisten();
+    };
+  }, [checkForUpdates]);
+
+  // Surface a background update-download failure (e.g. after a manual check
+  // said "downloading") as a friendly toast; raw detail is in the logs.
+  useEffect(() => {
+    let unlisten: UnlistenFn | null = null;
+    let cancelled = false;
+    (async () => {
+      const fn = await listen<string>("update-error", (event) => {
+        toasts.push({ tone: "error", message: event.payload });
+      });
+      if (cancelled) fn();
+      else unlisten = fn;
+    })();
+    return () => {
+      cancelled = true;
+      if (unlisten) unlisten();
+    };
+  }, [toasts]);
 
   useEffect(() => {
     let cancelled = false;

@@ -23,6 +23,11 @@ export function meetingTs(m: MeetingRow): number {
   return Number.isNaN(t) ? 0 : t;
 }
 
+/** Epoch ms for a screen recording. */
+export function recordingTs(r: RecordingRow): number {
+  return r.created_at;
+}
+
 /** Merge items + recordings + meetings into a single newest-first feed.
  *  An item of kind "meeting" is dropped when the same meeting is present in
  *  `meetings`, which renders a richer card — keeping both would show it twice.
@@ -51,7 +56,7 @@ export function mergeFeed(
     })),
     ...recs.map((rec) => ({
       type: "recording" as const,
-      ts: rec.created_at, // already epoch ms
+      ts: recordingTs(rec),
       key: `r:${rec.id}`,
       rec,
     })),
@@ -74,6 +79,32 @@ export function clampMeetingsToPage(
 ): MeetingRow[] {
   if (!hasMore || oldestLoadedTs === null) return meetings;
   return meetings.filter((m) => meetingTs(m) >= oldestLoadedTs);
+}
+
+/** Recordings follow the same loaded-item boundary as meetings so older rows
+ *  do not appear ahead of the Dashboard's "Load more" control. */
+export function clampRecordingsToPage(
+  recs: RecordingRow[],
+  oldestLoadedTs: number | null,
+  hasMore: boolean,
+): RecordingRow[] {
+  if (!hasMore || oldestLoadedTs === null) return recs;
+  return recs.filter((r) => recordingTs(r) >= oldestLoadedTs);
+}
+
+/** Build the paginated mixed-source feed used by the Dashboard's "All" tab. */
+export function mergeBrowseFeed(
+  items: Item[],
+  recs: RecordingRow[],
+  meetings: MeetingRow[],
+  hasMore: boolean,
+): FeedEntry[] {
+  const oldestLoadedTs = items.length > 0 ? itemTs(items[items.length - 1]) : null;
+  return mergeFeed(
+    items,
+    clampRecordingsToPage(recs, oldestLoadedTs, hasMore),
+    clampMeetingsToPage(meetings, oldestLoadedTs, hasMore),
+  );
 }
 
 /** Case-insensitive match of a query against a recording's text fields. */

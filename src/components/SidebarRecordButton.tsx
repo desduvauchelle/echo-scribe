@@ -33,7 +33,11 @@ export default function SidebarRecordButton() {
         {active ? (
           <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-danger opacity-75" />
         ) : null}
-        <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-danger" />
+        <span
+          className={`relative inline-flex h-1.5 w-1.5 rounded-full ${
+            active ? "bg-danger" : "bg-faint"
+          }`}
+        />
       </span>
       <span>{active ? "Stop" : "Record"}</span>
     </button>

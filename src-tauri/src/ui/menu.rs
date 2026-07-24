@@ -26,12 +26,18 @@ pub fn install<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
         Some("CmdOrCtrl+,"),
     )?;
 
+    // "Check for Updates…" drives the same self-update flow as the banner; only
+    // meaningful on macOS, where the helper swaps the `.app` bundle.
+    let check_updates =
+        MenuItem::with_id(app, "menu:check-updates", "Check for Updates…", true, None::<&str>)?;
+
     let app_submenu = Submenu::with_items(
         app,
         APP_NAME,
         true,
         &[
             &PredefinedMenuItem::about(app, Some(APP_NAME), Some(about_meta))?,
+            &check_updates,
             &PredefinedMenuItem::separator(app)?,
             &settings,
             &PredefinedMenuItem::separator(app)?,
@@ -90,6 +96,17 @@ pub fn install<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
             }
             if let Err(e) = handle.emit("open_settings", ()) {
                 warn!(?e, "failed to emit open_settings");
+            }
+        }
+        "menu:check-updates" => {
+            // Bring the window forward so the resulting toast is visible, then
+            // let the frontend run the check (shared with the Settings button).
+            if let Some(w) = handle.get_webview_window("main") {
+                let _ = w.show();
+                let _ = w.set_focus();
+            }
+            if let Err(e) = handle.emit("menu:check-updates", ()) {
+                warn!(?e, "failed to emit menu:check-updates");
             }
         }
         "menu:refresh" => {

@@ -62,13 +62,13 @@ export default function MeetingCard({ mtg, projects }: Props) {
   };
 
   return (
-    <div className="rounded-md border border-line bg-surface transition-colors hover:border-line-strong">
+    <div className="rounded-lg border border-line bg-surface transition-colors hover:border-line-strong">
       <button
         type="button"
         onClick={() => openItem(mtg.item_id)}
-        className="group flex w-full cursor-pointer gap-3 px-3 py-2 text-left"
+        className="group flex w-full cursor-pointer gap-3 px-3.5 py-3 text-left"
       >
-        <div className="pt-0.5">
+        <div className="mt-0.5 shrink-0">
           <span className="inline-flex h-5 w-5 items-center justify-center rounded-md bg-accent-soft text-accent">
             <Users size={12} strokeWidth={2} aria-hidden="true" />
           </span>
@@ -110,7 +110,7 @@ export default function MeetingCard({ mtg, projects }: Props) {
             </p>
           ) : null}
 
-          <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-muted">
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-muted">
             <span>{relativeTime(mtg.started_at)}</span>
             {!status.pill ? (
               <>
@@ -148,7 +148,7 @@ export default function MeetingCard({ mtg, projects }: Props) {
             type="button"
             onClick={() => void toggleActions()}
             aria-expanded={expanded}
-            className="flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-[11px] text-muted transition-colors hover:bg-elevated hover:text-fg"
+            className="flex w-full items-center gap-1.5 px-3.5 py-2 text-left text-[11px] text-muted transition-colors hover:bg-elevated hover:text-fg"
           >
             {expanded ? (
               <ChevronDown size={12} strokeWidth={2} aria-hidden="true" />
@@ -160,7 +160,7 @@ export default function MeetingCard({ mtg, projects }: Props) {
           </button>
 
           {expanded ? (
-            <div className="flex flex-col gap-1.5 px-3 pb-2.5">
+            <div className="flex flex-col gap-1.5 px-3.5 pb-3">
               {loadingActions ? (
                 <span className="inline-flex items-center gap-1.5 py-1 text-[11px] text-muted">
                   <Loader size={11} className="animate-spin" aria-hidden="true" /> Loading…

@@ -178,6 +178,7 @@ pub fn spawn(
                         };
                         if upgraded {
                             info!("upgraded in-progress VoiceAtCursor recording to LogCapture");
+                            let _ = app.emit("voice:recording_stopped", ());
                             let _ = app.emit("log_capture:recording_started", ());
                             crate::overlay::show_log_recording_overlay(&app);
                             continue;
@@ -269,6 +270,9 @@ pub fn spawn(
                         }
                         notify_recorder_failure(&app, &e, preferred.as_deref());
                     } else {
+                        if matches!(action, Action::VoiceAtCursor) {
+                            let _ = app.emit("voice:recording_started", ());
+                        }
                         // Recording started — pre-load the ASR engine in the
                         // background so it's warm by the time the user releases.
                         asr.warm_up();
@@ -283,6 +287,9 @@ pub fn spawn(
                     if !transition_from_recording_to_processing(&state, action) {
                         warn!(?action, "ignored Released: not Recording for this action");
                         continue;
+                    }
+                    if matches!(action, Action::VoiceAtCursor) {
+                        let _ = app.emit("voice:recording_stopped", ());
                     }
                     on_state_change(TrayPipelineState::Transcribing);
                     crate::audio::mute::on_recording_stop();

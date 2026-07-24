@@ -16,6 +16,19 @@ pub struct UpdateInfo {
     pub version: String,
 }
 
+/// Outcome of a user-triggered "Check for Updates" so the UI can show feedback.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(tag = "status", rename_all = "kebab-case")]
+pub enum ManualCheckResult {
+    /// Already running the latest release (`version` is the installed one).
+    UpToDate { version: String },
+    /// A newer release exists and is now downloading in the background; the
+    /// `update-ready` event will fire once it's staged.
+    Downloading { version: String },
+    /// The check itself failed (network, parse, etc.). `message` is UI-safe.
+    Error { message: String },
+}
+
 /// Returns true if `remote` is a newer semver than `current`.
 /// Expects "MAJOR.MINOR.PATCH" strings; returns false on any parse error.
 pub fn is_newer(current: &str, remote: &str) -> bool {
@@ -224,6 +237,65 @@ pub async fn check_and_download(app: &AppHandle) {
         info!(version = %latest, "update ready, notifying frontend");
         let _ = app.emit("update-ready", UpdateInfo { version: latest });
     }
+}
+
+/// User-triggered check (menu item / Settings button). Unlike the background
+/// [`check_and_download`] this ignores the throttle and always reports an
+/// outcome so the UI can toast "up to date" or "downloading". When a newer
+/// release exists it clears any prior dismissal, kicks off the download in the
+/// background, and the existing `update-ready` event drives the banner once
+/// staging completes. Non-mac builds report "up to date" — self-update only
+/// swaps a macOS `.app` bundle (see [`launch_update_helper`]).
+pub async fn check_now(app: &AppHandle) -> ManualCheckResult {
+    let current = app.package_info().version.to_string();
+
+    if cfg!(not(target_os = "macos")) {
+        return ManualCheckResult::UpToDate { version: current };
+    }
+
+    let latest = match fetch_latest_version().await {
+        Some(v) => v,
+        None => {
+            warn!(target: "updater", "manual check: could not fetch latest release");
+            return ManualCheckResult::Error {
+                message:
+                    "Couldn't reach the update server. See Settings → Diagnostics → logs for details."
+                        .into(),
+            };
+        }
+    };
+
+    let state = app.state::<AppState>();
+    let _ = state.settings.set_last_update_check(now_unix());
+
+    if !is_newer(&current, &latest) {
+        info!(target: "updater", current = %current, latest = %latest, "manual check: up to date");
+        return ManualCheckResult::UpToDate { version: current };
+    }
+
+    // The user explicitly asked to update, so undo any earlier "dismiss" of this
+    // version — otherwise the background checker would keep skipping it.
+    let _ = state.settings.set_dismissed_update_version("");
+
+    info!(target: "updater", current = %current, latest = %latest, "manual check: downloading update");
+
+    let app = app.clone();
+    let version = latest.clone();
+    tauri::async_runtime::spawn(async move {
+        if download_and_stage(&version).await {
+            info!(target: "updater", version = %version, "manual check: update staged, notifying frontend");
+            let _ = app.emit("update-ready", UpdateInfo { version });
+        } else {
+            warn!(target: "updater", "manual check: download/stage failed");
+            let _ = app.emit(
+                "update-error",
+                "Update download failed. See Settings → Diagnostics → logs for details."
+                    .to_string(),
+            );
+        }
+    });
+
+    ManualCheckResult::Downloading { version: latest }
 }
 
 pub fn spawn_updater(app: AppHandle) {

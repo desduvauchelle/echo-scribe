@@ -1947,6 +1947,147 @@ pub async fn reset_onboarding_and_quit(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+const APP_BUNDLE_NAME: &str = "Echo Scribe.app";
+
+fn containing_app_bundle(executable: &std::path::Path) -> Option<std::path::PathBuf> {
+    executable
+        .ancestors()
+        .find(|path| path.file_name().and_then(|name| name.to_str()) == Some(APP_BUNDLE_NAME))
+        .map(std::path::Path::to_path_buf)
+}
+
+fn uninstall_data_paths(home: &std::path::Path) -> Vec<std::path::PathBuf> {
+    [
+        "Library/Application Support/EchoScribe",
+        "Library/Application Support/Echo Scribe",
+        "Library/Application Support/com.echoscribe.app",
+        "Library/Caches/com.echoscribe.app",
+        "Library/Caches/echo-scribe",
+        "Library/Preferences/com.echoscribe.app.plist",
+        "Library/Preferences/EchoScribe.plist",
+        "Library/Logs/EchoScribe",
+        "Library/WebKit/com.echoscribe.app",
+        "Library/WebKit/echo-scribe",
+        "Library/HTTPStorages/com.echoscribe.app",
+        "Library/HTTPStorages/EchoScribe",
+        "Library/Saved Application State/com.echoscribe.app.savedState",
+        "Library/LaunchAgents/Echo Scribe.plist",
+        "EchoScribe",
+    ]
+    .into_iter()
+    .map(|relative| home.join(relative))
+    .collect()
+}
+
+#[cfg(target_os = "macos")]
+fn applescript_string(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+#[cfg(target_os = "macos")]
+fn move_paths_to_trash(paths: &[std::path::PathBuf]) -> Result<(), String> {
+    let existing = paths.iter().filter(|path| path.exists()).collect::<Vec<_>>();
+    if existing.is_empty() {
+        return Ok(());
+    }
+
+    let mut script = String::from(
+        "with timeout of 3600 seconds\n\
+         tell application \"Finder\"\n",
+    );
+    for path in existing {
+        let escaped = applescript_string(&path.to_string_lossy());
+        script.push_str(&format!("delete POSIX file \"{escaped}\"\n"));
+    }
+    script.push_str("end tell\nend timeout");
+
+    let output = std::process::Command::new("/usr/bin/osascript")
+        .args(["-e", &script])
+        .output()
+        .map_err(|e| format!("could not start Finder uninstall: {e}"))?;
+    if output.status.success() {
+        return Ok(());
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    Err(format!(
+        "Finder could not move Echo Scribe to the Trash: {}",
+        stderr.trim()
+    ))
+}
+
+/// Move the running application bundle to the macOS Trash and quit. When
+/// `delete_data` is false, every data location is intentionally left in
+/// place so a later install resumes with the same database, models, media,
+/// settings, and startup preference.
+#[tauri::command]
+pub async fn uninstall_application(app: AppHandle, delete_data: bool) -> Result<(), String> {
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (app, delete_data);
+        return Err("Uninstall from Settings is currently available on macOS only.".to_string());
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let executable = std::env::current_exe()
+            .map_err(|e| format!("could not locate the running application: {e}"))?;
+        let bundle = containing_app_bundle(&executable).ok_or_else(|| {
+            "Uninstall is only available when Echo Scribe is running from its app bundle."
+                .to_string()
+        })?;
+
+        let mut paths = Vec::new();
+        if delete_data {
+            let home =
+                dirs::home_dir().ok_or_else(|| "could not locate your home folder".to_string())?;
+            paths.extend(uninstall_data_paths(&home));
+        }
+        // Move the bundle last: if Finder rejects an earlier data location,
+        // the app remains installed and can show the error.
+        paths.push(bundle.clone());
+
+        info!(
+            bundle = %bundle.display(),
+            delete_data,
+            "uninstall requested"
+        );
+        move_paths_to_trash(&paths)?;
+
+        if delete_data {
+            if let Err(e) = crate::screenrec::drive::delete_refresh_token() {
+                warn!(error = %e, "could not remove Drive credential during uninstall");
+            }
+            for service in TCC_RESET_SERVICES {
+                match std::process::Command::new("/usr/bin/tccutil")
+                    .args(["reset", service, "com.echoscribe.app"])
+                    .output()
+                {
+                    Ok(output) if output.status.success() => {}
+                    Ok(output) => warn!(
+                        service,
+                        status = %output.status,
+                        stderr = %String::from_utf8_lossy(&output.stderr).trim(),
+                        "could not reset permission during uninstall"
+                    ),
+                    Err(e) => warn!(
+                        service,
+                        error = %e,
+                        "could not run permission reset during uninstall"
+                    ),
+                }
+            }
+        }
+
+        let handle = app.clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+            handle.exit(0);
+        });
+        Ok(())
+    }
+}
+
 // ----- Reset TCC permissions -----
 
 /// Every TCC service the app ever requests. `reset_tcc_and_quit` must reset
@@ -2294,6 +2435,19 @@ fn chrono_today_for_filename() -> String {
 #[tauri::command]
 pub fn apply_update_and_restart() {
     crate::updater::launch_update_helper();
+}
+
+/// The installed app version (e.g. "0.4.1"), for display in Settings.
+#[tauri::command]
+pub fn app_version(app: AppHandle) -> String {
+    app.package_info().version.to_string()
+}
+
+/// User-triggered "Check for Updates" — forces an immediate check (ignoring the
+/// background throttle) and reports the outcome so the UI can show feedback.
+#[tauri::command]
+pub async fn check_for_update(app: AppHandle) -> crate::updater::ManualCheckResult {
+    crate::updater::check_now(&app).await
 }
 
 /// Persists the dismissed version so the update banner doesn't reappear for it.
@@ -2686,7 +2840,10 @@ pub fn get_dashboard_stats(
     // midnight, not UTC midnight. See db::stats::dashboard_stats.
     let tz_offset_secs = chrono::Local::now().offset().local_minus_utc() as i64;
     db.with_conn(|c| db::stats::dashboard_stats(c, now, tz_offset_secs))
-        .map_err(|e| e.to_string())
+        .map_err(|e| {
+            error!(target: "stats", error = %e, "failed to load dashboard statistics");
+            "Stats could not be loaded. See Settings → Diagnostics → logs for details.".to_string()
+        })
 }
 
 // ============================================================================
@@ -3116,9 +3273,10 @@ pub async fn match_meeting_calendar(
 #[tauri::command]
 pub fn delete_meeting(state: tauri::State<'_, AppState>, id: String) -> Result<(), String> {
     let db = state.db.as_ref().ok_or("db unavailable")?;
-    db.with_conn(move |conn| {
-        crate::db::meetings::delete_meeting(conn, &id)?;
-        conn.execute("DELETE FROM items WHERE id = ?1", rusqlite::params![id])?;
+    db.with_conn_mut(move |conn| {
+        let tx = conn.transaction()?;
+        crate::db::meetings::delete_meeting_and_item(&tx, &id)?;
+        tx.commit()?;
         Ok(())
     })
     .map_err(|e| e.to_string())
@@ -5686,6 +5844,92 @@ pub fn set_drive_prefs(
     Ok(())
 }
 
+/// Strip characters that are unsafe/ugly in a filename, collapse whitespace
+/// runs to a single space, trim, and cap the length. Used to turn a recording's
+/// free-form display name (which may be a browser tab title with a URL, an app
+/// window title, etc.) into a clean Drive filename component.
+fn sanitize_filename_component(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut last_ws = false;
+    for c in s.chars() {
+        // Whitespace first — newlines/tabs are ALSO control chars, but we want
+        // them to collapse to a single space (join with a gap), not vanish and
+        // fuse adjacent words.
+        if c.is_whitespace() {
+            if !last_ws {
+                out.push(' ');
+                last_ws = true;
+            }
+            continue;
+        }
+        if c.is_control() || matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') {
+            continue; // drop path/OS-reserved + other control characters
+        }
+        out.push(c);
+        last_ws = false;
+    }
+    // Cap length (Drive allows long names, but keep it sane) and re-trim.
+    out.trim().chars().take(120).collect::<String>().trim().to_string()
+}
+
+/// Build a human-readable Drive filename for an upload from the recording's
+/// display name — its user title, else the captured source label (the app /
+/// window / browser+URL context), else "Recording" — plus a version tag so the
+/// original / edited / downscaled variants don't collide, plus the recording's
+/// date for readability. Keeps the actual file's extension. Always returns a
+/// non-empty name (falls back through every step).
+fn drive_upload_name(
+    row: &crate::db::recordings::RecordingRow,
+    upload_path: &std::path::Path,
+    quality: &str,
+) -> String {
+    let ext = upload_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .filter(|e| !e.is_empty())
+        .unwrap_or("mp4");
+    // Display name: title → source_label → "Recording" (mirrors the frontend's
+    // `recordingDisplayName`), then sanitized.
+    let raw = row
+        .title
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            row.source_label
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+        })
+        .unwrap_or("Recording");
+    let mut base = sanitize_filename_component(raw);
+    if base.is_empty() {
+        base = "Recording".to_string();
+    }
+    // Version tag so uploading original + edited + a downscale of the same
+    // recording yields distinct, self-describing Drive names.
+    let tag = match quality {
+        "rendered" => " (edited)".to_string(),
+        "original" => String::new(),
+        q => format!(" ({q}p)"),
+    };
+    // Recording date (local), for readability + light disambiguation. Best
+    // effort — omitted if the timestamp can't be interpreted.
+    let date = chrono::DateTime::from_timestamp_millis(row.created_at)
+        .map(|dt| {
+            dt.with_timezone(&chrono::Local)
+                .format("%Y-%m-%d")
+                .to_string()
+        })
+        .unwrap_or_default();
+    let mut name = format!("{base}{tag}");
+    if !date.is_empty() {
+        name.push(' ');
+        name.push_str(&date);
+    }
+    format!("{name}.{ext}")
+}
+
 /// Upload a recording at `quality` ("rendered"|"original"|"1080"|"720"|"480")
 /// to Drive and return the updated row (with `drive_link`).
 ///
@@ -5781,11 +6025,11 @@ pub async fn upload_recording(
             .map_err(|e| e.to_string())??;
         out
     };
-    let upload_name = upload_path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("recording.mp4")
-        .to_string();
+    // Human-readable Drive name from the recording's display name (not the
+    // opaque `<id>.mp4` on-disk filename) — so uploads read as, e.g.,
+    // "Broker SAM (edited) 2026-07-23.mp4".
+    let upload_name = drive_upload_name(&row, &upload_path, &quality);
+    info!(target: "drive", rec = %id, upload_name = %upload_name, "resolved upload filename");
 
     // Drive sequence: refresh token → ensure folder → upload → share → get link.
     // Returns (file_id, link, folder_to_persist) where folder_to_persist is Some
@@ -5920,6 +6164,89 @@ mod tests {
     use super::*;
     use rdev::Key;
 
+    /// Minimal RecordingRow for the Drive-name tests (only the fields
+    /// `drive_upload_name` reads matter; the rest are inert placeholders).
+    fn row_for(
+        title: Option<&str>,
+        source_label: Option<&str>,
+        created_at: i64,
+    ) -> crate::db::recordings::RecordingRow {
+        crate::db::recordings::RecordingRow {
+            id: "rec-1".into(),
+            created_at,
+            file_path: "/tmp/rec-1.mp4".into(),
+            duration_ms: None,
+            width: None,
+            height: None,
+            size_bytes: None,
+            source_label: source_label.map(|s| s.to_string()),
+            has_mic: false,
+            has_sysaudio: false,
+            thumb_path: None,
+            drive_file_id: None,
+            drive_link: None,
+            upload_status: "none".into(),
+            upload_error: None,
+            exports: "[]".into(),
+            title: title.map(|s| s.to_string()),
+            transcript: None,
+            denoised_path: None,
+            events_path: None,
+            project_json: None,
+            webcam_path: None,
+            cursor_hidden: false,
+            webcam_offset_ms: None,
+            n_events: None,
+            n_clicks: None,
+            project_id: None,
+            confidence: None,
+            classified_by: None,
+        }
+    }
+
+    #[test]
+    fn sanitize_filename_component_strips_and_collapses() {
+        // Path/OS-reserved characters dropped; whitespace runs collapsed.
+        assert_eq!(
+            sanitize_filename_component("Foo/Bar: \"baz\"  <qux>"),
+            "FooBar baz qux"
+        );
+        // Newlines/tabs are control/whitespace → collapse to single spaces.
+        assert_eq!(sanitize_filename_component("a\n\tb"), "a b");
+        // Leading/trailing whitespace trimmed.
+        assert_eq!(sanitize_filename_component("  hello  "), "hello");
+        // Length capped at 120.
+        let long: String = "x".repeat(200);
+        assert_eq!(sanitize_filename_component(&long).len(), 120);
+    }
+
+    #[test]
+    fn drive_upload_name_uses_display_name_tag_and_date() {
+        let path = std::path::Path::new("/tmp/abc123.rendered.mp4");
+        // 2024-05-21 in UTC; the formatter uses local tz, so assert on the parts
+        // that are tz-independent (name, tag, extension) and that a date is present.
+        let row = row_for(Some("Broker SAM"), Some("Chrome — example.com"), 1_716_300_000_000);
+        let edited = drive_upload_name(&row, path, "rendered");
+        assert!(edited.starts_with("Broker SAM (edited) "), "{edited}");
+        assert!(edited.ends_with(".mp4"), "{edited}");
+
+        // No title → falls back to the source label (app/window context).
+        let row2 = row_for(None, Some("Chrome — example.com"), 1_716_300_000_000);
+        let orig = drive_upload_name(&row2, std::path::Path::new("/tmp/abc.mp4"), "original");
+        assert!(orig.starts_with("Chrome — example.com "), "{orig}");
+        assert!(!orig.contains("(edited)"), "{orig}");
+
+        // Downscale quality → "(1080p)" tag; extension preserved from the path.
+        let dn = drive_upload_name(&row, std::path::Path::new("/tmp/abc-1080.mp4"), "1080");
+        assert!(dn.contains("(1080p)"), "{dn}");
+
+        // Nothing usable → "Recording" fallback.
+        let row3 = row_for(Some("   "), None, 1_716_300_000_000);
+        let fb = drive_upload_name(&row3, std::path::Path::new("/tmp/x.gif"), "original");
+        assert!(fb.starts_with("Recording "), "{fb}");
+        assert!(fb.ends_with(".gif"), "{fb}");
+    }
+
     #[test]
     fn key_from_code_handles_known_and_unknown_codes() {
         assert_eq!(key_from_code("ControlRight"), Some(Key::ControlRight));
@@ -5948,6 +6275,49 @@ mod tests {
         assert_eq!(
             camera_access_outcome_str(CameraAccessOutcome::Undetermined),
             "undetermined"
+        );
+    }
+
+    #[test]
+    fn containing_app_bundle_finds_only_the_echo_scribe_bundle() {
+        let installed =
+            std::path::Path::new("/Applications/Echo Scribe.app/Contents/MacOS/echo-scribe");
+        assert_eq!(
+            containing_app_bundle(installed),
+            Some(std::path::PathBuf::from("/Applications/Echo Scribe.app"))
+        );
+        assert!(containing_app_bundle(std::path::Path::new(
+            "/tmp/Another.app/Contents/MacOS/echo-scribe"
+        ))
+        .is_none());
+        assert!(containing_app_bundle(std::path::Path::new(
+            "/repo/src-tauri/target/debug/echo-scribe"
+        ))
+        .is_none());
+    }
+
+    #[test]
+    fn uninstall_data_paths_cover_user_data_without_dev_signing_material() {
+        let home = std::path::Path::new("/Users/tester");
+        let paths = uninstall_data_paths(home);
+        assert!(paths.contains(
+            &home.join("Library/Application Support/EchoScribe")
+        ));
+        assert!(paths.contains(
+            &home.join("Library/Application Support/com.echoscribe.app")
+        ));
+        assert!(paths.contains(&home.join("EchoScribe")));
+        assert!(!paths
+            .iter()
+            .any(|path| path.to_string_lossy().contains("EchoScribeSigning")));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn applescript_string_escapes_quotes_and_backslashes() {
+        assert_eq!(
+            applescript_string(r#"/Users/a\b/"Echo".app"#),
+            r#"/Users/a\\b/\"Echo\".app"#
         );
     }
 

@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { clampMeetingsToPage, mergeFeed } from "../src/lib/feed";
+import {
+  clampMeetingsToPage,
+  mergeBrowseFeed,
+  mergeFeed,
+} from "../src/lib/feed";
 import type { Item, MeetingRow, RecordingRow } from "../src/lib/api";
 
 function item(id: string, capturedAt: string, kind: Item["kind"] = "note"): Item {
@@ -94,5 +98,43 @@ describe("clampMeetingsToPage", () => {
 
   test("keeps everything when no items are loaded", () => {
     expect(clampMeetingsToPage(meetings, null, true)).toHaveLength(2);
+  });
+});
+
+describe("mergeBrowseFeed", () => {
+  test("holds recordings older than the loaded item page behind Load more", () => {
+    const entries = mergeBrowseFeed(
+      [
+        item("new", "2026-07-20T12:00:00Z"),
+        item("cutoff", "2026-07-20T10:00:00Z"),
+      ],
+      [
+        recording("inside", Date.parse("2026-07-20T11:00:00Z")),
+        recording("old", Date.parse("2026-07-20T09:00:00Z")),
+      ],
+      [],
+      true,
+    );
+
+    expect(entries.map((e) => e.key)).toEqual([
+      "i:new",
+      "r:inside",
+      "i:cutoff",
+    ]);
+  });
+
+  test("shows older recordings and meetings once the item history is complete", () => {
+    const entries = mergeBrowseFeed(
+      [item("new", "2026-07-20T12:00:00Z")],
+      [recording("old-rec", Date.parse("2026-07-20T09:00:00Z"))],
+      [meeting("old-meeting", "2026-07-20T08:00:00Z")],
+      false,
+    );
+
+    expect(entries.map((e) => e.key)).toEqual([
+      "i:new",
+      "r:old-rec",
+      "m:old-meeting",
+    ]);
   });
 });

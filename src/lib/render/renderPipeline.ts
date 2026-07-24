@@ -1112,7 +1112,6 @@ export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8A
 
   // --- Decode → composite → encode ---
   const totalFrames = chunks.length;
-  let decodedCount = 0;
   // Frames the decoder has emitted and we've made a keep/drop decision on —
   // used as the encode-phase progress numerator so 60fps sources (which drop
   // ~half their decoded frames under the grid filter below) don't stall
@@ -1340,8 +1339,13 @@ export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8A
             }
           }
           decoder.decode(chunk);
-          decodedCount++;
-          onProgress({ phase: "decode", pct: Math.min(99, Math.round((decodedCount / totalFrames) * 100)) });
+          // NB: no per-chunk progress emit here. Decode and encode run
+          // concurrently in this loop, so emitting a "decode" phase alongside
+          // the composite callback's "encode" phase made the caller's label
+          // flicker decode↔encode every frame (and the two numerators fought
+          // over the percentage). Progress for the whole main loop is driven
+          // solely by `processedFrames` under the "encode" phase; "decode" is
+          // reserved for the fetch/demux pre-roll before this loop.
         }
         await decoder.flush();
         // Drain any composites still queued after the last decoded frame.

@@ -12,6 +12,8 @@ type Props = {
   /** Highlight terms (lowercased words) wrapped in <mark>. */
   highlight?: string[];
   compact?: boolean;
+  /** Replaces the passive kind icon with an interactive leading control. */
+  leadingSlot?: React.ReactNode;
   /** Custom slot rendered to the right of the actions. */
   rightSlot?: React.ReactNode;
 };
@@ -63,6 +65,7 @@ export default function ItemCard({
   projects,
   highlight,
   compact,
+  leadingSlot,
   rightSlot,
 }: Props) {
   const { openItem } = useActivityPanel();
@@ -92,8 +95,8 @@ export default function ItemCard({
 
   return (
     <div
-      className={`group relative flex w-full gap-3 rounded-md border border-line bg-surface ${
-        compact ? "px-3 py-2" : "p-4"
+      className={`group relative flex w-full gap-3 rounded-lg border border-line bg-surface ${
+        compact ? "px-3 py-2.5" : "px-3.5 py-3"
       } text-left transition-colors hover:border-line-strong hover:bg-elevated ${
         isVoice ? "border-l-2 border-l-accent/70" : ""
       }`}
@@ -103,11 +106,14 @@ export default function ItemCard({
       <button
         type="button"
         onClick={() => openItem(item.id)}
-        className="absolute inset-0 cursor-pointer rounded-md"
+        className="absolute inset-0 cursor-pointer rounded-lg"
         aria-label={`Open ${item.kind === "task" ? "task" : "note"}: ${item.content.slice(0, 80)}`}
       />
-      <div className="pt-0.5">
-        <KindIcon kind={item.kind} source={item.source} />
+      <div
+        className={`mt-0.5 shrink-0 ${leadingSlot ? "relative z-10" : ""}`}
+        onClick={leadingSlot ? (e) => e.stopPropagation() : undefined}
+      >
+        {leadingSlot ?? <KindIcon kind={item.kind} source={item.source} />}
       </div>
       <div className="min-w-0 flex-1">
         <div
@@ -115,7 +121,7 @@ export default function ItemCard({
         >
           {highlightContent(item.content, highlight)}
         </div>
-        <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-muted">
+        <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-muted">
           <span>{relativeTime(item.captured_at)}</span>
           {project ? (
             <span className="rounded-full bg-elevated px-2 py-0.5 text-fg">

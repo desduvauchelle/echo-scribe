@@ -38,7 +38,8 @@ use tracing_subscriber::EnvFilter;
 use crate::asr::pipeline::AsrPipeline;
 use crate::asr::registry;
 use crate::commands::{
-    apply_update_and_restart, archive_project, cancel_countdown, cancel_log_capture, chat_with_memory,
+    app_version, apply_update_and_restart, archive_project, cancel_countdown, cancel_log_capture,
+    chat_with_memory, check_for_update,
     close_area_picker, complete_task, copy_export_to_clipboard, finish_countdown,
     download_embedding_model, embedding_index_status,
     get_edit_selection_binding, update_edit_selection_binding,
@@ -94,7 +95,8 @@ use crate::commands::{
     show_area_picker, show_camera_preview, hide_camera_preview, show_countdown_overlay,
     show_main_window, start_pipeline, start_screen_recording, stop_screen_recording,
     submit_area_picker_result,
-    test_llm_inference, transcribe_recording, unarchive_project, uncomplete_task, undo_log_capture,
+    test_llm_inference, transcribe_recording, unarchive_project, uncomplete_task,
+    uninstall_application, undo_log_capture,
     platform_capabilities, update_action_binding, update_item, update_log_capture_binding,
     update_project, update_voice_at_cursor_binding, upload_recording, AppState,
 };
@@ -284,6 +286,7 @@ pub fn run() {
             restore_item,
             list_tags_for_item,
             reset_onboarding_and_quit,
+            uninstall_application,
             reset_tcc_and_quit,
             get_audio_feedback_enabled,
             set_audio_feedback_enabled,
@@ -307,6 +310,8 @@ pub fn run() {
             diagnostics_open_log_folder,
             diagnostics_recent_log,
             apply_update_and_restart,
+            app_version,
+            check_for_update,
             dismiss_update,
             set_rebinding,
             undo_log_capture,

@@ -234,6 +234,27 @@ pub fn delete_meeting(conn: &Connection, item_id: &str) -> Result<(), DbError> {
     Ok(())
 }
 
+pub fn delete_meeting_and_item(conn: &Connection, item_id: &str) -> Result<(), DbError> {
+    // A meeting is also an item. Most item-owned tables predate cascading
+    // deletes, so clear those references before removing the parent row.
+    conn.execute("DELETE FROM item_tags WHERE item_id = ?1", [item_id])?;
+    conn.execute("DELETE FROM tasks WHERE item_id = ?1", [item_id])?;
+    conn.execute("DELETE FROM item_events WHERE item_id = ?1", [item_id])?;
+    conn.execute(
+        "DELETE FROM item_session_links WHERE item_id = ?1",
+        [item_id],
+    )?;
+    conn.execute(
+        "DELETE FROM meeting_action_links WHERE item_id = ?1",
+        [item_id],
+    )?;
+
+    // Deleting the meeting cascades its own action links and guide runs.
+    delete_meeting(conn, item_id)?;
+    conn.execute("DELETE FROM items WHERE id = ?1", [item_id])?;
+    Ok(())
+}
+
 fn row_to_meeting(row: &rusqlite::Row<'_>) -> rusqlite::Result<MeetingRow> {
     Ok(MeetingRow {
         item_id: row.get(0)?,
@@ -449,5 +470,36 @@ mod tests {
         let row = get_meeting(&c, "m1").unwrap().unwrap();
         let v: serde_json::Value = serde_json::from_str(&row.guide_template_json.unwrap()).unwrap();
         assert_eq!(v.as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn deleting_tagged_meeting_removes_its_item_without_foreign_key_error() {
+        let c = fresh();
+        c.pragma_update(None, "foreign_keys", "ON").unwrap();
+        insert_test_meeting(&c, "m-tagged");
+        c.execute(
+            "INSERT INTO item_tags (item_id, tag) VALUES ('m-tagged', 'meeting')",
+            [],
+        )
+        .unwrap();
+
+        delete_meeting_and_item(&c, "m-tagged").unwrap();
+
+        let item_count: i64 = c
+            .query_row(
+                "SELECT COUNT(*) FROM items WHERE id = 'm-tagged'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let tag_count: i64 = c
+            .query_row(
+                "SELECT COUNT(*) FROM item_tags WHERE item_id = 'm-tagged'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(item_count, 0);
+        assert_eq!(tag_count, 0);
     }
 }

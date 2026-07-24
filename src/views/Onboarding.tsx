@@ -105,6 +105,7 @@ export default function Onboarding({ initialStatus, onStarted, resumeNotice }: P
   const [status, setStatus] = useState<PermissionsStatus>(initialStatus);
   const [checking, setChecking] = useState(false);
   const [starting, setStarting] = useState(false);
+  const [skipping, setSkipping] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [modelReady, setModelReady] = useState(false);
   const [llmReady, setLlmReady] = useState(false);
@@ -272,6 +273,21 @@ export default function Onboarding({ initialStatus, onStarted, resumeNotice }: P
       setError(e instanceof Error ? e.message : String(e));
       setStarting(false);
     }
+  };
+
+  const handleSkip = async () => {
+    setSkipping(true);
+    setError(null);
+    try {
+      // Let people explore the app without starting the capture pipeline.
+      // Missing requirements remain visible in the main-view permission
+      // banner and can be completed later from Settings.
+      await setOnboardingCompleted(true);
+    } catch {
+      // The current session can still continue. If persistence failed, the
+      // onboarding screen will simply appear again on the next launch.
+    }
+    onStarted();
   };
 
   return (
@@ -446,7 +462,7 @@ export default function Onboarding({ initialStatus, onStarted, resumeNotice }: P
 
         <button
           type="button"
-          disabled={!canStart || starting}
+          disabled={!canStart || starting || skipping}
           onClick={() => {
             void handleStart();
           }}
@@ -461,6 +477,20 @@ export default function Onboarding({ initialStatus, onStarted, resumeNotice }: P
             "Start Echo Scribe"
           )}
         </button>
+
+        <button
+          type="button"
+          disabled={starting || skipping}
+          onClick={() => {
+            void handleSkip();
+          }}
+          className="mt-2.5 flex w-full items-center justify-center rounded-md border border-line px-4 py-2 text-sm font-medium text-muted hover:border-line-strong hover:bg-elevated hover:text-fg disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {skipping ? "Skipping…" : "Skip setup for now"}
+        </button>
+        <p className="mt-2 text-center text-[11px] leading-relaxed text-faint">
+          You can browse Echo Scribe now and finish setup later in Settings.
+        </p>
 
         {error ? (
           <p role="alert" className="mt-3 text-xs text-warning">

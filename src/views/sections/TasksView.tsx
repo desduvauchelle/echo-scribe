@@ -18,7 +18,7 @@ import {
   parseIso,
   shortDate,
 } from "../../lib/format";
-import { CheckCircle2, ListTodo } from "lucide-react";
+import { Check, CheckCircle2, ListTodo } from "lucide-react";
 import { EmptyState, SkeletonList } from "./ActivityFeed";
 
 type Props = {
@@ -256,29 +256,47 @@ function TaskRow({
   onChangeDeadline: (value: string) => void;
 }) {
   return (
-    <div className="flex items-start gap-3">
-      <input
-        type="checkbox"
-        checked={completed}
-        onChange={onToggle}
-        className="mt-3 h-4 w-4 cursor-pointer accent-accent"
-        aria-label={completed ? "Mark task as not done" : "Complete task"}
-      />
-      <div className="flex-1">
-        <ItemCard
-          item={task.item}
-          projects={projects}
-          compact
-          rightSlot={
-            <DeadlineBadge
-              deadlineIso={task.deadline}
-              completedAtIso={task.completed_at}
-              onChange={onChangeDeadline}
-            />
-          }
+    <ItemCard
+      item={task.item}
+      projects={projects}
+      compact
+      leadingSlot={
+        <TaskCheckbox completed={completed} onToggle={onToggle} />
+      }
+      rightSlot={
+        <DeadlineBadge
+          deadlineIso={task.deadline}
+          completedAtIso={task.completed_at}
+          onChange={onChangeDeadline}
         />
-      </div>
-    </div>
+      }
+    />
+  );
+}
+
+function TaskCheckbox({
+  completed,
+  onToggle,
+}: {
+  completed: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={completed}
+      aria-label={completed ? "Mark task as not done" : "Complete task"}
+      title={completed ? "Mark as open" : "Complete task"}
+      onClick={onToggle}
+      className={`grid h-5 w-5 place-items-center rounded-md border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 ${
+        completed
+          ? "border-success/40 bg-success/15 text-success hover:bg-success/20"
+          : "border-warning/45 bg-warning/10 text-warning hover:bg-warning/20"
+      }`}
+    >
+      {completed ? <Check size={13} strokeWidth={2.5} aria-hidden="true" /> : null}
+    </button>
   );
 }
 

@@ -43,7 +43,7 @@ import MeetingCard from "../../components/MeetingCard";
 import RecordingCard from "../../components/RecordingCard";
 import ScreenRecordButton from "../../components/ScreenRecordButton";
 import {
-  StatsCategoryTabs,
+  STATS_CATEGORIES,
   categoryMeta,
   formatDuration,
 } from "../../components/StatsCategoryTabs";
@@ -66,6 +66,23 @@ type Props = {
 };
 
 type KindFilter = "all" | ItemKind | "recording";
+
+function statsCategoryForFilter(filter: KindFilter): StatsCategoryKey | null {
+  switch (filter) {
+    case "transcription":
+      return "transcriptions";
+    case "note":
+      return "notes";
+    case "task":
+      return "tasks";
+    case "meeting":
+      return "meetings";
+    case "recording":
+      return "recordings";
+    case "all":
+      return null;
+  }
+}
 
 function yesterdayLocalIso(): string {
   const now = new Date();
@@ -134,8 +151,6 @@ function emptyLabel(kind: KindFilter): string {
 
 export default function DashboardView({ projects, onOpenStats }: Props) {
   const [stats, setStats] = useState<DashboardStats | null>(null);
-  const [statsCategory, setStatsCategory] =
-    useState<StatsCategoryKey>("transcriptions");
   const [summary, setSummary] = useState<DailySummary | null>(null);
   const [items, setItems] = useState<Item[]>([]);
   const [recordings, setRecordings] = useState<RecordingRow[]>([]);
@@ -264,6 +279,10 @@ export default function DashboardView({ projects, onOpenStats }: Props) {
         if (cancelled) return;
         void loadMeetings();
       };
+      const recordingHandler = () => {
+        if (cancelled) return;
+        void loadRecordings();
+      };
       const subs = await Promise.all([
         listen("item:created", handler),
         listen("app:refresh", handler),
@@ -271,6 +290,10 @@ export default function DashboardView({ projects, onOpenStats }: Props) {
         // transcribing → summarizing → complete.
         listen("meeting-status", meetingHandler),
         listen("meeting-complete", meetingHandler),
+        // A screen recording started/stopped/edited/deleted/uploaded — refresh
+        // the recordings that are interleaved into the feed. Without this a
+        // finished recording only appears after a full app reload.
+        listen("screenrec-changed", recordingHandler),
       ]);
       if (cancelled) {
         subs.forEach((u) => u());
@@ -317,6 +340,7 @@ export default function DashboardView({ projects, onOpenStats }: Props) {
   const isTasks = kindFilter === "task";
   const isRecordings = kindFilter === "recording";
   const isMeetings = kindFilter === "meeting";
+  const statsCategory = statsCategoryForFilter(kindFilter);
 
   // Meetings keyed by their item id, so a meeting-kind search hit can be
   // rendered as a meeting card rather than a bare item.
@@ -463,18 +487,6 @@ export default function DashboardView({ projects, onOpenStats }: Props) {
     <div className="flex h-full flex-col overflow-y-auto px-6 py-6">
       <h1 className="mb-4 text-lg font-semibold tracking-tight">Dashboard</h1>
 
-      {!isSearching &&
-        (stats ? (
-          <StatStrip
-            stats={stats}
-            category={statsCategory}
-            onCategoryChange={setStatsCategory}
-            onOpen={() => onOpenStats(statsCategory)}
-          />
-        ) : (
-          <div className="h-32" />
-        ))}
-
       {!isSearching && (
         <RecapCard
           summary={summary}
@@ -482,32 +494,6 @@ export default function DashboardView({ projects, onOpenStats }: Props) {
           onOpen={() => setRecapOpen(true)}
         />
       )}
-
-      {searchOpen ? (
-        <div className="mt-5 flex items-center gap-2 rounded-md border border-line bg-surface px-3 py-1.5 focus-within:border-accent">
-          <SearchIcon size={14} className="shrink-0 text-faint" />
-          <input
-            ref={searchInputRef}
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search captures…"
-            aria-label="Search captures"
-            className="flex-1 bg-transparent text-[13px] text-fg outline-none placeholder:text-faint"
-            onKeyDown={(e) => {
-              if (e.key === "Escape") closeSearch();
-            }}
-          />
-          <button
-            type="button"
-            onClick={closeSearch}
-            aria-label="Close search"
-            className="rounded p-0.5 text-faint hover:bg-elevated hover:text-fg"
-          >
-            <X size={14} />
-          </button>
-        </div>
-      ) : null}
 
       <div className="mt-5 flex items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-1.5">
@@ -632,6 +618,45 @@ export default function DashboardView({ projects, onOpenStats }: Props) {
         </div>
       </div>
 
+      {searchOpen ? (
+        <div className="mt-3 flex items-center gap-2 rounded-md border border-line bg-surface px-3 py-1.5 focus-within:border-accent">
+          <SearchIcon size={14} className="shrink-0 text-faint" />
+          <input
+            ref={searchInputRef}
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search captures…"
+            aria-label="Search captures"
+            className="flex-1 bg-transparent text-[13px] text-fg outline-none placeholder:text-faint"
+            onKeyDown={(e) => {
+              if (e.key === "Escape") closeSearch();
+            }}
+          />
+          <button
+            type="button"
+            onClick={closeSearch}
+            aria-label="Close search"
+            className="rounded p-0.5 text-faint hover:bg-elevated hover:text-fg"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      ) : null}
+
+      {!isSearching &&
+        (stats ? (
+          <div className="mt-3">
+            <StatStrip
+              stats={stats}
+              category={statsCategory}
+              onOpen={() => onOpenStats(statsCategory ?? "transcriptions")}
+            />
+          </div>
+        ) : (
+          <div className="h-32" />
+        ))}
+
       {isTasks ? (
         <div className="mt-3 pb-4">
           <TasksView projects={projects} embedded />
@@ -694,84 +719,109 @@ export default function DashboardView({ projects, onOpenStats }: Props) {
 function StatStrip({
   stats,
   category,
-  onCategoryChange,
   onOpen,
 }: {
   stats: DashboardStats;
-  category: StatsCategoryKey;
-  onCategoryChange: (category: StatsCategoryKey) => void;
+  category: StatsCategoryKey | null;
   onOpen: () => void;
 }) {
-  const selected = stats.categories[category];
-  const meta = categoryMeta(category);
+  const selected = category ? stats.categories[category] : null;
+  const meta = category ? categoryMeta(category) : null;
   const timed = category === "meetings" || category === "recordings";
 
   return (
     <div
-      role="button"
-      tabIndex={0}
-      aria-label={`Open detailed ${meta.label.toLowerCase()} statistics`}
       onClick={onOpen}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") onOpen();
-      }}
-      className="group rounded-xl border border-line bg-surface px-5 py-4 transition-colors hover:border-faint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+      role="region"
+      aria-label="Activity statistics"
+      className="group relative cursor-pointer rounded-xl border border-line bg-surface px-5 py-4 transition-colors hover:border-faint"
     >
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <StatsCategoryTabs
-          compact
-          value={category}
-          onChange={onCategoryChange}
-        />
-        <span className="flex shrink-0 items-center gap-1 text-[11px] font-medium text-muted transition-colors group-hover:text-fg">
-          View stats
-          <ChevronRight size={13} aria-hidden="true" />
-        </span>
-      </div>
-      <div className="flex flex-wrap items-stretch gap-x-8 gap-y-3">
-        <Stat
-          label="Today"
-          value={compactNumber(selected.today.count)}
-          sub={`${selected.today.count === 1 ? meta.singular : meta.label.toLowerCase()}`}
-        />
-        <Stat
-          label="This week"
-          value={compactNumber(selected.week.count)}
-          sub={timed ? formatDuration(selected.week.duration_ms) : `${compactNumber(selected.week.words)} words`}
-          subTooltip={timed ? undefined : `${selected.week.words.toLocaleString()} words`}
-        />
-        <Divider />
-        {timed ? (
-          <>
-            <Stat
-              label="Time this week"
-              value={formatDuration(selected.week.duration_ms)}
-              sub={`${selected.week.count} ${selected.week.count === 1 ? meta.singular : meta.label.toLowerCase()}`}
-              tone="success"
-            />
-            <Stat
-              label="Time all time"
-              value={formatDuration(selected.all_time.duration_ms)}
-              sub={`${selected.all_time.count.toLocaleString()} total`}
-            />
-          </>
-        ) : (
-          <>
-            <Stat
-              label="Words this week"
-              value={compactNumber(selected.week.words)}
-              sub={`${selected.week.words.toLocaleString()} exact`}
-              tone="success"
-            />
-            <Stat
-              label="All time"
-              value={compactNumber(selected.all_time.count)}
-              sub={`${compactNumber(selected.all_time.words)} words`}
-              subTooltip={`${selected.all_time.words.toLocaleString()} words`}
-            />
-          </>
-        )}
-      </div>
+      <button
+        type="button"
+        onClick={(event) => {
+          event.stopPropagation();
+          onOpen();
+        }}
+        aria-label={
+          meta
+            ? `Open detailed ${meta.label.toLowerCase()} statistics`
+            : "Open detailed activity statistics"
+        }
+        className="absolute right-4 top-3 flex items-center gap-1 rounded px-1 py-0.5 text-[11px] font-medium text-muted transition-colors hover:bg-elevated group-hover:text-fg"
+      >
+        View stats
+        <ChevronRight size={13} aria-hidden="true" />
+      </button>
+
+      {selected && meta ? (
+        <div className="flex flex-wrap items-stretch gap-x-8 gap-y-3 pr-20 pt-1">
+          <Stat
+            label="Today"
+            value={compactNumber(selected.today.count)}
+            sub={`${selected.today.count === 1 ? meta.singular : meta.label.toLowerCase()}`}
+          />
+          <Stat
+            label="This week"
+            value={compactNumber(selected.week.count)}
+            sub={timed ? formatDuration(selected.week.duration_ms) : `${compactNumber(selected.week.words)} words`}
+            subTooltip={timed ? undefined : `${selected.week.words.toLocaleString()} words`}
+          />
+          <Divider />
+          {timed ? (
+            <>
+              <Stat
+                label="Time this week"
+                value={formatDuration(selected.week.duration_ms)}
+                sub={`${selected.week.count} ${selected.week.count === 1 ? meta.singular : meta.label.toLowerCase()}`}
+                tone="success"
+              />
+              <Stat
+                label="Time all time"
+                value={formatDuration(selected.all_time.duration_ms)}
+                sub={`${selected.all_time.count.toLocaleString()} total`}
+              />
+            </>
+          ) : (
+            <>
+              <Stat
+                label="Words this week"
+                value={compactNumber(selected.week.words)}
+                sub={`${selected.week.words.toLocaleString()} exact`}
+                tone="success"
+              />
+              <Stat
+                label="All time"
+                value={compactNumber(selected.all_time.count)}
+                sub={`${compactNumber(selected.all_time.words)} words`}
+                subTooltip={`${selected.all_time.words.toLocaleString()} words`}
+              />
+            </>
+          )}
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-x-5 gap-y-4 pr-20 pt-1 sm:grid-cols-3 lg:grid-cols-5">
+          {STATS_CATEGORIES.map(({ key, label, singular, icon: Icon }) => {
+            const categoryStats = stats.categories[key];
+            return (
+              <div key={key} className="min-w-0">
+                <span className="flex items-center gap-1.5 text-[11px] font-medium text-muted">
+                  <Icon size={11} strokeWidth={2} aria-hidden="true" />
+                  {label}
+                </span>
+                <span className="mt-2 block text-2xl font-semibold tabular-nums leading-none text-fg">
+                  {compactNumber(categoryStats.today.count)}
+                </span>
+                <span className="mt-1 block text-xs text-muted">
+                  today · {compactNumber(categoryStats.week.count)} this week
+                </span>
+                <span className="sr-only">
+                  {categoryStats.today.count} {categoryStats.today.count === 1 ? singular : label.toLowerCase()} today
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -859,7 +909,7 @@ function RecapCard({
 
   if (!generated) {
     return (
-      <div className="mt-4 rounded-lg border border-line bg-surface/40 px-4 py-3">
+      <div className="rounded-lg border border-line bg-surface/40 px-4 py-3">
         {body}
       </div>
     );
@@ -869,7 +919,7 @@ function RecapCard({
     <button
       type="button"
       onClick={onOpen}
-      className="mt-4 w-full cursor-pointer rounded-lg border border-line bg-surface/60 px-4 py-3 text-left transition-colors hover:bg-elevated"
+      className="w-full cursor-pointer rounded-lg border border-line bg-surface/60 px-4 py-3 text-left transition-colors hover:bg-elevated"
     >
       {body}
     </button>

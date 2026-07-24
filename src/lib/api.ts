@@ -589,6 +589,9 @@ export const chatWithMemory = (
 export const resetOnboardingAndQuit = (): Promise<void> =>
   invoke("reset_onboarding_and_quit");
 
+export const uninstallApplication = (deleteData: boolean): Promise<void> =>
+  invoke("uninstall_application", { deleteData });
+
 // ----- Audio feedback + onboarding flag -----
 
 export const getAudioFeedbackEnabled = (): Promise<boolean> =>
@@ -668,6 +671,18 @@ export const applyUpdateAndRestart = (): Promise<void> =>
 
 export const dismissUpdate = (version: string): Promise<void> =>
   invoke("dismiss_update", { version });
+
+/** The installed app version, e.g. "0.4.1". */
+export const getAppVersion = (): Promise<string> => invoke("app_version");
+
+/** Outcome of a user-triggered "Check for Updates" (see updater.rs). */
+export type ManualUpdateCheck =
+  | { status: "up-to-date"; version: string }
+  | { status: "downloading"; version: string }
+  | { status: "error"; message: string };
+
+export const checkForUpdate = (): Promise<ManualUpdateCheck> =>
+  invoke("check_for_update");
 
 // ----- Auto-file (confident captures) -----
 
@@ -760,6 +775,35 @@ export type PeriodStats = {
   words: number;
 };
 
+export type CategoryPeriodStats = {
+  count: number;
+  words: number;
+  duration_ms: number;
+};
+
+export type CategoryStats = {
+  today: CategoryPeriodStats;
+  week: CategoryPeriodStats;
+  month: CategoryPeriodStats;
+  all_time: CategoryPeriodStats;
+};
+
+export type StatsCategoryKey =
+  | "transcriptions"
+  | "notes"
+  | "tasks"
+  | "meetings"
+  | "recordings";
+
+export type DailyActivity = {
+  date: string;
+  transcriptions: number;
+  notes: number;
+  tasks: number;
+  meetings: number;
+  recordings: number;
+};
+
 export type DashboardStats = {
   today: PeriodStats;
   week: PeriodStats;
@@ -772,6 +816,9 @@ export type DashboardStats = {
   avg_words_per_capture: number;
   /** Busiest hour 0-23, or null if no data */
   busiest_hour: number | null;
+  categories: Record<StatsCategoryKey, CategoryStats>;
+  /** One row per local day for the last 90 days, including zero-activity days. */
+  daily_activity: DailyActivity[];
 };
 
 export const getDashboardStats = (): Promise<DashboardStats> =>

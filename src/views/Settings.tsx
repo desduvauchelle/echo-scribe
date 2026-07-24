@@ -11,6 +11,7 @@ import {
   Cloud,
   FolderKanban,
   ShieldCheck,
+  Trash2,
   Wrench,
   X,
   Info,
@@ -47,6 +48,8 @@ import {
   getRecentInputDevices,
   listInputDevices,
   resetOnboardingAndQuit,
+  uninstallApplication,
+  getAppVersion,
   setAsrUnloadSecs,
   setAudioFeedbackEnabled,
   setAutoFileEnabled,
@@ -95,6 +98,7 @@ import {
   type InputDeviceSort,
 } from "../lib/api";
 import { useToasts } from "../components/ToastProvider";
+import { useUpdateCheck } from "../lib/useUpdateCheck";
 import { ask } from "@tauri-apps/plugin-dialog";
 
 type PageId =
@@ -108,7 +112,8 @@ type PageId =
   | "drive"
   | "projects"
   | "permissions"
-  | "diagnostics";
+  | "diagnostics"
+  | "uninstall";
 
 type NavItem = { id: PageId; label: string; icon: LucideIcon };
 type NavGroup = { label: string; items: NavItem[] };
@@ -138,6 +143,7 @@ const NAV_GROUPS: NavGroup[] = [
       { id: "projects", label: "Projects", icon: FolderKanban },
       { id: "permissions", label: "Permissions", icon: ShieldCheck },
       { id: "diagnostics", label: "Diagnostics", icon: Wrench },
+      { id: "uninstall", label: "Uninstall", icon: Trash2 },
     ],
   },
 ];
@@ -159,6 +165,7 @@ const PAGE_DESC: Record<PageId, string> = {
   projects: "Rename, archive, and organize your projects.",
   permissions: "Microphone, accessibility, and screen-recording access.",
   diagnostics: "Inspect logs and reset the app if something breaks.",
+  uninstall: "Remove the app while choosing whether to keep your local data.",
 };
 
 const PAGES: Record<PageId, () => React.ReactElement> = {
@@ -173,6 +180,7 @@ const PAGES: Record<PageId, () => React.ReactElement> = {
   projects: ProjectsPage,
   permissions: PermissionsPage,
   diagnostics: DiagnosticsPage,
+  uninstall: UninstallPage,
 };
 
 type Props = {
@@ -191,6 +199,7 @@ export default function Settings({ onBack }: Props) {
       if (item.id === "meetings") return gates.showMeetingsNav;
       if (item.id === "drive") return gates.showDrive;
       if (item.id === "permissions") return gates.showNativePermissions;
+      if (item.id === "uninstall") return gates.showSelfUpdate;
       return true;
     }),
   })).filter((group) => group.items.length > 0);
@@ -1266,6 +1275,50 @@ function GeneralPage() {
       >
         <StartAtLoginToggle />
       </Section>
+
+      {/* Self-update swaps the macOS .app bundle — gate on the same capability
+       *  as the update banner and uninstall page. */}
+      {gates.showSelfUpdate && (
+        <Section
+          title="Updates"
+          subtitle="Echo Scribe checks for updates automatically each day. You can also check now."
+        >
+          <UpdateSettingsSection />
+        </Section>
+      )}
+    </div>
+  );
+}
+
+function UpdateSettingsSection() {
+  const { check, checking } = useUpdateCheck();
+  const [version, setVersion] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getAppVersion()
+      .then((v) => {
+        if (!cancelled) setVersion(v);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <p className="text-[13px] text-muted">
+        {version ? `Current version ${version}` : "Current version"}
+      </p>
+      <button
+        type="button"
+        onClick={() => void check()}
+        disabled={checking}
+        className="shrink-0 cursor-pointer rounded-md border border-line px-3 py-1.5 text-[13px] font-medium text-fg transition-colors hover:bg-elevated disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        {checking ? "Checking…" : "Check for Updates"}
+      </button>
     </div>
   );
 }
@@ -1320,6 +1373,91 @@ function DiagnosticsPage() {
       </Section>
 
       <ResetSection />
+    </div>
+  );
+}
+
+function UninstallPage() {
+  const [busy, setBusy] = useState<"app" | "all" | null>(null);
+  const toasts = useToasts();
+
+  const uninstall = async (deleteData: boolean) => {
+    const confirmed = await ask(
+      deleteData
+        ? "Uninstall Echo Scribe and remove all local data? This includes captured items, recordings, downloaded models, settings, logs, the local event archive, and the Google Drive connection. Files will be moved to the Trash, but the Drive credential and macOS permission grants will be removed."
+        : "Uninstall Echo Scribe but keep all local data? The app will quit and move to the Trash. Reinstalling later will restore your items, recordings, models, settings, and preferences.",
+      {
+        title: deleteData
+          ? "Uninstall Echo Scribe and data"
+          : "Uninstall Echo Scribe",
+        kind: "warning",
+      },
+    );
+    if (!confirmed) return;
+
+    setBusy(deleteData ? "all" : "app");
+    try {
+      await uninstallApplication(deleteData);
+    } catch (e) {
+      toasts.push({
+        tone: "error",
+        message: `Uninstall failed: ${e instanceof Error ? e.message : String(e)}`,
+      });
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="rounded-lg border border-line bg-canvas p-4">
+        <div className="flex items-start justify-between gap-5">
+          <div>
+            <h2 className="text-sm font-semibold text-fg">
+              Uninstall application
+            </h2>
+            <p className="mt-1 text-xs leading-relaxed text-muted">
+              Removes only Echo Scribe. Your captured items, recordings,
+              downloaded models, settings, and preferences stay on this Mac
+              and are available after reinstalling.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void uninstall(false)}
+            disabled={busy !== null}
+            className="shrink-0 rounded-md border border-line px-3 py-1.5 text-xs font-medium text-fg transition-colors hover:bg-elevated disabled:opacity-50"
+          >
+            {busy === "app" ? "Uninstalling…" : "Uninstall app"}
+          </button>
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-danger/40 bg-danger/10 p-4">
+        <div className="flex items-start justify-between gap-5">
+          <div>
+            <h2 className="text-sm font-semibold text-danger">
+              Uninstall application and data
+            </h2>
+            <p className="mt-1 text-xs leading-relaxed text-muted">
+              Removes Echo Scribe and all of its local data, including items,
+              recordings, models, settings, logs, and the local event archive.
+              Use this only when you want the next install to start fresh.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void uninstall(true)}
+            disabled={busy !== null}
+            className="shrink-0 rounded-md border border-danger/50 bg-danger/15 px-3 py-1.5 text-xs font-medium text-danger transition-colors hover:bg-danger/25 disabled:opacity-50"
+          >
+            {busy === "all" ? "Uninstalling…" : "Uninstall app & data"}
+          </button>
+        </div>
+      </div>
+
+      <p className="text-[11px] leading-relaxed text-faint">
+        The application and filesystem data are moved to the macOS Trash.
+      </p>
     </div>
   );
 }

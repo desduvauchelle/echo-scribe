@@ -3,13 +3,16 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { open, ask } from "@tauri-apps/plugin-dialog";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
-  ArrowLeft,
   Copy,
   Download,
+  ExternalLink,
+  FileText,
   FolderOpen,
+  Link as LinkIcon,
   Loader,
   Music,
   Pause,
+  Pencil,
   Play,
   Plus,
   RotateCcw,
@@ -17,6 +20,17 @@ import {
   X,
 } from "lucide-react";
 import { useToasts } from "../../components/ToastProvider";
+import {
+  DriveReconnectModal,
+  recordingDisplayName,
+} from "../../components/RecordingActionsMenu";
+import {
+  Tooltip,
+  IconButton,
+  SplitButton,
+  UploadButton,
+  parseExports,
+} from "../../components/recordingActionButtons";
 import {
   getRecordingProject,
   setRecordingProject,
@@ -32,6 +46,14 @@ import {
   revealRecording,
   revealRecordingFile,
   copyExportToClipboard,
+  transcribeRecording,
+  uploadRecording,
+  exportRecording,
+  deleteRecording,
+  renameRecording,
+  getDrivePrefs,
+  listRecordings,
+  type UploadQuality,
   type RecordingRow,
 } from "../../lib/api";
 import {
@@ -109,6 +131,16 @@ const BACKGROUND_PRESETS = [
   ["foggy-forest", "Foggy forest"],
   ["ice-crystal", "Ice crystal"],
   ["rainy-city", "Rainy city"],
+  ["rose-quartz-canyons", "Rose quartz canyons"],
+  ["moonlit-lake", "Moonlit lake"],
+  ["linen-waves", "Linen waves"],
+  ["neon-horizon", "Neon horizon"],
+  ["eucalyptus-glass", "Eucalyptus glass"],
+  ["amber-smoke", "Amber smoke"],
+  ["arctic-coast", "Arctic coast"],
+  ["violet-paper", "Violet paper"],
+  ["sunlit-forest", "Sunlit forest"],
+  ["obsidian-gold", "Obsidian gold"],
 ] as const;
 
 const presetBackgroundPath = (name: string) => `/editor-backgrounds/${name}.jpg`;
@@ -271,12 +303,30 @@ export function EditorView({
   // the project) — MP4 is the default; GIF renders a silent, 15fps, ≤960px-wide
   // animated GIF via the same composite pipeline (no audio).
   const [exportFormat, setExportFormat] = useState<"mp4" | "gif">("mp4");
-  // Path to the just-exported mp4 (for the Reveal-in-Finder affordance).
-  const [exportedRevealId, setExportedRevealId] = useState<string | null>(null);
   // Absolute path of the just-created `<id>.rendered.mp4`, so "Reveal in
   // Finder" targets the export rather than the original recording. Falls back
   // to `revealRecording(id)` when unknown.
   const [exportedRevealPath, setExportedRevealPath] = useState<string | null>(null);
+
+  // Live recording row for the top-bar management actions (reveal / clean audio
+  // / quick export / upload / transcript / delete — the same set the dashboard
+  // detail slide-over offers). Seeded from the `recording` prop and re-fetched
+  // after any mutation so `exports` (→ "Edited export" reveal + upload's
+  // hasEdited), `transcript`, `upload_status`, and `drive_link` stay current
+  // WITHOUT disturbing the editing core, which keeps reading the stable prop.
+  const [rec, setRec] = useState<RecordingRow>(recording);
+  const [transcribing, setTranscribing] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [quickExporting, setQuickExporting] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const [nameInput, setNameInput] = useState("");
+  const [defaultPublic, setDefaultPublic] = useState(true);
+  // Non-null while a Drive upload was blocked on missing/expired auth — holds
+  // the args to retry once the DriveReconnectModal finishes the OAuth flow.
+  const [reconnect, setReconnect] = useState<{
+    quality: UploadQuality;
+    makePublic: boolean;
+  } | null>(null);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   // Second hidden <video> for the webcam file, time-synced to the main video.
@@ -2399,6 +2449,118 @@ export function EditorView({
     }
   }, [recording.id, toasts]);
 
+  // ---- Top-bar management actions -----------------------------------------
+  // Re-fetch this recording's row after a mutation so the toolbar reflects the
+  // new state (exports/transcript/upload). Best-effort: a refresh failure just
+  // leaves the toolbar showing the prior row.
+  const reloadRec = useCallback(async () => {
+    try {
+      const rows = await listRecordings();
+      const found = rows.find((r) => r.id === recording.id);
+      if (found) setRec(found);
+    } catch (e) {
+      console.warn("[editor] reloadRec failed", e);
+    }
+  }, [recording.id]);
+
+  // Load the Drive default-sharing pref once (seeds the upload split's toggle).
+  useEffect(() => {
+    void getDrivePrefs()
+      .then((p) => setDefaultPublic(p.make_public))
+      .catch(() => {});
+  }, []);
+
+  const onTranscribe = useCallback(async () => {
+    setTranscribing(true);
+    try {
+      await transcribeRecording(recording.id);
+      await reloadRec();
+      toasts.push({ tone: "success", message: "Transcript ready." });
+    } catch (e) {
+      toasts.push({ tone: "error", message: String(e) });
+    } finally {
+      setTranscribing(false);
+    }
+  }, [recording.id, reloadRec, toasts]);
+
+  const onQuickExport = useCallback(
+    async (quality: "1080" | "720" | "480") => {
+      setQuickExporting(true);
+      try {
+        await exportRecording(recording.id, quality);
+        await reloadRec();
+        toasts.push({ tone: "success", message: `Exported ${quality}p MP4` });
+      } catch (e) {
+        toasts.push({ tone: "error", message: String(e) });
+      } finally {
+        setQuickExporting(false);
+      }
+    },
+    [recording.id, reloadRec, toasts],
+  );
+
+  const onUpload = useCallback(
+    async (quality: UploadQuality, makePublic: boolean) => {
+      setUploading(true);
+      try {
+        const updated = await uploadRecording(recording.id, quality, makePublic);
+        setRec(updated);
+        if (updated.drive_link) {
+          try {
+            await navigator.clipboard.writeText(updated.drive_link);
+          } catch {
+            /* link still copyable from the toast/panel */
+          }
+        }
+        toasts.push({ tone: "success", message: "Uploaded to Drive. Link copied." });
+      } catch (e) {
+        if (String(e).includes("drive_reconnect_required")) {
+          setReconnect({ quality, makePublic });
+        } else {
+          toasts.push({ tone: "error", message: String(e) });
+        }
+      } finally {
+        setUploading(false);
+      }
+    },
+    [recording.id, toasts],
+  );
+
+  const onDelete = useCallback(async () => {
+    const confirmed = await ask(
+      `Delete “${recordingDisplayName(rec)}”? This cannot be undone.`,
+      { title: "Delete recording", kind: "warning" },
+    );
+    if (!confirmed) return;
+    try {
+      await deleteRecording(recording.id);
+      // The recording is gone — close the editor window.
+      onBack();
+    } catch (e) {
+      toasts.push({ tone: "error", message: String(e) });
+    }
+  }, [rec, recording.id, onBack, toasts]);
+
+  const startRename = useCallback(() => {
+    setNameInput(recordingDisplayName(rec));
+    setRenaming(true);
+  }, [rec]);
+
+  const saveRename = useCallback(async () => {
+    const next = nameInput.trim();
+    if (!next || next === recordingDisplayName(rec)) {
+      setRenaming(false);
+      return;
+    }
+    try {
+      await renameRecording(recording.id, next);
+      setRec((r) => ({ ...r, title: next }));
+      setRenaming(false);
+    } catch (e) {
+      toasts.push({ tone: "error", message: String(e) });
+    }
+  }, [nameInput, rec, recording.id, toasts]);
+
   // ---- Export -------------------------------------------------------------
   const exporting = exportPhase !== null;
 
@@ -2406,7 +2568,6 @@ export function EditorView({
     setExportPhase("decode");
     setExportPct(0);
     setExportEta(null);
-    setExportedRevealId(null);
     // Per-phase ETA tracking (closure-local: one export run, one tracker).
     // Each phase has its own throughput, so the rate resets on phase change.
     let etaPhaseSeen: string | null = null;
@@ -2554,7 +2715,9 @@ export function EditorView({
         }
       }
 
-      setExportedRevealId(recording.id);
+      // Reflect the new "rendered" export in the toolbar (enables the Reveal
+      // split's "Edited export" option + the upload split's "Edited" quality).
+      setRec(updated);
       toasts.push({ tone: "success", message: "Export complete." });
     } catch (e) {
       console.error("[export] failed", e);
@@ -2595,42 +2758,162 @@ export function EditorView({
       active ? "border-accent bg-accent/15 text-fg" : "border-line text-muted hover:bg-surface"
     }`;
 
+  // Top-bar action state derived from the live row. `renderedPath` targets the
+  // editor's own `<id>.rendered.mp4` (the "new" file); `hasEdited` gates the
+  // "Edited export" reveal + the upload split's "Edited" quality. `anyBusy`
+  // coordinates the whole toolbar so two jobs can't run at once.
+  const toolbarExports = parseExports(rec.exports);
+  const hasEdited = toolbarExports.some((e) => e.quality === "rendered");
+  const renderedPath = renderedExportPath(rec.exports);
+  const hasTranscript = !!rec.transcript?.trim();
+  const driveLink =
+    rec.upload_status === "done" && rec.drive_link ? rec.drive_link : null;
+  const anyBusy = exporting || uploading || quickExporting || transcribing;
+
   return (
     <div className="flex h-full flex-col">
-      <div className="mb-3 flex items-center gap-2">
-        <button
-          onClick={onBack}
-          disabled={exporting}
-          className="flex items-center gap-1.5 rounded-md border border-line px-2.5 py-1.5 text-[13px] hover:bg-surface disabled:opacity-50"
-        >
-          <ArrowLeft size={15} /> Back
-        </button>
-        <h2 className="min-w-0 flex-1 truncate text-[15px] font-semibold">
-          Edit · {recording.title?.trim() || recording.source_label || "Recording"}
-        </h2>
-        {exportedRevealId && !exporting ? (
-          <button
-            onClick={() => {
-              const reveal = exportedRevealPath
-                ? revealRecordingFile(exportedRevealPath)
-                : revealRecording(exportedRevealId);
-              reveal.catch((e) => {
-                console.error("[editor] reveal failed", e);
-                toasts.push({ tone: "error", message: String(e) });
-              });
+      {/* Drive re-auth modal: shown when an upload was blocked on missing/
+          expired authorization; on success we retry the same upload. */}
+      {reconnect ? (
+        <DriveReconnectModal
+          onClose={() => setReconnect(null)}
+          onReconnected={() => {
+            const args = reconnect;
+            setReconnect(null);
+            void onUpload(args.quality, args.makePublic);
+          }}
+        />
+      ) : null}
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        {/* Title (editable). No Back button — the editor is its own window, so
+            closing IS the window; the name stands alone. */}
+        {renaming ? (
+          <input
+            autoFocus
+            value={nameInput}
+            onChange={(e) => setNameInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void saveRename();
+              if (e.key === "Escape") {
+                e.stopPropagation();
+                setRenaming(false);
+              }
             }}
-            className="flex items-center gap-1.5 rounded-md border border-line px-2.5 py-1.5 text-[13px] hover:bg-surface"
+            onBlur={() => void saveRename()}
+            className="min-w-0 flex-1 rounded-md border border-line bg-surface px-2 py-1.5 text-[15px] font-semibold outline-none focus:border-accent"
+          />
+        ) : (
+          <h2
+            className="min-w-0 flex-1 truncate text-[15px] font-semibold"
+            title={recordingDisplayName(rec)}
           >
-            <FolderOpen size={15} /> Reveal in Finder
-          </button>
+            {recordingDisplayName(rec)}
+          </h2>
+        )}
+        {!renaming ? (
+          <IconButton title="Rename" onClick={startRename} disabled={anyBusy}>
+            <Pencil size={15} />
+          </IconButton>
         ) : null}
-        {/* Copy-to-clipboard (Task 7): copies the just-exported file as a
-            pasteable file reference (macOS NSPasteboard), not a text path.
-            Only shown once we have a concrete export path — mirrors the
-            Reveal button's gating, but skips the `revealRecording(id)`
-            fallback since clipboard copy needs an actual file to point at. */}
+
+        {/* Reveal in Finder — default reveals the original; the caret offers the
+            original file or the edited export (`<id>.rendered.mp4`, the "new"
+            file), so both are reachable. */}
+        <SplitButton
+          title="Reveal in Finder"
+          icon={<FolderOpen size={16} />}
+          defaultValue="original"
+          disabled={anyBusy}
+          options={
+            renderedPath || exportedRevealPath
+              ? [
+                  { label: "Original file", value: "original" },
+                  { label: "Edited export", value: "edited" },
+                ]
+              : [{ label: "Original file", value: "original" }]
+          }
+          onSelect={(v) => {
+            const editedPath = exportedRevealPath ?? renderedPath;
+            const reveal =
+              v === "edited" && editedPath
+                ? revealRecordingFile(editedPath)
+                : revealRecording(recording.id);
+            reveal.catch((e) => {
+              console.error("[editor] reveal failed", e);
+              toasts.push({ tone: "error", message: String(e) });
+            });
+          }}
+        />
+        <SplitButton
+          title="Export 1080p (original, no edits)"
+          icon={<Download size={16} />}
+          busy={quickExporting}
+          disabled={anyBusy}
+          defaultValue="1080"
+          options={[
+            { label: "1080p", value: "1080" },
+            { label: "720p", value: "720" },
+            { label: "480p", value: "480" },
+          ]}
+          onSelect={(v) => void onQuickExport(v as "1080" | "720" | "480")}
+        />
+        <UploadButton
+          defaultPublic={defaultPublic}
+          hasEdited={hasEdited}
+          busy={uploading}
+          disabled={anyBusy}
+          onUpload={(quality, makePublic) => void onUpload(quality, makePublic)}
+        />
+        {/* Already uploaded → grab the Drive link again without leaving the
+            editor: open it in the browser, or copy it to the clipboard. Opens
+            via a plain anchor (the app's proven way to launch external URLs
+            from the Tauri webview — the opener plugin isn't wired in). */}
+        {driveLink ? (
+          <Tooltip label="Open Drive link">
+            <a
+              href={driveLink}
+              target="_blank"
+              rel="noreferrer"
+              aria-label="Open Drive link"
+              className="grid h-8 w-8 place-items-center rounded-md border border-line text-accent hover:bg-surface"
+            >
+              <ExternalLink size={16} />
+            </a>
+          </Tooltip>
+        ) : null}
+        {driveLink ? (
+          <IconButton
+            title="Copy Drive link"
+            onClick={() =>
+              navigator.clipboard.writeText(driveLink).then(
+                () => toasts.push({ tone: "success", message: "Drive link copied." }),
+                (e) => toasts.push({ tone: "error", message: String(e) }),
+              )
+            }
+          >
+            <LinkIcon size={16} />
+          </IconButton>
+        ) : null}
+        <IconButton
+          title={hasTranscript ? "Regenerate transcript" : "Get transcript"}
+          onClick={() => void onTranscribe()}
+          disabled={anyBusy}
+        >
+          {transcribing ? <Loader size={16} className="animate-spin" /> : <FileText size={16} />}
+        </IconButton>
+        <IconButton title="Delete" onClick={() => void onDelete()} disabled={anyBusy} danger>
+          <Trash2 size={16} />
+        </IconButton>
+
+        {/* Divider between management actions and the editor's own render export. */}
+        <div className="mx-1 h-6 w-px shrink-0 bg-line" aria-hidden="true" />
+
+        {/* Copy-to-clipboard: copies the just-exported file as a pasteable file
+            reference (macOS NSPasteboard). Only shown once this session's render
+            produced a concrete path. */}
         {exportedRevealPath && !exporting ? (
-          <button
+          <IconButton
+            title="Copy exported file"
             onClick={() => {
               copyExportToClipboard(exportedRevealPath).then(
                 () => toasts.push({ tone: "success", message: "Copied!" }),
@@ -2640,10 +2923,9 @@ export function EditorView({
                 },
               );
             }}
-            className="flex items-center gap-1.5 rounded-md border border-line px-2.5 py-1.5 text-[13px] hover:bg-surface"
           >
-            <Copy size={15} /> Copy
-          </button>
+            <Copy size={16} />
+          </IconButton>
         ) : null}
         {/* Export format select (session-local; not persisted). GIF renders a
             silent 15fps ≤960px animated GIF via the same composite pipeline. */}
@@ -2654,7 +2936,7 @@ export function EditorView({
           id="export-format"
           value={exportFormat}
           onChange={(e) => setExportFormat(e.target.value === "gif" ? "gif" : "mp4")}
-          disabled={exporting || !loaded}
+          disabled={anyBusy || !loaded}
           title="Export format"
           className="rounded-md border border-line bg-surface px-2 py-1.5 text-[13px] disabled:opacity-50"
         >
@@ -2663,7 +2945,7 @@ export function EditorView({
         </select>
         <button
           onClick={() => void onExport()}
-          disabled={exporting || !loaded}
+          disabled={anyBusy || !loaded}
           // While exporting: a fixed min-width + tabular digits so the button
           // doesn't change size as the percentage/ETA tick (no width wiggle).
           className={`flex items-center justify-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-[13px] font-medium text-white disabled:opacity-50 ${

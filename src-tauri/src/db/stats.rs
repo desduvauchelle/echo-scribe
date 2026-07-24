@@ -2,6 +2,7 @@
 
 use rusqlite::{params, Connection};
 use serde::Serialize;
+use std::collections::BTreeMap;
 
 use super::DbError;
 
@@ -9,6 +10,40 @@ use super::DbError;
 pub struct PeriodStats {
     pub transcriptions: u32,
     pub words: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct CategoryPeriodStats {
+    pub count: u32,
+    pub words: u32,
+    pub duration_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct CategoryStats {
+    pub today: CategoryPeriodStats,
+    pub week: CategoryPeriodStats,
+    pub month: CategoryPeriodStats,
+    pub all_time: CategoryPeriodStats,
+}
+
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct StatsCategories {
+    pub transcriptions: CategoryStats,
+    pub notes: CategoryStats,
+    pub tasks: CategoryStats,
+    pub meetings: CategoryStats,
+    pub recordings: CategoryStats,
+}
+
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct DailyActivity {
+    pub date: String,
+    pub transcriptions: u32,
+    pub notes: u32,
+    pub tasks: u32,
+    pub meetings: u32,
+    pub recordings: u32,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -22,12 +57,167 @@ pub struct DashboardStats {
     pub longest_streak: u32,
     pub avg_words_per_capture: f32,
     pub busiest_hour: Option<u8>,
+    pub categories: StatsCategories,
+    pub daily_activity: Vec<DailyActivity>,
+}
+
+fn category_period_from_items(
+    conn: &Connection,
+    kind: &str,
+    from: Option<&str>,
+    to: Option<&str>,
+    tz_mod: &str,
+) -> Result<CategoryPeriodStats, DbError> {
+    let mut sql = String::from(
+        "SELECT COUNT(*), COALESCE(SUM(LENGTH(content) - LENGTH(REPLACE(content, ' ', '')) + 1), 0)
+         FROM items
+         WHERE deleted_at IS NULL
+           AND ((?1 = 'transcription' AND (kind = 'transcription' OR (kind IS NULL AND source = 'voice_at_cursor')))
+                OR (?1 != 'transcription' AND kind = ?1))",
+    );
+    if from.is_some() {
+        sql.push_str(" AND datetime(captured_at, ?2) >= ?3");
+    }
+    if to.is_some() {
+        sql.push_str(" AND datetime(captured_at, ?2) < ?4");
+    }
+
+    let (count, words): (i64, i64) = match (from, to) {
+        (Some(from), Some(to)) => conn.query_row(&sql, params![kind, tz_mod, from, to], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })?,
+        _ => conn.query_row(&sql, params![kind], |r| Ok((r.get(0)?, r.get(1)?)))?,
+    };
+    Ok(CategoryPeriodStats {
+        count: count.max(0) as u32,
+        words: words.max(0) as u32,
+        duration_ms: 0,
+    })
+}
+
+fn category_period_from_meetings(
+    conn: &Connection,
+    from: Option<&str>,
+    to: Option<&str>,
+    tz_mod: &str,
+) -> Result<CategoryPeriodStats, DbError> {
+    let mut sql = String::from(
+        "SELECT COUNT(*),
+                COALESCE(SUM(LENGTH(i.content) - LENGTH(REPLACE(i.content, ' ', '')) + 1), 0),
+                COALESCE(SUM(m.duration_ms), 0)
+         FROM meetings m
+         JOIN items i ON i.id = m.item_id
+         WHERE i.deleted_at IS NULL",
+    );
+    if from.is_some() {
+        sql.push_str(" AND datetime(m.started_at, ?1) >= ?2");
+    }
+    if to.is_some() {
+        sql.push_str(" AND datetime(m.started_at, ?1) < ?3");
+    }
+    let (count, words, duration): (i64, i64, i64) = match (from, to) {
+        (Some(from), Some(to)) => conn.query_row(&sql, params![tz_mod, from, to], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+        })?,
+        _ => conn.query_row(&sql, [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?,
+    };
+    Ok(CategoryPeriodStats {
+        count: count.max(0) as u32,
+        words: words.max(0) as u32,
+        duration_ms: duration.max(0) as u64,
+    })
+}
+
+fn category_period_from_recordings(
+    conn: &Connection,
+    from: Option<&str>,
+    to: Option<&str>,
+    tz_mod: &str,
+) -> Result<CategoryPeriodStats, DbError> {
+    let mut sql = String::from(
+        "SELECT COUNT(*), COALESCE(SUM(duration_ms), 0)
+         FROM recordings WHERE 1 = 1",
+    );
+    if from.is_some() {
+        sql.push_str(" AND datetime(created_at / 1000, 'unixepoch', ?1) >= ?2");
+    }
+    if to.is_some() {
+        sql.push_str(" AND datetime(created_at / 1000, 'unixepoch', ?1) < ?3");
+    }
+    let (count, duration): (i64, i64) = match (from, to) {
+        (Some(from), Some(to)) => conn.query_row(&sql, params![tz_mod, from, to], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })?,
+        _ => conn.query_row(&sql, [], |r| Ok((r.get(0)?, r.get(1)?)))?,
+    };
+    Ok(CategoryPeriodStats {
+        count: count.max(0) as u32,
+        words: 0,
+        duration_ms: duration.max(0) as u64,
+    })
+}
+
+fn category_stats_from_items(
+    conn: &Connection,
+    kind: &str,
+    bounds: &[(&str, &str); 3],
+    tz_mod: &str,
+) -> Result<CategoryStats, DbError> {
+    Ok(CategoryStats {
+        today: category_period_from_items(
+            conn,
+            kind,
+            Some(bounds[0].0),
+            Some(bounds[0].1),
+            tz_mod,
+        )?,
+        week: category_period_from_items(conn, kind, Some(bounds[1].0), Some(bounds[1].1), tz_mod)?,
+        month: category_period_from_items(
+            conn,
+            kind,
+            Some(bounds[2].0),
+            Some(bounds[2].1),
+            tz_mod,
+        )?,
+        all_time: category_period_from_items(conn, kind, None, None, tz_mod)?,
+    })
+}
+
+fn category_stats_from_meetings(
+    conn: &Connection,
+    bounds: &[(&str, &str); 3],
+    tz_mod: &str,
+) -> Result<CategoryStats, DbError> {
+    Ok(CategoryStats {
+        today: category_period_from_meetings(conn, Some(bounds[0].0), Some(bounds[0].1), tz_mod)?,
+        week: category_period_from_meetings(conn, Some(bounds[1].0), Some(bounds[1].1), tz_mod)?,
+        month: category_period_from_meetings(conn, Some(bounds[2].0), Some(bounds[2].1), tz_mod)?,
+        all_time: category_period_from_meetings(conn, None, None, tz_mod)?,
+    })
+}
+
+fn category_stats_from_recordings(
+    conn: &Connection,
+    bounds: &[(&str, &str); 3],
+    tz_mod: &str,
+) -> Result<CategoryStats, DbError> {
+    Ok(CategoryStats {
+        today: category_period_from_recordings(conn, Some(bounds[0].0), Some(bounds[0].1), tz_mod)?,
+        week: category_period_from_recordings(conn, Some(bounds[1].0), Some(bounds[1].1), tz_mod)?,
+        month: category_period_from_recordings(conn, Some(bounds[2].0), Some(bounds[2].1), tz_mod)?,
+        all_time: category_period_from_recordings(conn, None, None, tz_mod)?,
+    })
 }
 
 /// `tz_mod` is a SQLite datetime modifier like `"-25200 seconds"` that shifts
 /// the UTC-stored `captured_at` into the user's local wall-clock before
 /// comparing against local-day boundaries.
-fn period_stats(conn: &Connection, from: &str, to: &str, tz_mod: &str) -> Result<PeriodStats, DbError> {
+fn period_stats(
+    conn: &Connection,
+    from: &str,
+    to: &str,
+    tz_mod: &str,
+) -> Result<PeriodStats, DbError> {
     let mut stmt = conn.prepare(
         "SELECT COUNT(*), COALESCE(SUM(LENGTH(content) - LENGTH(REPLACE(content, ' ', '')) + 1), 0)
          FROM items
@@ -35,9 +225,8 @@ fn period_stats(conn: &Connection, from: &str, to: &str, tz_mod: &str) -> Result
            AND datetime(captured_at, ?1) >= ?2
            AND datetime(captured_at, ?1) < ?3",
     )?;
-    let (count, words): (i64, i64) = stmt.query_row(params![tz_mod, from, to], |r| {
-        Ok((r.get(0)?, r.get(1)?))
-    })?;
+    let (count, words): (i64, i64) =
+        stmt.query_row(params![tz_mod, from, to], |r| Ok((r.get(0)?, r.get(1)?)))?;
     Ok(PeriodStats {
         transcriptions: count.max(0) as u32,
         words: words.max(0) as u32,
@@ -50,16 +239,18 @@ fn all_time_stats(conn: &Connection) -> Result<PeriodStats, DbError> {
          FROM items
          WHERE deleted_at IS NULL",
     )?;
-    let (count, words): (i64, i64) = stmt.query_row([], |r| {
-        Ok((r.get(0)?, r.get(1)?))
-    })?;
+    let (count, words): (i64, i64) = stmt.query_row([], |r| Ok((r.get(0)?, r.get(1)?)))?;
     Ok(PeriodStats {
         transcriptions: count.max(0) as u32,
         words: words.max(0) as u32,
     })
 }
 
-fn daily_counts(conn: &Connection, from: &str, tz_mod: &str) -> Result<Vec<(String, u32)>, DbError> {
+fn daily_counts(
+    conn: &Connection,
+    from: &str,
+    tz_mod: &str,
+) -> Result<Vec<(String, u32)>, DbError> {
     let mut stmt = conn.prepare(
         "SELECT SUBSTR(datetime(captured_at, ?1), 1, 10) AS day, COUNT(*)
          FROM items
@@ -77,6 +268,98 @@ fn daily_counts(conn: &Connection, from: &str, tz_mod: &str) -> Result<Vec<(Stri
         out.push(r?);
     }
     Ok(out)
+}
+
+fn daily_activity(
+    conn: &Connection,
+    start_date: &str,
+    today: &str,
+    tz_mod: &str,
+) -> Result<Vec<DailyActivity>, DbError> {
+    let mut days = BTreeMap::<String, DailyActivity>::new();
+    let mut day = start_date.to_string();
+    loop {
+        days.insert(
+            day.clone(),
+            DailyActivity {
+                date: day.clone(),
+                ..Default::default()
+            },
+        );
+        if day == today {
+            break;
+        }
+        day = next_day(&day);
+    }
+
+    let from = format!("{start_date} 00:00:00");
+    let mut item_stmt = conn.prepare(
+        "SELECT SUBSTR(datetime(captured_at, ?1), 1, 10) AS day,
+                CASE
+                  WHEN kind = 'note' THEN 'note'
+                  WHEN kind = 'task' THEN 'task'
+                  WHEN kind = 'transcription' OR (kind IS NULL AND source = 'voice_at_cursor') THEN 'transcription'
+                  ELSE NULL
+                END AS category,
+                COUNT(*)
+         FROM items
+         WHERE deleted_at IS NULL AND datetime(captured_at, ?1) >= ?2
+         GROUP BY day, category",
+    )?;
+    let item_rows = item_stmt.query_map(params![tz_mod, from], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, Option<String>>(1)?,
+            r.get::<_, i64>(2)?,
+        ))
+    })?;
+    for row in item_rows {
+        let (date, category, count) = row?;
+        let Some(entry) = days.get_mut(&date) else {
+            continue;
+        };
+        match category.as_deref() {
+            Some("transcription") => entry.transcriptions = count.max(0) as u32,
+            Some("note") => entry.notes = count.max(0) as u32,
+            Some("task") => entry.tasks = count.max(0) as u32,
+            _ => {}
+        }
+    }
+
+    let mut meeting_stmt = conn.prepare(
+        "SELECT SUBSTR(datetime(m.started_at, ?1), 1, 10) AS day, COUNT(*)
+         FROM meetings m
+         JOIN items i ON i.id = m.item_id
+         WHERE i.deleted_at IS NULL AND datetime(m.started_at, ?1) >= ?2
+         GROUP BY day",
+    )?;
+    let meeting_rows = meeting_stmt.query_map(params![tz_mod, from], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+    })?;
+    for row in meeting_rows {
+        let (date, count) = row?;
+        if let Some(entry) = days.get_mut(&date) {
+            entry.meetings = count.max(0) as u32;
+        }
+    }
+
+    let mut recording_stmt = conn.prepare(
+        "SELECT SUBSTR(datetime(created_at / 1000, 'unixepoch', ?1), 1, 10) AS day, COUNT(*)
+         FROM recordings
+         WHERE datetime(created_at / 1000, 'unixepoch', ?1) >= ?2
+         GROUP BY day",
+    )?;
+    let recording_rows = recording_stmt.query_map(params![tz_mod, from], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+    })?;
+    for row in recording_rows {
+        let (date, count) = row?;
+        if let Some(entry) = days.get_mut(&date) {
+            entry.recordings = count.max(0) as u32;
+        }
+    }
+
+    Ok(days.into_values().collect())
 }
 
 fn busiest_hour(conn: &Connection, tz_mod: &str) -> Result<Option<u8>, DbError> {
@@ -218,6 +501,20 @@ pub fn dashboard_stats(
         0.0
     };
 
+    let bounds = [
+        (today_from.as_str(), tomorrow_from.as_str()),
+        (week_from.as_str(), tomorrow_from.as_str()),
+        (month_from.as_str(), tomorrow_from.as_str()),
+    ];
+    let categories = StatsCategories {
+        transcriptions: category_stats_from_items(conn, "transcription", &bounds, &tz_mod)?,
+        notes: category_stats_from_items(conn, "note", &bounds, &tz_mod)?,
+        tasks: category_stats_from_items(conn, "task", &bounds, &tz_mod)?,
+        meetings: category_stats_from_meetings(conn, &bounds, &tz_mod)?,
+        recordings: category_stats_from_recordings(conn, &bounds, &tz_mod)?,
+    };
+    let activity = daily_activity(conn, &heatmap_start, &today, &tz_mod)?;
+
     Ok(DashboardStats {
         today: today_stats,
         week: week_stats,
@@ -228,14 +525,16 @@ pub fn dashboard_stats(
         longest_streak,
         avg_words_per_capture: avg_words,
         busiest_hour: busiest,
+        categories,
+        daily_activity: activity,
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::items::{insert_item, Item, ItemKind, ItemSource};
     use crate::db::schema::run_migrations;
-    use crate::db::items::{insert_item, Item, ItemSource};
 
     fn fresh_db() -> Connection {
         let mut conn = Connection::open_in_memory().unwrap();
@@ -357,7 +656,11 @@ mod tests {
         let now = date_to_epoch("2026-05-22") + 5 * 3600;
 
         // 2026-05-23T02:00:00Z -> 2026-05-22 19:00 PDT: TODAY locally, but TOMORROW in UTC.
-        insert_item(&conn, &make("a", "late local today", "2026-05-23T02:00:00Z")).unwrap();
+        insert_item(
+            &conn,
+            &make("a", "late local today", "2026-05-23T02:00:00Z"),
+        )
+        .unwrap();
         // 2026-05-22T15:00:00Z -> 2026-05-22 08:00 PDT: today in both.
         insert_item(&conn, &make("b", "morning today", "2026-05-22T15:00:00Z")).unwrap();
 
@@ -368,5 +671,56 @@ mod tests {
         // Sanity: the buggy UTC computation would have counted only 1.
         let utc = dashboard_stats(&conn, now, 0).unwrap();
         assert_eq!(utc.today.transcriptions, 1);
+    }
+
+    #[test]
+    fn category_stats_cover_every_dashboard_type_and_duration() {
+        let conn = fresh_db();
+        let captured = "2026-05-01T10:00:00Z";
+
+        insert_item(&conn, &make("transcription", "spoken words", captured)).unwrap();
+        let mut note = make("note", "written note", captured);
+        note.kind = Some(ItemKind::Note);
+        insert_item(&conn, &note).unwrap();
+        let mut task = make("task", "follow up", captured);
+        task.kind = Some(ItemKind::Task);
+        insert_item(&conn, &task).unwrap();
+
+        conn.execute(
+            "INSERT INTO items(id, content, source, kind, captured_at, created_at)
+             VALUES ('meeting', 'meeting summary', 'meeting', 'meeting', ?1, ?1)",
+            [captured],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO meetings(item_id, started_at, duration_ms, status)
+             VALUES ('meeting', ?1, 1800000, 'complete')",
+            [captured],
+        )
+        .unwrap();
+        let recording_epoch_ms = (date_to_epoch("2026-05-01") - 2 * 3600) * 1000;
+        conn.execute(
+            "INSERT INTO recordings(id, created_at, file_path, duration_ms)
+             VALUES ('recording', ?1, '/tmp/recording.mp4', 900000)",
+            [recording_epoch_ms],
+        )
+        .unwrap();
+
+        let stats = dashboard_stats(&conn, 1_777_593_600, 0).unwrap();
+        assert_eq!(stats.categories.transcriptions.today.count, 1);
+        assert_eq!(stats.categories.notes.today.count, 1);
+        assert_eq!(stats.categories.tasks.today.count, 1);
+        assert_eq!(stats.categories.meetings.today.count, 1);
+        assert_eq!(stats.categories.recordings.today.count, 1);
+        assert_eq!(stats.categories.meetings.week.duration_ms, 1_800_000);
+        assert_eq!(stats.categories.recordings.all_time.duration_ms, 900_000);
+
+        let today = stats.daily_activity.last().unwrap();
+        assert_eq!(today.date, "2026-05-01");
+        assert_eq!(today.transcriptions, 1);
+        assert_eq!(today.notes, 1);
+        assert_eq!(today.tasks, 1);
+        assert_eq!(today.meetings, 1);
+        assert_eq!(today.recordings, 1);
     }
 }

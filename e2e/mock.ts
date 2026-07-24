@@ -114,18 +114,45 @@ export async function installTauriMock(page: Page, scenario: Scenario = {}) {
       smoke_checkpoint: () => undefined,
       get_dashboard_stats: () => {
         const period = { transcriptions: 0, words: 0 };
+        const category = (today: number, week: number, month: number, all: number, timed = false) => ({
+          today: { count: today, words: timed ? 0 : today * 22, duration_ms: timed ? today * 18 * 60_000 : 0 },
+          week: { count: week, words: timed ? 0 : week * 22, duration_ms: timed ? week * 18 * 60_000 : 0 },
+          month: { count: month, words: timed ? 0 : month * 22, duration_ms: timed ? month * 18 * 60_000 : 0 },
+          all_time: { count: all, words: timed ? 0 : all * 22, duration_ms: timed ? all * 18 * 60_000 : 0 },
+        });
+        const dailyActivity = Array.from({ length: 90 }, (_, index) => {
+          const date = new Date();
+          date.setDate(date.getDate() - (89 - index));
+          return {
+            date: date.toISOString().slice(0, 10),
+            transcriptions: index % 5 === 0 ? 0 : (index % 9) + 1,
+            notes: index % 3 === 0 ? 2 : 0,
+            tasks: index % 4 === 0 ? 1 : 0,
+            meetings: index % 7 === 0 ? 2 : index % 5 === 0 ? 1 : 0,
+            recordings: index % 8 === 0 ? 1 : 0,
+          };
+        });
         return {
           today: period,
           week: period,
           month: period,
           all_time: period,
           daily_counts: [],
-          current_streak: 0,
-          longest_streak: 0,
-          avg_words_per_capture: 0,
-          busiest_hour: null,
+          current_streak: 6,
+          longest_streak: 18,
+          avg_words_per_capture: 42,
+          busiest_hour: 10,
+          categories: {
+            transcriptions: category(18, 86, 312, 2840),
+            notes: category(3, 14, 52, 428),
+            tasks: category(2, 11, 39, 316),
+            meetings: category(1, 5, 18, 142, true),
+            recordings: category(1, 3, 12, 87, true),
+          },
+          daily_activity: dailyActivity,
         };
       },
+      daily_summary_get: () => null,
       "plugin:autostart|is_enabled": () => false,
       "plugin:event|listen": () => nextEventId++,
       "plugin:event|unlisten": () => undefined,
