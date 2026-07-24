@@ -1,0 +1,30 @@
+# Auto-release on version bump.
+#
+# When you push main and the committed package.json version has no matching
+# vX.Y.Z tag yet, create that tag and push it — which triggers the Release
+# workflow (release.yml) to build + publish the macOS bundle. So your whole
+# release flow is: bump "version" in package.json, commit, push.
+#
+# Safe by design: only acts on main, only when the version isn't already
+# released (idempotent — normal pushes are a no-op), and never blocks a push
+# (always exits 0), so it won't interfere with concurrent sessions.
+
+branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null)"
+[ "$branch" = "main" ] || exit 0
+
+version="$(git show HEAD:package.json 2>/dev/null | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)"
+[ -n "$version" ] || exit 0
+tag="v$version"
+
+if git ls-remote --tags origin "refs/tags/$tag" 2>/dev/null | grep -q "refs/tags/$tag"; then
+  exit 0   # already released — nothing to do
+fi
+
+echo "husky ▶ package.json is $version and $tag isn't published yet — tagging to trigger a release"
+git tag "$tag" 2>/dev/null || true
+if git push origin "$tag" 2>/dev/null; then
+  echo "husky ▶ pushed $tag — the Release workflow will build + publish the macOS bundle"
+else
+  echo "husky ▶ could not auto-push $tag; run it manually:  git push origin $tag"
+fi
+exit 0
