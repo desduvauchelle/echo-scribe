@@ -18,12 +18,13 @@ for tool in curl tar osascript pkill xattr open; do
   fi
 done
 
-# Detect architecture
+# Detect architecture — Echo Scribe ships Apple Silicon only.
 ARCH="$(uname -m)"
 if [[ "$ARCH" == "arm64" ]]; then
   ASSET="EchoScribe-aarch64.tar.gz"
 elif [[ "$ARCH" == "x86_64" ]]; then
-  ASSET="EchoScribe-x86_64.tar.gz"
+  echo "Error: Echo Scribe is Apple Silicon only — Intel Macs are not supported." >&2
+  exit 1
 else
   echo "Error: Unsupported architecture: $ARCH" >&2
   exit 1

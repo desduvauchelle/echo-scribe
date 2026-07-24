@@ -19,21 +19,11 @@ env:
 
 jobs:
   build:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: macos-latest
-            arch: aarch64
-          - os: macos-13
-            arch: x86_64
-
-    runs-on: ${{ matrix.os }}
+    # Apple Silicon only. GitHub's Intel (macos-13) runners are being wound
+    # down and repeatedly hung "awaiting a runner", freezing the whole release
+    # (the publish job needs this build). Echo Scribe ships aarch64-only.
+    runs-on: macos-latest
     timeout-minutes: 90
-    # Apple Silicon is the required artifact. The Intel (macos-13) runner is
-    # being wound down by GitHub and has hung "awaiting a runner" before, so
-    # make its failure non-blocking: the release still publishes on aarch64.
-    continue-on-error: ${{ matrix.arch == 'x86_64' }}
 
     steps:
       - uses: actions/checkout@v4
@@ -84,7 +74,7 @@ jobs:
 
       - name: Package
         run: |
-          tar -czf "EchoScribe-${{ matrix.arch }}.tar.gz" \
+          tar -czf "EchoScribe-aarch64.tar.gz" \
             -C src-tauri/target/release/bundle/macos \
             "Echo Scribe.app"
 
@@ -93,13 +83,13 @@ jobs:
         # launches the installed app with ECHO_SCRIBE_SMOKE=1 and requires it
         # to self-report a rendered frontend + packaged sidecars. A failure
         # here blocks the release from publishing.
-        run: bash scripts/smoke-test.sh "EchoScribe-${{ matrix.arch }}.tar.gz"
+        run: bash scripts/smoke-test.sh "EchoScribe-aarch64.tar.gz"
 
       - name: Upload release asset
         uses: actions/upload-artifact@v4
         with:
-          name: release-${{ matrix.arch }}
-          path: EchoScribe-${{ matrix.arch }}.tar.gz
+          name: release-aarch64
+          path: EchoScribe-aarch64.tar.gz
           if-no-files-found: error
 
   release:
@@ -123,11 +113,6 @@ jobs:
 
       - name: Verify published assets
         run: |
-          # aarch64 is required — fail the release if it's missing.
+          # aarch64 is the only artifact — fail the release if it's missing.
           curl --fail --location --retry 5 --retry-all-errors --silent --show-error --head \
             "https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/EchoScribe-aarch64.tar.gz"
-          # x86_64 is best-effort (Intel runner may have been skipped) — warn only.
-          if ! curl --fail --location --retry 5 --retry-all-errors --silent --show-error --head \
-            "https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/EchoScribe-x86_64.tar.gz"; then
-            echo "::warning::EchoScribe-x86_64.tar.gz was not published (Intel build failed or was skipped)."
-          fi

@@ -8,7 +8,7 @@ trap 'rm -rf "$WORK_DIR"' EXIT
 FIXTURE_DIR="$WORK_DIR/fixture"
 BIN_DIR="$WORK_DIR/bin"
 INSTALL_DIR="$WORK_DIR/Applications"
-ARCHIVE="$WORK_DIR/EchoScribe-x86_64.tar.gz"
+ARCHIVE="$WORK_DIR/EchoScribe-aarch64.tar.gz"
 
 mkdir -p "$FIXTURE_DIR/Echo Scribe.app/Contents/MacOS" "$BIN_DIR"
 printf 'fixture app\n' > "$FIXTURE_DIR/Echo Scribe.app/Contents/Info.plist"
@@ -20,7 +20,7 @@ cat > "$BIN_DIR/uname" <<'EOF'
 #!/usr/bin/env bash
 case "${1:-}" in
   -s) echo Darwin ;;
-  -m) echo x86_64 ;;
+  -m) echo arm64 ;;
   *) /usr/bin/uname "$@" ;;
 esac
 EOF
