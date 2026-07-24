@@ -1,0 +1,42 @@
+name: release-please
+
+# Automated releases driven by Conventional Commits. On every push to main,
+# release-please maintains an open "release PR" that bumps the version
+# (src-tauri/Cargo.toml, src-tauri/Cargo.lock, src-tauri/tauri.conf.json) and
+# updates the changelog. Merging that PR tags vX.Y.Z + creates the GitHub
+# Release, then this workflow hands off to release.yml (via workflow_call) to
+# build and publish the macOS bundle to that release.
+#
+# Why workflow_call instead of letting the tag trigger release.yml: a tag
+# pushed with the default GITHUB_TOKEN does NOT start another workflow (GitHub's
+# recursion guard), so the tag event alone would never build the assets.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.rp.outputs.release_created }}
+      tag_name: ${{ steps.rp.outputs.tag_name }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: rp
+        # Uses release-please-config.json + .release-please-manifest.json
+        # (default filenames) at the repo root.
+
+  publish:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    permissions:
+      contents: write
+    uses: ./.github/workflows/release.yml
+    with:
+      tag: ${{ needs.release-please.outputs.tag_name }}
+    secrets: inherit

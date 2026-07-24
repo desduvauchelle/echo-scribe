@@ -10,6 +10,14 @@ on:
         description: Existing version tag to build and publish, for example v0.1.1
         required: true
         type: string
+  # Called by release-please.yml after it creates a release + tag, so the
+  # macOS bundle is built and attached to that release.
+  workflow_call:
+    inputs:
+      tag:
+        description: Version tag to build and publish, for example v0.1.2
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -108,7 +116,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          generate_release_notes: true
+          # Attach the bundle to the release. When release-please already
+          # created the release, this updates it in place and preserves its
+          # changelog body (no generate_release_notes, which would overwrite it).
           files: EchoScribe-*.tar.gz
 
       - name: Verify published assets
