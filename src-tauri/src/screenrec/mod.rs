@@ -93,6 +93,11 @@ fn list_sources_error(stderr: &str) -> String {
 /// serde/`EOF` parse error.
 pub fn list_sources() -> Result<Sources, String> {
     let bin = resolve_binary().map_err(|e| e.to_string())?;
+    // The sidecar's SCShareableContent call is what triggers the macOS Screen
+    // Recording prompt on an ungranted system — log every run so an unexpected
+    // permission dialog is traceable to this path. (This is why the setup
+    // window defers its source enumeration until it's actually shown.)
+    info!(target: "perm", "spawning screenrec --list-sources (may show Screen Recording prompt)");
     let out = Command::new(&bin)
         .arg("--list-sources")
         .stdout(Stdio::piped())

@@ -21,7 +21,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO="denisduvauchelle/echo-scribe"
+REPO="desduvauchelle/echo-scribe"
 APP_BUNDLE="Echo Scribe.app"
 
 # Must be macOS
@@ -214,7 +214,7 @@ A voice-first dictation app for macOS. Press a hotkey, speak, and Echo Scribe tr
 Open Terminal (Cmd+Space, type "Terminal", press Enter) and paste:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/denisduvauchelle/echo-scribe/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/desduvauchelle/echo-scribe/main/install.sh | bash
 ```
 
 The script installs the app to `/Applications/` and handles macOS security permissions automatically. To update, run the same command again.
@@ -253,7 +253,7 @@ The script installs the app to `/Applications/` and handles macOS security permi
 
 ```bash
 # Prerequisites: Rust (rustup), Bun, CMake
-git clone https://github.com/denisduvauchelle/echo-scribe.git
+git clone https://github.com/desduvauchelle/echo-scribe.git
 cd echo-scribe
 bun install
 bun tauri build --bundles app

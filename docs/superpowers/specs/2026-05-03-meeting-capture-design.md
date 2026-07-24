@@ -2,7 +2,7 @@
 
 **Status:** Draft → ready for implementation planning
 **Date:** 2026-05-03
-**Owner:** @denisduvauchelle
+**Owner:** @desduvauchelle
 
 ## Summary
 

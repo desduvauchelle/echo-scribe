@@ -32,13 +32,13 @@ tar -czf EchoScribe-{arch}.tar.gz -C src-tauri/target/release/bundle/macos "Echo
 
 Lives at repo root. User-facing install command:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/denisduvauchelle/echo-scribe/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/desduvauchelle/echo-scribe/main/install.sh | bash
 ```
 
 Script logic (in order):
 1. Bail with a clear message if not macOS
 2. Detect arch: `uname -m` → `arm64` → `aarch64`, `x86_64` stays as-is
-3. Fetch latest release tag from GitHub API (`/repos/denisduvauchelle/echo-scribe/releases/latest`)
+3. Fetch latest release tag from GitHub API (`/repos/desduvauchelle/echo-scribe/releases/latest`)
 4. Download `EchoScribe-{arch}.tar.gz` from the release assets URL
 5. Quit any running instance (`osascript` + `pkill -f "Echo Scribe"`)
 6. Remove old `/Applications/Echo Scribe.app` if present

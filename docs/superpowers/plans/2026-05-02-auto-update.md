@@ -139,7 +139,7 @@ use tracing::{error, info, warn};
 
 use crate::commands::AppState;
 
-const REPO: &str = "denisduvauchelle/echo-scribe";
+const REPO: &str = "desduvauchelle/echo-scribe";
 const CHECK_INTERVAL_SECS: u64 = 24 * 60 * 60;
 const MIN_CHECK_INTERVAL_SECS: i64 = 60 * 60;
 

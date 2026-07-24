@@ -101,7 +101,16 @@ const SetupWindow: React.FC = () => {
   // can never re-resolve or double-fire recording start.
   const countdownResolveRef = useRef<((cancelled: boolean) => void) | null>(null);
 
-  useEffect(() => {
+  // Deferred data load: this window is created HIDDEN at app startup, but a
+  // webview loads (and mounts React) immediately — so loading sources here at
+  // mount used to spawn the screenrec sidecar during app launch, and its
+  // SCShareableContent call fires the macOS Screen Recording prompt. On a
+  // fresh install that meant a permission popup before the user touched
+  // anything. Only enumerate once the window is actually shown.
+  const sourcesLoadedRef = useRef(false);
+  const loadSources = () => {
+    if (sourcesLoadedRef.current) return;
+    sourcesLoadedRef.current = true;
     Promise.all([listScreenSources(), listInputDevices(), getScreenrecAudioPrefs()])
       .then(([sources, devices, prefs]) => {
         setDisplays(sources.displays);
@@ -140,6 +149,22 @@ const SetupWindow: React.FC = () => {
     listCameras()
       .then((c) => setCameras(c.cameras))
       .catch((e) => setCameraError(String(e)));
+  };
+
+  // Covers the race where `show_screenrec_setup` created this window and
+  // emitted `screenrec-setup-shown` before React attached the listener below:
+  // if the window is already visible at mount, treat that as shown.
+  useEffect(() => {
+    getCurrentWindow()
+      .isVisible()
+      .then((visible) => {
+        if (visible) {
+          setSetupVisible(true);
+          loadSources();
+        }
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Area picker result + countdown finish/cancel listeners. All three are
@@ -189,6 +214,9 @@ const SetupWindow: React.FC = () => {
       });
       unlistenShown = await listen("screenrec-setup-shown", () => {
         setSetupVisible(true);
+        // First show triggers the (deferred) source/device enumeration —
+        // see loadSources above. No-op on subsequent shows.
+        loadSources();
       });
     })();
 

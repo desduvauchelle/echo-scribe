@@ -10,13 +10,16 @@ type Props = {
 };
 
 export function StatusPill({ granted }: { granted: boolean }) {
+  // Fixed width: "Granted" and "Not granted" render at different natural
+  // widths, and this pill sits in a right-aligned column — without a fixed
+  // width the whole column shifts sideways whenever the status flips.
   return granted ? (
-    <span className="inline-flex items-center gap-1 rounded-full bg-success/15 px-2 py-0.5 text-xs font-medium text-success">
+    <span className="inline-flex w-28 items-center justify-center gap-1 whitespace-nowrap rounded-full bg-success/15 px-2 py-0.5 text-xs font-medium text-success">
       <CheckCircle2 size={11} strokeWidth={2.25} />
       Granted
     </span>
   ) : (
-    <span className="inline-flex items-center gap-1 rounded-full bg-warning/15 px-2 py-0.5 text-xs font-medium text-warning">
+    <span className="inline-flex w-28 items-center justify-center gap-1 whitespace-nowrap rounded-full bg-warning/15 px-2 py-0.5 text-xs font-medium text-warning">
       <CircleAlert size={11} strokeWidth={2.25} />
       Not granted
     </span>
@@ -50,7 +53,9 @@ export default function PermissionRow(props: Props) {
             disabled={props.recheckBusy}
             className="cursor-pointer rounded-md border border-line px-3 py-1 text-xs text-muted transition-colors hover:bg-elevated hover:text-fg disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {props.recheckBusy ? "…" : "Re-check"}
+            {/* Label never changes — swapping to "…" while busy resized the
+                button and made the whole row wiggle on every refresh. */}
+            Re-check
           </button>
         </div>
       </div>

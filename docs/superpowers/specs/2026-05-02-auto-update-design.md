@@ -33,7 +33,7 @@ At runtime the app reads its own version via `app.package_info().version`.
 Runs asynchronously at startup (never blocks UI) and repeats on a 24-hour timer:
 
 1. Read `last_update_check` from store — skip if checked within the last hour
-2. `GET https://api.github.com/repos/denisduvauchelle/echo-scribe/releases/latest` → extract `tag_name`, strip `v`, parse semver
+2. `GET https://api.github.com/repos/desduvauchelle/echo-scribe/releases/latest` → extract `tag_name`, strip `v`, parse semver
 3. Compare against `app.package_info().version`
 4. If not newer: write `last_update_check` timestamp, done
 5. If newer and `dismissed_update_version` matches: skip (user dismissed this version)
