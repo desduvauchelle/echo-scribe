@@ -1,0 +1,6 @@
+# Scope `bun test` discovery to the unit-test dir only.
+# The e2e/ specs use @playwright/test and must be run via `bun run test:e2e`
+# (playwright test), not bun's own runner — otherwise bare `bun test` picks
+# them up and errors with "Playwright Test did not expect test() to be called here".
+[test]
+root = "tests"
