@@ -342,6 +342,15 @@ fn build_system_prompt(
             s.push_str(url);
             s.push('\n');
         }
+        if !ctx.project_hints.is_empty() {
+            s.push_str("- Project hint(s): ");
+            s.push_str(&ctx.project_hints.join(", "));
+            s.push('\n');
+        }
+        s.push_str(
+            "A project hint (repo/folder/site the user was in) matching a project's \
+             name or keywords is strong routing evidence.\n",
+        );
     }
     s
 }
@@ -579,6 +588,7 @@ mod tests {
             content_title: Some("Important customer thread".into()),
             content_url: Some("https://mail.google.com/mail/u/0/#inbox/abc".into()),
             content_source: Some("browser_tab".into()),
+            project_hints: vec!["mail.google.com".into()],
         };
         let prompt = build_system_prompt(&[], &[], "2026-05-03T10:00:00Z", "Sunday", Some(&ctx));
         assert!(prompt.contains("Google Chrome"), "app_name missing from prompt");
@@ -588,6 +598,10 @@ mod tests {
         assert!(
             prompt.contains("https://mail.google.com/mail/u/0/#inbox/abc"),
             "content_url missing from prompt"
+        );
+        assert!(
+            prompt.contains("Project hint(s): mail.google.com"),
+            "project_hints missing from prompt"
         );
     }
 

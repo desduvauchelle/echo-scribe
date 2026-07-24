@@ -217,6 +217,55 @@ pub fn display_bounds(_display_id: u32) -> Option<(f64, f64, f64, f64)> {
     None
 }
 
+/// Probe the Screen Recording grant for the screen-recording sidecar process
+/// without prompting. Returns `None` if the sidecar cannot be launched or does
+/// not answer quickly.
+pub fn screen_capture_access_authorized_sync() -> Option<bool> {
+    let bin = resolve_binary().ok()?;
+    run_screen_capture_access_command(&bin, "--probe", Duration::from_millis(500))
+}
+
+/// Request the Screen Recording grant for the screen-recording sidecar process.
+/// Returns `None` if the sidecar cannot be launched or the prompt does not
+/// resolve in a bounded time.
+pub fn request_screen_capture_access() -> Option<bool> {
+    let bin = resolve_binary().ok()?;
+    run_screen_capture_access_command(&bin, "--request", Duration::from_secs(60))
+}
+
+fn run_screen_capture_access_command(
+    bin: &Path,
+    arg: &str,
+    timeout: Duration,
+) -> Option<bool> {
+    let mut child = Command::new(bin)
+        .arg(arg)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .stdin(Stdio::null())
+        .spawn()
+        .ok()?;
+    let deadline = Instant::now() + timeout;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return Some(status.success()),
+            Ok(None) if Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(25));
+            }
+            Ok(None) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+            Err(_) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+        }
+    }
+}
+
 /// Extract a recording's audio track to a mono WAV at `out_wav`, resampled to
 /// `rate` Hz. Returns `Ok(())` on success. The Err string is user-facing; the
 /// special value `"no_audio"` is returned when the recording has no audio track

@@ -364,6 +364,7 @@ pub fn run() {
             commands::daily_summary_get,
             commands::daily_summary_list_recent,
             commands::daily_summary_regenerate,
+            commands::export_daily_summaries,
             commands::daily_recap_settings_get,
             commands::daily_recap_settings_set,
             commands::daily_recap_notification_permission_status,

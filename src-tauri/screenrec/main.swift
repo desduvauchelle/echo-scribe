@@ -3,6 +3,7 @@ import ScreenCaptureKit
 import AVFoundation
 import CoreMedia
 import AppKit
+import CoreGraphics
 
 func emit(_ event: [String: Any]) {
     guard let data = try? JSONSerialization.data(withJSONObject: event),
@@ -15,6 +16,18 @@ func emitFatal(_ kind: String, _ msg: String) -> Never {
 }
 
 let OWN_BUNDLE_ID = "com.echoscribe.app"
+
+// --- mode: `--probe` ---
+// Non-prompting Screen Recording TCC check for this sidecar process.
+if CommandLine.arguments.contains("--probe") {
+    exit(CGPreflightScreenCaptureAccess() ? 0 : 1)
+}
+
+// --- mode: `--request` ---
+// Prompting Screen Recording TCC request for this sidecar process.
+if CommandLine.arguments.contains("--request") {
+    exit(CGRequestScreenCaptureAccess() ? 0 : 1)
+}
 
 // ScreenCaptureKit window capture — SCContentFilter(desktopIndependentWindow:) —
 // requires a WindowServer connection. A bare CLI process has none, so creating

@@ -73,10 +73,15 @@ mod imp {
     use tokio::sync::oneshot;
 
     pub fn status() -> PermissionsStatus {
+        let main_screen_recording = screen_recording_authorized();
         PermissionsStatus {
             microphone: microphone_authorized(),
             accessibility: accessibility_trusted(),
-            screen_recording: screen_recording_authorized(),
+            screen_recording: super::merge_screen_recording_grants(
+                main_screen_recording,
+                crate::screenrec::screen_capture_access_authorized_sync(),
+                crate::meeting::syscap::screen_capture_access_authorized_sync(),
+            ),
             calendars: crate::calendar::is_authorized_sync(),
             camera: camera_authorized(),
         }
@@ -363,18 +368,60 @@ pub fn prompt_accessibility() -> bool {
 }
 
 /// Returns the current Screen Recording (TCC `kTCCServiceScreenCapture`)
-/// grant for this process without prompting. Backs the ScreenCaptureKit
-/// path used by the syscap sidecar to capture the other participant's
-/// audio during meetings.
+/// grant for the capture processes without prompting. The app uses two
+/// ScreenCaptureKit sidecars, so the effective grant must account for those
+/// helpers rather than only the main Tauri process.
 pub fn screen_recording_authorized() -> bool {
-    imp::screen_recording_authorized()
+    merge_screen_recording_grants(
+        imp::screen_recording_authorized(),
+        crate::screenrec::screen_capture_access_authorized_sync(),
+        crate::meeting::syscap::screen_capture_access_authorized_sync(),
+    )
 }
 
 /// Trigger the macOS Screen Recording prompt and return the resulting
 /// grant. On first call this shows the system dialog; subsequent calls
 /// return the cached decision without prompting.
 pub fn request_screen_recording() -> bool {
-    imp::request_screen_recording()
+    let screenrec = crate::screenrec::request_screen_capture_access();
+    let syscap = crate::meeting::syscap::request_screen_capture_access();
+    let main_app = if screenrec.is_none() && syscap.is_none() {
+        imp::request_screen_recording()
+    } else {
+        imp::screen_recording_authorized()
+    };
+    merge_screen_recording_grants(main_app, screenrec, syscap)
+}
+
+fn merge_screen_recording_grants(
+    main_app: bool,
+    screenrec_sidecar: Option<bool>,
+    syscap_sidecar: Option<bool>,
+) -> bool {
+    match (screenrec_sidecar, syscap_sidecar) {
+        (Some(screenrec), Some(syscap)) => screenrec && syscap,
+        (Some(_), None) | (None, Some(_)) => false,
+        (None, None) => main_app,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn screen_recording_grant_requires_both_capture_sidecars_when_present() {
+        assert!(merge_screen_recording_grants(false, Some(true), Some(true)));
+        assert!(!merge_screen_recording_grants(false, Some(true), Some(false)));
+        assert!(!merge_screen_recording_grants(false, Some(false), Some(true)));
+        assert!(!merge_screen_recording_grants(true, Some(false), Some(false)));
+    }
+
+    #[test]
+    fn screen_recording_grant_falls_back_to_main_app_when_sidecars_are_unavailable() {
+        assert!(merge_screen_recording_grants(true, None, None));
+        assert!(!merge_screen_recording_grants(false, None, None));
+    }
 }
 
 /// Trigger the macOS Calendar prompt by spawning the `echo-scribe-calmatch`

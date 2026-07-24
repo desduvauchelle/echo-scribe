@@ -2,6 +2,7 @@ import Foundation
 import ScreenCaptureKit
 import AVFoundation
 import Accelerate
+import CoreGraphics
 
 // echo-scribe-syscap
 // Reads ScreenCaptureKit audio, downmixes to mono, resamples to 16 kHz Int16,
@@ -19,6 +20,18 @@ func emit(_ event: [String: Any]) {
 func emitFatal(_ kind: String, _ msg: String) -> Never {
     emit(["event": "error", "kind": kind, "msg": msg])
     exit(1)
+}
+
+// --- mode: `--probe` ---
+// Non-prompting Screen Recording TCC check for this sidecar process.
+if CommandLine.arguments.contains("--probe") {
+    exit(CGPreflightScreenCaptureAccess() ? 0 : 1)
+}
+
+// --- mode: `--request` ---
+// Prompting Screen Recording TCC request for this sidecar process.
+if CommandLine.arguments.contains("--request") {
+    exit(CGRequestScreenCaptureAccess() ? 0 : 1)
 }
 
 @available(macOS 13.0, *)

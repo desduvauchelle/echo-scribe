@@ -119,6 +119,25 @@ pub fn list_recent(conn: &Connection, limit: u32) -> rusqlite::Result<Vec<DailyS
     rows.collect()
 }
 
+/// Return all summary rows whose `date` falls within the inclusive range
+/// `[since, until]`, newest first. Dates are stored as `YYYY-MM-DD` strings,
+/// so lexicographic comparison matches chronological order.
+pub fn list_in_range(
+    conn: &Connection,
+    since: &str,
+    until: &str,
+) -> rusqlite::Result<Vec<DailySummaryRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT date, generated_at, status, narrative, sections_json,
+                source_meeting_ids_json, source_item_ids_json, model_version, input_token_count
+         FROM daily_summaries
+         WHERE date >= ?1 AND date <= ?2
+         ORDER BY date DESC",
+    )?;
+    let rows = stmt.query_map(params![since, until], parse_row)?;
+    rows.collect()
+}
+
 /// Return the list of `date` values that have a row within the last `n` days
 /// (computed in the local timezone). Used by the scheduler to detect missing
 /// backfill days.

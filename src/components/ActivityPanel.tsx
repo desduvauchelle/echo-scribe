@@ -618,6 +618,10 @@ function MetadataSection({ item }: { item: Item }) {
     { label: "Browser tab", value: ctx?.browser_tab_title },
     { label: "URL", value: ctx?.browser_url },
     { label: "Bundle ID", value: ctx?.bundle_id },
+    {
+      label: "Project hints",
+      value: ctx?.project_hints?.length ? ctx.project_hints.join(", ") : null,
+    },
     { label: "Confidence", value: item.confidence != null ? `${Math.round(item.confidence * 100)}%` : null },
     { label: "Classified by", value: item.classified_by },
   ];

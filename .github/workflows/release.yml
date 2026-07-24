@@ -82,6 +82,9 @@ jobs:
           APPLE_SIGNING_IDENTITY: "-"
         run: bun tauri build --bundles app
 
+      - name: Stabilize sidecar signatures
+        run: bash scripts/sign-macos-bundle.sh
+
       - name: Package
         run: |
           tar -czf "EchoScribe-${{ matrix.arch }}.tar.gz" \

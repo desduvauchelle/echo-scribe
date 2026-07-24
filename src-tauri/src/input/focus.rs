@@ -20,8 +20,13 @@ use objc2_application_services::AXUIElement;
 #[cfg(target_os = "macos")]
 use objc2_core_foundation::CFRetained;
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct FocusContext {
+    /// `#[serde(default)]` because persisted capture_context JSON has not
+    /// always included `pid` (it is only meaningful in-process for focus
+    /// restore); without the default, every stored row would fail to parse
+    /// back and the background tagger would see no context at all.
+    #[serde(default)]
     pub pid: i32,
     pub bundle_id: Option<String>,
     pub app_name: Option<String>,
@@ -46,6 +51,14 @@ pub struct FocusContext {
     /// Diagnostic source for `content_title`/`content_url`.
     #[serde(default)]
     pub content_source: Option<String>,
+    /// Distilled project-name candidates derived from the other fields at
+    /// capture time: repo/folder names pulled from window titles and
+    /// AXDocument paths (Claude Code / terminals / IDEs), site hosts and
+    /// repo slugs from browser URLs. Lowercase, deduped, best-first. These
+    /// are what let the router match a project *by name* without the user
+    /// configuring aliases.
+    #[serde(default)]
+    pub project_hints: Vec<String>,
 }
 
 /// Opaque handle to the AX UI element that had keyboard focus at capture
@@ -131,7 +144,7 @@ pub fn capture_context() -> Option<FocusContext> {
         browser_url.as_deref(),
     );
 
-    Some(FocusContext {
+    let mut ctx = FocusContext {
         pid,
         bundle_id,
         app_name,
@@ -141,7 +154,10 @@ pub fn capture_context() -> Option<FocusContext> {
         content_title,
         content_url,
         content_source,
-    })
+        project_hints: Vec::new(),
+    };
+    ctx.project_hints = derive_project_hints(&ctx);
+    Some(ctx)
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -900,6 +916,250 @@ fn normalize_raw_string(candidate: &str) -> Option<String> {
     }
 }
 
+// ── project-hint derivation ──────────────────────────────────────────────────
+//
+// Pure string distillation (no OS calls) so it is unit-testable and can run
+// both at capture time and retroactively over stored capture_context rows.
+
+/// Directory names that never identify a project on their own.
+const GENERIC_PATH_SEGMENTS: &[&str] = &[
+    "src", "bin", "lib", "app", "apps", "build", "dist", "target", "out",
+    "node_modules", "home", "users", "documents", "desktop", "downloads",
+    "tmp", "temp", "private", "var", "opt", "usr", "applications", "library",
+    "volumes", "system",
+];
+
+/// Parent dirs whose *child* is almost always the project/repo folder
+/// (e.g. `~/Documents/code/echo-scribe/...` → `echo-scribe`).
+const CODE_PARENT_DIRS: &[&str] = &[
+    "code", "repos", "repositories", "projects", "dev", "work", "github",
+    "git", "workspace", "workspaces", "sources",
+];
+
+/// Window-title tokens that are shell/terminal noise, never a project.
+const TITLE_NOISE_TOKENS: &[&str] = &[
+    "zsh", "-zsh", "bash", "-bash", "fish", "sh", "node", "python", "python3",
+    "claude", "codex", "terminal", "vim", "nvim", "tmux", "ssh", "login",
+];
+
+/// Distill project-name candidates from a captured focus context.
+/// Lowercase, deduped (order-preserving), capped at 8.
+pub fn derive_project_hints(ctx: &FocusContext) -> Vec<String> {
+    let mut hints: Vec<String> = Vec::new();
+    let app_l = ctx.app_name.as_deref().map(str::to_lowercase);
+
+    let mut push = |candidate: Option<String>, hints: &mut Vec<String>| {
+        let Some(h) = candidate else { return };
+        let h = h.trim().to_lowercase();
+        if h.len() < 2 || h.chars().count() > 64 {
+            return;
+        }
+        if app_l.as_deref() == Some(h.as_str()) {
+            return;
+        }
+        if !hints.iter().any(|e| e == &h) {
+            hints.push(h);
+        }
+    };
+
+    // Strongest signal first: AXDocument / content paths (Terminal cwd,
+    // VS Code document, browser content URL).
+    if let Some(u) = ctx.content_url.as_deref() {
+        if u.starts_with("http://") || u.starts_with("https://") {
+            for h in hints_from_web_url(u) {
+                push(Some(h), &mut hints);
+            }
+        } else {
+            push(hint_from_path(u), &mut hints);
+        }
+    }
+    for title in [ctx.window_title.as_deref(), ctx.content_title.as_deref()]
+        .into_iter()
+        .flatten()
+    {
+        for h in hints_from_title(title) {
+            push(Some(h), &mut hints);
+        }
+    }
+    if let Some(u) = ctx.browser_url.as_deref() {
+        for h in hints_from_web_url(u) {
+            push(Some(h), &mut hints);
+        }
+    }
+
+    hints.truncate(8);
+    hints
+}
+
+/// Extract the project/repo folder from a filesystem path or file:// URL.
+pub fn hint_from_path(raw: &str) -> Option<String> {
+    let path = raw
+        .strip_prefix("file://")
+        .unwrap_or(raw)
+        .replace("%20", " ");
+    if !path.starts_with('/') && !path.starts_with('~') {
+        return None;
+    }
+    let mut segments: Vec<&str> = path
+        .split('/')
+        .map(str::trim)
+        .filter(|s| !s.is_empty() && *s != "~")
+        .collect();
+    // Drop a trailing filename ("main.rs", "notes.md"): dot + short extension.
+    if let Some(last) = segments.last() {
+        if looks_like_filename(last) {
+            segments.pop();
+        }
+    }
+    // Prefer the child of a known code-parent dir.
+    for (i, seg) in segments.iter().enumerate() {
+        if CODE_PARENT_DIRS.contains(&seg.to_lowercase().as_str()) {
+            if let Some(next) = segments.get(i + 1) {
+                if !is_generic_segment(next) {
+                    return Some(next.to_lowercase());
+                }
+            }
+        }
+    }
+    // Otherwise the deepest non-generic directory.
+    segments
+        .iter()
+        .rev()
+        .find(|s| !is_generic_segment(s))
+        .map(|s| s.to_lowercase())
+}
+
+fn is_generic_segment(seg: &str) -> bool {
+    let l = seg.to_lowercase();
+    l.starts_with('.') || GENERIC_PATH_SEGMENTS.contains(&l.as_str())
+}
+
+fn looks_like_filename(seg: &str) -> bool {
+    let Some((stem, ext)) = seg.rsplit_once('.') else {
+        return false;
+    };
+    !stem.is_empty()
+        && (1..=5).contains(&ext.len())
+        && ext.chars().all(|c| c.is_ascii_alphanumeric())
+}
+
+/// Extract repo-ish tokens from a window/content title. Titles are split on
+/// common separators; path-like segments go through [`hint_from_path`];
+/// single-token segments that look like a repo slug (`echo-scribe`,
+/// `livecaseplus-server`) are kept as-is.
+pub fn hints_from_title(title: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let cleaned = title
+        .chars()
+        .filter(|c| !matches!(c, '✳' | '✶' | '●' | '◐' | '◑' | '◒' | '◓'))
+        .collect::<String>();
+    let segments = split_title_segments(&cleaned);
+    for seg in segments {
+        let seg = seg.trim();
+        if seg.is_empty() {
+            continue;
+        }
+        if seg.contains('/') {
+            if let Some(h) = hint_from_path(seg) {
+                out.push(h);
+            }
+            continue;
+        }
+        if let Some(h) = repo_slug_token(seg) {
+            out.push(h);
+        }
+    }
+    out
+}
+
+fn split_title_segments(title: &str) -> Vec<&str> {
+    let mut segments = vec![title];
+    for sep in [" — ", " – ", " - ", " · ", " | ", " :: "] {
+        segments = segments
+            .into_iter()
+            .flat_map(|s| s.split(sep))
+            .collect();
+    }
+    segments
+}
+
+/// Accept a single token that looks like a repo/project slug: one word,
+/// ascii alphanumerics plus `-`/`_`/`.`, containing a separator or digit
+/// (so plain English words like "Settings" don't qualify), not a filename,
+/// not shell noise, not a terminal geometry like `80×24`.
+fn repo_slug_token(seg: &str) -> Option<String> {
+    let s = seg.trim();
+    if s.contains(' ') || s.len() < 3 || s.chars().count() > 64 {
+        return None;
+    }
+    let l = s.to_lowercase();
+    if TITLE_NOISE_TOKENS.contains(&l.as_str()) {
+        return None;
+    }
+    if l.contains('×') || l.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    if !s
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+    {
+        return None;
+    }
+    if !s.chars().any(|c| c.is_ascii_alphabetic()) {
+        return None;
+    }
+    if looks_like_filename(s) {
+        return None;
+    }
+    // Require a hyphen/underscore/dot — the signature of a repo slug. A bare
+    // word ("Inbox", "Settings") is too ambiguous to be a project hint.
+    if !s.contains('-') && !s.contains('_') && !s.contains('.') {
+        return None;
+    }
+    Some(l)
+}
+
+/// Extract hints from a web URL: the host (minus `www.`), plus the repo slug
+/// (and `owner/repo`) for known code-forge hosts.
+pub fn hints_from_web_url(url: &str) -> Vec<String> {
+    let rest = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"));
+    let Some(rest) = rest else {
+        return Vec::new();
+    };
+    let mut parts = rest.splitn(2, '/');
+    let host_port = parts.next().unwrap_or_default();
+    let path = parts.next().unwrap_or_default();
+    let host = host_port
+        .split('@')
+        .next_back()
+        .unwrap_or_default()
+        .split(':')
+        .next()
+        .unwrap_or_default()
+        .trim_start_matches("www.")
+        .to_lowercase();
+    if host.is_empty() || host == "localhost" || host.parse::<std::net::IpAddr>().is_ok() {
+        return Vec::new();
+    }
+    let mut out = vec![host.clone()];
+    const FORGES: &[&str] = &["github.com", "gitlab.com", "bitbucket.org", "codeberg.org"];
+    if FORGES.contains(&host.as_str()) {
+        let segs: Vec<&str> = path
+            .split(['/', '?', '#'])
+            .filter(|s| !s.is_empty())
+            .collect();
+        if segs.len() >= 2 {
+            let owner = segs[0].to_lowercase();
+            let repo = segs[1].to_lowercase();
+            out.push(repo.clone());
+            out.push(format!("{owner}/{repo}"));
+        }
+    }
+    out
+}
+
 /// Run an AppleScript with a 500 ms deadline. Returns trimmed stdout on
 /// success, `None` on timeout/failure/empty/"missing value".
 #[cfg(target_os = "macos")]
@@ -965,14 +1225,7 @@ mod tests {
     fn restore_returns_false_for_invalid_pid() {
         let ctx = FocusContext {
             pid: -1,
-            bundle_id: None,
-            app_name: None,
-            window_title: None,
-            browser_url: None,
-            browser_tab_title: None,
-            content_title: None,
-            content_url: None,
-            content_source: None,
+            ..Default::default()
         };
         assert!(!restore(&ctx));
     }
@@ -981,14 +1234,7 @@ mod tests {
     fn restore_focus_with_invalid_pid_returns_no_activation() {
         let ctx = FocusContext {
             pid: -1,
-            bundle_id: None,
-            app_name: None,
-            window_title: None,
-            browser_url: None,
-            browser_tab_title: None,
-            content_title: None,
-            content_url: None,
-            content_source: None,
+            ..Default::default()
         };
         let outcome = restore_focus(&ctx, None);
         assert!(!outcome.activated_app);
@@ -1016,5 +1262,139 @@ mod tests {
         if let Some(pid) = current_frontmost_pid() {
             assert!(pid > 0);
         }
+    }
+}
+
+#[cfg(test)]
+mod hint_tests {
+    use super::*;
+
+    #[test]
+    fn hint_from_terminal_cwd_file_url_prefers_code_parent_child() {
+        // Terminal.app exposes the shell cwd as the window AXDocument.
+        assert_eq!(
+            hint_from_path("file:///Users/denis/Documents/code/echo-scribe"),
+            Some("echo-scribe".into())
+        );
+        // Deep inside the repo still resolves to the repo folder.
+        assert_eq!(
+            hint_from_path("/Users/denis/Documents/code/echo-scribe/src-tauri/src"),
+            Some("echo-scribe".into())
+        );
+    }
+
+    #[test]
+    fn hint_from_path_drops_trailing_filename() {
+        assert_eq!(
+            hint_from_path("/Users/denis/projects/livecaseplus-server/app/main.py"),
+            Some("livecaseplus-server".into())
+        );
+    }
+
+    #[test]
+    fn hint_from_path_falls_back_to_deepest_non_generic_dir() {
+        assert_eq!(
+            hint_from_path("/Users/denis/my-notes/src"),
+            Some("my-notes".into())
+        );
+        assert_eq!(hint_from_path("not a path"), None);
+    }
+
+    #[test]
+    fn claude_code_terminal_title_yields_repo_hint() {
+        // Claude Code sets the terminal title to a status glyph + task + repo
+        // folder; the repo slug is the token we want.
+        let hints = hints_from_title("✳ Fix the queue worker — echo-scribe");
+        assert_eq!(hints, vec!["echo-scribe".to_string()]);
+    }
+
+    #[test]
+    fn terminal_default_title_yields_cwd_hint_not_shell_noise() {
+        let hints = hints_from_title("echo-scribe — -zsh — 80×24");
+        assert_eq!(hints, vec!["echo-scribe".to_string()]);
+    }
+
+    #[test]
+    fn vscode_title_yields_repo_but_not_filename() {
+        let hints = hints_from_title("coordinator.rs — echo-scribe");
+        assert_eq!(hints, vec!["echo-scribe".to_string()]);
+    }
+
+    #[test]
+    fn plain_english_titles_yield_no_hints() {
+        assert!(hints_from_title("Inbox").is_empty());
+        assert!(hints_from_title("Weekly Standup - Zoom Meeting").is_empty());
+        assert!(hints_from_title("Settings").is_empty());
+    }
+
+    #[test]
+    fn web_url_yields_host_and_forge_repo() {
+        let hints = hints_from_web_url("https://github.com/desduvauchelle/echo-scribe/pull/12");
+        assert_eq!(
+            hints,
+            vec![
+                "github.com".to_string(),
+                "echo-scribe".to_string(),
+                "desduvauchelle/echo-scribe".to_string()
+            ]
+        );
+        assert_eq!(
+            hints_from_web_url("https://www.notion.so/Some-Page-abc123"),
+            vec!["notion.so".to_string()]
+        );
+        assert!(hints_from_web_url("http://localhost:5173/app").is_empty());
+        assert!(hints_from_web_url("http://127.0.0.1:8080/").is_empty());
+    }
+
+    #[test]
+    fn derive_project_hints_merges_sources_and_dedupes() {
+        let ctx = FocusContext {
+            app_name: Some("Terminal".into()),
+            window_title: Some("✳ Refactor tagger — echo-scribe".into()),
+            content_url: Some("file:///Users/denis/Documents/code/echo-scribe".into()),
+            content_source: Some("ax_window".into()),
+            ..Default::default()
+        };
+        let hints = derive_project_hints(&ctx);
+        assert_eq!(hints, vec!["echo-scribe".to_string()]);
+    }
+
+    #[test]
+    fn derive_project_hints_skips_app_name_echo() {
+        let ctx = FocusContext {
+            app_name: Some("echo-scribe".into()),
+            window_title: Some("echo-scribe".into()),
+            ..Default::default()
+        };
+        assert!(derive_project_hints(&ctx).is_empty());
+    }
+
+    #[test]
+    fn focus_context_parses_legacy_json_without_pid_or_hints() {
+        // Rows written by older builds: hand-rolled JSON with no `pid` and no
+        // `project_hints`. These must still deserialize (the tagger depends
+        // on it).
+        let legacy = r#"{"app_name":"Code","window_title":"main.rs — echo-scribe","browser_url":null,"browser_tab_title":null,"content_title":null,"content_url":null,"content_source":null,"bundle_id":"com.microsoft.VSCode"}"#;
+        let ctx: FocusContext =
+            serde_json::from_str(legacy).expect("legacy capture_context must parse");
+        assert_eq!(ctx.pid, 0);
+        assert_eq!(ctx.app_name.as_deref(), Some("Code"));
+        assert!(ctx.project_hints.is_empty());
+    }
+
+    #[test]
+    fn focus_context_full_serde_round_trip_preserves_hints() {
+        let mut ctx = FocusContext {
+            pid: 4242,
+            bundle_id: Some("com.googlecode.iterm2".into()),
+            app_name: Some("iTerm2".into()),
+            window_title: Some("✳ Plan review — livecaseplus-server".into()),
+            ..Default::default()
+        };
+        ctx.project_hints = derive_project_hints(&ctx);
+        let json = serde_json::to_string(&ctx).unwrap();
+        let back: FocusContext = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.pid, 4242);
+        assert_eq!(back.project_hints, vec!["livecaseplus-server".to_string()]);
     }
 }

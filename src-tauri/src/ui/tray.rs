@@ -144,6 +144,7 @@ impl TrayHandle<Wry> {
                                     browser_tab_title: ctx
                                         .as_ref()
                                         .and_then(|c| c.browser_tab_title.clone()),
+                                    focus: ctx,
                                     calendar_match: None,
                                 }
                             };

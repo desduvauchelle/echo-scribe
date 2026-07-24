@@ -58,6 +58,11 @@ _old/
 src-tauri/target/
 src-tauri/gen/
 
+# Compiled sidecar binaries — regenerated from src by scripts/build-*.sh
+# (build-syscap.sh / build-screenrec.sh / build-calmatch.sh), so they don't
+# belong in git. Present on disk for local bundling; built fresh in CI.
+src-tauri/binaries/echo-scribe-*
+
 # Vite extras
 dist-ssr/
 *.local

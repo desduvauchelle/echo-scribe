@@ -74,18 +74,15 @@ if [[ "$PM" == bun ]]; then bun tauri build --bundles app; else npx tauri build 
 
 [[ -d "$BUILT_APP" ]] || { echo "Build failed: $BUILT_APP not found." >&2; exit 1; }
 
+echo "==> Stabilizing macOS sidecar signatures"
+"$SCRIPT_DIR/sign-macos-bundle.sh" "$BUILT_APP"
+
 # --- install -----------------------------------------------------------------
-# Each from-source build gets a fresh ad-hoc code signature, so prior TCC
-# grants (Microphone, Accessibility, Screen Recording) no longer apply. Reset
-# them so macOS re-prompts cleanly instead of silently denying.
 
 echo "==> Installing to $DEST"
 osascript -e "tell application \"$APP_NAME\" to quit" 2>/dev/null || true
 pkill -f "$APP_NAME" 2>/dev/null || true
 sleep 1
-tccutil reset Microphone "$BUNDLE_ID" || true
-tccutil reset Accessibility "$BUNDLE_ID" || true
-tccutil reset ScreenCapture "$BUNDLE_ID" || true
 rm -rf "$DEST"
 cp -R "$BUILT_APP" "$DEST"
 open "$DEST"
