@@ -12,10 +12,6 @@
     <string>Echo Scribe captures system audio during meetings so it can transcribe the other participants. Only audio is read; no screen content is recorded or stored.</string>
     <key>NSCameraUsageDescription</key>
     <string>Echo Scribe records your camera only when you enable it for a screen recording.</string>
-    <key>NSCalendarsFullAccessUsageDescription</key>
-    <string>Echo Scribe matches your meetings to calendar events so summaries include attendees and topic. The data never leaves your Mac.</string>
-    <key>NSCalendarsUsageDescription</key>
-    <string>Echo Scribe matches your meetings to calendar events so summaries include attendees and topic. The data never leaves your Mac.</string>
     <key>LSUIElement</key>
     <true/>
 </dict>

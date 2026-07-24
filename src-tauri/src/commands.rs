@@ -223,10 +223,12 @@ pub fn open_camera_settings() -> Result<(), String> {
 /// if denied or undetermined.
 #[tauri::command]
 pub async fn request_microphone_access() -> Result<bool, String> {
-    Ok(matches!(
-        permissions::request_microphone().await,
-        MicAccessOutcome::Granted
-    ))
+    let outcome = permissions::request_microphone().await;
+    // Every prompt-capable permission entry point logs when it runs: if a
+    // macOS permission dialog ever appears without a user action (e.g. at
+    // launch), the daily log names which path triggered it.
+    info!(target: "perm", ?outcome, "microphone access requested (may show macOS prompt)");
+    Ok(matches!(outcome, MicAccessOutcome::Granted))
 }
 
 /// Maps a [`CameraAccessOutcome`] to the string the frontend switches on.
@@ -327,7 +329,9 @@ pub fn open_recording_editor(
 /// call — the user still has to flip the toggle in System Settings).
 #[tauri::command]
 pub fn prompt_accessibility_access() -> Result<bool, String> {
-    Ok(permissions::prompt_accessibility())
+    let trusted = permissions::prompt_accessibility();
+    info!(target: "perm", trusted, "accessibility access prompted (may show macOS prompt)");
+    Ok(trusted)
 }
 
 /// Trigger the macOS Screen Recording prompt (or return the cached
@@ -335,19 +339,9 @@ pub fn prompt_accessibility_access() -> Result<bool, String> {
 /// track in meetings.
 #[tauri::command]
 pub fn request_screen_recording_access() -> Result<bool, String> {
-    Ok(permissions::request_screen_recording())
-}
-
-/// Trigger the macOS Calendar prompt by spawning the calmatch sidecar.
-/// Returns the resulting grant. Used by Onboarding + Settings.
-#[tauri::command]
-pub async fn prompt_calendar_access() -> Result<bool, String> {
-    Ok(permissions::prompt_calendars().await)
-}
-
-#[tauri::command]
-pub fn open_calendar_settings() -> Result<(), String> {
-    permissions::open_settings(SettingsPane::Calendars).map_err(|e| e.to_string())
+    let granted = permissions::request_screen_recording();
+    info!(target: "perm", granted, "screen recording access requested (may show macOS prompt)");
+    Ok(granted)
 }
 
 #[tauri::command]
@@ -2090,13 +2084,25 @@ pub async fn uninstall_application(app: AppHandle, delete_data: bool) -> Result<
 
 // ----- Reset TCC permissions -----
 
-/// Every TCC service the app ever requests. `reset_tcc_and_quit` must reset
-/// all of them: a service missing here keeps its old grant/denial across the
-/// user's "reset permissions" action, which reads as a broken feature (a
-/// silently-denied Camera survived the reset and wedged the webcam until
-/// Camera was added to this list).
-pub(crate) const TCC_RESET_SERVICES: [&str; 4] =
-    ["Microphone", "Accessibility", "ScreenCapture", "Camera"];
+/// Every TCC service the app ever requests — one per `NS*UsageDescription` in
+/// `Info.plist`. Both `reset_tcc_and_quit` (the "reset permissions" button) and
+/// `uninstall_application` (delete-data path) reset all of them: a service
+/// missing here keeps its old grant/denial across the reset — which reads as a
+/// broken feature (a silently-denied Camera survived the reset and wedged the
+/// webcam until Camera was added) — and, on uninstall, leaves a stale entry in
+/// System Settings → Privacy & Security after the app is gone.
+///
+/// Maps to Info.plist: Microphone←NSMicrophone, Accessibility←NSAccessibility,
+/// ScreenCapture←NSScreenCapture, Camera←NSCamera, AppleEvents←NSAppleEvents
+/// (Automation — the app drives Finder/System Events via osascript for
+/// uninstall, mute-while-recording, and quit).
+pub(crate) const TCC_RESET_SERVICES: [&str; 5] = [
+    "Microphone",
+    "Accessibility",
+    "ScreenCapture",
+    "Camera",
+    "AppleEvents",
+];
 
 /// Run `tccutil reset` for every service in [`TCC_RESET_SERVICES`] against
 /// this app's bundle id, then quit the app. macOS keeps TCC grants attached
@@ -2871,13 +2877,10 @@ pub async fn start_meeting_manual(state: tauri::State<'_, AppState>) -> Result<S
 /// is non-macOS.
 fn capture_meeting_start_context() -> crate::meeting::MeetingStartContext {
     let ctx = crate::input::focus::capture_context();
-    // calendar_match is filled in by MeetingManager::start once we have an
-    // anchor timestamp — the capture site only knows app/window context.
     crate::meeting::MeetingStartContext {
         window_title: ctx.as_ref().and_then(|c| c.window_title.clone()),
         browser_url: ctx.as_ref().and_then(|c| c.browser_url.clone()),
         browser_tab_title: ctx.as_ref().and_then(|c| c.browser_tab_title.clone()),
-        calendar_match: None,
     }
 }
 
@@ -3229,43 +3232,6 @@ pub async fn retry_meeting_chunks(
     state
         .meeting_manager
         .retry_chunks(&id)
-        .await
-        .map_err(|e| e.to_string())
-}
-
-/// Override the calendar match for a meeting (or clear it). Passing
-/// `None` for `r#match` removes the snapshot; passing a `CalendarMatch`
-/// object persists it on the row. The caller is expected to follow up
-/// with `retry_meeting_summary` to regenerate with the new context.
-#[tauri::command]
-pub async fn set_meeting_calendar_match(
-    state: tauri::State<'_, AppState>,
-    id: String,
-    r#match: Option<crate::calendar::CalendarMatch>,
-) -> Result<(), String> {
-    let db = state.db.as_ref().ok_or("db unavailable")?;
-    let json = r#match
-        .as_ref()
-        .map(|m| serde_json::to_string(m).unwrap_or_default());
-    let id_owned = id.clone();
-    db.with_conn(move |conn| {
-        crate::db::meetings::update_calendar_match(conn, &id_owned, json.as_deref())
-    })
-    .map_err(|e| e.to_string())?;
-    Ok(())
-}
-
-/// Probe the user's calendar for events around a given window. Used by
-/// the meeting detail UI to populate "Wrong match?" alternatives that
-/// weren't in the original ranked candidates. Returns the best match
-/// plus next-ranked candidates (or `null` if nothing overlaps).
-#[tauri::command]
-pub async fn match_meeting_calendar(
-    iso_start: String,
-    iso_end: String,
-    conf_hint: Option<String>,
-) -> Result<Option<crate::calendar::MatchOutcome>, String> {
-    crate::calendar::match_meeting(&iso_start, &iso_end, conf_hint.as_deref())
         .await
         .map_err(|e| e.to_string())
 }

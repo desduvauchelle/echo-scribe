@@ -6,7 +6,6 @@ pub struct Capabilities {
     pub local_database: bool,
     pub meeting_auto_detect: bool,
     pub system_audio_capture: bool,
-    pub calendar_matching: bool,
     pub screen_recording: bool,
     pub bundle_self_update: bool,
 }
@@ -26,7 +25,6 @@ impl Capabilities {
             local_database: true,
             meeting_auto_detect: macos,
             system_audio_capture: macos,
-            calendar_matching: macos,
             screen_recording: macos,
             bundle_self_update: macos,
         }
@@ -42,7 +40,6 @@ mod tests {
         let caps = Capabilities::for_os("macos");
         assert!(caps.meeting_auto_detect);
         assert!(caps.system_audio_capture);
-        assert!(caps.calendar_matching);
         assert!(caps.screen_recording);
         assert!(caps.bundle_self_update);
     }
@@ -53,7 +50,6 @@ mod tests {
         // Sidecar-backed features remain off on Windows.
         assert!(!caps.meeting_auto_detect);
         assert!(!caps.system_audio_capture);
-        assert!(!caps.calendar_matching);
         assert!(!caps.screen_recording);
         assert!(!caps.bundle_self_update);
         // Core dictation loop is enabled on Windows (cpal + Parakeet + paste).
@@ -68,7 +64,6 @@ mod tests {
             assert!(!caps.meeting_auto_detect, "{os} must not auto-detect meetings");
             assert!(!caps.screen_recording, "{os} must not screen record");
             assert!(!caps.system_audio_capture, "{os} must not capture system audio");
-            assert!(!caps.calendar_matching, "{os} must not match calendars");
         }
     }
 }

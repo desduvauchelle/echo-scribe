@@ -180,6 +180,10 @@ CREATE INDEX IF NOT EXISTS idx_daily_summaries_generated_at
 "#,
     ),
     (
+        // Vestigial: the calendar-matching feature was removed, but this
+        // migration stays (migrations are append-only — existing DBs already
+        // ran it, and renumbering would break the schema_version chain). The
+        // column is no longer read or written; nothing depends on it.
         9,
         r#"
 ALTER TABLE meetings ADD COLUMN calendar_match_json TEXT;

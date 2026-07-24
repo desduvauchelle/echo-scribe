@@ -13,19 +13,14 @@ import {
   listProjects,
   listTagsForItem,
   listTasks,
-  matchMeetingCalendar,
-  parseCalendarMatch,
   parseCaptureContext,
   regenerateGuideReview,
   renameMeeting,
   restoreItem,
-  retryMeetingSummary,
-  setMeetingCalendarMatch,
   setTaskDeadline,
   uncompleteTask,
   updateItem,
   updateMeetingNotes,
-  type CalendarMatch,
   type GuideRun,
   type Item,
   type ItemKind,
@@ -813,8 +808,6 @@ function MeetingView({
 
       <NotesSection meeting={meeting} onMeetingChange={onMeetingChange} />
 
-      <CalendarMatchPanel meeting={meeting} onChange={onMeetingChange} />
-
       <TagsSection
         item={item}
         tags={tags}
@@ -1284,144 +1277,6 @@ function GuideReviewSection({ meetingId }: { meetingId: string }) {
       ) : null}
     </>
   );
-}
-
-function CalendarMatchPanel({
-  meeting,
-  onChange,
-}: {
-  meeting: MeetingRow;
-  onChange: (m: MeetingRow) => void;
-}) {
-  const match = useMemo(() => parseCalendarMatch(meeting), [meeting]);
-  const [expanded, setExpanded] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [candidates, setCandidates] = useState<CalendarMatch[] | null>(null);
-
-  if (!match) return null;
-
-  const confidenceTone =
-    match.match_score >= 0.6 ? "text-fg" : "text-muted italic";
-
-  const refetchCandidates = async () => {
-    if (!meeting.ended_at) return;
-    setBusy(true);
-    try {
-      const out = await matchMeetingCalendar(
-        meeting.started_at,
-        meeting.ended_at,
-        null,
-      );
-      setCandidates(out ? [out.best, ...out.candidates] : []);
-    } catch {
-      setCandidates([]);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const apply = async (next: CalendarMatch | null) => {
-    setBusy(true);
-    try {
-      await setMeetingCalendarMatch(meeting.item_id, next);
-      // Re-run synthesis so summary picks up the new (or cleared) context.
-      await retryMeetingSummary(meeting.item_id).catch(() => {});
-      const refreshed = await getMeeting(meeting.item_id);
-      if (refreshed) onChange(refreshed);
-      setExpanded(false);
-      setCandidates(null);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="rounded-md border border-line bg-surface p-2">
-      <div className="mb-1 flex items-center justify-between">
-        <SectionLabel>Calendar match</SectionLabel>
-        <button
-          type="button"
-          aria-expanded={expanded}
-          onClick={() => {
-            const next = !expanded;
-            setExpanded(next);
-            if (next && candidates === null) void refetchCandidates();
-          }}
-          className="text-[10px] text-faint hover:text-muted"
-        >
-          {expanded ? "Close" : "Wrong match?"}
-        </button>
-      </div>
-      <div className={`text-[11px] ${confidenceTone}`}>
-        {match.title ?? "Untitled event"}
-        <span className="ml-2 text-[10px] text-faint">
-          ({Math.round(match.match_score * 100)}% · {match.match_reason})
-        </span>
-      </div>
-      {match.organizer ? (
-        <div className="mt-1 text-[10px] text-muted">
-          Organizer: {renderAttendeeLine(match.organizer)}
-        </div>
-      ) : null}
-      {match.attendees.length > 0 ? (
-        <div className="mt-1 flex flex-wrap gap-1">
-          {match.attendees.slice(0, 8).map((a, i) => (
-            <span
-              key={`${a.email ?? a.name ?? "x"}-${i}`}
-              className="rounded-full bg-elevated px-2 py-0.5 text-[10px] text-fg"
-              title={a.email ?? ""}
-            >
-              {renderAttendeeLine(a)}
-            </span>
-          ))}
-          {match.attendees.length > 8 ? (
-            <span className="text-[10px] text-faint">
-              +{match.attendees.length - 8} more
-            </span>
-          ) : null}
-        </div>
-      ) : null}
-      {expanded ? (
-        <div className="mt-2 space-y-1 border-t border-line pt-2 text-[11px]">
-          {busy ? (
-            <div className="text-muted">Loading…</div>
-          ) : null}
-          {candidates && candidates.length === 0 ? (
-            <div className="text-muted">No alternative events found.</div>
-          ) : null}
-          {candidates?.map((c, i) => (
-            <button
-              key={`${c.starts_at}-${i}`}
-              type="button"
-              onClick={() => void apply(c)}
-              disabled={busy}
-              className="w-full rounded border border-line bg-surface-2 px-2 py-1 text-left text-fg hover:bg-elevated disabled:opacity-50"
-            >
-              {c.title ?? "Untitled event"}{" "}
-              <span className="text-[10px] text-faint">
-                ({Math.round(c.match_score * 100)}%)
-              </span>
-            </button>
-          ))}
-          <button
-            type="button"
-            onClick={() => void apply(null)}
-            disabled={busy}
-            className="w-full rounded border border-warning/40 bg-warning/10 px-2 py-1 text-left text-warning hover:bg-warning/20 disabled:opacity-50"
-          >
-            Clear match (no calendar event)
-          </button>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function renderAttendeeLine(a: import("../lib/api").CalendarAttendee): string {
-  const name = a.name && a.name.trim() ? a.name : null;
-  const email = a.email && a.email.trim() ? a.email : null;
-  const base = name && email ? `${name} <${email}>` : name ?? email ?? "?";
-  return a.self ? `${base} (you)` : base;
 }
 
 function ActionsSection({

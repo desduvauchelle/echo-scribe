@@ -1,13 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import {
   openAccessibilitySettings,
-  openCalendarSettings,
   openCameraSettings,
   openMicrophoneSettings,
   openScreenRecordingSettings,
   permissionsStatus,
   promptAccessibilityAccess,
-  promptCalendarAccess,
   requestCameraAccess,
   requestMicrophoneAccess,
   requestScreenRecordingAccess,
@@ -27,7 +25,6 @@ export default function PermissionsSection() {
     microphone: false,
     accessibility: false,
     screen_recording: false,
-    calendars: false,
     camera: false,
   });
   const [checking, setChecking] = useState(false);
@@ -49,7 +46,19 @@ export default function PermissionsSection() {
 
   useEffect(() => {
     void refresh();
-    intervalRef.current = window.setInterval(() => void refresh(), 1500);
+    // The background poll updates status WITHOUT toggling `checking` —
+    // flipping every Re-check button into its busy state each 1.5s made the
+    // whole section flicker/wiggle. `checking` is reserved for explicit
+    // user-triggered refreshes.
+    const tick = async () => {
+      try {
+        const s = await permissionsStatus();
+        setStatus(s);
+      } catch {
+        /* ignore */
+      }
+    };
+    intervalRef.current = window.setInterval(() => void tick(), 1500);
     return () => {
       if (intervalRef.current !== null) {
         window.clearInterval(intervalRef.current);
@@ -87,29 +96,6 @@ export default function PermissionsSection() {
     }
     try {
       await openScreenRecordingSettings();
-    } catch {
-      /* ignore */
-    }
-    await refresh().catch(() => {});
-  };
-
-  const handleGrantCalendars = async () => {
-    // Calendar access is optional. promptCalendarAccess shells out to the
-    // calmatch sidecar which calls requestFullAccessToEvents — first call
-    // shows the system dialog, subsequent calls return cached. If the
-    // sidecar isn't available or the user declines, we fall back to
-    // opening Settings.
-    try {
-      const granted = await promptCalendarAccess();
-      if (granted) {
-        await refresh();
-        return;
-      }
-    } catch {
-      /* fall through */
-    }
-    try {
-      await openCalendarSettings();
     } catch {
       /* ignore */
     }
@@ -225,17 +211,6 @@ export default function PermissionsSection() {
         subtitle="Only used when you turn on the webcam overlay for a screen recording. Grant it here so it's ready — and so a blocked camera is fixable from this screen instead of failing silently mid-recording."
         granted={status.camera}
         onGrant={() => void handleGrantCamera()}
-        onRecheck={() => void refresh()}
-        recheckBusy={checking}
-      />
-
-      <div className="h-px bg-elevated" />
-
-      <PermissionRow
-        title="Calendar (optional)"
-        subtitle="Matches each meeting to your calendar invite so summaries name attendees and reference the meeting topic. The calendar data never leaves your Mac."
-        granted={status.calendars}
-        onGrant={() => void handleGrantCalendars()}
         onRecheck={() => void refresh()}
         recheckBusy={checking}
       />

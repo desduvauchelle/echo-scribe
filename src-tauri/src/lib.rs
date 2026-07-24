@@ -1,6 +1,5 @@
 pub mod asr;
 pub mod audio;
-pub mod calendar;
 pub mod chat_memory;
 pub mod classifier;
 pub mod commands;
@@ -70,11 +69,11 @@ use crate::commands::{
     list_tasks, load_chat_messages, load_claude_session, log_camera_preview_error,
     log_export_error, open_recording_editor,
     open_accessibility_settings,
-    open_calendar_settings, open_camera_settings, open_microphone_settings,
+    open_camera_settings, open_microphone_settings,
     open_screen_recording_settings,
     open_screenrec_setup, pause_screen_recording, permissions_status, pick_export_folder,
     project_tagger_backfill,
-    project_tagger_status, prompt_accessibility_access, prompt_calendar_access,
+    project_tagger_status, prompt_accessibility_access,
     read_recording_events, rename_chat_session, rename_project, rename_recording,
     request_camera_access, request_microphone_access,
     request_screen_recording_access, reset_action_counter, reset_onboarding_and_quit,
@@ -221,7 +220,6 @@ pub fn run() {
             open_microphone_settings,
             open_accessibility_settings,
             open_screen_recording_settings,
-            open_calendar_settings,
             open_camera_settings,
             request_microphone_access,
             request_camera_access,
@@ -230,7 +228,6 @@ pub fn run() {
             open_recording_editor,
             prompt_accessibility_access,
             request_screen_recording_access,
-            prompt_calendar_access,
             get_voice_at_cursor_binding,
             update_voice_at_cursor_binding,
             get_log_capture_binding,
@@ -353,8 +350,6 @@ pub fn run() {
             commands::meeting_clear_app_pref,
             commands::retry_meeting_summary,
             commands::retry_meeting_chunks,
-            commands::set_meeting_calendar_match,
-            commands::match_meeting_calendar,
             commands::list_input_devices,
             commands::get_preferred_input_device,
             commands::set_preferred_input_device,

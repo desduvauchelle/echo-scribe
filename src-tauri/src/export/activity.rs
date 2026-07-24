@@ -219,7 +219,6 @@ mod tests {
             user_notes: Some("remember pricing".into()),
             failed_chunk_count: 0,
             mic_only: false,
-            calendar_match_json: None,
             guide_template_json: None,
             project_name: None,
         };

@@ -18,12 +18,6 @@ pub struct MeetingRow {
     pub user_notes: Option<String>,
     pub failed_chunk_count: i64,
     pub mic_only: bool,
-    /// Snapshot of the calendar event that matched this meeting at start /
-    /// stop time. Schema is `crate::calendar::CalendarMatch` serialized as
-    /// JSON. `None` when no match was found, calendar permission was
-    /// denied, or the sidecar timed out.
-    #[serde(default)]
-    pub calendar_match_json: Option<String>,
     /// Immutable snapshot of the guide template attached to this meeting at
     /// start time (a `crate::db::guide_templates::GuideTemplate` serialized as
     /// JSON). `None` for non-guided meetings. Frozen — later edits to the
@@ -42,8 +36,8 @@ pub fn insert_meeting(conn: &Connection, m: &MeetingRow) -> Result<(), DbError> 
         "INSERT INTO meetings (
             item_id, started_at, ended_at, duration_ms, detected_app, detected_app_name,
             status, transcript_json, summary_json, user_notes, failed_chunk_count, mic_only,
-            calendar_match_json, guide_template_json
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+            guide_template_json
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
         params![
             m.item_id,
             m.started_at,
@@ -57,7 +51,6 @@ pub fn insert_meeting(conn: &Connection, m: &MeetingRow) -> Result<(), DbError> 
             m.user_notes,
             m.failed_chunk_count,
             m.mic_only as i64,
-            m.calendar_match_json,
             m.guide_template_json,
         ],
     )?;
@@ -68,7 +61,7 @@ pub fn get_meeting(conn: &Connection, item_id: &str) -> Result<Option<MeetingRow
     conn.query_row(
         "SELECT m.item_id, m.started_at, m.ended_at, m.duration_ms, m.detected_app, m.detected_app_name,
                 m.status, m.transcript_json, m.summary_json, m.user_notes, m.failed_chunk_count, m.mic_only,
-                m.calendar_match_json, m.guide_template_json, p.name
+                m.guide_template_json, p.name
          FROM meetings m
          JOIN items i ON i.id = m.item_id
          LEFT JOIN projects p ON p.id = i.project_id
@@ -84,7 +77,7 @@ pub fn list_meetings(conn: &Connection) -> Result<Vec<MeetingRow>, DbError> {
     let mut stmt = conn.prepare(
         "SELECT m.item_id, m.started_at, m.ended_at, m.duration_ms, m.detected_app, m.detected_app_name,
                 m.status, m.transcript_json, m.summary_json, m.user_notes, m.failed_chunk_count, m.mic_only,
-                m.calendar_match_json, m.guide_template_json, p.name
+                m.guide_template_json, p.name
          FROM meetings m
          JOIN items i ON i.id = m.item_id
          LEFT JOIN projects p ON p.id = i.project_id
@@ -96,23 +89,8 @@ pub fn list_meetings(conn: &Connection) -> Result<Vec<MeetingRow>, DbError> {
     Ok(rows)
 }
 
-/// Update the calendar match snapshot on an existing meeting row. Used both
-/// at meeting stop (after the second sidecar query refines the match) and
-/// from the UI's "Wrong match?" override.
-pub fn update_calendar_match(
-    conn: &Connection,
-    item_id: &str,
-    calendar_match_json: Option<&str>,
-) -> Result<(), DbError> {
-    conn.execute(
-        "UPDATE meetings SET calendar_match_json = ?1 WHERE item_id = ?2",
-        params![calendar_match_json, item_id],
-    )?;
-    Ok(())
-}
-
 /// Persist the immutable guide-template snapshot on a meeting row. Called
-/// once right after a guided session starts. Mirrors `update_calendar_match`.
+/// once right after a guided session starts.
 pub fn update_guide_template(
     conn: &Connection,
     item_id: &str,
@@ -269,9 +247,8 @@ fn row_to_meeting(row: &rusqlite::Row<'_>) -> rusqlite::Result<MeetingRow> {
         user_notes: row.get(9)?,
         failed_chunk_count: row.get(10)?,
         mic_only: row.get::<_, i64>(11)? != 0,
-        calendar_match_json: row.get(12)?,
-        guide_template_json: row.get(13)?,
-        project_name: row.get(14)?,
+        guide_template_json: row.get(12)?,
+        project_name: row.get(13)?,
     })
 }
 
@@ -317,7 +294,6 @@ mod tests {
             user_notes: None,
             failed_chunk_count: 0,
             mic_only: false,
-            calendar_match_json: None,
             guide_template_json: None,
             project_name: None,
         };
@@ -338,7 +314,6 @@ mod tests {
             user_notes: None,
             failed_chunk_count: 0,
             mic_only: false,
-            calendar_match_json: None,
             guide_template_json: None,
             project_name: None,
         }
@@ -389,21 +364,6 @@ mod tests {
         update_status(&conn, "m-1", MeetingStatus::Transcribing).unwrap();
         let got = get_meeting(&conn, "m-1").unwrap().unwrap();
         assert_eq!(got.status, "transcribing");
-    }
-
-    #[test]
-    fn calendar_match_round_trip() {
-        let conn = setup();
-        insert_meeting(&conn, &sample()).unwrap();
-        let cm = r#"{"title":"Standup","match_score":0.9}"#;
-        update_calendar_match(&conn, "m-1", Some(cm)).unwrap();
-        let got = get_meeting(&conn, "m-1").unwrap().unwrap();
-        assert_eq!(got.calendar_match_json.as_deref(), Some(cm));
-
-        // Clearing back to None.
-        update_calendar_match(&conn, "m-1", None).unwrap();
-        let got = get_meeting(&conn, "m-1").unwrap().unwrap();
-        assert!(got.calendar_match_json.is_none());
     }
 
     #[test]

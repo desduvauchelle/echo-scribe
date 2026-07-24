@@ -43,9 +43,8 @@ pub fn arm_watchdog() {
 
 /// Sidecars that must ship inside the bundle, next to the main binary.
 /// Keep in sync with `bundle.externalBin` in tauri.conf.json.
-const SIDECARS: [&str; 3] = [
+const SIDECARS: [&str; 2] = [
     "echo-scribe-syscap",
-    "echo-scribe-calmatch",
     "echo-scribe-screenrec",
 ];
 

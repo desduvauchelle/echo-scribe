@@ -12,7 +12,6 @@ export type PermissionsStatus = {
   microphone: boolean;
   accessibility: boolean;
   screen_recording: boolean;
-  calendars: boolean;
   camera: boolean;
 };
 
@@ -21,7 +20,6 @@ export type PlatformCapabilities = {
   local_database: boolean;
   meeting_auto_detect: boolean;
   system_audio_capture: boolean;
-  calendar_matching: boolean;
   screen_recording: boolean;
   bundle_self_update: boolean;
 };
@@ -40,9 +38,6 @@ export const openAccessibilitySettings = (): Promise<void> =>
 
 export const openScreenRecordingSettings = (): Promise<void> =>
   invoke("open_screen_recording_settings");
-
-export const openCalendarSettings = (): Promise<void> =>
-  invoke("open_calendar_settings");
 
 export const openCameraSettings = (): Promise<void> =>
   invoke("open_camera_settings");
@@ -71,9 +66,6 @@ export const promptAccessibilityAccess = (): Promise<boolean> =>
 
 export const requestScreenRecordingAccess = (): Promise<boolean> =>
   invoke("request_screen_recording_access");
-
-export const promptCalendarAccess = (): Promise<boolean> =>
-  invoke("prompt_calendar_access");
 
 export const getVoiceAtCursorBinding = (): Promise<JsBinding> =>
   invoke("get_voice_at_cursor_binding");
@@ -847,71 +839,10 @@ export type MeetingRow = {
   user_notes: string | null;
   failed_chunk_count: number;
   mic_only: boolean;
-  /// Snapshot of the matched calendar event (JSON-encoded
-  /// `CalendarMatch`) at the time the meeting was recorded. `null` when
-  /// no event matched, calendar access wasn't granted, or the sidecar
-  /// failed.
-  calendar_match_json: string | null;
   /// Project name resolved via the meeting's item.project_id at read time.
   /// `null` when unassigned. Reflects later reassignment from the detail panel.
   project_name: string | null;
 };
-
-export type CalendarAttendee = {
-  name: string | null;
-  email: string | null;
-  self: boolean;
-  role: string | null;
-};
-
-export type CalendarMatch = {
-  title: string | null;
-  organizer: CalendarAttendee | null;
-  attendees: CalendarAttendee[];
-  starts_at: string;
-  ends_at: string;
-  notes: string | null;
-  calendar_name: string | null;
-  conferencing_url: string | null;
-  match_score: number;
-  match_reason: string;
-};
-
-export type MatchOutcome = {
-  best: CalendarMatch;
-  candidates: CalendarMatch[];
-};
-
-export const matchMeetingCalendar = (
-  iso_start: string,
-  iso_end: string,
-  conf_hint?: string | null,
-): Promise<MatchOutcome | null> =>
-  invoke("match_meeting_calendar", {
-    isoStart: iso_start,
-    isoEnd: iso_end,
-    confHint: conf_hint ?? null,
-  });
-
-export const setMeetingCalendarMatch = (
-  id: string,
-  match: CalendarMatch | null,
-): Promise<void> => invoke("set_meeting_calendar_match", { id, match });
-
-/// Parse the `calendar_match_json` column on a `MeetingRow` into a
-/// `CalendarMatch` object. Returns `null` when the column is null or
-/// the JSON is malformed (logged as a console warning).
-export function parseCalendarMatch(
-  row: Pick<MeetingRow, "calendar_match_json">,
-): CalendarMatch | null {
-  if (!row.calendar_match_json) return null;
-  try {
-    return JSON.parse(row.calendar_match_json) as CalendarMatch;
-  } catch (e) {
-    console.warn("calendar_match_json parse failed", e);
-    return null;
-  }
-}
 
 export type Segment = {
   speaker: "you" | "them";

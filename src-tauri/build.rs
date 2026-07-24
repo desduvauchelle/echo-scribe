@@ -21,13 +21,6 @@ fn main() {
         if !syscap.success() {
             panic!("syscap build failed");
         }
-        let calmatch = std::process::Command::new("bash")
-            .arg("../scripts/build-calmatch.sh")
-            .status()
-            .expect("failed to run build-calmatch.sh");
-        if !calmatch.success() {
-            panic!("calmatch build failed");
-        }
         let screenrec = std::process::Command::new("bash")
             .arg("../scripts/build-screenrec.sh")
             .status()
@@ -38,8 +31,6 @@ fn main() {
     }
     println!("cargo:rerun-if-changed=syscap/main.swift");
     println!("cargo:rerun-if-changed=syscap/Package.swift");
-    println!("cargo:rerun-if-changed=calmatch/main.swift");
-    println!("cargo:rerun-if-changed=calmatch/Package.swift");
     println!("cargo:rerun-if-changed=screenrec/main.swift");
     println!("cargo:rerun-if-changed=screenrec/Package.swift");
 

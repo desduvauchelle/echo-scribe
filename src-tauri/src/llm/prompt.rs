@@ -224,72 +224,7 @@ fn build_start_context_block(ctx: &crate::meeting::MeetingStartContext) -> Strin
         out.push_str(u.trim());
         out.push('\n');
     }
-    if let Some(cm) = ctx.calendar_match.as_ref() {
-        out.push_str(&render_calendar_match_block(cm));
-    }
     out
-}
-
-/// Render a `CalendarMatch` snapshot as a labeled block the LLM can read.
-/// Output is multi-line, starts with a header line so the LLM treats it as
-/// a structured fact set rather than free-form metadata.
-fn render_calendar_match_block(cm: &crate::calendar::CalendarMatch) -> String {
-    let mut out = String::new();
-    let label = if cm.match_score >= crate::calendar::HIGH_CONFIDENCE_SCORE {
-        format!("Calendar match (confidence {:.2}):", cm.match_score)
-    } else {
-        format!(
-            "Calendar match (low confidence {:.2} — treat as hint):",
-            cm.match_score
-        )
-    };
-    out.push_str("- ");
-    out.push_str(&label);
-    out.push('\n');
-    if let Some(t) = cm.title.as_deref().filter(|s| !s.trim().is_empty()) {
-        out.push_str("  - Title: ");
-        out.push_str(t.trim());
-        out.push('\n');
-    }
-    if let Some(org) = cm.organizer.as_ref() {
-        out.push_str("  - Organizer: ");
-        out.push_str(&render_attendee(org));
-        out.push('\n');
-    }
-    if !cm.attendees.is_empty() {
-        out.push_str("  - Attendees: ");
-        let rendered: Vec<String> = cm.attendees.iter().map(render_attendee).collect();
-        out.push_str(&rendered.join(", "));
-        out.push('\n');
-    }
-    if let Some(notes) = cm.notes.as_deref().filter(|s| !s.trim().is_empty()) {
-        // Cap notes — calendar invites occasionally embed huge agendas.
-        let trimmed = notes.trim();
-        let snippet: String = trimmed.chars().take(500).collect();
-        out.push_str("  - Notes: ");
-        out.push_str(&snippet);
-        if trimmed.len() > snippet.len() {
-            out.push_str(" …");
-        }
-        out.push('\n');
-    }
-    out
-}
-
-fn render_attendee(a: &crate::calendar::Attendee) -> String {
-    let name = a.name.clone().filter(|s| !s.trim().is_empty());
-    let email = a.email.clone().filter(|s| !s.trim().is_empty());
-    let base = match (name, email) {
-        (Some(n), Some(e)) => format!("{n} <{e}>"),
-        (Some(n), None) => n,
-        (None, Some(e)) => e,
-        (None, None) => "unknown".to_string(),
-    };
-    if a.self_ {
-        format!("{base} (you)")
-    } else {
-        base
-    }
 }
 
 #[cfg(test)]
@@ -427,7 +362,6 @@ mod tests {
             window_title: Some("Weekly Standup - Zoom Meeting".into()),
             browser_url: Some("https://meet.google.com/abc-defg-hij".into()),
             browser_tab_title: Some("Meeting – Alice, Bob".into()),
-            calendar_match: None,
         };
         let (_sys, user) =
             build_meeting_synthesis_prompt("You: hi\n", Some("Zoom"), 30, &[], &ctx, None);
@@ -438,79 +372,6 @@ mod tests {
     }
 
     #[test]
-    fn meeting_synthesis_includes_calendar_match_block() {
-        use crate::calendar::{Attendee, CalendarMatch};
-        let cm = CalendarMatch {
-            title: Some("Weekly Standup".into()),
-            organizer: Some(Attendee {
-                name: Some("Alice".into()),
-                email: Some("alice@acme.com".into()),
-                self_: false,
-                role: Some("chair".into()),
-            }),
-            attendees: vec![
-                Attendee {
-                    name: Some("Bob".into()),
-                    email: Some("bob@acme.com".into()),
-                    self_: false,
-                    role: None,
-                },
-                Attendee {
-                    name: Some("Me".into()),
-                    email: Some("me@acme.com".into()),
-                    self_: true,
-                    role: None,
-                },
-            ],
-            starts_at: "2026-05-15T16:00:00Z".into(),
-            ends_at: "2026-05-15T16:30:00Z".into(),
-            notes: Some("Standing agenda".into()),
-            calendar_name: Some("Work".into()),
-            conferencing_url: Some("https://zoom.us/j/1".into()),
-            match_score: 0.92,
-            match_reason: "overlap+conf_url".into(),
-        };
-        let ctx = crate::meeting::MeetingStartContext {
-            calendar_match: Some(cm),
-            ..Default::default()
-        };
-        let (_sys, user) =
-            build_meeting_synthesis_prompt("You: hi\n", Some("Zoom"), 30, &[], &ctx, None);
-        assert!(user.contains("Calendar match (confidence 0.92)"), "{user}");
-        assert!(user.contains("Weekly Standup"));
-        assert!(user.contains("Alice <alice@acme.com>"));
-        assert!(user.contains("Me <me@acme.com> (you)"));
-        assert!(user.contains("Standing agenda"));
-    }
-
-    #[test]
-    fn meeting_synthesis_calendar_match_low_confidence_prefix() {
-        use crate::calendar::CalendarMatch;
-        let cm = CalendarMatch {
-            title: Some("Maybe meeting".into()),
-            organizer: None,
-            attendees: vec![],
-            starts_at: "2026-05-15T16:00:00Z".into(),
-            ends_at: "2026-05-15T16:30:00Z".into(),
-            notes: None,
-            calendar_name: None,
-            conferencing_url: None,
-            match_score: 0.45,
-            match_reason: "overlap".into(),
-        };
-        let ctx = crate::meeting::MeetingStartContext {
-            calendar_match: Some(cm),
-            ..Default::default()
-        };
-        let (_sys, user) =
-            build_meeting_synthesis_prompt("You: hi\n", None, 5, &[], &ctx, None);
-        assert!(
-            user.contains("low confidence 0.45 — treat as hint"),
-            "missing low-confidence prefix: {user}"
-        );
-    }
-
-    #[test]
     fn meeting_synthesis_drops_redundant_tab_title() {
         // Safari often returns the same string for window title and tab title;
         // the renderer should not repeat it.
@@ -518,7 +379,6 @@ mod tests {
             window_title: Some("Echo Scribe — pricing".into()),
             browser_url: None,
             browser_tab_title: Some("Echo Scribe — pricing".into()),
-            calendar_match: None,
         };
         let (_sys, user) =
             build_meeting_synthesis_prompt("You: hi\n", None, 1, &[], &ctx, None);

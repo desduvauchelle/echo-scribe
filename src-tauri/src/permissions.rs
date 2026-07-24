@@ -12,7 +12,6 @@ pub struct PermissionsStatus {
     pub microphone: bool,
     pub accessibility: bool,
     pub screen_recording: bool,
-    pub calendars: bool,
     /// Camera is optional (only used when a screen recording enables the
     /// webcam), but surfaced in the permissions UI so a *denied* grant is
     /// visible and fixable up front — once denied, macOS never re-prompts,
@@ -26,7 +25,6 @@ pub enum SettingsPane {
     Microphone,
     Accessibility,
     ScreenCapture,
-    Calendars,
     Camera,
 }
 
@@ -77,7 +75,6 @@ mod imp {
             microphone: microphone_authorized(),
             accessibility: accessibility_trusted(),
             screen_recording: screen_recording_authorized(),
-            calendars: crate::calendar::is_authorized_sync(),
             camera: camera_authorized(),
         }
     }
@@ -299,7 +296,6 @@ mod imp {
             microphone: true,
             accessibility: true,
             screen_recording: true,
-            calendars: true,
             camera: true,
         }
     }
@@ -377,20 +373,6 @@ pub fn request_screen_recording() -> bool {
     imp::request_screen_recording()
 }
 
-/// Trigger the macOS Calendar prompt by spawning the `echo-scribe-calmatch`
-/// sidecar with `--request-access`. Returns the resulting authorization
-/// state. The sidecar exits 0 on grant, 1 on deny; we treat absence of
-/// the binary (dev build) as a non-grant.
-pub async fn prompt_calendars() -> bool {
-    crate::calendar::prompt_access().await
-}
-
-/// Non-prompting probe of the Calendar grant. Spawns the sidecar with
-/// `--probe`. Returns false when the sidecar isn't built.
-pub fn calendars_authorized() -> bool {
-    crate::calendar::is_authorized_sync()
-}
-
 /// Open the relevant System Settings pane for the user to grant access.
 ///
 /// Uses the `x-apple.systempreferences:` URL scheme via the `open(1)` binary.
@@ -405,9 +387,6 @@ pub fn open_settings(pane: SettingsPane) -> Result<(), std::io::Error> {
         }
         SettingsPane::ScreenCapture => {
             "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
-        }
-        SettingsPane::Calendars => {
-            "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars"
         }
         SettingsPane::Camera => {
             "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera"

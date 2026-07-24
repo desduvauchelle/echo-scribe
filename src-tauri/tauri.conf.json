@@ -40,7 +40,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "externalBin": ["binaries/echo-scribe-syscap", "binaries/echo-scribe-calmatch", "binaries/echo-scribe-screenrec"],
+    "externalBin": ["binaries/echo-scribe-syscap", "binaries/echo-scribe-screenrec"],
     "category": "Productivity",
     "resources": [
       "resources/tray_idle.png",

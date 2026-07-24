@@ -7,7 +7,6 @@ export const DEFAULT_CAPS: PlatformCapabilities = {
   local_database: true,
   meeting_auto_detect: false,
   system_audio_capture: false,
-  calendar_matching: false,
   screen_recording: false,
   bundle_self_update: false,
 };
@@ -37,7 +36,7 @@ export function uiGates(caps: PlatformCapabilities): UiGates {
     // a macOS-only-world proxy: true iff any of the three macOS-only
     // capabilities is present, which today only happens on macOS.
     showNativePermissions:
-      caps.screen_recording || caps.calendar_matching || caps.system_audio_capture,
+      caps.screen_recording || caps.system_audio_capture,
     // The sidebar Record button captures system audio + mic as a meeting, so it
     // needs the same macOS-only system-audio capability (hidden on Windows).
     showMeetingRecord: caps.system_audio_capture,

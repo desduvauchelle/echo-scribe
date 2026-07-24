@@ -359,7 +359,6 @@ pub fn spawn(
                         window_title: ctx.window_title.clone(),
                         browser_url: ctx.browser_url.clone(),
                         browser_tab_title: ctx.browser_tab_title.clone(),
-                        calendar_match: None,
                     };
                     if let Err(e) = manager
                         .clone()

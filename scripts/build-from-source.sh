@@ -67,7 +67,6 @@ if [[ "$PM" == bun ]]; then bun install; else npm install; fi
 
 echo "==> Building Swift sidecars"
 "$SCRIPT_DIR/build-syscap.sh"
-"$SCRIPT_DIR/build-calmatch.sh"
 
 echo "==> Building app bundle"
 if [[ "$PM" == bun ]]; then bun tauri build --bundles app; else npx tauri build --bundles app; fi

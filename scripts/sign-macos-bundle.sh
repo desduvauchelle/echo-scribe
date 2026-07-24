@@ -44,7 +44,6 @@ sign_executable() {
 
 sign_executable "echo-scribe-syscap" "com.echoscribe.app.syscap"
 sign_executable "echo-scribe-screenrec" "com.echoscribe.app.screenrec"
-sign_executable "echo-scribe-calmatch" "com.echoscribe.app.calmatch"
 
 codesign --force --sign "$IDENTITY" --options runtime --entitlements "$ENTITLEMENTS" "$APP_PATH"
 codesign --verify --deep --strict "$APP_PATH"

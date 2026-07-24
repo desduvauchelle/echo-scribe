@@ -133,7 +133,6 @@ pub struct MeetingManager {
 
 struct ActiveMeeting {
     item_id: String,
-    started_at: String,
     started_at_ms: u64,
     detected_app: Option<String>,
     detected_app_name: Option<String>,
@@ -146,9 +145,6 @@ struct ActiveMeeting {
     /// Active tab title at meeting-start time. Often includes participant
     /// hints for Google Meet ("Meeting – Alice, Bob").
     start_browser_tab_title: Option<String>,
-    /// Calendar event we matched at start time. Refined at stop time when we
-    /// know the actual end timestamp.
-    calendar_match: Option<crate::calendar::CalendarMatch>,
     recorder: Recorder,
     chunk_drain_handle: tokio::task::JoinHandle<()>,
     pipeline: Option<Pipeline>,
@@ -168,7 +164,6 @@ pub struct MeetingStartContext {
     pub window_title: Option<String>,
     pub browser_url: Option<String>,
     pub browser_tab_title: Option<String>,
-    pub calendar_match: Option<crate::calendar::CalendarMatch>,
 }
 
 impl MeetingManager {
@@ -463,7 +458,6 @@ impl MeetingManager {
                         user_notes: None,
                         failed_chunk_count: 0,
                         mic_only: false,
-                        calendar_match_json: None,
                         guide_template_json: None,
                         project_name: None,
                     },
@@ -607,47 +601,14 @@ impl MeetingManager {
             }
         });
 
-        // Calendar match: best-effort. We probe a wide window (now → now+30m)
-        // because the actual end time isn't known yet; the score-based match
-        // is refined at stop() with the real end. If the start-time match
-        // came from the caller (e.g. the consent overlay already had one),
-        // prefer that. Otherwise spawn the sidecar and store whatever it
-        // returns. Permission failure / sidecar miss → no match, no crash.
-        let mut calendar_match = start_context.calendar_match.clone();
-        if calendar_match.is_none() {
-            calendar_match =
-                resolve_calendar_match(&started_at, 30 * 60, start_context.browser_url.as_deref())
-                    .await;
-        }
-        // Persist on the DB row so retry_summary / UI can read it before
-        // stop() runs. None remains None (cleared column).
-        let initial_match_json = calendar_match
-            .as_ref()
-            .and_then(|m| serde_json::to_string(m).ok());
-        if initial_match_json.is_some() {
-            let id_for_match = id.clone();
-            let json_for_db = initial_match_json.clone();
-            if let Err(e) = self.db.with_conn(move |conn| {
-                crate::db::meetings::update_calendar_match(
-                    conn,
-                    &id_for_match,
-                    json_for_db.as_deref(),
-                )
-            }) {
-                tracing::warn!(?e, "persisting start-time calendar match failed");
-            }
-        }
-
         *guard = Some(ActiveMeeting {
             item_id: id.clone(),
-            started_at,
             started_at_ms,
             detected_app,
             detected_app_name,
             start_window_title: start_context.window_title,
             start_browser_url: start_context.browser_url,
             start_browser_tab_title: start_context.browser_tab_title,
-            calendar_match,
             recorder,
             chunk_drain_handle,
             pipeline: Some(pipeline),
@@ -725,56 +686,10 @@ impl MeetingManager {
             .with_conn(|conn| crate::db::projects::list_projects(conn, false))
             .unwrap_or_default();
 
-        // Refine the calendar match now that we know the actual end time.
-        // Compare scores: keep whichever is higher. A second sidecar query
-        // is cheap (one-shot EventKit lookup) and often promotes a "low
-        // confidence" start-time match to a confident one when the recording
-        // ends near the event's scheduled end.
-        let refined_match = {
-            let duration_secs = (duration_ms / 1000).max(1);
-            let refined = resolve_calendar_match(
-                &active.started_at,
-                duration_secs,
-                active.start_browser_url.as_deref(),
-            )
-            .await;
-            match (active.calendar_match.clone(), refined) {
-                (Some(start), Some(end)) => {
-                    if end.match_score > start.match_score {
-                        Some(end)
-                    } else {
-                        Some(start)
-                    }
-                }
-                (None, Some(end)) => Some(end),
-                (Some(start), None) => Some(start),
-                (None, None) => None,
-            }
-        };
-        // Persist refined match before synthesis so the row is correct even
-        // if synthesis fails partway.
-        let refined_json = refined_match
-            .as_ref()
-            .and_then(|m| serde_json::to_string(m).ok());
-        if let Some(ref s) = refined_json {
-            let id_for_match = id.clone();
-            let s_owned = s.clone();
-            if let Err(e) = self.db.with_conn(move |conn| {
-                crate::db::meetings::update_calendar_match(
-                    conn,
-                    &id_for_match,
-                    Some(s_owned.as_str()),
-                )
-            }) {
-                tracing::warn!(?e, "persisting refined calendar match failed");
-            }
-        }
-
         let start_context = MeetingStartContext {
             window_title: active.start_window_title.clone(),
             browser_url: active.start_browser_url.clone(),
             browser_tab_title: active.start_browser_tab_title.clone(),
-            calendar_match: refined_match.clone(),
         };
         let settings = crate::settings::SettingsStore::load(&self.app_handle).ok();
         let custom_prompt = settings.as_ref().map(|s| s.meeting_summary_prompt());
@@ -1063,17 +978,9 @@ impl MeetingManager {
             .with_conn(|conn| crate::db::projects::list_projects(conn, false))
             .unwrap_or_default();
 
-        // Retry path: window/URL context wasn't persisted, but the
-        // calendar match snapshot is — surface it back into the prompt so
-        // attendees / topic don't disappear on retry.
-        let persisted_match: Option<crate::calendar::CalendarMatch> = row
-            .calendar_match_json
-            .as_deref()
-            .and_then(|s| serde_json::from_str(s).ok());
-        let retry_context = MeetingStartContext {
-            calendar_match: persisted_match,
-            ..Default::default()
-        };
+        // Retry path: window/URL context wasn't persisted, so synthesis runs
+        // from the transcript alone.
+        let retry_context = MeetingStartContext::default();
         let settings = crate::settings::SettingsStore::load(&self.app_handle).ok();
         let custom_prompt = settings.as_ref().map(|s| s.meeting_summary_prompt());
 
@@ -1283,43 +1190,6 @@ pub fn finalize_orphans_as_failed(db: &Db, ids: &[String]) {
     }
 }
 
-/// Spawn the `echo-scribe-calmatch` sidecar to look up the calendar event
-/// most likely corresponding to a recording starting at `iso_start`. Returns
-/// the parsed match (best pick only) if its score clears the threshold.
-/// Failures (no permission, no overlap, sidecar timeout) collapse to `None`
-/// so meeting capture is never blocked.
-async fn resolve_calendar_match(
-    iso_start: &str,
-    duration_secs: u64,
-    conf_hint: Option<&str>,
-) -> Option<crate::calendar::CalendarMatch> {
-    let end = match chrono::DateTime::parse_from_rfc3339(iso_start) {
-        Ok(dt) => (dt + chrono::Duration::seconds(duration_secs as i64))
-            .with_timezone(&chrono::Utc)
-            .to_rfc3339(),
-        Err(e) => {
-            tracing::warn!(?e, %iso_start, "calendar match: invalid iso_start");
-            return None;
-        }
-    };
-    match crate::calendar::match_meeting(iso_start, &end, conf_hint).await {
-        Ok(Some(outcome)) => {
-            tracing::info!(
-                title = outcome.best.title.as_deref().unwrap_or(""),
-                score = outcome.best.match_score,
-                reason = %outcome.best.match_reason,
-                "calendar match resolved"
-            );
-            Some(outcome.best)
-        }
-        Ok(None) => None,
-        Err(e) => {
-            tracing::warn!(?e, "calendar match query failed");
-            None
-        }
-    }
-}
-
 /// Resolve a project name from the LLM to a project ID.
 /// If the name matches an existing project (case-insensitive), return its ID.
 /// If it's a new name, create the project and return its ID.
@@ -1484,7 +1354,6 @@ mod tests {
             user_notes: None,
             failed_chunk_count: 0,
             mic_only: false,
-            calendar_match_json: None,
             guide_template_json: None,
             project_name: None,
         }).unwrap();
