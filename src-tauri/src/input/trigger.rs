@@ -43,6 +43,11 @@ pub enum UnsupportedBinding {
     /// on its own). `RegisterHotKey` requires a non-modifier key, so this
     /// shape is unrepresentable on Windows.
     ModifierOnly,
+    /// Another Echo Scribe action already claimed this exact combination.
+    /// The macOS event tap happily lets two actions share a binding;
+    /// `RegisterHotKey` rejects the duplicate, so we have to say which of our
+    /// own shortcuts is in the way rather than blaming another app.
+    DuplicateOf(&'static str),
     /// The key has no DOM-code mapping, so we can't translate it.
     UnmappableKey,
 }
@@ -60,6 +65,10 @@ impl UnsupportedBinding {
             Self::UnmappableKey => {
                 format!("The {label} shortcut uses a key Windows can't register. Pick another key.")
             }
+            Self::DuplicateOf(other) => format!(
+                "The {label} shortcut is the same combination as the {other} shortcut. Windows \
+                 needs a different combination for each action."
+            ),
         }
     }
 }
@@ -85,7 +94,20 @@ pub fn shortcut_parts(
             kinds.push(*kind);
         }
     }
+    // Canonical order, so two bindings that require the same modifiers compare
+    // equal regardless of the order the user pressed them in. Duplicate
+    // detection in `sync_shortcuts` relies on this.
+    kinds.sort_by_key(|k| modifier_rank(*k));
     Ok((code, kinds))
+}
+
+fn modifier_rank(kind: ModifierKind) -> u8 {
+    match kind {
+        ModifierKind::Control => 0,
+        ModifierKind::Shift => 1,
+        ModifierKind::Alt => 2,
+        ModifierKind::Meta => 3,
+    }
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -244,6 +266,10 @@ mod platform {
             return problems;
         };
 
+        // (code, modifiers) pairs already taken, with the action that took
+        // them — so a self-collision reports the real culprit.
+        let mut claimed: Vec<(&'static str, Vec<ModifierKind>, &'static str)> = Vec::new();
+
         for (action, label, binding) in configured(state) {
             let (code, kinds) = match shortcut_parts(&binding) {
                 Ok(parts) => parts,
@@ -253,6 +279,19 @@ mod platform {
                     continue;
                 }
             };
+            // Reject a duplicate before asking the OS, so the message names our
+            // own conflicting shortcut instead of implying a foreign app.
+            if let Some((_, _, other)) = claimed
+                .iter()
+                .find(|(c, k, _)| *c == code && *k == kinds)
+            {
+                let e = super::UnsupportedBinding::DuplicateOf(other);
+                tracing::warn!(target: "trigger", %label, %other, "two actions share one binding");
+                problems.push(problem(label, e.message(label)));
+                continue;
+            }
+            claimed.push((code, kinds.clone(), label));
+
             let Some(code) = code_for(code) else {
                 let e = super::UnsupportedBinding::UnmappableKey;
                 tracing::warn!(target: "trigger", %label, %code, "no Code mapping for key");
@@ -356,6 +395,39 @@ mod tests {
         let (code, kinds) = shortcut_parts(&Binding::single(Key::F8)).expect("supported");
         assert_eq!(code, "F8");
         assert!(kinds.is_empty());
+    }
+
+    /// Modifier order must not affect equality: Echo Scribe's own default
+    /// bindings collided on Windows (`RegisterHotKey` rejects duplicates where
+    /// the macOS event tap allowed them), and duplicate detection compares
+    /// these vectors.
+    #[test]
+    fn modifier_order_is_canonical() {
+        let ctrl_shift = Binding {
+            primary: SerKey(Key::KeyD),
+            modifiers: vec![
+                (ModifierKind::Shift, ModifierSide::Either),
+                (ModifierKind::Control, ModifierSide::Either),
+            ],
+        };
+        let shift_ctrl = Binding {
+            primary: SerKey(Key::KeyD),
+            modifiers: vec![
+                (ModifierKind::Control, ModifierSide::Either),
+                (ModifierKind::Shift, ModifierSide::Either),
+            ],
+        };
+        assert_eq!(
+            shortcut_parts(&ctrl_shift).unwrap(),
+            shortcut_parts(&shift_ctrl).unwrap()
+        );
+    }
+
+    #[test]
+    fn duplicate_message_names_the_conflicting_action() {
+        let msg = UnsupportedBinding::DuplicateOf("log-capture").message("voice-at-cursor");
+        assert!(msg.contains("log-capture"), "got {msg}");
+        assert!(msg.contains("voice-at-cursor"), "got {msg}");
     }
 
     #[test]
