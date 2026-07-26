@@ -262,17 +262,39 @@ pub fn capture_selection(element: Option<&FocusElement>) -> Option<SelectionSnap
 
 /// Capture the current text selection without Accessibility.
 ///
-/// Windows/Linux have no `AXSelectedText` equivalent wired up (the `FocusElement`
-/// stubs return `None`), so the synthetic-copy + clipboard-delta path is the only
-/// one available — and it is enough to make the edit-selection hotkey functional
-/// rather than registering and then silently doing nothing.
+/// Returns `None` on Windows/Linux — deliberately, and NOT because the copy
+/// fallback is unimplemented. `paste::capture_selection_via_copy` works; the
+/// problem is *when* this runs.
+///
+/// The coordinator captures the selection at hotkey-PRESS time, while the user
+/// is still physically holding the trigger. Synthesizing Ctrl+C there means
+/// enigo releases Ctrl at the end of the chord, so the OS now believes Ctrl is
+/// up. The still-held primary key keeps auto-repeating, no longer matches the
+/// `RegisterHotKey` combination, and Windows delivers it straight to the focused
+/// app — typing a stream of that letter into the user's document.
+///
+/// macOS is immune: the CGEventTap swallows the primary key, and `CGEvent` sets
+/// the Command flag *on the event* instead of pressing and releasing a real
+/// modifier key, so global modifier state is never disturbed.
+///
+/// Re-pressing Ctrl afterwards still leaks the characters typed in the interval,
+/// and skipping the modifier toggle ("Ctrl is already down, just send c") fails
+/// whenever the binding also holds Shift, which turns the chord into
+/// Ctrl+Shift+C. There is no keystroke-based fix that does not corrupt text.
+///
+/// The correct implementation reads the selection without synthesizing anything:
+/// UI Automation's `TextPattern` (`IUIAutomationTextPattern::GetSelection`),
+/// the Win32 counterpart to `AXSelectedText`. Until that exists, refusing is
+/// better than damaging documents — the coordinator aborts cleanly and tells the
+/// user there is nothing to edit.
 #[cfg(not(target_os = "macos"))]
 pub fn capture_selection(_element: Option<&FocusElement>) -> Option<SelectionSnapshot> {
-    if let Some(text) = crate::input::paste::capture_selection_via_copy() {
-        tracing::info!(target: "edit", chars = text.len(), "capture_selection: via Ctrl+C fallback");
-        return Some(SelectionSnapshot { text, method: SelectionMethod::Copy });
-    }
-    tracing::info!(target: "edit", "capture_selection: no selection found (clipboard unchanged)");
+    tracing::warn!(
+        target: "edit",
+        "capture_selection: not supported on this platform yet — a synthetic copy \
+         at press time desyncs the held hotkey's modifiers and leaks keystrokes \
+         into the focused app; needs UI Automation TextPattern"
+    );
     None
 }
 
