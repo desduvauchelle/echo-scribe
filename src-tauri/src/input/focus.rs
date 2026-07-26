@@ -91,7 +91,9 @@ impl FocusElement {
 /// How a text selection was captured.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SelectionMethod {
-    /// Read directly via the Accessibility `AXSelectedText` attribute.
+    /// Read directly through the platform accessibility API — `AXSelectedText`
+    /// on macOS, UI Automation `TextPattern` on Windows. Clean: no keystrokes
+    /// synthesized, clipboard untouched.
     Ax,
     /// Read by synthesizing Cmd+C and reading the clipboard.
     Copy,
@@ -260,40 +262,34 @@ pub fn capture_selection(element: Option<&FocusElement>) -> Option<SelectionSnap
     None
 }
 
-/// Capture the current text selection without Accessibility.
+/// Capture the current text selection via UI Automation's `TextPattern`, the
+/// Win32 counterpart to `AXSelectedText`.
 ///
-/// Returns `None` on Windows/Linux — deliberately, and NOT because the copy
-/// fallback is unimplemented. `paste::capture_selection_via_copy` works; the
-/// problem is *when* this runs.
-///
-/// The coordinator captures the selection at hotkey-PRESS time, while the user
-/// is still physically holding the trigger. Synthesizing Ctrl+C there means
-/// enigo releases Ctrl at the end of the chord, so the OS now believes Ctrl is
-/// up. The still-held primary key keeps auto-repeating, no longer matches the
-/// `RegisterHotKey` combination, and Windows delivers it straight to the focused
-/// app — typing a stream of that letter into the user's document.
-///
-/// macOS is immune: the CGEventTap swallows the primary key, and `CGEvent` sets
-/// the Command flag *on the event* instead of pressing and releasing a real
-/// modifier key, so global modifier state is never disturbed.
-///
-/// Re-pressing Ctrl afterwards still leaks the characters typed in the interval,
-/// and skipping the modifier toggle ("Ctrl is already down, just send c") fails
-/// whenever the binding also holds Shift, which turns the chord into
-/// Ctrl+Shift+C. There is no keystroke-based fix that does not corrupt text.
-///
-/// The correct implementation reads the selection without synthesizing anything:
-/// UI Automation's `TextPattern` (`IUIAutomationTextPattern::GetSelection`),
-/// the Win32 counterpart to `AXSelectedText`. Until that exists, refusing is
-/// better than damaging documents — the coordinator aborts cleanly and tells the
-/// user there is nothing to edit.
-#[cfg(not(target_os = "macos"))]
+/// Deliberately does NOT fall back to a synthetic Ctrl+C. We capture at
+/// hotkey-PRESS time, while the user is still holding the trigger; enigo's
+/// chord ends by releasing Ctrl, so the still-held primary key stops matching
+/// the `RegisterHotKey` combination and its auto-repeat is typed into the
+/// user's document. That path was shipped and reverted (commit 9856d20); there
+/// is no keystroke-based variant that doesn't corrupt text. See
+/// [`crate::input::uia`] for the details and for which controls expose
+/// `TextPattern`.
+#[cfg(target_os = "windows")]
+pub fn capture_selection(_element: Option<&FocusElement>) -> Option<SelectionSnapshot> {
+    let text = crate::input::uia::selected_text()?;
+    tracing::info!(target: "edit", chars = text.len(), "capture_selection: via UIA TextPattern");
+    Some(SelectionSnapshot { text, method: SelectionMethod::Ax })
+}
+
+/// No accessibility-based selection reader on this platform. Refusing beats a
+/// synthetic copy, which leaks the held hotkey's auto-repeat into the focused
+/// app (see the Windows arm above); the coordinator aborts cleanly and tells
+/// the user there is nothing to edit.
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 pub fn capture_selection(_element: Option<&FocusElement>) -> Option<SelectionSnapshot> {
     tracing::warn!(
         target: "edit",
-        "capture_selection: not supported on this platform yet — a synthetic copy \
-         at press time desyncs the held hotkey's modifiers and leaks keystrokes \
-         into the focused app; needs UI Automation TextPattern"
+        "capture_selection: not supported on this platform — needs an \
+         accessibility selection reader (AXSelectedText / UIA TextPattern)"
     );
     None
 }

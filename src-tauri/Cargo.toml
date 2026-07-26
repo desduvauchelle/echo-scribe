@@ -113,6 +113,16 @@ block2 = "0.6"
 core-graphics = "0.24"
 core-foundation = "0.10"
 
+[target.'cfg(target_os = "windows")'.dependencies]
+# UI Automation, for reading the focused control's text selection without
+# synthesizing Ctrl+C (see src/input/uia.rs). Win32 counterpart to the
+# objc2-application-services AXUIElement usage on macOS.
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_System_Com",
+    "Win32_UI_Accessibility",
+] }
+
 [target.'cfg(not(target_os = "macos"))'.dependencies]
 # Non-macOS starts with a CPU-compatible llama.cpp baseline. GPU backends
 # such as CUDA or Vulkan should be enabled only after Windows CI is green.
