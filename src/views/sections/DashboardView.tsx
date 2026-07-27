@@ -812,7 +812,7 @@ function StatStrip({
                   {compactNumber(categoryStats.today.count)}
                 </span>
                 <span className="mt-1 block text-xs text-muted">
-                  today · {compactNumber(categoryStats.week.count)} this week
+                  {compactNumber(categoryStats.week.count)} this week
                 </span>
                 <span className="sr-only">
                   {categoryStats.today.count} {categoryStats.today.count === 1 ? singular : label.toLowerCase()} today

@@ -631,6 +631,20 @@ impl MeetingManager {
         );
         drop(guard);
 
+        // From here on the overlay pill must never be left saying
+        // "Recording · <app>" — that recording is over. This guard hides the
+        // pill + HUD on every exit path (including the `?` error returns
+        // below); the happy path re-shows it with "Transcribing…" /
+        // "Summarizing…" labels as post-processing advances.
+        struct OverlayCleanup(tauri::AppHandle);
+        impl Drop for OverlayCleanup {
+            fn drop(&mut self) {
+                crate::overlay::hide_recording_overlay(&self.0);
+                crate::overlay::hide_meeting_hud(&self.0);
+            }
+        }
+        let _overlay_cleanup = OverlayCleanup(self.app_handle.clone());
+
         // Step 1: Stop recording.
         active.recorder.stop().await?;
         // Capture fields we need later before dropping the recorder.
@@ -651,6 +665,10 @@ impl MeetingManager {
             "meeting-status",
             serde_json::json!({"id": id, "status": "transcribing"}),
         );
+        // Flip the overlay pill from "Recording · <app>" to a processing
+        // state so the user can see the recording has actually ended and the
+        // app is now catching up on transcription.
+        crate::overlay::show_processing_overlay(&self.app_handle, "Transcribing meeting…");
 
         // Step 3: Wait for pipeline to drain (chunk channel is now closed — drain exits cleanly).
         let _ = active.chunk_drain_handle.await;
@@ -668,6 +686,7 @@ impl MeetingManager {
             "meeting-status",
             serde_json::json!({"id": id, "status": "summarizing"}),
         );
+        crate::overlay::show_processing_overlay(&self.app_handle, "Summarizing meeting…");
         let id_db2 = id.clone();
         self.db
             .with_conn(move |conn| {

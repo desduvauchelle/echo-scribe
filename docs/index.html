@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Echo Scribe — Capture everything. Understand what matters.</title>
-  <meta name="description" content="Echo Scribe captures your conversations, thoughts, meetings, and screen recordings, then organizes them into searchable work context with private local AI." />
-  <meta property="og:title" content="Echo Scribe — Capture everything. Understand what matters." />
-  <meta property="og:description" content="Private AI for capturing, organizing, and improving the work that happens in conversations." />
+  <title>Echo Scribe: Voice to text for everything you do</title>
+  <meta name="description" content="Free, private voice to text for your Mac. Dictate into any app, record meetings with live transcription and call guidance, capture screen walkthroughs, and turn it all into one searchable work memory. 100% on-device AI." />
+  <meta property="og:title" content="Echo Scribe: Voice to text for everything you do" />
+  <meta property="og:description" content="Free, private voice to text for your Mac. Dictate into any app, record meetings with live call guidance, capture screen walkthroughs, and search it all in one place." />
   <meta property="og:image" content="icon.jpeg" />
   <meta property="og:type" content="website" />
   <meta name="theme-color" content="#123B2D" />
@@ -152,7 +152,7 @@
     .hero-sub {
       font-size: clamp(17px, 2.2vw, 21px);
       color: var(--text-2);
-      max-width: 560px;
+      max-width: 600px;
       margin: 0 auto 44px;
       line-height: 1.65;
     }
@@ -358,6 +358,22 @@
       padding: 3px 8px; border-radius: 5px;
     }
 
+    /* Echo trigger-word mockup */
+    .echo-label {
+      font-size: 10px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase;
+      color: var(--text-3);
+      margin-bottom: 6px;
+    }
+    .echo-said {
+      font-size: 14px; font-style: italic;
+      color: var(--text-2);
+      line-height: 1.6;
+      margin-bottom: 20px;
+    }
+    .echo-said .trigger { color: var(--teal); font-weight: 700; font-style: normal; }
+    .echo-result { font-size: 14px; line-height: 1.7; color: var(--text-1); }
+    .echo-result p + p { margin-top: 8px; }
+
     /* Capture mockup */
     .capture-demo {
       display: flex; flex-direction: column; gap: 12px;
@@ -491,6 +507,17 @@
       .story-step:nth-child(3), .story-step:nth-child(4) { border-top: 0; }
       .status-summary { grid-template-columns: 1fr; }
     }
+
+    /* ── USE CASES ────────────────────────────── */
+    #use-cases {
+      padding: 100px 0;
+      border-top: 1px solid var(--border);
+      background: var(--bg);
+    }
+    #use-cases .privacy-grid { grid-template-columns: repeat(3, 1fr); }
+    @media (max-width: 820px) { #use-cases .privacy-grid { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 520px) { #use-cases .privacy-grid { grid-template-columns: 1fr; } }
+    #use-cases .privacy-card { background: var(--bg-elevated); }
 
     /* ── PRIVACY ──────────────────────────────── */
     #privacy {
@@ -638,22 +665,22 @@
 
     <div class="hero-badge">
       <span class="hero-badge-dot" aria-hidden="true"></span>
-      Private AI for the workday
+      Free · Private · On-device AI
     </div>
 
-    <h1>Capture everything.<br><em>Understand what matters.</em></h1>
+    <h1>Typing is overrated.<br><em>Just talk.</em></h1>
 
     <p class="hero-sub">
-      Echo Scribe captures your conversations, thoughts, meetings, and screen recordings, then organizes them into searchable work context. See what is happening, decide what matters, and improve what happens next.
+      Echo Scribe is voice to text for your whole Mac. Press a hotkey, speak, and polished text appears wherever your cursor is. We spend our days prompting AI now, and prompts don't need perfect wording. They need your thinking, fast. Speaking is the fastest way to get it out.
     </p>
 
     <div class="hero-actions">
       <a href="#install" class="btn-primary">
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-        Start capturing for free
+        Get voice to text free
       </a>
       <a href="#how-it-works" class="btn-ghost">
-        See the workflow
+        See how it builds up
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
       </a>
     </div>
@@ -669,7 +696,7 @@
       </span>
       <span class="hero-meta-item">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-        Capture voice, meetings &amp; screens
+        Records only when you tell it to
       </span>
     </div>
 
@@ -689,73 +716,73 @@
   </svg>
 </div>
 
-<!-- ════════════════════════════════════════ STORY LOOP -->
+<!-- ════════════════════════════════════════ STORY -->
 <section id="how-it-works">
   <div class="container">
     <div class="story-header fade-in">
-      <span class="slab-eyebrow">The work memory loop</span>
-      <h2>You can’t manage what you can’t see.</h2>
-      <p>Important work is spread across conversations, half-formed thoughts, meetings, and recordings. Echo Scribe turns those moments into a living picture of your work, so progress and gaps do not stay invisible.</p>
+      <span class="slab-eyebrow">How it builds up</span>
+      <h2>It starts with voice to text. It ends with a memory of your work.</h2>
+      <p>Each capture method feeds the next. First your voice replaces the keyboard. Then your meetings and screen recordings join in. Everything lands in one searchable place, and once it's all there, Echo Scribe can tell you what happened, what matters, and what to do next.</p>
     </div>
 
     <div class="story-grid fade-in">
       <div class="story-step">
-        <div class="story-number">01 / CAPTURE</div>
-        <h3>Keep the moment</h3>
-        <p>Speak naturally, record a meeting, or capture your screen without breaking your flow.</p>
+        <div class="story-number">01 / SPEAK</div>
+        <h3>Voice to text, everywhere</h3>
+        <p>Press a hotkey and talk. Clean text lands in any app: AI chats, email, Slack, code.</p>
       </div>
       <div class="story-step">
-        <div class="story-number">02 / ORGANIZE</div>
-        <h3>Make it usable</h3>
-        <p>Transcripts become notes, tasks, tags, projects, summaries, and searchable context.</p>
+        <div class="story-number">02 / CAPTURE</div>
+        <h3>Meetings and screens too</h3>
+        <p>Record Zoom calls with live transcription and call guidance, and narrate screen recordings for clients.</p>
       </div>
       <div class="story-step">
-        <div class="story-number">03 / SEE</div>
-        <h3>Find the signal</h3>
-        <p>Understand what was decided, what is still open, and where a conversation or project stands.</p>
+        <div class="story-number">03 / REMEMBER</div>
+        <h3>One searchable memory</h3>
+        <p>Every word is transcribed, tagged, and unified. No idea slips through, and the system knows what you're working on.</p>
       </div>
       <div class="story-step">
-        <div class="story-number">04 / IMPROVE</div>
-        <h3>Act with context</h3>
-        <p>Follow up, ask your work memory, and use what you learn to run the next conversation better.</p>
+        <div class="story-number">04 / UNDERSTAND</div>
+        <h3>Answers and insights</h3>
+        <p>Daily recaps, chat with your history, export to ChatGPT, and see what to automate next.</p>
       </div>
     </div>
   </div>
 </section>
 
-<!-- ════════════════════════════════════════ FEATURE 1: TRANSCRIPTION -->
-<section id="transcription" class="slab">
+<!-- ════════════════════════════════════════ STEP 1: VOICE TO TEXT -->
+<section id="voice" class="slab">
   <div class="container">
     <div class="slab-inner fade-in">
 
       <!-- Text -->
       <div>
-        <span class="slab-eyebrow">Capture Without Friction</span>
-        <h2 class="slab-title">Get ideas out of your head and into the work.</h2>
+        <span class="slab-eyebrow">Step 1 · Voice to text</span>
+        <h2 class="slab-title">Your voice is the new keyboard.</h2>
         <p class="slab-desc">
-          Press a hotkey and speak wherever you are. Echo Scribe can put polished words at your cursor, or save a thought for later. Your voice becomes an input layer for every app and an organized record of what you meant to do.
+          Voice to text is the fastest way to work with AI. You don't need exact wording to prompt ChatGPT or Claude, you need the idea out of your head. Press a hotkey, speak naturally, and Echo Scribe puts clean, polished text at your cursor in any app on your Mac.
         </p>
 
         <div class="steps">
           <div class="step">
             <div class="step-num">1</div>
             <div class="step-text">
-              <strong>Speak in the moment</strong>
-              <span>Dictate into Slack, Gmail, Notes, VS Code, or any other app.</span>
+              <strong>Press the hotkey and speak</strong>
+              <span>Dictate into ChatGPT, Claude, Slack, Gmail, VS Code, anywhere your cursor is.</span>
             </div>
           </div>
           <div class="step">
             <div class="step-num">2</div>
             <div class="step-text">
-              <strong>Let local AI clean it up</strong>
-              <span>Filler words and rough phrasing do not have to survive the first draft.</span>
+              <strong>Local AI cleans it up</strong>
+              <span>Filler words and false starts disappear. What lands is what you meant.</span>
             </div>
           </div>
           <div class="step">
             <div class="step-num">3</div>
             <div class="step-text">
               <strong>Keep moving</strong>
-              <span>Text appears at your cursor, or the thought is saved for organization later.</span>
+              <span>Text appears instantly at your cursor, or is saved as a note for later.</span>
             </div>
           </div>
         </div>
@@ -768,17 +795,17 @@
             <div class="dot red" aria-hidden="true"></div>
             <div class="dot yellow" aria-hidden="true"></div>
             <div class="dot green" aria-hidden="true"></div>
-            <span class="demo-title">Slack — #general</span>
+            <span class="demo-title">ChatGPT · New chat</span>
           </div>
           <div class="demo-body">
-            Hey team, just a quick heads-up: the sprint review is moving to Thursday at 3&nbsp;pm. Please update your calendars and let me know if that doesn't work.<span class="cursor" aria-hidden="true"></span>
+            Draft a proposal outline for Northstar: weekly progress reporting, a shared dashboard, and a monthly strategy call. Keep it under one page and end with three pricing options.<span class="cursor" aria-hidden="true"></span>
           </div>
           <div class="demo-overlay-bar">
             <div class="mini-wave" aria-hidden="true">
               <div class="mw"></div><div class="mw"></div><div class="mw"></div>
               <div class="mw"></div><div class="mw"></div>
             </div>
-            <span class="demo-overlay-text">Listening…</span>
+            <span class="demo-overlay-text">Recording…</span>
             <span class="demo-hotkey">⌃ Space</span>
           </div>
         </div>
@@ -788,45 +815,107 @@
   </div>
 </section>
 
-<!-- ════════════════════════════════════════ FEATURE 2: GUIDED TEMPLATES -->
-<section id="guided" class="slab">
+<!-- ════════════════════════════════════════ STEP 2: TRIGGER WORD -->
+<section id="echo" class="slab">
   <div class="container">
     <div class="slab-inner reverse fade-in">
 
       <div>
-        <span class="slab-eyebrow">Guided Templates</span>
-        <h2 class="slab-title">Run better conversations while they are happening.</h2>
+        <span class="slab-eyebrow">Step 2 · The trigger word</span>
+        <h2 class="slab-title">Say &ldquo;echo&rdquo; and your words format themselves.</h2>
         <p class="slab-desc">
-          Important calls are hard to lead and even harder to remember. Start a guided template for a client call, interview, coaching session, discovery conversation, or team meeting. Echo Scribe keeps the goal in view, shows what to ask next, and tracks what has been covered.
+          Start a dictation with your trigger word and the AI takes instructions. Say &ldquo;echo, format this as an email&rdquo; and your stream of thought comes out as a clean email in your tone of voice. Formats, terminology, and the trigger word itself are fully customizable, and plain dictation stays instant because AI only steps in when you call it.
         </p>
 
         <div class="steps">
           <div class="step">
             <div class="step-num">1</div>
             <div class="step-text">
-              <strong>Choose the shape of the conversation</strong>
-              <span>Use a repeatable guide instead of rebuilding your preparation every time.</span>
+              <strong>Give it an instruction</strong>
+              <span>&ldquo;Echo, format this as an email.&rdquo; &ldquo;Echo, turn this into bullet points.&rdquo;</span>
             </div>
           </div>
           <div class="step">
             <div class="step-num">2</div>
             <div class="step-text">
-              <strong>Stay oriented in real time</strong>
-              <span>See prompts, suggestions, and key points while you listen and speak.</span>
+              <strong>Keep your tone</strong>
+              <span>The output is written the way you write, not like a template.</span>
             </div>
           </div>
           <div class="step">
             <div class="step-num">3</div>
             <div class="step-text">
-              <strong>Leave with a useful record</strong>
-              <span>The transcript, summary, decisions, and follow-up flow into your work memory.</span>
+              <strong>Make it yours</strong>
+              <span>Rename the trigger word, add your terminology, define your own formats.</span>
             </div>
           </div>
         </div>
       </div>
 
       <div class="slab-visual">
-        <div class="meeting-demo" role="img" aria-label="Guided client conversation template showing a live prompt and covered topics">
+        <div class="transcription-demo" role="img" aria-label="Smart dictation turning rough speech into a formatted email">
+          <div class="demo-titlebar">
+            <div class="dot red" aria-hidden="true"></div>
+            <div class="dot yellow" aria-hidden="true"></div>
+            <div class="dot green" aria-hidden="true"></div>
+            <span class="demo-title">Smart dictation</span>
+          </div>
+          <div class="demo-body">
+            <div class="echo-label">You said</div>
+            <p class="echo-said"><span class="trigger">&ldquo;Echo,</span> format this as an email&hellip; hey Sarah quick one, sprint review moved to Thursday 3pm, can you update the calendar and double-check the demo build works&rdquo;</p>
+            <div class="echo-label">You got</div>
+            <div class="echo-result">
+              <p>Hi Sarah,</p>
+              <p>Quick heads-up: the sprint review has moved to Thursday at 3&nbsp;pm. Could you update the calendar invite and double-check that the demo build is working?</p>
+              <p>Thanks!</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════ STEP 3: MEETINGS -->
+<section id="meetings" class="slab">
+  <div class="container">
+    <div class="slab-inner fade-in">
+
+      <div>
+        <span class="slab-eyebrow">Step 3 · Meetings</span>
+        <h2 class="slab-title">Live transcription and call guidance, while you're on the call.</h2>
+        <p class="slab-desc">
+          Echo Scribe notices when you join a Zoom, Meet, or Teams call and records it if you want it to. You get a live transcript as the call happens. Set up a template for what a great call looks like, a sales call, a discovery call, an interview, and Echo Scribe tracks what's been covered and suggests the next question in real time. When the call ends, the transcript, summary, decisions, and follow-ups are already saved. None of your ideas get missed.
+        </p>
+
+        <div class="steps">
+          <div class="step">
+            <div class="step-num">1</div>
+            <div class="step-text">
+              <strong>Record any meeting</strong>
+              <span>Zoom, Google Meet, and Teams are detected automatically. You choose per app: always record, ask first, or never.</span>
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-num">2</div>
+            <div class="step-text">
+              <strong>Get coached live</strong>
+              <span>Your template keeps the goal in view, checks off covered points, and suggests what to ask next.</span>
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-num">3</div>
+            <div class="step-text">
+              <strong>Walk away with everything</strong>
+              <span>Transcript, summary, decisions, and follow-ups flow straight into your work memory.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="slab-visual">
+        <div class="meeting-demo" role="img" aria-label="Live call guidance showing a suggested next question and covered topics">
           <div class="meeting-demo-top">
             <span class="meeting-demo-title">Client discovery · Northstar</span>
             <span class="meeting-live">● Live</span>
@@ -848,47 +937,112 @@
   </div>
 </section>
 
-<!-- ════════════════════════════════════════ FEATURE 3: CONTEXT -->
-<section id="capture" class="slab">
+<!-- ════════════════════════════════════════ STEP 4: SCREEN RECORDINGS -->
+<section id="screen" class="slab">
   <div class="container">
     <div class="slab-inner reverse fade-in">
 
-      <!-- Text -->
       <div>
-        <span class="slab-eyebrow">Everything Becomes Context</span>
-        <h2 class="slab-title">Capture the work around the work.</h2>
+        <span class="slab-eyebrow">Step 4 · Screen recordings</span>
+        <h2 class="slab-title">Easier to show than to explain? Record your screen.</h2>
         <p class="slab-desc">
-          Meetings, voice notes, screen recordings, and passing thoughts all contain useful signals. Echo Scribe transcribes them, identifies what they are about, tags them, and routes them to the right project so your work does not disappear into disconnected files.
+          Walk a client through a proposal, hand a bug to a developer, or demo a new feature. Record your screen with narration and share the file. A quick video beats a long email, and often replaces a whole meeting. Your narration is transcribed like everything else, so even walkthroughs become searchable memory instead of files you lose track of.
         </p>
 
         <div class="steps">
           <div class="step">
             <div class="step-num">1</div>
             <div class="step-text">
-              <strong>Capture from wherever work happens</strong>
-              <span>Use voice, Zoom or meeting recording, or screen recording when the moment matters.</span>
+              <strong>Hit record and talk it through</strong>
+              <span>Capture your screen and your voice in one take.</span>
             </div>
           </div>
           <div class="step">
             <div class="step-num">2</div>
             <div class="step-text">
-              <strong>Let the system add structure</strong>
-              <span>Transcripts become notes, tasks, decisions, tags, and project context.</span>
+              <strong>Share with clients and teammates</strong>
+              <span>Send the video instead of scheduling another call.</span>
             </div>
           </div>
           <div class="step">
             <div class="step-num">3</div>
             <div class="step-text">
-              <strong>Find it when you need it</strong>
-              <span>Search your work memory, ask questions, and see the thread across sources.</span>
+              <strong>It's remembered</strong>
+              <span>The narration is transcribed and filed with the rest of your work.</span>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- Visual -->
       <div class="slab-visual">
-        <div class="capture-demo" role="img" aria-label="Example of captured notes being classified">
+        <div class="capture-demo" role="img" aria-label="Recent screen recordings with transcribed narration">
+          <div class="capture-card">
+            <span class="capture-tag tag-screen">Screen</span>
+            <div class="capture-content">
+              <p>Proposal walkthrough for Northstar</p>
+              <div class="capture-time">4:38 · shared with client · narration transcribed</div>
+            </div>
+          </div>
+          <div class="capture-card">
+            <span class="capture-tag tag-screen">Screen</span>
+            <div class="capture-content">
+              <p>Checkout bug reproduction</p>
+              <div class="capture-time">1:12 · sent to engineering</div>
+            </div>
+          </div>
+          <div class="capture-card incoming">
+            <span class="capture-tag tag-screen">Screen</span>
+            <div class="capture-content">
+              <p>Dashboard demo for Friday's review</p>
+              <div class="capture-time">recorded just now</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════ STEP 5: ONE MEMORY -->
+<section id="memory" class="slab">
+  <div class="container">
+    <div class="slab-inner fade-in">
+
+      <div>
+        <span class="slab-eyebrow">Step 5 · One memory</span>
+        <h2 class="slab-title">Everything you say, hear, and show, in one place.</h2>
+        <p class="slab-desc">
+          Dictations, meeting transcripts, and screen narrations all land in a single searchable memory on your Mac. Echo Scribe tags each capture, turns action items into tasks, and routes everything to the right project. The system knows what you're working on, and nothing you said in passing gets lost.
+        </p>
+
+        <div class="steps">
+          <div class="step">
+            <div class="step-num">1</div>
+            <div class="step-text">
+              <strong>Search every word</strong>
+              <span>Full-text search across every note, meeting, and recording.</span>
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-num">2</div>
+            <div class="step-text">
+              <strong>Organized without effort</strong>
+              <span>Notes, tasks, ideas, and decisions are classified and tagged automatically.</span>
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-num">3</div>
+            <div class="step-text">
+              <strong>Context that compounds</strong>
+              <span>The more you capture, the better it understands your projects.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="slab-visual">
+        <div class="capture-demo" role="img" aria-label="Captures from different sources being classified into one memory">
           <div class="capture-card">
             <span class="capture-tag tag-meeting">Meeting</span>
             <div class="capture-content">
@@ -897,10 +1051,10 @@
             </div>
           </div>
           <div class="capture-card">
-            <span class="capture-tag tag-screen">Screen</span>
+            <span class="capture-tag tag-idea">Idea</span>
             <div class="capture-content">
-              <p>Checkout drop-off begins after the pricing step</p>
-              <div class="capture-time">Screen recording · tagged Growth</div>
+              <p>Offer the reporting dashboard as a standalone add-on</p>
+              <div class="capture-time">Voice note · tagged Growth</div>
             </div>
           </div>
           <div class="capture-card incoming">
@@ -917,69 +1071,107 @@
   </div>
 </section>
 
-<!-- ════════════════════════════════════════ FEATURE 4: STATUS -->
-<section id="status" class="slab">
+<!-- ════════════════════════════════════════ STEP 6: PUT IT TO WORK -->
+<section id="insights" class="slab">
   <div class="container">
-    <div class="slab-inner fade-in">
+    <div class="slab-inner reverse fade-in">
 
       <div>
-        <span class="slab-eyebrow">A Clearer Operating Picture</span>
-        <h2 class="slab-title">Turn scattered moments into a status you can act on.</h2>
+        <span class="slab-eyebrow">Step 6 · Put it to work</span>
+        <h2 class="slab-title">Recaps, answers, and an honest look at your week.</h2>
         <p class="slab-desc">
-          Once the work is captured and organized, patterns become visible. See the decisions, open questions, commitments, and follow-ups that shape a project. Daily recaps, search, and local chat help you move from “what happened?” to “what should happen next?”
+          This is the payoff. Get a daily recap of what you did, decided, and left open. Chat with your history: &ldquo;what did we agree with Northstar about pricing?&rdquo; Export anything and take it to ChatGPT. Then zoom out: where your time goes, whether you're in too many meetings, what deserves more focus, and which parts of your work AI could take over next.
         </p>
 
         <div class="steps">
           <div class="step">
             <div class="step-num">1</div>
             <div class="step-text">
-              <strong>Trace the thread</strong>
-              <span>Bring together meetings, recordings, notes, and tasks by project.</span>
+              <strong>Daily recaps</strong>
+              <span>What happened, what was decided, and what's still open. Every day.</span>
             </div>
           </div>
           <div class="step">
             <div class="step-num">2</div>
             <div class="step-text">
-              <strong>Spot what is missing</strong>
-              <span>See unresolved questions and commitments before they become surprises.</span>
+              <strong>Chat and export</strong>
+              <span>Ask your memory questions, or export it and use it with ChatGPT.</span>
             </div>
           </div>
           <div class="step">
             <div class="step-num">3</div>
             <div class="step-text">
-              <strong>Improve the next move</strong>
-              <span>Use the record to prepare, follow up, and run the next conversation better.</span>
+              <strong>Review and automate</strong>
+              <span>Spot repetitive work worth automating with AI, and meetings not worth keeping.</span>
             </div>
           </div>
         </div>
       </div>
 
       <div class="slab-visual">
-        <div class="status-demo" role="img" aria-label="Project status view showing decisions, open questions, and follow-up progress">
+        <div class="status-demo" role="img" aria-label="Weekly review showing meeting load, follow-ups, and an automation candidate">
           <div class="status-demo-header">
-            <strong>Northstar · work status</strong>
+            <strong>Your week</strong>
             <span class="status-period">THIS WEEK</span>
           </div>
           <div class="status-summary">
-            <div class="status-metric"><strong>12</strong><span>captured moments</span></div>
-            <div class="status-metric"><strong>4</strong><span>open decisions</span></div>
-            <div class="status-metric"><strong>7</strong><span>follow-ups</span></div>
+            <div class="status-metric"><strong>38</strong><span>captures</span></div>
+            <div class="status-metric"><strong>11</strong><span>meetings recorded</span></div>
+            <div class="status-metric"><strong>6</strong><span>open follow-ups</span></div>
           </div>
           <div class="status-row">
-            <div class="status-row-top"><span>Discovery coverage</span><strong>82%</strong></div>
-            <div class="status-track"><div class="status-fill" style="width:82%"></div></div>
+            <div class="status-row-top"><span>Time in meetings</span><strong>42%</strong></div>
+            <div class="status-track"><div class="status-fill orange" style="width:42%"></div></div>
           </div>
           <div class="status-row">
-            <div class="status-row-top"><span>Follow-up completed</span><strong>64%</strong></div>
-            <div class="status-track"><div class="status-fill orange" style="width:64%"></div></div>
+            <div class="status-row-top"><span>Follow-ups completed</span><strong>78%</strong></div>
+            <div class="status-track"><div class="status-fill" style="width:78%"></div></div>
           </div>
           <div class="status-row">
-            <div class="status-row-top"><span>Next gap to resolve</span><strong>Pricing workflow</strong></div>
-            <div class="status-track"><div class="status-fill" style="width:38%"></div></div>
+            <div class="status-row-top"><span>Automation candidate</span><strong>Weekly status email</strong></div>
+            <div class="status-track"><div class="status-fill" style="width:30%"></div></div>
           </div>
         </div>
       </div>
 
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════ USE CASES -->
+<section id="use-cases">
+  <div class="container">
+    <div class="privacy-header fade-in">
+      <span class="slab-eyebrow">Use cases</span>
+      <h2>Where it fits in your day.</h2>
+      <p>One tool, a lot of jobs. Here's what Echo Scribe ends up doing for people.</p>
+    </div>
+
+    <div class="privacy-grid fade-in">
+      <div class="privacy-card">
+        <h3>Prompting AI</h3>
+        <p>Talk your prompts into ChatGPT, Claude, or Cursor. Rough wording is fine, speed is the point.</p>
+      </div>
+      <div class="privacy-card">
+        <h3>Sales and discovery calls</h3>
+        <p>Live call guidance keeps every conversation on track, and the recap writes your follow-up for you.</p>
+      </div>
+      <div class="privacy-card">
+        <h3>Client walkthroughs</h3>
+        <p>Screen record proposals, demos, and handoffs instead of scheduling another meeting.</p>
+      </div>
+      <div class="privacy-card">
+        <h3>Back-to-back meeting days</h3>
+        <p>Every call transcribed and summarized. Find any decision in seconds, weeks later.</p>
+      </div>
+      <div class="privacy-card">
+        <h3>Personal knowledge base</h3>
+        <p>Every idea captured and searchable. Chat with your history and get answers, not files.</p>
+      </div>
+      <div class="privacy-card">
+        <h3>Weekly reviews</h3>
+        <p>See where your time went, what to drop, and what AI could automate for you next.</p>
+      </div>
     </div>
   </div>
 </section>
@@ -996,8 +1188,8 @@
     <div class="privacy-grid fade-in">
       <div class="privacy-card">
         <svg class="privacy-card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-        <h3>Quick dictation stays ephemeral</h3>
-        <p>Short voice input is processed locally and can be discarded after transcription. You decide what becomes part of your work memory.</p>
+        <h3>You start every recording</h3>
+        <p>There is no always-on microphone. Dictation starts when you press the hotkey, and meetings and screen recordings start only when you say so.</p>
       </div>
 
       <div class="privacy-card">
@@ -1025,7 +1217,7 @@
 <section id="install">
   <div class="container">
     <div class="fade-in">
-      <h2>Start building your work memory.</h2>
+      <h2>Stop typing. Start talking.</h2>
       <p>Open Terminal and paste the line below. No Homebrew required.</p>
 
       <div class="install-box">

@@ -1,6 +1,6 @@
 //! Detects when the user enters a meeting (supported app frontmost OR
 //! backgrounded with an active meeting window title + mic in use) and
-//! monitors for meeting end (mic goes silent).
+//! monitors for meeting end (meeting window title / URL disappears).
 
 use crate::meeting::MeetingManager;
 use crate::settings::{MeetingAppPref, SettingsStore};
@@ -94,6 +94,28 @@ fn is_meeting_window_title(bundle_id: &str, title: &str) -> bool {
             lower.contains("| microsoft teams")
         }
         _ => true,
+    }
+}
+
+/// Auxiliary window titles that indicate an in-progress meeting *session*
+/// even when the main meeting window is hidden — e.g. Zoom during a screen
+/// share replaces the "Zoom Meeting" window with floating share/video
+/// panels. Used only by the end-monitor presence scan; the start detector
+/// keeps requiring the positive main-window marker so a stray panel can't
+/// trigger a recording.
+fn is_meeting_aux_window_title(bundle_id: &str, title: &str) -> bool {
+    let lower = title.trim().to_lowercase();
+    if lower.is_empty() {
+        return false;
+    }
+    match bundle_id {
+        "us.zoom.xos" => {
+            lower.contains("share toolbar")
+                || lower.contains("share statusbar")
+                || lower.contains("floating video")
+                || lower == "as_toolbar"
+        }
+        _ => false,
     }
 }
 
@@ -430,6 +452,13 @@ pub struct EndMonitorSignals {
     /// Browser URL when the frontmost app is a known browser. Used for
     /// browser-app meeting presence (Google Meet, Zoom Web, etc.).
     pub frontmost_browser_url: Option<String>,
+    /// Cross-app window scan result for native meeting apps: `Some(true)` if
+    /// the detected app still owns a meeting-titled window anywhere (any
+    /// Space, minimized included), `Some(false)` if the scan worked and found
+    /// none, `None` when the scan can't answer (browser app, Screen Recording
+    /// permission missing, non-macOS). `None` falls back to the
+    /// frontmost-title path.
+    pub meeting_window_seen: Option<bool>,
 }
 
 /// Result of a single [`EndMonitorTicker::tick`] call.
@@ -484,12 +513,15 @@ impl EndMonitorTicker {
 
     /// Apply one tick of the end-monitor state machine.
     ///
-    /// Note: when frontmost is **not** the detected meeting app we treat the
-    /// situation as inconclusive (counter unchanged) rather than confidently
-    /// "gone." This avoids false-stops when the user briefly tabs to Slack or
-    /// the browser during a native-app meeting. The trade-off: if the user
-    /// fully quits the meeting app and never returns, auto-stop won't fire.
-    /// They can manually stop or the hard-cap will kick in.
+    /// Native apps are tracked via the cross-app window scan
+    /// (`meeting_window_seen`), which works regardless of which app is
+    /// frontmost. When the scan can't answer (browser meetings, Screen
+    /// Recording permission missing) and frontmost is **not** the detected
+    /// meeting app, the situation is inconclusive (counter unchanged) rather
+    /// than confidently "gone" — false-stops during meetings would be much
+    /// worse than late-stops. In that degraded mode, if the user fully quits
+    /// the meeting app and never returns, auto-stop won't fire; they can
+    /// manually stop or the hard-cap will kick in.
     pub fn tick(&mut self, signals: &EndMonitorSignals) -> EndMonitorDecision {
         if !signals.manager_active {
             return EndMonitorDecision::Exit;
@@ -511,7 +543,8 @@ impl EndMonitorTicker {
         }
     }
 
-    #[cfg(test)]
+    /// Number of consecutive ticks the meeting source has been observed gone.
+    /// Exposed so the monitor loop can log the countdown edges.
     fn consecutive_gone(&self) -> u32 {
         self.consecutive_gone
     }
@@ -530,33 +563,46 @@ fn evaluate_meeting_presence(signals: &EndMonitorSignals) -> Presence {
         // Manual start with no detected app — we have no source to track.
         return Presence::Unknown;
     };
-    // We can only inspect the meeting app's window title or URL when it's the
-    // frontmost app (no cross-app window enumeration). When it isn't, signals
-    // are inconclusive.
-    if signals.frontmost_bundle.as_deref() != Some(detected_app) {
-        return Presence::Unknown;
-    }
     let Some((_, is_browser)) = lookup(detected_app) else {
         // Detected app dropped out of the registry (e.g., between releases).
         // Without a way to interpret signals, stay safe.
         return Presence::Unknown;
     };
     if is_browser {
-        match browser_provider_name(signals.frontmost_browser_url.as_deref()) {
+        // Browser meetings: the URL gate needs an AX query that only works
+        // when the browser is frontmost. When it isn't, signals are
+        // inconclusive.
+        if signals.frontmost_bundle.as_deref() != Some(detected_app) {
+            return Presence::Unknown;
+        }
+        return match browser_provider_name(signals.frontmost_browser_url.as_deref()) {
             Some(_) => Presence::Present,
             None => Presence::Gone,
-        }
+        };
+    }
+    // Native apps: prefer the cross-app window scan — it sees the meeting
+    // window even while the user works in another app (the common case: the
+    // user hangs up in Zoom and moves on without ever fronting Zoom again),
+    // and it sees meeting windows on other Spaces/monitors that the
+    // frontmost-title check would misread as gone.
+    if let Some(seen) = signals.meeting_window_seen {
+        return if seen { Presence::Present } else { Presence::Gone };
+    }
+    // Scan unavailable (no Screen Recording permission) — fall back to the
+    // frontmost window title, which we can only read when the meeting app is
+    // frontmost.
+    if signals.frontmost_bundle.as_deref() != Some(detected_app) {
+        return Presence::Unknown;
+    }
+    let title_indicates_meeting = signals
+        .frontmost_window_title
+        .as_deref()
+        .map(|t| is_meeting_window_title(detected_app, t))
+        .unwrap_or(false);
+    if title_indicates_meeting {
+        Presence::Present
     } else {
-        let title_indicates_meeting = signals
-            .frontmost_window_title
-            .as_deref()
-            .map(|t| is_meeting_window_title(detected_app, t))
-            .unwrap_or(false);
-        if title_indicates_meeting {
-            Presence::Present
-        } else {
-            Presence::Gone
-        }
+        Presence::Gone
     }
 }
 
@@ -580,10 +626,26 @@ pub fn spawn_end_monitor(
     tauri::async_runtime::spawn(async move {
         let mut ticker = EndMonitorTicker::new();
         let mut interval = tokio::time::interval(Duration::from_secs(5));
+        let mut prev_gone: u32 = 0;
         loop {
             interval.tick().await;
             let signals = gather_end_monitor_signals(&manager, &detected_app).await;
-            match ticker.tick(&signals) {
+            let decision = ticker.tick(&signals);
+            // Log the countdown edges (not every tick) so the daily log shows
+            // when the source first vanished and when it came back.
+            let gone = ticker.consecutive_gone();
+            if gone == 1 && prev_gone == 0 {
+                info!(
+                    app = ?detected_app,
+                    window_seen = ?signals.meeting_window_seen,
+                    frontmost = ?signals.frontmost_bundle,
+                    "end-monitor: meeting source gone, starting auto-stop countdown"
+                );
+            } else if gone == 0 && prev_gone > 0 {
+                info!(app = ?detected_app, "end-monitor: meeting source back, countdown reset");
+            }
+            prev_gone = gone;
+            match decision {
                 EndMonitorDecision::Continue => {}
                 EndMonitorDecision::Exit => {
                     info!("end-monitor: meeting no longer active, exiting");
@@ -592,6 +654,7 @@ pub fn spawn_end_monitor(
                 EndMonitorDecision::Stop => {
                     info!(
                         app = ?detected_app,
+                        window_seen = ?signals.meeting_window_seen,
                         "end-monitor: meeting source gone, auto-stopping"
                     );
                     if let Err(e) = manager.stop().await {
@@ -611,12 +674,19 @@ async fn gather_end_monitor_signals(
 ) -> EndMonitorSignals {
     let manager_active = manager.is_active().await;
     let ctx = crate::input::focus::capture_context();
+    // Cross-app window scan for native meeting apps only — browser meeting
+    // presence needs the frontmost AX URL, which the fallback path handles.
+    let meeting_window_seen = detected_app
+        .as_deref()
+        .filter(|app| matches!(lookup(app), Some((_, false))))
+        .and_then(app_has_meeting_window);
     EndMonitorSignals {
         manager_active,
         detected_app: detected_app.clone(),
         frontmost_bundle: ctx.as_ref().and_then(|c| c.bundle_id.clone()),
         frontmost_window_title: ctx.as_ref().and_then(|c| c.window_title.clone()),
         frontmost_browser_url: ctx.as_ref().and_then(|c| c.browser_url.clone()),
+        meeting_window_seen,
     }
 }
 
@@ -705,6 +775,22 @@ mod tests {
         assert_eq!(browser_provider_name(None), None);
     }
 
+    #[test]
+    fn aux_titles_zoom_screen_share_windows_count_as_meeting_session() {
+        // During a screen share Zoom hides the main "Zoom Meeting" window and
+        // shows floating panels — those must keep the presence scan Present.
+        assert!(is_meeting_aux_window_title("us.zoom.xos", "zoom share toolbar window"));
+        assert!(is_meeting_aux_window_title("us.zoom.xos", "zoom share statusbar window"));
+        assert!(is_meeting_aux_window_title("us.zoom.xos", "zoom floating video window"));
+        assert!(is_meeting_aux_window_title("us.zoom.xos", "as_toolbar"));
+        // Idle Zoom windows are not session markers.
+        assert!(!is_meeting_aux_window_title("us.zoom.xos", "Zoom Workplace"));
+        assert!(!is_meeting_aux_window_title("us.zoom.xos", "Home"));
+        assert!(!is_meeting_aux_window_title("us.zoom.xos", ""));
+        // Other apps have no aux markers.
+        assert!(!is_meeting_aux_window_title("com.microsoft.teams2", "share toolbar"));
+    }
+
     // ---- End-monitor ticker tests ----
 
     fn signals_with_detected(detected_app: &str) -> EndMonitorSignals {
@@ -714,6 +800,7 @@ mod tests {
             frontmost_bundle: None,
             frontmost_window_title: None,
             frontmost_browser_url: None,
+            meeting_window_seen: None,
         }
     }
 
@@ -740,6 +827,7 @@ mod tests {
             frontmost_bundle: Some("us.zoom.xos".into()),
             frontmost_window_title: Some("Home".into()),
             frontmost_browser_url: None,
+            meeting_window_seen: None,
         };
         let mut decisions = Vec::new();
         for _ in 0..10 {
@@ -764,6 +852,7 @@ mod tests {
             frontmost_bundle: Some("us.zoom.xos".into()),
             frontmost_window_title: Some("Home".into()),
             frontmost_browser_url: None,
+            meeting_window_seen: None,
         };
         // 6 ticks at +1 each = exactly threshold.
         for _ in 0..5 {
@@ -784,6 +873,7 @@ mod tests {
             frontmost_bundle: Some("com.google.Chrome".into()),
             frontmost_window_title: Some("Google Meet".into()),
             frontmost_browser_url: Some("https://meet.google.com/landing".into()),
+            meeting_window_seen: None,
         };
         for _ in 0..5 {
             assert_eq!(t.tick(&signals), EndMonitorDecision::Continue);
@@ -800,6 +890,7 @@ mod tests {
             frontmost_bundle: Some("us.zoom.xos".into()),
             frontmost_window_title: Some("Weekly Standup - Zoom Meeting".into()),
             frontmost_browser_url: None,
+            meeting_window_seen: None,
         };
         for _ in 0..50 {
             assert_eq!(t.tick(&signals), EndMonitorDecision::Continue);
@@ -816,6 +907,7 @@ mod tests {
             frontmost_bundle: Some("com.google.Chrome".into()),
             frontmost_window_title: Some("Meet — Standup".into()),
             frontmost_browser_url: Some("https://meet.google.com/abc-defg-hij".into()),
+            meeting_window_seen: None,
         };
         for _ in 0..50 {
             assert_eq!(t.tick(&signals), EndMonitorDecision::Continue);
@@ -824,9 +916,10 @@ mod tests {
 
     #[test]
     fn end_monitor_does_not_stop_when_user_tabs_to_slack_during_meeting() {
-        // The user's in a Zoom call but is checking Slack. We can't see Zoom's
-        // window state from here (no cross-app enumeration). Must NOT stop —
-        // false-stops during meetings would be much worse than late-stops.
+        // The user's in a Zoom call but is checking Slack, and the cross-app
+        // window scan can't answer (meeting_window_seen: None — e.g. Screen
+        // Recording permission missing). Must NOT stop — false-stops during
+        // meetings would be much worse than late-stops.
         let mut t = EndMonitorTicker::with_threshold(6);
         let signals = EndMonitorSignals {
             manager_active: true,
@@ -834,6 +927,7 @@ mod tests {
             frontmost_bundle: Some("com.tinyspeck.slackmacgap".into()),
             frontmost_window_title: Some("Acme Workspace".into()),
             frontmost_browser_url: None,
+            meeting_window_seen: None,
         };
         for tick in 0..50 {
             assert_eq!(
@@ -841,6 +935,67 @@ mod tests {
                 EndMonitorDecision::Continue,
                 "tick {tick} should be Continue (user tabbed away mid-meeting)"
             );
+        }
+        assert_eq!(t.consecutive_gone(), 0);
+    }
+
+    /// Regression test for the 2026-07-27 meeting that recorded 8 extra
+    /// minutes: the user hung up in Zoom and moved on to other apps without
+    /// ever fronting Zoom again. The old frontmost-only logic returned
+    /// Unknown forever and auto-stop never fired. The cross-app window scan
+    /// sees the meeting window is gone regardless of what's frontmost.
+    #[test]
+    fn regression_end_monitor_stops_when_zoom_backgrounded_and_meeting_window_gone() {
+        let mut t = EndMonitorTicker::with_threshold(6);
+        let signals = EndMonitorSignals {
+            manager_active: true,
+            detected_app: Some("us.zoom.xos".into()),
+            frontmost_bundle: Some("com.anthropic.claudefordesktop".into()),
+            frontmost_window_title: Some("Claude".into()),
+            frontmost_browser_url: None,
+            meeting_window_seen: Some(false),
+        };
+        for _ in 0..5 {
+            assert_eq!(t.tick(&signals), EndMonitorDecision::Continue);
+        }
+        assert_eq!(t.tick(&signals), EndMonitorDecision::Stop);
+    }
+
+    #[test]
+    fn end_monitor_continues_when_zoom_backgrounded_but_meeting_window_present() {
+        // Mid-meeting, user working in another app: the scan still sees the
+        // "Zoom Meeting" window, so the counter must stay at zero.
+        let mut t = EndMonitorTicker::with_threshold(6);
+        let signals = EndMonitorSignals {
+            manager_active: true,
+            detected_app: Some("us.zoom.xos".into()),
+            frontmost_bundle: Some("com.tinyspeck.slackmacgap".into()),
+            frontmost_window_title: Some("Acme Workspace".into()),
+            frontmost_browser_url: None,
+            meeting_window_seen: Some(true),
+        };
+        for _ in 0..50 {
+            assert_eq!(t.tick(&signals), EndMonitorDecision::Continue);
+        }
+        assert_eq!(t.consecutive_gone(), 0);
+    }
+
+    #[test]
+    fn window_scan_overrides_frontmost_idle_title() {
+        // Dual-monitor / other-Space case: the user fronts Zoom's Home window
+        // while the actual meeting window lives elsewhere. The frontmost
+        // title alone would read as "gone"; the scan knows better.
+        let mut t = EndMonitorTicker::with_threshold(6);
+        let signals = EndMonitorSignals {
+            manager_active: true,
+            detected_app: Some("us.zoom.xos".into()),
+            frontmost_bundle: Some("us.zoom.xos".into()),
+            frontmost_window_title: Some("Zoom Workplace".into()),
+            frontmost_browser_url: None,
+            meeting_window_seen: Some(true),
+        };
+        for _ in 0..10 {
+            assert_eq!(t.tick(&signals), EndMonitorDecision::Continue);
         }
         assert_eq!(t.consecutive_gone(), 0);
     }
@@ -865,6 +1020,7 @@ mod tests {
             frontmost_bundle: Some("us.zoom.xos".into()),
             frontmost_window_title: Some("Home".into()),
             frontmost_browser_url: None,
+            meeting_window_seen: None,
         };
         for _ in 0..3 {
             assert_eq!(t.tick(&home_signals), EndMonitorDecision::Continue);
@@ -890,6 +1046,7 @@ mod tests {
             frontmost_bundle: Some("com.removed.app".into()),
             frontmost_window_title: Some("Untitled".into()),
             frontmost_browser_url: None,
+            meeting_window_seen: None,
         };
         for _ in 0..50 {
             assert_eq!(t.tick(&signals), EndMonitorDecision::Continue);
@@ -907,6 +1064,7 @@ mod tests {
             frontmost_bundle: Some("us.zoom.xos".into()),
             frontmost_window_title: Some("Home".into()),
             frontmost_browser_url: None,
+            meeting_window_seen: None,
         };
         for _ in 0..50 {
             assert_eq!(t.tick(&signals), EndMonitorDecision::Continue);
@@ -1057,5 +1215,112 @@ fn find_background_meeting_app() -> Option<(String, &'static str, String)> {
 
 #[cfg(not(target_os = "macos"))]
 fn find_background_meeting_app() -> Option<(String, &'static str, String)> {
+    None
+}
+
+/// Does `bundle_id` still own a window whose title indicates an active
+/// meeting? Scans ALL windows (any Space/layer, minimized included), so it
+/// works while the user is in another app — the signal the end-monitor needs
+/// to auto-stop after the user hangs up without ever fronting the meeting
+/// app. Unlike the start-detection scan this deliberately does NOT filter to
+/// layer 0: during a Zoom screen share the main meeting window can be
+/// replaced by floating share/video panels at other layers, and missing
+/// those would false-stop a live recording mid-presentation.
+///
+/// Returns:
+/// - `Some(true)`  — a meeting-titled (or meeting-session-auxiliary) window
+///   exists.
+/// - `Some(false)` — scan worked (or the app has no windows at all, e.g. it
+///   quit) and no meeting-titled window exists.
+/// - `None`        — can't tell: the app has windows but none expose a title,
+///   which is the shape `kCGWindowName` takes without Screen Recording
+///   permission. Callers should fall back to frontmost-title checking.
+#[cfg(target_os = "macos")]
+fn app_has_meeting_window(bundle_id: &str) -> Option<bool> {
+    use core_foundation::array::{CFArrayGetCount, CFArrayGetValueAtIndex};
+    use core_foundation::base::TCFType;
+    use core_foundation::dictionary::{CFDictionaryGetValueIfPresent, CFDictionaryRef};
+    use core_foundation::number::{CFNumber, CFNumberRef};
+    use core_foundation::string::{CFString, CFStringRef};
+    use core_graphics::window::{
+        copy_window_info, kCGNullWindowID, kCGWindowListExcludeDesktopElements,
+        kCGWindowListOptionAll, kCGWindowName, kCGWindowOwnerPID,
+    };
+    use objc2_app_kit::NSRunningApplication;
+    use std::ffi::c_void;
+
+    unsafe fn dict_get_i32(dict: CFDictionaryRef, key: CFStringRef) -> Option<i32> {
+        let mut v: *const c_void = std::ptr::null();
+        if CFDictionaryGetValueIfPresent(dict, key as *const c_void, &mut v) == 0 || v.is_null() {
+            return None;
+        }
+        let n: CFNumber = TCFType::wrap_under_get_rule(v as CFNumberRef);
+        n.to_i32()
+    }
+
+    unsafe fn dict_get_string(dict: CFDictionaryRef, key: CFStringRef) -> Option<String> {
+        let mut v: *const c_void = std::ptr::null();
+        if CFDictionaryGetValueIfPresent(dict, key as *const c_void, &mut v) == 0 || v.is_null() {
+            return None;
+        }
+        let s: CFString = TCFType::wrap_under_get_rule(v as CFStringRef);
+        Some(s.to_string())
+    }
+
+    let windows = copy_window_info(
+        kCGWindowListOptionAll | kCGWindowListExcludeDesktopElements,
+        kCGNullWindowID,
+    )?;
+    let arr_ref = windows.as_concrete_TypeRef();
+    let count = unsafe { CFArrayGetCount(arr_ref) };
+
+    // Cache pid → "is this the target app" so we resolve each owning app once
+    // per scan instead of once per window.
+    let mut pid_matches: std::collections::HashMap<i32, bool> = std::collections::HashMap::new();
+    let mut app_window_count: u32 = 0;
+    let mut app_named_window_count: u32 = 0;
+
+    for i in 0..count {
+        let dict_ref = unsafe { CFArrayGetValueAtIndex(arr_ref, i) } as CFDictionaryRef;
+        if dict_ref.is_null() {
+            continue;
+        }
+        let pid = match unsafe { dict_get_i32(dict_ref, kCGWindowOwnerPID) } {
+            Some(p) if p > 0 => p,
+            _ => continue,
+        };
+        let matches = *pid_matches.entry(pid).or_insert_with(|| {
+            NSRunningApplication::runningApplicationWithProcessIdentifier(pid)
+                .and_then(|a| a.bundleIdentifier())
+                .map(|s| s.to_string())
+                .as_deref()
+                == Some(bundle_id)
+        });
+        if !matches {
+            continue;
+        }
+        app_window_count += 1;
+        let name = match unsafe { dict_get_string(dict_ref, kCGWindowName) } {
+            Some(s) if !s.trim().is_empty() => s,
+            _ => continue,
+        };
+        app_named_window_count += 1;
+        if is_meeting_window_title(bundle_id, &name)
+            || is_meeting_aux_window_title(bundle_id, &name)
+        {
+            return Some(true);
+        }
+    }
+
+    if app_window_count > 0 && app_named_window_count == 0 {
+        // Windows exist but no titles are readable — almost certainly Screen
+        // Recording permission is missing. Inconclusive.
+        return None;
+    }
+    Some(false)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn app_has_meeting_window(_bundle_id: &str) -> Option<bool> {
     None
 }
