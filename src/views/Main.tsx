@@ -27,6 +27,8 @@ import StatsView from "./sections/StatsView";
 import ThemeToggle from "../components/ThemeToggle";
 import SidebarRecordButton from "../components/SidebarRecordButton";
 import ScreenRecordButton from "../components/ScreenRecordButton";
+import PermissionWarningBanner from "../components/PermissionWarningBanner";
+import UpdateBanner from "../components/UpdateBanner";
 
 export type MainSection =
   | { kind: "chat" }
@@ -250,6 +252,8 @@ export default function Main({ onOpenSettings }: Props) {
         </nav>
 
         <div className="mt-auto flex flex-col gap-2 border-t border-line p-2">
+          <PermissionWarningBanner onOpenSettings={onOpenSettings} />
+          <UpdateBanner variant="sidebar" />
           <div className="flex items-center gap-1">
             <button
               type="button"

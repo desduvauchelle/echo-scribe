@@ -16,7 +16,6 @@ import Onboarding from "./views/Onboarding";
 import Main from "./views/Main";
 import Settings from "./views/Settings";
 import LogCaptureOverlay from "./views/LogCaptureOverlay";
-import PermissionWarningBanner from "./components/PermissionWarningBanner";
 import { ToastProvider, useToasts } from "./components/ToastProvider";
 import UpdateBanner from "./components/UpdateBanner";
 import { ActivityPanelProvider } from "./components/ActivityPanelContext";
@@ -421,11 +420,12 @@ function AppShell() {
     );
   }
 
+  // Permission + update notices live in Main's sidebar (above the Settings
+  // button); onboarding/settings get the floating UpdateBanner instead. A
+  // top bar would sit under the fixed drag region and the traffic lights.
   return (
     <>
       {dragBar}
-      <PermissionWarningBanner onOpenSettings={() => setView("settings")} />
-      <UpdateBanner />
       <Main key={mainKey} onOpenSettings={() => setView("settings")} />
       {overlay}
     </>

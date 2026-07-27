@@ -5,9 +5,11 @@ type Props = {
   onOpenSettings: () => void;
 };
 
-/// Polls permission status every few seconds and renders a top warning banner
-/// when something has broken mid-session (e.g. user revoked access from
-/// System Settings). Stays out of the way when everything is green.
+/// Polls permission status every few seconds and renders a warning card in
+/// the sidebar (above the Settings button) when something has broken
+/// mid-session (e.g. user revoked access from System Settings). Stays out of
+/// the way when everything is green. Not a top bar: the top 2rem of the
+/// window is the tauri drag region under the macOS traffic lights.
 export default function PermissionWarningBanner({ onOpenSettings }: Props) {
   const [missing, setMissing] = useState<string[]>([]);
   // Track whether the missing permission(s) actually break core functionality
@@ -45,18 +47,20 @@ export default function PermissionWarningBanner({ onOpenSettings }: Props) {
   return (
     <div
       role="alert"
-      className="flex items-center justify-between gap-3 border-b border-warning/40 bg-warning/10 px-4 py-2 text-xs text-warning"
+      className="rounded-md border border-warning/40 bg-warning/10 p-2.5 text-xs text-warning"
     >
-      <span>
-        <strong>Permission missing:</strong> {missing.join(" + ")}.{" "}
+      <div className="font-semibold">
+        Permission missing: {missing.join(" + ")}
+      </div>
+      <div className="mt-0.5 text-[11px] leading-snug text-warning/80">
         {coreBroken
           ? "Echo Scribe can't dictate or paste until you re-grant."
           : "Meetings will only record your microphone — the other person's audio won't be captured."}
-      </span>
+      </div>
       <button
         type="button"
         onClick={onOpenSettings}
-        className="shrink-0 rounded border border-warning/40 bg-warning/15 px-2 py-0.5 font-semibold text-warning hover:bg-warning/15"
+        className="mt-2 w-full cursor-pointer rounded-md border border-warning/40 bg-warning/15 px-2 py-1 font-semibold text-warning transition-colors hover:bg-warning/25"
       >
         Fix in Settings
       </button>
