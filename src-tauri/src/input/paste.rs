@@ -31,15 +31,63 @@ pub enum PasteError {
     Init(String),
 }
 
+/// `true` when some process holds macOS secure event input (password
+/// fields, Terminal secure entry, or — a classic macOS bug — loginwindow
+/// keeping it stuck after unlock). While it is held, synthesized keyboard
+/// events are silently swallowed, so a Cmd+V never reaches the target app.
+/// We can't clear another process's secure input; we log it so failed
+/// pastes are attributable in the diagnostics.
+#[cfg(target_os = "macos")]
+pub fn secure_input_active() -> bool {
+    #[link(name = "Carbon", kind = "framework")]
+    unsafe extern "C" {
+        fn IsSecureEventInputEnabled() -> bool;
+    }
+    unsafe { IsSecureEventInputEnabled() }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn secure_input_active() -> bool {
+    false
+}
+
+/// Put `text` on the clipboard *without* synthesizing a paste keystroke and
+/// without any later restore. Used when the paste target can't be confirmed
+/// (e.g. the original app refused to come frontmost): the transcript stays
+/// on the clipboard so the user can ⌘V it themselves.
+pub fn copy_to_clipboard(text: &str) -> Result<(), PasteError> {
+    use arboard::Clipboard;
+    let mut clipboard = Clipboard::new().map_err(|e| PasteError::Clipboard(e.to_string()))?;
+    clipboard
+        .set_text(text)
+        .map_err(|e| PasteError::Clipboard(e.to_string()))?;
+    info!(len = text.len(), "copied transcript to clipboard (no synthetic paste)");
+    Ok(())
+}
+
 /// Copies `text` to the clipboard and synthesizes Cmd+V (macOS) /
 /// Ctrl+V (other platforms) to paste at the focused application's cursor.
 ///
 /// Preserves the user's existing clipboard content: saves it before
 /// overwriting, then restores it after the paste keystroke lands.
 pub fn paste_at_cursor(text: &str) -> Result<(), PasteError> {
+    paste_at_cursor_with_options(text, true)
+}
+
+/// Like [`paste_at_cursor`], but callers that suspect the paste may not land
+/// (e.g. the target app reported a focus void that couldn't be healed) can
+/// pass `restore_clipboard = false` to leave the transcript on the clipboard
+/// for a manual ⌘V instead of yanking it away moments later.
+pub fn paste_at_cursor_with_options(text: &str, restore_clipboard: bool) -> Result<(), PasteError> {
     use arboard::Clipboard;
 
     let mut clipboard = Clipboard::new().map_err(|e| PasteError::Clipboard(e.to_string()))?;
+
+    if secure_input_active() {
+        // Not fatal — the focused process itself can still deliver the
+        // paste — but this is the prime suspect when a paste vanishes.
+        warn!("secure event input is enabled by some process; synthesized Cmd+V may be swallowed");
+    }
 
     // ── Save original clipboard ──────────────────────────────────
     let original = clipboard.get_text().ok(); // None if clipboard is empty or non-text
@@ -62,6 +110,10 @@ pub fn paste_at_cursor(text: &str) -> Result<(), PasteError> {
     // length because longer dictations mean the target app was in
     // background (App Nap) longer and needs more time after activation
     // to drain its event backlog before it reads the clipboard.
+    if !restore_clipboard {
+        info!("skipping clipboard restore; transcript left on clipboard for manual paste");
+        return Ok(());
+    }
     if let Some(original_text) = original {
         let delay = restore_delay_ms(text.len());
         info!(delay_ms = delay, text_len = text.len(), "waiting before clipboard restore");

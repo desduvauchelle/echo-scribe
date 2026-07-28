@@ -15,7 +15,6 @@ use crate::db::Db;
 use crate::event_log::{self, EventEnvelope};
 use crate::input::focus::{self, FocusContext, FocusElement};
 use crate::input::hotkeys::HotkeyEvent;
-use crate::input::paste::paste_at_cursor;
 use crate::llm::Llm;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -372,6 +371,8 @@ pub fn spawn(
                                         // (e.g. dictating into Echo Scribe
                                         // itself) — re-activating cycles key
                                         // windows and is the regression source.
+                                        let mut restore_outcome: Option<focus::RestoreOutcome> = None;
+                                        let mut target_app_name: Option<String> = None;
                                         if let Some(snap) = pending_context.take() {
                                             let element = pending_focus_element.take();
                                             let outcome = focus::restore_focus(&snap, element.as_ref());
@@ -379,11 +380,13 @@ pub fn spawn(
                                                 pid = snap.pid,
                                                 same_app = outcome.same_app,
                                                 activated = outcome.activated_app,
+                                                frontmost_verified = outcome.frontmost_verified,
                                                 ax_focused = outcome.ax_focused,
                                                 ax_error = ?outcome.ax_error,
                                                 element_captured = outcome.element_captured,
                                                 ax_role = ?outcome.element_role,
                                                 frontmost_before = ?outcome.frontmost_pid_before,
+                                                paste_time_focus = ?outcome.paste_time_focus_role,
                                                 "focus restored before paste"
                                             );
                                             let _ = app.emit("voice:paste_pending", ());
@@ -393,12 +396,60 @@ pub fn spawn(
                                             // WindowServer time to route key.
                                             let settle_ms = if outcome.same_app { 60 } else { 250 };
                                             std::thread::sleep(std::time::Duration::from_millis(settle_ms));
+                                            target_app_name = snap.app_name.clone();
+                                            restore_outcome = Some(outcome);
                                         }
-                                        info!(chars = text.len(), "pasting transcription");
-                                        if let Err(e) = paste_at_cursor(&text) {
-                                            error!(?e, "paste failed");
-                                            let _ =
-                                                app.emit("asr:error", format!("Paste failed: {e}"));
+                                        // Never synthesize Cmd+V into the wrong app: if the
+                                        // original app refused to come frontmost, hand the
+                                        // transcript to the user via the clipboard instead.
+                                        let frontmost_ok = restore_outcome
+                                            .as_ref()
+                                            .map(|o| o.frontmost_verified)
+                                            .unwrap_or(true);
+                                        if !frontmost_ok {
+                                            let app_label = target_app_name
+                                                .unwrap_or_else(|| "the original app".to_string());
+                                            warn!(
+                                                chars = text.len(),
+                                                "target app not frontmost after activation; skipping synthetic paste"
+                                            );
+                                            match crate::input::paste::copy_to_clipboard(&text) {
+                                                Ok(()) => {
+                                                    let _ = app.emit(
+                                                        "asr:error",
+                                                        format!(
+                                                            "Couldn't switch back to {app_label}. Your transcript is on the clipboard — press ⌘V to paste it."
+                                                        ),
+                                                    );
+                                                }
+                                                Err(e) => {
+                                                    error!(?e, "clipboard fallback failed");
+                                                    let _ = app.emit(
+                                                        "asr:error",
+                                                        format!("Paste failed: {e}"),
+                                                    );
+                                                }
+                                            }
+                                        } else {
+                                            // If the app reported an unhealed focus void the
+                                            // Cmd+V likely lands nowhere — leave the transcript
+                                            // on the clipboard so a manual ⌘V still works.
+                                            let restore_clipboard = restore_outcome
+                                                .as_ref()
+                                                .map(|o| o.paste_target_confirmed_or_unknown())
+                                                .unwrap_or(true);
+                                            if !restore_clipboard {
+                                                warn!("focus void unhealed; keeping transcript on clipboard after paste attempt");
+                                            }
+                                            info!(chars = text.len(), "pasting transcription");
+                                            if let Err(e) = crate::input::paste::paste_at_cursor_with_options(
+                                                &text,
+                                                restore_clipboard,
+                                            ) {
+                                                error!(?e, "paste failed");
+                                                let _ =
+                                                    app.emit("asr:error", format!("Paste failed: {e}"));
+                                            }
                                         }
                                         force_state(&state, PipelineState::Idle);
                                         on_state_change(TrayPipelineState::Idle);
@@ -1069,7 +1120,21 @@ async fn run_edit_selection(
     if !applied_via_ax {
         if let Some(ctx) = ctx.as_ref() {
             let outcome = crate::input::focus::restore_focus(ctx, element.as_ref());
-            info!(target: "edit", same_app = outcome.same_app, activated = outcome.activated_app, "restored focus before edit paste");
+            info!(
+                target: "edit",
+                same_app = outcome.same_app,
+                activated = outcome.activated_app,
+                frontmost_verified = outcome.frontmost_verified,
+                paste_time_focus = ?outcome.paste_time_focus_role,
+                "restored focus before edit paste"
+            );
+            // An edit paste *replaces* the user's selection — sending it to
+            // whatever app happens to be frontmost would stomp foreign text.
+            if !outcome.frontmost_verified {
+                warn!(target: "edit", "target app not frontmost; aborting edit paste");
+                notify_edit_failure(app, "Couldn't switch back to the original app — edit not applied.");
+                return;
+            }
             let settle_ms = if outcome.same_app { 60 } else { 250 };
             std::thread::sleep(std::time::Duration::from_millis(settle_ms));
         }

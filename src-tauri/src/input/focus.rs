@@ -149,11 +149,42 @@ pub fn capture_context() -> Option<FocusContext> {
     None
 }
 
+/// Ask a Chromium-based AX server (Electron apps, Chrome/Arc/Brave, VS Code)
+/// to build its accessibility tree. These apps report `kAXErrorNoValue` for
+/// `AXFocusedUIElement` until an assistive client opts in:
+///   * `AXManualAccessibility` — Electron's documented switch.
+///   * `AXEnhancedUserInterface` — Chromium's switch (what VoiceOver sets).
+/// Both writes fail harmlessly (`kAXErrorAttributeUnsupported`) on apps that
+/// don't know the attribute, so this is safe to attempt on any pid.
+/// The tree builds asynchronously, so the first query after enabling can
+/// still miss; callers retry (and the paste-time re-probe benefits even when
+/// the press-time retry loses the race).
+#[cfg(target_os = "macos")]
+fn enable_chromium_ax(app_el: &AXUIElement, pid: i32) {
+    use objc2_core_foundation::{CFBoolean, CFString};
+
+    let true_val: &CFBoolean = CFBoolean::new(true);
+    unsafe {
+        let manual = CFString::from_str("AXManualAccessibility");
+        let err_manual = app_el.set_attribute_value(&manual, true_val.as_ref());
+        let enhanced = CFString::from_str("AXEnhancedUserInterface");
+        let err_enhanced = app_el.set_attribute_value(&enhanced, true_val.as_ref());
+        tracing::info!(
+            pid,
+            manual_ax_error = err_manual.0,
+            enhanced_ax_error = err_enhanced.0,
+            "enable_chromium_ax: requested accessibility tree"
+        );
+    }
+}
+
 /// Capture the AX-level focused UI element of the given pid's application.
 ///
 /// Tries the **app-level** `AXUIElement` first (the conventional, reliable
-/// pattern), and falls back to the system-wide element only if the app-level
-/// query fails. The previous system-wide-only approach returned
+/// pattern). If that returns no element — the signature of a Chromium-based
+/// app that hasn't built its AX tree yet — it enables the tree via
+/// [`enable_chromium_ax`] and retries once, then falls back to the
+/// system-wide element. The previous system-wide-only approach returned
 /// `kAXErrorNoValue (-25212)` for the vast majority of apps in production
 /// — the system-wide `AXFocusedUIElement` attribute only populates when an
 /// app explicitly forwards focus through it, which most apps do not.
@@ -177,7 +208,19 @@ pub fn capture_focused_element(pid: i32) -> Option<FocusElement> {
 
         let mut raw: *const CFType = std::ptr::null();
         let out_ptr = NonNull::new(&mut raw as *mut *const CFType)?;
-        let app_err = app_el.copy_attribute_value(&ax_focused_ui, out_ptr);
+        let mut app_err = app_el.copy_attribute_value(&ax_focused_ui, out_ptr);
+
+        // ── Strategy 1b: Chromium/Electron apps hide their AX tree until
+        // asked. Enable it and retry once (bounded so the hotkey stays
+        // responsive; later captures / the paste-time probe catch up once
+        // the tree has built).
+        if app_err.0 != 0 || raw.is_null() {
+            enable_chromium_ax(&app_el, pid);
+            std::thread::sleep(std::time::Duration::from_millis(120));
+            raw = std::ptr::null();
+            let out_ptr = NonNull::new(&mut raw as *mut *const CFType)?;
+            app_err = app_el.copy_attribute_value(&ax_focused_ui, out_ptr);
+        }
 
         let (element, source) = if app_err.0 == 0 && !raw.is_null() {
             let nn = NonNull::new(raw as *mut AXUIElement)?;
@@ -188,7 +231,7 @@ pub fn capture_focused_element(pid: i32) -> Option<FocusElement> {
                 pid,
                 ax_error = app_err.0,
                 raw_null = raw.is_null(),
-                "capture_focused_element: app-level returned no element; falling back to system-wide"
+                "capture_focused_element: app-level returned no element after ax-enable retry; falling back to system-wide"
             );
             let system_wide = AXUIElement::new_system_wide();
             let _ = system_wide.set_messaging_timeout(0.5);
@@ -410,31 +453,81 @@ pub fn restore(ctx: &FocusContext) -> bool {
     app.activateWithOptions(opts)
 }
 
-#[cfg(target_os = "macos")]
+/// Decide whether to re-apply the captured AX element at paste time.
+///
+///   * Cross-app return path: always restore (multi-window apps route paste
+///     to the field that started dictation).
+///   * Same-app: only restore when **nothing currently has focus**. A live
+///     caret must never be overridden (the AX snapshot can be stale after a
+///     recent click), but when the app reports a focus *void* — e.g. a click
+///     activated the window without making any field first responder — the
+///     blind Cmd+V would land nowhere, so restoring the captured element can
+///     only help.
 fn should_restore_captured_element(
     frontmost_pid_before_restore: Option<i32>,
     captured_pid: i32,
     element_captured: bool,
+    paste_time_focus_present: bool,
 ) -> bool {
-    element_captured && frontmost_pid_before_restore != Some(captured_pid)
+    if !element_captured {
+        return false;
+    }
+    if frontmost_pid_before_restore != Some(captured_pid) {
+        return true;
+    }
+    !paste_time_focus_present
+}
+
+/// Probe which element (if any) has AX focus in the app *right now*.
+/// Returns the element's role when something has focus (`"?"` if the role
+/// read fails — presence is the signal, the role is diagnostic), `None`
+/// when the app reports no focused element.
+#[cfg(target_os = "macos")]
+fn probe_focused_role(pid: i32) -> Option<String> {
+    let el = focused_ui_element_macos(pid)?;
+    Some(copy_ax_string_attribute(&el, "AXRole").unwrap_or_else(|| "?".to_string()))
+}
+
+/// After a cross-app activation, poll until the target app is actually
+/// frontmost. `activateWithOptions` is asynchronous (and unreliable under
+/// modern cooperative-activation rules), so a `true` return does not mean
+/// the app is forward yet — and a paste synthesized before it is lands in
+/// whatever app is still in front.
+#[cfg(target_os = "macos")]
+fn wait_until_frontmost(pid: i32) -> bool {
+    for attempt in 0..10 {
+        if current_frontmost_pid() == Some(pid) {
+            if attempt > 0 {
+                tracing::info!(pid, attempt, "target app became frontmost after wait");
+            }
+            return true;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(60));
+    }
+    false
 }
 
 /// Restore focus before paste. Strategy:
 ///   1. If the captured app is not currently frontmost, call
-///      `activateWithOptions` to bring the app forward.
+///      `activateWithOptions` to bring the app forward, then **verify** it
+///      actually became frontmost (`frontmost_verified`) so the caller can
+///      refuse to paste into the wrong app.
 ///   2. For that cross-app return path, restore the captured AX element so
 ///      multi-window apps route paste to the field that started dictation.
-///   3. If the captured app is already frontmost, do not reapply the captured
-///      AX element. The AX snapshot can be stale after a recent click or UI
-///      re-render; in that case forcing it back is what makes paste land in a
-///      previously focused field despite a visible caret elsewhere.
+///   3. If the captured app is already frontmost, probe its *current*
+///      focused element. If something has focus, leave it alone (the AX
+///      snapshot can be stale; the visible caret wins). If the app reports
+///      a focus void — click-activated window with no first responder —
+///      restore the captured element so Cmd+V has somewhere to land.
 #[cfg(target_os = "macos")]
 pub fn restore_focus(ctx: &FocusContext, element: Option<&FocusElement>) -> RestoreOutcome {
     let frontmost = current_frontmost_pid();
     let same_app = frontmost == Some(ctx.pid);
 
     let mut activated = false;
-    if !same_app {
+    let frontmost_verified = if same_app {
+        true
+    } else {
         for attempt in 0..3 {
             if restore(ctx) {
                 if attempt > 0 {
@@ -448,12 +541,35 @@ pub fn restore_focus(ctx: &FocusContext, element: Option<&FocusElement>) -> Rest
         if !activated {
             tracing::warn!(pid = ctx.pid, "activateWithOptions failed after 3 attempts");
         }
-    }
+        // Even when activateWithOptions reported failure the app can still
+        // come forward (or already be mid-transition) — trust the observed
+        // frontmost pid, not the API's return value.
+        wait_until_frontmost(ctx.pid)
+    };
 
-    let should_restore_element =
-        should_restore_captured_element(frontmost, ctx.pid, element.is_some());
+    // What has focus in the target app *right now*? Only meaningful when the
+    // app is actually frontmost.
+    let paste_time_focus_role = if frontmost_verified {
+        probe_focused_role(ctx.pid)
+    } else {
+        None
+    };
+
+    let should_restore_element = should_restore_captured_element(
+        frontmost,
+        ctx.pid,
+        element.is_some(),
+        paste_time_focus_role.is_some(),
+    );
     let (ax_set, ax_error) = match element {
         Some(el) if should_restore_element => {
+            if same_app {
+                tracing::info!(
+                    pid = ctx.pid,
+                    captured_role = ?el.role(),
+                    "focus void detected (no focused element at paste time); restoring captured element"
+                );
+            }
             let code = el.restore();
             (code == 0, Some(code))
         }
@@ -461,7 +577,8 @@ pub fn restore_focus(ctx: &FocusContext, element: Option<&FocusElement>) -> Rest
             tracing::info!(
                 pid = ctx.pid,
                 frontmost_pid_before = ?frontmost,
-                "skipping captured AX element restore because target app is already frontmost"
+                paste_time_focus_role = ?paste_time_focus_role,
+                "skipping captured AX element restore; target app frontmost with live focus"
             );
             (false, None)
         }
@@ -471,17 +588,23 @@ pub fn restore_focus(ctx: &FocusContext, element: Option<&FocusElement>) -> Rest
     RestoreOutcome {
         same_app,
         activated_app: activated,
+        frontmost_verified,
         ax_focused: ax_set,
         ax_error,
         element_captured: element.is_some(),
         element_role: element.and_then(|e| e.role().map(|s| s.to_string())),
         frontmost_pid_before: frontmost,
+        paste_time_focus_role,
     }
 }
 
 #[cfg(not(target_os = "macos"))]
 pub fn restore_focus(_ctx: &FocusContext, _element: Option<&FocusElement>) -> RestoreOutcome {
-    RestoreOutcome::default()
+    RestoreOutcome {
+        // Non-macOS has no activation handling; never block the paste on it.
+        frontmost_verified: true,
+        ..RestoreOutcome::default()
+    }
 }
 
 /// Diagnostics from a `restore_focus` call. All fields are best-effort.
@@ -489,6 +612,10 @@ pub fn restore_focus(_ctx: &FocusContext, _element: Option<&FocusElement>) -> Re
 pub struct RestoreOutcome {
     pub same_app: bool,
     pub activated_app: bool,
+    /// Whether the target app was observed frontmost after (re)activation.
+    /// When `false`, a synthesized Cmd+V would land in some *other* app —
+    /// callers must not paste.
+    pub frontmost_verified: bool,
     pub ax_focused: bool,
     /// Raw `AXError` code from `FocusElement::restore()`. `None` if no
     /// element was captured (so we never made the call). 0 means success.
@@ -499,6 +626,30 @@ pub struct RestoreOutcome {
     pub element_captured: bool,
     pub element_role: Option<String>,
     pub frontmost_pid_before: Option<i32>,
+    /// Role of whatever held AX focus in the target app just before Cmd+V
+    /// (`None` = the app reported no focused element — a focus void).
+    pub paste_time_focus_role: Option<String>,
+}
+
+impl RestoreOutcome {
+    /// `true` when the same-app paste has a confirmed landing spot: either
+    /// something already held focus at paste time, or we successfully
+    /// restored the captured element into a focus void. When the app never
+    /// answered any focus query (e.g. it doesn't support AX focus reporting
+    /// at all) we stay conservative and treat the paste as likely fine —
+    /// blind Cmd+V was the long-standing behavior for those apps.
+    pub fn paste_target_confirmed_or_unknown(&self) -> bool {
+        if !self.same_app {
+            return true;
+        }
+        // The app proved it reports focus (we captured an element at press
+        // time). If it now reports a void and the heal failed, the Cmd+V
+        // has nowhere to land.
+        if self.element_captured && self.paste_time_focus_role.is_none() && !self.ax_focused {
+            return false;
+        }
+        true
+    }
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -996,19 +1147,72 @@ mod tests {
     }
 
     #[test]
-    fn does_not_restore_captured_ax_element_when_target_app_is_already_frontmost() {
+    fn does_not_restore_captured_ax_element_when_frontmost_app_has_live_focus() {
         assert!(
-            !should_restore_captured_element(Some(42), 42, true),
-            "a captured AX element can be stale; if the app is already frontmost, keep the visible caret"
+            !should_restore_captured_element(Some(42), 42, true, true),
+            "a captured AX element can be stale; if the app is frontmost with a live caret, keep it"
         );
+    }
+
+    #[test]
+    fn restores_captured_ax_element_into_a_same_app_focus_void() {
+        assert!(
+            should_restore_captured_element(Some(42), 42, true, false),
+            "click-activated window with no first responder: blind Cmd+V lands nowhere, heal the void"
+        );
+    }
+
+    #[test]
+    fn never_restores_without_a_captured_element() {
+        assert!(!should_restore_captured_element(Some(42), 42, false, false));
+        assert!(!should_restore_captured_element(Some(7), 42, false, true));
     }
 
     #[test]
     fn restores_captured_ax_element_when_returning_to_a_background_app() {
         assert!(
-            should_restore_captured_element(Some(7), 42, true),
+            should_restore_captured_element(Some(7), 42, true, true),
             "cross-app dictation still needs the captured element after app activation"
         );
+        assert!(should_restore_captured_element(Some(7), 42, true, false));
+    }
+
+    #[test]
+    fn paste_target_confirmed_logic() {
+        // Cross-app path: activation/verification is the gate, not focus probing.
+        let cross = RestoreOutcome { same_app: false, ..Default::default() };
+        assert!(cross.paste_target_confirmed_or_unknown());
+
+        // Same app, focus-reporting app (element captured), void at paste
+        // time, heal failed → paste has nowhere to land.
+        let void_unhealed = RestoreOutcome {
+            same_app: true,
+            element_captured: true,
+            paste_time_focus_role: None,
+            ax_focused: false,
+            ..Default::default()
+        };
+        assert!(!void_unhealed.paste_target_confirmed_or_unknown());
+
+        // Same void, but the heal succeeded → confirmed.
+        let void_healed = RestoreOutcome { ax_focused: true, ..void_unhealed.clone() };
+        assert!(void_healed.paste_target_confirmed_or_unknown());
+
+        // Live focus at paste time → confirmed.
+        let live = RestoreOutcome {
+            paste_time_focus_role: Some("AXTextArea".into()),
+            ..void_unhealed.clone()
+        };
+        assert!(live.paste_target_confirmed_or_unknown());
+
+        // App never proved it reports focus (no element captured): stay
+        // conservative, keep the long-standing blind-paste behavior.
+        let unknown = RestoreOutcome {
+            same_app: true,
+            element_captured: false,
+            ..Default::default()
+        };
+        assert!(unknown.paste_target_confirmed_or_unknown());
     }
 
     #[test]
