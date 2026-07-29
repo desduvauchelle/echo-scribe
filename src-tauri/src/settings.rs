@@ -24,6 +24,14 @@ const KEY_BUILTIN_TEMPLATES_SEEDED: &str = "builtin_templates_seeded_v1";
 const KEY_FILLER_REMOVAL_ENABLED: &str = "filler_removal_enabled";
 const KEY_FILLER_WORDS: &str = "filler_words";
 const KEY_CUSTOM_WORDS: &str = "custom_words";
+const KEY_SPOKEN_EDITING_ENABLED: &str = "spoken_editing_enabled";
+const KEY_SPOKEN_CORRECTIONS_ENABLED: &str = "spoken_corrections_enabled";
+const KEY_SPOKEN_PUNCTUATION_ENABLED: &str = "spoken_punctuation_enabled";
+const KEY_SPOKEN_LISTS_ENABLED: &str = "spoken_lists_enabled";
+const KEY_SPOKEN_PRESS_ENTER_ENABLED: &str = "spoken_press_enter_enabled";
+const KEY_TRANSCRIPTION_CLEANUP_LANGUAGE: &str = "transcription_cleanup_language";
+const KEY_DICTIONARY_ENTRIES: &str = "dictionary_entries_v1";
+const KEY_SNIPPETS: &str = "transcription_snippets_v1";
 const KEY_LLM_UNLOAD_SECS: &str = "llm_unload_secs";
 const KEY_ASR_UNLOAD_SECS: &str = "asr_unload_secs";
 const KEY_LAST_UPDATE_CHECK: &str = "last_update_check";
@@ -78,6 +86,26 @@ pub struct FormatTemplate {
     pub name: String,
     pub trigger_phrases: Vec<String>,
     pub system_prompt: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct DictionaryEntry {
+    pub spoken_form: String,
+    pub replacement: String,
+    #[serde(default = "default_entry_language")]
+    pub language: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct TranscriptionSnippet {
+    pub trigger: String,
+    pub expansion: String,
+    #[serde(default = "default_entry_language")]
+    pub language: String,
+}
+
+fn default_entry_language() -> String {
+    "auto".to_string()
 }
 
 fn default_format_templates() -> Vec<FormatTemplate> {
@@ -555,6 +583,116 @@ impl SettingsStore {
             .save()
             .map_err(|e| SettingsError::Store(e.to_string()))?;
         Ok(())
+    }
+
+    pub fn spoken_editing_enabled(&self) -> bool {
+        self.bool_setting(KEY_SPOKEN_EDITING_ENABLED, true)
+    }
+
+    pub fn spoken_corrections_enabled(&self) -> bool {
+        self.bool_setting(KEY_SPOKEN_CORRECTIONS_ENABLED, true)
+    }
+
+    pub fn spoken_punctuation_enabled(&self) -> bool {
+        self.bool_setting(KEY_SPOKEN_PUNCTUATION_ENABLED, true)
+    }
+
+    pub fn spoken_lists_enabled(&self) -> bool {
+        self.bool_setting(KEY_SPOKEN_LISTS_ENABLED, true)
+    }
+
+    pub fn spoken_press_enter_enabled(&self) -> bool {
+        self.bool_setting(KEY_SPOKEN_PRESS_ENTER_ENABLED, false)
+    }
+
+    pub fn set_spoken_editing(
+        &self,
+        enabled: bool,
+        corrections: bool,
+        punctuation: bool,
+        lists: bool,
+        press_enter: bool,
+    ) -> Result<(), SettingsError> {
+        self.store.set(KEY_SPOKEN_EDITING_ENABLED, enabled);
+        self.store.set(KEY_SPOKEN_CORRECTIONS_ENABLED, corrections);
+        self.store.set(KEY_SPOKEN_PUNCTUATION_ENABLED, punctuation);
+        self.store.set(KEY_SPOKEN_LISTS_ENABLED, lists);
+        self.store.set(KEY_SPOKEN_PRESS_ENTER_ENABLED, press_enter);
+        self.store
+            .save()
+            .map_err(|e| SettingsError::Store(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Language used by deterministic cleanup and spoken commands. `auto`
+    /// does not constrain ASR; the multilingual Parakeet model still detects
+    /// the spoken language itself.
+    pub fn transcription_cleanup_language(&self) -> String {
+        self.store
+            .get(KEY_TRANSCRIPTION_CLEANUP_LANGUAGE)
+            .and_then(|v| v.as_str().map(str::to_string))
+            .unwrap_or_else(|| "auto".to_string())
+    }
+
+    pub fn set_transcription_cleanup_language(&self, language: &str) -> Result<(), SettingsError> {
+        self.store.set(
+            KEY_TRANSCRIPTION_CLEANUP_LANGUAGE,
+            serde_json::Value::String(language.to_string()),
+        );
+        self.store
+            .save()
+            .map_err(|e| SettingsError::Store(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Structured pronunciation/replacement dictionary. Until a user saves
+    /// this shape, legacy custom words are surfaced as identity entries so the
+    /// migration is lossless.
+    pub fn dictionary_entries(&self) -> Vec<DictionaryEntry> {
+        self.store
+            .get(KEY_DICTIONARY_ENTRIES)
+            .and_then(|v| serde_json::from_value::<Vec<DictionaryEntry>>(v).ok())
+            .unwrap_or_else(|| {
+                self.custom_words()
+                    .into_iter()
+                    .map(|word| DictionaryEntry {
+                        spoken_form: word.clone(),
+                        replacement: word,
+                        language: "auto".to_string(),
+                    })
+                    .collect()
+            })
+    }
+
+    pub fn set_dictionary_entries(&self, entries: Vec<DictionaryEntry>) -> Result<(), SettingsError> {
+        self.store
+            .set(KEY_DICTIONARY_ENTRIES, serde_json::to_value(entries)?);
+        self.store
+            .save()
+            .map_err(|e| SettingsError::Store(e.to_string()))?;
+        Ok(())
+    }
+
+    pub fn transcription_snippets(&self) -> Vec<TranscriptionSnippet> {
+        self.store
+            .get(KEY_SNIPPETS)
+            .and_then(|v| serde_json::from_value::<Vec<TranscriptionSnippet>>(v).ok())
+            .unwrap_or_default()
+    }
+
+    pub fn set_transcription_snippets(
+        &self,
+        snippets: Vec<TranscriptionSnippet>,
+    ) -> Result<(), SettingsError> {
+        self.store.set(KEY_SNIPPETS, serde_json::to_value(snippets)?);
+        self.store
+            .save()
+            .map_err(|e| SettingsError::Store(e.to_string()))?;
+        Ok(())
+    }
+
+    fn bool_setting(&self, key: &str, default: bool) -> bool {
+        self.store.get(key).and_then(|v| v.as_bool()).unwrap_or(default)
     }
 
     /// How many seconds the LLM engine stays loaded after its last use before

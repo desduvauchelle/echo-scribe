@@ -22,6 +22,24 @@ pub const DEFAULT_FILLERS: &[&str] = &[
     "sort of", "kind of", "like",
 ];
 
+pub const SPANISH_FILLERS: &[&str] = &["eh", "em", "este", "pues", "o sea", "bueno"];
+pub const FRENCH_FILLERS: &[&str] = &["euh", "ben", "bah", "en fait", "du coup", "genre"];
+pub const GERMAN_FILLERS: &[&str] = &["äh", "ähm", "also", "sozusagen", "halt"];
+pub const PORTUGUESE_FILLERS: &[&str] = &["é", "eh", "hum", "tipo", "quer dizer", "então"];
+
+/// Built-in filler lexicon for a selected cleanup language. Automatic keeps
+/// the historical English list; callers should avoid applying an English
+/// user-customized list when a non-English cleanup language is selected.
+pub fn default_fillers_for(language: &str) -> &'static [&'static str] {
+    match language {
+        "es" => SPANISH_FILLERS,
+        "fr" => FRENCH_FILLERS,
+        "de" => GERMAN_FILLERS,
+        "pt" => PORTUGUESE_FILLERS,
+        _ => DEFAULT_FILLERS,
+    }
+}
+
 /// Strip filler words from `text`. Matching is case-insensitive and respects
 /// word boundaries — "like" matches " like " but not "lifelike". Multi-word
 /// fillers ("you know") are matched as whole phrases. After removal we
@@ -329,6 +347,81 @@ pub fn postprocess(text: &str, fillers: &[String], custom_words: &[String]) -> S
     apply_custom_words(&deduped, custom_words)
 }
 
+pub fn apply_dictionary_entries(
+    text: &str,
+    entries: &[crate::settings::DictionaryEntry],
+    language: &str,
+) -> String {
+    let mut applicable: Vec<_> = entries
+        .iter()
+        .filter(|entry| {
+            !entry.spoken_form.trim().is_empty()
+                && !entry.replacement.is_empty()
+                && (entry.language == "auto" || language == "auto" || entry.language == language)
+        })
+        .collect();
+    applicable.sort_by_key(|entry| std::cmp::Reverse(entry.spoken_form.len()));
+    applicable.into_iter().fold(text.to_string(), |value, entry| {
+        replace_whole_phrase(&value, &entry.spoken_form, &entry.replacement)
+    })
+}
+
+pub fn apply_snippets(
+    text: &str,
+    snippets: &[crate::settings::TranscriptionSnippet],
+    language: &str,
+) -> String {
+    let mut applicable: Vec<_> = snippets
+        .iter()
+        .filter(|snippet| {
+            !snippet.trigger.trim().is_empty()
+                && !snippet.expansion.is_empty()
+                && (snippet.language == "auto" || language == "auto" || snippet.language == language)
+        })
+        .collect();
+    applicable.sort_by_key(|snippet| std::cmp::Reverse(snippet.trigger.len()));
+    applicable.into_iter().fold(text.to_string(), |value, snippet| {
+        replace_whole_phrase(&value, &snippet.trigger, &snippet.expansion)
+    })
+}
+
+fn replace_whole_phrase(text: &str, needle: &str, replacement: &str) -> String {
+    let needle = needle.trim();
+    if needle.is_empty() || text.is_empty() {
+        return text.to_string();
+    }
+    let needle_lower = needle.to_lowercase();
+    let mut ranges = Vec::new();
+    for (start, _) in text.char_indices() {
+        let end = start + needle.len();
+        if end > text.len() || !text.is_char_boundary(end) {
+            continue;
+        }
+        let candidate = &text[start..end];
+        if candidate.to_lowercase() != needle_lower {
+            continue;
+        }
+        let left_ok = start == 0
+            || !text[..start]
+                .chars()
+                .next_back()
+                .is_some_and(|ch| ch.is_alphanumeric() || ch == '\'');
+        let right_ok = end == text.len()
+            || !text[end..]
+                .chars()
+                .next()
+                .is_some_and(|ch| ch.is_alphanumeric() || ch == '\'');
+        if left_ok && right_ok {
+            ranges.push((start, end));
+        }
+    }
+    let mut out = text.to_string();
+    for (start, end) in ranges.into_iter().rev() {
+        out.replace_range(start..end, replacement);
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -428,6 +521,30 @@ mod tests {
     fn postprocess_collapses_short_stutters() {
         let out = postprocess("It should never sh sh sh show that.", &[], &[]);
         assert_eq!(out, "It should never sh show that.");
+    }
+
+    #[test]
+    fn structured_dictionary_supports_phrases_and_unicode() {
+        let entries = vec![crate::settings::DictionaryEntry {
+            spoken_form: "cloe martin".into(),
+            replacement: "Chloé Martin".into(),
+            language: "fr".into(),
+        }];
+        assert_eq!(
+            apply_dictionary_entries("Bonjour cloe martin", &entries, "fr"),
+            "Bonjour Chloé Martin"
+        );
+    }
+
+    #[test]
+    fn snippets_expand_only_whole_phrases() {
+        let snippets = vec![crate::settings::TranscriptionSnippet {
+            trigger: "my address".into(),
+            expansion: "10 Market Street".into(),
+            language: "auto".into(),
+        }];
+        assert_eq!(apply_snippets("Send it to my address", &snippets, "en"), "Send it to 10 Market Street");
+        assert_eq!(apply_snippets("This is my addresses list", &snippets, "en"), "This is my addresses list");
     }
 
     #[test]

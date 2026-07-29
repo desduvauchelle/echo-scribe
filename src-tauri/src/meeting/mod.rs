@@ -544,7 +544,12 @@ impl MeetingManager {
                 "detected_app_name": detected_app_name,
             }),
         );
+        crate::audio::feedback::play(crate::audio::feedback::Sfx::Start);
         crate::overlay::show_meeting_overlay(&self.app_handle, detected_app_name.as_deref());
+        crate::overlay::show_meeting_start_toast(
+            &self.app_handle,
+            detected_app_name.as_deref(),
+        );
 
         // Soft-warn timer (emit event after N minutes).
         let app_handle_warn = self.app_handle.clone();
@@ -640,6 +645,7 @@ impl MeetingManager {
         impl Drop for OverlayCleanup {
             fn drop(&mut self) {
                 crate::overlay::hide_recording_overlay(&self.0);
+                crate::overlay::hide_meeting_start_toast(&self.0);
                 crate::overlay::hide_meeting_hud(&self.0);
             }
         }
@@ -647,6 +653,7 @@ impl MeetingManager {
 
         // Step 1: Stop recording.
         active.recorder.stop().await?;
+        crate::audio::feedback::play(crate::audio::feedback::Sfx::Stop);
         // Capture fields we need later before dropping the recorder.
         let mic_only = active.recorder.mic_only;
         // Drop the recorder so its ChunkedWavWriter senders are released, closing the chunk
@@ -705,6 +712,20 @@ impl MeetingManager {
             .with_conn(|conn| crate::db::projects::list_projects(conn, false))
             .unwrap_or_default();
 
+        let meeting_inputs = {
+            let meeting_id = id.clone();
+            self.db.with_conn(move |conn| {
+                let row = crate::db::meetings::get_meeting(conn, &meeting_id)?;
+                let prefs = crate::db::meeting_intelligence::get_preferences(conn, &meeting_id)?;
+                let template = match prefs.and_then(|p| p.summary_template_id) {
+                    Some(template_id) => crate::db::meeting_intelligence::get_summary_template(conn, &template_id)?,
+                    None => crate::db::meeting_intelligence::get_summary_template(conn, "builtin-general")?,
+                };
+                Ok((row.and_then(|r| r.user_notes).unwrap_or_default(), template))
+            }).unwrap_or_default()
+        };
+        let (user_notes, summary_template) = meeting_inputs;
+
         let start_context = MeetingStartContext {
             window_title: active.start_window_title.clone(),
             browser_url: active.start_browser_url.clone(),
@@ -722,6 +743,8 @@ impl MeetingManager {
             &existing_projects,
             &start_context,
             custom_prompt.as_deref(),
+            Some(&user_notes),
+            summary_template.as_ref(),
         )
         .await;
         crate::util::rss::log_rss("after synthesize");
@@ -747,11 +770,20 @@ impl MeetingManager {
         // create action-item tasks — all in a single atomic transaction so a
         // partial failure can't leave the meeting in an inconsistent state
         // (e.g. status = 'complete' but no project/tags assigned).
-        let body = build_flattened_body(&segments, summary_json.as_deref(), None);
+        let body = build_flattened_body(&segments, summary_json.as_deref(), Some(&user_notes));
         let id_db3 = id.clone();
         let ended_at = now.to_rfc3339();
         let transcript_str = serde_json::to_string(&transcript_json).unwrap();
         let summary_for_db = summary_json.clone();
+        let summary_run_json = summary_json.clone();
+        let summary_run_error = synthesis.as_ref().err().cloned();
+        let summary_template_id = summary_template.as_ref().map(|t| t.id.clone());
+        let summary_template_snapshot = summary_template.as_ref().and_then(|t| serde_json::to_string(t).ok());
+        let user_notes_snapshot = user_notes.clone();
+        let transcript_hash = {
+            use sha2::{Digest, Sha256};
+            format!("{:x}", Sha256::digest(transcript_str.as_bytes()))
+        };
         let synthesis_for_db = synthesis.as_ref().ok().cloned();
         let existing_projects_clone = existing_projects.clone();
         self.db
@@ -765,6 +797,21 @@ impl MeetingManager {
                     &transcript_str,
                     summary_for_db.as_deref(),
                     failed_count,
+                )?;
+                crate::db::meeting_intelligence::insert_summary_run(
+                    conn,
+                    &crate::db::meeting_intelligence::MeetingSummaryRun {
+                        id: uuid::Uuid::new_v4().to_string(),
+                        meeting_id: id_db3.clone(),
+                        template_id: summary_template_id,
+                        template_snapshot_json: summary_template_snapshot,
+                        summary_json: summary_run_json,
+                        user_notes_snapshot,
+                        transcript_hash,
+                        status: if summary_run_error.is_some() { "failed".into() } else { "ready".into() },
+                        error: summary_run_error,
+                        created_at: ended_at.clone(),
+                    },
                 )?;
                 // Update the items.content with the flattened body for FTS —
                 // only touches `content`, never resets status or other fields.
@@ -1003,6 +1050,13 @@ impl MeetingManager {
         let settings = crate::settings::SettingsStore::load(&self.app_handle).ok();
         let custom_prompt = settings.as_ref().map(|s| s.meeting_summary_prompt());
 
+        let prefs = self.db.with_conn(|conn| crate::db::meeting_intelligence::get_preferences(conn, id)).unwrap_or_default();
+        let summary_template = match prefs.and_then(|p| p.summary_template_id) {
+            Some(template_id) => self.db.with_conn(|conn| crate::db::meeting_intelligence::get_summary_template(conn, &template_id)).unwrap_or_default(),
+            None => self.db.with_conn(|conn| crate::db::meeting_intelligence::get_summary_template(conn, "builtin-general")).unwrap_or_default(),
+        };
+        let user_notes = row.user_notes.clone().unwrap_or_default();
+
         let synthesis = synthesizer::synthesize(
             self.llm.clone(),
             &segments,
@@ -1011,6 +1065,8 @@ impl MeetingManager {
             &existing_projects,
             &retry_context,
             custom_prompt.as_deref(),
+            Some(&user_notes),
+            summary_template.as_ref(),
         )
         .await;
         if let Ok(s) = synthesis {
@@ -1020,6 +1076,12 @@ impl MeetingManager {
             let meeting_tags = s.tags.clone();
             let meeting_project_name = s.project_name.clone();
             let existing_projects_clone = existing_projects.clone();
+            let template_id = summary_template.as_ref().map(|t| t.id.clone());
+            let template_snapshot_json = summary_template.as_ref().and_then(|t| serde_json::to_string(t).ok());
+            let transcript_hash = {
+                use sha2::{Digest, Sha256};
+                format!("{:x}", Sha256::digest(row.transcript_json.as_deref().unwrap_or_default().as_bytes()))
+            };
             self.db
                 .with_conn(move |conn| {
                     // Only advance status to 'complete' from expected
@@ -1031,6 +1093,21 @@ impl MeetingManager {
                             status = CASE WHEN status IN ('failed', 'summarizing') THEN 'complete' ELSE status END
                          WHERE item_id = ?2",
                         rusqlite::params![summary_str, id_for_db],
+                    )?;
+                    crate::db::meeting_intelligence::insert_summary_run(
+                        conn,
+                        &crate::db::meeting_intelligence::MeetingSummaryRun {
+                            id: uuid::Uuid::new_v4().to_string(),
+                            meeting_id: id_for_db.clone(),
+                            template_id,
+                            template_snapshot_json,
+                            summary_json: Some(summary_str.clone()),
+                            user_notes_snapshot: user_notes,
+                            transcript_hash,
+                            status: "ready".into(),
+                            error: None,
+                            created_at: chrono::Utc::now().to_rfc3339(),
+                        },
                     )?;
 
                     // Bring project + tag + task assignment to parity with the

@@ -430,6 +430,144 @@ CREATE INDEX IF NOT EXISTS idx_project_tag_jobs_status_next_run
   ON project_tag_jobs(status, next_run_at);
 "#,
     ),
+    (
+        // Meeting intelligence is deliberately additive. Existing meetings keep
+        // their transcript_json, summary_json and user_notes columns as the
+        // current snapshot, while these tables add version history, reusable
+        // workflows and relationship-scoped context without rewriting old rows.
+        28,
+        r#"
+CREATE TABLE summary_templates (
+  id            TEXT PRIMARY KEY,
+  name          TEXT NOT NULL,
+  description   TEXT NOT NULL DEFAULT '',
+  instructions  TEXT NOT NULL,
+  sections_json TEXT NOT NULL DEFAULT '[]',
+  is_builtin    INTEGER NOT NULL DEFAULT 0,
+  archived_at   TEXT,
+  created_at    TEXT NOT NULL,
+  updated_at    TEXT NOT NULL
+);
+CREATE INDEX idx_summary_templates_active
+  ON summary_templates(archived_at, name COLLATE NOCASE);
+
+CREATE TABLE meeting_summary_runs (
+  id                     TEXT PRIMARY KEY,
+  meeting_id             TEXT NOT NULL REFERENCES meetings(item_id) ON DELETE CASCADE,
+  template_id            TEXT,
+  template_snapshot_json TEXT,
+  summary_json           TEXT,
+  user_notes_snapshot    TEXT NOT NULL DEFAULT '',
+  transcript_hash        TEXT NOT NULL DEFAULT '',
+  status                 TEXT NOT NULL,
+  error                  TEXT,
+  created_at             TEXT NOT NULL
+);
+CREATE INDEX idx_meeting_summary_runs_meeting
+  ON meeting_summary_runs(meeting_id, created_at DESC);
+
+CREATE TABLE chat_session_scopes (
+  session_id TEXT PRIMARY KEY REFERENCES chat_sessions(id) ON DELETE CASCADE,
+  scope_kind TEXT NOT NULL,
+  scope_id   TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX idx_chat_session_scopes_target
+  ON chat_session_scopes(scope_kind, scope_id);
+
+CREATE TABLE recipes (
+  id            TEXT PRIMARY KEY,
+  name          TEXT NOT NULL,
+  description   TEXT NOT NULL DEFAULT '',
+  prompt        TEXT NOT NULL,
+  default_scope TEXT NOT NULL DEFAULT 'meeting',
+  is_builtin    INTEGER NOT NULL DEFAULT 0,
+  archived_at   TEXT,
+  created_at    TEXT NOT NULL,
+  updated_at    TEXT NOT NULL
+);
+CREATE INDEX idx_recipes_active ON recipes(archived_at, name COLLATE NOCASE);
+
+CREATE TABLE companies (
+  id          TEXT PRIMARY KEY,
+  name        TEXT NOT NULL,
+  domain      TEXT,
+  notes       TEXT NOT NULL DEFAULT '',
+  created_at  TEXT NOT NULL,
+  updated_at  TEXT NOT NULL,
+  deleted_at  TEXT
+);
+CREATE UNIQUE INDEX idx_companies_name_active
+  ON companies(name COLLATE NOCASE) WHERE deleted_at IS NULL;
+
+CREATE TABLE people (
+  id          TEXT PRIMARY KEY,
+  name        TEXT NOT NULL,
+  email       TEXT,
+  role        TEXT,
+  company_id  TEXT REFERENCES companies(id) ON DELETE SET NULL,
+  notes       TEXT NOT NULL DEFAULT '',
+  created_at  TEXT NOT NULL,
+  updated_at  TEXT NOT NULL,
+  deleted_at  TEXT
+);
+CREATE INDEX idx_people_company ON people(company_id);
+CREATE UNIQUE INDEX idx_people_email_active
+  ON people(email COLLATE NOCASE) WHERE email IS NOT NULL AND deleted_at IS NULL;
+
+CREATE TABLE meeting_participants (
+  meeting_id   TEXT NOT NULL REFERENCES meetings(item_id) ON DELETE CASCADE,
+  speaker_key  TEXT NOT NULL,
+  person_id    TEXT REFERENCES people(id) ON DELETE SET NULL,
+  display_name TEXT NOT NULL,
+  source       TEXT NOT NULL DEFAULT 'manual',
+  confirmed    INTEGER NOT NULL DEFAULT 0,
+  created_at   TEXT NOT NULL,
+  updated_at   TEXT NOT NULL,
+  PRIMARY KEY (meeting_id, speaker_key)
+);
+CREATE INDEX idx_meeting_participants_person ON meeting_participants(person_id);
+
+CREATE TABLE meeting_artifacts (
+  id              TEXT PRIMARY KEY,
+  kind            TEXT NOT NULL,
+  meeting_id      TEXT REFERENCES meetings(item_id) ON DELETE CASCADE,
+  person_id       TEXT REFERENCES people(id) ON DELETE CASCADE,
+  company_id      TEXT REFERENCES companies(id) ON DELETE CASCADE,
+  project_id      TEXT REFERENCES projects(id) ON DELETE CASCADE,
+  title           TEXT NOT NULL,
+  content         TEXT NOT NULL,
+  sources_json    TEXT NOT NULL DEFAULT '[]',
+  status          TEXT NOT NULL DEFAULT 'ready',
+  error           TEXT,
+  created_at      TEXT NOT NULL,
+  updated_at      TEXT NOT NULL
+);
+CREATE INDEX idx_meeting_artifacts_kind ON meeting_artifacts(kind, updated_at DESC);
+CREATE INDEX idx_meeting_artifacts_meeting ON meeting_artifacts(meeting_id, updated_at DESC);
+CREATE INDEX idx_meeting_artifacts_person ON meeting_artifacts(person_id, updated_at DESC);
+CREATE INDEX idx_meeting_artifacts_company ON meeting_artifacts(company_id, updated_at DESC);
+CREATE INDEX idx_meeting_artifacts_project ON meeting_artifacts(project_id, updated_at DESC);
+"#,
+    ),
+    (
+        29,
+        r#"
+CREATE TABLE meeting_preferences (
+  meeting_id           TEXT PRIMARY KEY REFERENCES meetings(item_id) ON DELETE CASCADE,
+  summary_template_id  TEXT REFERENCES summary_templates(id) ON DELETE SET NULL,
+  transparency_ack     INTEGER NOT NULL DEFAULT 0,
+  consent_message      TEXT,
+  updated_at           TEXT NOT NULL
+);
+"#,
+    ),
+    (
+        30,
+        r#"
+ALTER TABLE items ADD COLUMN raw_content TEXT;
+"#,
+    ),
 ];
 
 const META_TABLE_SQL: &str = r#"
@@ -491,7 +629,7 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(v, "27");
+        assert_eq!(v, "30");
     }
 
     #[test]
@@ -506,6 +644,20 @@ mod tests {
             )
             .unwrap();
         assert_eq!(count, 2);
+    }
+
+    #[test]
+    fn migration_v30_adds_raw_transcript_content() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        run_migrations(&mut conn).unwrap();
+        let cols: Vec<String> = conn
+            .prepare("PRAGMA table_info(items)")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        assert!(cols.iter().any(|name| name == "raw_content"));
     }
 
     #[test]
@@ -645,7 +797,7 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(version, "27");
+        assert_eq!(version, "30");
     }
 
     #[test]
@@ -783,5 +935,39 @@ mod tests {
                 "recordings missing column {expected}; got {cols:?}"
             );
         }
+    }
+
+    #[test]
+    fn migration_v28_adds_meeting_intelligence_tables() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        run_migrations(&mut conn).unwrap();
+        let expected = [
+            "summary_templates",
+            "meeting_summary_runs",
+            "chat_session_scopes",
+            "recipes",
+            "companies",
+            "people",
+            "meeting_participants",
+            "meeting_artifacts",
+        ];
+        for table in expected {
+            let exists: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?1",
+                    [table],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(exists, 1, "missing {table}");
+        }
+    }
+
+    #[test]
+    fn migration_v29_adds_meeting_preferences() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        run_migrations(&mut conn).unwrap();
+        conn.execute_batch("SELECT summary_template_id, transparency_ack, consent_message FROM meeting_preferences LIMIT 0")
+            .unwrap();
     }
 }

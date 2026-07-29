@@ -30,7 +30,7 @@ use crate::db::{self, ChatMessage, ChatSession, Db, Item};
 use crate::input::binding::{
     code_from_key, key_from_code, Binding, ModifierKind, ModifierSide, SerKey,
 };
-use crate::input::hotkeys::{spawn_listener, HotkeyEvent};
+use crate::input::hotkeys::{spawn_gated_listener, spawn_listener, HotkeyEvent};
 use crate::llm::{self, rag, GenerateRequest, Llm, LlmDownloadProgress, LlmModelEntry};
 use crate::permissions::{self, CameraAccessOutcome, MicAccessOutcome, PermissionsStatus, SettingsPane};
 use crate::settings::SettingsStore;
@@ -61,6 +61,11 @@ pub struct AppState {
     pub log_capture_binding: Arc<RwLock<Binding>>,
     pub action_binding: Arc<RwLock<Binding>>,
     pub edit_selection_binding: Arc<RwLock<Binding>>,
+    /// Escape is intercepted only while this flag is true.
+    pub cancel_active: Arc<AtomicBool>,
+    /// Fast recovery path for the latest processed dictation. SQLite remains
+    /// the durable fallback across restarts.
+    pub last_transcript: Arc<Mutex<Option<String>>>,
     pub hotkey_started: AtomicBool,
     /// When `true`, the coordinator drops Pressed/Released events. Toggled
     /// from the tray menu (Pause/Resume hotkeys). The hotkey listeners stay
@@ -92,6 +97,49 @@ pub struct AppState {
     pub active_recording: std::sync::Arc<
         std::sync::Mutex<Option<(crate::screenrec::ScreenrecHandle, RecordingMeta)>>,
     >,
+}
+
+fn recoverable_transcript(state: &AppState) -> Result<String, String> {
+    if let Ok(guard) = state.last_transcript.lock() {
+        if let Some(text) = guard.as_ref().filter(|text| !text.trim().is_empty()) {
+            return Ok(text.clone());
+        }
+    }
+    let db = state
+        .db
+        .as_ref()
+        .ok_or_else(|| "No transcript is available yet".to_string())?;
+    db.with_conn(crate::db::items::latest_voice_capture)
+        .map_err(|e| e.to_string())?
+        .map(|item| item.content)
+        .ok_or_else(|| "No transcript is available yet".to_string())
+}
+
+#[tauri::command]
+pub fn get_last_transcript(state: State<'_, AppState>) -> Result<String, String> {
+    recoverable_transcript(&state)
+}
+
+#[tauri::command]
+pub fn copy_last_transcript(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let text = recoverable_transcript(&state)?;
+    crate::input::paste::copy_to_clipboard(&text).map_err(|e| e.to_string())?;
+    let _ = app.emit("voice:transcript_recovered", "copied");
+    Ok(text)
+}
+
+#[tauri::command]
+pub fn paste_last_transcript(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let text = recoverable_transcript(&state)?;
+    crate::input::paste::paste_at_cursor(&text).map_err(|e| e.to_string())?;
+    let _ = app.emit("voice:transcript_recovered", "pasted");
+    Ok(text)
 }
 
 #[tauri::command]
@@ -567,6 +615,7 @@ pub struct SpeechModelStatus {
     pub version_label: String,
     pub description: String,
     pub language_label: String,
+    pub supported_languages: Vec<String>,
     pub english_only: bool,
     pub accuracy_bars: u8,
     pub speed_bars: u8,
@@ -584,6 +633,7 @@ fn model_status_for(entry: &ModelEntry, active_id: Option<&str>) -> SpeechModelS
         version_label: entry.version_label.clone(),
         description: entry.description.clone(),
         language_label: entry.language_label.clone(),
+        supported_languages: entry.supported_languages.clone(),
         english_only: entry.english_only,
         accuracy_bars: entry.accuracy_bars,
         speed_bars: entry.speed_bars,
@@ -698,11 +748,18 @@ pub fn ensure_pipeline_started(state: &AppState, app: &AppHandle) {
     let (lc_tx, mut lc_rx) = mpsc::unbounded_channel::<HotkeyEvent>();
     let (ac_tx, mut ac_rx) = mpsc::unbounded_channel::<HotkeyEvent>();
     let (es_tx, mut es_rx) = mpsc::unbounded_channel::<HotkeyEvent>();
+    let (cancel_tx, mut cancel_rx) = mpsc::unbounded_channel::<HotkeyEvent>();
 
     spawn_listener(Arc::clone(&state.binding), vac_tx, Arc::clone(&state.rebinding));
     spawn_listener(Arc::clone(&state.log_capture_binding), lc_tx, Arc::clone(&state.rebinding));
     spawn_listener(Arc::clone(&state.action_binding), ac_tx, Arc::clone(&state.rebinding));
     spawn_listener(Arc::clone(&state.edit_selection_binding), es_tx, Arc::clone(&state.rebinding));
+    spawn_gated_listener(
+        Arc::new(RwLock::new(Binding::single(rdev::Key::Escape))),
+        cancel_tx,
+        Arc::clone(&state.rebinding),
+        Arc::clone(&state.cancel_active),
+    );
 
     // macOS drives the coordinator from the CGEventTap listeners above.
     // Non-macOS has no tap, so register the global-shortcut trigger.
@@ -771,6 +828,19 @@ pub fn ensure_pipeline_started(state: &AppState, app: &AppHandle) {
             }
         });
     }
+    {
+        let coord_tx = coord_tx.clone();
+        tauri::async_runtime::spawn(async move {
+            while let Some(ev) = cancel_rx.recv().await {
+                if coord_tx
+                    .send(CoordinatorMsg::Hotkey(Action::Cancel, ev))
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        });
+    }
 
     let pipeline_state = Arc::clone(&state.pipeline_state);
     let tray_for_state = Arc::clone(&state.tray);
@@ -779,6 +849,8 @@ pub fn ensure_pipeline_started(state: &AppState, app: &AppHandle) {
     let db = state.db.clone();
     let event_log_root = state.event_log_root.clone();
     let paused = Arc::clone(&state.paused_hotkeys);
+    let cancel_active = Arc::clone(&state.cancel_active);
+    let last_transcript = Arc::clone(&state.last_transcript);
     let app = app.clone();
 
     thread::spawn(move || {
@@ -803,6 +875,8 @@ pub fn ensure_pipeline_started(state: &AppState, app: &AppHandle) {
                 db,
                 event_log_root,
                 paused,
+                cancel_active,
+                last_transcript,
                 move |new_state: TrayPipelineState| {
                     if let Ok(t) = tray_for_state.lock() {
                         t.set_state(new_state);
@@ -2325,6 +2399,115 @@ pub fn set_custom_words(state: State<'_, AppState>, words: Vec<String>) -> Resul
         .map_err(|e| e.to_string())
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SpokenEditingSettings {
+    pub enabled: bool,
+    pub corrections: bool,
+    pub punctuation: bool,
+    pub lists: bool,
+    pub press_enter: bool,
+}
+
+#[tauri::command]
+pub fn get_spoken_editing_settings(state: State<'_, AppState>) -> SpokenEditingSettings {
+    SpokenEditingSettings {
+        enabled: state.settings.spoken_editing_enabled(),
+        corrections: state.settings.spoken_corrections_enabled(),
+        punctuation: state.settings.spoken_punctuation_enabled(),
+        lists: state.settings.spoken_lists_enabled(),
+        press_enter: state.settings.spoken_press_enter_enabled(),
+    }
+}
+
+#[tauri::command]
+pub fn set_spoken_editing_settings(
+    state: State<'_, AppState>,
+    settings: SpokenEditingSettings,
+) -> Result<(), String> {
+    state
+        .settings
+        .set_spoken_editing(
+            settings.enabled,
+            settings.corrections,
+            settings.punctuation,
+            settings.lists,
+            settings.press_enter,
+        )
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_transcription_cleanup_language(state: State<'_, AppState>) -> String {
+    state.settings.transcription_cleanup_language()
+}
+
+#[tauri::command]
+pub fn set_transcription_cleanup_language(
+    state: State<'_, AppState>,
+    language: String,
+) -> Result<(), String> {
+    const ALLOWED: &[&str] = &["auto", "en", "es", "fr", "de", "pt"];
+    if !ALLOWED.contains(&language.as_str()) {
+        return Err(format!("Unsupported cleanup language: {language}"));
+    }
+    state
+        .settings
+        .set_transcription_cleanup_language(&language)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_dictionary_entries(
+    state: State<'_, AppState>,
+) -> Vec<crate::settings::DictionaryEntry> {
+    state.settings.dictionary_entries()
+}
+
+#[tauri::command]
+pub fn set_dictionary_entries(
+    state: State<'_, AppState>,
+    entries: Vec<crate::settings::DictionaryEntry>,
+) -> Result<(), String> {
+    if entries.iter().any(|entry| {
+        entry.spoken_form.trim().is_empty()
+            || entry.replacement.is_empty()
+            || entry.spoken_form.len() > 200
+            || entry.replacement.len() > 500
+    }) {
+        return Err("Dictionary entries require a spoken form and replacement".into());
+    }
+    state
+        .settings
+        .set_dictionary_entries(entries)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_transcription_snippets(
+    state: State<'_, AppState>,
+) -> Vec<crate::settings::TranscriptionSnippet> {
+    state.settings.transcription_snippets()
+}
+
+#[tauri::command]
+pub fn set_transcription_snippets(
+    state: State<'_, AppState>,
+    snippets: Vec<crate::settings::TranscriptionSnippet>,
+) -> Result<(), String> {
+    if snippets.iter().any(|snippet| {
+        snippet.trigger.trim().is_empty()
+            || snippet.expansion.is_empty()
+            || snippet.trigger.len() > 200
+            || snippet.expansion.len() > 10_000
+    }) {
+        return Err("Snippets require a trigger and expansion".into());
+    }
+    state
+        .settings
+        .set_transcription_snippets(snippets)
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub fn get_default_filler_words() -> Vec<String> {
     crate::asr::postprocess::DEFAULT_FILLERS
@@ -2506,6 +2689,25 @@ pub fn create_chat_session(
 }
 
 #[tauri::command]
+pub fn create_chat_session_scoped(
+    state: State<'_, AppState>,
+    scope_kind: String,
+    scope_id: String,
+) -> Result<ChatSession, String> {
+    if !matches!(scope_kind.as_str(), "meeting" | "person" | "company" | "project") {
+        return Err("Unsupported Chat scope".into());
+    }
+    let db = require_db(&state)?;
+    let id = ulid::Ulid::new().to_string();
+    let now = crate::db::items::chrono_now_iso();
+    let session = db.with_conn(|c| chat::insert_session(c, &id, "New Chat", None))
+        .map_err(|e| e.to_string())?;
+    db.with_conn(|c| crate::db::meeting_intelligence::set_chat_scope(c, &id, &scope_kind, &scope_id, &now))
+        .map_err(|e| e.to_string())?;
+    Ok(session)
+}
+
+#[tauri::command]
 pub fn list_chat_sessions(
     state: State<'_, AppState>,
     project_id: Option<String>,
@@ -2574,6 +2776,7 @@ pub fn list_sessions_for_item(
 /// Returns an empty string when no usable keywords remain.
 #[derive(serde::Serialize, Clone)]
 pub struct ContextSource {
+    pub source_id: String,
     pub date: String,
     pub kind: String,
     pub content: String,
@@ -2660,9 +2863,61 @@ pub async fn chat_with_memory(
         .saturating_sub(history_tokens)
         .max(rag::MIN_CHUNK_BUDGET_TOKENS);
 
+    let chat_scope = db
+        .with_conn(|c| crate::db::meeting_intelligence::get_chat_scope(c, &session_id))
+        .unwrap_or_default();
+    let scoped_source = if let Some((kind, scope_id)) = chat_scope.as_ref() {
+        match kind.as_str() {
+            "meeting" => {
+                let live_text = if state.meeting_manager.active_id().await.as_deref() == Some(scope_id.as_str()) {
+                    let segments = state.meeting_manager.transcript_snapshot().await;
+                    Some(crate::meeting::synthesizer::flatten_transcript(&segments))
+                } else {
+                    None
+                };
+                let meeting_source = db.with_conn(|c| {
+                    let item = crate::db::items::get_item(c, scope_id)?;
+                    let meeting = crate::db::meetings::get_meeting(c, scope_id)?;
+                    Ok(item.map(|item| {
+                        let mut content = live_text.clone().filter(|s| !s.trim().is_empty()).unwrap_or(item.content);
+                        if let Some(notes) = meeting.and_then(|m| m.user_notes).filter(|n| !n.trim().is_empty()) {
+                            content.push_str("\nUser notes:\n");
+                            content.push_str(&notes);
+                        }
+                        rag::ChunkSource {
+                            item_id: scope_id.clone(),
+                            date: item.captured_at[..10.min(item.captured_at.len())].to_string(),
+                            kind: "meeting".into(),
+                            content,
+                        }
+                    }))
+                }).unwrap_or_default();
+                meeting_source
+            }
+            _ => None,
+        }
+    } else {
+        None
+    };
+
     let chunks: Vec<rag::Chunk> = {
         let rag_query = build_rag_query(&message);
-        if rag_query.is_empty() {
+        if let Some(source) = scoped_source {
+            if terms.is_empty() {
+                let mut used = 0usize;
+                rag::split_into_chunks(&source.content)
+                    .into_iter()
+                    .filter_map(|content| {
+                        let tokens = rag::estimate_tokens(&content);
+                        if used + tokens > chunk_budget { return None; }
+                        used += tokens;
+                        Some(rag::Chunk { content, date: source.date.clone(), kind: source.kind.clone(), item_id: source.item_id.clone() })
+                    })
+                    .collect()
+            } else {
+                rag::build_context_chunks(&[source], &terms, chunk_budget)
+            }
+        } else if rag_query.is_empty() {
             Vec::new()
         } else {
             let (from, to) = match &date_window {
@@ -2729,6 +2984,7 @@ pub async fn chat_with_memory(
                     .map(|c| c.content.clone())
                     .collect();
                 out.push(ContextSource {
+                    source_id: ch.item_id.clone(),
                     date: ch.date.clone(),
                     kind: ch.kind.clone(),
                     content: joined.join("\n…\n"),
@@ -3061,6 +3317,509 @@ pub fn update_meeting_notes(
     let db = state.db.as_ref().ok_or("db unavailable")?;
     db.with_conn(move |conn| crate::db::meetings::update_user_notes(conn, &id, &notes))
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_active_meeting_workspace(
+    state: tauri::State<'_, AppState>,
+) -> Result<Option<serde_json::Value>, String> {
+    let Some(id) = state.meeting_manager.active_id().await else {
+        return Ok(None);
+    };
+    let db = require_db(&state)?;
+    let id_for_db = id.clone();
+    db.with_conn(move |conn| {
+        let meeting = crate::db::meetings::get_meeting(conn, &id_for_db)?;
+        let preferences = crate::db::meeting_intelligence::get_preferences(conn, &id_for_db)?;
+        let participants = crate::db::meeting_intelligence::list_participants(conn, &id_for_db)?;
+        Ok(meeting.map(|m| serde_json::json!({
+            "id": id_for_db,
+            "notes": m.user_notes.unwrap_or_default(),
+            "preferences": preferences,
+            "participants": participants,
+        })))
+    }).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn list_summary_templates(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<crate::db::meeting_intelligence::SummaryTemplate>, String> {
+    let db = require_db(&state)?;
+    db.with_conn(crate::db::meeting_intelligence::list_summary_templates)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn save_summary_template(
+    state: tauri::State<'_, AppState>,
+    id: Option<String>,
+    name: String,
+    description: String,
+    instructions: String,
+    sections: Vec<String>,
+) -> Result<crate::db::meeting_intelligence::SummaryTemplate, String> {
+    if name.trim().is_empty() || instructions.trim().is_empty() {
+        return Err("Template name and instructions are required".into());
+    }
+    let now = chrono::Utc::now().to_rfc3339();
+    let template = crate::db::meeting_intelligence::SummaryTemplate {
+        id: id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
+        name: name.trim().to_string(),
+        description: description.trim().to_string(),
+        instructions: instructions.trim().to_string(),
+        sections_json: serde_json::to_string(&sections).map_err(|e| e.to_string())?,
+        is_builtin: false,
+        archived_at: None,
+        created_at: now.clone(),
+        updated_at: now,
+    };
+    let db = require_db(&state)?;
+    let saved = template.clone();
+    db.with_conn(move |conn| crate::db::meeting_intelligence::upsert_summary_template(conn, &saved))
+        .map_err(|e| e.to_string())?;
+    Ok(template)
+}
+
+#[tauri::command]
+pub fn archive_summary_template(
+    state: tauri::State<'_, AppState>,
+    id: String,
+) -> Result<(), String> {
+    if id.starts_with("builtin-") {
+        return Err("Built-in templates cannot be archived".into());
+    }
+    let db = require_db(&state)?;
+    db.with_conn(move |conn| {
+        conn.execute("UPDATE summary_templates SET archived_at=?1,updated_at=?1 WHERE id=?2 AND is_builtin=0", rusqlite::params![chrono::Utc::now().to_rfc3339(), id])?;
+        Ok(())
+    }).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_meeting_preferences(
+    state: tauri::State<'_, AppState>,
+    id: String,
+) -> Result<Option<crate::db::meeting_intelligence::MeetingPreferences>, String> {
+    let db = require_db(&state)?;
+    db.with_conn(move |conn| crate::db::meeting_intelligence::get_preferences(conn, &id))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn set_meeting_preferences(
+    state: tauri::State<'_, AppState>,
+    id: String,
+    template_id: Option<String>,
+    transparency_ack: bool,
+    consent_message: Option<String>,
+) -> Result<(), String> {
+    let prefs = crate::db::meeting_intelligence::MeetingPreferences {
+        meeting_id: id,
+        summary_template_id: template_id,
+        transparency_ack,
+        consent_message,
+        updated_at: chrono::Utc::now().to_rfc3339(),
+    };
+    let db = require_db(&state)?;
+    db.with_conn(move |conn| crate::db::meeting_intelligence::upsert_preferences(conn, &prefs))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn list_meeting_summary_runs(
+    state: tauri::State<'_, AppState>,
+    id: String,
+) -> Result<Vec<crate::db::meeting_intelligence::MeetingSummaryRun>, String> {
+    let db = require_db(&state)?;
+    db.with_conn(move |conn| crate::db::meeting_intelligence::list_summary_runs(conn, &id))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn regenerate_meeting_summary(
+    state: tauri::State<'_, AppState>,
+    id: String,
+    template_id: Option<String>,
+) -> Result<(), String> {
+    let db = require_db(&state)?;
+    let current = db.with_conn(|conn| crate::db::meeting_intelligence::get_preferences(conn, &id))
+        .map_err(|e| e.to_string())?;
+    let prefs = crate::db::meeting_intelligence::MeetingPreferences {
+        meeting_id: id.clone(),
+        summary_template_id: template_id,
+        transparency_ack: current.as_ref().is_some_and(|p| p.transparency_ack),
+        consent_message: current.and_then(|p| p.consent_message),
+        updated_at: chrono::Utc::now().to_rfc3339(),
+    };
+    db.with_conn(|conn| crate::db::meeting_intelligence::upsert_preferences(conn, &prefs))
+        .map_err(|e| e.to_string())?;
+    state.meeting_manager.retry_summary(&id).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn list_meeting_participants(
+    state: tauri::State<'_, AppState>,
+    id: String,
+) -> Result<Vec<crate::db::meeting_intelligence::MeetingParticipant>, String> {
+    let db = require_db(&state)?;
+    db.with_conn(move |conn| crate::db::meeting_intelligence::list_participants(conn, &id))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn set_meeting_speaker_label(
+    state: tauri::State<'_, AppState>,
+    id: String,
+    speaker_key: String,
+    display_name: String,
+    person_id: Option<String>,
+) -> Result<(), String> {
+    if !matches!(speaker_key.as_str(), "you" | "them") || display_name.trim().is_empty() {
+        return Err("A valid speaker and display name are required".into());
+    }
+    let now = chrono::Utc::now().to_rfc3339();
+    let participant = crate::db::meeting_intelligence::MeetingParticipant {
+        meeting_id: id,
+        speaker_key,
+        person_id,
+        display_name: display_name.trim().to_string(),
+        source: "manual".into(),
+        confirmed: true,
+        created_at: now.clone(),
+        updated_at: now,
+    };
+    let db = require_db(&state)?;
+    db.with_conn(move |conn| crate::db::meeting_intelligence::upsert_participant(conn, &participant))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn list_recipes(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<crate::db::meeting_intelligence::Recipe>, String> {
+    let db = require_db(&state)?;
+    db.with_conn(crate::db::meeting_intelligence::list_recipes)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn save_recipe(
+    state: tauri::State<'_, AppState>,
+    id: Option<String>,
+    name: String,
+    description: String,
+    prompt: String,
+    default_scope: String,
+) -> Result<crate::db::meeting_intelligence::Recipe, String> {
+    if name.trim().is_empty() || prompt.trim().is_empty() {
+        return Err("Recipe name and prompt are required".into());
+    }
+    if !matches!(default_scope.as_str(), "meeting" | "project" | "person" | "company") {
+        return Err("Unsupported Recipe scope".into());
+    }
+    let now = chrono::Utc::now().to_rfc3339();
+    let recipe = crate::db::meeting_intelligence::Recipe {
+        id: id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
+        name: name.trim().to_string(),
+        description: description.trim().to_string(),
+        prompt: prompt.trim().to_string(),
+        default_scope,
+        is_builtin: false,
+        archived_at: None,
+        created_at: now.clone(),
+        updated_at: now,
+    };
+    let saved = recipe.clone();
+    let db = require_db(&state)?;
+    db.with_conn(move |c| crate::db::meeting_intelligence::upsert_recipe(c, &saved))
+        .map_err(|e| e.to_string())?;
+    Ok(recipe)
+}
+
+fn scoped_intelligence_context(db: &Db, scope_kind: &str, scope_id: &str) -> Result<(String, Vec<String>), String> {
+    db.with_conn(|conn| {
+        let mut sources = Vec::new();
+        let mut parts = Vec::new();
+        match scope_kind {
+            "meeting" => {
+                if let Some(item) = crate::db::items::get_item(conn, scope_id)? {
+                    sources.push(item.id);
+                    parts.push(item.content);
+                }
+            }
+            "project" => {
+                let mut stmt = conn.prepare("SELECT id,content FROM items WHERE project_id=?1 AND deleted_at IS NULL ORDER BY captured_at DESC LIMIT 30")?;
+                let rows = stmt.query_map([scope_id], |r| Ok((r.get::<_,String>(0)?, r.get::<_,String>(1)?)))?;
+                for row in rows { let (id, content) = row?; sources.push(id); parts.push(content); }
+            }
+            "person" => {
+                let mut stmt = conn.prepare("SELECT i.id,i.content FROM items i JOIN meeting_participants mp ON mp.meeting_id=i.id WHERE mp.person_id=?1 AND i.deleted_at IS NULL ORDER BY i.captured_at DESC LIMIT 30")?;
+                let rows = stmt.query_map([scope_id], |r| Ok((r.get::<_,String>(0)?, r.get::<_,String>(1)?)))?;
+                for row in rows { let (id, content) = row?; sources.push(id); parts.push(content); }
+            }
+            "company" => {
+                let mut stmt = conn.prepare("SELECT DISTINCT i.id,i.content FROM items i JOIN meeting_participants mp ON mp.meeting_id=i.id JOIN people p ON p.id=mp.person_id WHERE p.company_id=?1 AND i.deleted_at IS NULL ORDER BY i.captured_at DESC LIMIT 30")?;
+                let rows = stmt.query_map([scope_id], |r| Ok((r.get::<_,String>(0)?, r.get::<_,String>(1)?)))?;
+                for row in rows { let (id, content) = row?; sources.push(id); parts.push(content); }
+            }
+            _ => return Err(rusqlite::Error::InvalidQuery.into()),
+        }
+        let context = parts.join("\n\n---\n\n");
+        Ok((context.chars().take(24_000).collect(), sources))
+    }).map_err(|e| e.to_string())
+}
+
+async fn generate_scoped_artifact(
+    state: &AppState,
+    kind: &str,
+    title: &str,
+    instruction: &str,
+    scope_kind: &str,
+    scope_id: &str,
+) -> Result<crate::db::meeting_intelligence::MeetingArtifact, String> {
+    if !state.llm.ready() {
+        return Err("No local AI model is loaded. Download one in Settings → AI Model.".into());
+    }
+    let db = state.db.as_ref().ok_or("db unavailable")?;
+    let (context, source_ids) = scoped_intelligence_context(db, scope_kind, scope_id)?;
+    if context.trim().is_empty() {
+        return Err("No local context is available for this workflow.".into());
+    }
+    let response = state.llm.generate(GenerateRequest {
+        system: Some(format!("You are EchoScribe's private local meeting assistant. {instruction} Use only the supplied source context. If evidence is missing, say so. Never invent people, commitments, dates, or facts.")),
+        user: format!("Source context:\n\n{context}"),
+        history: Vec::new(),
+        max_tokens: 1200,
+        temperature: 0.35,
+        stop_strings: Vec::new(),
+        grammar_gbnf: None,
+        n_ctx: Some(16384),
+    }).await.map_err(|e| e.to_string())?;
+    let now = chrono::Utc::now().to_rfc3339();
+    let artifact = crate::db::meeting_intelligence::MeetingArtifact {
+        id: uuid::Uuid::new_v4().to_string(),
+        kind: kind.into(),
+        meeting_id: (scope_kind == "meeting").then(|| scope_id.to_string()),
+        person_id: (scope_kind == "person").then(|| scope_id.to_string()),
+        company_id: (scope_kind == "company").then(|| scope_id.to_string()),
+        project_id: (scope_kind == "project").then(|| scope_id.to_string()),
+        title: title.into(),
+        content: response,
+        sources_json: serde_json::to_string(&source_ids).unwrap_or_else(|_| "[]".into()),
+        status: "ready".into(),
+        error: None,
+        created_at: now.clone(),
+        updated_at: now,
+    };
+    let saved = artifact.clone();
+    db.with_conn(move |c| crate::db::meeting_intelligence::insert_artifact(c, &saved))
+        .map_err(|e| e.to_string())?;
+    Ok(artifact)
+}
+
+#[tauri::command]
+pub async fn run_recipe(
+    state: tauri::State<'_, AppState>,
+    recipe_id: String,
+    scope_kind: String,
+    scope_id: String,
+) -> Result<crate::db::meeting_intelligence::MeetingArtifact, String> {
+    let db = require_db(&state)?;
+    let recipe = db.with_conn(|c| crate::db::meeting_intelligence::get_recipe(c, &recipe_id))
+        .map_err(|e| e.to_string())?
+        .ok_or("Recipe not found")?;
+    generate_scoped_artifact(&state, "recipe", &recipe.name, &recipe.prompt, &scope_kind, &scope_id).await
+}
+
+#[tauri::command]
+pub async fn generate_meeting_artifact(
+    state: tauri::State<'_, AppState>,
+    kind: String,
+    scope_kind: String,
+    scope_id: String,
+) -> Result<crate::db::meeting_intelligence::MeetingArtifact, String> {
+    let (title, instruction) = match kind.as_str() {
+        "follow_up" => ("Follow-up draft", "Draft a concise follow-up email with a useful subject line, a factual recap, explicit commitments, and next steps. Do not add a recipient or send anything."),
+        "prep_brief" => ("Prep brief", "Create a concise preparation brief from past context: relationship history, recent topics, open commitments, risks, and grounded questions to ask next."),
+        _ => return Err("Unsupported artifact kind".into()),
+    };
+    generate_scoped_artifact(&state, &kind, title, instruction, &scope_kind, &scope_id).await
+}
+
+#[tauri::command]
+pub async fn rewrite_meeting_text(
+    state: tauri::State<'_, AppState>,
+    text: String,
+    instruction: String,
+) -> Result<String, String> {
+    if text.trim().is_empty() || instruction.trim().is_empty() {
+        return Err("Text and rewrite instructions are required".into());
+    }
+    state.llm.generate(GenerateRequest {
+        system: Some("Rewrite only the supplied meeting text. Preserve facts, names, commitments, and uncertainty. Output only the revised text.".into()),
+        user: format!("Instruction: {}\n\nText:\n{}", instruction.trim(), text.trim()),
+        history: Vec::new(),
+        max_tokens: 900,
+        temperature: 0.3,
+        stop_strings: Vec::new(),
+        grammar_gbnf: None,
+        n_ctx: Some(8192),
+    }).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn replace_meeting_summary_point(
+    state: tauri::State<'_, AppState>,
+    id: String,
+    summary_index: usize,
+    text: String,
+) -> Result<(), String> {
+    if text.trim().is_empty() { return Err("Summary text cannot be empty".into()); }
+    let db = require_db(&state)?;
+    db.with_conn(move |conn| {
+        let meeting = crate::db::meetings::get_meeting(conn, &id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+        let mut summary: crate::meeting::synthesizer::StoredSummary = meeting.summary_json.as_deref()
+            .and_then(|s| serde_json::from_str(s).ok())
+            .ok_or(rusqlite::Error::InvalidQuery)?;
+        let Some(point) = summary.summary.get_mut(summary_index) else { return Err(rusqlite::Error::InvalidParameterCount(1, summary.summary.len()).into()); };
+        *point = text.trim().into();
+        summary.evidence.retain(|e| e.summary_index != summary_index);
+        let summary_json = serde_json::to_string(&summary).map_err(|_| rusqlite::Error::InvalidQuery)?;
+        conn.execute("UPDATE meetings SET summary_json=?1 WHERE item_id=?2", rusqlite::params![summary_json,id])?;
+        let transcript: serde_json::Value = meeting.transcript_json.as_deref().and_then(|s| serde_json::from_str(s).ok()).unwrap_or_else(|| serde_json::json!({}));
+        let segments: Vec<crate::meeting::Segment> = serde_json::from_value(transcript.get("segments").cloned().unwrap_or_default()).unwrap_or_default();
+        let body = crate::meeting::build_flattened_body(&segments, Some(&summary_json), meeting.user_notes.as_deref());
+        conn.execute("UPDATE items SET content=?1 WHERE id=?2", rusqlite::params![body,id])?;
+        Ok(())
+    }).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn update_meeting_transcript(
+    state: tauri::State<'_, AppState>,
+    id: String,
+    segments: Vec<crate::meeting::Segment>,
+) -> Result<(), String> {
+    if segments.iter().any(|s| s.text.chars().count() > 20_000 || s.end_ms < s.start_ms) {
+        return Err("Invalid transcript segment".into());
+    }
+    let db = require_db(&state)?;
+    db.with_conn_mut(move |conn| {
+        let tx = conn.transaction()?;
+        let meeting = crate::db::meetings::get_meeting(&tx, &id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+        let old_transcript = meeting.transcript_json.unwrap_or_else(|| "{}".into());
+        let now = chrono::Utc::now().to_rfc3339();
+        crate::db::meeting_intelligence::insert_artifact(&tx, &crate::db::meeting_intelligence::MeetingArtifact {
+            id: uuid::Uuid::new_v4().to_string(), kind: "transcript_backup".into(), meeting_id: Some(id.clone()), person_id: None, company_id: None, project_id: None,
+            title: "Transcript backup".into(), content: old_transcript.clone(), sources_json: "[]".into(), status: "ready".into(), error: None, created_at: now.clone(), updated_at: now,
+        })?;
+        let mut transcript: serde_json::Value = serde_json::from_str(&old_transcript).unwrap_or_else(|_| serde_json::json!({}));
+        transcript["segments"] = serde_json::to_value(&segments).unwrap_or_else(|_| serde_json::json!([]));
+        let transcript_json = serde_json::to_string(&transcript).unwrap_or_else(|_| "{}".into());
+        let mut summary = meeting.summary_json.as_deref().and_then(|s| serde_json::from_str::<crate::meeting::synthesizer::StoredSummary>(s).ok());
+        if let Some(ref mut s) = summary {
+            s.evidence.clear();
+            for action in &mut s.action_items { action.evidence.clear(); }
+        }
+        let summary_json = summary.as_ref().and_then(|s| serde_json::to_string(s).ok());
+        tx.execute("UPDATE meetings SET transcript_json=?1,summary_json=?2 WHERE item_id=?3", rusqlite::params![transcript_json,summary_json,id])?;
+        let body = crate::meeting::build_flattened_body(&segments, summary_json.as_deref(), meeting.user_notes.as_deref());
+        tx.execute("UPDATE items SET content=?1 WHERE id=?2", rusqlite::params![body,id])?;
+        tx.commit()?;
+        Ok(())
+    }).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn list_people(state: tauri::State<'_, AppState>) -> Result<Vec<crate::db::meeting_intelligence::Person>, String> {
+    let db = require_db(&state)?;
+    db.with_conn(crate::db::meeting_intelligence::list_people).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn save_person(
+    state: tauri::State<'_, AppState>, id: Option<String>, name: String, email: Option<String>, role: Option<String>, company_id: Option<String>, notes: String,
+) -> Result<crate::db::meeting_intelligence::Person, String> {
+    if name.trim().is_empty() { return Err("Name is required".into()); }
+    let now = chrono::Utc::now().to_rfc3339();
+    let person = crate::db::meeting_intelligence::Person { id:id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string()), name:name.trim().into(), email:email.filter(|s| !s.trim().is_empty()), role:role.filter(|s| !s.trim().is_empty()), company_id, notes, created_at:now.clone(), updated_at:now };
+    let saved = person.clone();
+    let db = require_db(&state)?;
+    db.with_conn(move |c| crate::db::meeting_intelligence::upsert_person(c, &saved)).map_err(|e| e.to_string())?;
+    Ok(person)
+}
+
+#[tauri::command]
+pub fn list_companies(state: tauri::State<'_, AppState>) -> Result<Vec<crate::db::meeting_intelligence::Company>, String> {
+    let db = require_db(&state)?;
+    db.with_conn(crate::db::meeting_intelligence::list_companies).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn save_company(
+    state: tauri::State<'_, AppState>, id: Option<String>, name: String, domain: Option<String>, notes: String,
+) -> Result<crate::db::meeting_intelligence::Company, String> {
+    if name.trim().is_empty() { return Err("Name is required".into()); }
+    let now = chrono::Utc::now().to_rfc3339();
+    let company = crate::db::meeting_intelligence::Company { id:id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string()), name:name.trim().into(), domain:domain.filter(|s| !s.trim().is_empty()), notes, created_at:now.clone(), updated_at:now };
+    let saved = company.clone();
+    let db = require_db(&state)?;
+    db.with_conn(move |c| crate::db::meeting_intelligence::upsert_company(c, &saved)).map_err(|e| e.to_string())?;
+    Ok(company)
+}
+
+#[tauri::command]
+pub fn list_meeting_artifacts(
+    state: tauri::State<'_, AppState>, kind: Option<String>, meeting_id: Option<String>,
+) -> Result<Vec<crate::db::meeting_intelligence::MeetingArtifact>, String> {
+    let db = require_db(&state)?;
+    db.with_conn(move |c| crate::db::meeting_intelligence::list_artifacts(c, kind.as_deref(), meeting_id.as_deref())).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn list_relationship_meetings(
+    state: tauri::State<'_, AppState>, scope_kind: String, scope_id: String,
+) -> Result<Vec<crate::db::meetings::MeetingRow>, String> {
+    let db = require_db(&state)?;
+    db.with_conn(move |conn| {
+        let sql = match scope_kind.as_str() {
+            "person" => "SELECT DISTINCT meeting_id FROM meeting_participants WHERE person_id=?1 ORDER BY updated_at DESC",
+            "company" => "SELECT DISTINCT mp.meeting_id FROM meeting_participants mp JOIN people p ON p.id=mp.person_id WHERE p.company_id=?1 ORDER BY mp.updated_at DESC",
+            _ => return Err(rusqlite::Error::InvalidQuery.into()),
+        };
+        let mut stmt = conn.prepare(sql)?;
+        let ids = stmt.query_map([scope_id], |r| r.get::<_,String>(0))?.collect::<Result<Vec<_>,_>>()?;
+        let mut meetings = Vec::new();
+        for id in ids {
+            if let Some(meeting) = crate::db::meetings::get_meeting(conn, &id)? { meetings.push(meeting); }
+        }
+        Ok(meetings)
+    }).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn restore_transcript_backup(
+    state: tauri::State<'_, AppState>, artifact_id: String,
+) -> Result<(), String> {
+    let db = require_db(&state)?;
+    db.with_conn_mut(move |conn| {
+        let tx = conn.transaction()?;
+        let artifact = crate::db::meeting_intelligence::get_artifact(&tx, &artifact_id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+        if artifact.kind != "transcript_backup" { return Err(rusqlite::Error::InvalidQuery.into()); }
+        let meeting_id = artifact.meeting_id.ok_or(rusqlite::Error::InvalidQuery)?;
+        let meeting = crate::db::meetings::get_meeting(&tx, &meeting_id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+        let transcript: serde_json::Value = serde_json::from_str(&artifact.content).map_err(|_| rusqlite::Error::InvalidQuery)?;
+        let segments: Vec<crate::meeting::Segment> = serde_json::from_value(transcript.get("segments").cloned().unwrap_or_default()).map_err(|_| rusqlite::Error::InvalidQuery)?;
+        let mut summary = meeting.summary_json.as_deref().and_then(|s| serde_json::from_str::<crate::meeting::synthesizer::StoredSummary>(s).ok());
+        if let Some(ref mut s) = summary { s.evidence.clear(); for action in &mut s.action_items { action.evidence.clear(); } }
+        let summary_json = summary.as_ref().and_then(|s| serde_json::to_string(s).ok());
+        tx.execute("UPDATE meetings SET transcript_json=?1,summary_json=?2 WHERE item_id=?3", rusqlite::params![artifact.content,summary_json,meeting_id])?;
+        let body = crate::meeting::build_flattened_body(&segments, summary_json.as_deref(), meeting.user_notes.as_deref());
+        tx.execute("UPDATE items SET content=?1 WHERE id=?2", rusqlite::params![body,meeting_id])?;
+        tx.commit()?;
+        Ok(())
+    }).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

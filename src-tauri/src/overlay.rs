@@ -9,10 +9,18 @@ const OVERLAY_HEIGHT: f64 = 36.0;
 const OVERLAY_BOTTOM_OFFSET: f64 = 80.0;
 
 /// Consent overlay (meeting consent prompt) dimensions.
-const CONSENT_OVERLAY_WIDTH: f64 = 320.0;
-const CONSENT_OVERLAY_HEIGHT: f64 = 130.0;
-/// Consent overlay margin from screen edges (bottom-right corner).
-const CONSENT_OVERLAY_MARGIN: f64 = 24.0;
+const CONSENT_OVERLAY_WIDTH: f64 = 520.0;
+const CONSENT_OVERLAY_HEIGHT: f64 = 96.0;
+
+/// Granola-style meeting-start toast dimensions and screen-edge spacing.
+const MEETING_TOAST_WIDTH: f64 = 460.0;
+const MEETING_TOAST_HEIGHT: f64 = 96.0;
+const CUSTOM_TOAST_RIGHT_MARGIN: f64 = 20.0;
+/// Leave room for one ordinary macOS notification banner. The supported
+/// notification APIs do not expose other apps' live banner geometry, so a
+/// reserved slot is more reliable than trying to screen-scrape Notification
+/// Center or depend on private Accessibility structure.
+const CUSTOM_TOAST_TOP_MARGIN: f64 = 148.0;
 
 /// Creates the recording overlay window (hidden by default).
 ///
@@ -59,17 +67,32 @@ pub fn create_recording_overlay(app_handle: &AppHandle<Wry>) {
     }
 }
 
-/// Returns (x, y) for bottom-right placement of the consent overlay.
+/// Returns (x, y) for the notification-safe top-right placement of the
+/// consent overlay.
 fn calculate_consent_overlay_position(app_handle: &AppHandle<Wry>) -> Option<(f64, f64)> {
     let monitor = app_handle.primary_monitor().ok().flatten()?;
     let scale = monitor.scale_factor();
     let monitor_x = monitor.position().x as f64 / scale;
     let monitor_y = monitor.position().y as f64 / scale;
     let monitor_width = monitor.size().width as f64 / scale;
-    let monitor_height = monitor.size().height as f64 / scale;
 
-    let x = monitor_x + monitor_width - CONSENT_OVERLAY_WIDTH - CONSENT_OVERLAY_MARGIN;
-    let y = monitor_y + monitor_height - CONSENT_OVERLAY_HEIGHT - CONSENT_OVERLAY_MARGIN;
+    let x = monitor_x + monitor_width - CONSENT_OVERLAY_WIDTH - CUSTOM_TOAST_RIGHT_MARGIN;
+    let y = monitor_y + CUSTOM_TOAST_TOP_MARGIN;
+    Some((x, y))
+}
+
+/// Returns (x, y) for top-right placement of the meeting-start toast. The
+/// larger top margin keeps it clear of the macOS menu bar while still feeling
+/// attached to the meeting window underneath it.
+fn calculate_meeting_toast_position(app_handle: &AppHandle<Wry>) -> Option<(f64, f64)> {
+    let monitor = app_handle.primary_monitor().ok().flatten()?;
+    let scale = monitor.scale_factor();
+    let monitor_x = monitor.position().x as f64 / scale;
+    let monitor_y = monitor.position().y as f64 / scale;
+    let monitor_width = monitor.size().width as f64 / scale;
+
+    let x = monitor_x + monitor_width - MEETING_TOAST_WIDTH - CUSTOM_TOAST_RIGHT_MARGIN;
+    let y = monitor_y + CUSTOM_TOAST_TOP_MARGIN;
     Some((x, y))
 }
 
@@ -203,7 +226,7 @@ pub fn hide_recording_overlay_now(app_handle: &AppHandle<Wry>) {
 
 /// Creates the consent overlay window (hidden by default).
 ///
-/// The consent overlay is a small always-on-top card at the bottom-right
+/// The consent overlay is a small always-on-top card at the top-right
 /// of the primary monitor. When a meeting is detected and the user pref
 /// is `Ask`, the detector calls `show_consent_overlay()` and the user
 /// clicks Record / Always / Don't record. The frontend then invokes the
@@ -269,6 +292,97 @@ pub fn show_consent_overlay(app_handle: &AppHandle<Wry>, bundle_id: &str, app_na
 pub fn hide_consent_overlay(app_handle: &AppHandle<Wry>) {
     if let Some(overlay) = app_handle.get_webview_window("consent_overlay") {
         let _ = overlay.hide();
+    }
+}
+
+/// Creates the custom meeting-start toast window (hidden by default). It is
+/// separate from the persistent recording pill so the toast can disappear
+/// without implying that meeting capture stopped.
+pub fn create_meeting_start_toast(app_handle: &AppHandle<Wry>) {
+    if app_handle
+        .get_webview_window("meeting_start_toast")
+        .is_some()
+    {
+        return;
+    }
+    let (x, y) = match calculate_meeting_toast_position(app_handle) {
+        Some(pos) => pos,
+        None => {
+            debug!("failed to determine meeting toast position; skipping creation");
+            return;
+        }
+    };
+
+    match WebviewWindowBuilder::new(
+        app_handle,
+        "meeting_start_toast",
+        tauri::WebviewUrl::App("src/meeting-toast/index.html".into()),
+    )
+    .title("Meeting started")
+    .position(x, y)
+    .inner_size(MEETING_TOAST_WIDTH, MEETING_TOAST_HEIGHT)
+    .resizable(false)
+    .shadow(false)
+    .maximizable(false)
+    .minimizable(false)
+    .closable(false)
+    .accept_first_mouse(true)
+    .decorations(false)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .transparent(true)
+    .focused(false)
+    .visible(false)
+    .build()
+    {
+        Ok(_) => debug!("meeting-start toast window created (hidden)"),
+        Err(e) => error!("failed to create meeting-start toast window: {}", e),
+    }
+}
+
+/// Shows the meeting-start toast and sends it the detected application name.
+/// Repositioning on every show handles display changes between meetings.
+pub fn show_meeting_start_toast(
+    app_handle: &AppHandle<Wry>,
+    detected_app_name: Option<&str>,
+) {
+    // A consent choice can start recording while the Ask window is still
+    // fading. Replace it atomically so two custom meeting toasts never stack
+    // in the same reserved slot.
+    hide_consent_overlay(app_handle);
+    if app_handle
+        .get_webview_window("meeting_start_toast")
+        .is_none()
+    {
+        create_meeting_start_toast(app_handle);
+    }
+    if let Some(toast) = app_handle.get_webview_window("meeting_start_toast") {
+        if let Some((x, y)) = calculate_meeting_toast_position(app_handle) {
+            let _ = toast.set_position(tauri::Position::Logical(
+                tauri::LogicalPosition { x, y },
+            ));
+        }
+        if let Err(e) = toast.show() {
+            warn!(?e, "meeting-start toast show failed");
+        }
+        // Showing a window may make it key on macOS. Reasserting the window
+        // level keeps the toast visible without taking keyboard focus.
+        let _ = toast.set_always_on_top(true);
+        if let Err(e) = toast.emit(
+            "show-meeting-toast",
+            serde_json::json!({ "app_name": detected_app_name }),
+        ) {
+            warn!(?e, "show-meeting-toast emit failed");
+        }
+    }
+}
+
+/// Immediately dismisses a still-visible start toast, for example when the
+/// user stops a meeting before the toast's normal timeout.
+pub fn hide_meeting_start_toast(app_handle: &AppHandle<Wry>) {
+    if let Some(toast) = app_handle.get_webview_window("meeting_start_toast") {
+        let _ = toast.emit("hide-meeting-toast", ());
+        let _ = toast.hide();
     }
 }
 

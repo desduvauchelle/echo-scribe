@@ -73,6 +73,15 @@ export const getVoiceAtCursorBinding = (): Promise<JsBinding> =>
 export const updateVoiceAtCursorBinding = (binding: JsBinding): Promise<void> =>
   invoke("update_voice_at_cursor_binding", { binding });
 
+export const getLastTranscript = (): Promise<string> =>
+  invoke("get_last_transcript");
+
+export const copyLastTranscript = (): Promise<string> =>
+  invoke("copy_last_transcript");
+
+export const pasteLastTranscript = (): Promise<string> =>
+  invoke("paste_last_transcript");
+
 export const getLogCaptureBinding = (): Promise<JsBinding> =>
   invoke("get_log_capture_binding");
 
@@ -149,6 +158,7 @@ export type SpeechModelStatus = {
   version_label: string;
   description: string;
   language_label: string;
+  supported_languages: string[];
   english_only: boolean;
   accuracy_bars: number;
   speed_bars: number;
@@ -540,6 +550,11 @@ export const createChatSession = (
 ): Promise<ChatSession> =>
   invoke("create_chat_session", { projectId });
 
+export const createChatSessionScoped = (
+  scopeKind: "meeting" | "person" | "company" | "project",
+  scopeId: string,
+): Promise<ChatSession> => invoke("create_chat_session_scoped", { scopeKind, scopeId });
+
 export const listChatSessions = (
   projectId: string | null,
 ): Promise<ChatSession[]> =>
@@ -557,6 +572,7 @@ export const renameChatSession = (
 ): Promise<void> => invoke("rename_chat_session", { sessionId, name });
 
 export type ContextSource = {
+  source_id: string;
   date: string;
   kind: string;
   content: string;
@@ -615,6 +631,53 @@ export const getCustomWords = (): Promise<string[]> => invoke("get_custom_words"
 
 export const setCustomWords = (words: string[]): Promise<void> =>
   invoke("set_custom_words", { words });
+
+export interface SpokenEditingSettings {
+  enabled: boolean;
+  corrections: boolean;
+  punctuation: boolean;
+  lists: boolean;
+  press_enter: boolean;
+}
+
+export const getSpokenEditingSettings = (): Promise<SpokenEditingSettings> =>
+  invoke("get_spoken_editing_settings");
+
+export const setSpokenEditingSettings = (
+  settings: SpokenEditingSettings,
+): Promise<void> => invoke("set_spoken_editing_settings", { settings });
+
+export const getTranscriptionCleanupLanguage = (): Promise<string> =>
+  invoke("get_transcription_cleanup_language");
+
+export const setTranscriptionCleanupLanguage = (
+  language: string,
+): Promise<void> => invoke("set_transcription_cleanup_language", { language });
+
+export interface DictionaryEntry {
+  spoken_form: string;
+  replacement: string;
+  language: string;
+}
+
+export interface TranscriptionSnippet {
+  trigger: string;
+  expansion: string;
+  language: string;
+}
+
+export const getDictionaryEntries = (): Promise<DictionaryEntry[]> =>
+  invoke("get_dictionary_entries");
+
+export const setDictionaryEntries = (entries: DictionaryEntry[]): Promise<void> =>
+  invoke("set_dictionary_entries", { entries });
+
+export const getTranscriptionSnippets = (): Promise<TranscriptionSnippet[]> =>
+  invoke("get_transcription_snippets");
+
+export const setTranscriptionSnippets = (
+  snippets: TranscriptionSnippet[],
+): Promise<void> => invoke("set_transcription_snippets", { snippets });
 
 export const getDefaultFillerWords = (): Promise<string[]> =>
   invoke("get_default_filler_words");
@@ -861,17 +924,79 @@ export type StoredTranscript = {
 };
 
 export type StoredSummary = {
-  summary: string[];
-  action_items: {
-    text: string;
-    owner: "you" | "them" | "unspecified";
+    summary: string[];
+    action_items: {
+      text: string;
+      owner: "you" | "them" | "unspecified";
+      tags?: string[];
+      project_name?: string | null;
+      evidence?: EvidenceRef[];
+    }[];
+    suggested_title: string;
+    raw?: string | null;
     tags?: string[];
     project_name?: string | null;
-  }[];
-  suggested_title: string;
-  raw?: string | null;
-  tags?: string[];
-  project_name?: string | null;
+    evidence?: SummaryEvidence[];
+};
+
+export type EvidenceRef = {
+  segment_index: number;
+  start_ms: number;
+  end_ms: number;
+  quote: string;
+};
+
+export type SummaryEvidence = EvidenceRef & { summary_index: number };
+
+export type SummaryTemplate = {
+  id: string;
+  name: string;
+  description: string;
+  instructions: string;
+  sections_json: string;
+  is_builtin: boolean;
+  archived_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type MeetingPreferences = {
+  meeting_id: string;
+  summary_template_id: string | null;
+  transparency_ack: boolean;
+  consent_message: string | null;
+  updated_at: string;
+};
+
+export type MeetingParticipant = {
+  meeting_id: string;
+  speaker_key: "you" | "them";
+  person_id: string | null;
+  display_name: string;
+  source: string;
+  confirmed: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type MeetingSummaryRun = {
+  id: string;
+  meeting_id: string;
+  template_id: string | null;
+  template_snapshot_json: string | null;
+  summary_json: string | null;
+  user_notes_snapshot: string;
+  transcript_hash: string;
+  status: string;
+  error: string | null;
+  created_at: string;
+};
+
+export type ActiveMeetingWorkspace = {
+  id: string;
+  notes: string;
+  preferences: MeetingPreferences | null;
+  participants: MeetingParticipant[];
 };
 
 export const startMeetingManual = (): Promise<string> => invoke("start_meeting_manual");
@@ -886,6 +1011,113 @@ export const listMeetingActionItems = (id: string): Promise<Item[]> =>
   invoke("list_meeting_action_items", { id });
 export const updateMeetingNotes = (id: string, notes: string): Promise<void> =>
   invoke("update_meeting_notes", { id, notes });
+export const getActiveMeetingWorkspace = (): Promise<ActiveMeetingWorkspace | null> =>
+  invoke("get_active_meeting_workspace");
+export const listSummaryTemplates = (): Promise<SummaryTemplate[]> =>
+  invoke("list_summary_templates");
+export const saveSummaryTemplate = (input: {
+  id?: string | null;
+  name: string;
+  description: string;
+  instructions: string;
+  sections: string[];
+}): Promise<SummaryTemplate> => invoke("save_summary_template", input);
+export const archiveSummaryTemplate = (id: string): Promise<void> =>
+  invoke("archive_summary_template", { id });
+export const getMeetingPreferences = (id: string): Promise<MeetingPreferences | null> =>
+  invoke("get_meeting_preferences", { id });
+export const setMeetingPreferences = (
+  id: string,
+  templateId: string | null,
+  transparencyAck: boolean,
+  consentMessage: string | null,
+): Promise<void> => invoke("set_meeting_preferences", { id, templateId, transparencyAck, consentMessage });
+export const listMeetingSummaryRuns = (id: string): Promise<MeetingSummaryRun[]> =>
+  invoke("list_meeting_summary_runs", { id });
+export const regenerateMeetingSummary = (id: string, templateId: string | null): Promise<void> =>
+  invoke("regenerate_meeting_summary", { id, templateId });
+export const listMeetingParticipants = (id: string): Promise<MeetingParticipant[]> =>
+  invoke("list_meeting_participants", { id });
+export const setMeetingSpeakerLabel = (
+  id: string,
+  speakerKey: "you" | "them",
+  displayName: string,
+  personId: string | null = null,
+): Promise<void> => invoke("set_meeting_speaker_label", { id, speakerKey, displayName, personId });
+
+export type Recipe = {
+  id: string;
+  name: string;
+  description: string;
+  prompt: string;
+  default_scope: "meeting" | "project" | "person" | "company";
+  is_builtin: boolean;
+  archived_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type Person = {
+  id: string;
+  name: string;
+  email: string | null;
+  role: string | null;
+  company_id: string | null;
+  notes: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type Company = {
+  id: string;
+  name: string;
+  domain: string | null;
+  notes: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type MeetingArtifact = {
+  id: string;
+  kind: string;
+  meeting_id: string | null;
+  person_id: string | null;
+  company_id: string | null;
+  project_id: string | null;
+  title: string;
+  content: string;
+  sources_json: string;
+  status: string;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export const listRecipes = (): Promise<Recipe[]> => invoke("list_recipes");
+export const saveRecipe = (input: { id?: string | null; name: string; description: string; prompt: string; defaultScope: Recipe["default_scope"] }): Promise<Recipe> =>
+  invoke("save_recipe", input);
+export const runRecipe = (recipeId: string, scopeKind: Recipe["default_scope"], scopeId: string): Promise<MeetingArtifact> =>
+  invoke("run_recipe", { recipeId, scopeKind, scopeId });
+export const generateMeetingArtifact = (kind: "follow_up" | "prep_brief", scopeKind: Recipe["default_scope"], scopeId: string): Promise<MeetingArtifact> =>
+  invoke("generate_meeting_artifact", { kind, scopeKind, scopeId });
+export const rewriteMeetingText = (text: string, instruction: string): Promise<string> =>
+  invoke("rewrite_meeting_text", { text, instruction });
+export const replaceMeetingSummaryPoint = (id: string, summaryIndex: number, text: string): Promise<void> =>
+  invoke("replace_meeting_summary_point", { id, summaryIndex, text });
+export const updateMeetingTranscript = (id: string, segments: Segment[]): Promise<void> =>
+  invoke("update_meeting_transcript", { id, segments });
+export const listPeople = (): Promise<Person[]> => invoke("list_people");
+export const savePerson = (input: { id?: string | null; name: string; email?: string | null; role?: string | null; companyId?: string | null; notes: string }): Promise<Person> =>
+  invoke("save_person", input);
+export const listCompanies = (): Promise<Company[]> => invoke("list_companies");
+export const saveCompany = (input: { id?: string | null; name: string; domain?: string | null; notes: string }): Promise<Company> =>
+  invoke("save_company", input);
+export const listMeetingArtifacts = (kind?: string | null, meetingId?: string | null): Promise<MeetingArtifact[]> =>
+  invoke("list_meeting_artifacts", { kind: kind ?? null, meetingId: meetingId ?? null });
+export const listRelationshipMeetings = (scopeKind: "person" | "company", scopeId: string): Promise<MeetingRow[]> =>
+  invoke("list_relationship_meetings", { scopeKind, scopeId });
+export const restoreTranscriptBackup = (artifactId: string): Promise<void> =>
+  invoke("restore_transcript_backup", { artifactId });
 export const renameMeeting = (id: string, title: string): Promise<void> =>
   invoke("rename_meeting", { id, title });
 export const deleteMeeting = (id: string): Promise<void> =>

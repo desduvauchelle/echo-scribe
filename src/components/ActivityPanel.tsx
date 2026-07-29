@@ -1,33 +1,57 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Copy, Eye, Loader, Pencil, RotateCcw, Trash2, X } from "lucide-react";
+import { Copy, Eye, Loader, MessageSquare, Pencil, Quote, RotateCcw, Send, Sparkles, Trash2, X } from "lucide-react";
 import Markdown from "./Markdown";
 import { useFocusTrap } from "./a11y/Dialog";
 import {
   completeTask,
   createProject,
+  createChatSessionScoped,
+  chatWithMemory,
   deleteItem,
   deleteMeeting,
   getItem,
   getMeeting,
+  getMeetingPreferences,
+  generateMeetingArtifact,
   listGuideRuns,
+  listMeetingParticipants,
+  listMeetingArtifacts,
+  listPeople,
+  listRecipes,
+  listSummaryTemplates,
   listProjects,
   listTagsForItem,
   listTasks,
   parseCaptureContext,
   regenerateGuideReview,
   renameMeeting,
+  regenerateMeetingSummary,
+  replaceMeetingSummaryPoint,
   restoreItem,
+  restoreTranscriptBackup,
+  rewriteMeetingText,
+  runRecipe,
+  saveRecipe,
+  saveSummaryTemplate,
   setTaskDeadline,
+  setMeetingSpeakerLabel,
   uncompleteTask,
   updateItem,
   updateMeetingNotes,
+  updateMeetingTranscript,
   type GuideRun,
   type Item,
   type ItemKind,
   type MeetingRow,
+  type MeetingParticipant,
+  type MeetingArtifact,
   type Project,
+  type Person,
+  type Recipe,
+  type Segment,
   type StoredSummary,
   type StoredTranscript,
+  type SummaryTemplate,
 } from "../lib/api";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { listen } from "@tauri-apps/api/event";
@@ -786,7 +810,14 @@ function MeetingView({
         onChange={onItemChange}
       />
 
-      <MeetingRecap item={item} summary={summary} onItemChange={onItemChange} />
+      <MeetingIntelligenceControls meeting={meeting} onMeetingChange={onMeetingChange} />
+
+      <MeetingRecap
+        item={item}
+        summary={summary}
+        onItemChange={onItemChange}
+        onEvidenceClick={(index) => document.getElementById(`meeting-segment-${index}`)?.scrollIntoView({ behavior: "smooth", block: "center" })}
+      />
 
       {summary && summary.action_items.length > 0 ? (
         <div>
@@ -805,6 +836,10 @@ function MeetingView({
       ) : null}
 
       <GuideReviewSection meetingId={meeting.item_id} />
+
+      <MeetingChatSection meetingId={meeting.item_id} />
+
+      <MeetingWorkflowsSection meeting={meeting} summary={summary} onMeetingChange={onMeetingChange} />
 
       <NotesSection meeting={meeting} onMeetingChange={onMeetingChange} />
 
@@ -847,24 +882,358 @@ function MeetingView({
         </dl>
       </div>
 
-      {transcript && transcript.segments.length > 0 ? (
-        <details>
-          <summary className="cursor-pointer text-[11px] text-faint hover:text-muted">
-            Transcript ({transcript.segments.length} segments)
-          </summary>
-          <div className="mt-2 max-h-60 space-y-1 overflow-y-auto rounded border border-line bg-surface p-2 text-[11px]">
-            {transcript.segments.map((s, i) => (
-              <div key={i}>
-                <span className={s.speaker === "you" ? "text-accent" : "text-muted"}>
-                  {s.speaker}:
-                </span>{" "}
-                <span className="text-fg/90">{s.text}</span>
-              </div>
-            ))}
-          </div>
-        </details>
-      ) : null}
+      {transcript && transcript.segments.length > 0 ? <TranscriptEditor meeting={meeting} transcript={transcript} onMeetingChange={onMeetingChange} /> : null}
     </div>
+  );
+}
+
+function MeetingIntelligenceControls({
+  meeting,
+  onMeetingChange,
+}: {
+  meeting: MeetingRow;
+  onMeetingChange: (meeting: MeetingRow) => void;
+}) {
+  const [templates, setTemplates] = useState<SummaryTemplate[]>([]);
+  const [templateId, setTemplateId] = useState("builtin-general");
+  const [participants, setParticipants] = useState<MeetingParticipant[]>([]);
+  const [people, setPeople] = useState<Person[]>([]);
+  const [labels, setLabels] = useState({ you: "You", them: "Them" });
+  const [regenerating, setRegenerating] = useState(false);
+  const [creatingTemplate, setCreatingTemplate] = useState(false);
+  const [templateName, setTemplateName] = useState("");
+  const [templateInstructions, setTemplateInstructions] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    Promise.all([
+      listSummaryTemplates(),
+      getMeetingPreferences(meeting.item_id),
+      listMeetingParticipants(meeting.item_id),
+      listPeople(),
+    ]).then(([available, preferences, meetingParticipants, knownPeople]) => {
+      setTemplates(available);
+      setTemplateId(preferences?.summary_template_id ?? "builtin-general");
+      setParticipants(meetingParticipants);
+      setPeople(knownPeople);
+      const next = { you: "You", them: "Them" };
+      for (const participant of meetingParticipants) {
+        next[participant.speaker_key] = participant.display_name;
+      }
+      setLabels(next);
+    }).catch((e) => setError(String(e)));
+  }, [meeting.item_id]);
+
+  const saveLabel = async (speaker: "you" | "them") => {
+    if (!labels[speaker].trim()) return;
+    try {
+      const linkedPersonId = participants.find((participant) => participant.speaker_key === speaker)?.person_id ?? null;
+      await setMeetingSpeakerLabel(meeting.item_id, speaker, labels[speaker].trim(), linkedPersonId);
+      setParticipants(await listMeetingParticipants(meeting.item_id));
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const regenerate = async () => {
+    setRegenerating(true);
+    setError(null);
+    try {
+      await regenerateMeetingSummary(meeting.item_id, templateId);
+      const refreshed = await getMeeting(meeting.item_id);
+      if (refreshed) onMeetingChange(refreshed);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setRegenerating(false);
+    }
+  };
+
+  return (
+    <div className="rounded-lg border border-line bg-surface/60 p-3">
+      <div className="mb-2 flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.08em] text-muted">
+        <Sparkles size={13} className="text-accent" /> Meeting intelligence
+      </div>
+      <div className="space-y-2.5 text-[12px]">
+        <label className="flex items-center gap-2">
+          <span className="w-24 shrink-0 text-faint">Summary format</span>
+          <select value={templateId} onChange={(e) => setTemplateId(e.target.value)} className="min-w-0 flex-1 rounded-md border border-line bg-canvas px-2 py-1.5 text-fg">
+            {templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
+          </select>
+          <button type="button" onClick={() => void regenerate()} disabled={regenerating} className="inline-flex items-center gap-1 rounded-md border border-line px-2 py-1.5 text-accent hover:bg-elevated disabled:opacity-50">
+            {regenerating ? <Loader size={12} className="animate-spin" /> : <RotateCcw size={12} />}
+            Regenerate
+          </button>
+        </label>
+        {creatingTemplate ? (
+          <div className="space-y-2 rounded-md border border-line bg-canvas p-2">
+            <input value={templateName} onChange={(e) => setTemplateName(e.target.value)} placeholder="Template name" className="w-full rounded border border-line bg-surface px-2 py-1.5 text-fg" />
+            <textarea value={templateInstructions} onChange={(e) => setTemplateInstructions(e.target.value)} placeholder="What should this summary emphasize and how should it be organized?" rows={3} className="w-full resize-y rounded border border-line bg-surface px-2 py-1.5 text-fg" />
+            <div className="flex justify-end gap-1"><button onClick={() => setCreatingTemplate(false)} className="px-2 py-1 text-faint">Cancel</button><button onClick={() => { saveSummaryTemplate({ name: templateName, description: "Custom meeting summary", instructions: templateInstructions, sections: [] }).then((created) => { setTemplates((current) => [...current, created]); setTemplateId(created.id); setCreatingTemplate(false); setTemplateName(""); setTemplateInstructions(""); }).catch((reason) => setError(String(reason))); }} disabled={!templateName.trim() || !templateInstructions.trim()} className="rounded bg-accent px-2 py-1 text-white disabled:opacity-50">Save template</button></div>
+          </div>
+        ) : <button type="button" onClick={() => setCreatingTemplate(true)} className="text-left text-[10px] text-accent hover:underline">+ New summary template</button>}
+        <div className="grid grid-cols-2 gap-2">
+          {(["you", "them"] as const).map((speaker) => (
+            <label key={speaker} className="flex items-center gap-2">
+              <span className="w-9 text-faint">{speaker === "you" ? "Mic" : "Call"}</span>
+              <input value={labels[speaker]} onChange={(e) => setLabels((current) => ({ ...current, [speaker]: e.target.value }))} onBlur={() => void saveLabel(speaker)} className="min-w-0 flex-1 rounded-md border border-line bg-canvas px-2 py-1.5 text-fg" />
+            </label>
+          ))}
+        </div>
+        <label className="flex items-center gap-2">
+          <span className="w-24 shrink-0 text-faint">Link caller</span>
+          <select
+            value={participants.find((participant) => participant.speaker_key === "them")?.person_id ?? ""}
+            onChange={(e) => {
+              const person = people.find((candidate) => candidate.id === e.target.value);
+              if (!person) return;
+              setLabels((current) => ({ ...current, them: person.name }));
+              setMeetingSpeakerLabel(meeting.item_id, "them", person.name, person.id)
+                .then(() => listMeetingParticipants(meeting.item_id).then(setParticipants))
+                .catch((reason) => setError(String(reason)));
+            }}
+            className="min-w-0 flex-1 rounded-md border border-line bg-canvas px-2 py-1.5 text-fg"
+          >
+            <option value="">Not linked to a person</option>
+            {people.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
+          </select>
+        </label>
+        <p className="text-[10px] leading-relaxed text-faint">
+          Speaker names are confirmed labels for the mic and call channels. Automatic multi-speaker diarization is not inferred.
+          {participants.length > 0 ? ` ${participants.length} label${participants.length === 1 ? "" : "s"} confirmed.` : ""}
+        </p>
+        {error ? <p role="alert" className="text-[11px] text-danger">{error}</p> : null}
+      </div>
+    </div>
+  );
+}
+
+function MeetingChatSection({ meetingId }: { meetingId: string }) {
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<{ role: "user" | "assistant"; content: string }[]>([]);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [sources, setSources] = useState<{ source_id: string; content: string }[]>([]);
+
+  const send = async () => {
+    const text = input.trim();
+    if (!text || loading) return;
+    setInput("");
+    setMessages((current) => [...current, { role: "user", content: text }]);
+    setLoading(true);
+    try {
+      let activeSession = sessionId;
+      if (!activeSession) {
+        const created = await createChatSessionScoped("meeting", meetingId);
+        activeSession = created.id;
+        setSessionId(created.id);
+      }
+      const response = await chatWithMemory(activeSession, text);
+      setMessages((current) => [...current, { role: "assistant", content: response.reply }]);
+      setSources(response.sources.map((source) => ({ source_id: source.source_id, content: source.content })));
+    } catch (e) {
+      setMessages((current) => [...current, { role: "assistant", content: `Error: ${String(e)}` }]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <details>
+      <summary className="flex cursor-pointer items-center gap-1.5 text-[11px] text-faint hover:text-muted">
+        <MessageSquare size={12} /> Ask this meeting
+      </summary>
+      <div className="mt-2 space-y-2 rounded-lg border border-line bg-surface p-2.5">
+        {messages.length === 0 ? <p className="text-[11px] text-faint">Answers stay scoped to this meeting’s transcript, notes, and summary.</p> : null}
+        {messages.map((message, index) => (
+          <div key={index} className={`rounded-md px-2 py-1.5 text-[11px] ${message.role === "user" ? "ml-6 bg-accent-soft text-fg" : "mr-6 bg-elevated text-fg"}`}>
+            {message.role === "assistant" ? <Markdown>{message.content}</Markdown> : message.content}
+          </div>
+        ))}
+        {sources.length > 0 ? <div className="text-[10px] text-faint">Grounded in {sources.length} meeting source{sources.length === 1 ? "" : "s"}.</div> : null}
+        <div className="flex gap-2">
+          <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } }} rows={2} placeholder="Ask about this meeting…" className="min-w-0 flex-1 resize-none rounded-md border border-line bg-canvas px-2 py-1.5 text-[11px] text-fg focus:border-accent focus:outline-none" />
+          <button type="button" onClick={() => void send()} disabled={loading || !input.trim()} aria-label="Send" className="self-end rounded-md bg-accent p-2 text-white disabled:opacity-50">
+            {loading ? <Loader size={13} className="animate-spin" /> : <Send size={13} />}
+          </button>
+        </div>
+      </div>
+    </details>
+  );
+}
+
+function MeetingWorkflowsSection({
+  meeting,
+  summary,
+  onMeetingChange,
+}: {
+  meeting: MeetingRow;
+  summary: StoredSummary | null;
+  onMeetingChange: (meeting: MeetingRow) => void;
+}) {
+  const [recipes, setRecipes] = useState<Recipe[]>([]);
+  const [recipeId, setRecipeId] = useState("");
+  const [artifact, setArtifact] = useState<MeetingArtifact | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [rewriteIndex, setRewriteIndex] = useState(0);
+  const [rewriteInstruction, setRewriteInstruction] = useState("Make this clearer and more concise");
+  const [error, setError] = useState<string | null>(null);
+  const [creatingRecipe, setCreatingRecipe] = useState(false);
+  const [recipeName, setRecipeName] = useState("");
+  const [recipePrompt, setRecipePrompt] = useState("");
+
+  useEffect(() => {
+    listRecipes().then((available) => {
+      setRecipes(available);
+      setRecipeId((current) => current || available[0]?.id || "");
+    }).catch((e) => setError(String(e)));
+  }, []);
+
+  const run = async (kind: "recipe" | "follow_up" | "prep_brief") => {
+    setLoading(true);
+    setError(null);
+    try {
+      const result = kind === "recipe"
+        ? await runRecipe(recipeId, "meeting", meeting.item_id)
+        : await generateMeetingArtifact(kind, "meeting", meeting.item_id);
+      setArtifact(result);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const rewrite = async () => {
+    const current = summary?.summary[rewriteIndex];
+    if (!current) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const revised = await rewriteMeetingText(current, rewriteInstruction);
+      await replaceMeetingSummaryPoint(meeting.item_id, rewriteIndex, revised);
+      const refreshed = await getMeeting(meeting.item_id);
+      if (refreshed) onMeetingChange(refreshed);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <details>
+      <summary className="flex cursor-pointer items-center gap-1.5 text-[11px] text-faint hover:text-muted">
+        <Sparkles size={12} /> Recipes and follow-up
+      </summary>
+      <div className="mt-2 space-y-3 rounded-lg border border-line bg-surface p-2.5">
+        <div className="flex gap-2">
+          <select value={recipeId} onChange={(e) => setRecipeId(e.target.value)} className="min-w-0 flex-1 rounded-md border border-line bg-canvas px-2 py-1.5 text-[11px] text-fg">
+            {recipes.map((recipe) => <option key={recipe.id} value={recipe.id}>{recipe.name}</option>)}
+          </select>
+          <button type="button" onClick={() => void run("recipe")} disabled={loading || !recipeId} className="rounded-md border border-line px-2 py-1.5 text-[11px] text-accent hover:bg-elevated disabled:opacity-50">Run Recipe</button>
+        </div>
+        {creatingRecipe ? (
+          <div className="space-y-2 rounded-md border border-line bg-canvas p-2">
+            <input value={recipeName} onChange={(e) => setRecipeName(e.target.value)} placeholder="Recipe name" className="w-full rounded border border-line bg-surface px-2 py-1.5 text-[11px] text-fg" />
+            <textarea value={recipePrompt} onChange={(e) => setRecipePrompt(e.target.value)} placeholder="What should EchoScribe extract or create?" rows={3} className="w-full resize-y rounded border border-line bg-surface px-2 py-1.5 text-[11px] text-fg" />
+            <div className="flex justify-end gap-1"><button onClick={() => setCreatingRecipe(false)} className="px-2 py-1 text-[10px] text-faint">Cancel</button><button onClick={() => { saveRecipe({ name: recipeName, description: "Custom meeting workflow", prompt: recipePrompt, defaultScope: "meeting" }).then((created) => { setRecipes((current) => [...current, created]); setRecipeId(created.id); setCreatingRecipe(false); setRecipeName(""); setRecipePrompt(""); }).catch((reason) => setError(String(reason))); }} disabled={!recipeName.trim() || !recipePrompt.trim()} className="rounded bg-accent px-2 py-1 text-[10px] text-white disabled:opacity-50">Save Recipe</button></div>
+          </div>
+        ) : <button type="button" onClick={() => setCreatingRecipe(true)} className="text-left text-[10px] text-accent hover:underline">+ New Recipe</button>}
+        <div className="flex gap-2">
+          <button type="button" onClick={() => void run("follow_up")} disabled={loading} className="rounded-md border border-line px-2 py-1.5 text-[11px] text-muted hover:bg-elevated">Draft follow-up</button>
+          <button type="button" onClick={() => void run("prep_brief")} disabled={loading} className="rounded-md border border-line px-2 py-1.5 text-[11px] text-muted hover:bg-elevated">Create Prep brief</button>
+        </div>
+        {summary && summary.summary.length > 0 ? (
+          <div className="space-y-2 border-t border-line pt-2">
+            <div className="flex gap-2">
+              <select value={rewriteIndex} onChange={(e) => setRewriteIndex(Number(e.target.value))} className="w-28 rounded-md border border-line bg-canvas px-2 py-1.5 text-[11px] text-fg">
+                {summary.summary.map((_, index) => <option key={index} value={index}>Point {index + 1}</option>)}
+              </select>
+              <input value={rewriteInstruction} onChange={(e) => setRewriteInstruction(e.target.value)} className="min-w-0 flex-1 rounded-md border border-line bg-canvas px-2 py-1.5 text-[11px] text-fg" />
+              <button type="button" onClick={() => void rewrite()} disabled={loading || !rewriteInstruction.trim()} className="rounded-md border border-line px-2 py-1.5 text-[11px] text-accent hover:bg-elevated">Rewrite</button>
+            </div>
+            <p className="text-[10px] text-faint">Rewriting removes the old citation from that point because its wording changed.</p>
+          </div>
+        ) : null}
+        {loading ? <div className="flex items-center gap-2 text-[11px] text-muted"><Loader size={12} className="animate-spin" /> Running locally…</div> : null}
+        {artifact ? (
+          <div className="rounded-md border border-line bg-canvas p-2 text-[11px] text-fg">
+            <div className="mb-1 flex items-center justify-between">
+              <span className="font-medium">{artifact.title}</span>
+              <button type="button" onClick={() => navigator.clipboard.writeText(artifact.content)} className="rounded p-1 text-faint hover:text-accent" aria-label="Copy"><Copy size={12} /></button>
+            </div>
+            <Markdown>{artifact.content}</Markdown>
+          </div>
+        ) : null}
+        {error ? <p role="alert" className="text-[11px] text-danger">{error}</p> : null}
+      </div>
+    </details>
+  );
+}
+
+function TranscriptEditor({
+  meeting,
+  transcript,
+  onMeetingChange,
+}: {
+  meeting: MeetingRow;
+  transcript: StoredTranscript;
+  onMeetingChange: (meeting: MeetingRow) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [segments, setSegments] = useState<Segment[]>(transcript.segments);
+  const [saving, setSaving] = useState(false);
+  const [backups, setBackups] = useState<MeetingArtifact[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => setSegments(transcript.segments), [meeting.item_id, meeting.transcript_json]);
+  useEffect(() => { listMeetingArtifacts("transcript_backup", meeting.item_id).then(setBackups).catch(() => setBackups([])); }, [meeting.item_id, meeting.transcript_json]);
+
+  const save = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      await updateMeetingTranscript(meeting.item_id, segments);
+      const refreshed = await getMeeting(meeting.item_id);
+      if (refreshed) onMeetingChange(refreshed);
+      setEditing(false);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <details>
+      <summary className="cursor-pointer text-[11px] text-faint hover:text-muted">Transcript ({segments.length} segments)</summary>
+      <div className="mt-2 space-y-2">
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] text-faint">Edits automatically preserve a recoverable transcript backup.</span>
+          {editing ? (
+            <div className="flex gap-1">
+              <button type="button" onClick={() => { setSegments(transcript.segments); setEditing(false); }} className="rounded px-2 py-1 text-[10px] text-muted hover:bg-elevated">Cancel</button>
+              <button type="button" onClick={() => void save()} disabled={saving || segments.length === 0} className="rounded bg-accent px-2 py-1 text-[10px] text-white disabled:opacity-50">{saving ? "Saving…" : "Save transcript"}</button>
+            </div>
+          ) : <div className="flex gap-1">{backups[0] ? <button type="button" onClick={() => { restoreTranscriptBackup(backups[0].id).then(() => getMeeting(meeting.item_id)).then((refreshed) => { if (refreshed) onMeetingChange(refreshed); }).catch((reason) => setError(String(reason))); }} className="rounded px-2 py-1 text-[10px] text-muted hover:bg-elevated">Restore previous</button> : null}<button type="button" onClick={() => setEditing(true)} className="rounded px-2 py-1 text-[10px] text-accent hover:bg-elevated">Edit transcript</button></div>}
+        </div>
+        <div className="max-h-72 space-y-1 overflow-y-auto rounded border border-line bg-surface p-2 text-[11px]">
+          {segments.map((segment, index) => (
+            <div key={`${segment.start_ms}-${index}`} id={`meeting-segment-${index}`} className="group flex scroll-mt-4 items-start gap-1 rounded px-1 py-0.5">
+              <span className={`w-9 shrink-0 pt-1 ${segment.speaker === "you" ? "text-accent" : "text-muted"}`}>{segment.speaker}:</span>
+              {editing ? (
+                <>
+                  <textarea value={segment.text} onChange={(e) => setSegments((current) => current.map((value, i) => i === index ? { ...value, text: e.target.value } : value))} rows={2} className="min-w-0 flex-1 resize-y rounded border border-line bg-canvas px-1.5 py-1 text-fg" />
+                  <button type="button" onClick={() => setSegments((current) => current.filter((_, i) => i !== index))} className="rounded p-1 text-faint hover:bg-danger/10 hover:text-danger" aria-label={`Delete segment ${index + 1}`}><Trash2 size={11} /></button>
+                </>
+              ) : <span className="pt-1 text-fg/90">{segment.text}</span>}
+            </div>
+          ))}
+        </div>
+        {error ? <p role="alert" className="text-[11px] text-danger">{error}</p> : null}
+      </div>
+    </details>
   );
 }
 
@@ -949,10 +1318,12 @@ function MeetingRecap({
   item,
   summary,
   onItemChange,
+  onEvidenceClick,
 }: {
   item: Item;
   summary: StoredSummary | null;
   onItemChange: (i: Item) => void;
+  onEvidenceClick: (segmentIndex: number) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(item.content);
@@ -1008,7 +1379,19 @@ function MeetingRecap({
           {bullets.map((b, i) => (
             <li key={i} className="flex gap-2 leading-relaxed">
               <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-accent/70" />
-              <span>{b}</span>
+              <span className="min-w-0 flex-1">{b}</span>
+              {(summary?.evidence ?? []).filter((e) => e.summary_index === i).map((e, evidenceIndex) => (
+                <button
+                  key={`${e.segment_index}-${evidenceIndex}`}
+                  type="button"
+                  onClick={() => onEvidenceClick(e.segment_index)}
+                  title={e.quote}
+                  aria-label={`Show source: ${e.quote}`}
+                  className="mt-0.5 shrink-0 rounded p-1 text-faint hover:bg-elevated hover:text-accent"
+                >
+                  <Quote size={12} />
+                </button>
+              ))}
             </li>
           ))}
         </ul>

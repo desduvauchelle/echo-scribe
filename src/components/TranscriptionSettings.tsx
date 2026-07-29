@@ -1,64 +1,297 @@
 import { useEffect, useState } from "react";
 import {
-  getCustomWords,
+  getDictionaryEntries,
   getDefaultFillerWords,
   getFillerRemovalEnabled,
   getFillerWords,
-  setCustomWords as apiSetCustomWords,
+  getSpokenEditingSettings,
+  getTranscriptionCleanupLanguage,
+  getTranscriptionSnippets,
   setFillerRemovalEnabled as apiSetFillerRemovalEnabled,
   setFillerWords as apiSetFillerWords,
+  setSpokenEditingSettings,
+  setTranscriptionCleanupLanguage,
+  setDictionaryEntries,
+  setTranscriptionSnippets,
+  type DictionaryEntry,
+  type SpokenEditingSettings,
+  type TranscriptionSnippet,
 } from "../lib/api";
 import { useToasts } from "./ToastProvider";
 
 export default function TranscriptionSettings() {
   return (
     <div className="flex flex-col gap-6">
-      <CustomWordsCard />
+      <SpokenEditingCard />
+      <LanguageCard />
+      <DictionaryCard />
+      <SnippetsCard />
       <FillerWordsCard />
     </div>
   );
 }
 
-function CustomWordsCard() {
-  const [words, setWords] = useState<string[] | null>(null);
+function SpokenEditingCard() {
+  const [settings, setSettings] = useState<SpokenEditingSettings | null>(null);
   const toasts = useToasts();
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const w = await getCustomWords();
-        if (!cancelled) setWords(w);
-      } catch {
-        if (!cancelled) setWords([]);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+    void getSpokenEditingSettings()
+      .then(setSettings)
+      .catch(() => setSettings({
+        enabled: true,
+        corrections: true,
+        punctuation: true,
+        lists: true,
+        press_enter: false,
+      }));
   }, []);
 
-  const persist = async (next: string[]) => {
-    setWords(next);
+  const update = async (patch: Partial<SpokenEditingSettings>) => {
+    if (!settings) return;
+    const next = { ...settings, ...patch };
+    setSettings(next);
     try {
-      await apiSetCustomWords(next);
+      await setSpokenEditingSettings(next);
     } catch (e) {
+      setSettings(settings);
       toasts.push({
         tone: "error",
-        message: `Couldn't save custom words: ${e instanceof Error ? e.message : String(e)}`,
+        message: `Couldn't save spoken editing: ${e instanceof Error ? e.message : String(e)}`,
       });
     }
   };
 
+  const rows: Array<{ key: keyof SpokenEditingSettings; label: string; detail: string }> = [
+    { key: "corrections", label: "Natural corrections", detail: '“actually”, “change X to Y”, “scratch that”' },
+    { key: "punctuation", label: "Punctuation and paragraphs", detail: '“comma”, “new line”, “new paragraph”' },
+    { key: "lists", label: "List commands", detail: '“start a list”, “next item”, “end list”' },
+    { key: "press_enter", label: "Allow “press enter”", detail: "Opt in: can submit a message after a successful paste" },
+  ];
+
   return (
-    <ChipListCard
-      title="Custom words"
-      subtitle="Names or terms the speech model gets wrong. Tokens close to these (off by 1-2 letters) get auto-corrected."
-      placeholder="Add a word"
-      words={words}
-      onChange={(w) => void persist(w)}
-      validate={(w) => /^[A-Za-z]+$/.test(w)}
-    />
+    <div className="flex flex-col gap-3 rounded-lg border border-line bg-canvas p-4">
+      <ToggleRow
+        label="Spoken editing"
+        detail="Apply deterministic voice commands before transcript cleanup."
+        checked={settings?.enabled ?? true}
+        disabled={!settings}
+        onChange={(enabled) => void update({ enabled })}
+      />
+      <div className={settings?.enabled ? "flex flex-col gap-2 border-t border-line pt-3" : "pointer-events-none flex flex-col gap-2 border-t border-line pt-3 opacity-50"}>
+        {rows.map((row) => (
+          <ToggleRow
+            key={row.key}
+            label={row.label}
+            detail={row.detail}
+            checked={settings?.[row.key] ?? false}
+            disabled={!settings || !settings.enabled}
+            onChange={(value) => void update({ [row.key]: value })}
+          />
+        ))}
+      </div>
+      <p className="text-[11px] text-muted">
+        Say “cancel that” as the entire utterance to discard it. Press Escape while recording to discard immediately.
+      </p>
+    </div>
+  );
+}
+
+function LanguageCard() {
+  const [language, setLanguage] = useState("auto");
+  const toasts = useToasts();
+  useEffect(() => {
+    void getTranscriptionCleanupLanguage().then(setLanguage).catch(() => {});
+  }, []);
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border border-line bg-canvas p-4">
+      <div className="text-sm font-semibold text-fg">Language</div>
+      <p className="text-xs text-muted">
+        Speech is detected automatically. Choose the language used for cleanup and spoken commands.
+      </p>
+      <select
+        value={language}
+        onChange={async (event) => {
+          const previous = language;
+          const next = event.target.value;
+          setLanguage(next);
+          try {
+            await setTranscriptionCleanupLanguage(next);
+          } catch (e) {
+            setLanguage(previous);
+            toasts.push({ tone: "error", message: `Couldn't save language: ${e instanceof Error ? e.message : String(e)}` });
+          }
+        }}
+        className="w-fit rounded border border-line bg-canvas px-2 py-1.5 text-sm"
+      >
+        <option value="auto">Automatic</option>
+        <option value="en">English</option>
+        <option value="es">Spanish</option>
+        <option value="fr">French</option>
+        <option value="de">German</option>
+        <option value="pt">Portuguese</option>
+      </select>
+      <p className="text-[11px] text-muted">Automatic detection supports 25 European languages. Spoken editing commands are currently English.</p>
+    </div>
+  );
+}
+
+function ToggleRow(props: {
+  label: string;
+  detail: string;
+  checked: boolean;
+  disabled?: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className="flex items-center justify-between gap-4">
+      <span>
+        <span className="block text-sm font-medium text-fg">{props.label}</span>
+        <span className="block text-xs text-muted">{props.detail}</span>
+      </span>
+      <input
+        type="checkbox"
+        checked={props.checked}
+        disabled={props.disabled}
+        onChange={(event) => props.onChange(event.target.checked)}
+        className="h-4 w-4 shrink-0 cursor-pointer accent-accent"
+      />
+    </label>
+  );
+}
+
+function DictionaryCard() {
+  const [entries, setEntries] = useState<DictionaryEntry[] | null>(null);
+  const [spokenForm, setSpokenForm] = useState("");
+  const [replacement, setReplacement] = useState("");
+  const [search, setSearch] = useState("");
+  const toasts = useToasts();
+
+  useEffect(() => {
+    void getDictionaryEntries().then(setEntries).catch(() => setEntries([]));
+  }, []);
+
+  const persist = async (next: DictionaryEntry[]) => {
+    const previous = entries;
+    setEntries(next);
+    try {
+      await setDictionaryEntries(next);
+    } catch (e) {
+      setEntries(previous);
+      toasts.push({
+        tone: "error",
+        message: `Couldn't save dictionary: ${e instanceof Error ? e.message : String(e)}`,
+      });
+    }
+  };
+
+  const add = () => {
+    const spoken = spokenForm.trim();
+    const output = replacement.trim();
+    if (!spoken || !output || !entries) return;
+    const next = entries.filter((entry) => entry.spoken_form.toLocaleLowerCase() !== spoken.toLocaleLowerCase());
+    void persist([...next, { spoken_form: spoken, replacement: output, language: "auto" }]);
+    setSpokenForm("");
+    setReplacement("");
+  };
+
+  const visible = (entries ?? []).filter((entry) =>
+    `${entry.spoken_form} ${entry.replacement}`.toLocaleLowerCase().includes(search.toLocaleLowerCase()),
+  );
+
+  return (
+    <div className="flex flex-col gap-3 rounded-lg border border-line bg-canvas p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-sm font-semibold text-fg">Dictionary</div>
+          <p className="text-xs text-muted">Map a spoken word or phrase to exact spelling, casing, or punctuation.</p>
+        </div>
+        <div className="flex shrink-0 gap-2 text-xs">
+          <button type="button" onClick={() => downloadJson("echo-scribe-dictionary.json", entries ?? [])} className="text-muted hover:text-fg">Export JSON</button>
+          <label className="cursor-pointer text-muted hover:text-fg">Import JSON<input type="file" accept="application/json,.json" className="hidden" onChange={(event) => {
+            const file = event.target.files?.[0];
+            if (!file) return;
+            void readJsonFile<DictionaryEntry[]>(file).then((value) => {
+              if (!Array.isArray(value) || value.some((item) => !item.spoken_form || typeof item.replacement !== "string")) throw new Error("Invalid dictionary file");
+              return persist(value.map((item) => ({ ...item, language: item.language || "auto" })));
+            }).catch((e) => toasts.push({ tone: "error", message: e instanceof Error ? e.message : String(e) }));
+            event.target.value = "";
+          }} /></label>
+        </div>
+      </div>
+      <div className="grid grid-cols-[1fr_1fr_auto] gap-2">
+        <input value={spokenForm} onChange={(e) => setSpokenForm(e.target.value)} placeholder="What Echo hears" className="rounded border border-line bg-canvas px-2 py-1.5 text-sm" />
+        <input value={replacement} onChange={(e) => setReplacement(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") add(); }} placeholder="Replace with" className="rounded border border-line bg-canvas px-2 py-1.5 text-sm" />
+        <button type="button" onClick={add} disabled={!spokenForm.trim() || !replacement.trim()} className="rounded bg-accent px-3 py-1.5 text-sm text-canvas disabled:opacity-40">Add</button>
+      </div>
+      {(entries?.length ?? 0) > 4 && <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search dictionary" className="rounded border border-line bg-canvas px-2 py-1.5 text-sm" />}
+      <div className="flex max-h-52 flex-col gap-1 overflow-y-auto">
+        {visible.map((entry) => (
+          <div key={`${entry.language}:${entry.spoken_form}`} className="flex items-center justify-between gap-3 rounded border border-line px-2 py-1.5 text-sm">
+            <span className="min-w-0"><span className="text-muted">{entry.spoken_form}</span> <span className="text-muted">→</span> <span className="font-medium text-fg">{entry.replacement}</span></span>
+            <button type="button" onClick={() => void persist((entries ?? []).filter((item) => item !== entry))} className="text-xs text-muted hover:text-danger">Remove</button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SnippetsCard() {
+  const [snippets, setSnippets] = useState<TranscriptionSnippet[] | null>(null);
+  const [trigger, setTrigger] = useState("");
+  const [expansion, setExpansion] = useState("");
+  const toasts = useToasts();
+  useEffect(() => { void getTranscriptionSnippets().then(setSnippets).catch(() => setSnippets([])); }, []);
+
+  const persist = async (next: TranscriptionSnippet[]) => {
+    const previous = snippets;
+    setSnippets(next);
+    try { await setTranscriptionSnippets(next); }
+    catch (e) {
+      setSnippets(previous);
+      toasts.push({ tone: "error", message: `Couldn't save snippets: ${e instanceof Error ? e.message : String(e)}` });
+    }
+  };
+  const conflict = (snippets ?? []).some((item) => item.trigger.toLocaleLowerCase() === trigger.trim().toLocaleLowerCase());
+  const add = () => {
+    if (!trigger.trim() || !expansion || !snippets || conflict) return;
+    void persist([...snippets, { trigger: trigger.trim(), expansion, language: "auto" }]);
+    setTrigger(""); setExpansion("");
+  };
+
+  return (
+    <div className="flex flex-col gap-3 rounded-lg border border-line bg-canvas p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div><div className="text-sm font-semibold text-fg">Snippets</div><p className="text-xs text-muted">Expand a whole spoken phrase into reusable text. Everything stays local.</p></div>
+        <div className="flex shrink-0 gap-2 text-xs">
+          <button type="button" onClick={() => downloadJson("echo-scribe-snippets.json", snippets ?? [])} className="text-muted hover:text-fg">Export JSON</button>
+          <label className="cursor-pointer text-muted hover:text-fg">Import JSON<input type="file" accept="application/json,.json" className="hidden" onChange={(event) => {
+            const file = event.target.files?.[0];
+            if (!file) return;
+            void readJsonFile<TranscriptionSnippet[]>(file).then((value) => {
+              if (!Array.isArray(value) || value.some((item) => !item.trigger || typeof item.expansion !== "string")) throw new Error("Invalid snippets file");
+              return persist(value.map((item) => ({ ...item, language: item.language || "auto" })));
+            }).catch((e) => toasts.push({ tone: "error", message: e instanceof Error ? e.message : String(e) }));
+            event.target.value = "";
+          }} /></label>
+        </div>
+      </div>
+      <div className="grid grid-cols-[1fr_2fr_auto] gap-2">
+        <input value={trigger} onChange={(e) => setTrigger(e.target.value)} placeholder="Spoken trigger" className="rounded border border-line bg-canvas px-2 py-1.5 text-sm" />
+        <input value={expansion} onChange={(e) => setExpansion(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") add(); }} placeholder="Exact expansion" className="rounded border border-line bg-canvas px-2 py-1.5 text-sm" />
+        <button type="button" onClick={add} disabled={!trigger.trim() || !expansion || conflict} className="rounded bg-accent px-3 py-1.5 text-sm text-canvas disabled:opacity-40">Add</button>
+      </div>
+      {conflict && <p className="text-xs text-warning">That trigger already exists.</p>}
+      <div className="flex max-h-52 flex-col gap-1 overflow-y-auto">
+        {(snippets ?? []).map((snippet) => (
+          <div key={`${snippet.language}:${snippet.trigger}`} className="flex items-start justify-between gap-3 rounded border border-line px-2 py-1.5 text-sm">
+            <span className="min-w-0"><span className="text-muted">{snippet.trigger}</span> <span className="text-muted">→</span> <span className="whitespace-pre-wrap text-fg">{snippet.expansion}</span></span>
+            <button type="button" onClick={() => void persist((snippets ?? []).filter((item) => item !== snippet))} className="text-xs text-muted hover:text-danger">Remove</button>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -274,4 +507,17 @@ function ChipListCard(props: {
       </div>
     </div>
   );
+}
+
+function downloadJson(filename: string, value: unknown) {
+  const url = URL.createObjectURL(new Blob([JSON.stringify(value, null, 2)], { type: "application/json" }));
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
+async function readJsonFile<T>(file: File): Promise<T> {
+  return JSON.parse(await file.text()) as T;
 }

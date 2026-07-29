@@ -31,9 +31,9 @@ const ConsentOverlay: React.FC = () => {
     clearDismissTimer();
     dismissTimerRef.current = window.setTimeout(() => {
       setIsVisible(false);
-      // Tell Rust side to hide window after fade.
       window.setTimeout(() => {
         setPayload(null);
+        void invoke("hide_consent_overlay").catch(() => {});
       }, 200);
     }, AUTO_DISMISS_MS);
   };
@@ -102,12 +102,17 @@ const ConsentOverlay: React.FC = () => {
         if (payloadRef.current) startDismissTimer();
       }}
     >
-      <div>
+      <div className="consent-mark" aria-hidden="true">
+        <span />
+        <span />
+        <span />
+      </div>
+      <div className="consent-copy">
         <div className="consent-title" id="consent-title">
-          {payload.app_name} detected
+          {payload.app_name} meeting detected
         </div>
         <div className="consent-subtitle" id="consent-subtitle">
-          Record this meeting? Audio stays on your device.
+          Private notes · audio stays local
         </div>
       </div>
       <div className="consent-actions">
@@ -115,7 +120,7 @@ const ConsentOverlay: React.FC = () => {
           className="consent-btn consent-btn-muted"
           onClick={() => decide("never")}
         >
-          Don't record
+          Never
         </button>
         <button
           className="consent-btn consent-btn-secondary"
@@ -128,7 +133,7 @@ const ConsentOverlay: React.FC = () => {
           className="consent-btn consent-btn-primary"
           onClick={() => decide("once")}
         >
-          Record
+          Take notes
         </button>
       </div>
     </div>

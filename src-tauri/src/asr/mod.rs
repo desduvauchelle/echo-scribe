@@ -8,3 +8,4 @@ pub mod parakeet;
 pub mod pipeline;
 pub mod postprocess;
 pub mod registry;
+pub mod spoken_commands;

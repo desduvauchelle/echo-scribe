@@ -320,8 +320,8 @@ mod tests {
     }
 
     #[test]
-    fn older_is_not_newer() {
-        assert!(!is_newer("0.2.0", "0.1.0"));
+    fn local_version_newer_than_server_is_not_an_update() {
+        assert!(!is_newer("1.0.3", "1.0.2"));
     }
 
     #[test]

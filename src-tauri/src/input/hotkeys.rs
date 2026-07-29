@@ -61,7 +61,22 @@ pub fn spawn_listener(
     suspended: Arc<std::sync::atomic::AtomicBool>,
 ) {
     thread::spawn(move || {
-        macos::run(binding, tx, suspended);
+        macos::run(binding, tx, suspended, None);
+    });
+}
+
+/// Like [`spawn_listener`], but only observes and swallows the binding while
+/// `enabled` is true. Used for Escape-to-cancel so Escape behaves normally in
+/// every app unless Echo Scribe is actively recording.
+#[cfg(target_os = "macos")]
+pub fn spawn_gated_listener(
+    binding: Arc<RwLock<Binding>>,
+    tx: mpsc::UnboundedSender<HotkeyEvent>,
+    suspended: Arc<std::sync::atomic::AtomicBool>,
+    enabled: Arc<std::sync::atomic::AtomicBool>,
+) {
+    thread::spawn(move || {
+        macos::run(binding, tx, suspended, Some(enabled));
     });
 }
 
@@ -72,6 +87,16 @@ pub fn spawn_listener(
     _suspended: Arc<std::sync::atomic::AtomicBool>,
 ) {
     tracing::warn!("hotkey listener is macOS-only; running as no-op on this platform");
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn spawn_gated_listener(
+    _binding: Arc<RwLock<Binding>>,
+    _tx: mpsc::UnboundedSender<HotkeyEvent>,
+    _suspended: Arc<std::sync::atomic::AtomicBool>,
+    _enabled: Arc<std::sync::atomic::AtomicBool>,
+) {
+    tracing::warn!("gated hotkey listener is macOS-only; running as no-op on this platform");
 }
 
 /// Translate a Carbon HIToolbox `kVK_*` keycode (the value returned by
@@ -303,6 +328,7 @@ mod macos {
         binding: Arc<RwLock<Binding>>,
         tx: mpsc::UnboundedSender<HotkeyEvent>,
         suspended: Arc<AtomicBool>,
+        enabled: Option<Arc<AtomicBool>>,
         pressed: Vec<Key>,
         satisfied: bool,
     }
@@ -320,6 +346,16 @@ mod macos {
         let state = &mut *(user_info as *mut TapState);
 
         if state.suspended.load(Ordering::SeqCst) {
+            return event;
+        }
+
+        if state
+            .enabled
+            .as_ref()
+            .is_some_and(|enabled| !enabled.load(Ordering::SeqCst))
+        {
+            state.pressed.clear();
+            state.satisfied = false;
             return event;
         }
 
@@ -389,6 +425,7 @@ mod macos {
         binding: Arc<RwLock<Binding>>,
         tx: mpsc::UnboundedSender<HotkeyEvent>,
         suspended: Arc<AtomicBool>,
+        enabled: Option<Arc<AtomicBool>>,
     ) {
         info!("starting CGEventTap hotkey listener");
 
@@ -396,6 +433,7 @@ mod macos {
             binding,
             tx,
             suspended,
+            enabled,
             pressed: Vec::new(),
             satisfied: false,
         }));

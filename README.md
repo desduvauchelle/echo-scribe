@@ -131,3 +131,9 @@ The script checks prerequisites (Xcode Command Line Tools, Rust, CMake, and
 bun or npm), asking for confirmation before installing anything missing. It
 builds the Swift sidecars and the app bundle, then installs **Echo Scribe.app**
 to `/Applications` and launches it.
+
+## Local MCP access
+
+The desktop executable can also run a read-only MCP server, exposing curated
+tools for meetings, captures, projects, tasks, Recipes, people, and companies.
+See [docs/MCP.md](docs/MCP.md) for client configuration and the privacy model.

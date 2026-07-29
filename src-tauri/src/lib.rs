@@ -13,6 +13,7 @@ pub mod export;
 pub mod input;
 pub mod llm;
 pub mod meeting;
+pub mod mcp;
 pub mod overlay;
 pub mod platform;
 pub mod permissions;
@@ -53,13 +54,18 @@ use crate::commands::{
     get_active_speech_model_id, get_app_launcher_enabled, get_asr_unload_secs,
     get_audio_feedback_enabled, get_auto_file_enabled, get_auto_file_threshold, get_common_actions,
     get_custom_words, get_dashboard_stats, get_default_filler_words, get_display_bounds,
+    get_spoken_editing_settings, set_spoken_editing_settings,
+    get_transcription_cleanup_language, set_transcription_cleanup_language,
+    get_dictionary_entries, set_dictionary_entries,
+    get_transcription_snippets, set_transcription_snippets,
     get_drive_client_id,
     get_drive_prefs, get_editor_defaults, get_export_confidence_threshold,
     get_filler_removal_enabled, get_filler_words,
     get_format_templates, get_item, get_llm_unload_secs, get_log_capture_binding,
     get_mute_while_recording, get_onboarding_completed, get_project_auto_tagging_enabled,
     get_recording_project, get_screenrec_audio_prefs, get_trigger_word_routing_enabled,
-    get_voice_at_cursor_binding,
+    get_voice_at_cursor_binding, get_last_transcript, copy_last_transcript,
+    paste_last_transcript,
     hide_countdown_overlay,
     import_editor_background,
     is_pipeline_running, is_screen_recording, is_screen_recording_paused, list_cameras,
@@ -230,12 +236,23 @@ pub fn run() {
             request_screen_recording_access,
             get_voice_at_cursor_binding,
             update_voice_at_cursor_binding,
+            get_last_transcript,
+            copy_last_transcript,
+            paste_last_transcript,
             get_log_capture_binding,
             update_log_capture_binding,
             get_action_binding,
             update_action_binding,
             get_edit_selection_binding,
             update_edit_selection_binding,
+            get_spoken_editing_settings,
+            set_spoken_editing_settings,
+            get_transcription_cleanup_language,
+            set_transcription_cleanup_language,
+            get_dictionary_entries,
+            set_dictionary_entries,
+            get_transcription_snippets,
+            set_transcription_snippets,
             get_trigger_word_routing_enabled,
             set_trigger_word_routing_enabled,
             get_action_trigger_word,
@@ -263,6 +280,7 @@ pub fn run() {
             test_llm_inference,
             chat_with_memory,
             create_chat_session,
+            commands::create_chat_session_scoped,
             list_chat_sessions,
             load_chat_messages,
             delete_chat_session,
@@ -339,6 +357,30 @@ pub fn run() {
             commands::list_meetings,
             commands::list_meeting_action_items,
             commands::update_meeting_notes,
+            commands::get_active_meeting_workspace,
+            commands::list_summary_templates,
+            commands::save_summary_template,
+            commands::archive_summary_template,
+            commands::get_meeting_preferences,
+            commands::set_meeting_preferences,
+            commands::list_meeting_summary_runs,
+            commands::regenerate_meeting_summary,
+            commands::list_meeting_participants,
+            commands::set_meeting_speaker_label,
+            commands::list_recipes,
+            commands::save_recipe,
+            commands::run_recipe,
+            commands::generate_meeting_artifact,
+            commands::rewrite_meeting_text,
+            commands::replace_meeting_summary_point,
+            commands::update_meeting_transcript,
+            commands::list_people,
+            commands::save_person,
+            commands::list_companies,
+            commands::save_company,
+            commands::list_meeting_artifacts,
+            commands::list_relationship_meetings,
+            commands::restore_transcript_backup,
             commands::rename_meeting,
             commands::delete_meeting,
             commands::get_meeting_settings,
@@ -677,6 +719,8 @@ pub fn run() {
                 log_capture_binding,
                 action_binding,
                 edit_selection_binding,
+                cancel_active: Arc::new(AtomicBool::new(false)),
+                last_transcript: Arc::new(Mutex::new(None)),
                 hotkey_started: AtomicBool::new(false),
                 paused_hotkeys: Arc::clone(&paused_hotkeys),
                 rebinding,
@@ -756,6 +800,7 @@ pub fn run() {
             // triggers a recording).
             crate::overlay::create_recording_overlay(&app.handle().clone());
             crate::overlay::create_consent_overlay(&app.handle().clone());
+            crate::overlay::create_meeting_start_toast(&app.handle().clone());
             crate::overlay::create_meeting_hud(&app.handle().clone());
 
             // Seed builtin guide templates exactly once. The settings flag —
@@ -764,6 +809,12 @@ pub fn run() {
             {
                 let st = app.state::<AppState>();
                 if let Some(db) = st.db.clone() {
+                    let intelligence_now = chrono::Utc::now().to_rfc3339();
+                    if let Err(e) = db.with_conn(move |c| {
+                        crate::db::meeting_intelligence::seed_builtins(c, &intelligence_now)
+                    }) {
+                        tracing::warn!(target: "meeting_intelligence", ?e, "builtin meeting intelligence seeding failed");
+                    }
                     let settings = st.settings.clone();
                     if !settings.builtin_templates_seeded() {
                         let now = chrono::Utc::now().to_rfc3339();

@@ -6,6 +6,21 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tracing::{info, warn};
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct EvidenceRef {
+    pub segment_index: usize,
+    pub start_ms: u64,
+    pub end_ms: u64,
+    pub quote: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SummaryEvidence {
+    pub summary_index: usize,
+    #[serde(flatten)]
+    pub source: EvidenceRef,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ActionItem {
     pub text: String,
@@ -14,6 +29,8 @@ pub struct ActionItem {
     pub tags: Vec<String>,
     #[serde(default)]
     pub project_name: Option<String>,
+    #[serde(default)]
+    pub evidence: Vec<EvidenceRef>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -25,6 +42,8 @@ pub struct MeetingSynthesis {
     pub tags: Vec<String>,
     #[serde(default)]
     pub project_name: Option<String>,
+    #[serde(default)]
+    pub evidence: Vec<SummaryEvidence>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -37,6 +56,29 @@ pub struct StoredSummary {
     pub tags: Vec<String>,
     #[serde(default)]
     pub project_name: Option<String>,
+    #[serde(default)]
+    pub evidence: Vec<SummaryEvidence>,
+}
+
+fn validated_evidence(mut synthesis: MeetingSynthesis, segments: &[Segment]) -> MeetingSynthesis {
+    let valid = |e: &EvidenceRef| {
+        segments.get(e.segment_index).is_some_and(|segment| {
+            segment.start_ms == e.start_ms
+                && segment.end_ms == e.end_ms
+                && !e.quote.trim().is_empty()
+                && segment
+                    .text
+                    .to_lowercase()
+                    .contains(&e.quote.trim().to_lowercase())
+        })
+    };
+    synthesis
+        .evidence
+        .retain(|e| e.summary_index < synthesis.summary.len() && valid(&e.source));
+    for action in &mut synthesis.action_items {
+        action.evidence.retain(valid);
+    }
+    synthesis
 }
 
 pub fn flatten_transcript(segments: &[Segment]) -> String {
@@ -109,6 +151,8 @@ pub async fn synthesize(
     existing_projects: &[crate::db::projects::Project],
     start_context: &MeetingStartContext,
     custom_prompt: Option<&str>,
+    user_notes: Option<&str>,
+    summary_template: Option<&crate::db::meeting_intelligence::SummaryTemplate>,
 ) -> Result<StoredSummary, String> {
     let flattened_raw = flatten_transcript(segments);
     let flattened = if flattened_raw.len() <= MAX_TRANSCRIPT_BYTES {
@@ -127,6 +171,8 @@ pub async fn synthesize(
         existing_projects,
         start_context,
         custom_prompt,
+        user_notes,
+        summary_template,
     );
 
     for attempt in 0..2u8 {
@@ -153,6 +199,7 @@ pub async fn synthesize(
         };
         match serde_json::from_str::<MeetingSynthesis>(&raw) {
             Ok(s) => {
+                let s = validated_evidence(s, segments);
                 info!(
                     summary_bullets = s.summary.len(),
                     actions = s.action_items.len(),
@@ -167,6 +214,7 @@ pub async fn synthesize(
                     raw: None,
                     tags: s.tags,
                     project_name: s.project_name,
+                    evidence: s.evidence,
                 });
             }
             Err(e) => {
@@ -179,6 +227,7 @@ pub async fn synthesize(
                         raw: Some(raw),
                         tags: vec![],
                         project_name: None,
+                        evidence: vec![],
                     });
                 }
             }
@@ -282,16 +331,73 @@ mod tests {
                 owner: "you".into(),
                 tags: vec!["urgent".into()],
                 project_name: Some("Beta".into()),
+                evidence: vec![],
             }],
             suggested_title: "Test".into(),
             raw: None,
             tags: vec!["meeting".into()],
             project_name: Some("Beta".into()),
+            evidence: vec![],
         };
         let json = serde_json::to_string(&summary).unwrap();
         let parsed: StoredSummary = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.tags, vec!["meeting"]);
         assert_eq!(parsed.project_name.as_deref(), Some("Beta"));
         assert_eq!(parsed.action_items[0].tags, vec!["urgent"]);
+    }
+
+    #[test]
+    fn evidence_must_match_the_indexed_transcript_exactly() {
+        let segments = vec![Segment {
+            speaker: Speaker::Them,
+            start_ms: 1_000,
+            end_ms: 2_500,
+            text: "We will send the proposal on Friday.".into(),
+        }];
+        let valid = EvidenceRef {
+            segment_index: 0,
+            start_ms: 1_000,
+            end_ms: 2_500,
+            quote: "send the proposal".into(),
+        };
+        let invalid = EvidenceRef {
+            segment_index: 0,
+            start_ms: 999,
+            end_ms: 2_500,
+            quote: "send the proposal".into(),
+        };
+        let synthesis = MeetingSynthesis {
+            summary: vec!["Proposal due Friday".into()],
+            action_items: vec![ActionItem {
+                text: "Send proposal".into(),
+                owner: "them".into(),
+                tags: vec![],
+                project_name: None,
+                evidence: vec![valid.clone(), invalid.clone()],
+            }],
+            suggested_title: "Proposal".into(),
+            tags: vec![],
+            project_name: None,
+            evidence: vec![
+                SummaryEvidence {
+                    summary_index: 0,
+                    source: valid.clone(),
+                },
+                SummaryEvidence {
+                    summary_index: 2,
+                    source: valid.clone(),
+                },
+                SummaryEvidence {
+                    summary_index: 0,
+                    source: invalid,
+                },
+            ],
+        };
+
+        let validated = validated_evidence(synthesis, &segments);
+
+        assert_eq!(validated.evidence.len(), 1);
+        assert_eq!(validated.evidence[0].source, valid);
+        assert_eq!(validated.action_items[0].evidence.len(), 1);
     }
 }

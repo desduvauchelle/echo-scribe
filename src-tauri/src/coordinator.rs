@@ -24,10 +24,7 @@ pub enum Action {
     LogCapture,
     /// Voice-edit the current text selection in place ("Command Mode").
     EditSelection,
-    /// Reserved for Phase 4+: cancel an in-flight capture (e.g. via Esc).
-    /// Currently a no-op stub — the wiring is in place but we don't bind it
-    /// to anything yet.
-    #[allow(dead_code)]
+    /// Cancel and discard an active recording (Escape by default).
     Cancel,
 }
 
@@ -121,6 +118,8 @@ pub fn spawn(
     db: Option<Db>,
     event_log_root: Option<PathBuf>,
     paused: Arc<AtomicBool>,
+    cancel_active: Arc<AtomicBool>,
+    last_transcript: Arc<Mutex<Option<String>>>,
     on_state_change: impl Fn(TrayPipelineState) + 'static,
 ) {
     // NOTE: `Recorder` owns a `cpal::Stream`, which is `!Send`. We therefore
@@ -155,6 +154,33 @@ pub fn spawn(
         while let Some(msg) = rx.recv().await {
             match msg {
                 CoordinatorMsg::Hotkey(action, HotkeyEvent::Pressed) => {
+                    if action == Action::Cancel {
+                        let cancelled_action = {
+                            let guard = state.lock().unwrap();
+                            match *guard {
+                                PipelineState::Recording(active) => Some(active),
+                                _ => None,
+                            }
+                        };
+                        if let Some(active) = cancelled_action {
+                            info!(?active, "recording cancelled and discarded");
+                            let _ = recorder.stop();
+                            cancel_active.store(false, Ordering::SeqCst);
+                            crate::audio::mute::on_recording_stop();
+                            feedback::play(Sfx::Stop);
+                            crate::overlay::hide_recording_overlay_now(&app);
+                            pending_context = None;
+                            pending_focus_element = None;
+                            pending_selection = None;
+                            force_state(&state, PipelineState::Idle);
+                            on_state_change(TrayPipelineState::Idle);
+                            let _ = app.emit("voice:recording_cancelled", ());
+                            if active == Action::LogCapture {
+                                let _ = app.emit("log_capture:cancelled", ());
+                            }
+                        }
+                        continue;
+                    }
                     if paused.load(Ordering::SeqCst) {
                         info!(?action, "hotkey Pressed dropped: paused via tray");
                         continue;
@@ -269,6 +295,7 @@ pub fn spawn(
                         }
                         notify_recorder_failure(&app, &e, preferred.as_deref());
                     } else {
+                        cancel_active.store(true, Ordering::SeqCst);
                         if matches!(action, Action::VoiceAtCursor) {
                             let _ = app.emit("voice:recording_started", ());
                         }
@@ -287,6 +314,7 @@ pub fn spawn(
                         warn!(?action, "ignored Released: not Recording for this action");
                         continue;
                     }
+                    cancel_active.store(false, Ordering::SeqCst);
                     if matches!(action, Action::VoiceAtCursor) {
                         let _ = app.emit("voice:recording_stopped", ());
                     }
@@ -339,7 +367,32 @@ pub fn spawn(
                                         on_state_change(TrayPipelineState::Idle);
                                         continue;
                                     }
-                                    let text = postprocess_with_settings(&app, text);
+                                    let raw_text = text.clone();
+                                    let processed = process_with_settings(
+                                        &app,
+                                        text,
+                                        pending_context.as_ref(),
+                                    );
+                                    if processed.cancelled {
+                                        info!("spoken cancel command discarded transcript");
+                                        crate::overlay::hide_recording_overlay_now(&app);
+                                        force_state(&state, PipelineState::Idle);
+                                        on_state_change(TrayPipelineState::Idle);
+                                        let _ = app.emit("voice:recording_cancelled", ());
+                                        continue;
+                                    }
+                                    if !processed.applied_edits.is_empty() {
+                                        info!(edits = ?processed.applied_edits, "applied spoken transcript edits");
+                                    }
+                                    let post_action = processed.post_action;
+                                    let text = processed.text;
+                                    if text.trim().is_empty() {
+                                        info!("spoken editing produced an empty transcript; discarding");
+                                        crate::overlay::hide_recording_overlay_now(&app);
+                                        force_state(&state, PipelineState::Idle);
+                                        on_state_change(TrayPipelineState::Idle);
+                                        continue;
+                                    }
                                     let text = match try_intercept_action(&app, &llm, &text, action).await {
                                         InterceptOutcome::Consumed => {
                                             crate::overlay::hide_recording_overlay_now(&app);
@@ -352,9 +405,13 @@ pub fn spawn(
                                     };
                                     match action {
                                     Action::VoiceAtCursor | Action::ActionCommand => {
+                                        if let Ok(mut slot) = last_transcript.lock() {
+                                            *slot = Some(text.clone());
+                                        }
                                         // Phase 1 behavior: persist hidden + paste.
-                                        persist_capture(
+                                        let capture_id = persist_capture(
                                             &text,
+                                            Some(&raw_text),
                                             db.as_ref(),
                                             event_log_root.as_deref(),
                                             &app,
@@ -415,6 +472,8 @@ pub fn spawn(
                                             );
                                             match crate::input::paste::copy_to_clipboard(&text) {
                                                 Ok(()) => {
+                                                    let _ = app.emit("voice:paste_failed", "focus_restore");
+                                                    record_capture_event(db.as_ref(), &capture_id, "paste_failed", Some("focus_restore; transcript copied"));
                                                     let _ = app.emit(
                                                         "asr:error",
                                                         format!(
@@ -428,6 +487,8 @@ pub fn spawn(
                                                         "asr:error",
                                                         format!("Paste failed: {e}"),
                                                     );
+                                                    let _ = app.emit("voice:paste_failed", "clipboard");
+                                                    record_capture_event(db.as_ref(), &capture_id, "paste_failed", Some("clipboard fallback failed"));
                                                 }
                                             }
                                         } else {
@@ -447,8 +508,21 @@ pub fn spawn(
                                                 restore_clipboard,
                                             ) {
                                                 error!(?e, "paste failed");
-                                                let _ =
-                                                    app.emit("asr:error", format!("Paste failed: {e}"));
+                                                let _ = app.emit(
+                                                    "asr:error",
+                                                    format!("Paste failed, but your transcript is preserved. Use Copy last transcript from the tray. ({e})"),
+                                                );
+                                                let _ = app.emit("voice:paste_failed", "paste");
+                                                record_capture_event(db.as_ref(), &capture_id, "paste_failed", Some("synthetic paste failed; transcript preserved"));
+                                            } else {
+                                                let _ = app.emit("voice:paste_dispatched", ());
+                                                record_capture_event(db.as_ref(), &capture_id, "paste_dispatched", None);
+                                                if post_action == Some(crate::asr::spoken_commands::PostAction::PressEnter) {
+                                                    if let Err(e) = crate::input::paste::press_enter() {
+                                                        error!(?e, "post-paste Enter failed");
+                                                        let _ = app.emit("asr:error", format!("Couldn't press Enter: {e}"));
+                                                    }
+                                                }
                                             }
                                         }
                                         force_state(&state, PipelineState::Idle);
@@ -729,11 +803,12 @@ fn serialise_context(ctx: &crate::input::focus::FocusContext) -> Option<String> 
 /// Best-effort, see Phase 1 docs.
 fn persist_capture(
     text: &str,
+    raw_text: Option<&str>,
     db: Option<&Db>,
     event_log_root: Option<&std::path::Path>,
     app: &AppHandle<Wry>,
     capture_context: Option<String>,
-) {
+) -> String {
     let id = ulid::Ulid::new().to_string();
     let now = chrono_now_iso();
 
@@ -751,7 +826,7 @@ fn persist_capture(
             classified_by: None,
             capture_context,
         };
-        let res = db.with_conn(|c| crate::db::items::insert_item(c, &item));
+        let res = db.with_conn(|c| crate::db::items::insert_item_with_raw(c, &item, raw_text));
         match res {
             Ok(_) => {
                 let id_for_event = id.clone();
@@ -779,7 +854,7 @@ fn persist_capture(
             event_type: "voice.captured".to_string(),
             created_at: now,
             payload: serde_json::json!({
-                "item_id": id,
+                "item_id": id.clone(),
                 "preview": preview,
                 "char_count": text.chars().count(),
             }),
@@ -788,6 +863,15 @@ fn persist_capture(
             error!(?e, "failed to append event log entry");
             let _ = app.emit("asr:error", format!("Persist failed: {e}"));
         }
+    }
+    id
+}
+
+fn record_capture_event(db: Option<&Db>, item_id: &str, event_type: &str, detail: Option<&str>) {
+    if let Some(db) = db {
+        let _ = db.with_conn(|conn| {
+            crate::db::events::insert_event(conn, item_id, event_type, detail)
+        });
     }
 }
 
@@ -802,24 +886,112 @@ fn preview_first_chars(text: &str, max_bytes: usize) -> String {
     out
 }
 
-/// Apply the user-configured filler-removal + custom-word passes. Looks up
+/// Apply spoken editing first, then filler-removal and custom-word passes.
+/// Looks up
 /// the latest settings via the managed `AppState` so toggles take effect on
 /// the next transcription without restarting the pipeline.
-fn postprocess_with_settings(app: &AppHandle<Wry>, text: String) -> String {
+fn process_with_settings(
+    app: &AppHandle<Wry>,
+    text: String,
+    focus_context: Option<&FocusContext>,
+) -> crate::asr::spoken_commands::ProcessedTranscript {
     let state = match app.try_state::<crate::commands::AppState>() {
         Some(s) => s,
-        None => return text,
+        None => return crate::asr::spoken_commands::process(
+            &text,
+            crate::asr::spoken_commands::SpokenCommandOptions {
+                enabled: false,
+                ..Default::default()
+            },
+        ),
     };
+    let suppress_commands = is_code_or_terminal_context(focus_context);
+    if suppress_commands {
+        debug!("spoken editing suppressed in code/terminal context");
+    }
+    let mut processed = crate::asr::spoken_commands::process(
+        &text,
+        crate::asr::spoken_commands::SpokenCommandOptions {
+            language: crate::asr::spoken_commands::CommandLanguage::from_code(
+                &state.settings.transcription_cleanup_language(),
+            ),
+            enabled: state.settings.spoken_editing_enabled() && !suppress_commands,
+            corrections: state.settings.spoken_corrections_enabled(),
+            punctuation: state.settings.spoken_punctuation_enabled(),
+            lists: state.settings.spoken_lists_enabled(),
+            press_enter: state.settings.spoken_press_enter_enabled(),
+        },
+    );
+    if processed.cancelled {
+        return processed;
+    }
+    let cleanup_language = state.settings.transcription_cleanup_language();
     let fillers = if state.settings.filler_removal_enabled() {
-        state.settings.filler_words()
+        if matches!(cleanup_language.as_str(), "auto" | "en") {
+            state.settings.filler_words()
+        } else {
+            crate::asr::postprocess::default_fillers_for(&cleanup_language)
+                .iter()
+                .map(|word| word.to_string())
+                .collect()
+        }
     } else {
         Vec::new()
     };
-    let custom = state.settings.custom_words();
-    if fillers.is_empty() && custom.is_empty() {
-        return text;
+    let dictionary_entries = state.settings.dictionary_entries();
+    let custom: Vec<String> = dictionary_entries
+        .iter()
+        .filter(|entry| {
+            entry.spoken_form == entry.replacement
+                && !entry.spoken_form.contains(char::is_whitespace)
+        })
+        .map(|entry| entry.replacement.clone())
+        .collect();
+    if !fillers.is_empty() || !custom.is_empty() {
+        processed.text = crate::asr::postprocess::postprocess(&processed.text, &fillers, &custom);
     }
-    crate::asr::postprocess::postprocess(&text, &fillers, &custom)
+    processed.text = crate::asr::postprocess::apply_dictionary_entries(
+        &processed.text,
+        &dictionary_entries,
+        &cleanup_language,
+    );
+    processed.text = crate::asr::postprocess::apply_snippets(
+        &processed.text,
+        &state.settings.transcription_snippets(),
+        &cleanup_language,
+    );
+    processed
+}
+
+fn is_code_or_terminal_context(context: Option<&FocusContext>) -> bool {
+    let Some(context) = context else {
+        return false;
+    };
+    let haystack = format!(
+        "{} {}",
+        context.app_name.as_deref().unwrap_or_default(),
+        context.bundle_id.as_deref().unwrap_or_default(),
+    )
+    .to_ascii_lowercase();
+    [
+        "terminal",
+        "iterm",
+        "warp",
+        "ghostty",
+        "visual studio code",
+        "vscode",
+        "cursor",
+        "xcode",
+        "zed",
+        "jetbrains",
+        "intellij",
+        "pycharm",
+        "webstorm",
+        "rubymine",
+        "goland",
+    ]
+    .iter()
+    .any(|needle| haystack.contains(needle))
 }
 
 /// Run the classifier with light context (existing projects + last 5 items).

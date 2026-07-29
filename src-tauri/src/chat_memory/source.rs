@@ -107,11 +107,13 @@ mod tests {
                 owner: "you".into(),
                 tags: vec![],
                 project_name: None,
+                evidence: vec![],
             }],
             suggested_title: "Q3 Planning".into(),
             raw: None,
             tags: vec![],
             project_name: None,
+            evidence: vec![],
         };
         let json = serde_json::to_string(&s).unwrap();
         let text = render_meeting_summary(&json).unwrap();

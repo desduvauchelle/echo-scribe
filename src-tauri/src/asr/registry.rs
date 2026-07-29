@@ -32,6 +32,9 @@ pub struct ModelEntry {
     /// Human label for the language scope (e.g. "Multi-language", "English Only").
     #[serde(default)]
     pub language_label: String,
+    /// ISO 639-1 codes the shipped model can auto-detect and transcribe.
+    #[serde(default)]
+    pub supported_languages: Vec<String>,
     /// Drives icon variant: globe-with-check vs plain globe.
     #[serde(default)]
     pub english_only: bool,
@@ -130,6 +133,7 @@ mod tests {
         assert_eq!(m.version_label, "V3");
         assert!(!m.description.is_empty());
         assert!(!m.language_label.is_empty());
+        assert_eq!(m.supported_languages.len(), 25);
         assert!(m.accuracy_bars >= 1 && m.accuracy_bars <= 5);
         assert!(m.speed_bars >= 1 && m.speed_bars <= 5);
     }

@@ -53,6 +53,10 @@ impl<R: Runtime> TrayHandle<R> {
         // in set_screenrec_active(true), disabled again on stop.
         let screenrec_pause =
             MenuItem::with_id(app, "screenrec_pause", "Pause recording", false, None::<&str>)?;
+        let copy_last =
+            MenuItem::with_id(app, "copy_last", "Copy last transcript", true, None::<&str>)?;
+        let paste_last =
+            MenuItem::with_id(app, "paste_last", "Paste last transcript", true, None::<&str>)?;
         let pause = MenuItem::with_id(app, "pause", "Pause hotkeys", true, None::<&str>)?;
         let settings = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
         let sep1 = PredefinedMenuItem::separator(app)?;
@@ -60,7 +64,7 @@ impl<R: Runtime> TrayHandle<R> {
         let quit = MenuItem::with_id(app, "quit", "Quit Echo Scribe", true, None::<&str>)?;
         let menu = Menu::with_items(
             app,
-            &[&open, &sep1, &meeting, &screenrec, &screenrec_pause, &pause, &settings, &sep2, &quit],
+            &[&open, &sep1, &copy_last, &paste_last, &meeting, &screenrec, &screenrec_pause, &pause, &settings, &sep2, &quit],
         )?;
 
         let pause_for_handle = pause.clone();
@@ -119,6 +123,26 @@ impl TrayHandle<Wry> {
                 "settings" => {
                     show_main_window(&app_for_handler);
                     let _ = app_for_handler.emit("open_settings", ());
+                }
+                "copy_last" => {
+                    let state = app_for_handler.state::<AppState>();
+                    match crate::commands::copy_last_transcript(app_for_handler.clone(), state) {
+                        Ok(_) => info!("last transcript copied from tray"),
+                        Err(e) => {
+                            warn!(%e, "tray: copy last transcript failed");
+                            let _ = app_for_handler.emit("asr:error", e);
+                        }
+                    }
+                }
+                "paste_last" => {
+                    let state = app_for_handler.state::<AppState>();
+                    match crate::commands::paste_last_transcript(app_for_handler.clone(), state) {
+                        Ok(_) => info!("last transcript pasted from tray"),
+                        Err(e) => {
+                            warn!(%e, "tray: paste last transcript failed");
+                            let _ = app_for_handler.emit("asr:error", e);
+                        }
+                    }
                 }
                 "meeting" => {
                     let app = app_for_handler.clone();

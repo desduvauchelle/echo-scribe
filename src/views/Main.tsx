@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   MessageSquare,
   Mic,
+  Users,
   Settings as SettingsIcon,
   type LucideIcon,
 } from "lucide-react";
@@ -24,6 +25,7 @@ import ChatView from "./sections/ChatView";
 import DashboardView from "./sections/DashboardView";
 import DailyView from "./sections/DailyView";
 import StatsView from "./sections/StatsView";
+import RelationshipsView from "./sections/RelationshipsView";
 import ThemeToggle from "../components/ThemeToggle";
 import SidebarRecordButton from "../components/SidebarRecordButton";
 import ScreenRecordButton from "../components/ScreenRecordButton";
@@ -35,6 +37,7 @@ export type MainSection =
   | { kind: "dashboard" }
   | { kind: "stats"; category?: StatsCategoryKey }
   | { kind: "daily"; date?: string }
+  | { kind: "relationships" }
   | { kind: "project"; id: string };
 
 type Props = {
@@ -134,6 +137,8 @@ export default function Main({ onOpenSettings }: Props) {
         );
       case "daily":
         return <DailyView initialDate={section.date} />;
+      case "relationships":
+        return <RelationshipsView />;
     }
   };
 
@@ -208,6 +213,12 @@ export default function Main({ onOpenSettings }: Props) {
             label="Daily recaps"
             active={section.kind === "daily"}
             onClick={() => setSection({ kind: "daily" })}
+          />
+          <NavItem
+            icon={Users}
+            label="People & companies"
+            active={section.kind === "relationships"}
+            onClick={() => setSection({ kind: "relationships" })}
           />
         </nav>
 

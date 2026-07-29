@@ -4,16 +4,22 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   attachGuide,
   detachGuide,
+  getActiveMeetingWorkspace,
   getActiveGuides,
   getLiveTranscript,
   guideSetMode,
   guideTriggerNow,
   listGuideTemplates,
+  listSummaryTemplates,
   saveHudFrame,
+  setMeetingPreferences,
+  setMeetingSpeakerLabel,
+  updateMeetingNotes,
   type GuideInit,
   type GuideKeyPoint,
   type GuideTemplate,
   type GuideUpdate,
+  type SummaryTemplate,
   type TranscriptSegment,
 } from "../lib/api";
 
@@ -57,6 +63,15 @@ export default function MeetingHud() {
   const [cards, setCards] = useState<Card[]>([]);
   const [segments, setSegments] = useState<TranscriptSegment[]>([]);
   const [showTranscript, setShowTranscript] = useState(false);
+  const [showNotes, setShowNotes] = useState(false);
+  const [meetingId, setMeetingId] = useState<string | null>(null);
+  const [notes, setNotes] = useState("");
+  const [savedNotes, setSavedNotes] = useState("");
+  const [summaryTemplates, setSummaryTemplates] = useState<SummaryTemplate[]>([]);
+  const [summaryTemplateId, setSummaryTemplateId] = useState<string | null>(null);
+  const [transparencyAck, setTransparencyAck] = useState(false);
+  const [consentMessage, setConsentMessage] = useState("I’m using EchoScribe to take private notes and create a local summary of this conversation. Is that okay?");
+  const [speakerLabels, setSpeakerLabels] = useState({ you: "You", them: "Them" });
   const [pickerOpen, setPickerOpen] = useState(false);
   const [templates, setTemplates] = useState<GuideTemplate[]>([]);
   const [toast, setToast] = useState<string | null>(null);
@@ -64,6 +79,7 @@ export default function MeetingHud() {
   const cardSeq = useRef(0);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const stickToBottom = useRef(true);
+  const notesReady = useRef(false);
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -97,6 +113,45 @@ export default function MeetingHud() {
       })
       .catch(() => {/* no active meeting */});
   }, []);
+
+  const backfillWorkspace = useCallback(() => {
+    Promise.all([getActiveMeetingWorkspace(), listSummaryTemplates()])
+      .then(([workspace, availableTemplates]) => {
+        setSummaryTemplates(availableTemplates);
+        if (!workspace) return;
+        setMeetingId(workspace.id);
+        setNotes(workspace.notes);
+        setSavedNotes(workspace.notes);
+        setSummaryTemplateId(workspace.preferences?.summary_template_id ?? "builtin-general");
+        setTransparencyAck(workspace.preferences?.transparency_ack ?? false);
+        setConsentMessage(workspace.preferences?.consent_message ?? "I’m using EchoScribe to take private notes and create a local summary of this conversation. Is that okay?");
+        const nextLabels = { you: "You", them: "Them" };
+        for (const participant of workspace.participants) {
+          if (participant.speaker_key === "you" || participant.speaker_key === "them") {
+            nextLabels[participant.speaker_key] = participant.display_name;
+          }
+        }
+        setSpeakerLabels(nextLabels);
+        notesReady.current = true;
+      })
+      .catch(() => {/* no active meeting */});
+  }, []);
+
+  useEffect(() => {
+    if (!meetingId || !notesReady.current || notes === savedNotes) return;
+    const timer = setTimeout(() => {
+      updateMeetingNotes(meetingId, notes)
+        .then(() => setSavedNotes(notes))
+        .catch(() => showToast("Couldn't save meeting notes."));
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [meetingId, notes, savedNotes, showToast]);
+
+  const savePreferences = useCallback((nextTemplate: string | null, nextAck: boolean, nextMessage: string) => {
+    if (!meetingId) return;
+    setMeetingPreferences(meetingId, nextTemplate, nextAck, nextMessage)
+      .catch(() => showToast("Couldn't save meeting preferences."));
+  }, [meetingId, showToast]);
 
   // Event wiring.
   useEffect(() => {
@@ -163,6 +218,9 @@ export default function MeetingHud() {
         if (e.payload.focus === "transcript") {
           setShowTranscript(true);
           backfillTranscript();
+        } else if (e.payload.focus === "notes") {
+          setShowNotes(true);
+          backfillWorkspace();
         } else if (e.payload.focus === "guides") {
           setPickerOpen(true);
           backfillGuides();
@@ -174,6 +232,11 @@ export default function MeetingHud() {
         setCards([]);
         setSegments([]);
         setPickerOpen(false);
+        setMeetingId(null);
+        setNotes("");
+        setSavedNotes("");
+        notesReady.current = false;
+        setTimeout(backfillWorkspace, 100);
       }),
       // Meeting moved past recording → HUD no longer meaningful; backend
       // hides the window, we clear the state for the next meeting.
@@ -188,10 +251,11 @@ export default function MeetingHud() {
     ];
     backfillTranscript();
     backfillGuides();
+    backfillWorkspace();
     return () => {
       unlisteners.forEach((p) => p.then((u) => u()));
     };
-  }, [backfillTranscript, backfillGuides]);
+  }, [backfillTranscript, backfillGuides, backfillWorkspace]);
 
   // Persist the window frame (debounced) whenever the user moves/resizes.
   useEffect(() => {
@@ -286,6 +350,18 @@ export default function MeetingHud() {
       <header data-tauri-drag-region>
         <span className="label" data-tauri-drag-region>MEETING HUD</span>
         <span className="controls">
+          <button
+            className={showNotes ? "active" : ""}
+            onClick={() => {
+              setShowNotes((v) => !v);
+              if (!showNotes) backfillWorkspace();
+            }}
+            title="Toggle live notes"
+            aria-label="Toggle live notes"
+            aria-pressed={showNotes}
+          >
+            <span aria-hidden="true">✎</span>
+          </button>
           <button
             className={showTranscript ? "active" : ""}
             onClick={() => {
@@ -412,16 +488,74 @@ export default function MeetingHud() {
 
         {showTranscript && (
           <section className="transcript" ref={transcriptRef} onScroll={onTranscriptScroll}>
+            <div className="speaker-labels">
+              {(["you", "them"] as const).map((speaker) => (
+                <label key={speaker}>
+                  <span>{speaker === "you" ? "Mic" : "Call"}</span>
+                  <input
+                    value={speakerLabels[speaker]}
+                    onChange={(e) => setSpeakerLabels((current) => ({ ...current, [speaker]: e.target.value }))}
+                    onBlur={() => {
+                      if (meetingId && speakerLabels[speaker].trim()) {
+                        setMeetingSpeakerLabel(meetingId, speaker, speakerLabels[speaker].trim()).catch(() => showToast("Couldn't save speaker label."));
+                      }
+                    }}
+                    aria-label={`${speaker} speaker label`}
+                  />
+                </label>
+              ))}
+            </div>
             {segments.length === 0 ? (
               <div className="empty">Transcript appears here as speech is transcribed.</div>
             ) : (
               segments.map((seg, i) => (
                 <div key={i} className={`line ${seg.speaker}`}>
-                  <span className="speaker">{seg.speaker === "you" ? "You" : "Them"}</span>
+                  <span className="speaker">{speakerLabels[seg.speaker]}</span>
                   <span>{seg.text}</span>
                 </div>
               ))
             )}
+          </section>
+        )}
+
+        {showNotes && (
+          <section className="live-notes">
+            <div className="notes-toolbar">
+              <label>
+                <span>Summary format</span>
+                <select
+                  value={summaryTemplateId ?? ""}
+                  onChange={(e) => {
+                    const next = e.target.value || null;
+                    setSummaryTemplateId(next);
+                    savePreferences(next, transparencyAck, consentMessage);
+                  }}
+                >
+                  {summaryTemplates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
+                </select>
+              </label>
+              <span className="save-state">{notes === savedNotes ? "Saved" : "Saving…"}</span>
+            </div>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder={'Type notes that should guide the summary…\n\n- Key point\n- [ ] Follow up'}
+              aria-label="Live meeting notes"
+            />
+            <div className="transparency">
+              <label className="ack">
+                <input
+                  type="checkbox"
+                  checked={transparencyAck}
+                  onChange={(e) => {
+                    setTransparencyAck(e.target.checked);
+                    savePreferences(summaryTemplateId, e.target.checked, consentMessage);
+                  }}
+                />
+                Participant informed
+              </label>
+              <button onClick={() => navigator.clipboard.writeText(consentMessage).then(() => showToast("Consent message copied."))}>Copy notice</button>
+            </div>
           </section>
         )}
       </div>

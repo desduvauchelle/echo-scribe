@@ -128,6 +128,36 @@ pub fn paste_at_cursor_with_options(text: &str, restore_clipboard: bool) -> Resu
     Ok(())
 }
 
+/// Send a single Enter key after a successful dictation paste. This is kept
+/// separate from paste so the opt-in spoken command can never submit text
+/// when the paste itself failed.
+#[cfg(target_os = "macos")]
+pub fn press_enter() -> Result<(), PasteError> {
+    use core_graphics::event::{CGEvent, CGEventTapLocation};
+    use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
+
+    let source = CGEventSource::new(CGEventSourceStateID::Private)
+        .map_err(|_| PasteError::Keystroke("failed to create CGEventSource".into()))?;
+    let down = CGEvent::new_keyboard_event(source.clone(), 0x24, true)
+        .map_err(|_| PasteError::Keystroke("failed to create Enter keydown".into()))?;
+    down.post(CGEventTapLocation::Session);
+    thread::sleep(Duration::from_millis(20));
+    let up = CGEvent::new_keyboard_event(source, 0x24, false)
+        .map_err(|_| PasteError::Keystroke("failed to create Enter keyup".into()))?;
+    up.post(CGEventTapLocation::Session);
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn press_enter() -> Result<(), PasteError> {
+    use enigo::{Direction, Enigo, Key, Keyboard, Settings};
+    let mut enigo =
+        Enigo::new(&Settings::default()).map_err(|e| PasteError::Init(e.to_string()))?;
+    enigo
+        .key(Key::Return, Direction::Click)
+        .map_err(|e| PasteError::Keystroke(e.to_string()))
+}
+
 /// Synthesizes Cmd+V (macOS) or Ctrl+V (other platforms).
 ///
 /// On macOS we use CoreGraphics directly and set CGEventFlagCommand on the V

@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title description">
+  <title id="title">Echo Scribe young monkey mascot</title>
+  <desc id="description">A centered, playful young monkey wearing a teal cap with an audio-wave badge.</desc>
+
+  <defs>
+    <linearGradient id="fur" x1="256" y1="128" x2="256" y2="420" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#78462D"/>
+      <stop offset="1" stop-color="#4D291D"/>
+    </linearGradient>
+    <linearGradient id="skin" x1="256" y1="208" x2="256" y2="408" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFD79F"/>
+      <stop offset="1" stop-color="#EDB16E"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Ears share one baseline and one size. -->
+  <circle cx="128" cy="268" r="62" fill="#653821" stroke="#2C1711" stroke-width="9"/>
+  <circle cx="384" cy="268" r="62" fill="#653821" stroke="#2C1711" stroke-width="9"/>
+  <circle cx="128" cy="268" r="36" fill="#F0B36F"/>
+  <circle cx="384" cy="268" r="36" fill="#F0B36F"/>
+
+  <!-- Centered shoulders. -->
+  <path d="M121 486c21-53 70-83 135-83s114 30 135 83Z" fill="#2DD4BF" stroke="#2C1711" stroke-width="9" stroke-linejoin="round"/>
+  <path d="M191 419c14 26 36 39 65 39s51-13 65-39" fill="none" stroke="#0F766E" stroke-width="9" stroke-linecap="round"/>
+
+  <!-- Symmetrical head. -->
+  <path d="M161 229c0-87 39-137 95-137s95 50 95 137v82c0 82-40 131-95 131s-95-49-95-131Z" fill="url(#fur)" stroke="#2C1711" stroke-width="9"/>
+
+  <!-- Compact eye mask; the surrounding lower face remains fur. -->
+  <path d="M256 233c-17-29-57-31-76-4-20 28-8 66 20 80 19 10 40 5 56-10 16 15 37 20 56 10 28-14 40-52 20-80-19-27-59-25-76 4Z" fill="url(#skin)"/>
+
+  <!-- Mirrored brows and eyes. -->
+  <path d="M195 266q23-15 46 0m30 0q23-15 46 0" fill="none" stroke="#432319" stroke-width="8" stroke-linecap="round"/>
+  <ellipse cx="222" cy="291" rx="12" ry="17" fill="#21110D"/>
+  <ellipse cx="290" cy="291" rx="12" ry="17" fill="#21110D"/>
+  <circle cx="219" cy="285" r="4" fill="#FFF8EA"/>
+  <circle cx="287" cy="285" r="4" fill="#FFF8EA"/>
+
+  <!-- Centered muzzle and grin. -->
+  <ellipse cx="256" cy="357" rx="58" ry="47" fill="#FFDAA5"/>
+  <ellipse cx="256" cy="339" rx="16" ry="11" fill="#3B2018"/>
+  <path d="M256 349v10m-29 8q29 27 58 0" fill="none" stroke="#3B2018" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Centered cap and brim. -->
+  <path d="M158 188c10-67 48-106 98-106s88 39 98 106c-59-23-137-23-196 0Z" fill="#2DD4BF" stroke="#2C1711" stroke-width="9" stroke-linejoin="round"/>
+  <path d="M157 187q99-29 198 0c-30 22-64 31-99 31s-69-9-99-31Z" fill="#0F766E" stroke="#2C1711" stroke-width="9" stroke-linejoin="round"/>
+
+  <!-- The sound cue is small and secondary, integrated into the cap. -->
+  <circle cx="256" cy="130" r="25" fill="#103A35"/>
+  <path d="M241 133h8l6-15 7 25 6-18h7" fill="none" stroke="#7BE6D3" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

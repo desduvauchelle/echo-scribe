@@ -130,6 +130,51 @@ pub fn insert_item(conn: &Connection, item: &Item) -> Result<(), DbError> {
     Ok(())
 }
 
+/// Insert an item while retaining the ASR output that existed before spoken
+/// editing and cleanup. Existing callers that do not have raw content keep
+/// using [`insert_item`].
+pub fn insert_item_with_raw(
+    conn: &Connection,
+    item: &Item,
+    raw_content: Option<&str>,
+) -> Result<(), DbError> {
+    conn.execute(
+        "INSERT INTO items
+            (id, content, source, kind, project_id, captured_at, created_at,
+             deleted_at, confidence, classified_by, capture_context, raw_content)
+         VALUES
+            (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+        params![
+            item.id,
+            item.content,
+            item.source.as_str(),
+            item.kind.map(|k| k.as_str()),
+            item.project_id,
+            item.captured_at,
+            item.created_at,
+            item.deleted_at,
+            item.confidence.map(|f| f as f64),
+            item.classified_by,
+            item.capture_context,
+            raw_content,
+        ],
+    )?;
+    Ok(())
+}
+
+pub fn get_raw_content(conn: &Connection, id: &str) -> Result<Option<String>, DbError> {
+    let value = conn.query_row(
+        "SELECT raw_content FROM items WHERE id = ?1",
+        params![id],
+        |row| row.get(0),
+    );
+    match value {
+        Ok(content) => Ok(content),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(e.into()),
+    }
+}
+
 pub fn get_item(conn: &Connection, id: &str) -> Result<Option<Item>, DbError> {
     let mut stmt = conn.prepare(
         "SELECT id, content, source, kind, project_id, captured_at, created_at,
@@ -137,6 +182,25 @@ pub fn get_item(conn: &Connection, id: &str) -> Result<Option<Item>, DbError> {
          FROM items WHERE id = ?1",
     )?;
     let mut rows = stmt.query(params![id])?;
+    if let Some(row) = rows.next()? {
+        Ok(Some(row_to_item(row)?))
+    } else {
+        Ok(None)
+    }
+}
+
+/// Most recent non-deleted voice-at-cursor capture. This is the durable
+/// fallback for transcript recovery after an app restart.
+pub fn latest_voice_capture(conn: &Connection) -> Result<Option<Item>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, content, source, kind, project_id, captured_at, created_at,
+                deleted_at, confidence, classified_by, capture_context
+         FROM items
+         WHERE source = 'voice_at_cursor' AND deleted_at IS NULL
+         ORDER BY captured_at DESC
+         LIMIT 1",
+    )?;
+    let mut rows = stmt.query([])?;
     if let Some(row) = rows.next()? {
         Ok(Some(row_to_item(row)?))
     } else {
@@ -589,6 +653,31 @@ mod tests {
         soft_delete_item(&conn, "c").unwrap();
 
         assert_eq!(count_items(&conn).unwrap(), 2);
+    }
+
+    #[test]
+    fn latest_voice_capture_ignores_other_sources_and_deleted_rows() {
+        let conn = fresh_db();
+        let old = make_item("old", "old voice", "2026-05-01T00:00:00Z");
+        insert_item(&conn, &old).unwrap();
+        let mut log = make_item("log", "newer log", "2026-05-01T00:00:02Z");
+        log.source = ItemSource::LogCapture;
+        insert_item(&conn, &log).unwrap();
+        let newest = make_item("new", "new voice", "2026-05-01T00:00:03Z");
+        insert_item(&conn, &newest).unwrap();
+        soft_delete_item(&conn, "new").unwrap();
+        assert_eq!(latest_voice_capture(&conn).unwrap().unwrap().id, "old");
+    }
+
+    #[test]
+    fn insert_item_with_raw_preserves_unprocessed_asr() {
+        let conn = fresh_db();
+        let item = make_item("raw", "Hello, world.", "2026-05-01T00:00:00Z");
+        insert_item_with_raw(&conn, &item, Some("hello comma world period")).unwrap();
+        assert_eq!(
+            get_raw_content(&conn, "raw").unwrap().as_deref(),
+            Some("hello comma world period")
+        );
     }
 
     #[test]

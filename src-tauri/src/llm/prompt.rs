@@ -135,6 +135,8 @@ pub fn build_meeting_synthesis_prompt(
     existing_projects: &[crate::db::projects::Project],
     start_context: &crate::meeting::MeetingStartContext,
     custom_prompt: Option<&str>,
+    user_notes: Option<&str>,
+    summary_template: Option<&crate::db::meeting_intelligence::SummaryTemplate>,
 ) -> (Option<String>, String) {
     let app = detected_app_name.unwrap_or("a meeting");
 
@@ -168,25 +170,52 @@ The transcript labels each segment as 'You:' (the user) or 'Them:' (the other si
         .replace("{duration_minutes}", &duration_minutes.to_string())
         .replace("{app}", app);
 
+    let template_block = summary_template
+        .map(|t| {
+            format!(
+                "\nUse the '{}' output template. Instructions: {}\nRequested sections: {}",
+                t.name, t.instructions, t.sections_json
+            )
+        })
+        .unwrap_or_default();
+
     let system = format!(
-        "{resolved_guidelines}\n\
+        "{resolved_guidelines}{template_block}\n\
 Produce a JSON object with exactly these fields:\n\
 - summary: array of 3 to 5 bullet strings. Each bullet covers one decision, key topic, or outcome. \
 Bullets must be self-contained sentences, no leading dashes.\n\
 - action_items: array (possibly empty) of objects {{ \"text\": string, \"owner\": \"you\" | \"them\" | \"unspecified\", \
-\"tags\": array of short keyword strings (1-3 tags), \"project_name\": string or null }}. \
+\"tags\": array of short keyword strings (1-3 tags), \"project_name\": string or null, \
+\"evidence\": array of zero or more objects {{ \"segment_index\": integer, \"start_ms\": integer, \"end_ms\": integer, \"quote\": string }} }}. \
 Only include items the speakers explicitly committed to or were explicitly asked to do. Do not invent action items. \
 Each action item's tags and project_name describe that specific task.\n\
 - suggested_title: short string (max 60 characters) capturing the meeting's purpose.\n\
 - tags: array of 1-3 short keyword strings that categorize the overall meeting topic (e.g. \"design\", \"planning\", \"bugfix\").\n\
 - project_name: string or null. {project_hint}\n\
+- evidence: array of objects {{ \"summary_index\": integer, \"segment_index\": integer, \"start_ms\": integer, \"end_ms\": integer, \"quote\": string }}. \
+Only cite an exact short quote from the referenced transcript segment, using its exact index and timestamps. Omit evidence when no exact support exists.\n\
 Output JSON only — no preamble, no commentary, no markdown fences."
     );
+    let indexed_transcript = flattened_transcript
+        .lines()
+        .enumerate()
+        .map(|(i, line)| format!("[{i}] {line}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let notes_block = user_notes
+        .filter(|n| !n.trim().is_empty())
+        .map(|n| {
+            format!(
+                "User-authored notes (prioritize these, but do not treat them as transcript evidence):\n{}\n\n",
+                n.trim()
+            )
+        })
+        .unwrap_or_default();
     let user = if context_block.is_empty() {
-        format!("Transcript:\n\n{flattened_transcript}\n\nProduce the JSON now.")
+        format!("{notes_block}Transcript:\n\n{indexed_transcript}\n\nProduce the JSON now.")
     } else {
         format!(
-            "Context at meeting start:\n{context_block}\nTranscript:\n\n{flattened_transcript}\n\nProduce the JSON now."
+            "Context at meeting start:\n{context_block}\n{notes_block}Transcript:\n\n{indexed_transcript}\n\nProduce the JSON now."
         )
     };
     (Some(system), user)
@@ -349,7 +378,7 @@ mod tests {
     fn meeting_synthesis_omits_context_block_when_empty() {
         let ctx = crate::meeting::MeetingStartContext::default();
         let (_sys, user) =
-            build_meeting_synthesis_prompt("You: hi\nThem: hello\n", Some("Zoom"), 5, &[], &ctx, None);
+            build_meeting_synthesis_prompt("You: hi\nThem: hello\n", Some("Zoom"), 5, &[], &ctx, None, None, None);
         assert!(
             !user.contains("Context at meeting start"),
             "empty context must not produce a context block, got: {user}"
@@ -364,7 +393,7 @@ mod tests {
             browser_tab_title: Some("Meeting – Alice, Bob".into()),
         };
         let (_sys, user) =
-            build_meeting_synthesis_prompt("You: hi\n", Some("Zoom"), 30, &[], &ctx, None);
+            build_meeting_synthesis_prompt("You: hi\n", Some("Zoom"), 30, &[], &ctx, None, None, None);
         assert!(user.contains("Context at meeting start"));
         assert!(user.contains("Weekly Standup - Zoom Meeting"));
         assert!(user.contains("https://meet.google.com/abc-defg-hij"));
@@ -381,7 +410,7 @@ mod tests {
             browser_tab_title: Some("Echo Scribe — pricing".into()),
         };
         let (_sys, user) =
-            build_meeting_synthesis_prompt("You: hi\n", None, 1, &[], &ctx, None);
+            build_meeting_synthesis_prompt("You: hi\n", None, 1, &[], &ctx, None, None, None);
         let occurrences = user.matches("Echo Scribe — pricing").count();
         assert_eq!(
             occurrences, 1,
@@ -400,6 +429,8 @@ mod tests {
             &[],
             &ctx,
             Some(custom),
+            None,
+            None,
         );
         let sys_content = sys.unwrap();
         assert!(sys_content.contains("Tone: formal. Duration: 45m, platform: Google Meet. Be concise."), "got: {sys_content}");
