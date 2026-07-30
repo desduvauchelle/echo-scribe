@@ -157,6 +157,62 @@ struct ActiveMeeting {
     transcript: Arc<std::sync::Mutex<Vec<Segment>>>,
 }
 
+pub(crate) fn spawn_guide_review_job(
+    db: Db,
+    llm: Arc<Llm>,
+    app: tauri::AppHandle,
+    run_id: String,
+    meeting_id: String,
+    template: crate::db::guide_templates::GuideTemplate,
+    segments: Vec<Segment>,
+    options: crate::meeting::guide_review::ReviewOptions,
+    transcript_hash: String,
+) {
+    tokio::spawn(async move {
+        match crate::meeting::guide_review::generate_review_with_options(
+            llm, &template, &segments, &options,
+        )
+        .await
+        {
+            Ok(review) => {
+                let review_json =
+                    serde_json::to_string(&review).unwrap_or_else(|_| "{}".into());
+                let generated_at = chrono::Utc::now().to_rfc3339();
+                let run_for_write = run_id.clone();
+                if let Err(error) = db.with_conn(move |conn| {
+                    crate::db::meeting_guide_runs::complete_guide_run_review(
+                        conn,
+                        &run_for_write,
+                        review_json.as_str(),
+                        generated_at.as_str(),
+                        transcript_hash.as_str(),
+                    )
+                }) {
+                    tracing::error!(target: "guide", ?error, run=%run_id, "persist guide review failed");
+                }
+            }
+            Err(error) => {
+                let run_for_write = run_id.clone();
+                let error_for_write = error.clone();
+                if let Err(write_error) = db.with_conn(move |conn| {
+                    crate::db::meeting_guide_runs::set_guide_run_status(
+                        conn,
+                        &run_for_write,
+                        "failed",
+                        Some(error_for_write.as_str()),
+                    )
+                }) {
+                    tracing::warn!(target: "guide", ?write_error, run=%run_id, "guide run status write failed");
+                }
+            }
+        }
+        let _ = app.emit(
+            "guide-review-updated",
+            serde_json::json!({ "meetingId": meeting_id, "runId": run_id }),
+        );
+    });
+}
+
 /// Optional context captured at meeting-start time, fed into the synthesis
 /// prompt to give the LLM hints about topic and participants.
 #[derive(Debug, Clone, Default)]
@@ -349,6 +405,10 @@ impl MeetingManager {
                 error: None,
                 generated_at: None,
                 created_at: now,
+                run_kind: "attached".into(),
+                insight_kind: "rubric".into(),
+                subject_scope: "you".into(),
+                transcript_hash: String::new(),
             };
             engine.set_run_id(run.id.clone());
             let db = self.db.clone();
@@ -784,6 +844,7 @@ impl MeetingManager {
             use sha2::{Digest, Sha256};
             format!("{:x}", Sha256::digest(transcript_str.as_bytes()))
         };
+        let guide_transcript_hash = transcript_hash.clone();
         let synthesis_for_db = synthesis.as_ref().ok().cloned();
         let existing_projects_clone = existing_projects.clone();
         self.db
@@ -887,62 +948,143 @@ impl MeetingManager {
             })
             .map_err(|e| MeetingError::Db(e.to_string()))?;
 
-        // Step 7.5: Persist each guide's timeline now (fast), then generate its
-        // review in the background so meeting completion isn't blocked by a
-        // multi-minute LLM pass. Reviews flip status pending → ready/failed.
+        // Step 7.5: post-meeting insight jobs are deliberately independent of
+        // the main summary. Attached guides keep their timeline and review;
+        // opt-in tracked templates get their own review rows. Meeting completion
+        // never waits for these secondary LLM calls.
         {
+            use std::collections::{HashMap, HashSet};
+
+            let enabled_templates = self
+                .db
+                .with_conn(crate::db::guide_templates::list_enabled_insight_templates)
+                .unwrap_or_else(|error| {
+                    tracing::warn!(target: "guide", ?error, "load tracked insight templates failed");
+                    Vec::new()
+                });
+            let config_by_template: HashMap<_, _> = enabled_templates
+                .iter()
+                .map(|(template, config)| (template.id.clone(), config.clone()))
+                .collect();
             let guide_engines: Vec<_> = active.guide_engines.lock().unwrap().clone();
+            let mut reviewed_template_ids = HashSet::new();
+
             for engine in &guide_engines {
-                let Some(run_id) = engine.run_id() else { continue };
+                let Some(run_id) = engine.run_id() else {
+                    continue;
+                };
+                let template = engine.template_snapshot();
+                reviewed_template_ids.insert(template.id.clone());
                 let timeline = engine.drain_timeline();
-                if let Ok(tlj) = serde_json::to_string(&timeline) {
-                    let db = self.db.clone();
-                    let rid = run_id.clone();
-                    if let Err(e) = db.with_conn(move |c| {
-                        crate::db::meeting_guide_runs::update_guide_run_timeline(c, &rid, Some(tlj.as_str()))
+                if let Ok(timeline_json) = serde_json::to_string(&timeline) {
+                    let run_for_write = run_id.clone();
+                    let config = config_by_template.get(&template.id).cloned();
+                    let insight_kind = config
+                        .as_ref()
+                        .map(|value| value.insight_kind.as_str())
+                        .unwrap_or("rubric");
+                    let subject_scope = config
+                        .as_ref()
+                        .map(|value| value.subject_scope.as_str())
+                        .unwrap_or("you");
+                    if let Err(error) = self.db.with_conn(|conn| {
+                        crate::db::meeting_guide_runs::update_guide_run_timeline(
+                            conn,
+                            &run_for_write,
+                            Some(timeline_json.as_str()),
+                        )?;
+                        crate::db::meeting_guide_runs::update_guide_run_analysis_contract(
+                            conn,
+                            &run_for_write,
+                            "attached",
+                            insight_kind,
+                            subject_scope,
+                            &guide_transcript_hash,
+                        )
                     }) {
-                        tracing::warn!(target: "guide", ?e, "persist guide timeline failed");
+                        tracing::warn!(target: "guide", ?error, "persist guide run metadata failed");
                     }
                 }
+                let config = config_by_template.get(&template.id);
+                spawn_guide_review_job(
+                    self.db.clone(),
+                    self.llm.clone(),
+                    self.app_handle.clone(),
+                    run_id,
+                    id.clone(),
+                    template,
+                    segments.clone(),
+                    crate::meeting::guide_review::ReviewOptions {
+                        insight_kind: config
+                            .map(|value| value.insight_kind.clone())
+                            .unwrap_or_else(|| "rubric".into()),
+                        subject_scope: config
+                            .map(|value| value.subject_scope.clone())
+                            .unwrap_or_else(|| "you".into()),
+                    },
+                    guide_transcript_hash.clone(),
+                );
+            }
 
-                let db = self.db.clone();
-                let llm = self.llm.clone();
-                let app = self.app_handle.clone();
-                let template = engine.template_snapshot();
-                let segs = segments.clone();
-                let mid = id.clone();
-                let rid = run_id.clone();
-                tokio::spawn(async move {
-                    match crate::meeting::guide_review::generate_review(llm, &template, &segs).await {
-                        Ok(review) => {
-                            let rj = serde_json::to_string(&review).unwrap_or_else(|_| "{}".into());
-                            let gen_at = chrono::Utc::now().to_rfc3339();
-                            let rid2 = rid.clone();
-                            if let Err(e) = db.with_conn(move |c| {
-                                crate::db::meeting_guide_runs::update_guide_run_review(
-                                    c, &rid2, Some(rj.as_str()), "ready", Some(gen_at.as_str()),
-                                )
-                            }) {
-                                tracing::error!(target: "guide", ?e, run = %rid, "persist guide review failed");
-                            } else {
-                                tracing::info!(target: "guide", run = %rid, overall = %review.overall, criteria = review.scorecard.len(), "[guide-review] ready");
-                            }
-                        }
-                        Err(e) => {
-                            tracing::error!(target: "guide", run = %rid, error = %e, "[guide-review] failed");
-                            let rid2 = rid.clone();
-                            let err = e.clone();
-                            if let Err(write_err) = db.with_conn(move |c| {
-                                crate::db::meeting_guide_runs::set_guide_run_status(c, &rid2, "failed", Some(err.as_str()))
-                            }) {
-                                tracing::warn!(target: "guide", e = ?write_err, run = %rid, "guide run status write failed");
-                            }
-                        }
-                    }
-                    let _ = app.emit("guide-review-updated", serde_json::json!({ "meetingId": mid, "runId": rid }));
-                });
+            let meeting_started_at = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(
+                active.started_at_ms as i64,
+            )
+            .unwrap_or_else(chrono::Utc::now)
+            .to_rfc3339();
+            for (index, (template, config)) in enabled_templates.into_iter().enumerate() {
+                if reviewed_template_ids.contains(&template.id) {
+                    continue;
+                }
+                let run_id = ulid::Ulid::new().to_string();
+                let created_at = chrono::Utc::now().to_rfc3339();
+                let run = crate::db::meeting_guide_runs::GuideRunRow {
+                    id: run_id.clone(),
+                    meeting_id: id.clone(),
+                    template_id: template.id.clone(),
+                    template_name: template.name.clone(),
+                    template_json: serde_json::to_string(&template)
+                        .unwrap_or_else(|_| "{}".into()),
+                    slot: 100 + index as i64,
+                    started_at: meeting_started_at.clone(),
+                    timeline_json: None,
+                    review_json: None,
+                    status: "pending".into(),
+                    error: None,
+                    generated_at: None,
+                    created_at,
+                    run_kind: "tracked".into(),
+                    insight_kind: config.insight_kind.clone(),
+                    subject_scope: config.subject_scope.clone(),
+                    transcript_hash: guide_transcript_hash.clone(),
+                };
+                if let Err(error) = self.db.with_conn(|conn| {
+                    crate::db::meeting_guide_runs::insert_guide_run(conn, &run)
+                }) {
+                    tracing::warn!(target: "guide", ?error, template=%template.id, "insert tracked insight run failed");
+                    continue;
+                }
+                spawn_guide_review_job(
+                    self.db.clone(),
+                    self.llm.clone(),
+                    self.app_handle.clone(),
+                    run_id,
+                    id.clone(),
+                    template,
+                    segments.clone(),
+                    crate::meeting::guide_review::ReviewOptions {
+                        insight_kind: config.insight_kind,
+                        subject_scope: config.subject_scope,
+                    },
+                    guide_transcript_hash.clone(),
+                );
             }
         }
+
+        // Keep both the global meeting folder and any project-specific mirror
+        // in sync before announcing completion. Export failure never rolls back
+        // the safely persisted meeting.
+        let meeting_export_error =
+            try_export_meeting_after_finalize(&self.db, settings.as_ref(), &id);
 
         // Step 8: Emit "complete" event and hide the overlay.
         let _ = self.app_handle.emit(
@@ -966,12 +1108,23 @@ impl MeetingManager {
                 .filter(|t| !t.is_empty())
                 .or_else(|| active.detected_app_name.clone())
                 .unwrap_or_else(|| "Meeting".to_string());
+            let (notification_title, notification_body) = if meeting_export_error.is_some() {
+                (
+                    "Meeting saved, export failed",
+                    format!("{} • Check Settings → Diagnostics", title_str),
+                )
+            } else {
+                (
+                    "Meeting saved",
+                    format!("{} • {}m {}s", title_str, dur_min, dur_sec),
+                )
+            };
             let _ = self
                 .app_handle
                 .notification()
                 .builder()
-                .title("Meeting saved")
-                .body(&format!("{} • {}m {}s", title_str, dur_min, dur_sec))
+                .title(notification_title)
+                .body(&notification_body)
                 .show();
         }
 
@@ -980,35 +1133,31 @@ impl MeetingManager {
             let _ = std::fs::remove_dir_all(self.data_dir.join("meetings").join(&id));
         }
 
-        // Step 10: Export to project's markdown folder if configured. Meetings
-        // bypass the confidence gate since they're user-initiated + reviewable.
-        try_export_meeting_after_finalize(&self.db, &id);
-
         Ok(id)
     }
 }
 
-/// Look up the just-finalized meeting + its item and export to disk when the
-/// item's project has an `export_folder` configured. Best-effort — failures
-/// are logged but don't propagate.
-fn try_export_meeting_after_finalize(db: &Db, meeting_id: &str) {
-    let meeting = match db.with_conn(|c| crate::db::meetings::get_meeting(c, meeting_id)) {
-        Ok(Some(m)) => m,
-        Ok(None) => return,
+/// Refresh the just-finalized meeting's configured Markdown mirrors.
+/// Best-effort: return an error string only so the caller can make export
+/// failure visible without failing the meeting lifecycle itself.
+fn try_export_meeting_after_finalize(
+    db: &Db,
+    settings: Option<&crate::settings::SettingsStore>,
+    meeting_id: &str,
+) -> Option<String> {
+    let global_folder = settings.and_then(|s| s.meeting_export_folder());
+    match crate::export::sync_finalized_meeting_exports(db, meeting_id, global_folder.as_deref()) {
+        Ok(_) => None,
         Err(e) => {
-            tracing::warn!(target: "export", error = %e, "lookup meeting for export failed");
-            return;
+            tracing::warn!(
+                target: "export",
+                meeting_id,
+                error = %e,
+                "sync meeting markdown exports failed"
+            );
+            Some(e.to_string())
         }
-    };
-    let item = match db.with_conn(|c| crate::db::items::get_item(c, meeting_id)) {
-        Ok(Some(it)) => it,
-        Ok(None) => return,
-        Err(e) => {
-            tracing::warn!(target: "export", error = %e, "lookup meeting item for export failed");
-            return;
-        }
-    };
-    crate::export::try_export_meeting(db, &meeting, &item);
+    }
 }
 
 impl MeetingManager {
@@ -1179,7 +1328,7 @@ impl MeetingManager {
                     Ok(())
                 })
                 .map_err(|e| MeetingError::Db(e.to_string()))?;
-            try_export_meeting_after_finalize(&self.db, id);
+            let _ = try_export_meeting_after_finalize(&self.db, settings.as_ref(), id);
         }
         Ok(())
     }
@@ -1246,6 +1395,8 @@ impl MeetingManager {
                 Ok(())
             })
             .map_err(|e| MeetingError::Db(e.to_string()))?;
+        let settings = crate::settings::SettingsStore::load(&self.app_handle).ok();
+        let _ = try_export_meeting_after_finalize(&self.db, settings.as_ref(), id);
         Ok(())
     }
 }

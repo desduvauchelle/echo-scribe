@@ -14,6 +14,12 @@ export type Scenario = {
   speechModelReady?: boolean;
   /** When set, start_pipeline rejects with this message. */
   startPipelineError?: string | null;
+  /** Number of projects shown in Main's sidebar. */
+  projectCount?: number;
+  /** Folder currently configured for automatic meeting Markdown export. */
+  meetingExportFolder?: string | null;
+  /** Folder returned by the native export-folder picker mock. */
+  pickedExportFolder?: string | null;
 };
 
 /**
@@ -39,6 +45,9 @@ export async function installTauriMock(page: Page, scenario: Scenario = {}) {
       onboardingCompleted: sc.onboardingCompleted ?? false,
       speechModelReady: sc.speechModelReady ?? false,
       startPipelineError: sc.startPipelineError ?? null,
+      projectCount: sc.projectCount ?? 0,
+      meetingExportFolder: sc.meetingExportFolder ?? null,
+      pickedExportFolder: sc.pickedExportFolder ?? "/Users/test/Meeting Notes",
       pipelineRunning: false,
     };
     const calls: { cmd: string; args: unknown }[] = [];
@@ -151,6 +160,27 @@ export async function installTauriMock(page: Page, scenario: Scenario = {}) {
           },
           daily_activity: dailyActivity,
         };
+      },
+      list_projects: () =>
+        Array.from({ length: state.projectCount }, (_, index) => ({
+          id: `project-${index + 1}`,
+          name: `Project ${index + 1}`,
+          description: null,
+          archived: false,
+          created_at: "2026-07-30T12:00:00Z",
+          updated_at: "2026-07-30T12:00:00Z",
+        })),
+      get_meeting_settings: () => ({
+        auto_detect: true,
+        app_prefs: {},
+        soft_warn_min: 120,
+        hard_cap_min: 240,
+        summary_prompt: "Summarize decisions and next steps.",
+        export_folder: state.meetingExportFolder,
+      }),
+      pick_export_folder: () => state.pickedExportFolder,
+      set_meeting_export_folder: (a) => {
+        state.meetingExportFolder = a.folder ?? null;
       },
       daily_summary_get: () => null,
       "plugin:autostart|is_enabled": () => false,

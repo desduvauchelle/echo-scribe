@@ -1,3 +1,4 @@
+import { Mic } from "lucide-react";
 import { useCapabilities } from "../lib/capabilitiesContext";
 import { uiGates } from "../lib/capabilities";
 import { useMeetingRecorder } from "../lib/useMeetingRecorder";
@@ -10,11 +11,33 @@ import { useMeetingRecorder } from "../lib/useMeetingRecorder";
  * gated on system-audio capability, so it is hidden on Windows. The label stays
  * terse ("Record" / "Stop"); the full meaning lives in the tooltip.
  */
-export default function SidebarRecordButton() {
+export default function SidebarRecordButton({
+  variant = "sidebar",
+}: {
+  variant?: "sidebar" | "toolbar";
+}) {
   const caps = useCapabilities();
   const { active, busy, toggle } = useMeetingRecorder();
 
   if (!uiGates(caps).showMeetingRecord) return null;
+
+  if (variant === "toolbar") {
+    return (
+      <button
+        type="button"
+        onClick={() => void toggle()}
+        disabled={busy}
+        aria-pressed={active}
+        title={active ? "Stop recording" : "Capture a meeting"}
+        className={`echo-capture-command inline-flex h-8 items-center gap-2 rounded-md px-3 text-[13px] font-semibold ${
+          active ? "is-recording" : ""
+        } ${busy ? "cursor-default opacity-60" : "cursor-pointer"}`}
+      >
+        <Mic size={14} strokeWidth={2} aria-hidden="true" />
+        <span>{active ? "Stop capture" : "Capture"}</span>
+      </button>
+    );
+  }
 
   return (
     <button
@@ -26,7 +49,7 @@ export default function SidebarRecordButton() {
       className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-medium transition-colors ${
         active
           ? "border-danger/30 bg-danger/15 text-danger hover:bg-danger/20"
-          : "border-line bg-elevated text-muted hover:text-fg"
+          : "material-icon-button border-line text-muted hover:text-fg"
       } ${busy ? "cursor-default opacity-60" : "cursor-pointer"}`}
     >
       <span className="relative flex h-1.5 w-1.5">

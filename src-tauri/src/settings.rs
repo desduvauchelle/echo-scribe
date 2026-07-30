@@ -7,6 +7,7 @@ use thiserror::Error;
 use tracing::warn;
 
 use crate::input::binding::{Binding, ModifierKind, ModifierSide, SerKey};
+use crate::power::KeepAwakeMode;
 
 const STORE_FILENAME: &str = "settings.json";
 const KEY_VOICE_AT_CURSOR_BINDING: &str = "voice_at_cursor_binding";
@@ -18,6 +19,7 @@ const KEY_ACTION_TRIGGER_WORD: &str = "action_trigger_word";
 const KEY_SPEECH_MODEL_ID: &str = "speech_model_id";
 const KEY_LLM_MODEL_ID: &str = "llm_model_id";
 const KEY_AUDIO_FEEDBACK_ENABLED: &str = "audio_feedback_enabled";
+const KEY_KEEP_AWAKE_MODE: &str = "keep_awake_mode";
 const KEY_MUTE_WHILE_RECORDING: &str = "mute_while_recording";
 const KEY_ONBOARDING_COMPLETED: &str = "onboarding_completed";
 const KEY_BUILTIN_TEMPLATES_SEEDED: &str = "builtin_templates_seeded_v1";
@@ -58,6 +60,7 @@ const KEY_GUIDE_OVERLAY_FRAME: &str = "guide_overlay_frame";
 const KEY_APP_LAUNCHER_ENABLED: &str = "app_launcher_enabled";
 const KEY_ACTION_COUNTER: &str = "action_counter";
 const KEY_MEETING_SUMMARY_PROMPT: &str = "meeting_summary_prompt";
+const KEY_MEETING_EXPORT_FOLDER: &str = "meeting_export_folder";
 const KEY_SCREENREC_SYSAUDIO: &str = "screenrec_sysaudio";
 const KEY_SCREENREC_MIC_ENABLED: &str = "screenrec_mic_enabled";
 const KEY_SCREENREC_MIC_DEVICE: &str = "screenrec_mic_device";
@@ -457,6 +460,31 @@ impl SettingsStore {
     pub fn set_audio_feedback_enabled(&self, on: bool) -> Result<(), SettingsError> {
         self.store
             .set(KEY_AUDIO_FEEDBACK_ENABLED, serde_json::Value::Bool(on));
+        self.store
+            .save()
+            .map_err(|e| SettingsError::Store(e.to_string()))?;
+        Ok(())
+    }
+
+    /// The persisted tray "Keep awake" selection. Defaults to `Off`.
+    ///
+    /// Only `Off`/`Indefinite` are meaningful across launches: a timed hold is
+    /// a session, not a setting, so `restore_keep_awake_mode` deliberately
+    /// won't re-arm one. We still round-trip the minutes value so the store
+    /// stays a faithful record of what the user last picked.
+    pub fn keep_awake_mode(&self) -> KeepAwakeMode {
+        self.store
+            .get(KEY_KEEP_AWAKE_MODE)
+            .and_then(|v| v.as_str().and_then(KeepAwakeMode::from_storage_key))
+            .unwrap_or(KeepAwakeMode::Off)
+    }
+
+    /// Persist the tray "Keep awake" selection.
+    pub fn set_keep_awake_mode(&self, mode: KeepAwakeMode) -> Result<(), SettingsError> {
+        self.store.set(
+            KEY_KEEP_AWAKE_MODE,
+            serde_json::Value::String(mode.storage_key()),
+        );
         self.store
             .save()
             .map_err(|e| SettingsError::Store(e.to_string()))?;
@@ -1177,6 +1205,35 @@ impl SettingsStore {
             KEY_MEETING_SUMMARY_PROMPT,
             serde_json::Value::String(prompt.to_string()),
         );
+        self.store
+            .save()
+            .map_err(|e| SettingsError::Store(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Absolute path where completed meetings are mirrored as Markdown files.
+    /// `None` means global meeting export is disabled. Per-project export
+    /// folders remain independent from this setting.
+    pub fn meeting_export_folder(&self) -> Option<String> {
+        self.store.get(KEY_MEETING_EXPORT_FOLDER).and_then(|v| {
+            v.as_str()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+        })
+    }
+
+    /// Persist or clear the global meeting Markdown export folder.
+    pub fn set_meeting_export_folder(&self, folder: Option<&str>) -> Result<(), SettingsError> {
+        match folder.map(str::trim).filter(|s| !s.is_empty()) {
+            Some(path) => self.store.set(
+                KEY_MEETING_EXPORT_FOLDER,
+                serde_json::Value::String(path.to_string()),
+            ),
+            None => {
+                self.store.delete(KEY_MEETING_EXPORT_FOLDER);
+            }
+        }
         self.store
             .save()
             .map_err(|e| SettingsError::Store(e.to_string()))?;

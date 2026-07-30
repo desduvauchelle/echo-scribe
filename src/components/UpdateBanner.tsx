@@ -55,7 +55,7 @@ export default function UpdateBanner({ variant = "floating" }: Props) {
     return (
       <div
         role="status"
-        className="relative rounded-md border border-accent/40 bg-accent-soft p-2.5 text-xs text-accent"
+        className="material-status-card relative border border-line p-2.5 text-xs text-accent"
       >
         <button
           type="button"

@@ -15,8 +15,9 @@ pub mod llm;
 pub mod meeting;
 pub mod mcp;
 pub mod overlay;
-pub mod platform;
 pub mod permissions;
+pub mod platform;
+pub mod power;
 pub mod project_tagger;
 pub mod screenrec;
 pub mod settings;
@@ -385,6 +386,8 @@ pub fn run() {
             commands::delete_meeting,
             commands::get_meeting_settings,
             commands::set_meeting_summary_prompt,
+            commands::set_meeting_export_folder,
+            commands::export_meeting_markdown,
             commands::set_meeting_auto_detect,
             commands::set_meeting_app_pref,
             commands::meeting_consent,
@@ -408,6 +411,8 @@ pub fn run() {
             commands::create_guide_template,
             commands::update_guide_template,
             commands::delete_guide_template,
+            commands::list_guide_insight_configs,
+            commands::set_guide_insight_config,
             commands::start_guided_session,
             commands::guide_set_mode,
             commands::guide_trigger_now,
@@ -415,6 +420,7 @@ pub fn run() {
             commands::detach_guide,
             commands::list_guide_runs,
             commands::guide_runs_for_template,
+            commands::daily_insight_runs,
             commands::regenerate_guide_review,
             commands::get_live_transcript,
             commands::get_active_guides,
@@ -732,6 +738,7 @@ pub fn run() {
                 db,
                 event_log_root,
                 _log_guard: Mutex::new(guard_slot.take()),
+                keep_awake: Arc::new(crate::power::KeepAwake::new()),
                 meeting_manager,
                 active_recording: std::sync::Arc::new(std::sync::Mutex::new(None)),
             };
@@ -757,6 +764,17 @@ pub fn run() {
             // AppHandle and the paused atomic together.
             if let Ok(t) = tray.lock() {
                 t.bind_menu(&app.handle().clone(), Arc::clone(&paused_hotkeys));
+            }
+
+            // "Keep awake": re-engage a persisted indefinite hold, then run the
+            // ticker that keeps the countdown label current and ends timed
+            // holds. Restore off the setup thread — it saves settings.
+            {
+                let app_for_awake = app.handle().clone();
+                std::thread::spawn(move || {
+                    crate::ui::tray::restore_keep_awake(&app_for_awake);
+                    crate::ui::tray::spawn_keep_awake_ticker(app_for_awake);
+                });
             }
 
             // Keep the tray "Start/Stop meeting" label in sync with the actual

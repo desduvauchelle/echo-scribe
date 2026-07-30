@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Copy, Eye, Loader, MessageSquare, Pencil, Quote, RotateCcw, Send, Sparkles, Trash2, X } from "lucide-react";
+import { createPortal } from "react-dom";
+import { Copy, Download, Eye, Loader, MessageSquare, Pencil, Quote, RotateCcw, Send, Sparkles, Trash2, X } from "lucide-react";
 import Markdown from "./Markdown";
-import { useFocusTrap } from "./a11y/Dialog";
+import Dialog, { useFocusTrap } from "./a11y/Dialog";
 import {
   completeTask,
   createProject,
@@ -9,6 +10,7 @@ import {
   chatWithMemory,
   deleteItem,
   deleteMeeting,
+  exportMeetingMarkdown,
   getItem,
   getMeeting,
   getMeetingPreferences,
@@ -64,13 +66,17 @@ import ItemDetailPanel from "./ItemDetailPanel";
 import { meetingStatusDisplay } from "../lib/meetingStatus";
 
 export default function ActivityPanel() {
-  const { selectedItemId, close } = useActivityPanel();
+  const { selectedItemId, evidenceTarget, close } = useActivityPanel();
   const open = selectedItemId !== null;
+  const [nestedDialogOpen, setNestedDialogOpen] = useState(false);
   const panelRef = useRef<HTMLElement>(null);
-  useFocusTrap(panelRef, open);
+  useFocusTrap(panelRef, open && !nestedDialogOpen);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      setNestedDialogOpen(false);
+      return;
+    }
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") close();
     };
@@ -95,17 +101,33 @@ export default function ActivityPanel() {
         }`}
         role="dialog"
         aria-modal="true"
+        aria-hidden={nestedDialogOpen || undefined}
         aria-labelledby="activity-panel-title"
       >
         {open && selectedItemId ? (
-          <PanelBody itemId={selectedItemId} onClose={close} />
+          <PanelBody
+            itemId={selectedItemId}
+            evidenceTarget={evidenceTarget}
+            onClose={close}
+            onNestedDialogChange={setNestedDialogOpen}
+          />
         ) : null}
       </aside>
     </>
   );
 }
 
-function PanelBody({ itemId, onClose }: { itemId: string; onClose: () => void }) {
+function PanelBody({
+  itemId,
+  evidenceTarget,
+  onClose,
+  onNestedDialogChange,
+}: {
+  itemId: string;
+  evidenceTarget: { segmentIndex: number; nonce: number } | null;
+  onClose: () => void;
+  onNestedDialogChange: (open: boolean) => void;
+}) {
   const { bumpRefresh } = useActivityPanel();
   const toasts = useToasts();
   const [item, setItem] = useState<Item | null>(null);
@@ -116,6 +138,12 @@ function PanelBody({ itemId, onClose }: { itemId: string; onClose: () => void })
   const [completedAt, setCompletedAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [meetingExportOpen, setMeetingExportOpen] = useState(false);
+
+  const setExportDialogOpen = (open: boolean) => {
+    setMeetingExportOpen(open);
+    onNestedDialogChange(open);
+  };
 
   const reload = useCallback(async () => {
     const it = await getItem(itemId);
@@ -150,6 +178,7 @@ function PanelBody({ itemId, onClose }: { itemId: string; onClose: () => void })
     setError(null);
     setItem(null);
     setMeeting(null);
+    setExportDialogOpen(false);
     setTags([]);
     setDeadline(null);
     setCompletedAt(null);
@@ -214,14 +243,26 @@ function PanelBody({ itemId, onClose }: { itemId: string; onClose: () => void })
         <div id="activity-panel-title" className="min-w-0 text-sm font-medium text-fg">
           {loading ? "Loading…" : item ? activityTitle(item, meeting) : "Activity"}
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close panel"
-          className="rounded p-1 text-muted hover:bg-elevated hover:text-fg"
-        >
-          <X size={16} strokeWidth={2.25} />
-        </button>
+        <div className="flex items-center gap-1.5">
+          {meeting && ["complete", "recovered"].includes(meeting.status) ? (
+            <button
+              type="button"
+              onClick={() => setExportDialogOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-md border border-line px-2.5 py-1 text-[11px] font-medium text-muted transition-colors hover:bg-elevated hover:text-fg"
+            >
+              <Download size={13} strokeWidth={2} aria-hidden="true" />
+              Export…
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close panel"
+            className="rounded p-1 text-muted hover:bg-elevated hover:text-fg"
+          >
+            <X size={16} strokeWidth={2.25} />
+          </button>
+        </div>
       </header>
       <div className="flex-1 overflow-y-auto px-4 py-3 text-sm text-fg">
         {loading ? (
@@ -236,6 +277,7 @@ function PanelBody({ itemId, onClose }: { itemId: string; onClose: () => void })
                 meeting={meeting}
                 projects={projects}
                 tags={tags}
+                evidenceTarget={evidenceTarget}
                 onProjectsChange={setProjects}
                 onItemChange={onItemChange}
                 onTagsChange={setTags}
@@ -286,7 +328,149 @@ function PanelBody({ itemId, onClose }: { itemId: string; onClose: () => void })
           </div>
         ) : null}
       </div>
+      {meetingExportOpen && meeting ? (
+        <MeetingExportDialog
+          meeting={meeting}
+          onClose={() => setExportDialogOpen(false)}
+        />
+      ) : null}
     </>
+  );
+}
+
+function MeetingExportDialog({
+  meeting,
+  onClose,
+}: {
+  meeting: MeetingRow;
+  onClose: () => void;
+}) {
+  const toasts = useToasts();
+  const [includeSummary, setIncludeSummary] = useState(true);
+  const [includeTranscript, setIncludeTranscript] = useState(true);
+  const [exporting, setExporting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const hasSelection = includeSummary || includeTranscript;
+
+  const runExport = async () => {
+    if (!hasSelection) return;
+    setExporting(true);
+    setError(null);
+    try {
+      const result = await exportMeetingMarkdown(
+        meeting.item_id,
+        includeSummary,
+        includeTranscript,
+      );
+      // Cancelling the native save dialog returns to this modal so the user
+      // can adjust the selection or try again.
+      if (!result) return;
+      onClose();
+      toasts.push({
+        tone: "success",
+        message: `Meeting exported to ${result.path}.`,
+      });
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  return createPortal(
+    <Dialog
+      onClose={onClose}
+      dismissible={!exporting}
+      labelledBy="meeting-export-title"
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-black/55 p-4"
+      panelClassName="w-full max-w-md rounded-xl border border-line bg-canvas p-5 shadow-2xl"
+    >
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 id="meeting-export-title" className="text-base font-semibold text-fg">
+            Export meeting
+          </h2>
+          <p className="mt-1 text-xs leading-relaxed text-muted">
+            Choose what to include. You&rsquo;ll select the Markdown file location next.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          disabled={exporting}
+          aria-label="Close export dialog"
+          className="rounded p-1 text-muted hover:bg-elevated hover:text-fg disabled:opacity-50"
+        >
+          <X size={16} strokeWidth={2.25} />
+        </button>
+      </div>
+
+      <div className="mt-5 space-y-2.5">
+        <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-line bg-surface px-3 py-3 hover:border-line-strong">
+          <input
+            type="checkbox"
+            checked={includeSummary}
+            onChange={(event) => setIncludeSummary(event.target.checked)}
+            disabled={exporting}
+            className="mt-0.5"
+          />
+          <span>
+            <span className="block text-sm font-medium text-fg">Summary</span>
+            <span className="mt-0.5 block text-[11px] leading-relaxed text-muted">
+              Summary points, action items, and your meeting notes.
+            </span>
+          </span>
+        </label>
+
+        <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-line bg-surface px-3 py-3 hover:border-line-strong">
+          <input
+            type="checkbox"
+            checked={includeTranscript}
+            onChange={(event) => setIncludeTranscript(event.target.checked)}
+            disabled={exporting}
+            className="mt-0.5"
+          />
+          <span>
+            <span className="block text-sm font-medium text-fg">Transcript</span>
+            <span className="mt-0.5 block text-[11px] leading-relaxed text-muted">
+              The complete speaker-labelled meeting transcript.
+            </span>
+          </span>
+        </label>
+      </div>
+
+      {!hasSelection ? (
+        <p className="mt-3 text-xs text-danger" role="alert">
+          Choose at least one section to export.
+        </p>
+      ) : null}
+      {error ? (
+        <p className="mt-3 text-xs text-danger" role="alert">
+          Export failed: {error}
+        </p>
+      ) : null}
+
+      <div className="mt-5 flex justify-end gap-2">
+        <button
+          type="button"
+          onClick={onClose}
+          disabled={exporting}
+          className="rounded-md px-3 py-2 text-xs font-medium text-muted hover:bg-elevated hover:text-fg disabled:opacity-50"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={() => void runExport()}
+          disabled={!hasSelection || exporting}
+          className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-2 text-xs font-semibold text-canvas hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {exporting ? <Loader size={13} className="animate-spin" aria-hidden="true" /> : <Download size={13} aria-hidden="true" />}
+          {exporting ? "Exporting…" : "Choose location…"}
+        </button>
+      </div>
+    </Dialog>,
+    document.body,
   );
 }
 
@@ -743,6 +927,7 @@ function MeetingView({
   meeting,
   projects,
   tags,
+  evidenceTarget,
   onProjectsChange,
   onItemChange,
   onTagsChange,
@@ -753,6 +938,7 @@ function MeetingView({
   meeting: MeetingRow;
   projects: Project[];
   tags: string[];
+  evidenceTarget: { segmentIndex: number; nonce: number } | null;
   onProjectsChange: (next: Project[]) => void;
   onItemChange: (i: Item) => void;
   onTagsChange: (next: string[]) => void;
@@ -765,6 +951,11 @@ function MeetingView({
     ? Math.round(meeting.duration_ms / 60000)
     : null;
   const projectName = projects.find((p) => p.id === item.project_id)?.name ?? null;
+  const [localEvidenceTarget, setLocalEvidenceTarget] = useState<{
+    segmentIndex: number;
+    nonce: number;
+  } | null>(null);
+  const selectedEvidence = evidenceTarget ?? localEvidenceTarget;
 
   const statusDisplay = meetingStatusDisplay(meeting.status);
 
@@ -816,7 +1007,9 @@ function MeetingView({
         item={item}
         summary={summary}
         onItemChange={onItemChange}
-        onEvidenceClick={(index) => document.getElementById(`meeting-segment-${index}`)?.scrollIntoView({ behavior: "smooth", block: "center" })}
+        onEvidenceClick={(segmentIndex) =>
+          setLocalEvidenceTarget({ segmentIndex, nonce: Date.now() })
+        }
       />
 
       {summary && summary.action_items.length > 0 ? (
@@ -835,7 +1028,12 @@ function MeetingView({
         </div>
       ) : null}
 
-      <GuideReviewSection meetingId={meeting.item_id} />
+      <GuideReviewSection
+        meetingId={meeting.item_id}
+        onEvidenceClick={(segmentIndex) =>
+          setLocalEvidenceTarget({ segmentIndex, nonce: Date.now() })
+        }
+      />
 
       <MeetingChatSection meetingId={meeting.item_id} />
 
@@ -882,7 +1080,14 @@ function MeetingView({
         </dl>
       </div>
 
-      {transcript && transcript.segments.length > 0 ? <TranscriptEditor meeting={meeting} transcript={transcript} onMeetingChange={onMeetingChange} /> : null}
+      {transcript && transcript.segments.length > 0 ? (
+        <TranscriptEditor
+          meeting={meeting}
+          transcript={transcript}
+          onMeetingChange={onMeetingChange}
+          evidenceTarget={selectedEvidence}
+        />
+      ) : null}
     </div>
   );
 }
@@ -1176,11 +1381,14 @@ function TranscriptEditor({
   meeting,
   transcript,
   onMeetingChange,
+  evidenceTarget,
 }: {
   meeting: MeetingRow;
   transcript: StoredTranscript;
   onMeetingChange: (meeting: MeetingRow) => void;
+  evidenceTarget: { segmentIndex: number; nonce: number } | null;
 }) {
+  const detailsRef = useRef<HTMLDetailsElement>(null);
   const [editing, setEditing] = useState(false);
   const [segments, setSegments] = useState<Segment[]>(transcript.segments);
   const [saving, setSaving] = useState(false);
@@ -1189,6 +1397,16 @@ function TranscriptEditor({
 
   useEffect(() => setSegments(transcript.segments), [meeting.item_id, meeting.transcript_json]);
   useEffect(() => { listMeetingArtifacts("transcript_backup", meeting.item_id).then(setBackups).catch(() => setBackups([])); }, [meeting.item_id, meeting.transcript_json]);
+  useEffect(() => {
+    if (!evidenceTarget) return;
+    if (evidenceTarget.segmentIndex < 0 || evidenceTarget.segmentIndex >= segments.length) return;
+    if (detailsRef.current) detailsRef.current.open = true;
+    requestAnimationFrame(() => {
+      document
+        .getElementById(`meeting-segment-${evidenceTarget.segmentIndex}`)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  }, [evidenceTarget?.nonce, evidenceTarget?.segmentIndex, segments.length]);
 
   const save = async () => {
     setSaving(true);
@@ -1206,7 +1424,7 @@ function TranscriptEditor({
   };
 
   return (
-    <details>
+    <details ref={detailsRef}>
       <summary className="cursor-pointer text-[11px] text-faint hover:text-muted">Transcript ({segments.length} segments)</summary>
       <div className="mt-2 space-y-2">
         <div className="flex items-center justify-between">
@@ -1220,7 +1438,13 @@ function TranscriptEditor({
         </div>
         <div className="max-h-72 space-y-1 overflow-y-auto rounded border border-line bg-surface p-2 text-[11px]">
           {segments.map((segment, index) => (
-            <div key={`${segment.start_ms}-${index}`} id={`meeting-segment-${index}`} className="group flex scroll-mt-4 items-start gap-1 rounded px-1 py-0.5">
+            <div
+              key={`${segment.start_ms}-${index}`}
+              id={`meeting-segment-${index}`}
+              className={`group flex scroll-mt-4 items-start gap-1 rounded px-1 py-0.5 transition-colors ${
+                evidenceTarget?.segmentIndex === index ? "bg-accent-soft ring-1 ring-accent/40" : ""
+              }`}
+            >
               <span className={`w-9 shrink-0 pt-1 ${segment.speaker === "you" ? "text-accent" : "text-muted"}`}>{segment.speaker}:</span>
               {editing ? (
                 <>
@@ -1480,6 +1704,10 @@ const VERDICT_STYLES: Record<string, string> = {
   partial: "bg-amber-500/15 text-amber-400",
   missed: "bg-red-500/15 text-red-400",
   unknown: "bg-elevated text-muted",
+  not_observed: "bg-elevated text-muted",
+  light: "bg-sky-500/15 text-sky-400",
+  clear: "bg-amber-500/15 text-amber-400",
+  strong: "bg-red-500/15 text-red-400",
 };
 const OVERALL_STYLES: Record<string, string> = {
   strong: "bg-emerald-500/15 text-emerald-400",
@@ -1487,7 +1715,13 @@ const OVERALL_STYLES: Record<string, string> = {
   weak: "bg-red-500/15 text-red-400",
 };
 
-function GuideReviewSection({ meetingId }: { meetingId: string }) {
+function GuideReviewSection({
+  meetingId,
+  onEvidenceClick,
+}: {
+  meetingId: string;
+  onEvidenceClick: (segmentIndex: number) => void;
+}) {
   const toasts = useToasts();
   const [runs, setRuns] = useState<GuideRun[]>([]);
   const [openCrit, setOpenCrit] = useState<Record<string, boolean>>({});
@@ -1535,17 +1769,21 @@ function GuideReviewSection({ meetingId }: { meetingId: string }) {
                 {run.status === "pending" ? (
                   <span className="text-[11px] text-muted">Generating review…</span>
                 ) : null}
-                <button
-                  className="ml-auto text-[11px] text-accent hover:underline"
-                  onClick={() => setTrendFor({ id: run.template_id, name: run.template_name })}
-                >
-                  View trend
-                </button>
+                {run.insight_kind !== "signals" ? (
+                  <button
+                    className="ml-auto text-[11px] text-accent hover:underline"
+                    onClick={() => setTrendFor({ id: run.template_id, name: run.template_name })}
+                  >
+                    View trend
+                  </button>
+                ) : null}
               </div>
 
-              {run.status === "failed" ? (
+              {run.status === "failed" || run.status === "stale" ? (
                 <div className="px-3 py-3 text-[12px] text-muted">
-                  Guide review couldn't be generated. See Settings → Diagnostics → logs.{" "}
+                  {run.status === "stale"
+                    ? "The transcript changed, so this evidence needs to be refreshed. "
+                    : "Guide review couldn't be generated. See Settings → Diagnostics → logs. "}
                   <button
                     className="text-accent hover:underline disabled:cursor-not-allowed disabled:opacity-60"
                     disabled={!!retrying[run.id]}
@@ -1564,7 +1802,7 @@ function GuideReviewSection({ meetingId }: { meetingId: string }) {
                       }
                     }}
                   >
-                    {retrying[run.id] ? "Retrying…" : "Retry"}
+                    {retrying[run.id] ? "Analyzing…" : run.status === "stale" ? "Reanalyze" : "Retry"}
                   </button>
                 </div>
               ) : null}
@@ -1579,7 +1817,14 @@ function GuideReviewSection({ meetingId }: { meetingId: string }) {
                     <div className="space-y-1.5">
                       {review.scorecard.map((c, i) => {
                         const key = `${run.id}:${i}`;
-                        const vk = verdictClass(c.verdict);
+                        const vk =
+                          run.insight_kind === "signals"
+                            ? (["not_observed", "light", "clear", "strong"].includes(
+                                c.verdict.toLowerCase(),
+                              )
+                                ? c.verdict.toLowerCase()
+                                : "not_observed")
+                            : verdictClass(c.verdict);
                         const open = !!openCrit[key];
                         return (
                           <div key={key} className="overflow-hidden rounded-md border border-line">
@@ -1596,8 +1841,22 @@ function GuideReviewSection({ meetingId }: { meetingId: string }) {
                             </button>
                             {open ? (
                               <div className="space-y-1.5 border-t border-line px-2.5 py-2 text-[12px]">
-                                {c.evidence ? (
-                                  <p className="border-l-2 border-line pl-2 italic text-muted">"{c.evidence}"</p>
+                                {(c.evidence_refs ?? []).length > 0 ? (
+                                  <div className="space-y-1">
+                                    {(c.evidence_refs ?? []).map((evidence, evidenceIndex) => (
+                                      <button
+                                        key={`${evidence.segment_index}:${evidenceIndex}`}
+                                        type="button"
+                                        className="flex w-full gap-1.5 border-l-2 border-line pl-2 text-left italic text-muted hover:border-accent hover:text-fg"
+                                        onClick={() => onEvidenceClick(evidence.segment_index)}
+                                      >
+                                        <Quote size={11} className="mt-0.5 shrink-0" />
+                                        <span>“{evidence.quote}”</span>
+                                      </button>
+                                    ))}
+                                  </div>
+                                ) : c.evidence ? (
+                                  <p className="border-l-2 border-line pl-2 italic text-muted">“{c.evidence}”</p>
                                 ) : null}
                                 {c.why ? <p className="text-fg">{c.why}</p> : null}
                                 {c.tip ? (

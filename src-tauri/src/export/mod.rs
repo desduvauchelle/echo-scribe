@@ -38,6 +38,26 @@ pub struct ExportResult {
     pub path: String,
 }
 
+/// Fully rendered manual export, prepared before the native save dialog opens.
+#[derive(Debug)]
+pub struct PreparedMeetingExport {
+    pub filename: String,
+    markdown: String,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct MeetingExportSections {
+    summary: bool,
+    transcript: bool,
+}
+
+impl MeetingExportSections {
+    const ALL: Self = Self {
+        summary: true,
+        transcript: true,
+    };
+}
+
 #[derive(Debug)]
 pub enum ExportSkip {
     NoFolder,
@@ -197,7 +217,31 @@ fn render_item(item: &Item, project: &Project, tags: &[String]) -> String {
     )
 }
 
-fn render_meeting(meeting: &MeetingRow, item: &Item, project: &Project, tags: &[String]) -> String {
+fn meeting_transcript(meeting: &MeetingRow, item: &Item) -> String {
+    let segments = meeting
+        .transcript_json
+        .as_deref()
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok())
+        .and_then(|value| value.get("segments").cloned())
+        .and_then(|value| serde_json::from_value::<Vec<crate::meeting::Segment>>(value).ok());
+
+    match segments {
+        Some(segments) if !segments.is_empty() => {
+            crate::meeting::synthesizer::flatten_transcript(&segments)
+        }
+        // Legacy and partially recovered meetings may only have the flattened
+        // searchable item body. Keep that as a compatibility fallback.
+        _ => item.content.trim().to_string(),
+    }
+}
+
+fn render_meeting(
+    meeting: &MeetingRow,
+    item: &Item,
+    project_name: Option<&str>,
+    tags: &[String],
+    sections: MeetingExportSections,
+) -> String {
     let mut tags_yaml = String::from("[]");
     if !tags.is_empty() {
         tags_yaml = format!(
@@ -232,37 +276,46 @@ fn render_meeting(meeting: &MeetingRow, item: &Item, project: &Project, tags: &[
         meeting.started_at, duration_min, detected_app
     ));
 
-    if let Some(s) = stored {
-        if !s.summary.is_empty() {
-            body.push_str("## Summary\n\n");
-            for bullet in &s.summary {
-                body.push_str(&format!("- {bullet}\n"));
+    if sections.summary {
+        if let Some(s) = stored {
+            if !s.summary.is_empty() {
+                body.push_str("## Summary\n\n");
+                for bullet in &s.summary {
+                    body.push_str(&format!("- {bullet}\n"));
+                }
+                body.push('\n');
             }
-            body.push('\n');
+            if !s.action_items.is_empty() {
+                body.push_str("## Action items\n\n");
+                for a in &s.action_items {
+                    body.push_str(&format!("- [ ] ({}) {}\n", a.owner, a.text));
+                }
+                body.push('\n');
+            }
         }
-        if !s.action_items.is_empty() {
-            body.push_str("## Action items\n\n");
-            for a in &s.action_items {
-                body.push_str(&format!("- [ ] ({}) {}\n", a.owner, a.text));
+
+        if let Some(notes) = meeting.user_notes.as_deref() {
+            let trimmed = notes.trim();
+            if !trimmed.is_empty() {
+                body.push_str("## User notes\n\n");
+                body.push_str(trimmed);
+                body.push_str("\n\n");
             }
+        }
+    }
+
+    if sections.transcript {
+        let transcript = meeting_transcript(meeting, item);
+        if !transcript.trim().is_empty() {
+            body.push_str("## Transcript\n\n");
+            body.push_str(transcript.trim());
             body.push('\n');
         }
     }
 
-    if let Some(notes) = meeting.user_notes.as_deref() {
-        let trimmed = notes.trim();
-        if !trimmed.is_empty() {
-            body.push_str("## User notes\n\n");
-            body.push_str(trimmed);
-            body.push_str("\n\n");
-        }
-    }
-
-    if !item.content.trim().is_empty() {
-        body.push_str("## Transcript\n\n");
-        body.push_str(item.content.trim());
-        body.push('\n');
-    }
+    let project_yaml = project_name
+        .map(yaml_escape)
+        .unwrap_or_else(|| "null".to_string());
 
     format!(
         "---\n\
@@ -277,12 +330,144 @@ fn render_meeting(meeting: &MeetingRow, item: &Item, project: &Project, tags: &[
         \n\
         {body}",
         id = item.id,
-        project = yaml_escape(&project.name),
+        project = project_yaml,
         captured = meeting.started_at,
         dur = meeting.duration_ms.unwrap_or(0),
         tags = tags_yaml,
         body = body,
     )
+}
+
+fn meeting_filename(meeting: &MeetingRow, item: &Item) -> String {
+    // Use suggested_title as filename label if present, else first 60 chars of
+    // transcript content.
+    let label_seed: String =
+        serde_json::from_str::<serde_json::Value>(meeting.summary_json.as_deref().unwrap_or("{}"))
+            .ok()
+            .and_then(|v| {
+                v.get("suggested_title")
+                    .and_then(|t| t.as_str())
+                    .map(str::to_string)
+            })
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or_else(|| meeting_transcript(meeting, item).chars().take(60).collect());
+
+    let stem = filename_stem(&meeting.started_at, &label_seed);
+    let id_suffix = &item.id[..item.id.len().min(6)];
+    format!("{stem}-{id_suffix}.md")
+}
+
+fn write_meeting_export(
+    db: &Db,
+    meeting: &MeetingRow,
+    item: &Item,
+    dir: &Path,
+    project_name: Option<&str>,
+) -> Result<ExportResult, ExportError> {
+    let tags = db
+        .with_conn(|c| crate::db::items::list_tags_for_item(c, &item.id))
+        .unwrap_or_default();
+    let body = render_meeting(
+        meeting,
+        item,
+        project_name,
+        &tags,
+        MeetingExportSections::ALL,
+    );
+    let filename = meeting_filename(meeting, item);
+    let id_suffix = &item.id[..item.id.len().min(6)];
+    let path = dir.join(filename);
+
+    write_atomic(&path, &body)?;
+    remove_stale_exports(dir, id_suffix, &path);
+
+    Ok(ExportResult {
+        path: path.to_string_lossy().into_owned(),
+    })
+}
+
+/// Render one meeting for a user-initiated export. The caller can independently
+/// include the summary bundle (summary, action items, and user notes) and the
+/// speaker-labelled transcript.
+pub fn prepare_manual_meeting_export(
+    db: &Db,
+    meeting_id: &str,
+    include_summary: bool,
+    include_transcript: bool,
+) -> Result<PreparedMeetingExport, ExportError> {
+    if !include_summary && !include_transcript {
+        return Err(ExportError::Invalid(
+            "choose at least one meeting section to export".into(),
+        ));
+    }
+
+    let meeting = db
+        .with_conn(|c| crate::db::meetings::get_meeting(c, meeting_id))?
+        .ok_or_else(|| ExportError::Invalid(format!("meeting {meeting_id} not found")))?;
+    let item = db
+        .with_conn(|c| crate::db::items::get_item(c, meeting_id))?
+        .ok_or_else(|| ExportError::Invalid(format!("meeting item {meeting_id} not found")))?;
+
+    if !matches!(meeting.status.as_str(), "complete" | "recovered") {
+        return Err(ExportError::Invalid(
+            "meeting must finish before it can be exported".into(),
+        ));
+    }
+
+    let tags = db
+        .with_conn(|c| crate::db::items::list_tags_for_item(c, &item.id))
+        .unwrap_or_default();
+    let markdown = render_meeting(
+        &meeting,
+        &item,
+        meeting.project_name.as_deref(),
+        &tags,
+        MeetingExportSections {
+            summary: include_summary,
+            transcript: include_transcript,
+        },
+    );
+
+    Ok(PreparedMeetingExport {
+        filename: meeting_filename(&meeting, &item),
+        markdown,
+    })
+}
+
+/// Write a prepared manual export to the exact location chosen in the native
+/// save dialog. Ensure the exported file uses the `.md` extension.
+pub fn write_manual_meeting_export(
+    prepared: &PreparedMeetingExport,
+    destination: &Path,
+) -> Result<ExportResult, ExportError> {
+    if !destination.is_absolute() {
+        return Err(ExportError::Invalid(
+            "meeting export destination must be an absolute path".into(),
+        ));
+    }
+
+    let mut path = destination.to_path_buf();
+    if path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .map(|extension| !extension.eq_ignore_ascii_case("md"))
+        .unwrap_or(true)
+    {
+        path.set_extension("md");
+    }
+    let parent = path.parent().ok_or_else(|| {
+        ExportError::Invalid("meeting export destination has no parent folder".into())
+    })?;
+    if !parent.is_dir() {
+        return Err(ExportError::Invalid(
+            "meeting export destination folder does not exist".into(),
+        ));
+    }
+
+    write_atomic(&path, &prepared.markdown)?;
+    Ok(ExportResult {
+        path: path.to_string_lossy().into_owned(),
+    })
 }
 
 /// Fire-and-log export for a freshly-persisted or edited Item. Returns the
@@ -386,42 +571,75 @@ pub fn export_meeting(
         return Ok(Err(ExportSkip::NoFolder));
     }
 
-    let tags = db
-        .with_conn(|c| crate::db::items::list_tags_for_item(c, &item.id))
-        .unwrap_or_default();
-    let body = render_meeting(meeting, item, &project, &tags);
-
-    // Use suggested_title as filename label if present, else first 60 chars of
-    // transcript content.
-    let label_seed: String = serde_json::from_str::<serde_json::Value>(
-        meeting.summary_json.as_deref().unwrap_or("{}"),
-    )
-    .ok()
-    .and_then(|v| v.get("suggested_title").and_then(|t| t.as_str()).map(|s| s.to_string()))
-    .filter(|s| !s.trim().is_empty())
-    .unwrap_or_else(|| {
-        let c = item.content.trim();
-        if c.len() > 60 { c[..60].to_string() } else { c.to_string() }
-    });
-
-    let stem = filename_stem(&meeting.started_at, &label_seed);
-    let id_suffix = &item.id[..item.id.len().min(6)];
-    let filename = format!("{stem}-{id_suffix}.md");
     let dir = PathBuf::from(folder).join("meetings");
-    let path = dir.join(&filename);
-    write_atomic(&path, &body)?;
-    remove_stale_exports(&dir, id_suffix, &path);
+    let result = write_meeting_export(db, meeting, item, &dir, Some(&project.name))?;
 
     info!(
         target: "export",
         item_id = %item.id,
         project = %project.name,
-        path = %path.display(),
+        path = %result.path,
         "exported meeting to markdown"
     );
-    Ok(Ok(ExportResult {
-        path: path.to_string_lossy().into_owned(),
-    }))
+    Ok(Ok(result))
+}
+
+/// Export a finalized meeting directly into the user-selected global meeting
+/// folder. Unlike per-project export, this works for unassigned meetings and
+/// writes directly into the selected directory.
+pub fn export_meeting_to_folder(
+    db: &Db,
+    meeting: &MeetingRow,
+    item: &Item,
+    folder: &Path,
+) -> Result<ExportResult, ExportError> {
+    if !folder.is_absolute() {
+        return Err(ExportError::Invalid(
+            "meeting export folder must be an absolute path".into(),
+        ));
+    }
+    if !folder.is_dir() {
+        return Err(ExportError::Invalid(
+            "meeting export folder does not exist or is unavailable".into(),
+        ));
+    }
+    let result = write_meeting_export(db, meeting, item, folder, meeting.project_name.as_deref())?;
+    info!(
+        target: "export",
+        item_id = %item.id,
+        path = %result.path,
+        "exported meeting to global markdown folder"
+    );
+    Ok(result)
+}
+
+/// Refresh all configured Markdown mirrors for one finalized meeting. The
+/// global folder receives every meeting; the existing per-project mirror is
+/// preserved when that project has an export folder.
+pub fn sync_finalized_meeting_exports(
+    db: &Db,
+    meeting_id: &str,
+    global_folder: Option<&str>,
+) -> Result<Option<ExportResult>, ExportError> {
+    let meeting = db
+        .with_conn(|c| crate::db::meetings::get_meeting(c, meeting_id))?
+        .ok_or_else(|| ExportError::Invalid(format!("meeting {meeting_id} not found")))?;
+    let item = db
+        .with_conn(|c| crate::db::items::get_item(c, meeting_id))?
+        .ok_or_else(|| ExportError::Invalid(format!("meeting item {meeting_id} not found")))?;
+
+    if !matches!(meeting.status.as_str(), "complete" | "recovered") {
+        return Ok(None);
+    }
+
+    // Project export is deliberately independent from the global destination.
+    // A project-scoped copy remains useful even when the global mirror is on.
+    try_export_meeting(db, &meeting, &item);
+
+    let Some(folder) = global_folder.map(str::trim).filter(|s| !s.is_empty()) else {
+        return Ok(None);
+    };
+    export_meeting_to_folder(db, &meeting, &item, Path::new(folder)).map(Some)
 }
 
 /// Wrapper that logs skip / error outcomes at info / warn but never panics or
@@ -931,6 +1149,198 @@ mod tests {
         assert!(!body.contains("## Action items"));
         assert!(body.contains("## Transcript"));
         assert!(body.contains("## User notes"));
+    }
+
+    #[test]
+    fn manual_meeting_export_selects_summary_or_transcript_sections() {
+        let db = fresh_db();
+        let mut item = make_meeting_item("01HKMS1", "unused-project");
+        item.project_id = None;
+        let summary = r#"{
+            "summary": ["Approved the launch plan"],
+            "action_items": [{"text": "Share the final brief", "owner": "you"}],
+            "suggested_title": "Launch decision",
+            "raw": null
+        }"#;
+        let mut meeting = make_meeting_row("01HKMS1", Some(summary));
+        meeting.transcript_json = Some(
+            serde_json::json!({
+                "segments": [
+                    {"speaker": "you", "start_ms": 0, "end_ms": 1000, "text": "Here is the plan"},
+                    {"speaker": "them", "start_ms": 1000, "end_ms": 2000, "text": "Approved"}
+                ]
+            })
+            .to_string(),
+        );
+        db.with_conn(|c| crate::db::items::insert_item(c, &item))
+            .unwrap();
+        db.with_conn(|c| crate::db::meetings::insert_meeting(c, &meeting))
+            .unwrap();
+
+        let summary_only = prepare_manual_meeting_export(&db, &item.id, true, false).unwrap();
+        assert!(summary_only.markdown.contains("## Summary"));
+        assert!(summary_only.markdown.contains("## Action items"));
+        assert!(summary_only.markdown.contains("## User notes"));
+        assert!(!summary_only.markdown.contains("## Transcript"));
+
+        let transcript_only = prepare_manual_meeting_export(&db, &item.id, false, true).unwrap();
+        assert!(!transcript_only.markdown.contains("## Summary"));
+        assert!(!transcript_only.markdown.contains("## Action items"));
+        assert!(!transcript_only.markdown.contains("## User notes"));
+        assert!(transcript_only.markdown.contains("## Transcript"));
+        assert!(transcript_only.markdown.contains("You: Here is the plan"));
+        assert!(transcript_only.markdown.contains("Them: Approved"));
+    }
+
+    #[test]
+    fn manual_meeting_export_requires_a_section_and_writes_markdown_extension() {
+        let dir = TempDir::new().unwrap();
+        let db = fresh_db();
+        let mut item = make_meeting_item("01HKMS2", "unused-project");
+        item.project_id = None;
+        let meeting = make_meeting_row(
+            "01HKMS2",
+            Some(
+                r#"{"summary":["Ready"],"action_items":[],"suggested_title":"Decision","raw":null}"#,
+            ),
+        );
+        db.with_conn(|c| crate::db::items::insert_item(c, &item))
+            .unwrap();
+        db.with_conn(|c| crate::db::meetings::insert_meeting(c, &meeting))
+            .unwrap();
+
+        let error = prepare_manual_meeting_export(&db, &item.id, false, false).unwrap_err();
+        assert!(error.to_string().contains("at least one"));
+
+        let prepared = prepare_manual_meeting_export(&db, &item.id, true, false).unwrap();
+        let result = write_manual_meeting_export(&prepared, &dir.path().join("decision")).unwrap();
+        assert!(result.path.ends_with("decision.md"));
+        assert!(Path::new(&result.path).exists());
+    }
+
+    #[test]
+    fn global_meeting_export_writes_unassigned_file_directly_to_selected_folder() {
+        let dir = TempDir::new().unwrap();
+        let db = fresh_db();
+        let summary = r#"{
+            "summary": ["Agreed on the launch plan"],
+            "action_items": [{"text": "Send the draft", "owner": "you"}],
+            "suggested_title": "Launch Review",
+            "raw": null
+        }"#;
+        let mut item = make_meeting_item("01HKMG1", "unused-project");
+        item.project_id = None;
+        // The searchable item body intentionally contains duplicated sections.
+        // The export should prefer the structured transcript_json instead.
+        item.content = "[Summary]\n- stale copy\n\n[Transcript]\nYou: stale transcript".into();
+        let mut meeting = make_meeting_row("01HKMG1", Some(summary));
+        meeting.transcript_json = Some(
+            serde_json::json!({
+                "segments": [
+                    {"speaker": "you", "start_ms": 0, "end_ms": 1000, "text": "fresh transcript"},
+                    {"speaker": "them", "start_ms": 1000, "end_ms": 2000, "text": "confirmed"}
+                ]
+            })
+            .to_string(),
+        );
+
+        let result = export_meeting_to_folder(&db, &meeting, &item, dir.path()).unwrap();
+        let path = Path::new(&result.path);
+        assert_eq!(path.parent(), Some(dir.path()));
+        assert!(path
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .contains("launch-review"));
+
+        let body = std::fs::read_to_string(path).unwrap();
+        assert!(body.contains("project: null"));
+        assert!(body.contains("## Summary"));
+        assert!(body.contains("You: fresh transcript"));
+        assert!(body.contains("Them: confirmed"));
+        assert!(!body.contains("stale copy"));
+        assert!(!body.contains("stale transcript"));
+    }
+
+    #[test]
+    fn global_meeting_export_replaces_stale_title_file() {
+        let dir = TempDir::new().unwrap();
+        let db = fresh_db();
+        let mut item = make_meeting_item("01HKMG2", "unused-project");
+        item.project_id = None;
+        let mut meeting = make_meeting_row(
+            "01HKMG2",
+            Some(r#"{"summary":[],"action_items":[],"suggested_title":"First title","raw":null}"#),
+        );
+
+        let first = export_meeting_to_folder(&db, &meeting, &item, dir.path()).unwrap();
+        meeting.summary_json = Some(
+            r#"{"summary":[],"action_items":[],"suggested_title":"Revised title","raw":null}"#
+                .into(),
+        );
+        let second = export_meeting_to_folder(&db, &meeting, &item, dir.path()).unwrap();
+
+        assert!(!Path::new(&first.path).exists());
+        assert!(Path::new(&second.path).exists());
+        let markdown_files = std::fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| entry.path().extension().and_then(|s| s.to_str()) == Some("md"))
+            .count();
+        assert_eq!(markdown_files, 1);
+    }
+
+    #[test]
+    fn global_meeting_export_rejects_relative_folder() {
+        let db = fresh_db();
+        let mut item = make_meeting_item("01HKMG3", "unused-project");
+        item.project_id = None;
+        let meeting = make_meeting_row("01HKMG3", None);
+        let error =
+            export_meeting_to_folder(&db, &meeting, &item, Path::new("relative")).unwrap_err();
+        assert!(error.to_string().contains("absolute path"));
+    }
+
+    #[test]
+    fn sync_finalized_meeting_exports_includes_unassigned_meeting() {
+        let dir = TempDir::new().unwrap();
+        let db = fresh_db();
+        let mut item = make_meeting_item("01HKMG4", "unused-project");
+        item.project_id = None;
+        let meeting = make_meeting_row(
+            "01HKMG4",
+            Some(
+                r#"{"summary":["Ready"],"action_items":[],"suggested_title":"Agent handoff","raw":null}"#,
+            ),
+        );
+        db.with_conn(|c| crate::db::items::insert_item(c, &item))
+            .unwrap();
+        db.with_conn(|c| crate::db::meetings::insert_meeting(c, &meeting))
+            .unwrap();
+
+        let result = sync_finalized_meeting_exports(&db, &meeting.item_id, dir.path().to_str())
+            .unwrap()
+            .expect("global export should be written");
+        assert!(Path::new(&result.path).exists());
+    }
+
+    #[test]
+    fn sync_meeting_exports_skips_active_meeting() {
+        let dir = TempDir::new().unwrap();
+        let db = fresh_db();
+        let mut item = make_meeting_item("01HKMG5", "unused-project");
+        item.project_id = None;
+        let mut meeting = make_meeting_row("01HKMG5", None);
+        meeting.status = "recording".into();
+        db.with_conn(|c| crate::db::items::insert_item(c, &item))
+            .unwrap();
+        db.with_conn(|c| crate::db::meetings::insert_meeting(c, &meeting))
+            .unwrap();
+
+        let result =
+            sync_finalized_meeting_exports(&db, &meeting.item_id, dir.path().to_str()).unwrap();
+        assert!(result.is_none());
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
     }
 
     // -------------------------------------------------------------------------

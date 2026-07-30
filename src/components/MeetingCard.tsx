@@ -25,12 +25,13 @@ type Props = {
    *  cards. Meetings resolve their project name server-side, so this is only
    *  used by the nested action items. */
   projects?: Map<string, Project>;
+  variant?: "card" | "ledger";
 };
 
 /** Meeting row for the dashboard feed. Shows what the meeting was, and folds
  *  the tasks it produced underneath it rather than scattering them through the
  *  feed as standalone cards. */
-export default function MeetingCard({ mtg, projects }: Props) {
+export default function MeetingCard({ mtg, projects, variant = "card" }: Props) {
   const { openItem } = useActivityPanel();
   const [expanded, setExpanded] = useState(false);
   const [actions, setActions] = useState<Item[] | null>(null);
@@ -43,6 +44,7 @@ export default function MeetingCard({ mtg, projects }: Props) {
   const summaryActions = summary?.action_items ?? [];
   const actionCount = summaryActions.length;
   const firstPoint = summaryPoints[0] ?? "";
+  const ledger = variant === "ledger";
 
   const toggleActions = async () => {
     const next = !expanded;
@@ -62,11 +64,17 @@ export default function MeetingCard({ mtg, projects }: Props) {
   };
 
   return (
-    <div className="rounded-lg border border-line bg-surface transition-colors hover:border-line-strong">
+    <div
+      className={
+        ledger
+          ? "activity-ledger-row"
+          : "material-feed-card rounded-xl border border-line hover:border-line-strong"
+      }
+    >
       <button
         type="button"
         onClick={() => openItem(mtg.item_id)}
-        className="group flex w-full cursor-pointer gap-3 px-3.5 py-3 text-left"
+        className={`group flex w-full cursor-pointer gap-3 text-left ${ledger ? "px-2 py-3" : "px-3.5 py-3"}`}
       >
         <div className="mt-0.5 shrink-0">
           <span className="inline-flex h-5 w-5 items-center justify-center rounded-md bg-accent-soft text-accent">
@@ -75,8 +83,13 @@ export default function MeetingCard({ mtg, projects }: Props) {
         </div>
 
         <div className="min-w-0 flex-1">
+          {ledger ? (
+            <div className="activity-kind mb-0.5 text-[9px] font-semibold uppercase tracking-[0.1em] text-accent">
+              Meeting
+            </div>
+          ) : null}
           <div className="flex items-start justify-between gap-3">
-            <span className="truncate text-[13px] font-medium text-fg">
+            <span className={`${ledger ? "ledger-content text-[14px]" : "text-[13px]"} truncate font-medium text-fg`}>
               {meetingTitle(mtg, summary)}
             </span>
             {status.pill ? (
@@ -167,7 +180,13 @@ export default function MeetingCard({ mtg, projects }: Props) {
                 </span>
               ) : actions && actions.length > 0 ? (
                 actions.map((it) => (
-                  <ItemCard key={it.id} item={it} projects={projects} compact />
+                  <ItemCard
+                    key={it.id}
+                    item={it}
+                    projects={projects}
+                    compact
+                    variant={variant}
+                  />
                 ))
               ) : (
                 <>

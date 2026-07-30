@@ -1045,8 +1045,10 @@ function MeetingsPage() {
     soft_warn_min: number;
     hard_cap_min: number;
     summary_prompt: string;
+    export_folder: string | null;
   } | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [exportFolderBusy, setExportFolderBusy] = useState(false);
   const toasts = useToasts();
 
   useEffect(() => {
@@ -1068,6 +1070,41 @@ function MeetingsPage() {
       toasts.push({
         tone: "error",
         message: `Failed to save guidelines: ${e instanceof Error ? e.message : String(e)}`,
+      });
+    }
+  };
+
+  const saveExportFolder = async (folder: string | null) => {
+    setExportFolderBusy(true);
+    try {
+      const { setMeetingExportFolder } = await import("../lib/api");
+      await setMeetingExportFolder(folder);
+      setSettings((prev) => prev ? { ...prev, export_folder: folder } : null);
+      toasts.push({
+        tone: "success",
+        message: folder
+          ? "Meeting export folder updated."
+          : "Automatic meeting export disabled.",
+      });
+    } catch (e) {
+      toasts.push({
+        tone: "error",
+        message: `Failed to update meeting export folder: ${e instanceof Error ? e.message : String(e)}`,
+      });
+    } finally {
+      setExportFolderBusy(false);
+    }
+  };
+
+  const handlePickExportFolder = async () => {
+    try {
+      const { pickExportFolder } = await import("../lib/api");
+      const folder = await pickExportFolder();
+      if (folder) await saveExportFolder(folder);
+    } catch (e) {
+      toasts.push({
+        tone: "error",
+        message: `Folder picker failed: ${e instanceof Error ? e.message : String(e)}`,
       });
     }
   };
@@ -1183,6 +1220,56 @@ function MeetingsPage() {
       </Section>
 
       <Section
+        title="Meeting notes folder"
+        subtitle="Automatically save each completed meeting as a Markdown file that other tools can read."
+      >
+        <div className="flex flex-col gap-2 text-xs text-muted">
+          <div className="flex items-center gap-2">
+            {settings.export_folder ? (
+              <>
+                <span
+                  className="min-w-0 flex-1 truncate rounded-md border border-line bg-canvas px-2 py-1.5 font-mono text-[11px] text-fg"
+                  title={settings.export_folder}
+                >
+                  {settings.export_folder}
+                </span>
+                <button
+                  type="button"
+                  disabled={exportFolderBusy}
+                  onClick={() => void handlePickExportFolder()}
+                  className="rounded-md border border-line px-2 py-1.5 text-xs hover:bg-elevated disabled:opacity-50"
+                >
+                  Change…
+                </button>
+                <button
+                  type="button"
+                  disabled={exportFolderBusy}
+                  onClick={() => void saveExportFolder(null)}
+                  className="text-xs text-faint hover:text-danger disabled:opacity-50"
+                >
+                  Clear
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                disabled={exportFolderBusy}
+                onClick={() => void handlePickExportFolder()}
+                className="rounded-md border border-line px-3 py-1.5 text-xs hover:bg-elevated disabled:opacity-50"
+              >
+                {exportFolderBusy ? "Saving…" : "Choose folder…"}
+              </button>
+            )}
+          </div>
+          <p className="text-[10px] leading-relaxed text-faint">
+            Each file includes the summary, action items, your notes, and the
+            speaker-labelled transcript. Echo Scribe only writes the local file;
+            another app or AI agent needs its own access to this folder.
+          </p>
+        </div>
+      </Section>
+
+      <Section
         title="Time limits"
         subtitle="Echo Scribe shows a soft warning at the soft-warn time and auto-stops at the hard cap."
       >
@@ -1224,7 +1311,7 @@ function MeetingsPage() {
 
       <Section
         title="Guide templates"
-        subtitle="Reusable goals + notes you can attach to a guided meeting session."
+        subtitle="Reusable meeting guides and opt-in, evidence-backed recap metrics."
       >
         <GuideTemplateManager />
       </Section>

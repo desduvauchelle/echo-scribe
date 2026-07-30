@@ -10,6 +10,11 @@ use tracing::{info, warn};
 
 use crate::commands::AppState;
 use crate::coordinator::TrayPipelineState;
+use crate::power::{KeepAwakeMode, KeepAwakeStatus, KEEP_AWAKE_OPTIONS};
+
+/// Prefix for every "Keep awake" menu item id. The suffix is the mode's
+/// `storage_key`, so `keep_awake:off`, `keep_awake:indefinite`, `keep_awake:30`.
+const KEEP_AWAKE_ID_PREFIX: &str = "keep_awake:";
 
 /// Owned by the app for its full lifetime. Holds the tray icon plus the
 /// menu items we need to mutate (Pause/Resume label flips between modes).
@@ -28,6 +33,14 @@ pub struct TrayHandle<R: Runtime> {
     /// item above). Hidden unless a recording is active; label flips between
     /// "Pause recording" and "Resume recording" as the sidecar pauses/resumes.
     screenrec_pause_item: Mutex<Option<MenuItem<R>>>,
+    /// The "Keep awake" parent row. Relabelled to carry the current state
+    /// ("Keep awake: 42m left") so it's readable without opening the submenu.
+    /// `None` on platforms where `power::is_supported()` is false — there we
+    /// omit the submenu entirely rather than offer a no-op.
+    keep_awake_menu: Mutex<Option<Submenu<R>>>,
+    /// Every keep-awake option paired with its check item, so exactly one can
+    /// be ticked. Ordered `Off` first, then `KEEP_AWAKE_OPTIONS`.
+    keep_awake_items: Mutex<Vec<(KeepAwakeMode, CheckMenuItem<R>)>>,
     /// Last applied pipeline state, so we can re-apply the right icon when
     /// the user toggles "Paused" on/off without losing the underlying state.
     last_state: Mutex<TrayPipelineState>,
@@ -66,6 +79,48 @@ impl<R: Runtime> TrayHandle<R> {
             app,
             &[&open, &sep1, &copy_last, &paste_last, &meeting, &screenrec, &screenrec_pause, &pause, &settings, &sep2, &quit],
         )?;
+        let screen_recording_menu = Submenu::with_id_and_items(
+            app,
+            "screen_recording",
+            "Screen recording",
+            true,
+            &[&screenrec, &screenrec_pause],
+        )?;
+        let transcript_menu = Submenu::with_id_and_items(
+            app,
+            "last_transcript",
+            "Last transcript",
+            true,
+            &[&copy_last, &paste_last],
+        )?;
+
+        // "Keep awake" — a submenu of mutually-exclusive durations. Built only
+        // where we can actually hold a power assertion; `keep_awake_items`
+        // stays empty elsewhere and every update method no-ops.
+        let (keep_awake_menu, keep_awake_items) = if crate::power::is_supported() {
+            let (submenu, items) = build_keep_awake_menu(app)?;
+            (Some(submenu), items)
+        } else {
+            info!("keep awake unavailable on this platform, omitting tray submenu");
+            (None, Vec::new())
+        };
+
+        let mut menu_items: Vec<&dyn IsMenuItem<R>> = vec![
+            &open,
+            &sep1,
+            &meeting_recording_menu,
+            &screen_recording_menu,
+            &transcript_menu,
+            &sep2,
+            &pause,
+        ];
+        if let Some(submenu) = &keep_awake_menu {
+            menu_items.push(submenu);
+        }
+        menu_items.push(&settings);
+        menu_items.push(&sep3);
+        menu_items.push(&quit);
+        let menu = Menu::with_items(app, &menu_items)?;
 
         let pause_for_handle = pause.clone();
         let meeting_for_handle = meeting.clone();
@@ -83,12 +138,80 @@ impl<R: Runtime> TrayHandle<R> {
             meeting_item: Mutex::new(Some(meeting_for_handle)),
             screenrec_item: Mutex::new(Some(screenrec_for_handle)),
             screenrec_pause_item: Mutex::new(Some(screenrec_pause_for_handle)),
+            keep_awake_menu: Mutex::new(keep_awake_menu),
+            keep_awake_items: Mutex::new(keep_awake_items),
             last_state: Mutex::new(TrayPipelineState::Idle),
             paused: Mutex::new(Arc::new(AtomicBool::new(false))),
             screenrec_active: AtomicBool::new(false),
         })
     }
 
+    /// Tick exactly one option and relabel the parent row. Idempotent, and
+    /// safe to call from any thread (menu mutations hop to the main thread).
+    pub fn set_keep_awake(&self, status: KeepAwakeStatus) {
+        let items = self
+            .keep_awake_items
+            .lock()
+            .ok()
+            .map(|g| g.clone())
+            .unwrap_or_default();
+        for (mode, item) in &items {
+            // A timed hold ticks its own duration row; `Off` ticks only when
+            // nothing is held.
+            if let Err(e) = item.set_checked(*mode == status.mode) {
+                warn!(?e, ?mode, "failed to update keep-awake check state");
+            }
+        }
+
+        let submenu = self
+            .keep_awake_menu
+            .lock()
+            .ok()
+            .and_then(|g| g.as_ref().cloned());
+        if let Some(submenu) = submenu {
+            if let Err(e) = submenu.set_text(status.menu_label()) {
+                warn!(?e, "failed to relabel keep-awake submenu");
+            }
+        }
+    }
+}
+
+/// Build the "Keep awake" submenu: `Off`, a separator, then every option in
+/// `KEEP_AWAKE_OPTIONS`. Returns the submenu plus the (mode, item) pairs so
+/// the caller can tick the active one later.
+#[allow(clippy::type_complexity)]
+fn build_keep_awake_menu<R: Runtime>(
+    app: &AppHandle<R>,
+) -> tauri::Result<(Submenu<R>, Vec<(KeepAwakeMode, CheckMenuItem<R>)>)> {
+    let mut items: Vec<(KeepAwakeMode, CheckMenuItem<R>)> = Vec::new();
+    // `Off` is checked at install because nothing is held yet; the persisted
+    // mode is applied afterwards by `restore_keep_awake`.
+    for (mode, checked) in std::iter::once((KeepAwakeMode::Off, true))
+        .chain(KEEP_AWAKE_OPTIONS.iter().map(|m| (*m, false)))
+    {
+        let item = CheckMenuItem::with_id(
+            app,
+            format!("{KEEP_AWAKE_ID_PREFIX}{}", mode.storage_key()),
+            mode.menu_label(),
+            true,
+            checked,
+            None::<&str>,
+        )?;
+        items.push((mode, item));
+    }
+
+    let separator = PredefinedMenuItem::separator(app)?;
+    let mut refs: Vec<&dyn IsMenuItem<R>> = Vec::with_capacity(items.len() + 1);
+    for (idx, (_, item)) in items.iter().enumerate() {
+        // Separate the "off switch" from the durations that turn it on.
+        if idx == 1 {
+            refs.push(&separator);
+        }
+        refs.push(item);
+    }
+
+    let submenu = Submenu::with_id_and_items(app, "keep_awake", "Keep awake", true, &refs)?;
+    Ok((submenu, items))
 }
 
 /// Wry-specific impl for `bind_menu` — needs concrete `AppHandle<Wry>` to
@@ -247,6 +370,18 @@ impl TrayHandle<Wry> {
                         }
                     });
                 }
+                id if id.starts_with(KEEP_AWAKE_ID_PREFIX) => {
+                    let key = &id[KEEP_AWAKE_ID_PREFIX.len()..];
+                    match KeepAwakeMode::from_storage_key(key) {
+                        Some(mode) => {
+                            // Off the menu thread: acquiring the assertion is
+                            // instant but persisting the choice touches disk.
+                            let app = app_for_handler.clone();
+                            std::thread::spawn(move || apply_keep_awake(&app, mode));
+                        }
+                        None => warn!(target: "power", %key, "unknown keep-awake menu id"),
+                    }
+                }
                 "pause" => {
                     let was_paused = paused.load(Ordering::SeqCst);
                     let now_paused = !was_paused;
@@ -382,6 +517,109 @@ impl TrayHandle<Wry> {
             warn!(?e, "failed to update tray icon");
         }
     }
+}
+
+/// How often the ticker re-reads the keep-awake state. Also the worst-case
+/// lateness of a timed hold's release, since `KeepAwake::status()` is what
+/// actually expires it.
+const KEEP_AWAKE_TICK: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Engage/release keep awake, sync the menu to the result, and persist the
+/// choice. Blocking (it saves settings) — call from a worker thread.
+pub fn apply_keep_awake(app: &AppHandle<Wry>, mode: KeepAwakeMode) {
+    let state = app.state::<AppState>();
+    match state.keep_awake.set(mode) {
+        Ok(status) => {
+            if let Ok(t) = state.tray.lock() {
+                t.set_keep_awake(status);
+            }
+            if let Err(e) = state.settings.set_keep_awake_mode(mode) {
+                // The hold itself is live; only the memory of it is lost.
+                warn!(target: "power", %e, ?mode, "failed to persist keep-awake mode");
+            }
+            info!(target: "power", ?mode, "keep awake set");
+        }
+        Err(e) => {
+            error!(target: "power", %e, ?mode, "failed to change keep awake");
+            // Re-sync the menu to the real state so the tick mark never
+            // claims a hold we don't actually have.
+            if let Ok(t) = state.tray.lock() {
+                t.set_keep_awake(state.keep_awake.status());
+            }
+            let _ = app.emit(
+                "asr:error",
+                "Couldn't change Keep awake. See Settings → Diagnostics → logs for details."
+                    .to_string(),
+            );
+        }
+    }
+}
+
+/// Re-engage a persisted *indefinite* hold at launch and sync the menu.
+///
+/// A timed hold is deliberately not restored — its countdown belonged to the
+/// previous session — but we still reset the store to `Off` so the menu and
+/// the persisted value agree.
+pub fn restore_keep_awake(app: &AppHandle<Wry>) {
+    if !crate::power::is_supported() {
+        return;
+    }
+    let state = app.state::<AppState>();
+    match state.settings.keep_awake_mode() {
+        KeepAwakeMode::Off => {}
+        KeepAwakeMode::Indefinite => {
+            info!(target: "power", "restoring indefinite keep awake from settings");
+            apply_keep_awake(app, KeepAwakeMode::Indefinite);
+        }
+        KeepAwakeMode::Minutes(m) => {
+            info!(
+                target: "power",
+                minutes = m,
+                "not restoring timed keep awake — timed holds end with the session"
+            );
+            apply_keep_awake(app, KeepAwakeMode::Off);
+        }
+    }
+}
+
+/// Keep the "Keep awake: 42m left" label live, and — because
+/// `KeepAwake::status()` expires a lapsed hold as a side effect — actually end
+/// timed sessions. One ticker for the life of the app; a no-op read when off.
+pub fn spawn_keep_awake_ticker(app: AppHandle<Wry>) {
+    if !crate::power::is_supported() {
+        return;
+    }
+    std::thread::spawn(move || {
+        // Seed from the live state (an indefinite hold may already have been
+        // restored) so the first tick isn't reported as a transition.
+        let seed = app.state::<AppState>().keep_awake.status();
+        let mut last_mode = seed.mode;
+        let mut last_label = seed.menu_label();
+        loop {
+            std::thread::sleep(KEEP_AWAKE_TICK);
+            let state = app.state::<AppState>();
+            // Reads and expires in one step — this call is what ends a lapsed
+            // timed hold, so don't call it twice per tick.
+            let status = state.keep_awake.status();
+
+            // Mirror an expiry into the store, so a restart doesn't think a
+            // finished session is still the user's selection.
+            if !last_mode.is_off() && status.mode.is_off() {
+                if let Err(e) = state.settings.set_keep_awake_mode(KeepAwakeMode::Off) {
+                    warn!(target: "power", %e, "failed to persist keep-awake expiry");
+                }
+            }
+            last_mode = status.mode;
+
+            let label = status.menu_label();
+            if label != last_label {
+                if let Ok(t) = state.tray.lock() {
+                    t.set_keep_awake(status);
+                }
+                last_label = label;
+            }
+        }
+    });
 }
 
 /// Bring the main window to the foreground (creating it if necessary). The

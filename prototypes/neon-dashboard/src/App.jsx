@@ -1,68 +1,130 @@
 import { useEffect, useState } from "react";
 import {
   ArrowDownToLine,
-  Bell as BellSimple,
-  CalendarDays as CalendarDots,
+  Bell,
+  CalendarDays,
   Check,
   Command,
   Folder,
-  Settings as GearSix,
   Hash,
-  Headphones,
+  CheckSquare,
   LayoutDashboard,
   MessageSquare,
-  Mic as Microphone,
+  Mic,
   MonitorUp,
   Moon,
+  MoreHorizontal,
+  Phone,
   Play,
   Plus,
-  Sparkles as Sparkle,
+  Settings,
+  StickyNote,
   Sun,
-  Users as UsersThree,
-  AudioWaveform as Waveform,
+  Users,
+  Video,
   X,
 } from "lucide-react";
 
-const activity = [
-  { title: "Product sync", meta: "18 min  ·  4 speakers", icon: UsersThree, tone: "blue" },
-  { title: "Voice note", meta: "6 min  ·  3 tasks found", icon: Microphone, tone: "pink" },
-  { title: "Customer call", meta: "42 min  ·  Summary ready", icon: Headphones, tone: "violet" },
+const logItems = [
+  {
+    id: "transcription-1",
+    kind: "transcription",
+    label: "Transcription",
+    title: "Can we make the version checker compare the installed build before asking to update?",
+    meta: "Voice at cursor · 186 words",
+    project: "Echo Scribe",
+    time: "3 min ago",
+    icon: Mic,
+  },
+  {
+    id: "meeting-1",
+    kind: "meeting",
+    label: "Meeting",
+    title: "Product delivery sync",
+    meta: "Google Meet · 38 min · 4 speakers · 3 action items",
+    project: "Recursive Solutions",
+    time: "10:42",
+    icon: Phone,
+  },
+  {
+    id: "note-1",
+    kind: "note",
+    label: "Note",
+    title: "Keep the dashboard calm and let the content establish the hierarchy.",
+    meta: "Quick note · #design-review",
+    project: "Echo Scribe",
+    time: "Yesterday",
+    icon: StickyNote,
+  },
+  {
+    id: "recording-1",
+    kind: "recording",
+    label: "Recording",
+    title: "Dashboard walkthrough",
+    meta: "12:48 · 186.4 MB · Saved locally",
+    project: "LiveCase",
+    time: "Monday",
+    icon: Video,
+  },
+  {
+    id: "task-1",
+    kind: "task",
+    label: "Task",
+    title: "Review notification collision handling in the desktop shell",
+    meta: "Open · Created from Product delivery sync",
+    project: "PFFC",
+    time: "Monday",
+    icon: CheckSquare,
+  },
+];
+
+const logFilters = [
+  { value: "all", label: "All", icon: LayoutDashboard },
+  { value: "transcription", label: "Transcriptions", icon: Mic },
+  { value: "note", label: "Notes", icon: StickyNote },
+  { value: "task", label: "Tasks", icon: CheckSquare },
+  { value: "meeting", label: "Meetings", icon: Phone },
+  { value: "recording", label: "Recordings", icon: Video },
 ];
 
 const navItems = [
   { label: "Dashboard", icon: LayoutDashboard },
   { label: "Chat", icon: MessageSquare },
-  { label: "Daily recaps", icon: CalendarDots },
-  { label: "People & companies", icon: UsersThree },
+  { label: "Daily recaps", icon: CalendarDays },
+  { label: "People & companies", icon: Users },
 ];
 
 const projects = ["Echo Scribe", "LiveCase", "PFFC", "Recursive Solutions"];
 
 export function App() {
-  const [theme, setTheme] = useState(() => localStorage.getItem("neon-dashboard-theme") || "dark");
+  const [theme, setTheme] = useState(() => localStorage.getItem("wireframe-dashboard-theme") || "light");
   const [active, setActive] = useState("Dashboard");
   const [recording, setRecording] = useState(false);
   const [notice, setNotice] = useState(3);
   const [updateVisible, setUpdateVisible] = useState(true);
-  const [updateStatus, setUpdateStatus] = useState("Restart Now");
+  const [logFilter, setLogFilter] = useState("all");
+
+  const visibleLogs = logFilter === "all"
+    ? logItems
+    : logItems.filter((item) => item.kind === logFilter);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
-    localStorage.setItem("neon-dashboard-theme", theme);
+    localStorage.setItem("wireframe-dashboard-theme", theme);
   }, [theme]);
 
   return (
     <div className="app-shell">
       <aside className="sidebar" aria-label="Primary navigation">
-        <div className="brand" aria-label="Echo Scribe">
-          <span className="brand-mark"><Command size={22} /></span>
+        <div className="brand">
+          <span className="brand-mark"><Command size={17} /></span>
           <span>Echo Scribe</span>
         </div>
 
         <div className="capture-shortcuts" aria-label="Capture shortcuts">
-          <button aria-label="Voice dictation"><span className="shortcut-dot" /><Microphone size={11} /></button>
-          <button onClick={() => setRecording(true)}><span className="shortcut-dot" />Record</button>
-          <button><MonitorUp size={11} />Screen</button>
+          <button aria-label="Voice dictation"><Mic size={13} /></button>
+          <button onClick={() => setRecording(true)}><span className="shortcut-dot" /> Record</button>
+          <button><MonitorUp size={12} /> Screen</button>
         </div>
 
         <nav className="main-nav">
@@ -73,7 +135,7 @@ export function App() {
               onClick={() => setActive(label)}
               aria-current={active === label ? "page" : undefined}
             >
-              <Icon size={21} weight={active === label ? "fill" : "regular"} />
+              <Icon size={17} />
               <span>{label}</span>
             </button>
           ))}
@@ -83,7 +145,7 @@ export function App() {
 
         <div className="projects-heading">
           <span>Projects</span>
-          <Folder size={14} />
+          <Folder size={13} />
         </div>
         <nav className="project-nav" aria-label="Projects">
           {projects.map((project) => (
@@ -93,7 +155,7 @@ export function App() {
               onClick={() => setActive(project)}
               aria-current={active === project ? "page" : undefined}
             >
-              <Hash size={17} />
+              <Hash size={14} />
               <span>{project}</span>
             </button>
           ))}
@@ -105,22 +167,21 @@ export function App() {
               <button className="update-dismiss" onClick={() => setUpdateVisible(false)} aria-label="Dismiss update"><X size={12} /></button>
               <strong><ArrowDownToLine size={13} /> Update ready</strong>
               <small>Echo Scribe 1.0.3</small>
-              <button className="restart-button" onClick={() => setUpdateStatus("Restarting…")}>{updateStatus}</button>
+              <button className="restart-button">Restart now</button>
             </div>
           )}
           <div className="settings-row">
             <button className={`nav-item ${active === "Settings" ? "active" : ""}`} onClick={() => setActive("Settings")}>
-              <GearSix size={18} />
+              <Settings size={16} />
               <span>Settings</span>
             </button>
             <button
-              className="icon-button theme-toggle sidebar-theme-toggle"
+              className="theme-toggle"
               onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
               aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
               title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
             >
-              <Sun className="sun" size={17} />
-              <Moon className="moon" size={17} />
+              {theme === "dark" ? <Sun size={15} /> : <Moon size={15} />}
             </button>
           </div>
         </div>
@@ -134,74 +195,90 @@ export function App() {
           </div>
           <div className="top-actions">
             <button className="icon-button notification" onClick={() => setNotice(0)} aria-label="Notifications">
-              <BellSimple size={20} />
+              <Bell size={18} />
               {notice > 0 && <span>{notice}</span>}
             </button>
             <button className="primary-button" onClick={() => setRecording(true)}>
-              <Plus size={18} /> New capture
+              <Plus size={16} /> New capture
             </button>
           </div>
         </header>
 
-        <section className="hero-card" aria-labelledby="hero-title">
-          <div className="hero-copy">
-            <span className="status-pill"><Sparkle size={14} /> Ready to listen</span>
-            <h2 id="hero-title">Turn every conversation<br />into something useful.</h2>
-            <p>Capture a thought, meeting, or call. Echo turns it into notes and next steps while you keep moving.</p>
-            <button className={`record-button ${recording ? "is-recording" : ""}`} onClick={() => setRecording(!recording)}>
-              <span className="record-icon">{recording ? <Waveform size={22} /> : <Microphone size={22} />}</span>
-              <span><strong>{recording ? "Listening…" : "Start capture"}</strong><small>{recording ? "Tap to finish" : "⌘  Shift  Space"}</small></span>
-            </button>
+        <section className="capture-panel" aria-labelledby="capture-title">
+          <div>
+            <p className="section-label">Capture</p>
+            <h2 id="capture-title">What do you want to remember?</h2>
+            <p>Record a meeting, dictate a thought, or capture your screen.</p>
           </div>
-
-          <div className={`orb-stage ${recording ? "is-live" : ""}`} aria-hidden="true">
-            <div className="orbit orbit-one" />
-            <div className="orbit orbit-two" />
-            <div className="sound-orb"><Waveform size={48} /></div>
-            <span className="floating-chip chip-one"><Check size={14} /> Notes ready</span>
-            <span className="floating-chip chip-two">12 tasks</span>
-          </div>
+          <button className={`capture-button ${recording ? "is-recording" : ""}`} onClick={() => setRecording(!recording)}>
+            <Mic size={17} />
+            <span>{recording ? "Stop capture" : "Start capture"}</span>
+            <kbd>⌘ ⇧ Space</kbd>
+          </button>
         </section>
 
         <section className="metric-grid" aria-label="Capture statistics">
           <article className="metric-card">
-            <span className="metric-icon blue"><Waveform size={21} /></span>
-            <div><p>Captured this week</p><strong>4h 28m</strong></div>
-            <span className="trend">+18%</span>
+            <p>Captured this week</p>
+            <strong>4h 28m</strong>
+            <span>+18%</span>
           </article>
           <article className="metric-card">
-            <span className="metric-icon pink"><Check size={21} /></span>
-            <div><p>Tasks discovered</p><strong>26</strong></div>
-            <span className="trend">+7</span>
+            <p>Tasks discovered</p>
+            <strong>26</strong>
+            <span>+7</span>
           </article>
-          <article className="metric-card focus-card">
-            <div><p>Focus score</p><strong>86<span>%</span></strong></div>
-            <div className="progress-ring" aria-label="Focus score 86 percent"><span>86</span></div>
+          <article className="metric-card">
+            <p>Focus score</p>
+            <strong>86%</strong>
+            <span>Good</span>
           </article>
         </section>
 
         <section className="lower-grid">
           <div className="activity-panel panel">
-            <div className="section-heading"><div><p className="eyebrow">RECENT</p><h3>Your activity</h3></div><button>View all</button></div>
+            <div className="section-heading">
+              <div><p className="section-label">Recent</p><h3>Activity log</h3></div>
+              <button>View all</button>
+            </div>
+            <div className="filter-badges" aria-label="Filter activity">
+              {logFilters.map(({ value, label, icon: Icon }) => (
+                <button
+                  className={`filter-badge ${logFilter === value ? "active" : ""}`}
+                  key={value}
+                  aria-pressed={logFilter === value}
+                  onClick={() => setLogFilter(value)}
+                >
+                  <Icon size={11} />
+                  {label}
+                </button>
+              ))}
+            </div>
             <div className="activity-list">
-              {activity.map(({ title, meta, icon: Icon, tone }, index) => (
-                <button className="activity-row" key={title}>
-                  <span className={`activity-icon ${tone}`}><Icon size={20} /></span>
-                  <span className="activity-copy"><strong>{title}</strong><small>{meta}</small></span>
-                  <span className="activity-time">{index === 0 ? "10:42" : index === 1 ? "Yesterday" : "Mon"}</span>
-                  <span className="play"><Play size={14} /></span>
+              {visibleLogs.map(({ id, label, title, meta, project, time, icon: Icon, kind }) => (
+                <button className="activity-row" key={id}>
+                  <span className={`activity-icon ${kind}`}><Icon size={15} /></span>
+                  <span className="activity-copy">
+                    <span className="activity-kind">{label}</span>
+                    <strong>{title}</strong>
+                    <small>{meta} <span className="project-badge">{project}</span></small>
+                  </span>
+                  <span className="activity-time">{time}</span>
+                  <span className="log-action">{kind === "transcription" || kind === "recording" ? <Play size={12} /> : <MoreHorizontal size={14} />}</span>
                 </button>
               ))}
             </div>
           </div>
 
-          <aside className="insight-card panel">
-            <div className="insight-top"><span><Sparkle size={18} /></span><small>WEEKLY INSIGHT</small></div>
-            <h3>Your clearest ideas arrive before noon.</h3>
-            <p>Morning captures are 32% more likely to become completed tasks.</p>
-            <div className="mini-chart" aria-hidden="true">
-              {[34, 62, 84, 56, 72, 45, 30].map((height, i) => <span key={i} style={{ height: `${height}%` }} />)}
-            </div>
+          <aside className="summary-panel panel">
+            <p className="section-label">This week</p>
+            <h3>At a glance</h3>
+            <dl>
+              <div><dt>Meetings</dt><dd>5</dd></div>
+              <div><dt>Notes created</dt><dd>12</dd></div>
+              <div><dt>Tasks completed</dt><dd>18</dd></div>
+            </dl>
+            <p className="summary-note"><Check size={14} /> You are caught up.</p>
           </aside>
         </section>
       </main>

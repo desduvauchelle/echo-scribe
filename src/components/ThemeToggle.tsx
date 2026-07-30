@@ -43,7 +43,7 @@ export default function ThemeToggle() {
         setThemePref(next);
         setPref(next);
       }}
-      className="flex shrink-0 cursor-pointer items-center justify-center rounded-md p-1.5 text-muted transition-colors hover:bg-elevated hover:text-fg"
+      className="theme-toggle-control flex shrink-0 cursor-pointer items-center justify-center text-muted hover:text-fg"
       title={`Theme: ${LABEL[pref]} — click for ${LABEL[next].toLowerCase()}`}
       aria-label={`Theme: ${LABEL[pref]}`}
     >

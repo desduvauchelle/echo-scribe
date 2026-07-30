@@ -2,11 +2,14 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
   CalendarDays,
+  ChevronLeft,
+  ChevronRight,
   Folder,
   Hash,
   LayoutDashboard,
   MessageSquare,
   Mic,
+  Search,
   Users,
   Settings as SettingsIcon,
   type LucideIcon,
@@ -50,6 +53,7 @@ export default function Main({ onOpenSettings }: Props) {
   const [showAllProjects, setShowAllProjects] = useState(false);
   const [binding, setBinding] = useState<JsBinding | null>(null);
   const [voiceRecordingActive, setVoiceRecordingActive] = useState(false);
+  const [dashboardSearchRequest, setDashboardSearchRequest] = useState(0);
 
   const refreshProjects = useCallback(async () => {
     try {
@@ -126,6 +130,7 @@ export default function Main({ onOpenSettings }: Props) {
           <DashboardView
             projects={projectMap}
             onOpenStats={(category) => setSection({ kind: "stats", category })}
+            searchRequest={dashboardSearchRequest}
           />
         );
       case "stats":
@@ -142,22 +147,77 @@ export default function Main({ onOpenSettings }: Props) {
     }
   };
 
+  const sectionTitle = (() => {
+    switch (section.kind) {
+      case "dashboard": return "Dashboard";
+      case "chat": return "Chat";
+      case "daily": return "Daily recaps";
+      case "relationships": return "People & companies";
+      case "stats": return "Statistics";
+      case "project": return projectMap.get(section.id)?.name ?? "Project";
+    }
+  })();
+
+  const today = new Date().toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+
   return (
-    <div className="flex h-full bg-canvas text-fg">
-      <aside className="flex w-[220px] shrink-0 flex-col border-r border-line bg-surface">
-        <div className="px-4 pb-3 pt-10">
-          <div className="flex items-center gap-2 text-[13px] font-semibold tracking-tight text-fg">
+    <div className="echo-app-shell flex h-full min-h-0 flex-col overflow-hidden bg-canvas text-fg">
+      <header className="echo-app-toolbar flex h-12 shrink-0 items-stretch border-b border-line">
+        <div className="echo-app-toolbar-sidebar flex w-[232px] shrink-0 items-center border-r border-line px-3" data-tauri-drag-region>
+          <span className="w-[72px] shrink-0" aria-hidden="true" data-tauri-drag-region />
+          <div className="pointer-events-none flex min-w-0 items-center gap-1.5 text-[12px] font-semibold tracking-tight text-fg">
             <img
               src={logoUrl}
               alt=""
-              width={22}
-              height={22}
-              className="h-[22px] w-[22px] rounded-md"
+              width={18}
+              height={18}
+              className="echo-brand-icon h-[18px] w-[18px]"
               aria-hidden="true"
             />
-            <span>Echo Scribe</span>
+            <span className="truncate">Echo Scribe</span>
           </div>
-          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        </div>
+
+        <div className="flex min-w-0 flex-1 items-center gap-3 px-3">
+          <div className="flex items-center gap-0.5">
+            <button type="button" disabled aria-label="Go back" className="native-toolbar-button grid h-7 w-7 place-items-center rounded-md text-faint disabled:opacity-45">
+              <ChevronLeft size={14} />
+            </button>
+            <button type="button" disabled aria-label="Go forward" className="native-toolbar-button grid h-7 w-7 place-items-center rounded-md text-faint disabled:opacity-45">
+              <ChevronRight size={14} />
+            </button>
+          </div>
+          <div className="min-w-0" data-tauri-drag-region>
+            <h1 className="truncate text-[12px] font-semibold leading-tight">{sectionTitle}</h1>
+            <div className="truncate text-[9px] leading-tight text-faint">{today}</div>
+          </div>
+          <div
+            className="echo-toolbar-drag-region h-full min-w-12 flex-1"
+            data-tauri-drag-region
+          />
+          {section.kind === "dashboard" ? (
+            <button
+              type="button"
+              onClick={() => setDashboardSearchRequest((value) => value + 1)}
+              aria-label="Search"
+              className="echo-toolbar-search native-toolbar-button flex h-7 w-36 shrink-0 items-center gap-2 rounded-md px-2.5 text-left text-[11px] text-faint hover:text-muted"
+            >
+              <Search size={12} aria-hidden="true" />
+              <span>Search</span>
+            </button>
+          ) : null}
+        </div>
+      </header>
+
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+      <aside className="echo-sidebar flex h-full min-h-0 w-[232px] shrink-0 flex-col overflow-hidden border-r border-line bg-surface">
+        <div className="shrink-0 px-4 pb-3 pt-3">
+          <div className="flex flex-wrap items-center gap-1.5">
             {binding ? (
               <div
                 title={
@@ -195,7 +255,7 @@ export default function Main({ onOpenSettings }: Props) {
           </div>
         </div>
 
-        <nav className="flex flex-col gap-0.5 px-2">
+        <nav className="flex shrink-0 flex-col gap-0.5 px-2">
           <NavItem
             icon={LayoutDashboard}
             label="Dashboard"
@@ -222,9 +282,9 @@ export default function Main({ onOpenSettings }: Props) {
           />
         </nav>
 
-        <div className="mx-4 my-3 border-t border-line" />
+        <div className="mx-4 my-3 shrink-0 border-t border-line" />
 
-        <div className="flex h-5 items-center justify-between px-5">
+        <div className="flex h-5 shrink-0 items-center justify-between px-5">
           <span className="text-[11px] font-medium uppercase leading-none tracking-[0.08em] text-muted">
             Projects
           </span>
@@ -237,7 +297,10 @@ export default function Main({ onOpenSettings }: Props) {
             />
           </span>
         </div>
-        <nav aria-label="Projects" className="flex flex-col gap-0.5 px-2">
+        <nav
+          aria-label="Projects"
+          className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto overscroll-contain px-2"
+        >
           {visibleProjects.length === 0 ? (
             <div className="px-3 py-1 text-xs text-muted">No projects yet</div>
           ) : (
@@ -262,14 +325,14 @@ export default function Main({ onOpenSettings }: Props) {
           ) : null}
         </nav>
 
-        <div className="mt-auto flex flex-col gap-2 border-t border-line p-2">
+        <div className="echo-sidebar-bottom flex shrink-0 flex-col gap-3 border-t border-line px-2 pb-2 pt-3">
           <PermissionWarningBanner onOpenSettings={onOpenSettings} />
           <UpdateBanner variant="sidebar" />
-          <div className="flex items-center gap-1">
+          <div className="echo-settings-row flex items-center gap-1.5">
             <button
               type="button"
               onClick={onOpenSettings}
-              className="flex flex-1 cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] text-muted transition-colors hover:bg-elevated hover:text-fg"
+              className="echo-nav-item flex flex-1 cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] text-muted hover:text-fg"
               title="Open settings"
             >
               <SettingsIcon size={14} strokeWidth={1.75} aria-hidden="true" />
@@ -280,7 +343,10 @@ export default function Main({ onOpenSettings }: Props) {
         </div>
       </aside>
 
-      <main className="flex min-w-0 flex-1 flex-col">{renderContent()}</main>
+      <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        {renderContent()}
+      </main>
+      </div>
     </div>
   );
 }
@@ -301,19 +367,13 @@ function NavItem({
       type="button"
       onClick={onClick}
       aria-current={active ? "page" : undefined}
-      className={`group relative flex h-8 cursor-pointer items-center gap-2 truncate rounded-md pl-3 pr-2 text-left text-[13px] leading-none transition-colors ${
+      className={`echo-nav-item group relative flex h-8 shrink-0 cursor-pointer items-center gap-2 truncate rounded-md pl-3 pr-2 text-left text-[13px] leading-none ${
         active
-          ? "bg-accent-soft text-fg"
-          : "text-muted hover:bg-elevated hover:text-fg"
+          ? "is-active text-fg"
+          : "text-muted hover:text-fg"
       }`}
       title={label}
     >
-      {active ? (
-        <span
-          aria-hidden="true"
-          className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-r-full bg-accent"
-        />
-      ) : null}
       <span className="flex h-4 w-4 shrink-0 items-center justify-center">
         <Icon
           size={14}
@@ -321,7 +381,7 @@ function NavItem({
           aria-hidden="true"
           className={
             active
-              ? "text-accent"
+              ? "text-fg"
               : "text-faint transition-colors group-hover:text-muted"
           }
         />

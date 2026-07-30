@@ -1,13 +1,19 @@
 import { useCallback, useEffect, useState } from "react";
-import { ChevronLeft, ChevronRight, RefreshCw, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Loader, Quote, RefreshCw, X } from "lucide-react";
+import { listen } from "@tauri-apps/api/event";
 import {
+  dailyInsightRuns,
   dailyRecapNotificationPermissionStatus,
   getDailySummary,
   listRecentDailySummaries,
   regenerateDailySummary,
+  regenerateGuideReview,
   type DailySummary,
   type DailySummarySectionItem,
+  type GuideRun,
 } from "../../lib/api";
+import { parseGuideReview } from "../../lib/guideReview";
+import { useActivityPanel } from "../../components/ActivityPanelContext";
 
 const FIRST_RUN_FLAG = "daily_recap_first_run_dismissed";
 
@@ -56,6 +62,7 @@ export default function DailyView({ initialDate }: Props) {
   const [date, setDate] = useState<string>(initialDate ?? yesterdayLocalIso());
   const [summary, setSummary] = useState<DailySummary | null>(null);
   const [recent, setRecent] = useState<DailySummary[]>([]);
+  const [insightRuns, setInsightRuns] = useState<GuideRun[]>([]);
   const [loading, setLoading] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
   const [showFirstRun, setShowFirstRun] = useState<boolean>(() => {
@@ -96,12 +103,14 @@ export default function DailyView({ initialDate }: Props) {
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [s, r] = await Promise.all([
+      const [s, r, insights] = await Promise.all([
         getDailySummary(date),
         listRecentDailySummaries(14),
+        dailyInsightRuns(date).catch(() => [] as GuideRun[]),
       ]);
       setSummary(s);
       setRecent(r);
+      setInsightRuns(insights);
     } finally {
       setLoading(false);
     }
@@ -110,6 +119,15 @@ export default function DailyView({ initialDate }: Props) {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    const unlisten = listen("guide-review-updated", () => {
+      void dailyInsightRuns(date).then(setInsightRuns).catch(() => undefined);
+    });
+    return () => {
+      void unlisten.then((dispose) => dispose());
+    };
+  }, [date]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -305,9 +323,139 @@ export default function DailyView({ initialDate }: Props) {
             </footer>
           </article>
         )}
+
+        {!loading && <MeetingInsightsSection runs={insightRuns} onRefresh={refresh} />}
       </main>
     </div>
   );
+}
+
+function MeetingInsightsSection({
+  runs,
+  onRefresh,
+}: {
+  runs: GuideRun[];
+  onRefresh: () => Promise<void>;
+}) {
+  const { openEvidence } = useActivityPanel();
+  const [retrying, setRetrying] = useState<Record<string, boolean>>({});
+  if (runs.length === 0) return null;
+
+  return (
+    <section className="mt-6 border-t border-line pt-5">
+      <div className="mb-3">
+        <h3 className="text-[13px] font-semibold tracking-tight text-fg">Meeting insights</h3>
+        <p className="mt-0.5 text-[11px] text-muted">
+          Separate transcript-only checks. Quotes link to the exact meeting segment used as proof.
+        </p>
+      </div>
+      <div className="space-y-3">
+        {runs.map((run) => {
+          const review = parseGuideReview(run.review_json);
+          const items = (review?.scorecard ?? []).filter(
+            (item) => run.insight_kind !== "signals" || item.verdict !== "not_observed",
+          );
+          return (
+            <article key={run.id} className="rounded-md border border-line bg-canvas p-3">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-fg">{run.template_name}</span>
+                <span className="rounded-full bg-elevated px-2 py-0.5 text-[10px] text-muted">
+                  {run.insight_kind === "signals" ? "Signals" : "Rubric"}
+                </span>
+                <span className="ml-auto text-[10px] text-faint">
+                  {new Date(run.started_at).toLocaleTimeString([], {
+                    hour: "numeric",
+                    minute: "2-digit",
+                  })}
+                </span>
+              </div>
+
+              {run.status === "pending" ? (
+                <p className="mt-2 flex items-center gap-1.5 text-xs text-muted">
+                  <Loader size={12} className="animate-spin" /> Analyzing meeting transcript…
+                </p>
+              ) : null}
+
+              {run.status === "failed" || run.status === "stale" ? (
+                <div className="mt-2 text-xs text-muted">
+                  <span>
+                    {run.status === "stale"
+                      ? "Transcript changed; the previous evidence is hidden."
+                      : "This insight could not be generated."}
+                  </span>{" "}
+                  <button
+                    type="button"
+                    className="text-accent hover:underline disabled:opacity-50"
+                    disabled={!!retrying[run.id]}
+                    onClick={async () => {
+                      setRetrying((current) => ({ ...current, [run.id]: true }));
+                      try {
+                        await regenerateGuideReview(run.id);
+                        await onRefresh();
+                      } finally {
+                        setRetrying((current) => ({ ...current, [run.id]: false }));
+                      }
+                    }}
+                  >
+                    {retrying[run.id] ? "Analyzing…" : "Reanalyze"}
+                  </button>
+                </div>
+              ) : null}
+
+              {run.status === "ready" && review ? (
+                <div className="mt-2 space-y-2">
+                  {review.synthesis ? (
+                    <p className="text-xs leading-relaxed text-muted">{review.synthesis}</p>
+                  ) : null}
+                  {items.length === 0 && run.insight_kind === "signals" ? (
+                    <p className="text-xs text-muted">No configured signals were observed.</p>
+                  ) : (
+                    <ul className="space-y-2">
+                      {items.map((item, index) => (
+                        <li key={`${item.criterion}:${index}`} className="rounded bg-surface p-2">
+                          <div className="flex items-center gap-2 text-xs">
+                            <span className="font-medium text-fg">{item.criterion}</span>
+                            <span className="rounded-full bg-elevated px-1.5 py-0.5 text-[9px] uppercase text-muted">
+                              {item.verdict.replace(/_/g, " ")}
+                            </span>
+                          </div>
+                          {(item.evidence_refs ?? []).map((evidence, evidenceIndex) => (
+                            <button
+                              key={`${evidence.segment_index}:${evidenceIndex}`}
+                              type="button"
+                              className="mt-1 flex w-full items-start gap-1.5 text-left text-[11px] italic text-muted hover:text-fg"
+                              onClick={() =>
+                                openEvidence(run.meeting_id, evidence.segment_index)
+                              }
+                            >
+                              <Quote size={11} className="mt-0.5 shrink-0 text-accent" />
+                              <span>
+                                “{evidence.quote}” · {formatClock(evidence.start_ms)}
+                              </span>
+                            </button>
+                          ))}
+                          {item.why ? (
+                            <p className="mt-1 text-[11px] text-muted">{item.why}</p>
+                          ) : null}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              ) : null}
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function formatClock(ms: number): string {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = String(totalSeconds % 60).padStart(2, "0");
+  return `${minutes}:${seconds}`;
 }
 
 function Section({

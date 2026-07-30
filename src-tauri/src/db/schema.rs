@@ -568,6 +568,40 @@ CREATE TABLE meeting_preferences (
 ALTER TABLE items ADD COLUMN raw_content TEXT;
 "#,
     ),
+    (
+        31,
+        r#"
+CREATE TABLE guide_template_insight_settings (
+  template_id         TEXT PRIMARY KEY REFERENCES guide_templates(id) ON DELETE CASCADE,
+  enabled             INTEGER NOT NULL DEFAULT 0,
+  show_in_daily_recap INTEGER NOT NULL DEFAULT 1,
+  insight_kind        TEXT NOT NULL DEFAULT 'rubric',
+  subject_scope       TEXT NOT NULL DEFAULT 'you',
+  updated_at          TEXT NOT NULL
+);
+
+ALTER TABLE meeting_guide_runs ADD COLUMN run_kind TEXT NOT NULL DEFAULT 'attached';
+ALTER TABLE meeting_guide_runs ADD COLUMN insight_kind TEXT NOT NULL DEFAULT 'rubric';
+ALTER TABLE meeting_guide_runs ADD COLUMN subject_scope TEXT NOT NULL DEFAULT 'you';
+ALTER TABLE meeting_guide_runs ADD COLUMN transcript_hash TEXT NOT NULL DEFAULT '';
+
+CREATE INDEX idx_guide_runs_daily_insights
+  ON meeting_guide_runs(started_at DESC, template_id, status);
+
+INSERT OR IGNORE INTO guide_templates
+  (id, name, description, goal, notes, created_at, updated_at)
+VALUES
+  ('builtin-emotional-signals',
+   'Conversation signals',
+   'Track evidence-backed emotional and interpersonal signals in meetings.',
+   'Notice language that may indicate tension or warmth without diagnosing anyone''s internal emotional state.',
+   'frustration
+anger or escalating tension
+kindness or warmth',
+   datetime('now'),
+   datetime('now'));
+"#,
+    ),
 ];
 
 const META_TABLE_SQL: &str = r#"
@@ -629,7 +663,7 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(v, "30");
+        assert_eq!(v, "31");
     }
 
     #[test]
@@ -797,7 +831,7 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(version, "30");
+        assert_eq!(version, "31");
     }
 
     #[test]
@@ -910,11 +944,28 @@ mod tests {
             .map(|r| r.unwrap())
             .collect();
         for expected in [
-            "id", "meeting_id", "template_id", "template_name", "template_json",
-            "slot", "started_at", "timeline_json", "review_json", "status",
-            "error", "generated_at", "created_at",
+            "id",
+            "meeting_id",
+            "template_id",
+            "template_name",
+            "template_json",
+            "slot",
+            "started_at",
+            "timeline_json",
+            "review_json",
+            "status",
+            "error",
+            "generated_at",
+            "created_at",
+            "run_kind",
+            "insight_kind",
+            "subject_scope",
+            "transcript_hash",
         ] {
-            assert!(cols.iter().any(|c| c == expected), "missing column {expected}; got {cols:?}");
+            assert!(
+                cols.iter().any(|c| c == expected),
+                "missing column {expected}; got {cols:?}"
+            );
         }
     }
 
@@ -969,5 +1020,24 @@ mod tests {
         run_migrations(&mut conn).unwrap();
         conn.execute_batch("SELECT summary_template_id, transparency_ack, consent_message FROM meeting_preferences LIMIT 0")
             .unwrap();
+    }
+
+    #[test]
+    fn migration_v31_adds_tracked_insights_and_signal_preset() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        run_migrations(&mut conn).unwrap();
+        conn.execute_batch(
+            "SELECT template_id, enabled, show_in_daily_recap, insight_kind, subject_scope
+             FROM guide_template_insight_settings LIMIT 0",
+        )
+        .unwrap();
+        let preset_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM guide_templates WHERE id='builtin-emotional-signals'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(preset_count, 1);
     }
 }

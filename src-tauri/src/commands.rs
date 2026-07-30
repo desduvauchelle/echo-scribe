@@ -93,6 +93,9 @@ pub struct AppState {
     /// The non-blocking log appender's worker guard. Held for the lifetime
     /// of `AppState` so logs flush on graceful exit — see `lib.rs::run`.
     pub _log_guard: Mutex<Option<tracing_appender::non_blocking::WorkerGuard>>,
+    /// Holds the OS power assertion behind the tray's "Keep awake" submenu.
+    /// Idle (no assertion) until the user picks a duration.
+    pub keep_awake: Arc<crate::power::KeepAwake>,
     pub meeting_manager: Arc<crate::meeting::MeetingManager>,
     pub active_recording: std::sync::Arc<
         std::sync::Mutex<Option<(crate::screenrec::ScreenrecHandle, RecordingMeta)>>,
@@ -905,6 +908,26 @@ fn require_db(state: &AppState) -> Result<&Db, String> {
         .db
         .as_ref()
         .ok_or_else(|| "database not available".to_string())
+}
+
+/// Refresh a completed meeting's global and project-specific Markdown copies
+/// after an in-app edit. Export errors are logged but never turn a successful
+/// database edit into a false failure for the user.
+fn sync_meeting_markdown_after_change(state: &AppState, meeting_id: &str) {
+    let Some(db) = state.db.as_ref() else {
+        return;
+    };
+    let global_folder = state.settings.meeting_export_folder();
+    if let Err(e) =
+        crate::export::sync_finalized_meeting_exports(db, meeting_id, global_folder.as_deref())
+    {
+        tracing::warn!(
+            target: "export",
+            meeting_id,
+            error = %e,
+            "sync meeting markdown after edit failed"
+        );
+    }
 }
 
 fn clamp_limit(limit: Option<u32>) -> u32 {
@@ -3315,8 +3338,11 @@ pub fn update_meeting_notes(
     notes: String,
 ) -> Result<(), String> {
     let db = state.db.as_ref().ok_or("db unavailable")?;
+    let export_id = id.clone();
     db.with_conn(move |conn| crate::db::meetings::update_user_notes(conn, &id, &notes))
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    sync_meeting_markdown_after_change(&state, &export_id);
+    Ok(())
 }
 
 #[tauri::command]
@@ -3677,6 +3703,7 @@ pub fn replace_meeting_summary_point(
 ) -> Result<(), String> {
     if text.trim().is_empty() { return Err("Summary text cannot be empty".into()); }
     let db = require_db(&state)?;
+    let export_id = id.clone();
     db.with_conn(move |conn| {
         let meeting = crate::db::meetings::get_meeting(conn, &id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
         let mut summary: crate::meeting::synthesizer::StoredSummary = meeting.summary_json.as_deref()
@@ -3692,7 +3719,10 @@ pub fn replace_meeting_summary_point(
         let body = crate::meeting::build_flattened_body(&segments, Some(&summary_json), meeting.user_notes.as_deref());
         conn.execute("UPDATE items SET content=?1 WHERE id=?2", rusqlite::params![body,id])?;
         Ok(())
-    }).map_err(|e| e.to_string())
+    })
+    .map_err(|e| e.to_string())?;
+    sync_meeting_markdown_after_change(&state, &export_id);
+    Ok(())
 }
 
 #[tauri::command]
@@ -3705,6 +3735,7 @@ pub fn update_meeting_transcript(
         return Err("Invalid transcript segment".into());
     }
     let db = require_db(&state)?;
+    let export_id = id.clone();
     db.with_conn_mut(move |conn| {
         let tx = conn.transaction()?;
         let meeting = crate::db::meetings::get_meeting(&tx, &id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
@@ -3726,9 +3757,18 @@ pub fn update_meeting_transcript(
         tx.execute("UPDATE meetings SET transcript_json=?1,summary_json=?2 WHERE item_id=?3", rusqlite::params![transcript_json,summary_json,id])?;
         let body = crate::meeting::build_flattened_body(&segments, summary_json.as_deref(), meeting.user_notes.as_deref());
         tx.execute("UPDATE items SET content=?1 WHERE id=?2", rusqlite::params![body,id])?;
+        tx.execute(
+            "UPDATE meeting_guide_runs
+             SET status='stale', error='transcript changed after analysis'
+             WHERE meeting_id=?1 AND status='ready'",
+            rusqlite::params![id],
+        )?;
         tx.commit()?;
         Ok(())
-    }).map_err(|e| e.to_string())
+    })
+    .map_err(|e| e.to_string())?;
+    sync_meeting_markdown_after_change(&state, &export_id);
+    Ok(())
 }
 
 #[tauri::command]
@@ -3803,23 +3843,57 @@ pub fn restore_transcript_backup(
     state: tauri::State<'_, AppState>, artifact_id: String,
 ) -> Result<(), String> {
     let db = require_db(&state)?;
-    db.with_conn_mut(move |conn| {
-        let tx = conn.transaction()?;
-        let artifact = crate::db::meeting_intelligence::get_artifact(&tx, &artifact_id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
-        if artifact.kind != "transcript_backup" { return Err(rusqlite::Error::InvalidQuery.into()); }
-        let meeting_id = artifact.meeting_id.ok_or(rusqlite::Error::InvalidQuery)?;
-        let meeting = crate::db::meetings::get_meeting(&tx, &meeting_id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
-        let transcript: serde_json::Value = serde_json::from_str(&artifact.content).map_err(|_| rusqlite::Error::InvalidQuery)?;
-        let segments: Vec<crate::meeting::Segment> = serde_json::from_value(transcript.get("segments").cloned().unwrap_or_default()).map_err(|_| rusqlite::Error::InvalidQuery)?;
-        let mut summary = meeting.summary_json.as_deref().and_then(|s| serde_json::from_str::<crate::meeting::synthesizer::StoredSummary>(s).ok());
-        if let Some(ref mut s) = summary { s.evidence.clear(); for action in &mut s.action_items { action.evidence.clear(); } }
-        let summary_json = summary.as_ref().and_then(|s| serde_json::to_string(s).ok());
-        tx.execute("UPDATE meetings SET transcript_json=?1,summary_json=?2 WHERE item_id=?3", rusqlite::params![artifact.content,summary_json,meeting_id])?;
-        let body = crate::meeting::build_flattened_body(&segments, summary_json.as_deref(), meeting.user_notes.as_deref());
-        tx.execute("UPDATE items SET content=?1 WHERE id=?2", rusqlite::params![body,meeting_id])?;
-        tx.commit()?;
-        Ok(())
-    }).map_err(|e| e.to_string())
+    let meeting_id = db
+        .with_conn_mut(move |conn| {
+            let tx = conn.transaction()?;
+            let artifact = crate::db::meeting_intelligence::get_artifact(&tx, &artifact_id)?
+                .ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+            if artifact.kind != "transcript_backup" {
+                return Err(rusqlite::Error::InvalidQuery.into());
+            }
+            let meeting_id = artifact.meeting_id.ok_or(rusqlite::Error::InvalidQuery)?;
+            let meeting = crate::db::meetings::get_meeting(&tx, &meeting_id)?
+                .ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+            let transcript: serde_json::Value = serde_json::from_str(&artifact.content)
+                .map_err(|_| rusqlite::Error::InvalidQuery)?;
+            let segments: Vec<crate::meeting::Segment> =
+                serde_json::from_value(transcript.get("segments").cloned().unwrap_or_default())
+                    .map_err(|_| rusqlite::Error::InvalidQuery)?;
+            let mut summary = meeting.summary_json.as_deref().and_then(|s| {
+                serde_json::from_str::<crate::meeting::synthesizer::StoredSummary>(s).ok()
+            });
+            if let Some(ref mut s) = summary {
+                s.evidence.clear();
+                for action in &mut s.action_items {
+                    action.evidence.clear();
+                }
+            }
+            let summary_json = summary.as_ref().and_then(|s| serde_json::to_string(s).ok());
+            tx.execute(
+                "UPDATE meetings SET transcript_json=?1,summary_json=?2 WHERE item_id=?3",
+                rusqlite::params![artifact.content, summary_json, meeting_id],
+            )?;
+            let body = crate::meeting::build_flattened_body(
+                &segments,
+                summary_json.as_deref(),
+                meeting.user_notes.as_deref(),
+            );
+            tx.execute(
+                "UPDATE items SET content=?1 WHERE id=?2",
+                rusqlite::params![body, meeting_id],
+            )?;
+            tx.execute(
+                "UPDATE meeting_guide_runs
+                 SET status='stale', error='transcript changed after analysis'
+                 WHERE meeting_id=?1 AND status='ready'",
+                rusqlite::params![meeting_id],
+            )?;
+            tx.commit()?;
+            Ok(meeting_id)
+        })
+        .map_err(|e| e.to_string())?;
+    sync_meeting_markdown_after_change(&state, &meeting_id);
+    Ok(())
 }
 
 #[tauri::command]
@@ -3935,6 +4009,7 @@ pub fn get_meeting_settings(state: tauri::State<'_, AppState>) -> serde_json::Va
         "soft_warn_min": state.settings.meeting_soft_warn_min(),
         "hard_cap_min": state.settings.meeting_hard_cap_min(),
         "summary_prompt": state.settings.meeting_summary_prompt(),
+        "export_folder": state.settings.meeting_export_folder(),
     })
 }
 
@@ -3946,6 +4021,66 @@ pub fn set_meeting_summary_prompt(
     state
         .settings
         .set_meeting_summary_prompt(&prompt)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn set_meeting_export_folder(
+    state: tauri::State<'_, AppState>,
+    folder: Option<String>,
+) -> Result<(), String> {
+    if let Some(path) = folder.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        let path = std::path::Path::new(path);
+        if !path.is_absolute() {
+            return Err("Meeting export folder must be an absolute path.".into());
+        }
+        if !path.is_dir() {
+            return Err("Choose an existing meeting export folder.".into());
+        }
+    }
+    state
+        .settings
+        .set_meeting_export_folder(folder.as_deref())
+        .map_err(|e| e.to_string())
+}
+
+/// Open the native save dialog and export the selected sections of one
+/// completed meeting as Markdown. `None` means the user cancelled the dialog.
+#[tauri::command]
+pub async fn export_meeting_markdown(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    id: String,
+    include_summary: bool,
+    include_transcript: bool,
+) -> Result<Option<crate::export::ExportResult>, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let db = require_db(&state)?;
+    let prepared = crate::export::prepare_manual_meeting_export(
+        db,
+        &id,
+        include_summary,
+        include_transcript,
+    )
+    .map_err(|e| e.to_string())?;
+
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.dialog()
+        .file()
+        .set_title("Export meeting")
+        .set_file_name(prepared.filename.clone())
+        .add_filter("Markdown", &["md"])
+        .save_file(move |path| {
+            let selected = path.and_then(|p| p.as_path().map(std::path::PathBuf::from));
+            let _ = tx.send(selected);
+        });
+
+    let Some(destination) = rx.await.map_err(|e| e.to_string())? else {
+        return Ok(None);
+    };
+    crate::export::write_manual_meeting_export(&prepared, &destination)
+        .map(Some)
         .map_err(|e| e.to_string())
 }
 
@@ -4365,6 +4500,57 @@ pub fn delete_guide_template(state: State<'_, AppState>, id: String) -> Result<(
         .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+pub fn list_guide_insight_configs(
+    state: State<'_, AppState>,
+) -> Result<Vec<crate::db::guide_templates::GuideInsightConfig>, String> {
+    let db = require_db(&state)?;
+    db.with_conn(crate::db::guide_templates::list_insight_configs)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn set_guide_insight_config(
+    state: State<'_, AppState>,
+    template_id: String,
+    enabled: bool,
+    show_in_daily_recap: bool,
+    insight_kind: String,
+    subject_scope: String,
+) -> Result<crate::db::guide_templates::GuideInsightConfig, String> {
+    if !matches!(insight_kind.as_str(), "rubric" | "signals") {
+        return Err("insight kind must be 'rubric' or 'signals'".into());
+    }
+    if !matches!(subject_scope.as_str(), "you" | "them" | "interaction") {
+        return Err("subject scope must be 'you', 'them', or 'interaction'".into());
+    }
+    let db = require_db(&state)?;
+    let template_for_lookup = template_id.clone();
+    if db
+        .with_conn(move |conn| {
+            crate::db::guide_templates::get_template(conn, &template_for_lookup)
+        })
+        .map_err(|e| e.to_string())?
+        .is_none()
+    {
+        return Err("guide template not found".into());
+    }
+    let config = crate::db::guide_templates::GuideInsightConfig {
+        template_id,
+        enabled,
+        show_in_daily_recap,
+        insight_kind,
+        subject_scope,
+        updated_at: chrono_now_iso(),
+    };
+    let config_for_write = config.clone();
+    db.with_conn(move |conn| {
+        crate::db::guide_templates::upsert_insight_config(conn, &config_for_write)
+    })
+    .map_err(|e| e.to_string())?;
+    Ok(config)
+}
+
 // ============================================================================
 // Guide runs (post-meeting review)
 // ============================================================================
@@ -4388,6 +4574,18 @@ pub fn guide_runs_for_template(
     let db = require_db(&state)?;
     db.with_conn(move |c| {
         crate::db::meeting_guide_runs::list_guide_runs_for_template(c, &template_id, limit)
+    })
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn daily_insight_runs(
+    state: State<'_, AppState>,
+    date: String,
+) -> Result<Vec<crate::db::meeting_guide_runs::GuideRunRow>, String> {
+    let db = require_db(&state)?;
+    db.with_conn(move |conn| {
+        crate::db::meeting_guide_runs::list_daily_insight_runs(conn, &date)
     })
     .map_err(|e| e.to_string())
 }
@@ -4428,6 +4626,10 @@ pub async fn regenerate_guide_review(
         .ok_or_else(|| "meeting has no transcript".to_string())?;
     let env: TranscriptEnvelope =
         serde_json::from_str(&transcript_json).map_err(|e| format!("bad transcript json: {e}"))?;
+    let transcript_hash = {
+        use sha2::{Digest, Sha256};
+        format!("{:x}", Sha256::digest(transcript_json.as_bytes()))
+    };
 
     // Mark pending, regenerate, persist.
     let rid = run_id.clone();
@@ -4437,14 +4639,29 @@ pub async fn regenerate_guide_review(
         tracing::warn!(target: "guide", ?e, %run_id, "guide run status write failed");
     }
 
-    match crate::meeting::guide_review::generate_review(llm, &template, &env.segments).await {
+    let options = crate::meeting::guide_review::ReviewOptions {
+        insight_kind: run.insight_kind,
+        subject_scope: run.subject_scope,
+    };
+    match crate::meeting::guide_review::generate_review_with_options(
+        llm,
+        &template,
+        &env.segments,
+        &options,
+    )
+    .await
+    {
         Ok(review) => {
             let rj = serde_json::to_string(&review).unwrap_or_else(|_| "{}".into());
             let gen_at = chrono::Utc::now().to_rfc3339();
             let rid = run_id.clone();
             db.with_conn(move |c| {
-                crate::db::meeting_guide_runs::update_guide_run_review(
-                    c, &rid, Some(rj.as_str()), "ready", Some(gen_at.as_str()),
+                crate::db::meeting_guide_runs::complete_guide_run_review(
+                    c,
+                    &rid,
+                    rj.as_str(),
+                    gen_at.as_str(),
+                    transcript_hash.as_str(),
                 )
             })
             .map_err(|e| e.to_string())?;

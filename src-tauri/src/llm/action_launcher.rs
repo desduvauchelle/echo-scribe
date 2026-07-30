@@ -380,4 +380,3 @@ pub fn strip_trigger_prefix(text: &str) -> Option<String> {
     }
     None
 }
-

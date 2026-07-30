@@ -57,6 +57,19 @@ function AppShell() {
   } | null>(null);
   const toasts = useToasts();
 
+  // The main window owns its own scroll regions. Lock the WebView document
+  // while it is mounted so a trackpad gesture cannot escape those regions and
+  // rubber-band the entire application shell in macOS WebKit.
+  useEffect(() => {
+    const root = document.documentElement;
+    root.dataset.appView = view;
+    if (view === "main") window.scrollTo(0, 0);
+
+    return () => {
+      if (root.dataset.appView === view) delete root.dataset.appView;
+    };
+  }, [view]);
+
   // Re-focus the last-used text input before the backend pastes, so
   // dictating into our own chat input works (the recording overlay
   // momentarily steals first-responder).
@@ -421,11 +434,11 @@ function AppShell() {
   }
 
   // Permission + update notices live in Main's sidebar (above the Settings
-  // button); onboarding/settings get the floating UpdateBanner instead. A
-  // top bar would sit under the fixed drag region and the traffic lights.
+  // button); onboarding/settings get the floating UpdateBanner instead. Main
+  // owns its native-style toolbar and defines its own draggable regions so the
+  // toolbar controls remain interactive.
   return (
     <>
-      {dragBar}
       <Main key={mainKey} onOpenSettings={() => setView("settings")} />
       {overlay}
     </>

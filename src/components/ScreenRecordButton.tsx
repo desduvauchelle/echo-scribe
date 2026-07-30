@@ -34,10 +34,10 @@ export default function ScreenRecordButton({
         aria-pressed={active}
         aria-label={label}
         title={active ? "Stop screen recording" : "Record your screen"}
-        className={`flex items-center gap-1.5 rounded-md border p-1.5 transition-colors disabled:opacity-70 ${
+        className={`native-toolbar-button grid h-8 w-8 place-items-center rounded-md transition-colors disabled:opacity-70 ${
           active
             ? "border-danger/30 bg-danger/15 text-danger hover:bg-danger/20"
-            : "border-line bg-surface text-muted hover:bg-elevated hover:text-fg"
+            : "text-muted hover:text-fg"
         }`}
       >
         {busy ? (
@@ -63,7 +63,7 @@ export default function ScreenRecordButton({
       className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-medium transition-colors ${
         active
           ? "border-danger/30 bg-danger/15 text-danger hover:bg-danger/20"
-          : "border-line bg-elevated text-muted hover:text-fg"
+          : "material-icon-button border-line text-muted hover:text-fg"
       } ${busy ? "cursor-default opacity-60" : "cursor-pointer"}`}
     >
       {busy ? (

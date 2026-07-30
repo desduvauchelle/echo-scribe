@@ -22,10 +22,20 @@ pub struct GuideRunRow {
     pub error: Option<String>,
     pub generated_at: Option<String>,
     pub created_at: String,
+    pub run_kind: String,
+    pub insight_kind: String,
+    pub subject_scope: String,
+    pub transcript_hash: String,
 }
 
 const COLS: &str = "id, meeting_id, template_id, template_name, template_json, slot, \
-started_at, timeline_json, review_json, status, error, generated_at, created_at";
+started_at, timeline_json, review_json, status, error, generated_at, created_at, \
+run_kind, insight_kind, subject_scope, transcript_hash";
+
+const QUALIFIED_COLS: &str =
+    "r.id, r.meeting_id, r.template_id, r.template_name, r.template_json, r.slot, \
+r.started_at, r.timeline_json, r.review_json, r.status, r.error, r.generated_at, r.created_at, \
+r.run_kind, r.insight_kind, r.subject_scope, r.transcript_hash";
 
 fn row_to_run(row: &Row<'_>) -> rusqlite::Result<GuideRunRow> {
     Ok(GuideRunRow {
@@ -42,6 +52,10 @@ fn row_to_run(row: &Row<'_>) -> rusqlite::Result<GuideRunRow> {
         error: row.get("error")?,
         generated_at: row.get("generated_at")?,
         created_at: row.get("created_at")?,
+        run_kind: row.get("run_kind")?,
+        insight_kind: row.get("insight_kind")?,
+        subject_scope: row.get("subject_scope")?,
+        transcript_hash: row.get("transcript_hash")?,
     })
 }
 
@@ -49,11 +63,27 @@ pub fn insert_guide_run(conn: &Connection, r: &GuideRunRow) -> Result<(), DbErro
     conn.execute(
         "INSERT INTO meeting_guide_runs
             (id, meeting_id, template_id, template_name, template_json, slot,
-             started_at, timeline_json, review_json, status, error, generated_at, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+             started_at, timeline_json, review_json, status, error, generated_at, created_at,
+             run_kind, insight_kind, subject_scope, transcript_hash)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
         params![
-            r.id, r.meeting_id, r.template_id, r.template_name, r.template_json, r.slot,
-            r.started_at, r.timeline_json, r.review_json, r.status, r.error, r.generated_at, r.created_at
+            r.id,
+            r.meeting_id,
+            r.template_id,
+            r.template_name,
+            r.template_json,
+            r.slot,
+            r.started_at,
+            r.timeline_json,
+            r.review_json,
+            r.status,
+            r.error,
+            r.generated_at,
+            r.created_at,
+            r.run_kind,
+            r.insight_kind,
+            r.subject_scope,
+            r.transcript_hash,
         ],
     )?;
     Ok(())
@@ -81,6 +111,42 @@ pub fn update_guide_run_review(
     conn.execute(
         "UPDATE meeting_guide_runs SET review_json = ?1, status = ?2, generated_at = ?3, error = NULL WHERE id = ?4",
         params![review_json, status, generated_at, id],
+    )?;
+    Ok(())
+}
+
+/// Persist a validated review and the transcript fingerprint it was derived
+/// from in one write, so proof can never appear current for another transcript.
+pub fn complete_guide_run_review(
+    conn: &Connection,
+    id: &str,
+    review_json: &str,
+    generated_at: &str,
+    transcript_hash: &str,
+) -> Result<(), DbError> {
+    conn.execute(
+        "UPDATE meeting_guide_runs
+         SET review_json=?1, status='ready', generated_at=?2,
+             transcript_hash=?3, error=NULL
+         WHERE id=?4",
+        params![review_json, generated_at, transcript_hash, id],
+    )?;
+    Ok(())
+}
+
+pub fn update_guide_run_analysis_contract(
+    conn: &Connection,
+    id: &str,
+    run_kind: &str,
+    insight_kind: &str,
+    subject_scope: &str,
+    transcript_hash: &str,
+) -> Result<(), DbError> {
+    conn.execute(
+        "UPDATE meeting_guide_runs
+         SET run_kind=?1, insight_kind=?2, subject_scope=?3, transcript_hash=?4
+         WHERE id=?5",
+        params![run_kind, insight_kind, subject_scope, transcript_hash, id],
     )?;
     Ok(())
 }
@@ -152,6 +218,37 @@ pub fn list_guide_runs_for_template(
     Ok(rows)
 }
 
+pub fn has_run_for_meeting_template(
+    conn: &Connection,
+    meeting_id: &str,
+    template_id: &str,
+) -> Result<bool, DbError> {
+    let count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM meeting_guide_runs WHERE meeting_id=?1 AND template_id=?2",
+        params![meeting_id, template_id],
+        |row| row.get(0),
+    )?;
+    Ok(count > 0)
+}
+
+/// Runs shown in Daily recap are independently controlled by the template's
+/// tracking configuration. Attached guides that are not opted in never leak
+/// into the recap, and chat/notes are not part of this query.
+pub fn list_daily_insight_runs(conn: &Connection, date: &str) -> Result<Vec<GuideRunRow>, DbError> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {QUALIFIED_COLS}
+         FROM meeting_guide_runs r
+         JOIN guide_template_insight_settings c ON c.template_id=r.template_id
+         WHERE c.enabled=1 AND c.show_in_daily_recap=1
+           AND substr(r.started_at, 1, 10)=?1
+         ORDER BY r.started_at DESC, r.template_name COLLATE NOCASE"
+    ))?;
+    let rows = stmt
+        .query_map([date], row_to_run)?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -180,6 +277,10 @@ mod tests {
             error: None,
             generated_at: None,
             created_at: "2026-07-08T16:19:08Z".into(),
+            run_kind: "attached".into(),
+            insight_kind: "rubric".into(),
+            subject_scope: "you".into(),
+            transcript_hash: String::new(),
         }
     }
 
@@ -195,7 +296,14 @@ mod tests {
         let c = fresh();
         insert_guide_run(&c, &make("r1", "m1")).unwrap();
         update_guide_run_timeline(&c, "r1", Some("[]")).unwrap();
-        update_guide_run_review(&c, "r1", Some(r#"{"overall":"mixed"}"#), "ready", Some("2026-07-08T17:00:00Z")).unwrap();
+        update_guide_run_review(
+            &c,
+            "r1",
+            Some(r#"{"overall":"mixed"}"#),
+            "ready",
+            Some("2026-07-08T17:00:00Z"),
+        )
+        .unwrap();
         let got = get_guide_run(&c, "r1").unwrap().unwrap();
         assert_eq!(got.timeline_json.as_deref(), Some("[]"));
         assert_eq!(got.status, "ready");
@@ -238,6 +346,42 @@ mod tests {
     }
 
     #[test]
+    fn detects_existing_meeting_template_run() {
+        let c = fresh();
+        insert_guide_run(&c, &make("r1", "m1")).unwrap();
+        assert!(has_run_for_meeting_template(&c, "m1", "builtin-leadership").unwrap());
+        assert!(!has_run_for_meeting_template(&c, "m2", "builtin-leadership").unwrap());
+    }
+
+    #[test]
+    fn daily_insights_require_enabled_recap_config_and_matching_day() {
+        let c = fresh();
+        let mut visible = make("r-visible", "m1");
+        visible.template_id = "builtin-emotional-signals".into();
+        visible.template_name = "Conversation signals".into();
+        visible.started_at = "2026-07-08T23:00:00Z".into();
+        insert_guide_run(&c, &visible).unwrap();
+        let mut other_day = visible.clone();
+        other_day.id = "r-other".into();
+        other_day.meeting_id = "m2".into();
+        other_day.started_at = "2026-07-09T00:00:00Z".into();
+        insert_guide_run(&c, &other_day).unwrap();
+
+        let hidden = list_daily_insight_runs(&c, "2026-07-08").unwrap();
+        assert!(hidden.is_empty());
+        c.execute(
+            "INSERT INTO guide_template_insight_settings
+              (template_id,enabled,show_in_daily_recap,insight_kind,subject_scope,updated_at)
+             VALUES ('builtin-emotional-signals',1,1,'signals','interaction','2026-07-08T00:00:00Z')",
+            [],
+        )
+        .unwrap();
+        let rows = list_daily_insight_runs(&c, "2026-07-08").unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].id, "r-visible");
+    }
+
+    #[test]
     fn fail_interrupted_pending_runs_only_touches_completed_meetings() {
         let c = fresh();
         // Two meetings: one complete, one still recording.
@@ -246,7 +390,8 @@ mod tests {
              VALUES ('m-done', '2026-07-08T00:00:00Z', 'complete', 0, 0),
                     ('m-live', '2026-07-08T00:00:00Z', 'recording', 0, 0)",
             [],
-        ).unwrap();
+        )
+        .unwrap();
         // A pending run under each, plus a ready run under the complete one.
         insert_guide_run(&c, &make("r-done-pending", "m-done")).unwrap();
         insert_guide_run(&c, &make("r-live-pending", "m-live")).unwrap();
@@ -256,10 +401,25 @@ mod tests {
 
         let n = fail_interrupted_pending_runs(&c).unwrap();
         assert_eq!(n, 1); // only r-done-pending
-        assert_eq!(get_guide_run(&c, "r-done-pending").unwrap().unwrap().status, "failed");
-        assert_eq!(get_guide_run(&c, "r-done-pending").unwrap().unwrap().error.as_deref(),
-                   Some("interrupted before review completed"));
-        assert_eq!(get_guide_run(&c, "r-live-pending").unwrap().unwrap().status, "pending"); // untouched
-        assert_eq!(get_guide_run(&c, "r-done-ready").unwrap().unwrap().status, "ready");     // untouched
+        assert_eq!(
+            get_guide_run(&c, "r-done-pending").unwrap().unwrap().status,
+            "failed"
+        );
+        assert_eq!(
+            get_guide_run(&c, "r-done-pending")
+                .unwrap()
+                .unwrap()
+                .error
+                .as_deref(),
+            Some("interrupted before review completed")
+        );
+        assert_eq!(
+            get_guide_run(&c, "r-live-pending").unwrap().unwrap().status,
+            "pending"
+        ); // untouched
+        assert_eq!(
+            get_guide_run(&c, "r-done-ready").unwrap().unwrap().status,
+            "ready"
+        ); // untouched
     }
 }

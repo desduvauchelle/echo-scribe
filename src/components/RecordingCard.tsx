@@ -26,21 +26,34 @@ type Props = {
   projects?: Map<string, Project>;
   /** Override the default action (open the detail slide-over). */
   onOpen?: (rec: RecordingRow) => void;
+  variant?: "card" | "ledger";
 };
 
 /** Recording row for the unified activity feed. Clicking slides in the detail
  *  panel (video, upload, transcript, edit); the kebab menu offers the same
  *  actions without opening it. */
-export default function RecordingCard({ rec, projects, onOpen }: Props) {
+export default function RecordingCard({
+  rec,
+  projects,
+  onOpen,
+  variant = "card",
+}: Props) {
   const project = rec.project_id ? projects?.get(rec.project_id) : null;
   const { openRecording } = useActivityPanel();
   const handleClick = () => {
     if (onOpen) onOpen(rec);
     else openRecording(rec.id);
   };
+  const ledger = variant === "ledger";
 
   return (
-    <div className="group relative flex w-full cursor-pointer items-center gap-3 rounded-lg border border-line bg-surface px-3.5 py-3 text-left transition-colors hover:border-line-strong hover:bg-elevated">
+    <div
+      className={`group relative flex w-full cursor-pointer items-center gap-3 text-left ${
+        ledger
+          ? "activity-ledger-row px-2 py-3"
+          : "material-feed-card rounded-xl border border-line px-3.5 py-3 hover:border-line-strong"
+      }`}
+    >
       {/* Primary action: full-card overlay button. The actions menu sits
           above it (relative z-10) so it stays independently clickable. */}
       <button
@@ -49,7 +62,7 @@ export default function RecordingCard({ rec, projects, onOpen }: Props) {
         className="absolute inset-0 cursor-pointer rounded-lg"
         aria-label={`Open recording: ${recordingDisplayName(rec)}`}
       />
-      <div className="relative h-12 w-20 shrink-0 overflow-hidden rounded bg-elevated">
+      <div className={`recording-thumb relative shrink-0 overflow-hidden rounded bg-elevated ${ledger ? "h-8 w-8" : "h-12 w-20"}`}>
         {rec.thumb_path ? (
           <img
             src={convertFileSrc(rec.thumb_path)}
@@ -69,11 +82,16 @@ export default function RecordingCard({ rec, projects, onOpen }: Props) {
       </div>
 
       <div className="min-w-0 flex-1">
+        {ledger ? (
+          <div className="activity-kind mb-0.5 text-[9px] font-semibold uppercase tracking-[0.1em] text-accent">
+            Recording
+          </div>
+        ) : null}
         <div className="flex items-center gap-1.5">
           <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-accent-soft text-accent">
             <Film size={12} strokeWidth={2} aria-hidden="true" />
           </span>
-          <span className="truncate text-[13px] font-medium text-fg">
+          <span className={`${ledger ? "ledger-content text-[14px]" : "text-[13px]"} truncate font-medium text-fg`}>
             {recordingDisplayName(rec)}
           </span>
         </div>

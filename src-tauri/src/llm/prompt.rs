@@ -27,7 +27,10 @@ pub fn build_chat_messages(
     let mut msgs = Vec::new();
     if let Some(sys) = system {
         if !sys.is_empty() {
-            msgs.push(LlamaChatMessage::new("system".to_string(), sys.to_string())?);
+            msgs.push(LlamaChatMessage::new(
+                "system".to_string(),
+                sys.to_string(),
+            )?);
         }
     }
     for (role, content) in history {
@@ -90,7 +93,11 @@ pub fn build_gemma4_prompt(
     }
 
     for (role, content) in history {
-        let gemma_role = if role == "assistant" { "model" } else { role.as_str() };
+        let gemma_role = if role == "assistant" {
+            "model"
+        } else {
+            role.as_str()
+        };
         out.push_str("<|turn>");
         out.push_str(gemma_role);
         out.push('\n');
@@ -277,16 +284,13 @@ mod tests {
     #[test]
     fn strip_trailing_stops_removes_known_stops_and_whitespace() {
         let stops = vec!["</s>".to_string(), "<end>".to_string()];
-        assert_eq!(strip_trailing_stops("hello world</s>", &stops), "hello world");
         assert_eq!(
-            strip_trailing_stops("hello   <end>  \n", &stops),
-            "hello"
+            strip_trailing_stops("hello world</s>", &stops),
+            "hello world"
         );
+        assert_eq!(strip_trailing_stops("hello   <end>  \n", &stops), "hello");
         // Stack of stops.
-        assert_eq!(
-            strip_trailing_stops("answer<end></s>", &stops),
-            "answer"
-        );
+        assert_eq!(strip_trailing_stops("answer<end></s>", &stops), "answer");
         // Untouched if no stop matches.
         assert_eq!(strip_trailing_stops("plain text", &stops), "plain text");
     }
@@ -325,7 +329,10 @@ mod tests {
     #[test]
     fn gemma4_prompt_with_system() {
         let p = build_gemma4_prompt(Some("be helpful"), &[], "hi");
-        assert!(p.starts_with("<|turn>system\nbe helpful<turn|>\n"), "got: {p}");
+        assert!(
+            p.starts_with("<|turn>system\nbe helpful<turn|>\n"),
+            "got: {p}"
+        );
         assert!(p.ends_with("<|turn>model\n"), "got: {p}");
         assert!(p.contains("<|turn>user\nhi<turn|>\n"), "got: {p}");
     }
@@ -333,7 +340,10 @@ mod tests {
     #[test]
     fn gemma4_prompt_empty_system_omitted() {
         let p = build_gemma4_prompt(Some(""), &[], "hi");
-        assert!(!p.contains("<|turn>system"), "empty system should be omitted");
+        assert!(
+            !p.contains("<|turn>system"),
+            "empty system should be omitted"
+        );
         assert!(p.starts_with("<|turn>user\n"), "got: {p}");
     }
 
@@ -347,7 +357,10 @@ mod tests {
         // assistant role must be mapped to "model"
         assert!(p.contains("<|turn>model\nhi there<turn|>\n"), "got: {p}");
         assert!(p.contains("<|turn>user\nhello<turn|>\n"), "got: {p}");
-        assert!(p.ends_with("<|turn>model\n"), "prompt must end with model turn opener");
+        assert!(
+            p.ends_with("<|turn>model\n"),
+            "prompt must end with model turn opener"
+        );
     }
 
     #[test]
@@ -369,7 +382,10 @@ mod tests {
     fn gemma4_prompt_no_bos_token() {
         // BOS is prepended by the tokenizer (AddBos::Add), not baked in.
         let p = build_gemma4_prompt(Some("sys"), &[], "q");
-        assert!(!p.starts_with("<bos>"), "prompt must not include <bos>: {p}");
+        assert!(
+            !p.starts_with("<bos>"),
+            "prompt must not include <bos>: {p}"
+        );
     }
 
     // ── meeting synthesis start-context tests ────────────────────────────
@@ -377,8 +393,16 @@ mod tests {
     #[test]
     fn meeting_synthesis_omits_context_block_when_empty() {
         let ctx = crate::meeting::MeetingStartContext::default();
-        let (_sys, user) =
-            build_meeting_synthesis_prompt("You: hi\nThem: hello\n", Some("Zoom"), 5, &[], &ctx, None, None, None);
+        let (_sys, user) = build_meeting_synthesis_prompt(
+            "You: hi\nThem: hello\n",
+            Some("Zoom"),
+            5,
+            &[],
+            &ctx,
+            None,
+            None,
+            None,
+        );
         assert!(
             !user.contains("Context at meeting start"),
             "empty context must not produce a context block, got: {user}"
@@ -392,8 +416,16 @@ mod tests {
             browser_url: Some("https://meet.google.com/abc-defg-hij".into()),
             browser_tab_title: Some("Meeting – Alice, Bob".into()),
         };
-        let (_sys, user) =
-            build_meeting_synthesis_prompt("You: hi\n", Some("Zoom"), 30, &[], &ctx, None, None, None);
+        let (_sys, user) = build_meeting_synthesis_prompt(
+            "You: hi\n",
+            Some("Zoom"),
+            30,
+            &[],
+            &ctx,
+            None,
+            None,
+            None,
+        );
         assert!(user.contains("Context at meeting start"));
         assert!(user.contains("Weekly Standup - Zoom Meeting"));
         assert!(user.contains("https://meet.google.com/abc-defg-hij"));
@@ -433,8 +465,14 @@ mod tests {
             None,
         );
         let sys_content = sys.unwrap();
-        assert!(sys_content.contains("Tone: formal. Duration: 45m, platform: Google Meet. Be concise."), "got: {sys_content}");
-        assert!(sys_content.contains("Produce a JSON object with exactly these fields:"), "got: {sys_content}");
+        assert!(
+            sys_content.contains("Tone: formal. Duration: 45m, platform: Google Meet. Be concise."),
+            "got: {sys_content}"
+        );
+        assert!(
+            sys_content.contains("Produce a JSON object with exactly these fields:"),
+            "got: {sys_content}"
+        );
     }
 
     #[test]
@@ -521,26 +559,84 @@ pub fn build_guide_review_prompt(
     notes: &str,
     transcript: &str,
 ) -> (Option<String>, String) {
-    let criteria: Vec<&str> = notes.lines().map(|l| l.trim()).filter(|l| !l.is_empty()).collect();
+    build_configured_guide_review_prompt(goal, notes, transcript, "rubric", "you", false)
+}
+
+/// Prompt contract for both conventional rubrics and cautious conversation
+/// signal tracking. Every positive conclusion must include exact, machine-
+/// validated transcript coordinates so the UI can show its proof.
+pub fn build_configured_guide_review_prompt(
+    goal: &str,
+    notes: &str,
+    transcript: &str,
+    insight_kind: &str,
+    subject_scope: &str,
+    partial_chunk: bool,
+) -> (Option<String>, String) {
+    let criteria: Vec<&str> = notes
+        .lines()
+        .map(|l| l.trim())
+        .filter(|l| !l.is_empty())
+        .collect();
     let numbered = criteria
         .iter()
         .enumerate()
         .map(|(i, c)| format!("{}. {}", i + 1, c))
         .collect::<Vec<_>>()
         .join("\n");
+    let subject = match subject_scope {
+        "them" => "the speaker labeled 'Them'",
+        "interaction" => "the interaction between 'You' and 'Them'",
+        _ => "the speaker labeled 'You'",
+    };
+    let (assessment, verdicts) = if insight_kind == "signals" {
+        (
+            format!("Assess whether each language or interaction signal is observable in {subject}. Describe signals as language observed, never as a diagnosis of anyone's internal emotion."),
+            "not_observed | light | clear | strong",
+        )
+    } else {
+        (
+            format!("Assess how well {subject} met each criterion"),
+            "met | partial | missed | unknown",
+        )
+    };
+    let chunk_rule = if partial_chunk {
+        "This is one excerpt from a longer meeting. Use 'unknown' for rubric criteria or 'not_observed' for signals absent from this excerpt; absence here is not proof of absence from the whole meeting."
+    } else {
+        "Review the supplied meeting transcript as a whole."
+    };
     let system = format!(
-        "You are a communication coach reviewing a meeting transcript. The user is the speaker labeled 'You'; the other side is labeled 'Them'. \
-Assess how well the USER met the objective, criterion by criterion, using only evidence from the transcript.\n\
+        "You are a careful communication analyst reviewing a meeting transcript. The user is the speaker labeled 'You'; the other side is labeled 'Them'. \
+{assessment}, using only words present in the transcript. {chunk_rule}\n\
 Objective: {goal}\n\
 Criteria:\n{numbered}\n\n\
 Produce a JSON object with exactly these fields:\n\
 - \"overall\": one of \"strong\", \"mixed\", \"weak\".\n\
 - \"synthesis\": a 2-4 sentence narrative of how the conversation went against the objective.\n\
-- \"scorecard\": an array with ONE object per criterion above, in the same order: {{ \"criterion\": the criterion text, \"verdict\": \"met\" | \"partial\" | \"missed\", \"evidence\": a short quote or paraphrase from the transcript, \"why\": a one-line assessment, \"tip\": one concrete thing to try next time (empty string when verdict is \"met\") }}.\n\
-- \"emergent\": an array of 1-2 objects {{ \"observation\": something notable NOT covered by the criteria, \"evidence\": a short quote or paraphrase }}.\n\
+- \"scorecard\": an array with ONE object per criterion above, in the same order: {{ \"criterion\": the criterion text, \"verdict\": one of {verdicts}, \"evidence\": the first exact quote or empty string, \"evidence_refs\": zero or more exact sources shaped {{ \"segment_index\": N, \"start_ms\": N, \"end_ms\": N, \"quote\": \"exact substring from that segment\" }}, \"why\": a one-line assessment, \"tip\": one concrete next step or empty string }}.\n\
+- \"emergent\": an array of 0-2 objects {{ \"observation\": something notable NOT covered by the criteria, \"evidence\": the first exact quote, \"evidence_refs\": one or more exact sources in the same shape }}.\n\
+The transcript labels each segment [sINDEX|START_MS-END_MS|SPEAKER]. Copy the index, times, and quote exactly. Never invent or paraphrase evidence. Every signal verdict other than not_observed and every rubric verdict other than unknown requires exact evidence; use missed only for an evidenced counterexample, not merely because a behavior is absent. Do not infer vocal tone, facial expression, intent, or a clinical/emotional state that the words do not establish.\n\
 Output JSON only — no preamble, no commentary, no markdown fences."
     );
     let user = format!("Transcript:\n\n{transcript}\n\nProduce the JSON now.");
+    (Some(system), user)
+}
+
+pub fn build_guide_review_reduce_prompt(
+    goal: &str,
+    notes: &str,
+    candidates_json: &str,
+    insight_kind: &str,
+    subject_scope: &str,
+) -> (Option<String>, String) {
+    let (system, _) =
+        build_configured_guide_review_prompt(goal, notes, "", insight_kind, subject_scope, false);
+    let mut system = system.unwrap_or_default();
+    system.push_str(
+        "\nYou are now reducing several validated excerpt reviews into one meeting review. Preserve the criterion order. Copy evidence_refs and their exact quotes unchanged from the candidates; do not create new references. For signals, use the strongest supported level. For rubrics, reconcile all excerpts and use unknown only when the candidates contain no evidence either way.",
+    );
+    let user =
+        format!("Validated excerpt reviews:\n{candidates_json}\n\nReturn the final JSON now.");
     (Some(system), user)
 }
 

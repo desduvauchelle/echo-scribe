@@ -47,7 +47,7 @@ export default function PermissionWarningBanner({ onOpenSettings }: Props) {
   return (
     <div
       role="alert"
-      className="rounded-md border border-warning/40 bg-warning/10 p-2.5 text-xs text-warning"
+      className="material-status-card rounded-xl border border-warning/40 p-2.5 text-xs text-warning"
     >
       <div className="font-semibold">
         Permission missing: {missing.join(" + ")}

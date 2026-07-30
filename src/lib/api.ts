@@ -1129,6 +1129,7 @@ export type MeetingSettings = {
   soft_warn_min: number;
   hard_cap_min: number;
   summary_prompt: string;
+  export_folder: string | null;
 };
 
 export const getMeetingSettings = (): Promise<MeetingSettings> =>
@@ -1136,6 +1137,16 @@ export const getMeetingSettings = (): Promise<MeetingSettings> =>
 
 export const setMeetingSummaryPrompt = (prompt: string): Promise<void> =>
   invoke("set_meeting_summary_prompt", { prompt });
+
+export const setMeetingExportFolder = (folder: string | null): Promise<void> =>
+  invoke("set_meeting_export_folder", { folder });
+
+export const exportMeetingMarkdown = (
+  id: string,
+  includeSummary: boolean,
+  includeTranscript: boolean,
+): Promise<{ path: string } | null> =>
+  invoke("export_meeting_markdown", { id, includeSummary, includeTranscript });
 
 export const setMeetingAutoDetect = (on: boolean): Promise<void> =>
   invoke("set_meeting_auto_detect", { on });
@@ -1271,6 +1282,29 @@ export const updateGuideTemplate = (
 
 export const deleteGuideTemplate = (id: string): Promise<void> =>
   invoke("delete_guide_template", { id });
+
+export type GuideInsightConfig = {
+  template_id: string;
+  enabled: boolean;
+  show_in_daily_recap: boolean;
+  insight_kind: "rubric" | "signals";
+  subject_scope: "you" | "them" | "interaction";
+  updated_at: string;
+};
+
+export const listGuideInsightConfigs = (): Promise<GuideInsightConfig[]> =>
+  invoke("list_guide_insight_configs");
+
+export const setGuideInsightConfig = (
+  config: Omit<GuideInsightConfig, "updated_at">,
+): Promise<GuideInsightConfig> =>
+  invoke("set_guide_insight_config", {
+    templateId: config.template_id,
+    enabled: config.enabled,
+    showInDailyRecap: config.show_in_daily_recap,
+    insightKind: config.insight_kind,
+    subjectScope: config.subject_scope,
+  });
 
 export const startGuidedSession = (templateId: string): Promise<string> =>
   invoke("start_guided_session", { templateId });
@@ -1775,11 +1809,16 @@ export type ScorecardItem = {
   criterion: string;
   verdict: string; // "met" | "partial" | "missed" | "unknown" (kept loose)
   evidence: string;
+  evidence_refs?: EvidenceRef[];
   why: string;
   tip: string;
 };
 
-export type EmergentItem = { observation: string; evidence: string };
+export type EmergentItem = {
+  observation: string;
+  evidence: string;
+  evidence_refs?: EvidenceRef[];
+};
 
 export type GuideReview = {
   overall: string; // "strong" | "mixed" | "weak"
@@ -1804,10 +1843,14 @@ export type GuideRun = {
   started_at: string;
   timeline_json: string | null;
   review_json: string | null;
-  status: string; // "pending" | "ready" | "failed"
+  status: string; // "pending" | "ready" | "failed" | "stale"
   error: string | null;
   generated_at: string | null;
   created_at: string;
+  run_kind: "attached" | "tracked";
+  insight_kind: "rubric" | "signals";
+  subject_scope: "you" | "them" | "interaction";
+  transcript_hash: string;
 };
 
 export const listGuideRuns = (meetingId: string): Promise<GuideRun[]> =>
@@ -1817,6 +1860,9 @@ export const guideRunsForTemplate = (
   templateId: string,
   limit: number,
 ): Promise<GuideRun[]> => invoke("guide_runs_for_template", { templateId, limit });
+
+export const dailyInsightRuns = (date: string): Promise<GuideRun[]> =>
+  invoke("daily_insight_runs", { date });
 
 export const regenerateGuideReview = (runId: string): Promise<void> =>
   invoke("regenerate_guide_review", { runId });

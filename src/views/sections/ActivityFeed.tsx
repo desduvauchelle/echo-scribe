@@ -12,8 +12,7 @@ import {
   type Project,
   type RecordingRow,
 } from "../../lib/api";
-import ItemCard from "../../components/ItemCard";
-import RecordingCard from "../../components/RecordingCard";
+import ActivityLedgerEntry from "../../components/ActivityLedgerEntry";
 import { mergeFeed, type FeedEntry } from "../../lib/feed";
 import { useActivityPanel } from "../../components/ActivityPanelContext";
 import { useToasts } from "../../components/ToastProvider";
@@ -182,15 +181,6 @@ export default function ActivityFeed({
     return mergeFeed(filteredItems, recs);
   }, [filteredItems, recordings, kindFilter]);
 
-  // No meetings are passed to mergeFeed here, so "meeting" entries can't occur
-  // in this feed — meeting items render as ordinary item cards.
-  const renderEntry = (e: FeedEntry) => {
-    if (e.type === "recording")
-      return <RecordingCard key={e.key} rec={e.rec} projects={projects} />;
-    if (e.type === "meeting") return null;
-    return <ItemCard key={e.key} item={e.item} projects={projects} />;
-  };
-
   const handleRename = async () => {
     if (!project) return;
     const name = renameValue.trim();
@@ -348,8 +338,14 @@ export default function ActivityFeed({
             }
           />
         ) : (
-          <div className="flex flex-col gap-2">
-            {entries.map(renderEntry)}
+          <div className="echo-activity-ledger flex flex-col">
+            {entries.map((entry) => (
+              <ActivityLedgerEntry
+                key={entry.key}
+                entry={entry}
+                projects={projects}
+              />
+            ))}
             {hasMore && kindFilter !== "recording" ? (
               <div className="my-3 flex justify-center">
                 <button
