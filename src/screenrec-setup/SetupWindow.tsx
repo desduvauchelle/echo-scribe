@@ -176,6 +176,7 @@ const SetupWindow: React.FC = () => {
     let unlistenCountdownCancel: (() => void) | undefined;
     let unlistenCountdownFinish: (() => void) | undefined;
     let unlistenShown: (() => void) | undefined;
+    let unlistenHidden: (() => void) | undefined;
 
     (async () => {
       unlistenPicker = await listen<AreaPickerResultPayload>(
@@ -218,6 +219,13 @@ const SetupWindow: React.FC = () => {
         // see loadSources above. No-op on subsequent shows.
         loadSources();
       });
+      unlistenHidden = await listen("screenrec-setup-hidden", () => {
+        // The native title-bar close handler owns overlay cleanup. Mirror the
+        // visibility change here so reopening setup can pre-warm the camera
+        // again even when its saved selection has not changed.
+        setSetupVisible(false);
+        setPickerOpen(false);
+      });
     })();
 
     return () => {
@@ -225,6 +233,7 @@ const SetupWindow: React.FC = () => {
       unlistenCountdownCancel?.();
       unlistenCountdownFinish?.();
       unlistenShown?.();
+      unlistenHidden?.();
     };
   }, []);
 
@@ -1046,7 +1055,10 @@ const styles: Record<string, React.CSSProperties> = {
   startButton: {
     padding: "7px 16px",
     backgroundColor: "var(--color-accent)",
-    color: "#080e0d",
+    // Match the app's shared accent-button foreground: the canvas token is
+    // light against the dark-green light-theme accent, and dark against the
+    // mint dark-theme accent.
+    color: "var(--color-canvas)",
     border: "none",
     borderRadius: "7px",
     fontSize: "13px",

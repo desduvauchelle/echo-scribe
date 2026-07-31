@@ -206,10 +206,13 @@ pub fn run() {
                     // to their OWNER closing). Hide instead, and clean up
                     // any overlay that might still be showing.
                     api.prevent_close();
+                    // Keep the persistent React page's visibility state in
+                    // sync so the camera preview can pre-warm again next time
+                    // this window is shown.
+                    let _ = window.emit("screenrec-setup-hidden", ());
                     let _ = window.hide();
                     let app = window.app_handle();
-                    crate::overlay::hide_area_picker(app);
-                    crate::overlay::hide_countdown(app);
+                    crate::overlay::dismiss_screenrec_setup_overlays(app);
                 }
             }
         })

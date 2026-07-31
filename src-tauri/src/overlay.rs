@@ -1,4 +1,4 @@
-use tauri::{AppHandle, Emitter, Manager, Wry};
+use tauri::{AppHandle, Emitter, Manager, Runtime, Wry};
 use tauri::webview::WebviewWindowBuilder;
 use tracing::{debug, error, info, warn};
 
@@ -724,7 +724,7 @@ pub fn show_camera_preview(app_handle: &AppHandle<Wry>, camera_name: &str) {
 /// Hides the self-view and tells the page to release the camera stream. Safe to
 /// call unconditionally (no-op if the window was never created or is already
 /// hidden) — call it on every recording-stop and error path.
-pub fn hide_camera_preview(app_handle: &AppHandle<Wry>) {
+pub fn hide_camera_preview<R: Runtime>(app_handle: &AppHandle<R>) {
     if let Some(w) = app_handle.get_webview_window("camera_preview") {
         // Ask the page to stop the MediaStream tracks so the camera's in-use
         // indicator clears promptly, then hide the window.
@@ -823,7 +823,7 @@ pub fn show_area_picker(app_handle: &AppHandle<Wry>, display_id: u32) -> Result<
 /// Hides the area picker unconditionally. Safe to call on every path
 /// (confirm, Esc-cancel, re-select, setup-window close) — no-op if the
 /// window was never created or is already hidden.
-pub fn hide_area_picker(app_handle: &AppHandle<Wry>) {
+pub fn hide_area_picker<R: Runtime>(app_handle: &AppHandle<R>) {
     if let Some(w) = app_handle.get_webview_window("area_picker") {
         let _ = w.hide();
     }
@@ -905,9 +905,85 @@ pub fn show_countdown(app_handle: &AppHandle<Wry>, display_id: u32, seconds: u32
 /// Hides the countdown window unconditionally. Safe to call on every path
 /// (natural finish, Esc-cancel, recording-start failure) — no-op if the
 /// window was never created or is already hidden.
-pub fn hide_countdown(app_handle: &AppHandle<Wry>) {
+pub fn hide_countdown<R: Runtime>(app_handle: &AppHandle<R>) {
     if let Some(w) = app_handle.get_webview_window("countdown") {
         let _ = w.emit("countdown-stop", ());
         let _ = w.hide();
+    }
+}
+
+/// Tears down every temporary surface owned by the recording setup window.
+/// The title-bar close button is handled natively, so it must use the same
+/// cleanup policy as the setup page's Cancel button instead of only hiding the
+/// parent window and leaving the pre-warmed camera stream floating.
+pub fn dismiss_screenrec_setup_overlays<R: Runtime>(app_handle: &AppHandle<R>) {
+    let mut closer = AppOverlayCloser { app_handle };
+    dismiss_screenrec_setup_overlays_with(&mut closer);
+}
+
+trait ScreenrecSetupOverlayCloser {
+    fn hide_area_picker(&mut self);
+    fn hide_countdown(&mut self);
+    fn hide_camera_preview(&mut self);
+}
+
+struct AppOverlayCloser<'a, R: Runtime> {
+    app_handle: &'a AppHandle<R>,
+}
+
+impl<R: Runtime> ScreenrecSetupOverlayCloser for AppOverlayCloser<'_, R> {
+    fn hide_area_picker(&mut self) {
+        hide_area_picker(self.app_handle);
+    }
+
+    fn hide_countdown(&mut self) {
+        hide_countdown(self.app_handle);
+    }
+
+    fn hide_camera_preview(&mut self) {
+        hide_camera_preview(self.app_handle);
+    }
+}
+
+fn dismiss_screenrec_setup_overlays_with(closer: &mut impl ScreenrecSetupOverlayCloser) {
+    closer.hide_area_picker();
+    closer.hide_countdown();
+    closer.hide_camera_preview();
+}
+
+#[cfg(test)]
+mod screenrec_setup_close_tests {
+    use super::*;
+
+    #[derive(Default)]
+    struct RecordedClosures {
+        area_picker: bool,
+        countdown: bool,
+        camera_preview: bool,
+    }
+
+    impl ScreenrecSetupOverlayCloser for RecordedClosures {
+        fn hide_area_picker(&mut self) {
+            self.area_picker = true;
+        }
+
+        fn hide_countdown(&mut self) {
+            self.countdown = true;
+        }
+
+        fn hide_camera_preview(&mut self) {
+            self.camera_preview = true;
+        }
+    }
+
+    #[test]
+    fn dismissing_setup_hides_every_pre_record_overlay() {
+        let mut closed = RecordedClosures::default();
+
+        dismiss_screenrec_setup_overlays_with(&mut closed);
+
+        assert!(closed.area_picker, "area picker should be hidden");
+        assert!(closed.countdown, "countdown should be hidden");
+        assert!(closed.camera_preview, "camera preview should be hidden");
     }
 }

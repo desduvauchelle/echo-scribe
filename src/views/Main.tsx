@@ -2,8 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
   CalendarDays,
-  ChevronLeft,
-  ChevronRight,
   Folder,
   Hash,
   LayoutDashboard,
@@ -184,14 +182,6 @@ export default function Main({ onOpenSettings }: Props) {
         </div>
 
         <div className="flex min-w-0 flex-1 items-center gap-3 px-3">
-          <div className="flex items-center gap-0.5">
-            <button type="button" disabled aria-label="Go back" className="native-toolbar-button grid h-7 w-7 place-items-center rounded-md text-faint disabled:opacity-45">
-              <ChevronLeft size={14} />
-            </button>
-            <button type="button" disabled aria-label="Go forward" className="native-toolbar-button grid h-7 w-7 place-items-center rounded-md text-faint disabled:opacity-45">
-              <ChevronRight size={14} />
-            </button>
-          </div>
           <div className="min-w-0" data-tauri-drag-region>
             <h1 className="truncate text-[12px] font-semibold leading-tight">{sectionTitle}</h1>
             <div className="truncate text-[9px] leading-tight text-faint">{today}</div>
