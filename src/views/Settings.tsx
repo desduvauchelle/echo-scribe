@@ -1178,6 +1178,21 @@ function MeetingsPage() {
     }
   };
 
+  const handleOpenExportFolder = async () => {
+    setExportFolderBusy(true);
+    try {
+      const { openMeetingExportFolder } = await import("../lib/api");
+      await openMeetingExportFolder();
+    } catch (e) {
+      toasts.push({
+        tone: "error",
+        message: `Couldn't open meeting notes folder: ${e instanceof Error ? e.message : String(e)}`,
+      });
+    } finally {
+      setExportFolderBusy(false);
+    }
+  };
+
   if (!settings) {
     return <div className="text-sm text-muted">Loading…</div>;
   }
@@ -1318,6 +1333,14 @@ function MeetingsPage() {
                 >
                   {settings.export_folder}
                 </span>
+                <button
+                  type="button"
+                  disabled={exportFolderBusy}
+                  onClick={() => void handleOpenExportFolder()}
+                  className="rounded-md border border-line px-2 py-1.5 text-xs hover:bg-elevated disabled:opacity-50"
+                >
+                  Open
+                </button>
                 <button
                   type="button"
                   disabled={exportFolderBusy}

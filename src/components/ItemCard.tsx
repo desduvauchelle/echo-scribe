@@ -100,10 +100,10 @@ export default function ItemCard({
       : "Note";
   const contentClass = isVoice
     ? ledger
-      ? "ledger-content text-[14px] text-fg"
+      ? "text-[14px] text-fg"
       : "font-mono text-[12.5px] text-fg/95"
     : ledger
-      ? "ledger-content text-[14px] text-fg"
+      ? "text-[14px] text-fg"
       : "text-[13px] text-fg";
 
   return (

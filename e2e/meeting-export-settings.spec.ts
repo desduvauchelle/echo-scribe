@@ -22,6 +22,7 @@ test("meeting export folder can be cleared and selected", async ({ page }) => {
 
   const section = page.getByRole("heading", { name: "Meeting notes folder" }).locator("..");
   await expect(section).toContainText("/Users/test/Old Meetings");
+  await section.getByRole("button", { name: "Open", exact: true }).click();
   await section.getByRole("button", { name: "Clear" }).click();
   await expect(section.getByRole("button", { name: "Choose folder…" })).toBeVisible();
 
@@ -35,4 +36,5 @@ test("meeting export folder can be cleared and selected", async ({ page }) => {
     { folder: null },
     { folder: "/Users/test/Meeting Notes" },
   ]);
+  expect(calls.filter(({ cmd }) => cmd === "open_meeting_export_folder")).toHaveLength(1);
 });

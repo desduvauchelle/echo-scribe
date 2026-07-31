@@ -4090,6 +4090,34 @@ pub fn set_meeting_export_folder(
         .map_err(|e| e.to_string())
 }
 
+/// Open the configured meeting-notes folder in the platform file manager.
+/// The path comes from validated settings rather than the frontend, so this
+/// command cannot be used as a general arbitrary-path opener.
+#[tauri::command]
+pub fn open_meeting_export_folder(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    let folder = state
+        .settings
+        .meeting_export_folder()
+        .ok_or("No meeting notes folder is configured.")?;
+    let path = std::path::Path::new(&folder);
+    if !path.is_dir() {
+        return Err("The configured meeting notes folder no longer exists.".into());
+    }
+
+    #[cfg(target_os = "macos")]
+    let mut command = std::process::Command::new("open");
+    #[cfg(target_os = "windows")]
+    let mut command = std::process::Command::new("explorer");
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    let mut command = std::process::Command::new("xdg-open");
+
+    let status = command.arg(path).status().map_err(|e| e.to_string())?;
+    if !status.success() {
+        return Err(format!("Folder opener exited with {status}."));
+    }
+    Ok(())
+}
+
 /// Open the native save dialog and export the selected sections of one
 /// completed meeting as Markdown. `None` means the user cancelled the dialog.
 #[tauri::command]

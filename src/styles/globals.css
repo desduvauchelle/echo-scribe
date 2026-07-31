@@ -30,7 +30,6 @@
 }
 
 :root {
-  --font-editorial: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
   --material-canvas: #111411;
   --material-sidebar: #151815;
   --material-panel: #171a17;
@@ -256,11 +255,6 @@ html:is([data-app-view="main"], [data-app-view="settings"]) #root {
 
 .echo-stat-cell + .echo-stat-cell {
   border-left: 1px solid var(--color-line);
-}
-
-.font-editorial,
-.ledger-content {
-  font-family: var(--font-editorial);
 }
 
 .echo-recap-row .material-panel {

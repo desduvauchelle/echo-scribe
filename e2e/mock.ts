@@ -252,6 +252,7 @@ export async function installTauriMock(page: Page, scenario: Scenario = {}) {
       set_meeting_export_folder: (a) => {
         state.meetingExportFolder = a.folder ?? null;
       },
+      open_meeting_export_folder: () => undefined,
       list_people: () => [...state.people],
       list_companies: () => [...state.companies],
       list_relationship_meetings: () => [],

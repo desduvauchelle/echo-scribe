@@ -807,7 +807,7 @@ function StatCell({
   return (
     <div className="echo-stat-cell min-w-0 px-4 py-3">
       <span className="block truncate text-[10px] font-medium text-muted">{label}</span>
-      <span className="mt-1 block font-editorial text-[22px] tabular-nums leading-none text-fg">{value}</span>
+      <span className="mt-1 block text-[22px] tabular-nums leading-none text-fg">{value}</span>
       <span className="mt-1 block truncate text-[10px] text-faint">{sub}</span>
       {srText ? <span className="sr-only">{srText}</span> : null}
     </div>

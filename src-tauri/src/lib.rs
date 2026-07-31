@@ -394,6 +394,7 @@ pub fn run() {
             commands::get_meeting_settings,
             commands::set_meeting_summary_prompt,
             commands::set_meeting_export_folder,
+            commands::open_meeting_export_folder,
             commands::export_meeting_markdown,
             commands::set_meeting_auto_detect,
             commands::set_meeting_app_pref,

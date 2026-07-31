@@ -91,7 +91,7 @@ export default function RecordingCard({
           <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-accent-soft text-accent">
             <Film size={12} strokeWidth={2} aria-hidden="true" />
           </span>
-          <span className={`${ledger ? "ledger-content text-[14px]" : "text-[13px]"} truncate font-medium text-fg`}>
+          <span className={`${ledger ? "text-[14px]" : "text-[13px]"} truncate font-medium text-fg`}>
             {recordingDisplayName(rec)}
           </span>
         </div>

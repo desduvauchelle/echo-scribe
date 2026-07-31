@@ -89,7 +89,7 @@ export default function MeetingCard({ mtg, projects, variant = "card" }: Props) 
             </div>
           ) : null}
           <div className="flex items-start justify-between gap-3">
-            <span className={`${ledger ? "ledger-content text-[14px]" : "text-[13px]"} truncate font-medium text-fg`}>
+            <span className={`${ledger ? "text-[14px]" : "text-[13px]"} truncate font-medium text-fg`}>
               {meetingTitle(mtg, summary)}
             </span>
             {status.pill ? (

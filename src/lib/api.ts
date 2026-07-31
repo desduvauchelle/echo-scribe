@@ -1162,6 +1162,9 @@ export const setMeetingSummaryPrompt = (prompt: string): Promise<void> =>
 export const setMeetingExportFolder = (folder: string | null): Promise<void> =>
   invoke("set_meeting_export_folder", { folder });
 
+export const openMeetingExportFolder = (): Promise<void> =>
+  invoke("open_meeting_export_folder");
+
 export const exportMeetingMarkdown = (
   id: string,
   includeSummary: boolean,
