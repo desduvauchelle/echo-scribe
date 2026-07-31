@@ -66,7 +66,8 @@ impl Syscap {
     }
 
     /// Spawn the sidecar; returns channels for PCM frames and status events.
-    pub fn spawn() -> std::io::Result<(Self, mpsc::Receiver<PcmFrame>, mpsc::Receiver<SyscapEvent>)> {
+    pub fn spawn() -> std::io::Result<(Self, mpsc::Receiver<PcmFrame>, mpsc::Receiver<SyscapEvent>)>
+    {
         let bin = Self::resolve_binary()?;
         info!(path = %bin.display(), "spawning syscap");
 
@@ -113,7 +114,10 @@ impl Syscap {
                             frame.push(i16::from_le_bytes([lo, hi]));
                         }
                         if pcm_tx_clone.blocking_send(frame).is_err() {
-                            warn!(total_bytes, "syscap pcm channel closed; stdout reader exiting");
+                            warn!(
+                                total_bytes,
+                                "syscap pcm channel closed; stdout reader exiting"
+                            );
                             break;
                         }
                     }
@@ -181,7 +185,14 @@ impl Syscap {
             debug!("syscap stderr reader exiting");
         });
 
-        Ok((Self { child: Some(child), stop_flag }, pcm_rx, evt_rx))
+        Ok((
+            Self {
+                child: Some(child),
+                stop_flag,
+            },
+            pcm_rx,
+            evt_rx,
+        ))
     }
 
     /// Send SIGTERM to the sidecar; wait up to 2s, then SIGKILL if still running.

@@ -117,9 +117,7 @@ pub fn capture_context() -> Option<FocusContext> {
     let app_name = app.localizedName().map(|s| s.to_string());
 
     let window_title = capture_window_title_macos(pid);
-    let browser_url = bundle_id
-        .as_deref()
-        .and_then(capture_browser_url_macos);
+    let browser_url = bundle_id.as_deref().and_then(capture_browser_url_macos);
     let browser_tab_title = bundle_id
         .as_deref()
         .and_then(capture_browser_tab_title_macos);
@@ -292,12 +290,18 @@ pub fn capture_selection(element: Option<&FocusElement>) -> Option<SelectionSnap
     if let Some(el) = element {
         if let Some(text) = el.selected_text() {
             tracing::info!(target: "edit", chars = text.len(), "capture_selection: via AXSelectedText");
-            return Some(SelectionSnapshot { text, method: SelectionMethod::Ax });
+            return Some(SelectionSnapshot {
+                text,
+                method: SelectionMethod::Ax,
+            });
         }
     }
     if let Some(text) = crate::input::paste::capture_selection_via_copy() {
         tracing::info!(target: "edit", chars = text.len(), "capture_selection: via Cmd+C fallback");
-        return Some(SelectionSnapshot { text, method: SelectionMethod::Copy });
+        return Some(SelectionSnapshot {
+            text,
+            method: SelectionMethod::Copy,
+        });
     }
     tracing::info!(target: "edit", "capture_selection: no selection found (AX empty + clipboard unchanged)");
     None
@@ -335,8 +339,8 @@ impl FocusElement {
     ///   * -25200 `kAXErrorInvalidUIElement` — the captured element is
     ///      stale (re-rendered/replaced since capture).
     pub fn restore(&self) -> i32 {
-        use objc2_core_foundation::{CFBoolean, CFString};
         use objc2_application_services::AXUIElement;
+        use objc2_core_foundation::{CFBoolean, CFString};
 
         let ax_focused_ui = CFString::from_str("AXFocusedUIElement");
 
@@ -391,7 +395,11 @@ impl FocusElement {
             }
             let value: CFRetained<CFType> = CFRetained::from_raw(NonNull::new(raw as *mut CFType)?);
             let s = value.downcast::<CFString>().ok().map(|s| s.to_string())?;
-            if s.is_empty() { None } else { Some(s) }
+            if s.is_empty() {
+                None
+            } else {
+                Some(s)
+            }
         }
     }
 
@@ -443,8 +451,7 @@ pub fn current_frontmost_pid() -> Option<i32> {
 pub fn restore(ctx: &FocusContext) -> bool {
     use objc2_app_kit::{NSApplicationActivationOptions, NSRunningApplication};
 
-    let Some(app) =
-        NSRunningApplication::runningApplicationWithProcessIdentifier(ctx.pid as pid_t)
+    let Some(app) = NSRunningApplication::runningApplicationWithProcessIdentifier(ctx.pid as pid_t)
     else {
         return false;
     };
@@ -702,7 +709,11 @@ fn capture_window_title_macos(pid: i32) -> Option<String> {
         let title_nn = NonNull::new(title_raw as *mut CFString)?;
         let title_cf: CFRetained<CFString> = CFRetained::from_raw(title_nn);
         let s = title_cf.to_string();
-        if s.is_empty() { None } else { Some(s) }
+        if s.is_empty() {
+            None
+        } else {
+            Some(s)
+        }
     }
 }
 
@@ -711,14 +722,18 @@ fn capture_window_title_macos(pid: i32) -> Option<String> {
 #[cfg(target_os = "macos")]
 fn capture_browser_url_macos(bundle_id: &str) -> Option<String> {
     let script = match bundle_id {
-        "com.apple.Safari" =>
-            "tell application \"Safari\" to get URL of current tab of front window",
-        "com.google.Chrome" | "com.google.Chrome.beta" | "com.google.Chrome.canary" =>
-            "tell application \"Google Chrome\" to get URL of active tab of front window",
-        "company.thebrowser.Browser" =>
-            "tell application \"Arc\" to get URL of active tab of front window",
-        "com.brave.Browser" | "com.brave.Browser.beta" =>
-            "tell application \"Brave Browser\" to get URL of active tab of front window",
+        "com.apple.Safari" => {
+            "tell application \"Safari\" to get URL of current tab of front window"
+        }
+        "com.google.Chrome" | "com.google.Chrome.beta" | "com.google.Chrome.canary" => {
+            "tell application \"Google Chrome\" to get URL of active tab of front window"
+        }
+        "company.thebrowser.Browser" => {
+            "tell application \"Arc\" to get URL of active tab of front window"
+        }
+        "com.brave.Browser" | "com.brave.Browser.beta" => {
+            "tell application \"Brave Browser\" to get URL of active tab of front window"
+        }
         _ => return None,
     };
 
@@ -731,14 +746,18 @@ fn capture_browser_url_macos(bundle_id: &str) -> Option<String> {
 #[cfg(target_os = "macos")]
 fn capture_browser_tab_title_macos(bundle_id: &str) -> Option<String> {
     let script = match bundle_id {
-        "com.apple.Safari" =>
-            "tell application \"Safari\" to get name of current tab of front window",
-        "com.google.Chrome" | "com.google.Chrome.beta" | "com.google.Chrome.canary" =>
-            "tell application \"Google Chrome\" to get title of active tab of front window",
-        "company.thebrowser.Browser" =>
-            "tell application \"Arc\" to get title of active tab of front window",
-        "com.brave.Browser" | "com.brave.Browser.beta" =>
-            "tell application \"Brave Browser\" to get title of active tab of front window",
+        "com.apple.Safari" => {
+            "tell application \"Safari\" to get name of current tab of front window"
+        }
+        "com.google.Chrome" | "com.google.Chrome.beta" | "com.google.Chrome.canary" => {
+            "tell application \"Google Chrome\" to get title of active tab of front window"
+        }
+        "company.thebrowser.Browser" => {
+            "tell application \"Arc\" to get title of active tab of front window"
+        }
+        "com.brave.Browser" | "com.brave.Browser.beta" => {
+            "tell application \"Brave Browser\" to get title of active tab of front window"
+        }
         _ => return None,
     };
 
@@ -824,8 +843,10 @@ fn focused_ui_element_macos(pid: i32) -> Option<CFRetained<AXUIElement>> {
         let app_el = AXUIElement::new_application(pid as pid_t);
         let _ = app_el.set_messaging_timeout(0.1);
         let mut raw: *const CFType = std::ptr::null();
-        let err =
-            app_el.copy_attribute_value(&ax_focused_ui, NonNull::new(&mut raw as *mut *const CFType)?);
+        let err = app_el.copy_attribute_value(
+            &ax_focused_ui,
+            NonNull::new(&mut raw as *mut *const CFType)?,
+        );
         if err.0 != 0 || raw.is_null() {
             return None;
         }
@@ -925,7 +946,8 @@ fn copy_ax_string_attribute(element: &AXUIElement, attr: &str) -> Option<String>
     unsafe {
         let _ = element.set_messaging_timeout(0.05);
         let mut raw: *const CFType = std::ptr::null();
-        let err = element.copy_attribute_value(&attr, NonNull::new(&mut raw as *mut *const CFType)?);
+        let err =
+            element.copy_attribute_value(&attr, NonNull::new(&mut raw as *mut *const CFType)?);
         if err.0 != 0 || raw.is_null() {
             return None;
         }
@@ -947,7 +969,8 @@ fn copy_ax_url_like_attribute(element: &AXUIElement, attr: &str) -> Option<Strin
     unsafe {
         let _ = element.set_messaging_timeout(0.05);
         let mut raw: *const CFType = std::ptr::null();
-        let err = element.copy_attribute_value(&attr, NonNull::new(&mut raw as *mut *const CFType)?);
+        let err =
+            element.copy_attribute_value(&attr, NonNull::new(&mut raw as *mut *const CFType)?);
         if err.0 != 0 || raw.is_null() {
             return None;
         }
@@ -1180,7 +1203,10 @@ mod tests {
     #[test]
     fn paste_target_confirmed_logic() {
         // Cross-app path: activation/verification is the gate, not focus probing.
-        let cross = RestoreOutcome { same_app: false, ..Default::default() };
+        let cross = RestoreOutcome {
+            same_app: false,
+            ..Default::default()
+        };
         assert!(cross.paste_target_confirmed_or_unknown());
 
         // Same app, focus-reporting app (element captured), void at paste
@@ -1195,7 +1221,10 @@ mod tests {
         assert!(!void_unhealed.paste_target_confirmed_or_unknown());
 
         // Same void, but the heal succeeded → confirmed.
-        let void_healed = RestoreOutcome { ax_focused: true, ..void_unhealed.clone() };
+        let void_healed = RestoreOutcome {
+            ax_focused: true,
+            ..void_unhealed.clone()
+        };
         assert!(void_healed.paste_target_confirmed_or_unknown());
 
         // Live focus at paste time → confirmed.

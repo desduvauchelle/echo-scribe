@@ -35,10 +35,12 @@ impl ParakeetEngine {
     /// Load a Parakeet ONNX model from a directory laid out as transcribe-rs
     /// expects (encoder-int8.onnx + .data, decoder_joint-int8.onnx, vocab.txt).
     pub fn load(model_path: &Path) -> Result<Self, EngineError> {
-        let model = ParakeetModel::load(&model_path.to_path_buf(), &Quantization::Int8)
-            .map_err(|e| EngineError::Load {
-                path: model_path.display().to_string(),
-                source: Box::new(e),
+        let model =
+            ParakeetModel::load(&model_path.to_path_buf(), &Quantization::Int8).map_err(|e| {
+                EngineError::Load {
+                    path: model_path.display().to_string(),
+                    source: Box::new(e),
+                }
             })?;
         Ok(Self { model })
     }

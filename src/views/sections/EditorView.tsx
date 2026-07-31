@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { open, ask } from "@tauri-apps/plugin-dialog";
+import { open, ask, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
   Copy,
@@ -44,16 +44,19 @@ import {
   logExportError,
   generateCaptions,
   revealRecording,
-  revealRecordingFile,
+  revealRecordingExport,
   copyExportToClipboard,
   transcribeRecording,
   uploadRecording,
   exportRecording,
+  getRecordingExportSuggestion,
+  saveRecordingExportCopy,
   deleteRecording,
   renameRecording,
   getDrivePrefs,
   listRecordings,
   type UploadQuality,
+  type RecordingExportQuality,
   type RecordingRow,
 } from "../../lib/api";
 import {
@@ -144,6 +147,23 @@ const BACKGROUND_PRESETS = [
 ] as const;
 
 const presetBackgroundPath = (name: string) => `/editor-backgrounds/${name}.jpg`;
+
+function exportRevealLabel(quality: string): string {
+  switch (quality) {
+    case "rendered":
+      return "Latest edited MP4 export";
+    case "rendered-gif":
+      return "Latest edited GIF export";
+    case "1080":
+      return "1080p original export";
+    case "720":
+      return "720p original export";
+    case "480":
+      return "480p original export";
+    default:
+      return "Exported file";
+  }
+}
 const backgroundImageSrc = (path: string) =>
   path.startsWith("/editor-backgrounds/") ? path : convertFileSrc(path);
 import { renderRecording, type RenderProgress } from "../../lib/render/renderPipeline";
@@ -2483,20 +2503,64 @@ export function EditorView({
     }
   }, [recording.id, reloadRec, toasts]);
 
+  const chooseExportDestination = useCallback(
+    async (quality: RecordingExportQuality): Promise<string | null> => {
+      const suggestion = await getRecordingExportSuggestion(recording.id, quality);
+      const gif = quality === "rendered-gif";
+      return saveDialog({
+        title: gif ? "Export edited GIF" : "Export recording",
+        defaultPath: suggestion.default_path,
+        filters: [
+          gif
+            ? { name: "GIF image", extensions: ["gif"] }
+            : { name: "MP4 video", extensions: ["mp4"] },
+        ],
+      });
+    },
+    [recording.id],
+  );
+
   const onQuickExport = useCallback(
     async (quality: "1080" | "720" | "480") => {
+      let destination: string | null;
+      try {
+        destination = await chooseExportDestination(quality);
+      } catch (e) {
+        toasts.push({ tone: "error", message: String(e) });
+        return;
+      }
+      if (!destination) return;
+
       setQuickExporting(true);
       try {
         await exportRecording(recording.id, quality);
-        await reloadRec();
-        toasts.push({ tone: "success", message: `Exported ${quality}p MP4` });
+        const updated = await saveRecordingExportCopy(
+          recording.id,
+          quality,
+          destination,
+        );
+        setRec(updated);
+        const filename = destination.split(/[\\/]/).pop() ?? destination;
+        toasts.push({
+          tone: "success",
+          message: `Saved “${filename}”`,
+          durationMs: 8000,
+          action: {
+            label: "Show in Finder",
+            onClick: () => {
+              void revealRecordingExport(recording.id, quality).catch((e) =>
+                toasts.push({ tone: "error", message: String(e) }),
+              );
+            },
+          },
+        });
       } catch (e) {
         toasts.push({ tone: "error", message: String(e) });
       } finally {
         setQuickExporting(false);
       }
     },
-    [recording.id, reloadRec, toasts],
+    [chooseExportDestination, recording.id, toasts],
   );
 
   const onUpload = useCallback(
@@ -2565,6 +2629,20 @@ export function EditorView({
   const exporting = exportPhase !== null;
 
   const onExport = useCallback(async () => {
+    // Choose the user-facing destination before doing the expensive render.
+    // The managed copy is still written inside Echo Scribe during finalize.
+    const format = exportFormat;
+    const exportQuality: RecordingExportQuality =
+      format === "gif" ? "rendered-gif" : "rendered";
+    let destination: string | null;
+    try {
+      destination = await chooseExportDestination(exportQuality);
+    } catch (e) {
+      toasts.push({ tone: "error", message: String(e) });
+      return;
+    }
+    if (!destination) return;
+
     setExportPhase("decode");
     setExportPct(0);
     setExportEta(null);
@@ -2614,10 +2692,6 @@ export function EditorView({
       }
 
       const durationMs = Math.round((durationMsRef.current || duration * 1000) || 0);
-
-      // Snapshot the format so a mid-export toggle can't switch the finalize
-      // branch out from under the just-rendered bytes.
-      const format = exportFormat;
 
       // Poster frame (MP4 only): the pipeline hands us the first composited
       // output frame as JPEG; after a successful finalize it becomes the
@@ -2715,10 +2789,29 @@ export function EditorView({
         }
       }
 
-      // Reflect the new "rendered" export in the toolbar (enables the Reveal
-      // split's "Edited export" option + the upload split's "Edited" quality).
+      // Keep the managed export above, and save the additional user-facing copy
+      // to the location chosen before rendering. The backend records this path
+      // on the export row and remembers its parent folder for next time.
+      updated = await saveRecordingExportCopy(
+        recording.id,
+        exportQuality,
+        destination,
+      );
       setRec(updated);
-      toasts.push({ tone: "success", message: "Export complete." });
+      const filename = destination.split(/[\\/]/).pop() ?? destination;
+      toasts.push({
+        tone: "success",
+        message: `Saved “${filename}”`,
+        durationMs: 8000,
+        action: {
+          label: "Show in Finder",
+          onClick: () => {
+            void revealRecordingExport(recording.id, exportQuality).catch((e) =>
+              toasts.push({ tone: "error", message: String(e) }),
+            );
+          },
+        },
+      });
     } catch (e) {
       console.error("[export] failed", e);
       // The render runs in the webview, so this error otherwise only reaches
@@ -2740,7 +2833,7 @@ export function EditorView({
       setExportPct(0);
       setExportEta(null);
     }
-  }, [recording.id, recording.events_path, cursorAvailable, src, webcamSrc, webcamOffsetMs, duration, exportFormat, toasts]);
+  }, [recording.id, recording.events_path, cursorAvailable, src, webcamSrc, webcamOffsetMs, duration, exportFormat, chooseExportDestination, toasts]);
 
   const exportLabel =
     exportPhase === "decode"
@@ -2758,13 +2851,15 @@ export function EditorView({
       active ? "border-accent bg-accent/15 text-fg" : "border-line text-muted hover:bg-surface"
     }`;
 
-  // Top-bar action state derived from the live row. `renderedPath` targets the
-  // editor's own `<id>.rendered.mp4` (the "new" file); `hasEdited` gates the
-  // "Edited export" reveal + the upload split's "Edited" quality. `anyBusy`
-  // coordinates the whole toolbar so two jobs can't run at once.
+  // Top-bar action state derived from the live row. Export entries are appended
+  // when generated, so reverse order makes the most recent export the primary
+  // Finder action. Each command resolves `saved_path` first and falls back to
+  // Echo Scribe's managed copy if the user-facing copy was later moved/deleted.
   const toolbarExports = parseExports(rec.exports);
   const hasEdited = toolbarExports.some((e) => e.quality === "rendered");
-  const renderedPath = renderedExportPath(rec.exports);
+  const revealableExports = [...toolbarExports].reverse();
+  const defaultRevealExport =
+    revealableExports.find((e) => e.saved_path) ?? revealableExports[0] ?? null;
   const hasTranscript = !!rec.transcript?.trim();
   const driveLink =
     rec.upload_status === "done" && rec.drive_link ? rec.drive_link : null;
@@ -2816,28 +2911,30 @@ export function EditorView({
           </IconButton>
         ) : null}
 
-        {/* Reveal in Finder — default reveals the original; the caret offers the
-            original file or the edited export (`<id>.rendered.mp4`, the "new"
-            file), so both are reachable. */}
+        {/* Reveal the latest export by default. Original remains explicitly
+            available in the menu, but is no longer the surprising primary
+            action immediately after an export. */}
         <SplitButton
-          title="Reveal in Finder"
+          title={defaultRevealExport ? "Show latest export in Finder" : "Show original in Finder"}
           icon={<FolderOpen size={16} />}
-          defaultValue="original"
-          disabled={anyBusy}
-          options={
-            renderedPath || exportedRevealPath
-              ? [
-                  { label: "Original file", value: "original" },
-                  { label: "Edited export", value: "edited" },
-                ]
-              : [{ label: "Original file", value: "original" }]
+          defaultValue={
+            defaultRevealExport ? `export:${defaultRevealExport.quality}` : "original"
           }
+          disabled={anyBusy}
+          options={[
+            ...revealableExports.map((entry) => ({
+              label: exportRevealLabel(entry.quality),
+              value: `export:${entry.quality}`,
+            })),
+            { label: "Original recording", value: "original" },
+          ]}
           onSelect={(v) => {
-            const editedPath = exportedRevealPath ?? renderedPath;
-            const reveal =
-              v === "edited" && editedPath
-                ? revealRecordingFile(editedPath)
-                : revealRecording(recording.id);
+            const quality = v.startsWith("export:")
+              ? (v.slice("export:".length) as RecordingExportQuality)
+              : null;
+            const reveal = quality
+              ? revealRecordingExport(recording.id, quality)
+              : revealRecording(recording.id);
             reveal.catch((e) => {
               console.error("[editor] reveal failed", e);
               toasts.push({ tone: "error", message: String(e) });
@@ -2845,15 +2942,15 @@ export function EditorView({
           }}
         />
         <SplitButton
-          title="Export 1080p (original, no edits)"
+          title="Export original copy (no edits)"
           icon={<Download size={16} />}
           busy={quickExporting}
           disabled={anyBusy}
           defaultValue="1080"
           options={[
-            { label: "1080p", value: "1080" },
-            { label: "720p", value: "720" },
-            { label: "480p", value: "480" },
+            { label: "Original at 1080p", value: "1080" },
+            { label: "Original at 720p", value: "720" },
+            { label: "Original at 480p", value: "480" },
           ]}
           onSelect={(v) => void onQuickExport(v as "1080" | "720" | "480")}
         />
@@ -2961,7 +3058,7 @@ export function EditorView({
             ? `${exportLabel}… ${exportPct}%${
                 exportEta !== null ? ` · ~${fmtEta(exportEta)} left` : ""
               }`
-            : "Export"}
+            : `Export edited ${exportFormat.toUpperCase()}`}
         </button>
       </div>
 

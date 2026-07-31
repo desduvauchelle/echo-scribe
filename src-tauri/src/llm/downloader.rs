@@ -66,10 +66,7 @@ pub fn model_dir(entry: &LlmModelEntry) -> PathBuf {
 /// file; this is just `model_dir(entry).join(entry.files[0].name)`. Returns
 /// `None` if the entry has no files.
 pub fn model_file_path(entry: &LlmModelEntry) -> Option<PathBuf> {
-    entry
-        .files
-        .first()
-        .map(|f| model_dir(entry).join(&f.name))
+    entry.files.first().map(|f| model_dir(entry).join(&f.name))
 }
 
 pub fn is_downloaded(entry: &LlmModelEntry) -> bool {
@@ -140,8 +137,16 @@ where
             continue;
         }
 
-        cumulative = download_one(&client, file, target_dir, &entry.id, total, cumulative, &on_progress)
-            .await?;
+        cumulative = download_one(
+            &client,
+            file,
+            target_dir,
+            &entry.id,
+            total,
+            cumulative,
+            &on_progress,
+        )
+        .await?;
     }
 
     info!(model = %entry.id, "llm model fully downloaded");
@@ -165,11 +170,7 @@ where
 
     info!(model = %model_id, file = %file.name, url = %file.url, "downloading llm");
 
-    let resp = client
-        .get(&file.url)
-        .send()
-        .await?
-        .error_for_status()?;
+    let resp = client.get(&file.url).send().await?.error_for_status()?;
 
     let mut stream = resp.bytes_stream();
     let mut out = fs::File::create(&partial_path).await?;

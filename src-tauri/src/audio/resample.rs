@@ -10,8 +10,10 @@
 //!
 //! 16 kHz mono input is returned unchanged (cheap fast path).
 
-use rubato::{Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction};
-use tracing::{warn};
+use rubato::{
+    Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction,
+};
+use tracing::warn;
 
 const TARGET_RATE: u32 = 16_000;
 
@@ -62,7 +64,10 @@ pub fn resample_to_16k_mono(samples: &[f32], from_rate: u32, channels: u16) -> V
     let mut resampler = match SincFixedIn::<f32>::new(ratio, 1.0, params, chunk_size, 1) {
         Ok(r) => r,
         Err(e) => {
-            warn!(?e, "failed to build resampler; returning mono samples unresampled");
+            warn!(
+                ?e,
+                "failed to build resampler; returning mono samples unresampled"
+            );
             return mono;
         }
     };
@@ -120,7 +125,12 @@ mod tests {
         let out = resample_to_16k_mono(&input, 48_000, 2);
         let expected = 16_000;
         let diff = (out.len() as i64 - expected as i64).abs();
-        assert!(diff < 512, "expected ~{} samples, got {}", expected, out.len());
+        assert!(
+            diff < 512,
+            "expected ~{} samples, got {}",
+            expected,
+            out.len()
+        );
         // Average of all output samples should be ~0
         let avg: f32 = out.iter().sum::<f32>() / out.len() as f32;
         assert!(avg.abs() < 1e-3, "avg should be ~0, got {}", avg);

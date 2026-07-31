@@ -12,9 +12,7 @@ pub struct InputDevice {
 
 pub fn list_input_devices() -> Vec<InputDevice> {
     let host = cpal::default_host();
-    let default_name = host
-        .default_input_device()
-        .and_then(|d| d.name().ok());
+    let default_name = host.default_input_device().and_then(|d| d.name().ok());
 
     let devices = match host.input_devices() {
         Ok(it) => it,

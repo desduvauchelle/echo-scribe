@@ -48,7 +48,9 @@ fn read_wav_pcm16(path: &Path) -> Result<(Vec<f32>, u32, u16), DenoiseError> {
     let sample_rate = u32::from_le_bytes(bytes[24..28].try_into().unwrap());
     let bits = u16::from_le_bytes(bytes[34..36].try_into().unwrap());
     if bits != 16 {
-        return Err(DenoiseError::Wav(format!("expected 16-bit PCM, got {bits}")));
+        return Err(DenoiseError::Wav(format!(
+            "expected 16-bit PCM, got {bits}"
+        )));
     }
     // Find the `data` chunk.
     let mut pos = 12;

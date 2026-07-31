@@ -160,7 +160,10 @@ pub fn effective_client(byo_id: &str, byo_secret: &str) -> (String, String) {
     if !byo_id.trim().is_empty() {
         (byo_id.to_string(), byo_secret.to_string())
     } else {
-        (BUNDLED_CLIENT_ID.to_string(), BUNDLED_CLIENT_SECRET.to_string())
+        (
+            BUNDLED_CLIENT_ID.to_string(),
+            BUNDLED_CLIENT_SECRET.to_string(),
+        )
     }
 }
 
@@ -357,7 +360,11 @@ pub async fn ensure_folder(access_token: &str, folder_name: &str) -> Result<Stri
     let resp = client
         .get("https://www.googleapis.com/drive/v3/files")
         .bearer_auth(access_token)
-        .query(&[("q", q.as_str()), ("spaces", "drive"), ("fields", "files(id,name)")])
+        .query(&[
+            ("q", q.as_str()),
+            ("spaces", "drive"),
+            ("fields", "files(id,name)"),
+        ])
         .send()
         .await
         .map_err(|e| e.to_string())?;
@@ -421,7 +428,10 @@ pub async fn upload_resumable(
         .await
         .map_err(|e| e.to_string())?;
     if !start.status().is_success() {
-        return Err(format!("upload init failed: {}", start.text().await.unwrap_or_default()));
+        return Err(format!(
+            "upload init failed: {}",
+            start.text().await.unwrap_or_default()
+        ));
     }
     let session_uri = start
         .headers()
@@ -430,7 +440,9 @@ pub async fn upload_resumable(
         .ok_or("no resumable session URI in response")?
         .to_string();
 
-    let bytes = tokio::fs::read(file_path).await.map_err(|e| e.to_string())?;
+    let bytes = tokio::fs::read(file_path)
+        .await
+        .map_err(|e| e.to_string())?;
     let put = client
         .put(&session_uri)
         .header("Content-Type", "video/mp4")
@@ -439,7 +451,10 @@ pub async fn upload_resumable(
         .await
         .map_err(|e| e.to_string())?;
     if !put.status().is_success() {
-        return Err(format!("upload failed: {}", put.text().await.unwrap_or_default()));
+        return Err(format!(
+            "upload failed: {}",
+            put.text().await.unwrap_or_default()
+        ));
     }
     let v: serde_json::Value = put.json().await.map_err(|e| e.to_string())?;
     v.get("id")
@@ -453,14 +468,19 @@ pub async fn make_anyone_reader(access_token: &str, file_id: &str) -> Result<(),
     let client = reqwest::Client::new();
     let body = serde_json::json!({ "role": "reader", "type": "anyone" });
     let resp = client
-        .post(format!("https://www.googleapis.com/drive/v3/files/{file_id}/permissions"))
+        .post(format!(
+            "https://www.googleapis.com/drive/v3/files/{file_id}/permissions"
+        ))
         .bearer_auth(access_token)
         .json(&body)
         .send()
         .await
         .map_err(|e| e.to_string())?;
     if !resp.status().is_success() {
-        return Err(format!("set permission failed: {}", resp.text().await.unwrap_or_default()));
+        return Err(format!(
+            "set permission failed: {}",
+            resp.text().await.unwrap_or_default()
+        ));
     }
     Ok(())
 }
@@ -469,7 +489,9 @@ pub async fn make_anyone_reader(access_token: &str, file_id: &str) -> Result<(),
 pub async fn web_view_link(access_token: &str, file_id: &str) -> Result<String, String> {
     let client = reqwest::Client::new();
     let resp = client
-        .get(format!("https://www.googleapis.com/drive/v3/files/{file_id}"))
+        .get(format!(
+            "https://www.googleapis.com/drive/v3/files/{file_id}"
+        ))
         .bearer_auth(access_token)
         .query(&[("fields", "webViewLink")])
         .send()

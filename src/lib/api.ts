@@ -1544,6 +1544,36 @@ export const exportRecording = (
   quality: "1080" | "720" | "480",
 ): Promise<RecordingRow> => invoke("export_recording", { id, quality });
 
+export type RecordingExportQuality =
+  | "rendered"
+  | "rendered-gif"
+  | "1080"
+  | "720"
+  | "480";
+
+export type RecordingExportSuggestion = {
+  default_path: string;
+  filename: string;
+};
+
+export const getRecordingExportSuggestion = (
+  id: string,
+  quality: RecordingExportQuality,
+): Promise<RecordingExportSuggestion> =>
+  invoke("get_recording_export_suggestion", { id, quality });
+
+export const saveRecordingExportCopy = (
+  id: string,
+  quality: RecordingExportQuality,
+  destination: string,
+): Promise<RecordingRow> =>
+  invoke("save_recording_export_copy", { id, quality, destination });
+
+export const revealRecordingExport = (
+  id: string,
+  quality: RecordingExportQuality,
+): Promise<void> => invoke("reveal_recording_export", { id, quality });
+
 /** Raw recorded-input events JSONL for a recording (for auto-zoom). Rejects when
  *  the recording has no events file / it's unreadable — callers treat a
  *  rejection as "render without zoom", not a hard error. */

@@ -514,7 +514,10 @@ mod tests {
             "expected prompt to be short with title capped, got {} chars",
             user.len()
         );
-        assert!(user.contains('…'), "expected ellipsis marker on truncated title");
+        assert!(
+            user.contains('…'),
+            "expected ellipsis marker on truncated title"
+        );
     }
 
     #[test]
@@ -554,9 +557,7 @@ mod tests {
                     capture_context: Some(format!("App{app_n}")),
                 })
                 .collect();
-            input
-                .dictations_by_app
-                .push((format!("App{app_n}"), items));
+            input.dictations_by_app.push((format!("App{app_n}"), items));
         }
         let (_, user) = build_prompt(&input);
         assert!(

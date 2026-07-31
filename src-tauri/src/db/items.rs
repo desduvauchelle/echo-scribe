@@ -400,10 +400,7 @@ pub(crate) fn format_iso_utc(secs: i64) -> String {
     let h = time_of_day / 3600;
     let min = (time_of_day % 3600) / 60;
     let s = time_of_day % 60;
-    format!(
-        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
-        y, m, d, h, min, s
-    )
+    format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z", y, m, d, h, min, s)
 }
 
 #[cfg(test)]
@@ -471,7 +468,11 @@ mod tests {
         // client-side filter over the first page would miss them. The backend
         // filter must reach past the newest captures.
         for i in 0..5 {
-            let mut t = make_item(&format!("t{i}"), "transcript", &format!("2026-05-10T00:00:0{i}Z"));
+            let mut t = make_item(
+                &format!("t{i}"),
+                "transcript",
+                &format!("2026-05-10T00:00:0{i}Z"),
+            );
             t.kind = Some(ItemKind::Transcription);
             insert_item(&conn, &t).unwrap();
         }
@@ -515,7 +516,12 @@ mod tests {
         // meeting filter = kind='meeting' only. The meeting-derived task (m2)
         // has source='meeting' but is a task, so it stays out.
         assert_eq!(sorted_ids("meeting"), vec!["m1"]);
-        assert_eq!(list_items(&conn, None, Some("transcription"), 50, 0).unwrap().len(), 5);
+        assert_eq!(
+            list_items(&conn, None, Some("transcription"), 50, 0)
+                .unwrap()
+                .len(),
+            5
+        );
     }
 
     #[test]
@@ -558,28 +564,23 @@ mod tests {
         // Second call must be a no-op: the WHERE clause excludes already-deleted rows
         // so the original deleted_at timestamp is preserved.
         let conn = fresh_db();
-        insert_item(
-            &conn,
-            &make_item("a", "x", "2026-05-01T00:00:00Z"),
-        )
-        .unwrap();
+        insert_item(&conn, &make_item("a", "x", "2026-05-01T00:00:00Z")).unwrap();
         soft_delete_item(&conn, "a").unwrap();
         let first = get_item(&conn, "a").unwrap().unwrap().deleted_at.unwrap();
         // Sleep would be flaky; instead just verify the second call doesn't change
         // the timestamp (the SQL WHERE clause guards against re-stamping).
         soft_delete_item(&conn, "a").unwrap();
         let second = get_item(&conn, "a").unwrap().unwrap().deleted_at.unwrap();
-        assert_eq!(first, second, "second soft-delete must not overwrite deleted_at");
+        assert_eq!(
+            first, second,
+            "second soft-delete must not overwrite deleted_at"
+        );
     }
 
     #[test]
     fn restore_item_clears_deleted_at() {
         let conn = fresh_db();
-        insert_item(
-            &conn,
-            &make_item("a", "x", "2026-05-01T00:00:00Z"),
-        )
-        .unwrap();
+        insert_item(&conn, &make_item("a", "x", "2026-05-01T00:00:00Z")).unwrap();
         soft_delete_item(&conn, "a").unwrap();
         assert!(list_items(&conn, None, None, 50, 0).unwrap().is_empty());
         restore_item(&conn, "a").unwrap();
@@ -589,11 +590,7 @@ mod tests {
     #[test]
     fn update_item_modifies_fields() {
         let conn = fresh_db();
-        insert_item(
-            &conn,
-            &make_item("a", "x", "2026-05-01T00:00:00Z"),
-        )
-        .unwrap();
+        insert_item(&conn, &make_item("a", "x", "2026-05-01T00:00:00Z")).unwrap();
         // Content + kind set.
         update_item(&conn, "a", Some("hello"), None, Some(Some(ItemKind::Task))).unwrap();
         let it = get_item(&conn, "a").unwrap().unwrap();
@@ -630,18 +627,17 @@ mod tests {
     #[test]
     fn replace_tags_overwrites() {
         let conn = fresh_db();
-        insert_item(
-            &conn,
-            &make_item("a", "x", "2026-05-01T00:00:00Z"),
-        )
-        .unwrap();
+        insert_item(&conn, &make_item("a", "x", "2026-05-01T00:00:00Z")).unwrap();
         replace_tags(&conn, "a", &["alpha".into(), "beta".into()]).unwrap();
         assert_eq!(
             list_tags_for_item(&conn, "a").unwrap(),
             vec!["alpha".to_string(), "beta".into()]
         );
         replace_tags(&conn, "a", &["gamma".into()]).unwrap();
-        assert_eq!(list_tags_for_item(&conn, "a").unwrap(), vec!["gamma".to_string()]);
+        assert_eq!(
+            list_tags_for_item(&conn, "a").unwrap(),
+            vec!["gamma".to_string()]
+        );
     }
 
     #[test]

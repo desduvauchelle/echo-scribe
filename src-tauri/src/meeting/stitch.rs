@@ -33,9 +33,7 @@ pub fn strip_overlap(prev_text: &str, new_text: &str) -> String {
     let prev_norm: Vec<String> = prev_words.iter().map(|w| norm(w)).collect();
     let new_norm: Vec<String> = new_words.iter().map(|w| norm(w)).collect();
 
-    let max_k = MAX_OVERLAP_WORDS
-        .min(prev_norm.len())
-        .min(new_norm.len());
+    let max_k = MAX_OVERLAP_WORDS.min(prev_norm.len()).min(new_norm.len());
 
     let mut best_k = 0;
     for k in 1..=max_k {

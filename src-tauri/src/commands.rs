@@ -32,7 +32,9 @@ use crate::input::binding::{
 };
 use crate::input::hotkeys::{spawn_gated_listener, spawn_listener, HotkeyEvent};
 use crate::llm::{self, rag, GenerateRequest, Llm, LlmDownloadProgress, LlmModelEntry};
-use crate::permissions::{self, CameraAccessOutcome, MicAccessOutcome, PermissionsStatus, SettingsPane};
+use crate::permissions::{
+    self, CameraAccessOutcome, MicAccessOutcome, PermissionsStatus, SettingsPane,
+};
 use crate::settings::SettingsStore;
 use crate::temporal::extract_date_window;
 use crate::ui::tray::TrayHandle;
@@ -124,10 +126,7 @@ pub fn get_last_transcript(state: State<'_, AppState>) -> Result<String, String>
 }
 
 #[tauri::command]
-pub fn copy_last_transcript(
-    app: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<String, String> {
+pub fn copy_last_transcript(app: AppHandle, state: State<'_, AppState>) -> Result<String, String> {
     let text = recoverable_transcript(&state)?;
     crate::input::paste::copy_to_clipboard(&text).map_err(|e| e.to_string())?;
     let _ = app.emit("voice:transcript_recovered", "copied");
@@ -135,10 +134,7 @@ pub fn copy_last_transcript(
 }
 
 #[tauri::command]
-pub fn paste_last_transcript(
-    app: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<String, String> {
+pub fn paste_last_transcript(app: AppHandle, state: State<'_, AppState>) -> Result<String, String> {
     let text = recoverable_transcript(&state)?;
     crate::input::paste::paste_at_cursor(&text).map_err(|e| e.to_string())?;
     let _ = app.emit("voice:transcript_recovered", "pasted");
@@ -753,10 +749,26 @@ pub fn ensure_pipeline_started(state: &AppState, app: &AppHandle) {
     let (es_tx, mut es_rx) = mpsc::unbounded_channel::<HotkeyEvent>();
     let (cancel_tx, mut cancel_rx) = mpsc::unbounded_channel::<HotkeyEvent>();
 
-    spawn_listener(Arc::clone(&state.binding), vac_tx, Arc::clone(&state.rebinding));
-    spawn_listener(Arc::clone(&state.log_capture_binding), lc_tx, Arc::clone(&state.rebinding));
-    spawn_listener(Arc::clone(&state.action_binding), ac_tx, Arc::clone(&state.rebinding));
-    spawn_listener(Arc::clone(&state.edit_selection_binding), es_tx, Arc::clone(&state.rebinding));
+    spawn_listener(
+        Arc::clone(&state.binding),
+        vac_tx,
+        Arc::clone(&state.rebinding),
+    );
+    spawn_listener(
+        Arc::clone(&state.log_capture_binding),
+        lc_tx,
+        Arc::clone(&state.rebinding),
+    );
+    spawn_listener(
+        Arc::clone(&state.action_binding),
+        ac_tx,
+        Arc::clone(&state.rebinding),
+    );
+    spawn_listener(
+        Arc::clone(&state.edit_selection_binding),
+        es_tx,
+        Arc::clone(&state.rebinding),
+    );
     spawn_gated_listener(
         Arc::new(RwLock::new(Binding::single(rdev::Key::Escape))),
         cancel_tx,
@@ -768,10 +780,9 @@ pub fn ensure_pipeline_started(state: &AppState, app: &AppHandle) {
     // Non-macOS has no tap, so register the global-shortcut trigger.
     #[cfg(not(target_os = "macos"))]
     {
-        if let Err(e) = crate::input::trigger::register_default_dictation_shortcut(
-            app,
-            coord_tx.clone(),
-        ) {
+        if let Err(e) =
+            crate::input::trigger::register_default_dictation_shortcut(app, coord_tx.clone())
+        {
             tracing::warn!(target: "trigger", %e, "dictation hotkey unavailable");
         }
     }
@@ -2109,7 +2120,10 @@ fn applescript_string(value: &str) -> String {
 
 #[cfg(target_os = "macos")]
 fn move_paths_to_trash(paths: &[std::path::PathBuf]) -> Result<(), String> {
-    let existing = paths.iter().filter(|path| path.exists()).collect::<Vec<_>>();
+    let existing = paths
+        .iter()
+        .filter(|path| path.exists())
+        .collect::<Vec<_>>();
     if existing.is_empty() {
         return Ok(());
     }
@@ -2512,9 +2526,7 @@ pub fn set_transcription_cleanup_language(
 }
 
 #[tauri::command]
-pub fn get_dictionary_entries(
-    state: State<'_, AppState>,
-) -> Vec<crate::settings::DictionaryEntry> {
+pub fn get_dictionary_entries(state: State<'_, AppState>) -> Vec<crate::settings::DictionaryEntry> {
     state.settings.dictionary_entries()
 }
 
@@ -2749,16 +2761,22 @@ pub fn create_chat_session_scoped(
     scope_kind: String,
     scope_id: String,
 ) -> Result<ChatSession, String> {
-    if !matches!(scope_kind.as_str(), "meeting" | "person" | "company" | "project") {
+    if !matches!(
+        scope_kind.as_str(),
+        "meeting" | "person" | "company" | "project"
+    ) {
         return Err("Unsupported Chat scope".into());
     }
     let db = require_db(&state)?;
     let id = ulid::Ulid::new().to_string();
     let now = crate::db::items::chrono_now_iso();
-    let session = db.with_conn(|c| chat::insert_session(c, &id, "New Chat", None))
+    let session = db
+        .with_conn(|c| chat::insert_session(c, &id, "New Chat", None))
         .map_err(|e| e.to_string())?;
-    db.with_conn(|c| crate::db::meeting_intelligence::set_chat_scope(c, &id, &scope_kind, &scope_id, &now))
-        .map_err(|e| e.to_string())?;
+    db.with_conn(|c| {
+        crate::db::meeting_intelligence::set_chat_scope(c, &id, &scope_kind, &scope_id, &now)
+    })
+    .map_err(|e| e.to_string())?;
     Ok(session)
 }
 
@@ -2924,29 +2942,40 @@ pub async fn chat_with_memory(
     let scoped_source = if let Some((kind, scope_id)) = chat_scope.as_ref() {
         match kind.as_str() {
             "meeting" => {
-                let live_text = if state.meeting_manager.active_id().await.as_deref() == Some(scope_id.as_str()) {
+                let live_text = if state.meeting_manager.active_id().await.as_deref()
+                    == Some(scope_id.as_str())
+                {
                     let segments = state.meeting_manager.transcript_snapshot().await;
                     Some(crate::meeting::synthesizer::flatten_transcript(&segments))
                 } else {
                     None
                 };
-                let meeting_source = db.with_conn(|c| {
-                    let item = crate::db::items::get_item(c, scope_id)?;
-                    let meeting = crate::db::meetings::get_meeting(c, scope_id)?;
-                    Ok(item.map(|item| {
-                        let mut content = live_text.clone().filter(|s| !s.trim().is_empty()).unwrap_or(item.content);
-                        if let Some(notes) = meeting.and_then(|m| m.user_notes).filter(|n| !n.trim().is_empty()) {
-                            content.push_str("\nUser notes:\n");
-                            content.push_str(&notes);
-                        }
-                        rag::ChunkSource {
-                            item_id: scope_id.clone(),
-                            date: item.captured_at[..10.min(item.captured_at.len())].to_string(),
-                            kind: "meeting".into(),
-                            content,
-                        }
-                    }))
-                }).unwrap_or_default();
+                let meeting_source = db
+                    .with_conn(|c| {
+                        let item = crate::db::items::get_item(c, scope_id)?;
+                        let meeting = crate::db::meetings::get_meeting(c, scope_id)?;
+                        Ok(item.map(|item| {
+                            let mut content = live_text
+                                .clone()
+                                .filter(|s| !s.trim().is_empty())
+                                .unwrap_or(item.content);
+                            if let Some(notes) = meeting
+                                .and_then(|m| m.user_notes)
+                                .filter(|n| !n.trim().is_empty())
+                            {
+                                content.push_str("\nUser notes:\n");
+                                content.push_str(&notes);
+                            }
+                            rag::ChunkSource {
+                                item_id: scope_id.clone(),
+                                date: item.captured_at[..10.min(item.captured_at.len())]
+                                    .to_string(),
+                                kind: "meeting".into(),
+                                content,
+                            }
+                        }))
+                    })
+                    .unwrap_or_default();
                 meeting_source
             }
             _ => None,
@@ -2964,9 +2993,16 @@ pub async fn chat_with_memory(
                     .into_iter()
                     .filter_map(|content| {
                         let tokens = rag::estimate_tokens(&content);
-                        if used + tokens > chunk_budget { return None; }
+                        if used + tokens > chunk_budget {
+                            return None;
+                        }
                         used += tokens;
-                        Some(rag::Chunk { content, date: source.date.clone(), kind: source.kind.clone(), item_id: source.item_id.clone() })
+                        Some(rag::Chunk {
+                            content,
+                            date: source.date.clone(),
+                            kind: source.kind.clone(),
+                            item_id: source.item_id.clone(),
+                        })
                     })
                     .collect()
             } else {
@@ -3390,13 +3426,16 @@ pub async fn get_active_meeting_workspace(
         let meeting = crate::db::meetings::get_meeting(conn, &id_for_db)?;
         let preferences = crate::db::meeting_intelligence::get_preferences(conn, &id_for_db)?;
         let participants = crate::db::meeting_intelligence::list_participants(conn, &id_for_db)?;
-        Ok(meeting.map(|m| serde_json::json!({
-            "id": id_for_db,
-            "notes": m.user_notes.unwrap_or_default(),
-            "preferences": preferences,
-            "participants": participants,
-        })))
-    }).map_err(|e| e.to_string())
+        Ok(meeting.map(|m| {
+            serde_json::json!({
+                "id": id_for_db,
+                "notes": m.user_notes.unwrap_or_default(),
+                "preferences": preferences,
+                "participants": participants,
+            })
+        }))
+    })
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -3434,8 +3473,10 @@ pub fn save_summary_template(
     };
     let db = require_db(&state)?;
     let saved = template.clone();
-    db.with_conn(move |conn| crate::db::meeting_intelligence::upsert_summary_template(conn, &saved))
-        .map_err(|e| e.to_string())?;
+    db.with_conn(move |conn| {
+        crate::db::meeting_intelligence::upsert_summary_template(conn, &saved)
+    })
+    .map_err(|e| e.to_string())?;
     Ok(template)
 }
 
@@ -3501,7 +3542,8 @@ pub async fn regenerate_meeting_summary(
     template_id: Option<String>,
 ) -> Result<(), String> {
     let db = require_db(&state)?;
-    let current = db.with_conn(|conn| crate::db::meeting_intelligence::get_preferences(conn, &id))
+    let current = db
+        .with_conn(|conn| crate::db::meeting_intelligence::get_preferences(conn, &id))
         .map_err(|e| e.to_string())?;
     let prefs = crate::db::meeting_intelligence::MeetingPreferences {
         meeting_id: id.clone(),
@@ -3512,7 +3554,11 @@ pub async fn regenerate_meeting_summary(
     };
     db.with_conn(|conn| crate::db::meeting_intelligence::upsert_preferences(conn, &prefs))
         .map_err(|e| e.to_string())?;
-    state.meeting_manager.retry_summary(&id).await.map_err(|e| e.to_string())
+    state
+        .meeting_manager
+        .retry_summary(&id)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -3548,8 +3594,10 @@ pub fn set_meeting_speaker_label(
         updated_at: now,
     };
     let db = require_db(&state)?;
-    db.with_conn(move |conn| crate::db::meeting_intelligence::upsert_participant(conn, &participant))
-        .map_err(|e| e.to_string())
+    db.with_conn(move |conn| {
+        crate::db::meeting_intelligence::upsert_participant(conn, &participant)
+    })
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -3573,7 +3621,10 @@ pub fn save_recipe(
     if name.trim().is_empty() || prompt.trim().is_empty() {
         return Err("Recipe name and prompt are required".into());
     }
-    if !matches!(default_scope.as_str(), "meeting" | "project" | "person" | "company") {
+    if !matches!(
+        default_scope.as_str(),
+        "meeting" | "project" | "person" | "company"
+    ) {
         return Err("Unsupported Recipe scope".into());
     }
     let now = chrono::Utc::now().to_rfc3339();
@@ -3595,7 +3646,11 @@ pub fn save_recipe(
     Ok(recipe)
 }
 
-fn scoped_intelligence_context(db: &Db, scope_kind: &str, scope_id: &str) -> Result<(String, Vec<String>), String> {
+fn scoped_intelligence_context(
+    db: &Db,
+    scope_kind: &str,
+    scope_id: &str,
+) -> Result<(String, Vec<String>), String> {
     db.with_conn(|conn| {
         let mut sources = Vec::new();
         let mut parts = Vec::new();
@@ -3684,10 +3739,19 @@ pub async fn run_recipe(
     scope_id: String,
 ) -> Result<crate::db::meeting_intelligence::MeetingArtifact, String> {
     let db = require_db(&state)?;
-    let recipe = db.with_conn(|c| crate::db::meeting_intelligence::get_recipe(c, &recipe_id))
+    let recipe = db
+        .with_conn(|c| crate::db::meeting_intelligence::get_recipe(c, &recipe_id))
         .map_err(|e| e.to_string())?
         .ok_or("Recipe not found")?;
-    generate_scoped_artifact(&state, "recipe", &recipe.name, &recipe.prompt, &scope_kind, &scope_id).await
+    generate_scoped_artifact(
+        &state,
+        "recipe",
+        &recipe.name,
+        &recipe.prompt,
+        &scope_kind,
+        &scope_id,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -3733,23 +3797,49 @@ pub fn replace_meeting_summary_point(
     summary_index: usize,
     text: String,
 ) -> Result<(), String> {
-    if text.trim().is_empty() { return Err("Summary text cannot be empty".into()); }
+    if text.trim().is_empty() {
+        return Err("Summary text cannot be empty".into());
+    }
     let db = require_db(&state)?;
     let export_id = id.clone();
     db.with_conn(move |conn| {
-        let meeting = crate::db::meetings::get_meeting(conn, &id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
-        let mut summary: crate::meeting::synthesizer::StoredSummary = meeting.summary_json.as_deref()
+        let meeting = crate::db::meetings::get_meeting(conn, &id)?
+            .ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+        let mut summary: crate::meeting::synthesizer::StoredSummary = meeting
+            .summary_json
+            .as_deref()
             .and_then(|s| serde_json::from_str(s).ok())
             .ok_or(rusqlite::Error::InvalidQuery)?;
-        let Some(point) = summary.summary.get_mut(summary_index) else { return Err(rusqlite::Error::InvalidParameterCount(1, summary.summary.len()).into()); };
+        let Some(point) = summary.summary.get_mut(summary_index) else {
+            return Err(rusqlite::Error::InvalidParameterCount(1, summary.summary.len()).into());
+        };
         *point = text.trim().into();
-        summary.evidence.retain(|e| e.summary_index != summary_index);
-        let summary_json = serde_json::to_string(&summary).map_err(|_| rusqlite::Error::InvalidQuery)?;
-        conn.execute("UPDATE meetings SET summary_json=?1 WHERE item_id=?2", rusqlite::params![summary_json,id])?;
-        let transcript: serde_json::Value = meeting.transcript_json.as_deref().and_then(|s| serde_json::from_str(s).ok()).unwrap_or_else(|| serde_json::json!({}));
-        let segments: Vec<crate::meeting::Segment> = serde_json::from_value(transcript.get("segments").cloned().unwrap_or_default()).unwrap_or_default();
-        let body = crate::meeting::build_flattened_body(&segments, Some(&summary_json), meeting.user_notes.as_deref());
-        conn.execute("UPDATE items SET content=?1 WHERE id=?2", rusqlite::params![body,id])?;
+        summary
+            .evidence
+            .retain(|e| e.summary_index != summary_index);
+        let summary_json =
+            serde_json::to_string(&summary).map_err(|_| rusqlite::Error::InvalidQuery)?;
+        conn.execute(
+            "UPDATE meetings SET summary_json=?1 WHERE item_id=?2",
+            rusqlite::params![summary_json, id],
+        )?;
+        let transcript: serde_json::Value = meeting
+            .transcript_json
+            .as_deref()
+            .and_then(|s| serde_json::from_str(s).ok())
+            .unwrap_or_else(|| serde_json::json!({}));
+        let segments: Vec<crate::meeting::Segment> =
+            serde_json::from_value(transcript.get("segments").cloned().unwrap_or_default())
+                .unwrap_or_default();
+        let body = crate::meeting::build_flattened_body(
+            &segments,
+            Some(&summary_json),
+            meeting.user_notes.as_deref(),
+        );
+        conn.execute(
+            "UPDATE items SET content=?1 WHERE id=?2",
+            rusqlite::params![body, id],
+        )?;
         Ok(())
     })
     .map_err(|e| e.to_string())?;
@@ -3763,32 +3853,66 @@ pub fn update_meeting_transcript(
     id: String,
     segments: Vec<crate::meeting::Segment>,
 ) -> Result<(), String> {
-    if segments.iter().any(|s| s.text.chars().count() > 20_000 || s.end_ms < s.start_ms) {
+    if segments
+        .iter()
+        .any(|s| s.text.chars().count() > 20_000 || s.end_ms < s.start_ms)
+    {
         return Err("Invalid transcript segment".into());
     }
     let db = require_db(&state)?;
     let export_id = id.clone();
     db.with_conn_mut(move |conn| {
         let tx = conn.transaction()?;
-        let meeting = crate::db::meetings::get_meeting(&tx, &id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+        let meeting = crate::db::meetings::get_meeting(&tx, &id)?
+            .ok_or(rusqlite::Error::QueryReturnedNoRows)?;
         let old_transcript = meeting.transcript_json.unwrap_or_else(|| "{}".into());
         let now = chrono::Utc::now().to_rfc3339();
-        crate::db::meeting_intelligence::insert_artifact(&tx, &crate::db::meeting_intelligence::MeetingArtifact {
-            id: uuid::Uuid::new_v4().to_string(), kind: "transcript_backup".into(), meeting_id: Some(id.clone()), person_id: None, company_id: None, project_id: None,
-            title: "Transcript backup".into(), content: old_transcript.clone(), sources_json: "[]".into(), status: "ready".into(), error: None, created_at: now.clone(), updated_at: now,
-        })?;
-        let mut transcript: serde_json::Value = serde_json::from_str(&old_transcript).unwrap_or_else(|_| serde_json::json!({}));
-        transcript["segments"] = serde_json::to_value(&segments).unwrap_or_else(|_| serde_json::json!([]));
+        crate::db::meeting_intelligence::insert_artifact(
+            &tx,
+            &crate::db::meeting_intelligence::MeetingArtifact {
+                id: uuid::Uuid::new_v4().to_string(),
+                kind: "transcript_backup".into(),
+                meeting_id: Some(id.clone()),
+                person_id: None,
+                company_id: None,
+                project_id: None,
+                title: "Transcript backup".into(),
+                content: old_transcript.clone(),
+                sources_json: "[]".into(),
+                status: "ready".into(),
+                error: None,
+                created_at: now.clone(),
+                updated_at: now,
+            },
+        )?;
+        let mut transcript: serde_json::Value =
+            serde_json::from_str(&old_transcript).unwrap_or_else(|_| serde_json::json!({}));
+        transcript["segments"] =
+            serde_json::to_value(&segments).unwrap_or_else(|_| serde_json::json!([]));
         let transcript_json = serde_json::to_string(&transcript).unwrap_or_else(|_| "{}".into());
-        let mut summary = meeting.summary_json.as_deref().and_then(|s| serde_json::from_str::<crate::meeting::synthesizer::StoredSummary>(s).ok());
+        let mut summary = meeting.summary_json.as_deref().and_then(|s| {
+            serde_json::from_str::<crate::meeting::synthesizer::StoredSummary>(s).ok()
+        });
         if let Some(ref mut s) = summary {
             s.evidence.clear();
-            for action in &mut s.action_items { action.evidence.clear(); }
+            for action in &mut s.action_items {
+                action.evidence.clear();
+            }
         }
         let summary_json = summary.as_ref().and_then(|s| serde_json::to_string(s).ok());
-        tx.execute("UPDATE meetings SET transcript_json=?1,summary_json=?2 WHERE item_id=?3", rusqlite::params![transcript_json,summary_json,id])?;
-        let body = crate::meeting::build_flattened_body(&segments, summary_json.as_deref(), meeting.user_notes.as_deref());
-        tx.execute("UPDATE items SET content=?1 WHERE id=?2", rusqlite::params![body,id])?;
+        tx.execute(
+            "UPDATE meetings SET transcript_json=?1,summary_json=?2 WHERE item_id=?3",
+            rusqlite::params![transcript_json, summary_json, id],
+        )?;
+        let body = crate::meeting::build_flattened_body(
+            &segments,
+            summary_json.as_deref(),
+            meeting.user_notes.as_deref(),
+        );
+        tx.execute(
+            "UPDATE items SET content=?1 WHERE id=?2",
+            rusqlite::params![body, id],
+        )?;
         tx.execute(
             "UPDATE meeting_guide_runs
              SET status='stale', error='transcript changed after analysis'
@@ -3804,21 +3928,42 @@ pub fn update_meeting_transcript(
 }
 
 #[tauri::command]
-pub fn list_people(state: tauri::State<'_, AppState>) -> Result<Vec<crate::db::meeting_intelligence::Person>, String> {
+pub fn list_people(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<crate::db::meeting_intelligence::Person>, String> {
     let db = require_db(&state)?;
-    db.with_conn(crate::db::meeting_intelligence::list_people).map_err(|e| e.to_string())
+    db.with_conn(crate::db::meeting_intelligence::list_people)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn save_person(
-    state: tauri::State<'_, AppState>, id: Option<String>, name: String, email: Option<String>, role: Option<String>, company_id: Option<String>, notes: String,
+    state: tauri::State<'_, AppState>,
+    id: Option<String>,
+    name: String,
+    email: Option<String>,
+    role: Option<String>,
+    company_id: Option<String>,
+    notes: String,
 ) -> Result<crate::db::meeting_intelligence::Person, String> {
-    if name.trim().is_empty() { return Err("Name is required".into()); }
+    if name.trim().is_empty() {
+        return Err("Name is required".into());
+    }
     let now = chrono::Utc::now().to_rfc3339();
-    let person = crate::db::meeting_intelligence::Person { id:id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string()), name:name.trim().into(), email:email.filter(|s| !s.trim().is_empty()), role:role.filter(|s| !s.trim().is_empty()), company_id, notes, created_at:now.clone(), updated_at:now };
+    let person = crate::db::meeting_intelligence::Person {
+        id: id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
+        name: name.trim().into(),
+        email: email.filter(|s| !s.trim().is_empty()),
+        role: role.filter(|s| !s.trim().is_empty()),
+        company_id,
+        notes,
+        created_at: now.clone(),
+        updated_at: now,
+    };
     let saved = person.clone();
     let db = require_db(&state)?;
-    db.with_conn(move |c| crate::db::meeting_intelligence::upsert_person(c, &saved)).map_err(|e| e.to_string())?;
+    db.with_conn(move |c| crate::db::meeting_intelligence::upsert_person(c, &saved))
+        .map_err(|e| e.to_string())?;
     Ok(person)
 }
 
@@ -3831,21 +3976,38 @@ pub fn delete_person(state: tauri::State<'_, AppState>, id: String) -> Result<()
 }
 
 #[tauri::command]
-pub fn list_companies(state: tauri::State<'_, AppState>) -> Result<Vec<crate::db::meeting_intelligence::Company>, String> {
+pub fn list_companies(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<crate::db::meeting_intelligence::Company>, String> {
     let db = require_db(&state)?;
-    db.with_conn(crate::db::meeting_intelligence::list_companies).map_err(|e| e.to_string())
+    db.with_conn(crate::db::meeting_intelligence::list_companies)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn save_company(
-    state: tauri::State<'_, AppState>, id: Option<String>, name: String, domain: Option<String>, notes: String,
+    state: tauri::State<'_, AppState>,
+    id: Option<String>,
+    name: String,
+    domain: Option<String>,
+    notes: String,
 ) -> Result<crate::db::meeting_intelligence::Company, String> {
-    if name.trim().is_empty() { return Err("Name is required".into()); }
+    if name.trim().is_empty() {
+        return Err("Name is required".into());
+    }
     let now = chrono::Utc::now().to_rfc3339();
-    let company = crate::db::meeting_intelligence::Company { id:id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string()), name:name.trim().into(), domain:domain.filter(|s| !s.trim().is_empty()), notes, created_at:now.clone(), updated_at:now };
+    let company = crate::db::meeting_intelligence::Company {
+        id: id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
+        name: name.trim().into(),
+        domain: domain.filter(|s| !s.trim().is_empty()),
+        notes,
+        created_at: now.clone(),
+        updated_at: now,
+    };
     let saved = company.clone();
     let db = require_db(&state)?;
-    db.with_conn(move |c| crate::db::meeting_intelligence::upsert_company(c, &saved)).map_err(|e| e.to_string())?;
+    db.with_conn(move |c| crate::db::meeting_intelligence::upsert_company(c, &saved))
+        .map_err(|e| e.to_string())?;
     Ok(company)
 }
 
@@ -3859,15 +4021,22 @@ pub fn delete_company(state: tauri::State<'_, AppState>, id: String) -> Result<(
 
 #[tauri::command]
 pub fn list_meeting_artifacts(
-    state: tauri::State<'_, AppState>, kind: Option<String>, meeting_id: Option<String>,
+    state: tauri::State<'_, AppState>,
+    kind: Option<String>,
+    meeting_id: Option<String>,
 ) -> Result<Vec<crate::db::meeting_intelligence::MeetingArtifact>, String> {
     let db = require_db(&state)?;
-    db.with_conn(move |c| crate::db::meeting_intelligence::list_artifacts(c, kind.as_deref(), meeting_id.as_deref())).map_err(|e| e.to_string())
+    db.with_conn(move |c| {
+        crate::db::meeting_intelligence::list_artifacts(c, kind.as_deref(), meeting_id.as_deref())
+    })
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn list_relationship_meetings(
-    state: tauri::State<'_, AppState>, scope_kind: String, scope_id: String,
+    state: tauri::State<'_, AppState>,
+    scope_kind: String,
+    scope_id: String,
 ) -> Result<Vec<crate::db::meetings::MeetingRow>, String> {
     let db = require_db(&state)?;
     db.with_conn(move |conn| {
@@ -3888,7 +4057,8 @@ pub fn list_relationship_meetings(
 
 #[tauri::command]
 pub fn restore_transcript_backup(
-    state: tauri::State<'_, AppState>, artifact_id: String,
+    state: tauri::State<'_, AppState>,
+    artifact_id: String,
 ) -> Result<(), String> {
     let db = require_db(&state)?;
     let meeting_id = db
@@ -4131,13 +4301,9 @@ pub async fn export_meeting_markdown(
     use tauri_plugin_dialog::DialogExt;
 
     let db = require_db(&state)?;
-    let prepared = crate::export::prepare_manual_meeting_export(
-        db,
-        &id,
-        include_summary,
-        include_transcript,
-    )
-    .map_err(|e| e.to_string())?;
+    let prepared =
+        crate::export::prepare_manual_meeting_export(db, &id, include_summary, include_transcript)
+            .map_err(|e| e.to_string())?;
 
     let (tx, rx) = tokio::sync::oneshot::channel();
     app.dialog()
@@ -4601,9 +4767,7 @@ pub fn set_guide_insight_config(
     let db = require_db(&state)?;
     let template_for_lookup = template_id.clone();
     if db
-        .with_conn(move |conn| {
-            crate::db::guide_templates::get_template(conn, &template_for_lookup)
-        })
+        .with_conn(move |conn| crate::db::guide_templates::get_template(conn, &template_for_lookup))
         .map_err(|e| e.to_string())?
         .is_none()
     {
@@ -4635,8 +4799,10 @@ pub fn list_guide_runs(
     meeting_id: String,
 ) -> Result<Vec<crate::db::meeting_guide_runs::GuideRunRow>, String> {
     let db = require_db(&state)?;
-    db.with_conn(move |c| crate::db::meeting_guide_runs::list_guide_runs_for_meeting(c, &meeting_id))
-        .map_err(|e| e.to_string())
+    db.with_conn(move |c| {
+        crate::db::meeting_guide_runs::list_guide_runs_for_meeting(c, &meeting_id)
+    })
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -4658,10 +4824,8 @@ pub fn daily_insight_runs(
     date: String,
 ) -> Result<Vec<crate::db::meeting_guide_runs::GuideRunRow>, String> {
     let db = require_db(&state)?;
-    db.with_conn(move |conn| {
-        crate::db::meeting_guide_runs::list_daily_insight_runs(conn, &date)
-    })
-    .map_err(|e| e.to_string())
+    db.with_conn(move |conn| crate::db::meeting_guide_runs::list_daily_insight_runs(conn, &date))
+        .map_err(|e| e.to_string())
 }
 
 /// Envelope for pulling `segments` out of a meeting's stored `transcript_json`.
@@ -4687,7 +4851,8 @@ pub async fn regenerate_guide_review(
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("guide run {run_id} not found"))?;
     let template: crate::db::guide_templates::GuideTemplate =
-        serde_json::from_str(&run.template_json).map_err(|e| format!("bad template snapshot: {e}"))?;
+        serde_json::from_str(&run.template_json)
+            .map_err(|e| format!("bad template snapshot: {e}"))?;
 
     // Load the meeting transcript → segments.
     let mid = run.meeting_id.clone();
@@ -4745,7 +4910,12 @@ pub async fn regenerate_guide_review(
             let rid = run_id.clone();
             let err = e.clone();
             if let Err(write_err) = db.with_conn(move |c| {
-                crate::db::meeting_guide_runs::set_guide_run_status(c, &rid, "failed", Some(err.as_str()))
+                crate::db::meeting_guide_runs::set_guide_run_status(
+                    c,
+                    &rid,
+                    "failed",
+                    Some(err.as_str()),
+                )
             }) {
                 tracing::warn!(target: "guide", e = ?write_err, %run_id, "guide run status write failed");
             }
@@ -4787,9 +4957,7 @@ pub async fn start_screen_recording(
     // record WITHOUT the webcam and tell the user, instead of spawning a
     // sidecar camera session that can only fail.
     let mut camera_uid = camera_uid;
-    if camera_uid.as_deref().is_some_and(|u| !u.is_empty())
-        && !permissions::camera_authorized()
-    {
+    if camera_uid.as_deref().is_some_and(|u| !u.is_empty()) && !permissions::camera_authorized() {
         let outcome = permissions::request_camera().await;
         info!(target: "screenrec", ?outcome, "camera not authorized at record start; requested access");
         if outcome != CameraAccessOutcome::Granted {
@@ -4997,9 +5165,8 @@ pub fn stop_screen_recording_inner(
     {
         let rec_id = row.id.clone();
         let now = chrono_now_iso();
-        let _ = db.with_conn(move |c| {
-            crate::db::project_tag_jobs::enqueue_recording(c, &rec_id, &now)
-        });
+        let _ =
+            db.with_conn(move |c| crate::db::project_tag_jobs::enqueue_recording(c, &rec_id, &now));
     }
     // Flip tray icon back to idle.
     if let Ok(t) = state.tray.lock() {
@@ -5219,9 +5386,7 @@ pub async fn transcribe_recording(
         // tag job in case an earlier pass ran on the bare title.
         let rec_id = id.clone();
         let now = chrono_now_iso();
-        let _ = db.with_conn(move |c| {
-            crate::db::project_tag_jobs::reopen(c, &rec_id, &now)
-        });
+        let _ = db.with_conn(move |c| crate::db::project_tag_jobs::reopen(c, &rec_id, &now));
     }
 
     Ok(text)
@@ -5458,11 +5623,11 @@ pub(crate) async fn run_denoise(app: AppHandle, id: String) -> Result<(), String
     }
 
     cleanup(None); // remove temp wavs; keep clean_mp4
-    // Denoise swapped the file on disk (original deleted, cleaned promoted). Tell
-    // the UI so it re-fetches the row and reloads the player off the new path —
-    // otherwise the <video> is left pointing at the now-deleted original and
-    // shows a broken/"not playable" state. `denoise-progress` alone is not a
-    // reliable completion signal (its final tick may not land exactly at 100).
+                   // Denoise swapped the file on disk (original deleted, cleaned promoted). Tell
+                   // the UI so it re-fetches the row and reloads the player off the new path —
+                   // otherwise the <video> is left pointing at the now-deleted original and
+                   // shows a broken/"not playable" state. `denoise-progress` alone is not a
+                   // reliable completion signal (its final tick may not land exactly at 100).
     let _ = app.emit("screenrec-changed", ());
     Ok(())
 }
@@ -5636,6 +5801,162 @@ pub fn export_recording(
         .ok_or_else(|| "recording vanished".to_string())
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct RecordingExportSuggestion {
+    pub default_path: String,
+    pub filename: String,
+}
+
+/// Suggest a readable filename in the last folder used for screen-recording
+/// exports. Downloads is the first-run (and missing-folder) fallback.
+#[tauri::command]
+pub fn get_recording_export_suggestion(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+    quality: String,
+) -> Result<RecordingExportSuggestion, String> {
+    let db = require_db(&state)?;
+    let row = db
+        .with_conn(|c| crate::db::recordings::get(c, &id))
+        .map_err(|e| e.to_string())?
+        .ok_or("recording not found")?;
+
+    let ext = if quality == "rendered-gif" {
+        "gif"
+    } else {
+        "mp4"
+    };
+    let placeholder = std::path::PathBuf::from(format!("export.{ext}"));
+    let filename = drive_upload_name(&row, &placeholder, &quality);
+    let folder = state
+        .settings
+        .screenrec_export_folder()
+        .map(std::path::PathBuf::from)
+        .filter(|p| p.is_dir())
+        .unwrap_or(app.path().download_dir().map_err(|e| e.to_string())?);
+
+    Ok(RecordingExportSuggestion {
+        default_path: folder.join(&filename).to_string_lossy().into_owned(),
+        filename,
+    })
+}
+
+/// Copy one managed recording export to the user-selected destination and
+/// remember its parent folder for the next Save dialog. The managed copy stays
+/// in Echo Scribe's recordings directory; `saved_path` records this additional
+/// user-facing copy so Reveal in Finder remains correct after an app restart.
+#[tauri::command]
+pub fn save_recording_export_copy(
+    state: State<'_, AppState>,
+    id: String,
+    quality: String,
+    destination: String,
+) -> Result<crate::db::recordings::RecordingRow, String> {
+    let db = require_db(&state)?;
+    let row = db
+        .with_conn(|c| crate::db::recordings::get(c, &id))
+        .map_err(|e| e.to_string())?
+        .ok_or("recording not found")?;
+    let mut exports: Vec<serde_json::Value> =
+        serde_json::from_str(&row.exports).unwrap_or_default();
+    let entry = exports
+        .iter_mut()
+        .find(|e| e.get("quality").and_then(|q| q.as_str()) == Some(quality.as_str()))
+        .ok_or_else(|| "That export is not ready yet.".to_string())?;
+    let source = entry
+        .get("path")
+        .and_then(|p| p.as_str())
+        .map(std::path::PathBuf::from)
+        .filter(|p| p.is_file())
+        .ok_or_else(|| "The managed export file is missing. Please export again.".to_string())?;
+
+    let destination = std::path::PathBuf::from(destination);
+    if !destination.is_absolute() {
+        return Err("Choose an absolute export location.".into());
+    }
+    let parent = destination
+        .parent()
+        .filter(|p| p.is_dir())
+        .ok_or_else(|| "The selected export folder is unavailable.".to_string())?;
+    let source_ext = source.extension().and_then(|e| e.to_str()).unwrap_or("");
+    let destination_ext = destination
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("");
+    if !source_ext.eq_ignore_ascii_case(destination_ext) {
+        return Err(format!("Export filename must end in .{source_ext}."));
+    }
+
+    if source != destination {
+        std::fs::copy(&source, &destination).map_err(|e| {
+            error!(target: "screenrec", rec = %id, src = %source.display(), dest = %destination.display(), error = %e, "failed to save user-facing export copy");
+            format!("Could not save the export to the selected location: {e}")
+        })?;
+    }
+    let copied_size = std::fs::metadata(&destination)
+        .map_err(|e| e.to_string())?
+        .len();
+    entry["saved_path"] = serde_json::Value::String(destination.to_string_lossy().into_owned());
+    entry["saved_size"] = serde_json::json!(copied_size);
+    let exports_json = serde_json::to_string(&exports).map_err(|e| e.to_string())?;
+    db.with_conn(|c| crate::db::recordings::update_exports(c, &id, &exports_json))
+        .map_err(|e| e.to_string())?;
+    state
+        .settings
+        .set_screenrec_export_folder(&parent.to_string_lossy())
+        .map_err(|e| e.to_string())?;
+    info!(target: "screenrec", rec = %id, quality = %quality, path = %destination.display(), "saved user-facing recording export copy");
+
+    db.with_conn(|c| crate::db::recordings::get(c, &id))
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "recording vanished".to_string())
+}
+
+/// Reveal a managed or user-saved export resolved from the recording's DB row,
+/// rather than accepting an arbitrary path from the webview.
+#[tauri::command]
+pub fn reveal_recording_export(
+    state: State<'_, AppState>,
+    id: String,
+    quality: String,
+) -> Result<(), String> {
+    let db = require_db(&state)?;
+    let row = db
+        .with_conn(|c| crate::db::recordings::get(c, &id))
+        .map_err(|e| e.to_string())?
+        .ok_or("recording not found")?;
+    let exports: Vec<serde_json::Value> = serde_json::from_str(&row.exports).unwrap_or_default();
+    let entry = exports
+        .iter()
+        .find(|e| e.get("quality").and_then(|q| q.as_str()) == Some(quality.as_str()))
+        .ok_or_else(|| "That export is not available.".to_string())?;
+    let target = entry
+        .get("saved_path")
+        .and_then(|p| p.as_str())
+        .filter(|p| std::path::Path::new(p).is_file())
+        .or_else(|| entry.get("path").and_then(|p| p.as_str()))
+        .map(std::path::PathBuf::from)
+        .filter(|p| p.is_file())
+        .ok_or_else(|| "That export file is missing. Please export again.".to_string())?;
+
+    #[cfg(target_os = "macos")]
+    let mut command = std::process::Command::new("open");
+    #[cfg(target_os = "macos")]
+    command.arg("-R");
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let mut c = std::process::Command::new("explorer");
+        c.arg("/select,");
+        c
+    };
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    let mut command = std::process::Command::new("xdg-open");
+
+    command.arg(&target).spawn().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// Return the raw recorded-input events JSONL text for a recording, so the
 /// frontend render pipeline can build the auto-zoom timeline. Returns an `Err`
 /// (never panics) when the recording has no events path, or the file is
@@ -5672,7 +5993,10 @@ pub fn read_recording_events(state: State<'_, AppState>, id: String) -> Result<S
 /// `src/lib/editorProject.ts`). `None` means editor defaults — Rust never
 /// parses this field, it's TS-side owned.
 #[tauri::command]
-pub fn get_recording_project(state: State<'_, AppState>, id: String) -> Result<Option<String>, String> {
+pub fn get_recording_project(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<Option<String>, String> {
     let db = require_db(&state)?;
     let row = db
         .with_conn(|c| crate::db::recordings::get(c, &id))
@@ -5761,10 +6085,7 @@ fn export_paths(exports_json: &str) -> Vec<String> {
 /// Resolve `path` and require it to be an existing file inside `dir` (the
 /// recordings folder). Canonicalizes both sides so `..` segments and the
 /// macOS `/var` → `/private/var` symlink can't dodge the containment check.
-fn validate_reveal_path(
-    dir: &std::path::Path,
-    path: &str,
-) -> Result<std::path::PathBuf, String> {
+fn validate_reveal_path(dir: &std::path::Path, path: &str) -> Result<std::path::PathBuf, String> {
     let dir = dir
         .canonicalize()
         .map_err(|e| format!("recordings dir unavailable: {e}"))?;
@@ -6127,8 +6448,14 @@ pub async fn finalize_rendered_recording(
             info!(target: "screenrec", rec = %id, path = %out_path, size = vid_size, "finalize: saved video-only render");
             let state = app.state::<AppState>();
             let db = require_db(&state)?;
-            let row =
-                record_rendered_export(db, &id, &existing_exports, "rendered", &out_path, vid_size)?;
+            let row = record_rendered_export(
+                db,
+                &id,
+                &existing_exports,
+                "rendered",
+                &out_path,
+                vid_size,
+            )?;
             // Refresh any open list/detail view — the upload button flips to
             // "Edited" only once it sees the new exports row.
             let _ = app.emit("screenrec-changed", ());
@@ -6359,7 +6686,14 @@ pub async fn finalize_rendered_recording(
 
     let state = app.state::<AppState>();
     let db = require_db(&state)?;
-    let row = record_rendered_export(db, &id, &existing_exports, "rendered", &out_path, final_size)?;
+    let row = record_rendered_export(
+        db,
+        &id,
+        &existing_exports,
+        "rendered",
+        &out_path,
+        final_size,
+    )?;
     // Refresh any open list/detail view — the upload button flips to "Edited"
     // only once it sees the new exports row (the editor runs in its own
     // window, so without this the dashboard kept a stale row and uploaded the
@@ -6501,7 +6835,10 @@ pub async fn save_rendered_gif(
     let size = bytes.len() as u64;
     if let Err(e) = std::fs::write(&out, &bytes) {
         error!(target: "screenrec", rec = %id, path = %out.display(), error = %e, "save_rendered_gif: failed to write gif");
-        return Err("could not save the rendered GIF. See Settings → Diagnostics → logs for details.".to_string());
+        return Err(
+            "could not save the rendered GIF. See Settings → Diagnostics → logs for details."
+                .to_string(),
+        );
     }
     let out_path = out.to_string_lossy().to_string();
     info!(target: "screenrec", rec = %id, path = %out_path, size, "save_rendered_gif: saved rendered gif");
@@ -6586,7 +6923,9 @@ pub fn submit_area_picker_result(app: AppHandle, rect: Option<[f64; 4]>) {
         None => {
             info!(target: "screenrec", "area picker cancelled");
             if let Some(setup) = app.get_webview_window("screenrec_setup") {
-                if let Err(e) = setup.emit("area-picker-result", serde_json::json!({ "rect": null })) {
+                if let Err(e) =
+                    setup.emit("area-picker-result", serde_json::json!({ "rect": null }))
+                {
                     warn!(target: "screenrec", ?e, "area-picker-result (cancel) emit failed");
                 }
             }
@@ -6889,7 +7228,12 @@ fn sanitize_filename_component(s: &str) -> String {
         last_ws = false;
     }
     // Cap length (Drive allows long names, but keep it sane) and re-trim.
-    out.trim().chars().take(120).collect::<String>().trim().to_string()
+    out.trim()
+        .chars()
+        .take(120)
+        .collect::<String>()
+        .trim()
+        .to_string()
 }
 
 /// Build a human-readable Drive filename for an upload from the recording's
@@ -6929,7 +7273,7 @@ fn drive_upload_name(
     // Version tag so uploading original + edited + a downscale of the same
     // recording yields distinct, self-describing Drive names.
     let tag = match quality {
-        "rendered" => " (edited)".to_string(),
+        "rendered" | "rendered-gif" => " (edited)".to_string(),
         "original" => String::new(),
         q => format!(" ({q}p)"),
     };
@@ -7002,7 +7346,11 @@ pub async fn upload_recording(
             .unwrap_or_default()
             .into_iter()
             .find(|e| e.get("quality").and_then(|q| q.as_str()) == Some("rendered"))
-            .and_then(|e| e.get("path").and_then(|p| p.as_str()).map(|p| p.to_string()));
+            .and_then(|e| {
+                e.get("path")
+                    .and_then(|p| p.as_str())
+                    .map(|p| p.to_string())
+            });
         let Some(path) = rendered else {
             error!(target: "drive", rec = %id, exports = %row.exports, "upload: no rendered export recorded");
             // Reset the "uploading" status set above before bailing.
@@ -7115,7 +7463,10 @@ pub async fn upload_recording(
             }
             let _ = app.emit("screenrec-changed", ());
             return Err(if needs_reconnect {
-                format!("{}: {friendly}", crate::screenrec::drive::RECONNECT_REQUIRED)
+                format!(
+                    "{}: {friendly}",
+                    crate::screenrec::drive::RECONNECT_REQUIRED
+                )
             } else {
                 friendly.to_string()
             });
@@ -7142,7 +7493,8 @@ pub async fn download_embedding_model(app: AppHandle) -> Result<(), String> {
     .await
     .map_err(|e| {
         tracing::error!(target: "embed", error = %e, "embedding model download failed");
-        "Embedding model download failed. See Settings → Diagnostics → logs for details.".to_string()
+        "Embedding model download failed. See Settings → Diagnostics → logs for details."
+            .to_string()
     })?;
     tracing::info!(target: "embed", "embedding model downloaded");
     Ok(())
@@ -7158,9 +7510,7 @@ pub struct EmbeddingIndexStatus {
 
 /// Report embedding-index progress for the Settings UI / chat banner.
 #[tauri::command]
-pub fn embedding_index_status(
-    state: State<'_, AppState>,
-) -> Result<EmbeddingIndexStatus, String> {
+pub fn embedding_index_status(state: State<'_, AppState>) -> Result<EmbeddingIndexStatus, String> {
     let db = require_db(&state)?;
     db.with_conn(|c| {
         let embeddings = crate::db::embeddings::count_embeddings(c)?;
@@ -7245,10 +7595,25 @@ mod tests {
         let path = std::path::Path::new("/tmp/abc123.rendered.mp4");
         // 2024-05-21 in UTC; the formatter uses local tz, so assert on the parts
         // that are tz-independent (name, tag, extension) and that a date is present.
-        let row = row_for(Some("Broker SAM"), Some("Chrome — example.com"), 1_716_300_000_000);
+        let row = row_for(
+            Some("Broker SAM"),
+            Some("Chrome — example.com"),
+            1_716_300_000_000,
+        );
         let edited = drive_upload_name(&row, path, "rendered");
         assert!(edited.starts_with("Broker SAM (edited) "), "{edited}");
         assert!(edited.ends_with(".mp4"), "{edited}");
+
+        let edited_gif = drive_upload_name(
+            &row,
+            std::path::Path::new("/tmp/abc123.gif"),
+            "rendered-gif",
+        );
+        assert!(
+            edited_gif.starts_with("Broker SAM (edited) "),
+            "{edited_gif}"
+        );
+        assert!(edited_gif.ends_with(".gif"), "{edited_gif}");
 
         // No title → falls back to the source label (app/window context).
         let row2 = row_for(None, Some("Chrome — example.com"), 1_716_300_000_000);
@@ -7320,12 +7685,8 @@ mod tests {
     fn uninstall_data_paths_cover_user_data_without_dev_signing_material() {
         let home = std::path::Path::new("/Users/tester");
         let paths = uninstall_data_paths(home);
-        assert!(paths.contains(
-            &home.join("Library/Application Support/EchoScribe")
-        ));
-        assert!(paths.contains(
-            &home.join("Library/Application Support/com.echoscribe.app")
-        ));
+        assert!(paths.contains(&home.join("Library/Application Support/EchoScribe")));
+        assert!(paths.contains(&home.join("Library/Application Support/com.echoscribe.app")));
         assert!(paths.contains(&home.join("EchoScribe")));
         assert!(!paths
             .iter()
@@ -7528,11 +7889,7 @@ mod tests {
         let sneaky = format!(
             "{}/../{}/b.mp4",
             root.path().display(),
-            outside_root
-                .path()
-                .file_name()
-                .unwrap()
-                .to_string_lossy()
+            outside_root.path().file_name().unwrap().to_string_lossy()
         );
         assert!(validate_reveal_path(root.path(), &sneaky).is_err());
         // Missing files are rejected.

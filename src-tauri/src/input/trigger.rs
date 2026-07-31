@@ -29,7 +29,9 @@ pub fn register_default_dictation_shortcut(
     app: &tauri::AppHandle,
     coord_tx: tokio::sync::mpsc::UnboundedSender<crate::coordinator::CoordinatorMsg>,
 ) -> Result<(), String> {
-    use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
+    use tauri_plugin_global_shortcut::{
+        Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState,
+    };
 
     let shortcut = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::Space);
 

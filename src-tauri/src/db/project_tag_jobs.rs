@@ -39,16 +39,15 @@ pub fn enqueue(conn: &Connection, item_id: &str, now_iso: &str) -> Result<(), Db
     enqueue_target(conn, item_id, TARGET_ITEM, now_iso)
 }
 
-pub fn enqueue_recording(conn: &Connection, recording_id: &str, now_iso: &str) -> Result<(), DbError> {
+pub fn enqueue_recording(
+    conn: &Connection,
+    recording_id: &str,
+    now_iso: &str,
+) -> Result<(), DbError> {
     enqueue_target(conn, recording_id, TARGET_RECORDING, now_iso)
 }
 
-fn enqueue_target(
-    conn: &Connection,
-    id: &str,
-    target: &str,
-    now_iso: &str,
-) -> Result<(), DbError> {
+fn enqueue_target(conn: &Connection, id: &str, target: &str, now_iso: &str) -> Result<(), DbError> {
     conn.execute(
         "INSERT OR IGNORE INTO project_tag_jobs
             (item_id, target, status, attempts, next_run_at, last_error, created_at, updated_at)

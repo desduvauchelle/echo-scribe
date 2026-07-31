@@ -178,7 +178,9 @@ mod tests {
             return;
         }
         let e = Embedder::new(Duration::from_secs(60));
-        let q = e.embed_query_blocking("when is the project deadline").unwrap();
+        let q = e
+            .embed_query_blocking("when is the project deadline")
+            .unwrap();
         assert_eq!(q.len(), EMBED_DIM, "expected {EMBED_DIM}-dim vector");
 
         let docs = e

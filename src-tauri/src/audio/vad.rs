@@ -102,9 +102,7 @@ pub fn filter_silence(samples: &[f32]) -> Vec<f32> {
         let removed_pct = 100 - (out.len() * 100 / samples.len().max(1));
         info!(
             original_ms,
-            speech_ms,
-            removed_pct,
-            "VAD: filtered silence from recording"
+            speech_ms, removed_pct, "VAD: filtered silence from recording"
         );
         out
     }
@@ -121,16 +119,18 @@ mod tests {
     fn speech(frames: usize) -> Vec<f32> {
         // Sine wave at comfortable amplitude — clearly above RMS_THRESHOLD.
         let n = frames * FRAME_SAMPLES;
-        (0..n)
-            .map(|i| (i as f32 * 0.1).sin() * 0.1)
-            .collect()
+        (0..n).map(|i| (i as f32 * 0.1).sin() * 0.1).collect()
     }
 
     #[test]
     fn pure_silence_returns_original() {
         let s = silence(100);
         let out = filter_silence(&s);
-        assert_eq!(out.len(), s.len(), "silent recording must be returned unchanged");
+        assert_eq!(
+            out.len(),
+            s.len(),
+            "silent recording must be returned unchanged"
+        );
     }
 
     #[test]

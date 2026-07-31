@@ -84,7 +84,7 @@ fn write_sine_wav(
     f.write_all(&byte_rate.to_le_bytes())?;
     f.write_all(&(bytes_per_sample as u16).to_le_bytes())?; // block align
     f.write_all(&16u16.to_le_bytes())?; // bits per sample
-    // data chunk
+                                        // data chunk
     f.write_all(b"data")?;
     f.write_all(&data_bytes.to_le_bytes())?;
 

@@ -53,9 +53,8 @@ pub async fn generate_for_date(
 ) -> Result<DailySummaryResult, DbError> {
     // 1. Sync: collect input.
     let date_owned = date.to_string();
-    let input = db.with_conn(|conn| {
-        collector::collect(conn, &date_owned).map_err(DbError::from)
-    })?;
+    let input =
+        db.with_conn(|conn| collector::collect(conn, &date_owned).map_err(DbError::from))?;
 
     let now = Utc::now().to_rfc3339();
     let model_version = format!("{}@{}", llm_model_id, generator::prompt_version());

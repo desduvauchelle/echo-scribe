@@ -113,7 +113,11 @@ pub fn seed_text_from_history(history: &[crate::meeting::Segment], max_bytes: us
 
 /// Lowest color-slot (0 or 1) not taken by an active guide.
 pub fn next_free_slot(used: &[u8]) -> u8 {
-    if used.contains(&0) { 1 } else { 0 }
+    if used.contains(&0) {
+        1
+    } else {
+        0
+    }
 }
 
 /// The engine owned by an active `ActiveMeeting`. Cheap to clone; internal
@@ -161,11 +165,15 @@ const TIMELINE_CAP: usize = 200;
 
 /// Append a timeline entry only if the key points or suggestions differ from
 /// the last entry. `now` is an RFC3339 timestamp supplied by the caller.
-fn push_timeline_if_changed(st: &mut State, now: &str, key_points: &[DerivedPoint], suggestions: &[String]) {
-    let changed = st
-        .timeline
-        .last()
-        .map_or(true, |e| e.key_points.as_slice() != key_points || e.suggestions.as_slice() != suggestions);
+fn push_timeline_if_changed(
+    st: &mut State,
+    now: &str,
+    key_points: &[DerivedPoint],
+    suggestions: &[String],
+) {
+    let changed = st.timeline.last().map_or(true, |e| {
+        e.key_points.as_slice() != key_points || e.suggestions.as_slice() != suggestions
+    });
     if changed {
         st.timeline.push(TimelineEntry {
             at: now.to_string(),
@@ -410,7 +418,11 @@ async fn run_one_cycle(inner: &Inner) -> Result<(), String> {
                 let mut st = inner.state.lock().unwrap();
                 push_timeline_if_changed(&mut st, &now, &resp.key_points, &resp.suggestions);
                 st.prior_points = resp.key_points.clone();
-                remember_suggestions(&mut st.recent_suggestions, &resp.suggestions, RECENT_SUGGESTIONS_CAP);
+                remember_suggestions(
+                    &mut st.recent_suggestions,
+                    &resp.suggestions,
+                    RECENT_SUGGESTIONS_CAP,
+                );
                 info!(
                     meeting = %inner.meeting_id,
                     points = resp.key_points.len(),
@@ -424,7 +436,9 @@ async fn run_one_cycle(inner: &Inner) -> Result<(), String> {
             }
         }
     }
-    Err(format!("guidance JSON parse failed after 2 attempts: {last_raw}"))
+    Err(format!(
+        "guidance JSON parse failed after 2 attempts: {last_raw}"
+    ))
 }
 
 /// Crude {...} isolator that handles a leading prose preamble or a markdown
@@ -534,12 +548,12 @@ mod tests {
     fn parsing_guidance_response_is_tolerant_of_missing_fields() {
         // Only key_points present.
         let r: GuidanceResponse =
-            serde_json::from_str(r#"{"key_points":[{"id":"a","label":"A","status":"open"}]}"#).unwrap();
+            serde_json::from_str(r#"{"key_points":[{"id":"a","label":"A","status":"open"}]}"#)
+                .unwrap();
         assert_eq!(r.key_points.len(), 1);
         assert!(r.suggestions.is_empty());
         // Only suggestions present.
-        let r: GuidanceResponse =
-            serde_json::from_str(r#"{"suggestions":["x"]}"#).unwrap();
+        let r: GuidanceResponse = serde_json::from_str(r#"{"suggestions":["x"]}"#).unwrap();
         assert_eq!(r.suggestions, vec!["x".to_string()]);
         assert!(r.key_points.is_empty());
     }
@@ -567,10 +581,23 @@ mod tests {
     #[test]
     fn seed_text_builds_speaker_tagged_lines() {
         let history = vec![
-            crate::meeting::Segment { speaker: crate::meeting::Speaker::You, start_ms: 0, end_ms: 1, text: " hello ".into() },
-            crate::meeting::Segment { speaker: crate::meeting::Speaker::Them, start_ms: 1, end_ms: 2, text: "hi".into() },
+            crate::meeting::Segment {
+                speaker: crate::meeting::Speaker::You,
+                start_ms: 0,
+                end_ms: 1,
+                text: " hello ".into(),
+            },
+            crate::meeting::Segment {
+                speaker: crate::meeting::Speaker::Them,
+                start_ms: 1,
+                end_ms: 2,
+                text: "hi".into(),
+            },
         ];
-        assert_eq!(seed_text_from_history(&history, 4000), "you: hello\nthem: hi\n");
+        assert_eq!(
+            seed_text_from_history(&history, 4000),
+            "you: hello\nthem: hi\n"
+        );
     }
 
     #[test]
@@ -598,7 +625,11 @@ mod tests {
     #[test]
     fn timeline_dedups_identical_consecutive_entries() {
         let mut st = State::default();
-        let kp = vec![DerivedPoint { id: "a".into(), label: "L".into(), status: "open".into() }];
+        let kp = vec![DerivedPoint {
+            id: "a".into(),
+            label: "L".into(),
+            status: "open".into(),
+        }];
         // Only push when changed vs the last entry (what run_one_cycle does).
         push_timeline_if_changed(&mut st, "t1", &kp, &["s1".to_string()]);
         push_timeline_if_changed(&mut st, "t2", &kp, &["s1".to_string()]); // identical → skipped
@@ -611,14 +642,22 @@ mod tests {
     #[test]
     fn cap_timeline_keeps_most_recent_200() {
         let all: Vec<TimelineEntry> = (0..250u64)
-            .map(|i| TimelineEntry { at: format!("t{i}"), key_points: vec![], suggestions: vec![] })
+            .map(|i| TimelineEntry {
+                at: format!("t{i}"),
+                key_points: vec![],
+                suggestions: vec![],
+            })
             .collect();
         let capped = cap_timeline(all, "m");
         assert_eq!(capped.len(), 200);
         assert_eq!(capped[0].at, "t50"); // dropped the oldest 50
 
         let small: Vec<TimelineEntry> = (0..3u64)
-            .map(|i| TimelineEntry { at: format!("t{i}"), key_points: vec![], suggestions: vec![] })
+            .map(|i| TimelineEntry {
+                at: format!("t{i}"),
+                key_points: vec![],
+                suggestions: vec![],
+            })
             .collect();
         assert_eq!(cap_timeline(small, "m").len(), 3); // under cap → untouched
     }

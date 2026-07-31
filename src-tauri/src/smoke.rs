@@ -23,7 +23,9 @@ const WATCHDOG_SECS: u64 = 90;
 const LOG_FLUSH_MS: u64 = 400;
 
 pub fn enabled() -> bool {
-    std::env::var("ECHO_SCRIBE_SMOKE").map(|v| v == "1").unwrap_or(false)
+    std::env::var("ECHO_SCRIBE_SMOKE")
+        .map(|v| v == "1")
+        .unwrap_or(false)
 }
 
 /// Called once from `run()` right after logging is initialized.
@@ -43,13 +45,13 @@ pub fn arm_watchdog() {
 
 /// Sidecars that must ship inside the bundle, next to the main binary.
 /// Keep in sync with `bundle.externalBin` in tauri.conf.json.
-const SIDECARS: [&str; 2] = [
-    "echo-scribe-syscap",
-    "echo-scribe-screenrec",
-];
+const SIDECARS: [&str; 2] = ["echo-scribe-syscap", "echo-scribe-screenrec"];
 
 fn missing_sidecars() -> Vec<String> {
-    let exe_dir = match std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_path_buf())) {
+    let exe_dir = match std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+    {
         Some(d) => d,
         None => return vec!["<could not resolve current_exe>".to_string()],
     };

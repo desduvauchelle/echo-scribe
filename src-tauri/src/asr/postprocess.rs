@@ -361,9 +361,11 @@ pub fn apply_dictionary_entries(
         })
         .collect();
     applicable.sort_by_key(|entry| std::cmp::Reverse(entry.spoken_form.len()));
-    applicable.into_iter().fold(text.to_string(), |value, entry| {
-        replace_whole_phrase(&value, &entry.spoken_form, &entry.replacement)
-    })
+    applicable
+        .into_iter()
+        .fold(text.to_string(), |value, entry| {
+            replace_whole_phrase(&value, &entry.spoken_form, &entry.replacement)
+        })
 }
 
 pub fn apply_snippets(
@@ -376,13 +378,17 @@ pub fn apply_snippets(
         .filter(|snippet| {
             !snippet.trigger.trim().is_empty()
                 && !snippet.expansion.is_empty()
-                && (snippet.language == "auto" || language == "auto" || snippet.language == language)
+                && (snippet.language == "auto"
+                    || language == "auto"
+                    || snippet.language == language)
         })
         .collect();
     applicable.sort_by_key(|snippet| std::cmp::Reverse(snippet.trigger.len()));
-    applicable.into_iter().fold(text.to_string(), |value, snippet| {
-        replace_whole_phrase(&value, &snippet.trigger, &snippet.expansion)
-    })
+    applicable
+        .into_iter()
+        .fold(text.to_string(), |value, snippet| {
+            replace_whole_phrase(&value, &snippet.trigger, &snippet.expansion)
+        })
 }
 
 fn replace_whole_phrase(text: &str, needle: &str, replacement: &str) -> String {
@@ -543,8 +549,14 @@ mod tests {
             expansion: "10 Market Street".into(),
             language: "auto".into(),
         }];
-        assert_eq!(apply_snippets("Send it to my address", &snippets, "en"), "Send it to 10 Market Street");
-        assert_eq!(apply_snippets("This is my addresses list", &snippets, "en"), "This is my addresses list");
+        assert_eq!(
+            apply_snippets("Send it to my address", &snippets, "en"),
+            "Send it to 10 Market Street"
+        );
+        assert_eq!(
+            apply_snippets("This is my addresses list", &snippets, "en"),
+            "This is my addresses list"
+        );
     }
 
     #[test]

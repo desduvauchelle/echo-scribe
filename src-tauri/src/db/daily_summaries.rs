@@ -122,10 +122,7 @@ pub fn list_recent(conn: &Connection, limit: u32) -> rusqlite::Result<Vec<DailyS
 /// Return the list of `date` values that have a row within the last `n` days
 /// (computed in the local timezone). Used by the scheduler to detect missing
 /// backfill days.
-pub fn dates_in_last_n_days_with_row(
-    conn: &Connection,
-    n: u32,
-) -> rusqlite::Result<Vec<String>> {
+pub fn dates_in_last_n_days_with_row(conn: &Connection, n: u32) -> rusqlite::Result<Vec<String>> {
     let mut stmt = conn.prepare(
         "SELECT date FROM daily_summaries
          WHERE date >= date('now', 'localtime', ?1)

@@ -36,13 +36,11 @@ const UNDECIDED_BACKOFF_HOURS: i64 = 24;
 const ERROR_BACKOFF_HOURS: i64 = 1;
 
 fn iso_plus_hours(now_iso: &str, hours: i64) -> Option<String> {
-    chrono::DateTime::parse_from_rfc3339(now_iso)
-        .ok()
-        .map(|t| {
-            (t + chrono::Duration::hours(hours))
-                .format("%Y-%m-%dT%H:%M:%SZ")
-                .to_string()
-        })
+    chrono::DateTime::parse_from_rfc3339(now_iso).ok().map(|t| {
+        (t + chrono::Duration::hours(hours))
+            .format("%Y-%m-%dT%H:%M:%SZ")
+            .to_string()
+    })
 }
 
 /// What a tag job points at, reduced to the classifier's input.
@@ -123,7 +121,9 @@ fn load_target(
             return Ok(None);
         }
         let classifiable = r.title.as_deref().is_some_and(|t| !t.trim().is_empty())
-            || r.transcript.as_deref().is_some_and(|t| !t.trim().is_empty());
+            || r.transcript
+                .as_deref()
+                .is_some_and(|t| !t.trim().is_empty());
         Ok(Some(TagTarget::Recording {
             text: recording_text(&r),
             id: r.id,
@@ -149,7 +149,12 @@ fn recording_text(r: &RecordingRow) -> String {
     if let Some(s) = r.source_label.as_deref().filter(|s| !s.trim().is_empty()) {
         parts.push(format!("Captured from: {s}"));
     }
-    if let Some(tr) = r.transcript.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
+    if let Some(tr) = r
+        .transcript
+        .as_deref()
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+    {
         let capped: String = tr.chars().take(4000).collect();
         parts.push(format!("Transcript:\n{capped}"));
     }
@@ -353,7 +358,13 @@ pub async fn run_llm_batch_db<L: LlmGenerator + ?Sized>(
                 warn!(target: "project_tagger", item_id = %job.item_id, error = %e, "llm classification failed");
                 let until = iso_plus_hours(now_iso, ERROR_BACKOFF_HOURS);
                 db.with_conn(|conn| {
-                    project_tag_jobs::defer(conn, &job.item_id, until.as_deref(), Some(&msg), now_iso)
+                    project_tag_jobs::defer(
+                        conn,
+                        &job.item_id,
+                        until.as_deref(),
+                        Some(&msg),
+                        now_iso,
+                    )
                 })?;
                 summary.sample_error.get_or_insert(msg);
                 summary.deferred += 1;

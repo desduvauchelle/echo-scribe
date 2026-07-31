@@ -35,7 +35,9 @@ pub struct EventEnvelope {
 
 /// Default root for the event archive: `~/EchoScribe/`.
 pub fn default_root() -> Result<PathBuf, EventLogError> {
-    Ok(dirs::home_dir().ok_or(EventLogError::NoHome)?.join("EchoScribe"))
+    Ok(dirs::home_dir()
+        .ok_or(EventLogError::NoHome)?
+        .join("EchoScribe"))
 }
 
 /// Append a single event as a JSON file under
@@ -54,7 +56,10 @@ pub fn append_event(root: &Path, evt: &EventEnvelope) -> Result<PathBuf, EventLo
 
     let (year, month) = year_month_from_iso(&evt.created_at);
     let dir = match (year, month) {
-        (Some(y), Some(m)) => root.join("events").join(format!("{y:04}")).join(format!("{m:02}")),
+        (Some(y), Some(m)) => root
+            .join("events")
+            .join(format!("{y:04}"))
+            .join(format!("{m:02}")),
         _ => root.join("events").join("_unknown"),
     };
     std::fs::create_dir_all(&dir)?;
@@ -78,8 +83,12 @@ fn year_month_from_iso(s: &str) -> (Option<u32>, Option<u32>) {
     if bytes[4] != b'-' {
         return (None, None);
     }
-    let year = std::str::from_utf8(&bytes[0..4]).ok().and_then(|s| s.parse().ok());
-    let month = std::str::from_utf8(&bytes[5..7]).ok().and_then(|s| s.parse().ok());
+    let year = std::str::from_utf8(&bytes[0..4])
+        .ok()
+        .and_then(|s| s.parse().ok());
+    let month = std::str::from_utf8(&bytes[5..7])
+        .ok()
+        .and_then(|s| s.parse().ok());
     (year, month)
 }
 
@@ -107,8 +116,7 @@ mod tests {
                 .join("01ARZ3NDEKTSV4RRFFQ69G5FAV.json"),
         );
 
-        let read: EventEnvelope =
-            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        let read: EventEnvelope = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
         assert_eq!(read.event_type, "voice.captured");
         assert_eq!(read.id, evt.id);
     }

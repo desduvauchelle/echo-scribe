@@ -46,9 +46,8 @@ pub fn is_newer(current: &str, remote: &str) -> bool {
 }
 
 fn staging_app_path() -> Option<PathBuf> {
-    dirs::home_dir().map(|h| {
-        h.join("Library/Application Support/EchoScribe/pending-update/Echo Scribe.app")
-    })
+    dirs::home_dir()
+        .map(|h| h.join("Library/Application Support/EchoScribe/pending-update/Echo Scribe.app"))
 }
 
 fn now_unix() -> i64 {
@@ -64,24 +63,19 @@ async fn fetch_latest_version() -> Option<String> {
         .user_agent("echo-scribe-updater")
         .build()
         .ok()?;
-    let json: serde_json::Value = client
-        .get(&url)
-        .send()
-        .await
-        .ok()?
-        .json()
-        .await
-        .ok()?;
+    let json: serde_json::Value = client.get(&url).send().await.ok()?.json().await.ok()?;
     let tag = json["tag_name"].as_str()?;
     Some(tag.trim_start_matches('v').to_string())
 }
 
 async fn download_and_stage(version: &str) -> bool {
-    let arch = if std::env::consts::ARCH == "aarch64" { "aarch64" } else { "x86_64" };
+    let arch = if std::env::consts::ARCH == "aarch64" {
+        "aarch64"
+    } else {
+        "x86_64"
+    };
     let filename = format!("EchoScribe-{arch}.tar.gz");
-    let url = format!(
-        "https://github.com/{REPO}/releases/download/v{version}/{filename}"
-    );
+    let url = format!("https://github.com/{REPO}/releases/download/v{version}/{filename}");
 
     let staging_dir = match dirs::home_dir() {
         Some(h) => h.join("Library/Application Support/EchoScribe/pending-update"),
@@ -95,20 +89,35 @@ async fn download_and_stage(version: &str) -> bool {
 
     let archive_path = staging_dir.join(&filename);
 
-    let client = match reqwest::Client::builder().user_agent("echo-scribe-updater").build() {
+    let client = match reqwest::Client::builder()
+        .user_agent("echo-scribe-updater")
+        .build()
+    {
         Ok(c) => c,
-        Err(e) => { error!(error = %e, "failed to build HTTP client"); return false; }
+        Err(e) => {
+            error!(error = %e, "failed to build HTTP client");
+            return false;
+        }
     };
 
     let resp = match client.get(&url).send().await {
         Ok(r) if r.status().is_success() => r,
-        Ok(r) => { warn!(status = %r.status(), "update download returned non-2xx"); return false; }
-        Err(e) => { error!(error = %e, "update download request failed"); return false; }
+        Ok(r) => {
+            warn!(status = %r.status(), "update download returned non-2xx");
+            return false;
+        }
+        Err(e) => {
+            error!(error = %e, "update download request failed");
+            return false;
+        }
     };
 
     let bytes = match resp.bytes().await {
         Ok(b) => b,
-        Err(e) => { error!(error = %e, "failed to read update bytes"); return false; }
+        Err(e) => {
+            error!(error = %e, "failed to read update bytes");
+            return false;
+        }
     };
 
     if let Err(e) = std::fs::write(&archive_path, &bytes) {
@@ -117,7 +126,12 @@ async fn download_and_stage(version: &str) -> bool {
     }
 
     let extract = std::process::Command::new("tar")
-        .args(["-xzf", archive_path.to_str().unwrap_or(""), "-C", staging_dir.to_str().unwrap_or("")])
+        .args([
+            "-xzf",
+            archive_path.to_str().unwrap_or(""),
+            "-C",
+            staging_dir.to_str().unwrap_or(""),
+        ])
         .output();
 
     match extract {
@@ -160,12 +174,18 @@ async fn download_and_stage(version: &str) -> bool {
 pub fn launch_update_helper() {
     let staging = match staging_app_path() {
         Some(p) if p.exists() => p,
-        _ => { error!("no staged update found"); return; }
+        _ => {
+            error!("no staged update found");
+            return;
+        }
     };
 
     let staging_dir = match staging.parent() {
         Some(p) => p.to_string_lossy().to_string(),
-        None => { error!("could not determine staging dir parent"); return; }
+        None => {
+            error!("could not determine staging dir parent");
+            return;
+        }
     };
 
     let pid = std::process::id();
@@ -193,7 +213,10 @@ pub fn launch_update_helper() {
         .spawn()
     {
         Ok(_) => info!("update helper launched"),
-        Err(e) => { error!(error = %e, "failed to spawn update helper"); return; }
+        Err(e) => {
+            error!(error = %e, "failed to spawn update helper");
+            return;
+        }
     }
 
     std::process::exit(0);
@@ -216,7 +239,10 @@ pub async fn check_and_download(app: &AppHandle) {
 
     let latest = match fetch_latest_version().await {
         Some(v) => v,
-        None => { warn!("could not fetch latest release"); return; }
+        None => {
+            warn!("could not fetch latest release");
+            return;
+        }
     };
 
     let _ = state.settings.set_last_update_check(now);

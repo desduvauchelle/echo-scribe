@@ -15,7 +15,14 @@ import type { UploadQuality } from "../lib/api";
 // (RecordingDetailPanel) and in the dedicated editor window's top bar
 // (EditorView), and only need styling/behavior fixed in one place.
 
-export type ExportVariant = { quality: string; path: string; size: number };
+export type ExportVariant = {
+  quality: string;
+  path: string;
+  size: number;
+  /** Additional user-selected copy; the managed `path` remains canonical. */
+  saved_path?: string;
+  saved_size?: number;
+};
 
 export function parseExports(json: string): ExportVariant[] {
   try {

@@ -13,13 +13,13 @@
 //!    `last_used` is older than `unload_after`. This keeps RAM/VRAM free
 //!    during idle stretches between voice captures.
 
+pub mod action_launcher;
 pub mod downloader;
 pub mod edit;
 pub mod engine;
 pub mod prompt;
 pub mod rag;
 pub mod registry;
-pub mod action_launcher;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -132,11 +132,7 @@ impl Llm {
 
     async fn maybe_unload(&self) -> Result<(), LlmError> {
         let (idle_for, unload_after) = {
-            let idle = self
-                .last_used
-                .lock()
-                .map_err(|_| LlmError::Join)?
-                .elapsed();
+            let idle = self.last_used.lock().map_err(|_| LlmError::Join)?.elapsed();
             let ua = *self.unload_after.lock().map_err(|_| LlmError::Join)?;
             (idle, ua)
         };

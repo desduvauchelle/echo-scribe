@@ -104,7 +104,11 @@ pub fn count_embeddings(conn: &Connection) -> Result<i64, DbError> {
 }
 
 pub fn count_indexed_sources(conn: &Connection) -> Result<i64, DbError> {
-    Ok(conn.query_row("SELECT COUNT(*) FROM embedding_index_state", [], |r| r.get(0))?)
+    Ok(
+        conn.query_row("SELECT COUNT(*) FROM embedding_index_state", [], |r| {
+            r.get(0)
+        })?,
+    )
 }
 
 /// Test/diagnostic helper: fetch a source's passages (vectors decoded).
@@ -193,9 +197,15 @@ mod tests {
         let c = mem();
         assert_eq!(get_index_state(&c, "item", "x").unwrap(), None);
         set_index_state(&c, "item", "x", "h1", "m", "t1").unwrap();
-        assert_eq!(get_index_state(&c, "item", "x").unwrap().as_deref(), Some("h1"));
+        assert_eq!(
+            get_index_state(&c, "item", "x").unwrap().as_deref(),
+            Some("h1")
+        );
         set_index_state(&c, "item", "x", "h2", "m", "t2").unwrap();
-        assert_eq!(get_index_state(&c, "item", "x").unwrap().as_deref(), Some("h2"));
+        assert_eq!(
+            get_index_state(&c, "item", "x").unwrap().as_deref(),
+            Some("h2")
+        );
         assert_eq!(count_indexed_sources(&c).unwrap(), 1);
     }
 }

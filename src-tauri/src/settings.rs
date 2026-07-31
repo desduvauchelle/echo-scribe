@@ -65,6 +65,7 @@ const KEY_SCREENREC_MIC_DEVICE: &str = "screenrec_mic_device";
 const KEY_SCREENREC_HIDE_CURSOR: &str = "screenrec_hide_cursor";
 const KEY_SCREENREC_CAMERA_UID: &str = "screenrec_camera_uid";
 const KEY_SCREENREC_COUNTDOWN: &str = "screenrec_countdown";
+const KEY_SCREENREC_EXPORT_FOLDER: &str = "screenrec_export_folder";
 const KEY_DRIVE_CLIENT_ID: &str = "drive_client_id";
 const KEY_DRIVE_CLIENT_SECRET: &str = "drive_client_secret";
 const KEY_DRIVE_ACCOUNT_EMAIL: &str = "drive_account_email";
@@ -291,8 +292,10 @@ impl SettingsStore {
 
     /// Persist the global editor defaults blob (an opaque JSON string).
     pub fn set_editor_defaults(&self, json: &str) -> Result<(), SettingsError> {
-        self.store
-            .set(KEY_EDITOR_DEFAULTS, serde_json::Value::String(json.to_string()));
+        self.store.set(
+            KEY_EDITOR_DEFAULTS,
+            serde_json::Value::String(json.to_string()),
+        );
         self.store
             .save()
             .map_err(|e| SettingsError::Store(e.to_string()))?;
@@ -382,7 +385,10 @@ impl SettingsStore {
             Some(value) => match serde_json::from_value::<Binding>(value) {
                 Ok(b) => b,
                 Err(e) => {
-                    warn!(?e, "stored edit_selection_binding is invalid; falling back to default");
+                    warn!(
+                        ?e,
+                        "stored edit_selection_binding is invalid; falling back to default"
+                    );
                     default_edit_selection_binding()
                 }
             },
@@ -690,7 +696,10 @@ impl SettingsStore {
             })
     }
 
-    pub fn set_dictionary_entries(&self, entries: Vec<DictionaryEntry>) -> Result<(), SettingsError> {
+    pub fn set_dictionary_entries(
+        &self,
+        entries: Vec<DictionaryEntry>,
+    ) -> Result<(), SettingsError> {
         self.store
             .set(KEY_DICTIONARY_ENTRIES, serde_json::to_value(entries)?);
         self.store
@@ -710,7 +719,8 @@ impl SettingsStore {
         &self,
         snippets: Vec<TranscriptionSnippet>,
     ) -> Result<(), SettingsError> {
-        self.store.set(KEY_SNIPPETS, serde_json::to_value(snippets)?);
+        self.store
+            .set(KEY_SNIPPETS, serde_json::to_value(snippets)?);
         self.store
             .save()
             .map_err(|e| SettingsError::Store(e.to_string()))?;
@@ -718,7 +728,10 @@ impl SettingsStore {
     }
 
     fn bool_setting(&self, key: &str, default: bool) -> bool {
-        self.store.get(key).and_then(|v| v.as_bool()).unwrap_or(default)
+        self.store
+            .get(key)
+            .and_then(|v| v.as_bool())
+            .unwrap_or(default)
     }
 
     /// How many seconds the LLM engine stays loaded after its last use before
@@ -1194,6 +1207,29 @@ impl SettingsStore {
                 self.store.delete(KEY_MEETING_EXPORT_FOLDER);
             }
         }
+        self.store
+            .save()
+            .map_err(|e| SettingsError::Store(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Last folder chosen when saving a user-facing screen-recording export.
+    /// The managed export inside Echo Scribe's recordings directory remains
+    /// independent; this only seeds the next native Save dialog.
+    pub fn screenrec_export_folder(&self) -> Option<String> {
+        self.store.get(KEY_SCREENREC_EXPORT_FOLDER).and_then(|v| {
+            v.as_str()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+        })
+    }
+
+    pub fn set_screenrec_export_folder(&self, folder: &str) -> Result<(), SettingsError> {
+        self.store.set(
+            KEY_SCREENREC_EXPORT_FOLDER,
+            serde_json::Value::String(folder.trim().to_string()),
+        );
         self.store
             .save()
             .map_err(|e| SettingsError::Store(e.to_string()))?;

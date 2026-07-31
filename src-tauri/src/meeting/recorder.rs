@@ -96,8 +96,8 @@ impl ChunkedWavWriter {
 
             let at_cap = self.samples_in_chunk >= CHUNK_MAX_SAMPLES;
             let past_target = self.samples_in_chunk >= CHUNK_TARGET_SAMPLES;
-            let at_silence = self.tail.len() >= SILENCE_WINDOW_SAMPLES
-                && rms_i16(&self.tail) < SILENCE_RMS_I16;
+            let at_silence =
+                self.tail.len() >= SILENCE_WINDOW_SAMPLES && rms_i16(&self.tail) < SILENCE_RMS_I16;
             if at_cap || (past_target && at_silence) {
                 self.finalize_chunk()?;
             }
@@ -207,8 +207,8 @@ impl MicCapture {
             let device = match host.default_input_device() {
                 Some(d) => d,
                 None => {
-                    let _ = init_tx
-                        .send(Err(MeetingError::Audio("no default input device".into())));
+                    let _ =
+                        init_tx.send(Err(MeetingError::Audio("no default input device".into())));
                     return;
                 }
             };
@@ -303,8 +303,8 @@ impl MicCapture {
             let stream = match stream_result {
                 Ok(s) => s,
                 Err(e) => {
-                    let _ = init_tx
-                        .send(Err(MeetingError::Audio(format!("build_input_stream: {e}"))));
+                    let _ =
+                        init_tx.send(Err(MeetingError::Audio(format!("build_input_stream: {e}"))));
                     return;
                 }
             };
@@ -447,7 +447,10 @@ impl Recorder {
             let mut first_frame_logged = false;
             while let Some(frame) = pcm_rx.recv().await {
                 if !first_frame_logged {
-                    info!(samples = frame.len(), "sys writer: first PCM frame from syscap");
+                    info!(
+                        samples = frame.len(),
+                        "sys writer: first PCM frame from syscap"
+                    );
                     first_frame_logged = true;
                 }
                 frame_count += 1;

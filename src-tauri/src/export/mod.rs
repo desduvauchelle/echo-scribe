@@ -651,7 +651,10 @@ pub fn try_export_item(db: &Db, item: &Item, threshold: f32) {
         Ok(Err(ExportSkip::NoFolder)) => {
             // Silent — the common case is "this project has no export folder".
         }
-        Ok(Err(ExportSkip::BelowThreshold { confidence, threshold })) => {
+        Ok(Err(ExportSkip::BelowThreshold {
+            confidence,
+            threshold,
+        })) => {
             info!(
                 target: "export",
                 item_id = %item.id,
@@ -703,15 +706,17 @@ pub fn try_export_meeting(db: &Db, meeting: &MeetingRow, item: &Item) {
 
 /// Backfill: re-export every non-deleted item + meeting for `project_id` to
 /// the project's `export_folder`. Returns the number of files written.
-pub fn backfill_project(
-    db: &Db,
-    project_id: &str,
-    threshold: f32,
-) -> Result<u32, ExportError> {
+pub fn backfill_project(db: &Db, project_id: &str, threshold: f32) -> Result<u32, ExportError> {
     let project = db
         .with_conn(|c| crate::db::projects::get_project(c, project_id))?
         .ok_or_else(|| ExportError::Invalid(format!("project {project_id} not found")))?;
-    if project.export_folder.as_deref().map(str::trim).filter(|s| !s.is_empty()).is_none() {
+    if project
+        .export_folder
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .is_none()
+    {
         return Err(ExportError::Invalid(
             "project has no export_folder configured".into(),
         ));
@@ -720,13 +725,16 @@ pub fn backfill_project(
     let mut written: u32 = 0;
 
     // 1. Items (notes, tasks, transcriptions)
-    let items = db.with_conn(|c| crate::db::items::list_items(c, Some(project_id), None, 10_000, 0))?;
+    let items =
+        db.with_conn(|c| crate::db::items::list_items(c, Some(project_id), None, 10_000, 0))?;
     for item in &items {
         // Apply same gate as live hook (confidence threshold, kind support).
         match export_item(db, item, threshold) {
             Ok(Ok(_)) => written += 1,
             Ok(Err(_)) => {}
-            Err(e) => warn!(target: "export", item_id = %item.id, error = %e, "backfill item failed"),
+            Err(e) => {
+                warn!(target: "export", item_id = %item.id, error = %e, "backfill item failed")
+            }
         }
     }
 
@@ -769,7 +777,9 @@ pub fn backfill_project(
             match export_meeting(db, &m, item) {
                 Ok(Ok(_)) => written += 1,
                 Ok(Err(_)) => {}
-                Err(e) => warn!(target: "export", item_id = %item.id, error = %e, "backfill meeting failed"),
+                Err(e) => {
+                    warn!(target: "export", item_id = %item.id, error = %e, "backfill meeting failed")
+                }
             }
         }
     }
@@ -911,7 +921,10 @@ mod tests {
             .filter_map(|e| e.ok())
             .filter(|e| e.path().extension().and_then(|s| s.to_str()) == Some("md"))
             .count();
-        assert_eq!(count, 1, "exactly one md file should remain after re-export");
+        assert_eq!(
+            count, 1,
+            "exactly one md file should remain after re-export"
+        );
 
         let body = std::fs::read_to_string(&second.path).unwrap();
         assert!(body.contains("updated content"));
@@ -981,7 +994,11 @@ mod tests {
             .unwrap();
         // Add tags including one with special chars to verify yaml escaping.
         db.with_conn(|c| {
-            crate::db::items::replace_tags(c, &item.id, &["alpha".into(), "needs \"review\"".into()])
+            crate::db::items::replace_tags(
+                c,
+                &item.id,
+                &["alpha".into(), "needs \"review\"".into()],
+            )
         })
         .unwrap();
         let res = export_item(&db, &item, 0.75).unwrap().unwrap();
@@ -994,7 +1011,14 @@ mod tests {
         let frontmatter = &after_first[..end_idx];
 
         // Required keys present.
-        for key in ["id:", "kind:", "source:", "project:", "captured_at:", "tags:"] {
+        for key in [
+            "id:",
+            "kind:",
+            "source:",
+            "project:",
+            "captured_at:",
+            "tags:",
+        ] {
             assert!(
                 frontmatter.contains(key),
                 "frontmatter missing key {key}; got:\n{frontmatter}"
@@ -1144,7 +1168,10 @@ mod tests {
         let meeting = make_meeting_row("01HKMT3", None);
         let res = export_meeting(&db, &meeting, &item).unwrap().unwrap();
         let body = std::fs::read_to_string(&res.path).unwrap();
-        assert!(body.contains("# Meeting"), "default title when no synthesis");
+        assert!(
+            body.contains("# Meeting"),
+            "default title when no synthesis"
+        );
         assert!(!body.contains("## Summary"));
         assert!(!body.contains("## Action items"));
         assert!(body.contains("## Transcript"));
@@ -1359,7 +1386,8 @@ mod tests {
         let high_b = make_item("01HKB2", ItemKind::Task, "p1", Some(0.88));
         let low = make_item("01HKB3", ItemKind::Note, "p1", Some(0.3));
         for it in [&high_a, &high_b, &low] {
-            db.with_conn(|c| crate::db::items::insert_item(c, it)).unwrap();
+            db.with_conn(|c| crate::db::items::insert_item(c, it))
+                .unwrap();
         }
         // Manual meeting row + its item.
         let m_item = make_meeting_item("01HKB4", "p1");
@@ -1397,7 +1425,9 @@ mod tests {
         assert!(dir.path().join("meetings").exists());
         let notes_count = std::fs::read_dir(dir.path().join("notes")).unwrap().count();
         let tasks_count = std::fs::read_dir(dir.path().join("tasks")).unwrap().count();
-        let meetings_count = std::fs::read_dir(dir.path().join("meetings")).unwrap().count();
+        let meetings_count = std::fs::read_dir(dir.path().join("meetings"))
+            .unwrap()
+            .count();
         assert_eq!(notes_count, 1);
         assert_eq!(tasks_count, 1);
         assert_eq!(meetings_count, 1);

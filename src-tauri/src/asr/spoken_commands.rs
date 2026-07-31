@@ -242,7 +242,9 @@ fn passthrough(text: &str) -> ProcessedTranscript {
 }
 
 fn trim_terminal_punctuation(value: &str) -> &str {
-    value.trim().trim_end_matches(['.', ',', '!', '?', ';', ':'])
+    value
+        .trim()
+        .trim_end_matches(['.', ',', '!', '?', ';', ':'])
 }
 
 fn strip_suffix_command(value: &mut String, command: &str) -> bool {
@@ -257,7 +259,9 @@ fn strip_suffix_command(value: &mut String, command: &str) -> bool {
     if lower.ends_with(&suffix) {
         let keep_len = without_punct.len() - suffix.len();
         value.truncate(keep_len);
-        *value = value.trim_end_matches([' ', ',', '.', ';', ':']).to_string();
+        *value = value
+            .trim_end_matches([' ', ',', '.', ';', ':'])
+            .to_string();
         return true;
     }
     false
@@ -315,7 +319,8 @@ fn apply_explicit_replacement(value: &mut String, verb: &str, joiner: &str) -> b
     };
     let old_end = old_at + old.len();
     let left_ok = old_at == 0 || !is_word_char(prefix[..old_at].chars().next_back().unwrap());
-    let right_ok = old_end == prefix.len() || !is_word_char(prefix[old_end..].chars().next().unwrap());
+    let right_ok =
+        old_end == prefix.len() || !is_word_char(prefix[old_end..].chars().next().unwrap());
     if !left_ok || !right_ok {
         return false;
     }
@@ -360,8 +365,8 @@ fn remove_scratched_sentence(value: &mut String) -> bool {
         return false;
     }
     let before = value[..at].trim_end_matches(|ch: char| ch.is_whitespace() || ch == ',');
-    let after = value[end..]
-        .trim_start_matches(|ch: char| ch.is_whitespace() || ch.is_ascii_punctuation());
+    let after =
+        value[end..].trim_start_matches(|ch: char| ch.is_whitespace() || ch.is_ascii_punctuation());
     let boundary = before
         .char_indices()
         .rev()
@@ -386,7 +391,8 @@ fn delete_last_word(value: &str) -> String {
 }
 
 fn delete_last_sentence(value: &str) -> String {
-    let trimmed = value.trim_end_matches(|ch: char| ch.is_whitespace() || ch.is_ascii_punctuation());
+    let trimmed =
+        value.trim_end_matches(|ch: char| ch.is_whitespace() || ch.is_ascii_punctuation());
     trimmed
         .char_indices()
         .rev()
@@ -430,7 +436,13 @@ mod tests {
     #[test]
     fn cancel_requires_the_whole_utterance() {
         assert!(process("cancel that.", SpokenCommandOptions::default()).cancelled);
-        assert!(!process("Please cancel that appointment", SpokenCommandOptions::default()).cancelled);
+        assert!(
+            !process(
+                "Please cancel that appointment",
+                SpokenCommandOptions::default()
+            )
+            .cancelled
+        );
     }
 
     #[test]
@@ -484,20 +496,29 @@ mod tests {
         assert_eq!(off.text, "Send it press enter");
         let on = process(
             "Send it press enter",
-            SpokenCommandOptions { press_enter: true, ..Default::default() },
+            SpokenCommandOptions {
+                press_enter: true,
+                ..Default::default()
+            },
         );
         assert_eq!(on.text, "Send it");
         assert_eq!(on.post_action, Some(PostAction::PressEnter));
         let literal = process(
             "Press enter to submit the form",
-            SpokenCommandOptions { press_enter: true, ..Default::default() },
+            SpokenCommandOptions {
+                press_enter: true,
+                ..Default::default()
+            },
         );
         assert_eq!(literal.post_action, None);
     }
 
     #[test]
     fn supports_unicode_text() {
-        let out = process("Bonjour Chloé comma ça va question mark", SpokenCommandOptions::default());
+        let out = process(
+            "Bonjour Chloé comma ça va question mark",
+            SpokenCommandOptions::default(),
+        );
         assert_eq!(out.text, "Bonjour Chloé, ça va?");
     }
 

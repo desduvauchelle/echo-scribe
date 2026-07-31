@@ -180,17 +180,17 @@ pub fn cg_keycode_to_rdev_key(code: u16) -> Option<Key> {
         0x6F => Key::F12,
 
         // Punctuation
-        0x29 => Key::SemiColon,    // kVK_ANSI_Semicolon
-        0x27 => Key::Quote,        // kVK_ANSI_Quote
+        0x29 => Key::SemiColon, // kVK_ANSI_Semicolon
+        0x27 => Key::Quote,     // kVK_ANSI_Quote
         0x2B => Key::Comma,
-        0x2F => Key::Dot,          // kVK_ANSI_Period
+        0x2F => Key::Dot, // kVK_ANSI_Period
         0x2C => Key::Slash,
         0x2A => Key::BackSlash,
         0x21 => Key::LeftBracket,
         0x1E => Key::RightBracket,
         0x1B => Key::Minus,
         0x18 => Key::Equal,
-        0x32 => Key::BackQuote,    // kVK_ANSI_Grave
+        0x32 => Key::BackQuote, // kVK_ANSI_Grave
 
         _ => return None,
     })
@@ -233,13 +233,12 @@ pub fn should_swallow(
     key == binding.primary.0 && !is_modifier(key) && (was_satisfied || now_satisfied)
 }
 
-
 #[cfg(target_os = "macos")]
 mod macos {
     use std::ffi::c_void;
     use std::ptr;
-    use std::sync::{Arc, RwLock};
     use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, RwLock};
 
     use core_foundation::runloop::kCFRunLoopCommonModes;
     use rdev::Key;
@@ -277,16 +276,15 @@ mod macos {
     const CG_EVENT_KEY_UP: u32 = 11;
     const CG_EVENT_FLAGS_CHANGED: u32 = 12;
 
-    const EVENT_MASK: u64 = (1u64 << CG_EVENT_KEY_DOWN)
-        | (1u64 << CG_EVENT_KEY_UP)
-        | (1u64 << CG_EVENT_FLAGS_CHANGED);
+    const EVENT_MASK: u64 =
+        (1u64 << CG_EVENT_KEY_DOWN) | (1u64 << CG_EVENT_KEY_UP) | (1u64 << CG_EVENT_FLAGS_CHANGED);
 
     const KEYBOARD_EVENT_KEYCODE_FIELD: i32 = 9; // kCGKeyboardEventKeycode
 
-    const CG_FLAG_SHIFT: u64     = 0x0002_0000;
-    const CG_FLAG_CONTROL: u64   = 0x0004_0000;
+    const CG_FLAG_SHIFT: u64 = 0x0002_0000;
+    const CG_FLAG_CONTROL: u64 = 0x0004_0000;
     const CG_FLAG_ALTERNATE: u64 = 0x0008_0000;
-    const CG_FLAG_COMMAND: u64   = 0x0010_0000;
+    const CG_FLAG_COMMAND: u64 = 0x0010_0000;
 
     extern "C" {
         fn CGEventTapCreate(
@@ -413,10 +411,10 @@ mod macos {
 
     fn modifier_is_pressed(key: Key, flags: u64) -> bool {
         match key {
-            Key::ShiftLeft | Key::ShiftRight     => flags & CG_FLAG_SHIFT != 0,
+            Key::ShiftLeft | Key::ShiftRight => flags & CG_FLAG_SHIFT != 0,
             Key::ControlLeft | Key::ControlRight => flags & CG_FLAG_CONTROL != 0,
-            Key::Alt | Key::AltGr                => flags & CG_FLAG_ALTERNATE != 0,
-            Key::MetaLeft | Key::MetaRight        => flags & CG_FLAG_COMMAND != 0,
+            Key::Alt | Key::AltGr => flags & CG_FLAG_ALTERNATE != 0,
+            Key::MetaLeft | Key::MetaRight => flags & CG_FLAG_COMMAND != 0,
             _ => false,
         }
     }
@@ -575,7 +573,11 @@ mod tests {
 
     impl SimTap {
         fn new(binding: Binding) -> Self {
-            Self { binding, pressed: Vec::new(), satisfied: false }
+            Self {
+                binding,
+                pressed: Vec::new(),
+                satisfied: false,
+            }
         }
 
         /// Mirror of `tap_callback`: update pressed set, compute transition,
@@ -656,7 +658,10 @@ mod tests {
         // now satisfied → fires Pressed, and swallows `/` so it can't leak.
         let (events, swallowed) = run_chain(&mut taps, Key::Slash, true);
         assert_eq!(events, vec![(1, HotkeyEvent::Pressed)]);
-        assert!(swallowed, "the `/` primary must be swallowed (not leak as text)");
+        assert!(
+            swallowed,
+            "the `/` primary must be swallowed (not leak as text)"
+        );
     }
 
     /// Releasing the slash drops log-capture; releasing Right Option drops voice.

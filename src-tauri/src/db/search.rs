@@ -110,10 +110,8 @@ pub fn search_items_with_date_window(
          JOIN items_fts ON items.rowid = items_fts.rowid
          WHERE items_fts MATCH ?1 AND items.deleted_at IS NULL",
     );
-    let mut args: Vec<Box<dyn rusqlite::ToSql>> = vec![
-        Box::new(query.to_string()),
-        Box::new(limit as i64),
-    ];
+    let mut args: Vec<Box<dyn rusqlite::ToSql>> =
+        vec![Box::new(query.to_string()), Box::new(limit as i64)];
     let mut next_idx = 3usize;
 
     if let Some(f) = from {
@@ -244,20 +242,28 @@ mod tests {
         let conn = fresh_db();
 
         // Insert projects so FK constraints are satisfied
-        insert_project(&conn, &Project {
-            id: "proj-1".to_string(),
-            name: "Project One".to_string(),
-            created_at: "2026-05-01T00:00:00Z".to_string(),
-            archived_at: None,
-            ..Default::default()
-        }).unwrap();
-        insert_project(&conn, &Project {
-            id: "proj-2".to_string(),
-            name: "Project Two".to_string(),
-            created_at: "2026-05-01T00:00:00Z".to_string(),
-            archived_at: None,
-            ..Default::default()
-        }).unwrap();
+        insert_project(
+            &conn,
+            &Project {
+                id: "proj-1".to_string(),
+                name: "Project One".to_string(),
+                created_at: "2026-05-01T00:00:00Z".to_string(),
+                archived_at: None,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        insert_project(
+            &conn,
+            &Project {
+                id: "proj-2".to_string(),
+                name: "Project Two".to_string(),
+                created_at: "2026-05-01T00:00:00Z".to_string(),
+                archived_at: None,
+                ..Default::default()
+            },
+        )
+        .unwrap();
 
         let mut item_a = make_item("a", "alpha bravo meeting notes");
         item_a.project_id = Some("proj-1".to_string());
@@ -309,7 +315,8 @@ mod tests {
             Some("2026-05-03T00:00:00Z"),
             None,
             50,
-        ).unwrap();
+        )
+        .unwrap();
         let ids: Vec<&str> = hits.iter().map(|i| i.id.as_str()).collect();
         assert!(ids.contains(&"b"));
         assert!(!ids.contains(&"a"));

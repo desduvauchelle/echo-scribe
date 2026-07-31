@@ -18,18 +18,17 @@ pub fn install<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
         ..Default::default()
     };
 
-    let settings = MenuItem::with_id(
-        app,
-        "menu:settings",
-        "Settings…",
-        true,
-        Some("CmdOrCtrl+,"),
-    )?;
+    let settings = MenuItem::with_id(app, "menu:settings", "Settings…", true, Some("CmdOrCtrl+,"))?;
 
     // "Check for Updates…" drives the same self-update flow as the banner; only
     // meaningful on macOS, where the helper swaps the `.app` bundle.
-    let check_updates =
-        MenuItem::with_id(app, "menu:check-updates", "Check for Updates…", true, None::<&str>)?;
+    let check_updates = MenuItem::with_id(
+        app,
+        "menu:check-updates",
+        "Check for Updates…",
+        true,
+        None::<&str>,
+    )?;
 
     let app_submenu = Submenu::with_items(
         app,

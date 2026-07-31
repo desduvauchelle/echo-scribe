@@ -23,7 +23,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
 
-use llama_cpp_2::context::params::{LlamaContextParams, KvCacheType};
+use llama_cpp_2::context::params::{KvCacheType, LlamaContextParams};
 use llama_cpp_2::llama_backend::LlamaBackend;
 use llama_cpp_2::llama_batch::LlamaBatch;
 use llama_cpp_2::model::params::LlamaModelParams;
@@ -101,8 +101,7 @@ pub fn shared_backend() -> Result<Arc<LlamaBackend>, EngineError> {
     if let Some(backend) = guard.as_ref() {
         return Ok(Arc::clone(backend));
     }
-    let backend =
-        Arc::new(LlamaBackend::init().map_err(|e| EngineError::Backend(e.to_string()))?);
+    let backend = Arc::new(LlamaBackend::init().map_err(|e| EngineError::Backend(e.to_string()))?);
     *guard = Some(Arc::clone(&backend));
     Ok(backend)
 }
@@ -180,11 +179,7 @@ impl LlmEngine {
         // "gemma" named template uses the Gemma 1–3 <start_of_turn> format
         // which produces garbled output on Gemma 4. Building manually is the
         // reliable path.
-        let prompt = build_gemma4_prompt(
-            req.system.as_deref(),
-            &req.history,
-            &req.user,
-        );
+        let prompt = build_gemma4_prompt(req.system.as_deref(), &req.history, &req.user);
 
         debug!(prompt_len = prompt.len(), "built gemma4 prompt");
 
@@ -238,7 +233,9 @@ impl LlmEngine {
                     .with_n_batch(requested_n_ctx.max(512));
                 self.model
                     .new_context(&self._backend, fallback_params)
-                    .map_err(|err| EngineError::Context(format!("fallback context creation failed: {}", err)))?
+                    .map_err(|err| {
+                        EngineError::Context(format!("fallback context creation failed: {}", err))
+                    })?
             }
         };
 
@@ -334,7 +331,9 @@ impl LlmEngine {
 }
 
 fn hit_stop_string(output: &str, stops: &[String]) -> bool {
-    stops.iter().any(|s| !s.is_empty() && output.contains(s.as_str()))
+    stops
+        .iter()
+        .any(|s| !s.is_empty() && output.contains(s.as_str()))
 }
 
 fn rand_seed() -> u32 {
@@ -374,8 +373,7 @@ extraction, acoustic modeling, and decoding. Aim for at least 400 words.";
             println!("gemma-4-e2b-it-q4_k_m not downloaded; skipping benchmark.");
             return;
         }
-        let model_path =
-            crate::llm::model_file_path(&entry).expect("model file path should exist");
+        let model_path = crate::llm::model_file_path(&entry).expect("model file path should exist");
         let engine = LlmEngine::load(&model_path, 16384).expect("model should load");
 
         // Warm-up so weight fault-in / Metal pipeline build doesn't skew timing.
@@ -488,16 +486,16 @@ extraction, acoustic modeling, and decoding. Aim for at least 400 words.";
         let Some(entry) = crate::llm::registry::lookup(default_model_id) else {
             return;
         };
-        
+
         if !crate::llm::is_downloaded(&entry) {
             println!("Default LLM model not downloaded. Skipping integration test.");
             return;
         }
-        
+
         let model_path = crate::llm::model_file_path(&entry).expect("Model file path should exist");
-        
+
         let engine = LlmEngine::load(&model_path, 16384).expect("Should load model");
-        
+
         let req_short = GenerateRequest {
             system: Some("You are a helpful assistant.".to_string()),
             user: "Write a one word greeting.".to_string(),
@@ -508,9 +506,11 @@ extraction, acoustic modeling, and decoding. Aim for at least 400 words.";
             grammar_gbnf: None,
             n_ctx: Some(2048),
         };
-        let res_short = engine.generate(req_short).expect("Generation with short context should succeed");
+        let res_short = engine
+            .generate(req_short)
+            .expect("Generation with short context should succeed");
         assert!(!res_short.is_empty());
-        
+
         let req_overflow = GenerateRequest {
             system: Some("You are a helpful assistant.".to_string()),
             user: "Write a story.".to_string(),
@@ -524,6 +524,10 @@ extraction, acoustic modeling, and decoding. Aim for at least 400 words.";
         let err = engine.generate(req_overflow);
         assert!(err.is_err(), "Overflow request should return an error");
         let err_msg = err.unwrap_err().to_string();
-        assert!(err_msg.contains("exceeds requested n_ctx"), "Error message should complain about context overflow: {}", err_msg);
+        assert!(
+            err_msg.contains("exceeds requested n_ctx"),
+            "Error message should complain about context overflow: {}",
+            err_msg
+        );
     }
 }

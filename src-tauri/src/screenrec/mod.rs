@@ -3,12 +3,12 @@
 
 pub mod drive;
 
+use serde::{Deserialize, Serialize};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
-use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
 // ----- Source enumeration types -----
@@ -70,7 +70,9 @@ fn list_sources_error(stderr: &str) -> String {
     let sidecar_msg = stderr.lines().rev().find_map(|line| {
         let val: serde_json::Value = serde_json::from_str(line.trim()).ok()?;
         if val.get("event").and_then(|v| v.as_str()) == Some("error") {
-            val.get("msg").and_then(|v| v.as_str()).map(|s| s.to_string())
+            val.get("msg")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
         } else {
             None
         }
@@ -135,7 +137,9 @@ fn list_cameras_error(stderr: &str) -> String {
     let sidecar_msg = stderr.lines().rev().find_map(|line| {
         let val: serde_json::Value = serde_json::from_str(line.trim()).ok()?;
         if val.get("event").and_then(|v| v.as_str()) == Some("error") {
-            val.get("msg").and_then(|v| v.as_str()).map(|s| s.to_string())
+            val.get("msg")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
         } else {
             None
         }
@@ -214,7 +218,12 @@ pub fn display_bounds(display_id: u32) -> Option<(f64, f64, f64, f64)> {
     if bounds.size.width <= 0.0 || bounds.size.height <= 0.0 {
         return None;
     }
-    Some((bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height))
+    Some((
+        bounds.origin.x,
+        bounds.origin.y,
+        bounds.size.width,
+        bounds.size.height,
+    ))
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -917,7 +926,11 @@ pub fn parse_stopped(line: &str) -> Option<StoppedInfo> {
         width: val.get("width").and_then(|v| v.as_i64()).unwrap_or(0),
         height: val.get("height").and_then(|v| v.as_i64()).unwrap_or(0),
         size: val.get("size").and_then(|v| v.as_i64()).unwrap_or(0),
-        thumb: val.get("thumb").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        thumb: val
+            .get("thumb")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
         events_path,
         n_events: val.get("n_events").and_then(|v| v.as_i64()),
         n_clicks: val.get("n_clicks").and_then(|v| v.as_i64()),
@@ -1004,7 +1017,10 @@ pub fn export(in_path: &Path, out_path: &Path, quality: &str) -> Result<ExportDo
             }
         }
     }
-    Err(format!("export produced no output (exit {:?})", out.status.code()))
+    Err(format!(
+        "export produced no output (exit {:?})",
+        out.status.code()
+    ))
 }
 
 /// Resolve the bundled `echo-scribe-screenrec` sidecar, falling back to the
@@ -1044,8 +1060,7 @@ fn resolve_binary() -> std::io::Result<PathBuf> {
 pub fn recordings_dir() -> std::io::Result<PathBuf> {
     let home = std::env::var("HOME")
         .map_err(|_| std::io::Error::new(std::io::ErrorKind::NotFound, "HOME not set"))?;
-    let dir = PathBuf::from(home)
-        .join("Library/Application Support/EchoScribe/recordings");
+    let dir = PathBuf::from(home).join("Library/Application Support/EchoScribe/recordings");
     std::fs::create_dir_all(&dir)?;
     Ok(dir)
 }
@@ -1250,7 +1265,12 @@ impl ScreenrecHandle {
         });
 
         match ready_rx.recv_timeout(Duration::from_secs(5)) {
-            Ok(Ok(())) => Ok(Self { child, out_path, stopped_rx: rx, paused }),
+            Ok(Ok(())) => Ok(Self {
+                child,
+                out_path,
+                stopped_rx: rx,
+                paused,
+            }),
             Ok(Err(e)) => {
                 let _ = child.kill();
                 let _ = child.wait();
@@ -1453,19 +1473,28 @@ mod tests {
 
     #[test]
     fn parse_pause_event_reads_paused() {
-        assert_eq!(parse_pause_event(r#"{"event":"paused"}"#), Some(PauseEvent::Paused));
+        assert_eq!(
+            parse_pause_event(r#"{"event":"paused"}"#),
+            Some(PauseEvent::Paused)
+        );
     }
 
     #[test]
     fn parse_pause_event_reads_resumed() {
-        assert_eq!(parse_pause_event(r#"{"event":"resumed"}"#), Some(PauseEvent::Resumed));
+        assert_eq!(
+            parse_pause_event(r#"{"event":"resumed"}"#),
+            Some(PauseEvent::Resumed)
+        );
     }
 
     #[test]
     fn parse_pause_event_ignores_other_events() {
         // Heartbeats (even with the new paused:true field), stopped, ready, and
         // malformed lines are NOT pause transitions.
-        assert!(parse_pause_event(r#"{"event":"heartbeat","ts":1.0,"dur_ms":10,"paused":true}"#).is_none());
+        assert!(
+            parse_pause_event(r#"{"event":"heartbeat","ts":1.0,"dur_ms":10,"paused":true}"#)
+                .is_none()
+        );
         assert!(parse_pause_event(r#"{"event":"stopped","path":"/a.mp4","dur_ms":1}"#).is_none());
         assert!(parse_pause_event(r#"{"event":"ready"}"#).is_none());
         assert!(parse_pause_event("not json").is_none());
@@ -1591,17 +1620,32 @@ mod tests {
     fn clamp_rect_zero_area_after_clamp_is_none() {
         let display = (0.0, 0.0, 1920.0, 1080.0);
         // Origin at/after the far edge -> nothing left to capture.
-        assert_eq!(clamp_rect_to_display((1920.0, 0.0, 100.0, 100.0), display), None);
-        assert_eq!(clamp_rect_to_display((0.0, 1080.0, 100.0, 100.0), display), None);
+        assert_eq!(
+            clamp_rect_to_display((1920.0, 0.0, 100.0, 100.0), display),
+            None
+        );
+        assert_eq!(
+            clamp_rect_to_display((0.0, 1080.0, 100.0, 100.0), display),
+            None
+        );
         // Origin entirely off the near side by more than its size -> empty.
-        assert_eq!(clamp_rect_to_display((-500.0, 0.0, 400.0, 100.0), display), None);
+        assert_eq!(
+            clamp_rect_to_display((-500.0, 0.0, 400.0, 100.0), display),
+            None
+        );
     }
 
     #[test]
     fn clamp_rect_nonpositive_input_size_is_none() {
         let display = (0.0, 0.0, 1920.0, 1080.0);
-        assert_eq!(clamp_rect_to_display((10.0, 10.0, 0.0, 100.0), display), None);
-        assert_eq!(clamp_rect_to_display((10.0, 10.0, 100.0, -5.0), display), None);
+        assert_eq!(
+            clamp_rect_to_display((10.0, 10.0, 0.0, 100.0), display),
+            None
+        );
+        assert_eq!(
+            clamp_rect_to_display((10.0, 10.0, 100.0, -5.0), display),
+            None
+        );
     }
 
     // ---- display_bounds ---------------------------------------------------
@@ -1680,10 +1724,7 @@ mod tests {
         for &s in samples {
             out.extend_from_slice(&s.to_le_bytes());
         }
-        let p = std::env::temp_dir().join(format!(
-            "es-trimtest-{name}-{}.wav",
-            std::process::id()
-        ));
+        let p = std::env::temp_dir().join(format!("es-trimtest-{name}-{}.wav", std::process::id()));
         std::fs::write(&p, &out).unwrap();
         p
     }
@@ -1764,8 +1805,16 @@ mod tests {
     #[test]
     fn clamp_ranges_passthrough_when_within_len() {
         let ranges = [
-            SpeedRangeSamples { start_ms: 100, end_ms: 300, rate: 2.0 },
-            SpeedRangeSamples { start_ms: 600, end_ms: 800, rate: 0.5 },
+            SpeedRangeSamples {
+                start_ms: 100,
+                end_ms: 300,
+                rate: 2.0,
+            },
+            SpeedRangeSamples {
+                start_ms: 600,
+                end_ms: 800,
+                rate: 0.5,
+            },
         ];
         let got = clamp_ranges_to_len(&ranges, 1000);
         assert_eq!(got, ranges);
@@ -1773,21 +1822,40 @@ mod tests {
 
     #[test]
     fn clamp_ranges_truncates_end_past_len() {
-        let ranges = [SpeedRangeSamples { start_ms: 100, end_ms: 900, rate: 2.0 }];
+        let ranges = [SpeedRangeSamples {
+            start_ms: 100,
+            end_ms: 900,
+            rate: 2.0,
+        }];
         let got = clamp_ranges_to_len(&ranges, 500);
-        assert_eq!(got, vec![SpeedRangeSamples { start_ms: 100, end_ms: 500, rate: 2.0 }]);
+        assert_eq!(
+            got,
+            vec![SpeedRangeSamples {
+                start_ms: 100,
+                end_ms: 500,
+                rate: 2.0
+            }]
+        );
     }
 
     #[test]
     fn clamp_ranges_drops_range_starting_at_len() {
-        let ranges = [SpeedRangeSamples { start_ms: 500, end_ms: 900, rate: 2.0 }];
+        let ranges = [SpeedRangeSamples {
+            start_ms: 500,
+            end_ms: 900,
+            rate: 2.0,
+        }];
         let got = clamp_ranges_to_len(&ranges, 500);
         assert!(got.is_empty());
     }
 
     #[test]
     fn clamp_ranges_drops_range_starting_past_len() {
-        let ranges = [SpeedRangeSamples { start_ms: 600, end_ms: 900, rate: 2.0 }];
+        let ranges = [SpeedRangeSamples {
+            start_ms: 600,
+            end_ms: 900,
+            rate: 2.0,
+        }];
         let got = clamp_ranges_to_len(&ranges, 500);
         assert!(got.is_empty());
     }
@@ -1795,16 +1863,36 @@ mod tests {
     #[test]
     fn clamp_ranges_mixed_keeps_and_truncates_and_drops() {
         let ranges = [
-            SpeedRangeSamples { start_ms: 0, end_ms: 100, rate: 2.0 }, // untouched
-            SpeedRangeSamples { start_ms: 400, end_ms: 900, rate: 1.5 }, // truncated
-            SpeedRangeSamples { start_ms: 950, end_ms: 1200, rate: 3.0 }, // dropped
+            SpeedRangeSamples {
+                start_ms: 0,
+                end_ms: 100,
+                rate: 2.0,
+            }, // untouched
+            SpeedRangeSamples {
+                start_ms: 400,
+                end_ms: 900,
+                rate: 1.5,
+            }, // truncated
+            SpeedRangeSamples {
+                start_ms: 950,
+                end_ms: 1200,
+                rate: 3.0,
+            }, // dropped
         ];
         let got = clamp_ranges_to_len(&ranges, 500);
         assert_eq!(
             got,
             vec![
-                SpeedRangeSamples { start_ms: 0, end_ms: 100, rate: 2.0 },
-                SpeedRangeSamples { start_ms: 400, end_ms: 500, rate: 1.5 },
+                SpeedRangeSamples {
+                    start_ms: 0,
+                    end_ms: 100,
+                    rate: 2.0
+                },
+                SpeedRangeSamples {
+                    start_ms: 400,
+                    end_ms: 500,
+                    rate: 1.5
+                },
             ]
         );
     }
@@ -1838,7 +1926,16 @@ mod tests {
         let samples: Vec<i16> = (0..1000).map(|i| i as i16).collect();
         let src = write_test_wav("retime-2x-in", 1000, &samples);
         let dst = write_test_wav("retime-2x-out", 1000, &[]);
-        retime_wav_samples(&src, &dst, &[SpeedRangeSamples { start_ms: 200, end_ms: 600, rate: 2.0 }]).unwrap();
+        retime_wav_samples(
+            &src,
+            &dst,
+            &[SpeedRangeSamples {
+                start_ms: 200,
+                end_ms: 600,
+                rate: 2.0,
+            }],
+        )
+        .unwrap();
         let got = read_test_wav_samples(&dst);
         assert_eq!(got.len(), 800);
         // Untouched leading region is verbatim.
@@ -1858,7 +1955,16 @@ mod tests {
         let samples: Vec<i16> = (0..1000).map(|i| i as i16).collect();
         let src = write_test_wav("retime-half-in", 1000, &samples);
         let dst = write_test_wav("retime-half-out", 1000, &[]);
-        retime_wav_samples(&src, &dst, &[SpeedRangeSamples { start_ms: 0, end_ms: 1000, rate: 0.5 }]).unwrap();
+        retime_wav_samples(
+            &src,
+            &dst,
+            &[SpeedRangeSamples {
+                start_ms: 0,
+                end_ms: 1000,
+                rate: 0.5,
+            }],
+        )
+        .unwrap();
         let got = read_test_wav_samples(&dst);
         assert_eq!(got.len(), 2000);
         // First and last samples are anchored (linear interp endpoints).
@@ -1878,8 +1984,16 @@ mod tests {
             &src,
             &dst,
             &[
-                SpeedRangeSamples { start_ms: 200, end_ms: 400, rate: 2.0 },
-                SpeedRangeSamples { start_ms: 600, end_ms: 800, rate: 2.0 },
+                SpeedRangeSamples {
+                    start_ms: 200,
+                    end_ms: 400,
+                    rate: 2.0,
+                },
+                SpeedRangeSamples {
+                    start_ms: 600,
+                    end_ms: 800,
+                    rate: 2.0,
+                },
             ],
         )
         .unwrap();
@@ -1907,12 +2021,23 @@ mod tests {
             &src,
             &dst,
             &[
-                SpeedRangeSamples { start_ms: 100, end_ms: 500, rate: 2.0 },
-                SpeedRangeSamples { start_ms: 400, end_ms: 800, rate: 2.0 },
+                SpeedRangeSamples {
+                    start_ms: 100,
+                    end_ms: 500,
+                    rate: 2.0,
+                },
+                SpeedRangeSamples {
+                    start_ms: 400,
+                    end_ms: 800,
+                    rate: 2.0,
+                },
             ],
         )
         .unwrap_err();
-        assert!(err.contains("overlap") || err.contains("sorted"), "got: {err}");
+        assert!(
+            err.contains("overlap") || err.contains("sorted"),
+            "got: {err}"
+        );
         let _ = std::fs::remove_file(&src);
         let _ = std::fs::remove_file(&dst);
     }
@@ -1926,12 +2051,23 @@ mod tests {
             &src,
             &dst,
             &[
-                SpeedRangeSamples { start_ms: 600, end_ms: 800, rate: 2.0 },
-                SpeedRangeSamples { start_ms: 100, end_ms: 300, rate: 2.0 },
+                SpeedRangeSamples {
+                    start_ms: 600,
+                    end_ms: 800,
+                    rate: 2.0,
+                },
+                SpeedRangeSamples {
+                    start_ms: 100,
+                    end_ms: 300,
+                    rate: 2.0,
+                },
             ],
         )
         .unwrap_err();
-        assert!(err.contains("sorted") || err.contains("overlap"), "got: {err}");
+        assert!(
+            err.contains("sorted") || err.contains("overlap"),
+            "got: {err}"
+        );
         let _ = std::fs::remove_file(&src);
         let _ = std::fs::remove_file(&dst);
     }
@@ -1949,7 +2085,11 @@ mod tests {
         retime_wav_samples(
             &src,
             &dst,
-            &[SpeedRangeSamples { start_ms: 100, end_ms: 900, rate: 2.0 }],
+            &[SpeedRangeSamples {
+                start_ms: 100,
+                end_ms: 900,
+                rate: 2.0,
+            }],
         )
         .unwrap();
         let got = read_test_wav_samples(&dst);
@@ -1972,7 +2112,11 @@ mod tests {
         retime_wav_samples(
             &src,
             &dst,
-            &[SpeedRangeSamples { start_ms: 500, end_ms: 900, rate: 2.0 }],
+            &[SpeedRangeSamples {
+                start_ms: 500,
+                end_ms: 900,
+                rate: 2.0,
+            }],
         )
         .unwrap();
         let got = read_test_wav_samples(&dst);
@@ -1994,8 +2138,16 @@ mod tests {
             &src,
             &dst,
             &[
-                SpeedRangeSamples { start_ms: 100, end_ms: 300, rate: 2.0 },
-                SpeedRangeSamples { start_ms: 600, end_ms: 900, rate: 2.0 },
+                SpeedRangeSamples {
+                    start_ms: 100,
+                    end_ms: 300,
+                    rate: 2.0,
+                },
+                SpeedRangeSamples {
+                    start_ms: 600,
+                    end_ms: 900,
+                    rate: 2.0,
+                },
             ],
         )
         .unwrap();
@@ -2022,12 +2174,23 @@ mod tests {
             &[
                 // Both extend past the 500ms data end and get clamped to
                 // end_ms=500, which makes them overlap/duplicate.
-                SpeedRangeSamples { start_ms: 100, end_ms: 900, rate: 2.0 },
-                SpeedRangeSamples { start_ms: 300, end_ms: 950, rate: 2.0 },
+                SpeedRangeSamples {
+                    start_ms: 100,
+                    end_ms: 900,
+                    rate: 2.0,
+                },
+                SpeedRangeSamples {
+                    start_ms: 300,
+                    end_ms: 950,
+                    rate: 2.0,
+                },
             ],
         )
         .unwrap_err();
-        assert!(err.contains("overlap") || err.contains("sorted"), "got: {err}");
+        assert!(
+            err.contains("overlap") || err.contains("sorted"),
+            "got: {err}"
+        );
         let _ = std::fs::remove_file(&src);
         let _ = std::fs::remove_file(&dst);
     }
@@ -2040,7 +2203,11 @@ mod tests {
         let err = retime_wav_samples(
             &src,
             &dst,
-            &[SpeedRangeSamples { start_ms: 100, end_ms: 300, rate: 0.0 }],
+            &[SpeedRangeSamples {
+                start_ms: 100,
+                end_ms: 300,
+                rate: 0.0,
+            }],
         )
         .unwrap_err();
         assert!(err.contains("rate"), "got: {err}");
@@ -2086,7 +2253,9 @@ mod tests {
             .map(|i| {
                 let t = i as f64 / sr;
                 let v = amp * (2.0 * std::f64::consts::PI * 220.0 * t).sin();
-                (v * i16::MAX as f64).round().clamp(i16::MIN as f64, i16::MAX as f64) as i16
+                (v * i16::MAX as f64)
+                    .round()
+                    .clamp(i16::MIN as f64, i16::MAX as f64) as i16
             })
             .collect()
     }
@@ -2122,7 +2291,11 @@ mod tests {
         let dst = write_test_wav("norm-quiet-out", 48_000, &[]);
         let report = normalize_wav_loudness(&src, &dst).unwrap();
         let got = read_test_wav_samples(&dst);
-        assert!(report.gain > 1.5, "quiet input should be boosted, gain={}", report.gain);
+        assert!(
+            report.gain > 1.5,
+            "quiet input should be boosted, gain={}",
+            report.gain
+        );
         let out_rms = rms_dbfs(&got);
         assert!(
             (out_rms - (-16.0)).abs() < 1.5,
@@ -2141,10 +2314,17 @@ mod tests {
         let dst = write_test_wav("norm-hot-out", 48_000, &[]);
         let report = normalize_wav_loudness(&src, &dst).unwrap();
         let got = read_test_wav_samples(&dst);
-        assert!(report.gain < 1.0, "hot input should be attenuated, gain={}", report.gain);
+        assert!(
+            report.gain < 1.0,
+            "hot input should be attenuated, gain={}",
+            report.gain
+        );
         let in_rms = rms_dbfs(&samples);
         let out_rms = rms_dbfs(&got);
-        assert!(out_rms < in_rms, "hot output RMS ({out_rms}) should be lower than input ({in_rms})");
+        assert!(
+            out_rms < in_rms,
+            "hot output RMS ({out_rms}) should be lower than input ({in_rms})"
+        );
         let _ = std::fs::remove_file(&src);
         let _ = std::fs::remove_file(&dst);
     }
@@ -2205,7 +2385,9 @@ mod tests {
             .map(|i| {
                 let t = i as f64 / sr as f64;
                 let v = base_amp * (2.0 * std::f64::consts::PI * 220.0 * t).sin();
-                (v * i16::MAX as f64).round().clamp(i16::MIN as f64, i16::MAX as f64) as i16
+                (v * i16::MAX as f64)
+                    .round()
+                    .clamp(i16::MIN as f64, i16::MAX as f64) as i16
             })
             .collect();
         let mut start = 0usize;
@@ -2288,7 +2470,11 @@ mod tests {
         let dst = write_test_wav("mix-gain-out", 48_000, &[]);
         mix_wav_samples(&voice_src, &music_src, &dst, 0.25).unwrap();
         let got = read_test_wav_samples(&dst);
-        assert_eq!(got, vec![1500i16; 1000], "music must be scaled by gain before summing");
+        assert_eq!(
+            got,
+            vec![1500i16; 1000],
+            "music must be scaled by gain before summing"
+        );
         let _ = std::fs::remove_file(&voice_src);
         let _ = std::fs::remove_file(&music_src);
         let _ = std::fs::remove_file(&dst);
@@ -2305,7 +2491,10 @@ mod tests {
         let dst = write_test_wav("mix-clamp-pos-out", 48_000, &[]);
         mix_wav_samples(&voice_src, &music_src, &dst, 1.0).unwrap();
         let got = read_test_wav_samples(&dst);
-        assert!(got.iter().all(|&s| s == i16::MAX), "sum must clamp to i16::MAX, not wrap");
+        assert!(
+            got.iter().all(|&s| s == i16::MAX),
+            "sum must clamp to i16::MAX, not wrap"
+        );
 
         // Symmetric check on the negative rail.
         let voice_neg = vec![i16::MIN; 100];
@@ -2315,7 +2504,10 @@ mod tests {
         let dst2 = write_test_wav("mix-clamp-neg-out", 48_000, &[]);
         mix_wav_samples(&voice_src2, &music_src2, &dst2, 1.0).unwrap();
         let got_neg = read_test_wav_samples(&dst2);
-        assert!(got_neg.iter().all(|&s| s == i16::MIN), "sum must clamp to i16::MIN, not wrap");
+        assert!(
+            got_neg.iter().all(|&s| s == i16::MIN),
+            "sum must clamp to i16::MIN, not wrap"
+        );
 
         let _ = std::fs::remove_file(&voice_src);
         let _ = std::fs::remove_file(&music_src);
@@ -2336,8 +2528,15 @@ mod tests {
         let dst = write_test_wav("mix-trunc-out", 48_000, &[]);
         mix_wav_samples(&voice_src, &music_src, &dst, 1.0).unwrap();
         let got = read_test_wav_samples(&dst);
-        assert_eq!(got.len(), voice.len(), "output length must equal voice length");
-        assert!(got.iter().all(|&s| s == 300), "every sample should be voice+music*gain");
+        assert_eq!(
+            got.len(),
+            voice.len(),
+            "output length must equal voice length"
+        );
+        assert!(
+            got.iter().all(|&s| s == 300),
+            "every sample should be voice+music*gain"
+        );
         let _ = std::fs::remove_file(&voice_src);
         let _ = std::fs::remove_file(&music_src);
         let _ = std::fs::remove_file(&dst);
@@ -2357,9 +2556,15 @@ mod tests {
         let got = read_test_wav_samples(&dst);
         assert_eq!(got.len(), voice.len());
         // First 300 samples are mixed (50 + 400 = 450).
-        assert!(got[0..300].iter().all(|&s| s == 450), "overlap region must be mixed");
+        assert!(
+            got[0..300].iter().all(|&s| s == 450),
+            "overlap region must be mixed"
+        );
         // Remaining 700 samples are voice-only (music never loops to fill).
-        assert!(got[300..].iter().all(|&s| s == 50), "tail beyond music length must be voice-only");
+        assert!(
+            got[300..].iter().all(|&s| s == 50),
+            "tail beyond music length must be voice-only"
+        );
         let _ = std::fs::remove_file(&voice_src);
         let _ = std::fs::remove_file(&music_src);
         let _ = std::fs::remove_file(&dst);
@@ -2376,7 +2581,10 @@ mod tests {
         let music_src = write_test_wav("mix-rate-music", 44_100, &music);
         let dst = write_test_wav("mix-rate-out", 48_000, &[]);
         let err = mix_wav_samples(&voice_src, &music_src, &dst, 1.0).unwrap_err();
-        assert!(err.contains("sample-rate"), "error should mention the sample-rate mismatch: {err}");
+        assert!(
+            err.contains("sample-rate"),
+            "error should mention the sample-rate mismatch: {err}"
+        );
         let _ = std::fs::remove_file(&voice_src);
         let _ = std::fs::remove_file(&music_src);
         let _ = std::fs::remove_file(&dst);

@@ -239,12 +239,19 @@ mod tests {
     #[test]
     fn csv_escapes_commas_quotes_newlines() {
         let entries = vec![entry(
-            make_item("a", Some(ItemKind::Note), "line one, with \"quotes\"\nline two"),
+            make_item(
+                "a",
+                Some(ItemKind::Note),
+                "line one, with \"quotes\"\nline two",
+            ),
             Some("Acme, Inc"),
         )];
         let csv = render_csv(&entries);
         let mut lines = csv.lines();
-        assert_eq!(lines.next(), Some("captured_at,kind,project,source,content"));
+        assert_eq!(
+            lines.next(),
+            Some("captured_at,kind,project,source,content")
+        );
         let row = &csv[csv.find('\n').unwrap() + 1..];
         assert!(row.contains("\"Acme, Inc\""));
         assert!(row.contains("\"line one, with \"\"quotes\"\"\nline two\""));

@@ -177,8 +177,7 @@ impl Pipeline {
                         }
                         builder.lock().await.set_last_text(chunk.speaker, "");
                         let _ = tokio::fs::create_dir_all(&failed_dir).await;
-                        let dest =
-                            failed_dir.join(chunk.path.file_name().unwrap_or_default());
+                        let dest = failed_dir.join(chunk.path.file_name().unwrap_or_default());
                         let _ = tokio::fs::rename(&chunk.path, &dest).await;
                         builder.lock().await.failed.push(dest);
                         continue;
@@ -245,8 +244,7 @@ impl Pipeline {
                         }
                         builder.lock().await.set_last_text(chunk.speaker, "");
                         let _ = tokio::fs::create_dir_all(&failed_dir).await;
-                        let dest =
-                            failed_dir.join(chunk.path.file_name().unwrap_or_default());
+                        let dest = failed_dir.join(chunk.path.file_name().unwrap_or_default());
                         let _ = tokio::fs::rename(&chunk.path, &dest).await;
                         builder.lock().await.failed.push(dest);
                     }
@@ -291,8 +289,7 @@ mod tests {
         let cb: SegmentObserver = Arc::new(move |_seg| {
             count_for_cb.fetch_add(1, Ordering::Relaxed);
         });
-        let p = Pipeline::new(asr, std::path::PathBuf::from("/tmp/fail"))
-            .with_observer(cb);
+        let p = Pipeline::new(asr, std::path::PathBuf::from("/tmp/fail")).with_observer(cb);
         if let Some(cb) = &p.on_segment {
             cb(Segment {
                 speaker: Speaker::You,

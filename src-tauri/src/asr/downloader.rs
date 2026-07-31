@@ -93,8 +93,12 @@ pub fn migrate_legacy_model_dirs() {
         // If new_dir exists but is empty, remove it before rename.
         let _ = std::fs::remove_dir(&new_dir);
         match std::fs::rename(&old_dir, &new_dir) {
-            Ok(()) => info!(from = %old_dir.display(), to = %new_dir.display(), "migrated legacy model dir"),
-            Err(e) => warn!(error = %e, from = %old_dir.display(), to = %new_dir.display(), "legacy model dir migration failed"),
+            Ok(()) => {
+                info!(from = %old_dir.display(), to = %new_dir.display(), "migrated legacy model dir")
+            }
+            Err(e) => {
+                warn!(error = %e, from = %old_dir.display(), to = %new_dir.display(), "legacy model dir migration failed")
+            }
         }
     }
 }
@@ -148,8 +152,16 @@ where
             continue;
         }
 
-        cumulative = download_one(&client, file, target_dir, &entry.id, total, cumulative, &on_progress)
-            .await?;
+        cumulative = download_one(
+            &client,
+            file,
+            target_dir,
+            &entry.id,
+            total,
+            cumulative,
+            &on_progress,
+        )
+        .await?;
     }
 
     info!(model = %entry.id, "model fully downloaded");
@@ -173,11 +185,7 @@ where
 
     info!(model = %model_id, file = %file.name, url = %file.url, "downloading");
 
-    let resp = client
-        .get(&file.url)
-        .send()
-        .await?
-        .error_for_status()?;
+    let resp = client.get(&file.url).send().await?.error_for_status()?;
 
     let mut stream = resp.bytes_stream();
     let mut out = fs::File::create(&partial_path).await?;

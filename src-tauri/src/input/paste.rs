@@ -61,7 +61,10 @@ pub fn copy_to_clipboard(text: &str) -> Result<(), PasteError> {
     clipboard
         .set_text(text)
         .map_err(|e| PasteError::Clipboard(e.to_string()))?;
-    info!(len = text.len(), "copied transcript to clipboard (no synthetic paste)");
+    info!(
+        len = text.len(),
+        "copied transcript to clipboard (no synthetic paste)"
+    );
     Ok(())
 }
 
@@ -116,7 +119,11 @@ pub fn paste_at_cursor_with_options(text: &str, restore_clipboard: bool) -> Resu
     }
     if let Some(original_text) = original {
         let delay = restore_delay_ms(text.len());
-        info!(delay_ms = delay, text_len = text.len(), "waiting before clipboard restore");
+        info!(
+            delay_ms = delay,
+            text_len = text.len(),
+            "waiting before clipboard restore"
+        );
         thread::sleep(Duration::from_millis(delay));
         // Best-effort restore — don't fail the transcription if this errors.
         match clipboard.set_text(&original_text) {
@@ -314,7 +321,10 @@ mod tests {
         // Long text: delay grows but stays capped.
         let long = restore_delay_ms(5000);
         assert!(long > short, "long text should have longer delay");
-        assert!(long <= RESTORE_DELAY_MAX_MS, "delay must not exceed cap: {long}");
+        assert!(
+            long <= RESTORE_DELAY_MAX_MS,
+            "delay must not exceed cap: {long}"
+        );
 
         // Cap is always enforced.
         assert_eq!(restore_delay_ms(usize::MAX), RESTORE_DELAY_MAX_MS);
@@ -328,10 +338,16 @@ mod tests {
             Some("selected text".to_string())
         );
         // Nothing selected → Cmd+C leaves clipboard unchanged → None.
-        assert_eq!(selection_from_clipboard_delta(Some("old"), Some("old")), None);
+        assert_eq!(
+            selection_from_clipboard_delta(Some("old"), Some("old")),
+            None
+        );
         // Empty after → None.
         assert_eq!(selection_from_clipboard_delta(Some("old"), Some("")), None);
         // Previously-empty clipboard, now populated → Some.
-        assert_eq!(selection_from_clipboard_delta(None, Some("x")), Some("x".to_string()));
+        assert_eq!(
+            selection_from_clipboard_delta(None, Some("x")),
+            Some("x".to_string())
+        );
     }
 }

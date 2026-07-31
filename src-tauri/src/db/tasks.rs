@@ -25,9 +25,8 @@ pub fn upsert_task(conn: &Connection, t: &Task) -> Result<(), DbError> {
 }
 
 pub fn get_task(conn: &Connection, item_id: &str) -> Result<Option<Task>, DbError> {
-    let mut stmt = conn.prepare(
-        "SELECT item_id, deadline, completed_at FROM tasks WHERE item_id = ?1",
-    )?;
+    let mut stmt =
+        conn.prepare("SELECT item_id, deadline, completed_at FROM tasks WHERE item_id = ?1")?;
     let mut rows = stmt.query(params![item_id])?;
     if let Some(row) = rows.next()? {
         Ok(Some(Task {
@@ -112,7 +111,9 @@ pub fn list_tasks(
     } else {
         sql.push_str(" AND (tasks.completed_at IS NULL OR tasks.completed_at IS NULL)");
         // Order: deadline asc with nulls last, then captured_at desc.
-        sql.push_str(" ORDER BY (tasks.deadline IS NULL) ASC, tasks.deadline ASC, items.captured_at DESC");
+        sql.push_str(
+            " ORDER BY (tasks.deadline IS NULL) ASC, tasks.deadline ASC, items.captured_at DESC",
+        );
     }
     let mut stmt = conn.prepare(&sql)?;
     let params_refs: Vec<&dyn rusqlite::ToSql> = args.iter().map(|b| b.as_ref()).collect();
@@ -169,9 +170,33 @@ mod tests {
         insert_item(&c, &task_item("c", "2026-05-03T00:00:00Z")).unwrap();
 
         // a: late deadline. b: no deadline. c: early deadline.
-        upsert_task(&c, &Task { item_id: "a".into(), deadline: Some("2026-06-10T00:00:00Z".into()), completed_at: None }).unwrap();
-        upsert_task(&c, &Task { item_id: "b".into(), deadline: None, completed_at: None }).unwrap();
-        upsert_task(&c, &Task { item_id: "c".into(), deadline: Some("2026-05-15T00:00:00Z".into()), completed_at: None }).unwrap();
+        upsert_task(
+            &c,
+            &Task {
+                item_id: "a".into(),
+                deadline: Some("2026-06-10T00:00:00Z".into()),
+                completed_at: None,
+            },
+        )
+        .unwrap();
+        upsert_task(
+            &c,
+            &Task {
+                item_id: "b".into(),
+                deadline: None,
+                completed_at: None,
+            },
+        )
+        .unwrap();
+        upsert_task(
+            &c,
+            &Task {
+                item_id: "c".into(),
+                deadline: Some("2026-05-15T00:00:00Z".into()),
+                completed_at: None,
+            },
+        )
+        .unwrap();
 
         let tasks = list_tasks(&c, false, None).unwrap();
         let ids: Vec<_> = tasks.iter().map(|t| t.item.id.as_str()).collect();
@@ -184,8 +209,24 @@ mod tests {
         let c = fresh();
         insert_item(&c, &task_item("a", "2026-05-01T00:00:00Z")).unwrap();
         insert_item(&c, &task_item("b", "2026-05-02T00:00:00Z")).unwrap();
-        upsert_task(&c, &Task { item_id: "a".into(), deadline: None, completed_at: Some("2026-05-05T00:00:00Z".into()) }).unwrap();
-        upsert_task(&c, &Task { item_id: "b".into(), deadline: None, completed_at: Some("2026-05-06T00:00:00Z".into()) }).unwrap();
+        upsert_task(
+            &c,
+            &Task {
+                item_id: "a".into(),
+                deadline: None,
+                completed_at: Some("2026-05-05T00:00:00Z".into()),
+            },
+        )
+        .unwrap();
+        upsert_task(
+            &c,
+            &Task {
+                item_id: "b".into(),
+                deadline: None,
+                completed_at: Some("2026-05-06T00:00:00Z".into()),
+            },
+        )
+        .unwrap();
         let tasks = list_tasks(&c, true, None).unwrap();
         let ids: Vec<_> = tasks.iter().map(|t| t.item.id.as_str()).collect();
         assert_eq!(ids, vec!["b", "a"]);
@@ -237,8 +278,24 @@ mod tests {
         b.project_id = Some("p2".into());
         insert_item(&c, &a).unwrap();
         insert_item(&c, &b).unwrap();
-        upsert_task(&c, &Task { item_id: "a".into(), deadline: None, completed_at: None }).unwrap();
-        upsert_task(&c, &Task { item_id: "b".into(), deadline: None, completed_at: None }).unwrap();
+        upsert_task(
+            &c,
+            &Task {
+                item_id: "a".into(),
+                deadline: None,
+                completed_at: None,
+            },
+        )
+        .unwrap();
+        upsert_task(
+            &c,
+            &Task {
+                item_id: "b".into(),
+                deadline: None,
+                completed_at: None,
+            },
+        )
+        .unwrap();
 
         let only_p1 = list_tasks(&c, false, Some("p1")).unwrap();
         assert_eq!(only_p1.len(), 1);

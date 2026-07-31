@@ -397,7 +397,11 @@ mod tests {
 
         set_denoised_path(&conn, "rec-1", Some("/tmp/rec-1.cleaned.mp4")).unwrap();
         assert_eq!(
-            get(&conn, "rec-1").unwrap().unwrap().denoised_path.as_deref(),
+            get(&conn, "rec-1")
+                .unwrap()
+                .unwrap()
+                .denoised_path
+                .as_deref(),
             Some("/tmp/rec-1.cleaned.mp4")
         );
 
@@ -494,7 +498,11 @@ mod tests {
         let json = r#"{"v":1,"trim":{"startMs":0,"endMs":5000}}"#;
         set_project_json(&conn, "rec-1", json).unwrap();
         assert_eq!(
-            get(&conn, "rec-1").unwrap().unwrap().project_json.as_deref(),
+            get(&conn, "rec-1")
+                .unwrap()
+                .unwrap()
+                .project_json
+                .as_deref(),
             Some(json)
         );
     }
@@ -505,7 +513,10 @@ mod tests {
         insert(&conn, &sample()).unwrap();
 
         update_upload_status(&conn, "rec-1", "uploading", None).unwrap();
-        assert_eq!(get(&conn, "rec-1").unwrap().unwrap().upload_status, "uploading");
+        assert_eq!(
+            get(&conn, "rec-1").unwrap().unwrap().upload_status,
+            "uploading"
+        );
 
         update_drive_link(&conn, "rec-1", "fid-9", "https://drive.example/abc").unwrap();
         let got = get(&conn, "rec-1").unwrap().unwrap();

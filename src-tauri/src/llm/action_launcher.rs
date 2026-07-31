@@ -3,7 +3,6 @@ use std::process::Command;
 use tauri::{AppHandle, Manager};
 use tracing::{debug, info, warn};
 
-
 use crate::commands::AppState;
 use crate::llm::{GenerateRequest, LlmError, LlmGenerator};
 use crate::settings::FormatTemplate;
@@ -84,7 +83,9 @@ fn build_action_system_prompt(templates: &[FormatTemplate]) -> String {
             ));
         }
     } else {
-        out.push_str("\n\nAvailable format templates: (none configured — do not classify as format_text)");
+        out.push_str(
+            "\n\nAvailable format templates: (none configured — do not classify as format_text)",
+        );
     }
     out.push_str(ACTION_SYSTEM_PROMPT_TAIL);
     out
@@ -116,7 +117,10 @@ pub async fn detect_action<L: LlmGenerator + ?Sized>(
     let parsed = match parse_raw_action(&raw) {
         Ok(cmd) => cmd,
         Err(e) => {
-            warn!(?e, "action first-pass parse failed; retrying with stricter prompt");
+            warn!(
+                ?e,
+                "action first-pass parse failed; retrying with stricter prompt"
+            );
             let mut req_retry = req;
             req_retry.user = format!(
                 "{transcript}\n\n(Your previous response failed to parse: {e}. \
@@ -124,9 +128,8 @@ pub async fn detect_action<L: LlmGenerator + ?Sized>(
                  No prose, no code fences.)"
             );
             let raw2 = llm.generate(req_retry).await?;
-            parse_raw_action(&raw2).map_err(|e2| {
-                ActionError::Parse(format!("primary: {e}; retry: {e2}"))
-            })?
+            parse_raw_action(&raw2)
+                .map_err(|e2| ActionError::Parse(format!("primary: {e}; retry: {e2}")))?
         }
     };
 
@@ -134,8 +137,12 @@ pub async fn detect_action<L: LlmGenerator + ?Sized>(
 }
 
 fn parse_raw_action(raw: &str) -> Result<ActionCommand, String> {
-    let start = raw.find('{').ok_or_else(|| "no '{' in output".to_string())?;
-    let end = raw.rfind('}').ok_or_else(|| "no '}' in output".to_string())?;
+    let start = raw
+        .find('{')
+        .ok_or_else(|| "no '{' in output".to_string())?;
+    let end = raw
+        .rfind('}')
+        .ok_or_else(|| "no '}' in output".to_string())?;
     if end <= start {
         return Err(format!("malformed braces: start={start} end={end}"));
     }
@@ -150,10 +157,11 @@ pub fn execute_action(app: &AppHandle, cmd: &ActionCommand) -> Result<String, Ac
 
     match action_type {
         "launch_app" => {
-            let app_name = cmd.app_name.as_deref().ok_or_else(|| {
-                ActionError::Execute("launch_app missing app_name".to_string())
-            })?;
-            
+            let app_name = cmd
+                .app_name
+                .as_deref()
+                .ok_or_else(|| ActionError::Execute("launch_app missing app_name".to_string()))?;
+
             // On macOS, `open -a` is standard, robust, and handles spaces perfectly.
             let status = Command::new("open")
                 .arg("-a")
@@ -184,7 +192,7 @@ pub fn execute_action(app: &AppHandle, cmd: &ActionCommand) -> Result<String, Ac
             // URL encode headers using percent encoding (fixes spaces turning into plus signs)
             let encoded_subject = percent_encode(subject);
             let encoded_body = percent_encode(body);
-            
+
             let mailto_url = format!(
                 "mailto:{}?subject={}&body={}",
                 normalized_to, encoded_subject, encoded_body
@@ -196,15 +204,25 @@ pub fn execute_action(app: &AppHandle, cmd: &ActionCommand) -> Result<String, Ac
                 .map_err(|e| ActionError::Execute(e.to_string()))?;
 
             if !status.success() {
-                return Err(ActionError::Execute("Failed to open mail client draft".to_string()));
+                return Err(ActionError::Execute(
+                    "Failed to open mail client draft".to_string(),
+                ));
             }
 
             increment_stats(app)?;
 
             Ok(format!(
                 "Drafted email to '{}' with subject '{}'",
-                if normalized_to.is_empty() { "default recipient".to_string() } else { normalized_to },
-                if subject.is_empty() { "no subject" } else { subject }
+                if normalized_to.is_empty() {
+                    "default recipient".to_string()
+                } else {
+                    normalized_to
+                },
+                if subject.is_empty() {
+                    "no subject"
+                } else {
+                    subject
+                }
             ))
         }
         "open_url" => {
@@ -214,7 +232,10 @@ pub fn execute_action(app: &AppHandle, cmd: &ActionCommand) -> Result<String, Ac
 
             // Simple sanitization: prepends https:// if schema is missing
             let mut sanitized_url = raw_url.to_string();
-            if !sanitized_url.starts_with("http://") && !sanitized_url.starts_with("https://") && !sanitized_url.starts_with("mailto:") {
+            if !sanitized_url.starts_with("http://")
+                && !sanitized_url.starts_with("https://")
+                && !sanitized_url.starts_with("mailto:")
+            {
                 sanitized_url = format!("https://{}", sanitized_url);
             }
 
@@ -224,7 +245,10 @@ pub fn execute_action(app: &AppHandle, cmd: &ActionCommand) -> Result<String, Ac
                 .map_err(|e| ActionError::Execute(e.to_string()))?;
 
             if !status.success() {
-                return Err(ActionError::Execute(format!("Failed to open URL '{}'", sanitized_url)));
+                return Err(ActionError::Execute(format!(
+                    "Failed to open URL '{}'",
+                    sanitized_url
+                )));
             }
 
             increment_stats(app)?;
@@ -232,20 +256,23 @@ pub fn execute_action(app: &AppHandle, cmd: &ActionCommand) -> Result<String, Ac
             Ok(format!("Opened URL '{}'", sanitized_url))
         }
         "increment_counter" => {
-            let app_state = app.try_state::<AppState>().ok_or_else(|| {
-                ActionError::Settings("app state unavailable".to_string())
-            })?;
+            let app_state = app
+                .try_state::<AppState>()
+                .ok_or_else(|| ActionError::Settings("app state unavailable".to_string()))?;
             let next_val = app_state
                 .settings
                 .increment_action_counter()
                 .map_err(|e| ActionError::Settings(e.to_string()))?;
 
-            Ok(format!("Incremented action counter. Current count: {}", next_val))
+            Ok(format!(
+                "Incremented action counter. Current count: {}",
+                next_val
+            ))
         }
         "reset_counter" => {
-            let app_state = app.try_state::<AppState>().ok_or_else(|| {
-                ActionError::Settings("app state unavailable".to_string())
-            })?;
+            let app_state = app
+                .try_state::<AppState>()
+                .ok_or_else(|| ActionError::Settings("app state unavailable".to_string()))?;
             app_state
                 .settings
                 .set_action_counter(0)
@@ -254,9 +281,9 @@ pub fn execute_action(app: &AppHandle, cmd: &ActionCommand) -> Result<String, Ac
             Ok("Action counter has been reset to 0".to_string())
         }
         "show_counter" => {
-            let app_state = app.try_state::<AppState>().ok_or_else(|| {
-                ActionError::Settings("app state unavailable".to_string())
-            })?;
+            let app_state = app
+                .try_state::<AppState>()
+                .ok_or_else(|| ActionError::Settings("app state unavailable".to_string()))?;
             let count = app_state.settings.action_counter();
 
             Ok(format!("The current action counter value is {}", count))
@@ -281,32 +308,32 @@ fn increment_stats(app: &AppHandle) -> Result<(), ActionError> {
 /// Normalize spoken email addresses that contain spelling hyphens and spaces
 pub fn normalize_spoken_email(raw: &str) -> String {
     let mut email = raw.to_lowercase();
-    
+
     // Replace spoken "@" representations
     email = email.replace(" at ", "@");
     email = email.replace(" [at] ", "@");
     email = email.replace(" (at) ", "@");
-    
+
     // Remove all whitespace
     email.retain(|c| !c.is_whitespace());
-    
+
     if let Some(pos) = email.find('@') {
         let local = &email[..pos];
         let domain = &email[pos + 1..];
-        
+
         // Count hyphens in local part
         let hyphen_count = local.chars().filter(|&c| c == '-').count();
-        
+
         // If there are multiple hyphens (e.g. 2 or more), strip all hyphens from the local part.
         let clean_local = if hyphen_count >= 2 {
             local.replace('-', "")
         } else {
             local.to_string()
         };
-        
+
         // Clean domain part (e.g. remove spelling hyphens, but usually domain is simple)
         let clean_domain = domain.replace('-', "");
-        
+
         format!("{}@{}", clean_local, clean_domain)
     } else {
         // Fallback if no @ was found: remove hyphens if it looks spelled out
@@ -372,7 +399,9 @@ pub fn strip_trigger_prefix(text: &str) -> Option<String> {
             if let Some(c) = text_lower.chars().nth(trigger_len) {
                 if c.is_whitespace() || c.is_ascii_punctuation() {
                     let remaining = &text_trimmed[trigger_len..];
-                    let remaining_trimmed = remaining.trim_start_matches(|c: char| c.is_whitespace() || c.is_ascii_punctuation());
+                    let remaining_trimmed = remaining.trim_start_matches(|c: char| {
+                        c.is_whitespace() || c.is_ascii_punctuation()
+                    });
                     return Some(remaining_trimmed.to_string());
                 }
             }

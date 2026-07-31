@@ -54,8 +54,14 @@ pub fn sanitize_edit_output(raw: &str, original: &str) -> Option<String> {
     }
     let lower = s.to_lowercase();
     const REFUSALS: &[&str] = &[
-        "i can't", "i cannot", "i'm sorry", "i am sorry",
-        "as an ai", "i'm unable", "i am unable", "i won't",
+        "i can't",
+        "i cannot",
+        "i'm sorry",
+        "i am sorry",
+        "as an ai",
+        "i'm unable",
+        "i am unable",
+        "i won't",
     ];
     if REFUSALS.iter().any(|r| lower.starts_with(r)) {
         return None;
@@ -84,10 +90,7 @@ fn strip_code_fence(s: &str) -> Option<&str> {
 fn strip_wrapping_quotes(s: &str) -> &str {
     let mut chars = s.chars();
     if let (Some(first), Some(last)) = (chars.next(), chars.next_back()) {
-        if first == last
-            && matches!(first, '"' | '\'' | '`')
-            && s.len() > first.len_utf8()
-        {
+        if first == last && matches!(first, '"' | '\'' | '`') && s.len() > first.len_utf8() {
             return &s[first.len_utf8()..s.len() - last.len_utf8()];
         }
     }
@@ -101,9 +104,19 @@ fn strip_leading_preamble(s: &str) -> &str {
         let f = first.trim().to_lowercase();
         let looks_like_preamble = f.ends_with(':')
             && f.chars().count() <= 60
-            && ["sure", "here", "here's", "certainly", "okay", "ok", "revised", "result", "output"]
-                .iter()
-                .any(|w| f.starts_with(w));
+            && [
+                "sure",
+                "here",
+                "here's",
+                "certainly",
+                "okay",
+                "ok",
+                "revised",
+                "result",
+                "output",
+            ]
+            .iter()
+            .any(|w| f.starts_with(w));
         if looks_like_preamble {
             return rest.trim_start_matches('\n');
         }
@@ -117,20 +130,32 @@ mod tests {
 
     #[test]
     fn accepts_a_clean_rewrite() {
-        let out = sanitize_edit_output("The meeting is at 3pm.", "the meeting is at 2pm actually 3pm");
+        let out = sanitize_edit_output(
+            "The meeting is at 3pm.",
+            "the meeting is at 2pm actually 3pm",
+        );
         assert_eq!(out.as_deref(), Some("The meeting is at 3pm."));
     }
 
     #[test]
     fn strips_conversational_preamble() {
         let raw = "Sure, here is the revised text:\nThe report is ready.";
-        assert_eq!(sanitize_edit_output(raw, "report done").as_deref(), Some("The report is ready."));
+        assert_eq!(
+            sanitize_edit_output(raw, "report done").as_deref(),
+            Some("The report is ready.")
+        );
     }
 
     #[test]
     fn strips_wrapping_quotes_and_code_fence() {
-        assert_eq!(sanitize_edit_output("\"Hello there\"", "hi").as_deref(), Some("Hello there"));
-        assert_eq!(sanitize_edit_output("```\nfn main() {}\n```", "x").as_deref(), Some("fn main() {}"));
+        assert_eq!(
+            sanitize_edit_output("\"Hello there\"", "hi").as_deref(),
+            Some("Hello there")
+        );
+        assert_eq!(
+            sanitize_edit_output("```\nfn main() {}\n```", "x").as_deref(),
+            Some("fn main() {}")
+        );
     }
 
     #[test]
@@ -140,8 +165,14 @@ mod tests {
 
     #[test]
     fn rejects_refusal() {
-        assert_eq!(sanitize_edit_output("I can't help with that.", "text"), None);
-        assert_eq!(sanitize_edit_output("As an AI language model, I cannot rewrite this.", "text"), None);
+        assert_eq!(
+            sanitize_edit_output("I can't help with that.", "text"),
+            None
+        );
+        assert_eq!(
+            sanitize_edit_output("As an AI language model, I cannot rewrite this.", "text"),
+            None
+        );
     }
 
     #[test]
@@ -169,7 +200,9 @@ mod tests {
     #[tokio::test]
     async fn run_returns_raw_model_text() {
         let llm = MockLlm("Revised.");
-        let raw = run(&llm, "make it shorter", "This is a long sentence.").await.unwrap();
+        let raw = run(&llm, "make it shorter", "This is a long sentence.")
+            .await
+            .unwrap();
         assert_eq!(raw, "Revised.");
     }
 

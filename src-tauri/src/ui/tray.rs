@@ -79,12 +79,22 @@ impl<R: Runtime> TrayHandle<R> {
         // set_enabled but not per-item set_visible, so "only actionable while
         // recording" is implemented via the enabled flag: enabled + relabelled
         // in set_screenrec_active(true), disabled again on stop.
-        let screenrec_pause =
-            MenuItem::with_id(app, "screenrec_pause", "Pause recording", false, None::<&str>)?;
+        let screenrec_pause = MenuItem::with_id(
+            app,
+            "screenrec_pause",
+            "Pause recording",
+            false,
+            None::<&str>,
+        )?;
         let copy_last =
             MenuItem::with_id(app, "copy_last", "Copy last transcript", true, None::<&str>)?;
-        let paste_last =
-            MenuItem::with_id(app, "paste_last", "Paste last transcript", true, None::<&str>)?;
+        let paste_last = MenuItem::with_id(
+            app,
+            "paste_last",
+            "Paste last transcript",
+            true,
+            None::<&str>,
+        )?;
         let pause = MenuItem::with_id(app, "pause", "Pause hotkeys", true, None::<&str>)?;
         let settings = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
         let sep1 = PredefinedMenuItem::separator(app)?;
@@ -255,7 +265,10 @@ impl TrayHandle<Wry> {
             .and_then(|g| g.as_ref().map(|m| m.clone()));
         let app_for_handler = app.clone();
         let last_state = Arc::new(Mutex::new(
-            self.last_state.lock().map(|g| *g).unwrap_or(TrayPipelineState::Idle),
+            self.last_state
+                .lock()
+                .map(|g| *g)
+                .unwrap_or(TrayPipelineState::Idle),
         ));
         let last_state_for_handler = Arc::clone(&last_state);
         let icon = self.icon.clone();
@@ -316,10 +329,7 @@ impl TrayHandle<Wry> {
                             }
                             Err(e) => {
                                 warn!(?e, "tray: start_meeting failed");
-                                let _ = app.emit(
-                                    "meeting-action-error",
-                                    e.to_string(),
-                                );
+                                let _ = app.emit("meeting-action-error", e.to_string());
                             }
                         }
                     });
@@ -334,10 +344,7 @@ impl TrayHandle<Wry> {
                         }
                         if let Err(e) = manager.stop_by_user().await {
                             warn!(?e, "tray: stop_meeting failed");
-                            let _ = app.emit(
-                                "meeting-action-error",
-                                e.to_string(),
-                            );
+                            let _ = app.emit("meeting-action-error", e.to_string());
                         } else {
                             info!("meeting stopped via tray");
                         }
@@ -546,7 +553,11 @@ impl TrayHandle<Wry> {
             .ok()
             .and_then(|g| g.as_ref().map(|m| m.clone()));
         if let Some(item) = item {
-            let label = if paused { "Resume recording" } else { "Pause recording" };
+            let label = if paused {
+                "Resume recording"
+            } else {
+                "Pause recording"
+            };
             if let Err(e) = item.set_text(label) {
                 warn!(?e, "failed to relabel screenrec pause item");
             }
@@ -730,12 +741,19 @@ fn load_icon<R: Runtime>(
         Ok(resolved) => match Image::from_path(&resolved) {
             Ok(img) => img,
             Err(e) => {
-                warn!(?e, ?resolved, "failed to load tray icon, falling back to solid");
+                warn!(
+                    ?e,
+                    ?resolved,
+                    "failed to load tray icon, falling back to solid"
+                );
                 fallback_icon()
             }
         },
         Err(e) => {
-            warn!(?e, "failed to resolve tray icon path, falling back to solid");
+            warn!(
+                ?e,
+                "failed to resolve tray icon path, falling back to solid"
+            );
             fallback_icon()
         }
     }

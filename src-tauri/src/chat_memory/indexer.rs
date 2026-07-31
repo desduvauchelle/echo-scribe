@@ -105,7 +105,12 @@ pub fn index_docs(
         match prepare_doc(doc, prev.as_deref(), embedder, model_id, &created)? {
             None => stats.sources_skipped += 1,
             Some((hash, rows)) => {
-                embeddings::replace_source_embeddings(conn, doc.source_kind, &doc.source_id, &rows)?;
+                embeddings::replace_source_embeddings(
+                    conn,
+                    doc.source_kind,
+                    &doc.source_id,
+                    &rows,
+                )?;
                 embeddings::set_index_state(
                     conn,
                     doc.source_kind,
@@ -133,13 +138,19 @@ pub fn index_pending(
     let docs = db.with_conn(collect_source_docs)?;
     let mut stats = IndexStats::default();
     for doc in &docs {
-        let prev = db.with_conn(|c| embeddings::get_index_state(c, doc.source_kind, &doc.source_id))?;
+        let prev =
+            db.with_conn(|c| embeddings::get_index_state(c, doc.source_kind, &doc.source_id))?;
         let created = now_iso();
         match prepare_doc(doc, prev.as_deref(), embedder, model_id, &created)? {
             None => stats.sources_skipped += 1,
             Some((hash, rows)) => {
                 db.with_conn_mut(|c| {
-                    embeddings::replace_source_embeddings(c, doc.source_kind, &doc.source_id, &rows)?;
+                    embeddings::replace_source_embeddings(
+                        c,
+                        doc.source_kind,
+                        &doc.source_id,
+                        &rows,
+                    )?;
                     embeddings::set_index_state(
                         c,
                         doc.source_kind,
@@ -254,8 +265,11 @@ mod tests {
         let d = docs(&c);
         index_docs(&mut c, &d, &Stub, "m").unwrap();
 
-        c.execute("UPDATE items SET content = 'edited content' WHERE id = 'i1'", [])
-            .unwrap();
+        c.execute(
+            "UPDATE items SET content = 'edited content' WHERE id = 'i1'",
+            [],
+        )
+        .unwrap();
         let d2 = docs(&c);
         let s = index_docs(&mut c, &d2, &Stub, "m").unwrap();
         assert_eq!(s.sources_indexed, 1);
@@ -290,11 +304,17 @@ mod tests {
         let sample_n = 40.min(all.len());
         let sample: Vec<SourceDoc> = all.iter().take(sample_n).cloned().collect();
         let kinds: std::collections::BTreeMap<&str, usize> =
-            all.iter().fold(std::collections::BTreeMap::new(), |mut m, d| {
-                *m.entry(d.source_kind).or_insert(0) += 1;
-                m
-            });
-        eprintln!("real source docs: {} total {:?}; embedding first {}", all.len(), kinds, sample_n);
+            all.iter()
+                .fold(std::collections::BTreeMap::new(), |mut m, d| {
+                    *m.entry(d.source_kind).or_insert(0) += 1;
+                    m
+                });
+        eprintln!(
+            "real source docs: {} total {:?}; embedding first {}",
+            all.len(),
+            kinds,
+            sample_n
+        );
 
         let embedder = crate::embed::Embedder::new(std::time::Duration::from_secs(60));
         let stats =
@@ -303,16 +323,27 @@ mod tests {
             "indexed={} skipped={} passages_written={}",
             stats.sources_indexed, stats.sources_skipped, stats.passages_written
         );
-        assert!(stats.passages_written > 0, "expected passages from real data");
+        assert!(
+            stats.passages_written > 0,
+            "expected passages from real data"
+        );
 
         let total = embeddings::count_embeddings(&conn).unwrap();
         let rows = embeddings::fetch_by_source(&conn, sample[0].source_kind, &sample[0].source_id)
             .unwrap();
         assert!(!rows.is_empty());
-        assert_eq!(rows[0].vec.len(), crate::embed::EMBED_DIM, "stored dim must be 256");
+        assert_eq!(
+            rows[0].vec.len(),
+            crate::embed::EMBED_DIM,
+            "stored dim must be 256"
+        );
         eprintln!(
             "embeddings table: {} rows; first source '{}' ({}) -> {} passages, dim={}",
-            total, sample[0].source_id, sample[0].source_kind, rows.len(), rows[0].vec.len()
+            total,
+            sample[0].source_id,
+            sample[0].source_kind,
+            rows.len(),
+            rows[0].vec.len()
         );
         let _ = std::fs::remove_file(&tmp);
     }

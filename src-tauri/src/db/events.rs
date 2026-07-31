@@ -32,10 +32,7 @@ pub fn insert_event(
 }
 
 /// List all events for a given item, oldest-first.
-pub fn list_events_for_item(
-    conn: &Connection,
-    item_id: &str,
-) -> Result<Vec<ItemEvent>, DbError> {
+pub fn list_events_for_item(conn: &Connection, item_id: &str) -> Result<Vec<ItemEvent>, DbError> {
     let mut stmt = conn.prepare(
         "SELECT id, item_id, event_type, detail, created_at
          FROM item_events

@@ -34,10 +34,7 @@ pub struct ScheduleSettings {
 /// Computed in local-wall-clock terms via `NaiveDateTime` so it stays
 /// deterministic in tests. The live caller will use
 /// `chrono::Local::now().naive_local()`.
-pub fn next_fire_time(
-    now: NaiveDateTime,
-    settings: ScheduleSettings,
-) -> Option<NaiveDateTime> {
+pub fn next_fire_time(now: NaiveDateTime, settings: ScheduleSettings) -> Option<NaiveDateTime> {
     if !settings.enabled {
         return None;
     }
@@ -71,9 +68,7 @@ pub fn dates_needing_generation(
         existing_dates.iter().map(|s| s.as_str()).collect();
     for delta in 1..=lookback_days as i64 {
         let candidate = today - Duration::days(delta);
-        if !include_weekends
-            && matches!(candidate.weekday(), Weekday::Sat | Weekday::Sun)
-        {
+        if !include_weekends && matches!(candidate.weekday(), Weekday::Sat | Weekday::Sun) {
             continue;
         }
         let s = candidate.format("%Y-%m-%d").to_string();
@@ -178,13 +173,7 @@ fn fire_notification_for_latest(app: &AppHandle, results: &[DailySummaryResult])
     let day_name = humanize_day_of_week(date).unwrap_or_else(|| date.clone());
     let title = format!("Your {day_name} recap");
     let body = "Your daily recap is ready.";
-    if let Err(e) = app
-        .notification()
-        .builder()
-        .title(title)
-        .body(body)
-        .show()
-    {
+    if let Err(e) = app.notification().builder().title(title).body(body).show() {
         warn!("scheduler: failed to show notification: {e}");
     }
 }

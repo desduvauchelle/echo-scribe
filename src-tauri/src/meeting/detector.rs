@@ -14,12 +14,7 @@ use tracing::{info, warn};
 /// daily log still has the full detail.
 fn notify_desktop(app: &tauri::AppHandle, title: &str, body: &str) {
     use tauri_plugin_notification::NotificationExt;
-    let _ = app
-        .notification()
-        .builder()
-        .title(title)
-        .body(body)
-        .show();
+    let _ = app.notification().builder().title(title).body(body).show();
 }
 
 /// A meeting candidate produced by the per-tick detection step. Combines the
@@ -81,10 +76,7 @@ impl AutoStartSuppressionTicker {
         self.consecutive_gone = 0;
     }
 
-    fn tick(
-        &mut self,
-        presence: SuppressedMeetingPresence,
-    ) -> AutoStartSuppressionDecision {
+    fn tick(&mut self, presence: SuppressedMeetingPresence) -> AutoStartSuppressionDecision {
         match presence {
             SuppressedMeetingPresence::Present => {
                 self.consecutive_gone = 0;
@@ -197,8 +189,7 @@ fn is_meeting_window_title(bundle_id: &str, title: &str) -> bool {
             if lower == "zoom" || lower == "zoom workplace" {
                 return false;
             }
-            const ZOOM_IDLE_LABELS: &[&str] =
-                &["home", "contacts", "chat", "settings", "meetings"];
+            const ZOOM_IDLE_LABELS: &[&str] = &["home", "contacts", "chat", "settings", "meetings"];
             if ZOOM_IDLE_LABELS.iter().any(|l| lower == *l) {
                 return false;
             }
@@ -245,11 +236,7 @@ fn browser_provider_name(url: Option<&str>) -> Option<&'static str> {
 }
 
 /// Spawns the detection loop. Returns immediately; the loop runs until process exit.
-pub fn spawn(
-    manager: Arc<MeetingManager>,
-    settings: SettingsStore,
-    app_handle: tauri::AppHandle,
-) {
+pub fn spawn(manager: Arc<MeetingManager>, settings: SettingsStore, app_handle: tauri::AppHandle) {
     tauri::async_runtime::spawn(async move {
         let mut mic_in_use_since: Option<Instant> = None;
         let mut interval = tokio::time::interval(Duration::from_secs(2));
@@ -342,19 +329,18 @@ pub fn spawn(
             let frontmost = ctx.bundle_id.as_deref().map(|s| s.to_string());
 
             // Build a candidate from the frontmost app first.
-            let mut candidate: Option<MeetingCandidate> =
-                frontmost.as_deref().and_then(|fm| {
-                    let (name, is_browser) = lookup(fm)?;
-                    Some(MeetingCandidate {
-                        bundle_id: fm.to_string(),
-                        display_name: name.to_string(),
-                        is_browser,
-                        window_title: ctx.window_title.clone(),
-                        browser_url: ctx.browser_url.clone(),
-                        browser_tab_title: ctx.browser_tab_title.clone(),
-                        source: "frontmost",
-                    })
-                });
+            let mut candidate: Option<MeetingCandidate> = frontmost.as_deref().and_then(|fm| {
+                let (name, is_browser) = lookup(fm)?;
+                Some(MeetingCandidate {
+                    bundle_id: fm.to_string(),
+                    display_name: name.to_string(),
+                    is_browser,
+                    window_title: ctx.window_title.clone(),
+                    browser_url: ctx.browser_url.clone(),
+                    browser_tab_title: ctx.browser_tab_title.clone(),
+                    source: "frontmost",
+                })
+            });
 
             // Fallback: scan all on-screen windows for a backgrounded native
             // meeting app whose title says it's in a call. This is the
@@ -529,7 +515,10 @@ pub fn spawn(
                 browser_tab_title: cand.browser_tab_title.clone(),
                 content_title: cand.browser_tab_title.clone(),
                 content_url: cand.browser_url.clone(),
-                content_source: cand.browser_tab_title.as_ref().map(|_| "browser_tab".into()),
+                content_source: cand
+                    .browser_tab_title
+                    .as_ref()
+                    .map(|_| "browser_tab".into()),
             };
             let display_name = display_name.as_str();
 
@@ -550,7 +539,11 @@ pub fn spawn(
                     };
                     if let Err(e) = manager
                         .clone()
-                        .start(Some(frontmost.clone()), Some(display_name.into()), start_ctx)
+                        .start(
+                            Some(frontmost.clone()),
+                            Some(display_name.into()),
+                            start_ctx,
+                        )
                         .await
                     {
                         warn!(?e, "auto-start failed");
@@ -752,7 +745,11 @@ fn evaluate_meeting_presence(signals: &EndMonitorSignals) -> Presence {
     // and it sees meeting windows on other Spaces/monitors that the
     // frontmost-title check would misread as gone.
     if let Some(seen) = signals.meeting_window_seen {
-        return if seen { Presence::Present } else { Presence::Gone };
+        return if seen {
+            Presence::Present
+        } else {
+            Presence::Gone
+        };
     }
     // Scan unavailable (no Screen Recording permission) — fall back to the
     // frontmost window title, which we can only read when the meeting app is
@@ -785,10 +782,7 @@ fn evaluate_meeting_presence(signals: &EndMonitorSignals) -> Presence {
 /// meeting ourselves — Echo Scribe's own cpal input stream contaminated the
 /// observation. The auto-stop never fired and meetings recorded forever. The
 /// current logic uses meeting-source presence (window title / URL) instead.
-pub fn spawn_end_monitor(
-    manager: Arc<MeetingManager>,
-    detected_app: Option<String>,
-) {
+pub fn spawn_end_monitor(manager: Arc<MeetingManager>, detected_app: Option<String>) {
     tauri::async_runtime::spawn(async move {
         let mut ticker = EndMonitorTicker::new();
         let mut interval = tokio::time::interval(Duration::from_secs(5));
@@ -881,8 +875,14 @@ mod tests {
     #[test]
     fn is_meeting_title_zoom_in_meeting() {
         assert!(is_meeting_window_title("us.zoom.xos", "Zoom Meeting"));
-        assert!(is_meeting_window_title("us.zoom.xos", "Personal Meeting Room"));
-        assert!(is_meeting_window_title("us.zoom.xos", "Weekly Standup - Zoom Meeting"));
+        assert!(is_meeting_window_title(
+            "us.zoom.xos",
+            "Personal Meeting Room"
+        ));
+        assert!(is_meeting_window_title(
+            "us.zoom.xos",
+            "Weekly Standup - Zoom Meeting"
+        ));
     }
 
     #[test]
@@ -923,7 +923,10 @@ mod tests {
     #[test]
     fn is_meeting_title_other_native_apps_pass_through() {
         assert!(is_meeting_window_title("com.hnc.Discord", "General"));
-        assert!(is_meeting_window_title("com.tinyspeck.slackmacgap", "Acme Workspace"));
+        assert!(is_meeting_window_title(
+            "com.tinyspeck.slackmacgap",
+            "Acme Workspace"
+        ));
         assert!(is_meeting_window_title("com.apple.FaceTime", "FaceTime"));
         assert!(!is_meeting_window_title("com.hnc.Discord", ""));
     }
@@ -990,16 +993,31 @@ mod tests {
     fn aux_titles_zoom_screen_share_windows_count_as_meeting_session() {
         // During a screen share Zoom hides the main "Zoom Meeting" window and
         // shows floating panels — those must keep the presence scan Present.
-        assert!(is_meeting_aux_window_title("us.zoom.xos", "zoom share toolbar window"));
-        assert!(is_meeting_aux_window_title("us.zoom.xos", "zoom share statusbar window"));
-        assert!(is_meeting_aux_window_title("us.zoom.xos", "zoom floating video window"));
+        assert!(is_meeting_aux_window_title(
+            "us.zoom.xos",
+            "zoom share toolbar window"
+        ));
+        assert!(is_meeting_aux_window_title(
+            "us.zoom.xos",
+            "zoom share statusbar window"
+        ));
+        assert!(is_meeting_aux_window_title(
+            "us.zoom.xos",
+            "zoom floating video window"
+        ));
         assert!(is_meeting_aux_window_title("us.zoom.xos", "as_toolbar"));
         // Idle Zoom windows are not session markers.
-        assert!(!is_meeting_aux_window_title("us.zoom.xos", "Zoom Workplace"));
+        assert!(!is_meeting_aux_window_title(
+            "us.zoom.xos",
+            "Zoom Workplace"
+        ));
         assert!(!is_meeting_aux_window_title("us.zoom.xos", "Home"));
         assert!(!is_meeting_aux_window_title("us.zoom.xos", ""));
         // Other apps have no aux markers.
-        assert!(!is_meeting_aux_window_title("com.microsoft.teams2", "share toolbar"));
+        assert!(!is_meeting_aux_window_title(
+            "com.microsoft.teams2",
+            "share toolbar"
+        ));
     }
 
     // ---- End-monitor ticker tests ----
@@ -1049,7 +1067,9 @@ mod tests {
             }
         }
         assert!(
-            decisions.iter().any(|d| matches!(d, EndMonitorDecision::Stop)),
+            decisions
+                .iter()
+                .any(|d| matches!(d, EndMonitorDecision::Stop)),
             "ticker never stopped after Zoom meeting window closed; decisions: {decisions:?}"
         );
     }
@@ -1384,8 +1404,7 @@ fn find_background_meeting_app() -> Option<(String, &'static str, String)> {
     let count = unsafe { CFArrayGetCount(arr_ref) };
 
     for i in 0..count {
-        let dict_ref =
-            unsafe { CFArrayGetValueAtIndex(arr_ref, i) } as CFDictionaryRef;
+        let dict_ref = unsafe { CFArrayGetValueAtIndex(arr_ref, i) } as CFDictionaryRef;
         if dict_ref.is_null() {
             continue;
         }

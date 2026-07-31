@@ -4,8 +4,8 @@ use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use ulid::Ulid;
 
-use crate::db::items::chrono_now_iso;
 use super::DbError;
+use crate::db::items::chrono_now_iso;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatSession {
@@ -191,11 +191,13 @@ mod tests {
         conn.execute(
             "UPDATE chat_sessions SET updated_at = '2026-01-01T00:00:01Z' WHERE id = 's1'",
             [],
-        ).unwrap();
+        )
+        .unwrap();
         conn.execute(
             "UPDATE chat_sessions SET updated_at = '2026-01-01T00:00:02Z' WHERE id = 's2'",
             [],
-        ).unwrap();
+        )
+        .unwrap();
         let sessions = list_sessions(&conn, None).unwrap();
         assert_eq!(sessions[0].id, "s2");
     }

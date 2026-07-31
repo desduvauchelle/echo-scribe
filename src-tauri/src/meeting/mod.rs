@@ -11,8 +11,8 @@ pub mod guide_review;
 pub mod pipeline;
 pub mod recorder;
 pub mod stitch;
-pub mod syscap;
 pub mod synthesizer;
+pub mod syscap;
 pub mod url_allowlist;
 
 /// Which audio stream a transcript segment came from.
@@ -99,9 +99,9 @@ pub enum MeetingError {
     Db(String),
 }
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tauri::Emitter;
-use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::sync::mpsc;
 use tokio::sync::Mutex as AsyncMutex;
 
@@ -178,8 +178,7 @@ pub(crate) fn spawn_guide_review_job(
         .await
         {
             Ok(review) => {
-                let review_json =
-                    serde_json::to_string(&review).unwrap_or_else(|_| "{}".into());
+                let review_json = serde_json::to_string(&review).unwrap_or_else(|_| "{}".into());
                 let generated_at = chrono::Utc::now().to_rfc3339();
                 let run_for_write = run_id.clone();
                 if let Err(error) = db.with_conn(move |conn| {
@@ -509,9 +508,10 @@ impl MeetingManager {
         if !removed {
             return Err("Guide session not found".into());
         }
-        let _ = self
-            .app_handle
-            .emit("guide-detached", serde_json::json!({ "sessionId": session_id }));
+        let _ = self.app_handle.emit(
+            "guide-detached",
+            serde_json::json!({ "sessionId": session_id }),
+        );
         tracing::info!(target: "guide", session = %session_id, "guide detached");
         Ok(())
     }
@@ -656,10 +656,7 @@ impl MeetingManager {
         );
         crate::audio::feedback::play(crate::audio::feedback::Sfx::Start);
         crate::overlay::show_meeting_overlay(&self.app_handle, detected_app_name.as_deref());
-        crate::overlay::show_meeting_start_toast(
-            &self.app_handle,
-            detected_app_name.as_deref(),
-        );
+        crate::overlay::show_meeting_start_toast(&self.app_handle, detected_app_name.as_deref());
 
         // Inactivity backstop: auto-stop after a sustained silence even when
         // window-based end detection is blind (e.g. the user ends a call but
@@ -825,15 +822,24 @@ impl MeetingManager {
 
         let meeting_inputs = {
             let meeting_id = id.clone();
-            self.db.with_conn(move |conn| {
-                let row = crate::db::meetings::get_meeting(conn, &meeting_id)?;
-                let prefs = crate::db::meeting_intelligence::get_preferences(conn, &meeting_id)?;
-                let template = match prefs.and_then(|p| p.summary_template_id) {
-                    Some(template_id) => crate::db::meeting_intelligence::get_summary_template(conn, &template_id)?,
-                    None => crate::db::meeting_intelligence::get_summary_template(conn, "builtin-general")?,
-                };
-                Ok((row.and_then(|r| r.user_notes).unwrap_or_default(), template))
-            }).unwrap_or_default()
+            self.db
+                .with_conn(move |conn| {
+                    let row = crate::db::meetings::get_meeting(conn, &meeting_id)?;
+                    let prefs =
+                        crate::db::meeting_intelligence::get_preferences(conn, &meeting_id)?;
+                    let template = match prefs.and_then(|p| p.summary_template_id) {
+                        Some(template_id) => crate::db::meeting_intelligence::get_summary_template(
+                            conn,
+                            &template_id,
+                        )?,
+                        None => crate::db::meeting_intelligence::get_summary_template(
+                            conn,
+                            "builtin-general",
+                        )?,
+                    };
+                    Ok((row.and_then(|r| r.user_notes).unwrap_or_default(), template))
+                })
+                .unwrap_or_default()
         };
         let (user_notes, summary_template) = meeting_inputs;
 
@@ -889,7 +895,9 @@ impl MeetingManager {
         let summary_run_json = summary_json.clone();
         let summary_run_error = synthesis.as_ref().err().cloned();
         let summary_template_id = summary_template.as_ref().map(|t| t.id.clone());
-        let summary_template_snapshot = summary_template.as_ref().and_then(|t| serde_json::to_string(t).ok());
+        let summary_template_snapshot = summary_template
+            .as_ref()
+            .and_then(|t| serde_json::to_string(t).ok());
         let user_notes_snapshot = user_notes.clone();
         let transcript_hash = {
             use sha2::{Digest, Sha256};
@@ -1077,11 +1085,10 @@ impl MeetingManager {
                 );
             }
 
-            let meeting_started_at = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(
-                active.started_at_ms as i64,
-            )
-            .unwrap_or_else(chrono::Utc::now)
-            .to_rfc3339();
+            let meeting_started_at =
+                chrono::DateTime::<chrono::Utc>::from_timestamp_millis(active.started_at_ms as i64)
+                    .unwrap_or_else(chrono::Utc::now)
+                    .to_rfc3339();
             for (index, (template, config)) in enabled_templates.into_iter().enumerate() {
                 if reviewed_template_ids.contains(&template.id) {
                     continue;
@@ -1093,8 +1100,7 @@ impl MeetingManager {
                     meeting_id: id.clone(),
                     template_id: template.id.clone(),
                     template_name: template.name.clone(),
-                    template_json: serde_json::to_string(&template)
-                        .unwrap_or_else(|_| "{}".into()),
+                    template_json: serde_json::to_string(&template).unwrap_or_else(|_| "{}".into()),
                     slot: 100 + index as i64,
                     started_at: meeting_started_at.clone(),
                     timeline_json: None,
@@ -1108,9 +1114,10 @@ impl MeetingManager {
                     subject_scope: config.subject_scope.clone(),
                     transcript_hash: guide_transcript_hash.clone(),
                 };
-                if let Err(error) = self.db.with_conn(|conn| {
-                    crate::db::meeting_guide_runs::insert_guide_run(conn, &run)
-                }) {
+                if let Err(error) = self
+                    .db
+                    .with_conn(|conn| crate::db::meeting_guide_runs::insert_guide_run(conn, &run))
+                {
                     tracing::warn!(target: "guide", ?error, template=%template.id, "insert tracked insight run failed");
                     continue;
                 }
@@ -1138,10 +1145,9 @@ impl MeetingManager {
             try_export_meeting_after_finalize(&self.db, settings.as_ref(), &id);
 
         // Step 8: Emit "complete" event and hide the overlay.
-        let _ = self.app_handle.emit(
-            "meeting-complete",
-            serde_json::json!({"id": id}),
-        );
+        let _ = self
+            .app_handle
+            .emit("meeting-complete", serde_json::json!({"id": id}));
         crate::overlay::hide_recording_overlay(&self.app_handle);
         crate::overlay::hide_meeting_hud(&self.app_handle);
 
@@ -1250,10 +1256,23 @@ impl MeetingManager {
         let settings = crate::settings::SettingsStore::load(&self.app_handle).ok();
         let custom_prompt = settings.as_ref().map(|s| s.meeting_summary_prompt());
 
-        let prefs = self.db.with_conn(|conn| crate::db::meeting_intelligence::get_preferences(conn, id)).unwrap_or_default();
+        let prefs = self
+            .db
+            .with_conn(|conn| crate::db::meeting_intelligence::get_preferences(conn, id))
+            .unwrap_or_default();
         let summary_template = match prefs.and_then(|p| p.summary_template_id) {
-            Some(template_id) => self.db.with_conn(|conn| crate::db::meeting_intelligence::get_summary_template(conn, &template_id)).unwrap_or_default(),
-            None => self.db.with_conn(|conn| crate::db::meeting_intelligence::get_summary_template(conn, "builtin-general")).unwrap_or_default(),
+            Some(template_id) => self
+                .db
+                .with_conn(|conn| {
+                    crate::db::meeting_intelligence::get_summary_template(conn, &template_id)
+                })
+                .unwrap_or_default(),
+            None => self
+                .db
+                .with_conn(|conn| {
+                    crate::db::meeting_intelligence::get_summary_template(conn, "builtin-general")
+                })
+                .unwrap_or_default(),
         };
         let user_notes = row.user_notes.clone().unwrap_or_default();
 
@@ -1277,10 +1296,20 @@ impl MeetingManager {
             let meeting_project_name = s.project_name.clone();
             let existing_projects_clone = existing_projects.clone();
             let template_id = summary_template.as_ref().map(|t| t.id.clone());
-            let template_snapshot_json = summary_template.as_ref().and_then(|t| serde_json::to_string(t).ok());
+            let template_snapshot_json = summary_template
+                .as_ref()
+                .and_then(|t| serde_json::to_string(t).ok());
             let transcript_hash = {
                 use sha2::{Digest, Sha256};
-                format!("{:x}", Sha256::digest(row.transcript_json.as_deref().unwrap_or_default().as_bytes()))
+                format!(
+                    "{:x}",
+                    Sha256::digest(
+                        row.transcript_json
+                            .as_deref()
+                            .unwrap_or_default()
+                            .as_bytes()
+                    )
+                )
             };
             self.db
                 .with_conn(move |conn| {
@@ -1591,7 +1620,7 @@ mod tests {
     #[test]
     fn inactivity_should_stop_fires_only_after_threshold() {
         let threshold = 5 * 60 * 1000; // 5 min
-        // Fresh activity (just talked) — keep recording.
+                                       // Fresh activity (just talked) — keep recording.
         assert!(!inactivity_should_stop(10 * 60_000, 10 * 60_000, threshold));
         // 4 minutes of silence — still under threshold, keep recording.
         assert!(!inactivity_should_stop(4 * 60_000, 0, threshold));
@@ -1610,7 +1639,9 @@ mod tests {
     #[test]
     fn resolve_project_name_returns_none_for_empty_string() {
         let conn = fresh_conn();
-        assert!(resolve_project_name(&conn, Some("  "), &[]).unwrap().is_none());
+        assert!(resolve_project_name(&conn, Some("  "), &[])
+            .unwrap()
+            .is_none());
     }
 
     #[test]
@@ -1639,22 +1670,26 @@ mod tests {
              VALUES (?1, 'test', 'meeting', 'meeting', '2026-05-01T00:00:00Z', '2026-05-01T00:00:00Z')",
             rusqlite::params![id],
         ).unwrap();
-        crate::db::meetings::insert_meeting(conn, &crate::db::meetings::MeetingRow {
-            item_id: id.into(),
-            started_at: "2026-05-01T00:00:00Z".into(),
-            ended_at: None,
-            duration_ms: None,
-            detected_app: None,
-            detected_app_name: None,
-            status: "recording".into(),
-            transcript_json: None,
-            summary_json: None,
-            user_notes: None,
-            failed_chunk_count: 0,
-            mic_only: false,
-            guide_template_json: None,
-            project_name: None,
-        }).unwrap();
+        crate::db::meetings::insert_meeting(
+            conn,
+            &crate::db::meetings::MeetingRow {
+                item_id: id.into(),
+                started_at: "2026-05-01T00:00:00Z".into(),
+                ended_at: None,
+                duration_ms: None,
+                detected_app: None,
+                detected_app_name: None,
+                status: "recording".into(),
+                transcript_json: None,
+                summary_json: None,
+                user_notes: None,
+                failed_chunk_count: 0,
+                mic_only: false,
+                guide_template_json: None,
+                project_name: None,
+            },
+        )
+        .unwrap();
     }
 
     #[test]
@@ -1674,9 +1709,17 @@ mod tests {
             rusqlite::params![r#"{"summary":["x"]}"#, "m-retry"],
         ).unwrap();
 
-        let got = crate::db::meetings::get_meeting(&conn, "m-retry").unwrap().unwrap();
-        assert_eq!(got.status, "recovered", "status must not regress from 'recovered' to 'complete'");
-        assert!(got.summary_json.is_some(), "summary_json should still be updated");
+        let got = crate::db::meetings::get_meeting(&conn, "m-retry")
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            got.status, "recovered",
+            "status must not regress from 'recovered' to 'complete'"
+        );
+        assert!(
+            got.summary_json.is_some(),
+            "summary_json should still be updated"
+        );
     }
 
     #[test]
@@ -1692,7 +1735,9 @@ mod tests {
             rusqlite::params![r#"{"summary":["x"]}"#, "m-fail"],
         ).unwrap();
 
-        let got = crate::db::meetings::get_meeting(&conn, "m-fail").unwrap().unwrap();
+        let got = crate::db::meetings::get_meeting(&conn, "m-fail")
+            .unwrap()
+            .unwrap();
         assert_eq!(got.status, "complete");
     }
 }

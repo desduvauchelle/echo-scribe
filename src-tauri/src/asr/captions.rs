@@ -127,8 +127,16 @@ mod tests {
     #[test]
     fn total_speech_ms_sums_durations() {
         let segs = vec![
-            CaptionSegment { start_ms: 0, end_ms: 500, text: "a".into() },
-            CaptionSegment { start_ms: 1000, end_ms: 1750, text: "b".into() },
+            CaptionSegment {
+                start_ms: 0,
+                end_ms: 500,
+                text: "a".into(),
+            },
+            CaptionSegment {
+                start_ms: 1000,
+                end_ms: 1750,
+                text: "b".into(),
+            },
         ];
         assert_eq!(total_speech_ms(&segs), 500 + 750);
         assert_eq!(total_speech_ms(&[]), 0);
@@ -136,7 +144,11 @@ mod tests {
 
     #[test]
     fn serializes_camel_case() {
-        let seg = CaptionSegment { start_ms: 10, end_ms: 20, text: "hi".into() };
+        let seg = CaptionSegment {
+            start_ms: 10,
+            end_ms: 20,
+            text: "hi".into(),
+        };
         let json = serde_json::to_string(&seg).unwrap();
         assert_eq!(json, r#"{"startMs":10,"endMs":20,"text":"hi"}"#);
     }

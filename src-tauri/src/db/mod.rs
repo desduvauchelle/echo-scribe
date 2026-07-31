@@ -15,6 +15,7 @@ use thiserror::Error;
 
 pub mod chat;
 pub mod daily_summaries;
+pub mod embeddings;
 pub mod events;
 pub mod guide_templates;
 pub mod items;
@@ -28,7 +29,6 @@ pub mod schema;
 pub mod search;
 pub mod stats;
 pub mod tasks;
-pub mod embeddings;
 
 pub use chat::{ChatMessage, ChatSession};
 pub use items::{Item, ItemKind, ItemSource};

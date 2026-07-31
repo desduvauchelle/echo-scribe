@@ -285,7 +285,11 @@ mod tests {
     fn split_oversized_paragraph_breaks_on_sentences() {
         let long = format!("{} {}", "A".repeat(400) + ".", "B".repeat(400) + ".");
         let c = split_into_chunks(&long);
-        assert!(c.len() >= 2, "oversized paragraph must split, got {}", c.len());
+        assert!(
+            c.len() >= 2,
+            "oversized paragraph must split, got {}",
+            c.len()
+        );
         assert!(c.iter().all(|x| x.chars().count() <= CHUNK_MAX_CHARS));
     }
 
@@ -361,7 +365,11 @@ mod tests {
         let items = vec![src("a", "2026-05-22", "note", &content)];
         let terms = vec!["talk".to_string()];
         let chunks = build_context_chunks(&items, &terms, 30);
-        assert_eq!(chunks.len(), 1, "budget of 30 tokens fits only one ~29-token chunk");
+        assert_eq!(
+            chunks.len(),
+            1,
+            "budget of 30 tokens fits only one ~29-token chunk"
+        );
     }
 
     #[test]

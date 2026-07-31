@@ -414,6 +414,10 @@ try? FileManager.default.removeItem(at: outURL)
 @available(macOS 14.0, *)
 final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, AVCaptureAudioDataOutputSampleBufferDelegate {
     var stream: SCStream!
+    // Window video uses a desktopIndependentWindow filter, whose audio is
+    // limited to that window's owning application. Keep a second display-wide
+    // stream when necessary so VoiceOver and other processes are captured too.
+    var systemAudioStream: SCStream?
     let outURL: URL
     var writer: AVAssetWriter!
     var videoInput: AVAssetWriterInput!
@@ -588,24 +592,55 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, AVCaptureAudio
     func start() throws {
         try setupWriter()
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: DispatchQueue(label: "screenrec.screen"))
-        // SCStream only delivers .audio when capturesAudio is true, which we set to
-        // sysOn. In mic-only mode there is no SCStream audio output to register.
+        // Window recordings use a separate display-wide audio stream. Display
+        // recordings keep the original single-stream path.
         if sysOn {
-            try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: DispatchQueue(label: "screenrec.audio"))
+            try (systemAudioStream ?? stream).addStreamOutput(
+                self,
+                type: .audio,
+                sampleHandlerQueue: DispatchQueue(label: "screenrec.audio")
+            )
         }
         if micOn {
             try setupMicCapture()
         }
-        emit(["event": "diag", "phase": "outputs_added"])
-        emit(["event": "diag", "phase": "starting_capture"])
-        stream.startCapture { [weak self] err in
-            if let err = err { emitFatal("start", err.localizedDescription) }
-            // Start the mic session only after the SCStream capture is up so the
-            // first mixed frames have somewhere to go. Failing to start the session
-            // is non-fatal: we still produce video + whatever audio we do have.
-            self?.captureSession?.startRunning()
-            emit(["event": "ready"])
-            self?.startHeartbeat()
+        emit(["event": "diag", "phase": "outputs_added", "separate_system_audio": systemAudioStream != nil])
+
+        let startVideoCapture = { [weak self] in
+            guard let self = self else { return }
+            emit(["event": "diag", "phase": "starting_capture"])
+            self.stream.startCapture { [weak self] err in
+                if let err = err { emitFatal("start", err.localizedDescription) }
+                // Start the mic session only after the video stream is up so the
+                // first mixed frames have somewhere to go. Failing to start the
+                // session is non-fatal: video + other audio can still succeed.
+                self?.captureSession?.startRunning()
+                emit(["event": "ready"])
+                self?.startHeartbeat()
+            }
+        }
+
+        if let audioStream = systemAudioStream {
+            emit(["event": "diag", "phase": "starting_system_audio"])
+            audioStream.startCapture { err in
+                if let err = err { emitFatal("start_system_audio", err.localizedDescription) }
+                emit(["event": "diag", "phase": "system_audio_started"])
+                startVideoCapture()
+            }
+        } else {
+            startVideoCapture()
+        }
+    }
+
+    func stopAndFinalize(exitCode: Int32) {
+        let stopVideo = { [weak self] in
+            guard let self = self else { return }
+            self.stream.stopCapture { _ in self.finalize(exitCode: exitCode) }
+        }
+        if let audioStream = systemAudioStream {
+            audioStream.stopCapture { _ in stopVideo() }
+        } else {
+            stopVideo()
         }
     }
 
@@ -1306,6 +1341,23 @@ func clampDims(_ w: Int, _ h: Int) -> (Int, Int) {
     return (capW, capH)
 }
 
+// A desktopIndependentWindow filter also scopes ScreenCaptureKit audio to the
+// selected app. Pick the display containing the selected window for a separate
+// audio-only stream so speech from VoiceOver and other processes is included.
+@available(macOS 14.0, *)
+func systemAudioFilter(for window: SCWindow, in content: SCShareableContent) -> SCContentFilter? {
+    let display = content.displays.max { lhs, rhs in
+        let lhsIntersection = lhs.frame.intersection(window.frame)
+        let rhsIntersection = rhs.frame.intersection(window.frame)
+        let lhsArea = lhsIntersection.isNull ? 0 : lhsIntersection.width * lhsIntersection.height
+        let rhsArea = rhsIntersection.isNull ? 0 : rhsIntersection.width * rhsIntersection.height
+        return lhsArea < rhsArea
+    } ?? content.displays.first
+    guard let display = display else { return nil }
+    let excluded = content.applications.filter { $0.bundleIdentifier == OWN_BUNDLE_ID }
+    return SCContentFilter(display: display, excludingApplications: excluded, exceptingWindows: [])
+}
+
 @available(macOS 14.0, *)
 @MainActor
 func run() async {
@@ -1331,8 +1383,6 @@ func run() async {
         let micOn = argMicUID != nil
 
         let cfg = SCStreamConfiguration()
-        // SCStream system-audio capture is enabled iff we actually want system audio.
-        cfg.capturesAudio = sysOn
         cfg.excludesCurrentProcessAudio = true
         cfg.sampleRate = 48000
         cfg.channelCount = 2
@@ -1349,6 +1399,7 @@ func run() async {
         let filter: SCContentFilter
         let capW: Int
         let capH: Int
+        var separateSystemAudioFilter: SCContentFilter?
         // Capture geometry in POINTS (top-left origin, global coords) plus the
         // point→pixel scale, recorded in the input-event JSONL header so the
         // editor can map global-point event coords into video pixels.
@@ -1366,6 +1417,9 @@ func run() async {
             }
             emit(["event": "diag", "phase": "window_found", "id": Int(windowID), "title": window.title ?? "", "w": Int(window.frame.width), "h": Int(window.frame.height), "onScreen": window.isOnScreen])
             filter = SCContentFilter(desktopIndependentWindow: window)
+            if sysOn {
+                separateSystemAudioFilter = systemAudioFilter(for: window, in: content)
+            }
             // SCWindow.frame is in POINTS but cfg.width/height are PIXELS. On a
             // Retina (2×) display that mismatch makes ScreenCaptureKit downscale
             // the capture to point resolution → half-res, pixelated output. Use
@@ -1453,12 +1507,36 @@ func run() async {
             }
         }
 
+        // Display capture can carry video + audio on one SCStream. Window
+        // capture keeps video isolated and moves system audio to a second,
+        // display-wide stream so audio from other processes is not filtered out.
+        cfg.capturesAudio = sysOn && separateSystemAudioFilter == nil
         cfg.width = capW
         cfg.height = capH
 
-        emit(["event": "diag", "phase": "filter_built", "w": capW, "h": capH, "capturesAudio": cfg.capturesAudio])
+        emit(["event": "diag", "phase": "filter_built", "w": capW, "h": capH,
+              "capturesAudio": cfg.capturesAudio, "separate_system_audio": separateSystemAudioFilter != nil])
 
         let rec = Recorder(outURL: outURL, width: capW, height: capH, sysOn: sysOn, micOn: micOn, micUID: argMicUID)
+        if let audioFilter = separateSystemAudioFilter {
+            let audioCfg = SCStreamConfiguration()
+            audioCfg.capturesAudio = true
+            audioCfg.excludesCurrentProcessAudio = true
+            audioCfg.sampleRate = 48000
+            audioCfg.channelCount = 2
+            // No screen output is registered on this stream. Keep the video
+            // side of its configuration minimal while satisfying SCK bounds.
+            audioCfg.width = 2
+            audioCfg.height = 2
+            audioCfg.minimumFrameInterval = CMTime(value: 1, timescale: 1)
+            audioCfg.queueDepth = 3
+            audioCfg.showsCursor = false
+            rec.systemAudioStream = SCStream(
+                filter: audioFilter,
+                configuration: audioCfg,
+                delegate: rec
+            )
+        }
 
         // Input-event metadata capture (Task 3). When --events is set, record
         // global mouse/keyboard events to a JSONL sidecar for post effects
@@ -1511,9 +1589,7 @@ func run() async {
         let termSrc = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
         termSrc.setEventHandler {
             emit(["event": "stop_requested"])
-            stream.stopCapture { _ in
-                Pinned.shared.recorder?.finalize(exitCode: 0)
-            }
+            Pinned.shared.recorder?.stopAndFinalize(exitCode: 0)
         }
         termSrc.resume()
         Pinned.shared.termSource = termSrc

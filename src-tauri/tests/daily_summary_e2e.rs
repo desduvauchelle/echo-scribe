@@ -63,8 +63,8 @@ async fn daily_recap_against_real_data() {
     // Build + activate the LLM. Reuses the registry the live app uses.
     // ------------------------------------------------------------------
     let llm = Llm::new(Duration::ZERO); // never auto-unload during test
-    let entry = registry::lookup(DEFAULT_LLM_MODEL_ID)
-        .expect("default LLM model present in registry");
+    let entry =
+        registry::lookup(DEFAULT_LLM_MODEL_ID).expect("default LLM model present in registry");
     assert!(
         llm::is_downloaded(entry),
         "model {} is not downloaded; run the app at least once to download it",
@@ -86,7 +86,9 @@ async fn daily_recap_against_real_data() {
 
     // Pull the row that was written so we can print it.
     let row = db
-        .with_conn(|conn| daily_summaries::get(conn, &date).map_err(echo_scribe_lib::db::DbError::from))
+        .with_conn(|conn| {
+            daily_summaries::get(conn, &date).map_err(echo_scribe_lib::db::DbError::from)
+        })
         .expect("get daily_summary")
         .expect("a row should exist after generate_for_date");
     eprintln!("status:        {:?}", row.status);

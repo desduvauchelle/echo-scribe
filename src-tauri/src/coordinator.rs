@@ -245,7 +245,10 @@ pub fn spawn(
                             }
                             Some(sel) => {
                                 warn!(chars = sel.text.len(), "edit selection too long; aborting");
-                                notify_edit_failure(&app, "Selection too long to edit (max ~1000 words).");
+                                notify_edit_failure(
+                                    &app,
+                                    "Selection too long to edit (max ~1000 words).",
+                                );
                                 pending_context = None;
                                 pending_focus_element = None;
                                 force_state(&state, PipelineState::Idle);
@@ -255,7 +258,10 @@ pub fn spawn(
                             None => {
                                 info!("edit selection: nothing selected; showing hint");
                                 feedback::play(Sfx::Stop);
-                                let _ = app.emit("edit:hint", "Select text first, then hold the Edit hotkey.");
+                                let _ = app.emit(
+                                    "edit:hint",
+                                    "Select text first, then hold the Edit hotkey.",
+                                );
                                 pending_context = None;
                                 pending_focus_element = None;
                                 force_state(&state, PipelineState::Idle);
@@ -269,9 +275,13 @@ pub fn spawn(
                     feedback::play(Sfx::Start);
                     match action {
                         Action::VoiceAtCursor => crate::overlay::show_recording_overlay(&app),
-                        Action::ActionCommand => crate::overlay::show_action_recording_overlay(&app),
+                        Action::ActionCommand => {
+                            crate::overlay::show_action_recording_overlay(&app)
+                        }
                         Action::LogCapture => crate::overlay::show_log_recording_overlay(&app),
-                        Action::EditSelection => crate::overlay::show_action_recording_overlay(&app),
+                        Action::EditSelection => {
+                            crate::overlay::show_action_recording_overlay(&app)
+                        }
                         _ => {}
                     }
                     if matches!(action, Action::LogCapture) {
@@ -368,11 +378,8 @@ pub fn spawn(
                                         continue;
                                     }
                                     let raw_text = text.clone();
-                                    let processed = process_with_settings(
-                                        &app,
-                                        text,
-                                        pending_context.as_ref(),
-                                    );
+                                    let processed =
+                                        process_with_settings(&app, text, pending_context.as_ref());
                                     if processed.cancelled {
                                         info!("spoken cancel command discarded transcript");
                                         crate::overlay::hide_recording_overlay_now(&app);
@@ -393,7 +400,9 @@ pub fn spawn(
                                         on_state_change(TrayPipelineState::Idle);
                                         continue;
                                     }
-                                    let text = match try_intercept_action(&app, &llm, &text, action).await {
+                                    let text = match try_intercept_action(&app, &llm, &text, action)
+                                        .await
+                                    {
                                         InterceptOutcome::Consumed => {
                                             crate::overlay::hide_recording_overlay_now(&app);
                                             force_state(&state, PipelineState::Idle);
@@ -404,106 +413,134 @@ pub fn spawn(
                                         InterceptOutcome::Passthrough => text,
                                     };
                                     match action {
-                                    Action::VoiceAtCursor | Action::ActionCommand => {
-                                        if let Ok(mut slot) = last_transcript.lock() {
-                                            *slot = Some(text.clone());
-                                        }
-                                        // Phase 1 behavior: persist hidden + paste.
-                                        let capture_id = persist_capture(
-                                            &text,
-                                            Some(&raw_text),
-                                            db.as_ref(),
-                                            event_log_root.as_deref(),
-                                            &app,
-                                            pending_context.as_ref().and_then(serialise_context),
-                                        );
-                                        // Hide the overlay synchronously so it
-                                        // can't interfere with focus routing.
-                                        crate::overlay::hide_recording_overlay_now(&app);
-                                        // Restore focus surgically: prefer the
-                                        // captured AX element (lands in the
-                                        // exact field), fall back to app
-                                        // activation. Skip activation when the
-                                        // captured app is already frontmost
-                                        // (e.g. dictating into Echo Scribe
-                                        // itself) — re-activating cycles key
-                                        // windows and is the regression source.
-                                        let mut restore_outcome: Option<focus::RestoreOutcome> = None;
-                                        let mut target_app_name: Option<String> = None;
-                                        if let Some(snap) = pending_context.take() {
-                                            let element = pending_focus_element.take();
-                                            let outcome = focus::restore_focus(&snap, element.as_ref());
-                                            info!(
-                                                pid = snap.pid,
-                                                same_app = outcome.same_app,
-                                                activated = outcome.activated_app,
-                                                frontmost_verified = outcome.frontmost_verified,
-                                                ax_focused = outcome.ax_focused,
-                                                ax_error = ?outcome.ax_error,
-                                                element_captured = outcome.element_captured,
-                                                ax_role = ?outcome.element_role,
-                                                frontmost_before = ?outcome.frontmost_pid_before,
-                                                paste_time_focus = ?outcome.paste_time_focus_role,
-                                                "focus restored before paste"
+                                        Action::VoiceAtCursor | Action::ActionCommand => {
+                                            if let Ok(mut slot) = last_transcript.lock() {
+                                                *slot = Some(text.clone());
+                                            }
+                                            // Phase 1 behavior: persist hidden + paste.
+                                            let capture_id = persist_capture(
+                                                &text,
+                                                Some(&raw_text),
+                                                db.as_ref(),
+                                                event_log_root.as_deref(),
+                                                &app,
+                                                pending_context
+                                                    .as_ref()
+                                                    .and_then(serialise_context),
                                             );
-                                            let _ = app.emit("voice:paste_pending", ());
-                                            // Settle delay. Same-app skips the
-                                            // app-activation round-trip so we
-                                            // can wait less; cross-app needs
-                                            // WindowServer time to route key.
-                                            let settle_ms = if outcome.same_app { 60 } else { 250 };
-                                            std::thread::sleep(std::time::Duration::from_millis(settle_ms));
-                                            target_app_name = snap.app_name.clone();
-                                            restore_outcome = Some(outcome);
-                                        }
-                                        // Never synthesize Cmd+V into the wrong app: if the
-                                        // original app refused to come frontmost, hand the
-                                        // transcript to the user via the clipboard instead.
-                                        let frontmost_ok = restore_outcome
-                                            .as_ref()
-                                            .map(|o| o.frontmost_verified)
-                                            .unwrap_or(true);
-                                        if !frontmost_ok {
-                                            let app_label = target_app_name
-                                                .unwrap_or_else(|| "the original app".to_string());
-                                            warn!(
+                                            // Hide the overlay synchronously so it
+                                            // can't interfere with focus routing.
+                                            crate::overlay::hide_recording_overlay_now(&app);
+                                            // Restore focus surgically: prefer the
+                                            // captured AX element (lands in the
+                                            // exact field), fall back to app
+                                            // activation. Skip activation when the
+                                            // captured app is already frontmost
+                                            // (e.g. dictating into Echo Scribe
+                                            // itself) — re-activating cycles key
+                                            // windows and is the regression source.
+                                            let mut restore_outcome: Option<focus::RestoreOutcome> =
+                                                None;
+                                            let mut target_app_name: Option<String> = None;
+                                            if let Some(snap) = pending_context.take() {
+                                                let element = pending_focus_element.take();
+                                                let outcome =
+                                                    focus::restore_focus(&snap, element.as_ref());
+                                                info!(
+                                                    pid = snap.pid,
+                                                    same_app = outcome.same_app,
+                                                    activated = outcome.activated_app,
+                                                    frontmost_verified = outcome.frontmost_verified,
+                                                    ax_focused = outcome.ax_focused,
+                                                    ax_error = ?outcome.ax_error,
+                                                    element_captured = outcome.element_captured,
+                                                    ax_role = ?outcome.element_role,
+                                                    frontmost_before = ?outcome.frontmost_pid_before,
+                                                    paste_time_focus = ?outcome.paste_time_focus_role,
+                                                    "focus restored before paste"
+                                                );
+                                                let _ = app.emit("voice:paste_pending", ());
+                                                // Settle delay. Same-app skips the
+                                                // app-activation round-trip so we
+                                                // can wait less; cross-app needs
+                                                // WindowServer time to route key.
+                                                let settle_ms =
+                                                    if outcome.same_app { 60 } else { 250 };
+                                                std::thread::sleep(
+                                                    std::time::Duration::from_millis(settle_ms),
+                                                );
+                                                target_app_name = snap.app_name.clone();
+                                                restore_outcome = Some(outcome);
+                                            }
+                                            // Never synthesize Cmd+V into the wrong app: if the
+                                            // original app refused to come frontmost, hand the
+                                            // transcript to the user via the clipboard instead.
+                                            let frontmost_ok = restore_outcome
+                                                .as_ref()
+                                                .map(|o| o.frontmost_verified)
+                                                .unwrap_or(true);
+                                            if !frontmost_ok {
+                                                let app_label =
+                                                    target_app_name.unwrap_or_else(|| {
+                                                        "the original app".to_string()
+                                                    });
+                                                warn!(
                                                 chars = text.len(),
                                                 "target app not frontmost after activation; skipping synthetic paste"
                                             );
-                                            match crate::input::paste::copy_to_clipboard(&text) {
-                                                Ok(()) => {
-                                                    let _ = app.emit("voice:paste_failed", "focus_restore");
-                                                    record_capture_event(db.as_ref(), &capture_id, "paste_failed", Some("focus_restore; transcript copied"));
-                                                    let _ = app.emit(
+                                                match crate::input::paste::copy_to_clipboard(&text)
+                                                {
+                                                    Ok(()) => {
+                                                        let _ = app.emit(
+                                                            "voice:paste_failed",
+                                                            "focus_restore",
+                                                        );
+                                                        record_capture_event(
+                                                            db.as_ref(),
+                                                            &capture_id,
+                                                            "paste_failed",
+                                                            Some(
+                                                                "focus_restore; transcript copied",
+                                                            ),
+                                                        );
+                                                        let _ = app.emit(
                                                         "asr:error",
                                                         format!(
                                                             "Couldn't switch back to {app_label}. Your transcript is on the clipboard — press ⌘V to paste it."
                                                         ),
                                                     );
+                                                    }
+                                                    Err(e) => {
+                                                        error!(?e, "clipboard fallback failed");
+                                                        let _ = app.emit(
+                                                            "asr:error",
+                                                            format!("Paste failed: {e}"),
+                                                        );
+                                                        let _ = app.emit(
+                                                            "voice:paste_failed",
+                                                            "clipboard",
+                                                        );
+                                                        record_capture_event(
+                                                            db.as_ref(),
+                                                            &capture_id,
+                                                            "paste_failed",
+                                                            Some("clipboard fallback failed"),
+                                                        );
+                                                    }
                                                 }
-                                                Err(e) => {
-                                                    error!(?e, "clipboard fallback failed");
-                                                    let _ = app.emit(
-                                                        "asr:error",
-                                                        format!("Paste failed: {e}"),
-                                                    );
-                                                    let _ = app.emit("voice:paste_failed", "clipboard");
-                                                    record_capture_event(db.as_ref(), &capture_id, "paste_failed", Some("clipboard fallback failed"));
+                                            } else {
+                                                // If the app reported an unhealed focus void the
+                                                // Cmd+V likely lands nowhere — leave the transcript
+                                                // on the clipboard so a manual ⌘V still works.
+                                                let restore_clipboard = restore_outcome
+                                                    .as_ref()
+                                                    .map(|o| o.paste_target_confirmed_or_unknown())
+                                                    .unwrap_or(true);
+                                                if !restore_clipboard {
+                                                    warn!("focus void unhealed; keeping transcript on clipboard after paste attempt");
                                                 }
-                                            }
-                                        } else {
-                                            // If the app reported an unhealed focus void the
-                                            // Cmd+V likely lands nowhere — leave the transcript
-                                            // on the clipboard so a manual ⌘V still works.
-                                            let restore_clipboard = restore_outcome
-                                                .as_ref()
-                                                .map(|o| o.paste_target_confirmed_or_unknown())
-                                                .unwrap_or(true);
-                                            if !restore_clipboard {
-                                                warn!("focus void unhealed; keeping transcript on clipboard after paste attempt");
-                                            }
-                                            info!(chars = text.len(), "pasting transcription");
-                                            if let Err(e) = crate::input::paste::paste_at_cursor_with_options(
+                                                info!(chars = text.len(), "pasting transcription");
+                                                if let Err(e) = crate::input::paste::paste_at_cursor_with_options(
                                                 &text,
                                                 restore_clipboard,
                                             ) {
@@ -524,27 +561,36 @@ pub fn spawn(
                                                     }
                                                 }
                                             }
+                                            }
+                                            force_state(&state, PipelineState::Idle);
+                                            on_state_change(TrayPipelineState::Idle);
                                         }
-                                        force_state(&state, PipelineState::Idle);
-                                        on_state_change(TrayPipelineState::Idle);
-                                    }
-                                    Action::LogCapture => {
-                                        crate::overlay::show_processing_overlay(&app, "Filing note…");
-                                        on_state_change(TrayPipelineState::Thinking);
-                                        let cls = run_classifier(&llm, &text, db.as_ref(), pending_context.as_ref().map(|c| c as &_)).await;
-                                        feedback::play(Sfx::Ready);
-                                        crate::overlay::hide_recording_overlay(&app);
+                                        Action::LogCapture => {
+                                            crate::overlay::show_processing_overlay(
+                                                &app,
+                                                "Filing note…",
+                                            );
+                                            on_state_change(TrayPipelineState::Thinking);
+                                            let cls = run_classifier(
+                                                &llm,
+                                                &text,
+                                                db.as_ref(),
+                                                pending_context.as_ref().map(|c| c as &_),
+                                            )
+                                            .await;
+                                            feedback::play(Sfx::Ready);
+                                            crate::overlay::hide_recording_overlay(&app);
 
-                                        let enabled = app
-                                            .try_state::<crate::commands::AppState>()
-                                            .map(|s| s.settings.auto_file_enabled())
-                                            .unwrap_or(true);
+                                            let enabled = app
+                                                .try_state::<crate::commands::AppState>()
+                                                .map(|s| s.settings.auto_file_enabled())
+                                                .unwrap_or(true);
 
-                                        if enabled {
-                                            // Auto-file: the user never wants a confirm popup. If the
-                                            // classifier errored (no model / parse failure), fall back to
-                                            // a plain note with no project so the capture is never lost.
-                                            let c = cls.unwrap_or_else(|e| {
+                                            if enabled {
+                                                // Auto-file: the user never wants a confirm popup. If the
+                                                // classifier errored (no model / parse failure), fall back to
+                                                // a plain note with no project so the capture is never lost.
+                                                let c = cls.unwrap_or_else(|e| {
                                                 warn!(?e, "classify failed; filing capture as a plain note");
                                                 Classification {
                                                     kind: crate::db::items::ItemKind::Note,
@@ -556,90 +602,103 @@ pub fn spawn(
                                                 }
                                             });
 
-                                            let project_name: Option<String> = c
-                                                .project_id
-                                                .as_deref()
-                                                .and_then(|pid| {
-                                                    db.as_ref().and_then(|db| {
-                                                        db.with_conn(|conn| {
-                                                            crate::db::projects::get_project(conn, pid)
+                                                let project_name: Option<String> = c
+                                                    .project_id
+                                                    .as_deref()
+                                                    .and_then(|pid| {
+                                                        db.as_ref().and_then(|db| {
+                                                            db.with_conn(|conn| {
+                                                                crate::db::projects::get_project(
+                                                                    conn, pid,
+                                                                )
+                                                            })
+                                                            .ok()
+                                                            .flatten()
+                                                            .map(|p| p.name)
                                                         })
-                                                        .ok()
-                                                        .flatten()
-                                                        .map(|p| p.name)
                                                     })
-                                                })
-                                                .or_else(|| c.new_project_name.clone());
+                                                    .or_else(|| c.new_project_name.clone());
 
-                                            let res = persist_log_capture(
-                                                &text,
-                                                c.kind,
-                                                c.project_id.clone(),
-                                                c.new_project_name.clone(),
-                                                c.tags.clone(),
-                                                c.deadline_iso.clone(),
-                                                Some(c.confidence),
-                                                Some("ai"),
-                                                pending_context.take().as_ref().and_then(serialise_context),
-                                                db.as_ref(),
-                                                event_log_root.as_deref(),
-                                            );
-                                            pending_focus_element = None;
-                                            match res {
-                                                Ok(item_id) => {
-                                                    info!(item_id = %item_id, "auto-saved log capture");
-                                                    let _ = app.emit("item:created", ());
-                                                    notify_auto_filed(
-                                                        &app,
-                                                        &item_id,
-                                                        project_name.as_deref(),
-                                                        c.kind,
-                                                        &text,
-                                                        c.confidence,
-                                                    );
-                                                    try_export_persisted_item(&app, db.as_ref(), &item_id);
+                                                let res = persist_log_capture(
+                                                    &text,
+                                                    c.kind,
+                                                    c.project_id.clone(),
+                                                    c.new_project_name.clone(),
+                                                    c.tags.clone(),
+                                                    c.deadline_iso.clone(),
+                                                    Some(c.confidence),
+                                                    Some("ai"),
+                                                    pending_context
+                                                        .take()
+                                                        .as_ref()
+                                                        .and_then(serialise_context),
+                                                    db.as_ref(),
+                                                    event_log_root.as_deref(),
+                                                );
+                                                pending_focus_element = None;
+                                                match res {
+                                                    Ok(item_id) => {
+                                                        info!(item_id = %item_id, "auto-saved log capture");
+                                                        let _ = app.emit("item:created", ());
+                                                        notify_auto_filed(
+                                                            &app,
+                                                            &item_id,
+                                                            project_name.as_deref(),
+                                                            c.kind,
+                                                            &text,
+                                                            c.confidence,
+                                                        );
+                                                        try_export_persisted_item(
+                                                            &app,
+                                                            db.as_ref(),
+                                                            &item_id,
+                                                        );
+                                                    }
+                                                    Err(e) => {
+                                                        error!(?e, "log capture auto-save failed");
+                                                        let _ = app.emit(
+                                                            "asr:error",
+                                                            format!("Save failed: {e}"),
+                                                        );
+                                                    }
                                                 }
-                                                Err(e) => {
-                                                    error!(?e, "log capture auto-save failed");
-                                                    let _ = app.emit("asr:error", format!("Save failed: {e}"));
-                                                }
+                                                force_state(&state, PipelineState::Idle);
+                                                on_state_change(TrayPipelineState::Idle);
+                                            } else {
+                                                // Review mode (auto-file disabled in Settings): show the
+                                                // confirm overlay so the user can edit before saving.
+                                                let _ = app.emit(
+                                                    "log_capture:classification_ready",
+                                                    serde_json::json!({
+                                                        "transcript": text,
+                                                        "classification": cls.as_ref().ok(),
+                                                    }),
+                                                );
+                                                force_state(
+                                                    &state,
+                                                    PipelineState::AwaitingConfirmation,
+                                                );
+                                                on_state_change(TrayPipelineState::Thinking);
                                             }
+                                        }
+                                        Action::EditSelection => {
+                                            // Handled above via the early `continue`;
+                                            // this arm keeps the match exhaustive.
+                                            crate::overlay::hide_recording_overlay(&app);
                                             force_state(&state, PipelineState::Idle);
                                             on_state_change(TrayPipelineState::Idle);
-                                        } else {
-                                            // Review mode (auto-file disabled in Settings): show the
-                                            // confirm overlay so the user can edit before saving.
-                                            let _ = app.emit(
-                                                "log_capture:classification_ready",
-                                                serde_json::json!({
-                                                    "transcript": text,
-                                                    "classification": cls.as_ref().ok(),
-                                                }),
-                                            );
-                                            force_state(&state, PipelineState::AwaitingConfirmation);
-                                            on_state_change(TrayPipelineState::Thinking);
                                         }
-                                    }
-                                    Action::EditSelection => {
-                                        // Handled above via the early `continue`;
-                                        // this arm keeps the match exhaustive.
-                                        crate::overlay::hide_recording_overlay(&app);
-                                        force_state(&state, PipelineState::Idle);
-                                        on_state_change(TrayPipelineState::Idle);
-                                    }
-                                    Action::Cancel => {
-                                        crate::overlay::hide_recording_overlay(&app);
-                                        force_state(&state, PipelineState::Idle);
-                                        on_state_change(TrayPipelineState::Idle);
-                                    }
+                                        Action::Cancel => {
+                                            crate::overlay::hide_recording_overlay(&app);
+                                            force_state(&state, PipelineState::Idle);
+                                            on_state_change(TrayPipelineState::Idle);
+                                        }
                                     }
                                 }
                                 Err(e) => {
                                     error!(?e, "transcription failed");
-                                    let _ = app.emit(
-                                        "asr:error",
-                                        format!("Transcription failed: {e}"),
-                                    );
+                                    let _ =
+                                        app.emit("asr:error", format!("Transcription failed: {e}"));
                                     if matches!(action, Action::LogCapture) {
                                         let _ = app.emit(
                                             "log_capture:classification_ready",
@@ -831,7 +890,12 @@ fn persist_capture(
             Ok(_) => {
                 let id_for_event = id.clone();
                 let _ = db.with_conn(|c| {
-                    crate::db::events::insert_event(c, &id_for_event, "created", Some("via voice_at_cursor"))
+                    crate::db::events::insert_event(
+                        c,
+                        &id_for_event,
+                        "created",
+                        Some("via voice_at_cursor"),
+                    )
                 });
                 let id_for_tag = id.clone();
                 let now_for_tag = now.clone();
@@ -869,9 +933,8 @@ fn persist_capture(
 
 fn record_capture_event(db: Option<&Db>, item_id: &str, event_type: &str, detail: Option<&str>) {
     if let Some(db) = db {
-        let _ = db.with_conn(|conn| {
-            crate::db::events::insert_event(conn, item_id, event_type, detail)
-        });
+        let _ =
+            db.with_conn(|conn| crate::db::events::insert_event(conn, item_id, event_type, detail));
     }
 }
 
@@ -897,13 +960,15 @@ fn process_with_settings(
 ) -> crate::asr::spoken_commands::ProcessedTranscript {
     let state = match app.try_state::<crate::commands::AppState>() {
         Some(s) => s,
-        None => return crate::asr::spoken_commands::process(
-            &text,
-            crate::asr::spoken_commands::SpokenCommandOptions {
-                enabled: false,
-                ..Default::default()
-            },
-        ),
+        None => {
+            return crate::asr::spoken_commands::process(
+                &text,
+                crate::asr::spoken_commands::SpokenCommandOptions {
+                    enabled: false,
+                    ..Default::default()
+                },
+            )
+        }
     };
     let suppress_commands = is_code_or_terminal_context(focus_context);
     if suppress_commands {
@@ -1049,12 +1114,14 @@ async fn try_intercept_action(
 ) -> InterceptOutcome {
     let (enabled, trigger_enabled, trigger_word, format_templates) = app
         .try_state::<crate::commands::AppState>()
-        .map(|s| (
-            s.settings.app_launcher_enabled(),
-            s.settings.trigger_word_routing_enabled(),
-            s.settings.action_trigger_word(),
-            s.settings.format_templates(),
-        ))
+        .map(|s| {
+            (
+                s.settings.app_launcher_enabled(),
+                s.settings.trigger_word_routing_enabled(),
+                s.settings.action_trigger_word(),
+                s.settings.format_templates(),
+            )
+        })
         .unwrap_or((true, true, "echo".to_string(), Vec::new()));
 
     if !enabled {
@@ -1099,7 +1166,9 @@ async fn try_intercept_action(
                     String::new()
                 } else {
                     let remaining = &text_trimmed[len..];
-                    let remaining_trimmed = remaining.trim_start_matches(|c: char| c.is_whitespace() || c.is_ascii_punctuation());
+                    let remaining_trimmed = remaining.trim_start_matches(|c: char| {
+                        c.is_whitespace() || c.is_ascii_punctuation()
+                    });
                     remaining_trimmed.to_string()
                 }
             }
@@ -1156,7 +1225,10 @@ async fn try_intercept_action(
                             format_id = ?cmd.format_id,
                             "format_text matched unknown template id; falling back to raw paste"
                         );
-                        notify_format_failure(app, "Format template not found. Pasting raw transcription instead.");
+                        notify_format_failure(
+                            app,
+                            "Format template not found. Pasting raw transcription instead.",
+                        );
                         return InterceptOutcome::Passthrough;
                     };
                     info!(
@@ -1166,7 +1238,9 @@ async fn try_intercept_action(
                         "running stage-2 format reformat"
                     );
                     crate::overlay::show_processing_overlay(app, "Formatting…");
-                    match crate::llm::action_launcher::format_text(llm, &template, body_trimmed).await {
+                    match crate::llm::action_launcher::format_text(llm, &template, body_trimmed)
+                        .await
+                    {
                         Ok(formatted) if !formatted.is_empty() => {
                             info!(
                                 target: "format",
@@ -1182,7 +1256,10 @@ async fn try_intercept_action(
                         }
                         Ok(_) => {
                             warn!(target: "format", "format_text produced empty output; falling back to raw paste");
-                            notify_format_failure(app, "Format produced no output. Pasting raw transcription instead.");
+                            notify_format_failure(
+                                app,
+                                "Format produced no output. Pasting raw transcription instead.",
+                            );
                             return InterceptOutcome::Passthrough;
                         }
                         Err(e) => {
@@ -1197,14 +1274,18 @@ async fn try_intercept_action(
                     Ok(msg) => {
                         info!(msg, "Voice action executed successfully");
                         feedback::play(Sfx::Ready);
-                        let _ = app.emit("action:executed", serde_json::json!({
-                            "message": msg,
-                            "command": cmd,
-                        }));
+                        let _ = app.emit(
+                            "action:executed",
+                            serde_json::json!({
+                                "message": msg,
+                                "command": cmd,
+                            }),
+                        );
 
                         // Fire a macOS system notification
                         use tauri_plugin_notification::NotificationExt;
-                        let _ = app.notification()
+                        let _ = app
+                            .notification()
                             .builder()
                             .title("Echo Scribe Action")
                             .body(&msg)
@@ -1261,7 +1342,10 @@ async fn run_edit_selection(
     }
     if !llm.ready() {
         warn!(target: "edit", "no LLM model active");
-        notify_edit_failure(app, "Load a language model in Settings to use Edit Selection.");
+        notify_edit_failure(
+            app,
+            "Load a language model in Settings to use Edit Selection.",
+        );
         return;
     }
 
@@ -1304,7 +1388,10 @@ async fn run_edit_selection(
             // whatever app happens to be frontmost would stomp foreign text.
             if !outcome.frontmost_verified {
                 warn!(target: "edit", "target app not frontmost; aborting edit paste");
-                notify_edit_failure(app, "Couldn't switch back to the original app — edit not applied.");
+                notify_edit_failure(
+                    app,
+                    "Couldn't switch back to the original app — edit not applied.",
+                );
                 return;
             }
             let settle_ms = if outcome.same_app { 60 } else { 250 };
@@ -1369,11 +1456,7 @@ fn notify_format_failure(app: &tauri::AppHandle, friendly: &str) {
 /// Surface a recorder-start failure to the user: emits a Tauri event for any
 /// listening UI and fires an OS notification so the user notices even when
 /// no Echo Scribe window is visible. Best-effort — both are fire-and-forget.
-fn notify_recorder_failure(
-    app: &AppHandle<Wry>,
-    err: &RecorderError,
-    preferred: Option<&str>,
-) {
+fn notify_recorder_failure(app: &AppHandle<Wry>, err: &RecorderError, preferred: Option<&str>) {
     use tauri_plugin_notification::NotificationExt;
 
     let kind = err.kind();
@@ -1395,7 +1478,9 @@ fn notify_recorder_failure(
         ),
         RecorderError::BuildStream(msg) | RecorderError::StartStream(msg) => (
             "Microphone unavailable".to_string(),
-            format!("Couldn't open the input device: {msg}. Try a different mic in Settings → Voice."),
+            format!(
+                "Couldn't open the input device: {msg}. Try a different mic in Settings → Voice."
+            ),
         ),
         RecorderError::NotRunning => return, // shouldn't happen here; nothing to notify
     };
@@ -1437,9 +1522,7 @@ fn notify_auto_filed(
         .unwrap_or(false);
     if !main_visible {
         let Some(name) = project_name else {
-            warn!(
-                "auto-filed item has no resolvable project name; skipping OS notification"
-            );
+            warn!("auto-filed item has no resolvable project name; skipping OS notification");
             return;
         };
         use tauri_plugin_notification::NotificationExt;
@@ -1450,13 +1533,7 @@ fn notify_auto_filed(
         };
         let title = format!("Filed to {name}");
         let body = format!("{kind_label}: {preview}");
-        if let Err(e) = app
-            .notification()
-            .builder()
-            .title(title)
-            .body(body)
-            .show()
-        {
+        if let Err(e) = app.notification().builder().title(title).body(body).show() {
             warn!(?e, "failed to show OS notification for auto-file");
         }
     }
@@ -1539,9 +1616,8 @@ fn persist_log_capture(
     if final_project_id.is_none() {
         let id_for_tag = id.clone();
         let now_for_tag = now.clone();
-        let _ = db.with_conn(move |c| {
-            crate::db::project_tag_jobs::enqueue(c, &id_for_tag, &now_for_tag)
-        });
+        let _ = db
+            .with_conn(move |c| crate::db::project_tag_jobs::enqueue(c, &id_for_tag, &now_for_tag));
     }
 
     // Record lifecycle event.
@@ -1626,7 +1702,10 @@ mod tests {
     fn idle_to_recording_transition() {
         let s = new_state_handle();
         assert!(transition_from_idle_to_recording(&s, Action::VoiceAtCursor));
-        assert_eq!(*s.lock().unwrap(), PipelineState::Recording(Action::VoiceAtCursor));
+        assert_eq!(
+            *s.lock().unwrap(),
+            PipelineState::Recording(Action::VoiceAtCursor)
+        );
     }
 
     #[test]
@@ -1641,9 +1720,15 @@ mod tests {
         let s = new_state_handle();
         force_state(&s, PipelineState::Recording(Action::VoiceAtCursor));
         // Mismatched action is rejected.
-        assert!(!transition_from_recording_to_processing(&s, Action::LogCapture));
+        assert!(!transition_from_recording_to_processing(
+            &s,
+            Action::LogCapture
+        ));
         // Matching action succeeds.
-        assert!(transition_from_recording_to_processing(&s, Action::VoiceAtCursor));
+        assert!(transition_from_recording_to_processing(
+            &s,
+            Action::VoiceAtCursor
+        ));
         assert_eq!(
             *s.lock().unwrap(),
             PipelineState::Processing(Action::VoiceAtCursor)
@@ -1666,12 +1751,24 @@ mod tests {
     fn edit_selection_runs_through_the_state_machine() {
         let s = new_state_handle();
         assert!(transition_from_idle_to_recording(&s, Action::EditSelection));
-        assert_eq!(*s.lock().unwrap(), PipelineState::Recording(Action::EditSelection));
-        assert!(transition_from_recording_to_processing(&s, Action::EditSelection));
-        assert_eq!(*s.lock().unwrap(), PipelineState::Processing(Action::EditSelection));
+        assert_eq!(
+            *s.lock().unwrap(),
+            PipelineState::Recording(Action::EditSelection)
+        );
+        assert!(transition_from_recording_to_processing(
+            &s,
+            Action::EditSelection
+        ));
+        assert_eq!(
+            *s.lock().unwrap(),
+            PipelineState::Processing(Action::EditSelection)
+        );
         // A mismatched action must not drive this one.
         force_state(&s, PipelineState::Recording(Action::EditSelection));
-        assert!(!transition_from_recording_to_processing(&s, Action::VoiceAtCursor));
+        assert!(!transition_from_recording_to_processing(
+            &s,
+            Action::VoiceAtCursor
+        ));
     }
 
     #[test]

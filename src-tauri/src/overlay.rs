@@ -1,5 +1,5 @@
-use tauri::{AppHandle, Emitter, Manager, Runtime, Wry};
 use tauri::webview::WebviewWindowBuilder;
+use tauri::{AppHandle, Emitter, Manager, Runtime, Wry};
 use tracing::{debug, error, info, warn};
 
 const OVERLAY_WIDTH: f64 = 172.0;
@@ -342,10 +342,7 @@ pub fn create_meeting_start_toast(app_handle: &AppHandle<Wry>) {
 
 /// Shows the meeting-start toast and sends it the detected application name.
 /// Repositioning on every show handles display changes between meetings.
-pub fn show_meeting_start_toast(
-    app_handle: &AppHandle<Wry>,
-    detected_app_name: Option<&str>,
-) {
+pub fn show_meeting_start_toast(app_handle: &AppHandle<Wry>, detected_app_name: Option<&str>) {
     // A consent choice can start recording while the Ask window is still
     // fading. Replace it atomically so two custom meeting toasts never stack
     // in the same reserved slot.
@@ -358,9 +355,7 @@ pub fn show_meeting_start_toast(
     }
     if let Some(toast) = app_handle.get_webview_window("meeting_start_toast") {
         if let Some((x, y)) = calculate_meeting_toast_position(app_handle) {
-            let _ = toast.set_position(tauri::Position::Logical(
-                tauri::LogicalPosition { x, y },
-            ));
+            let _ = toast.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
         }
         if let Err(e) = toast.show() {
             warn!(?e, "meeting-start toast show failed");
@@ -489,7 +484,10 @@ pub fn show_meeting_hud(app_handle: &AppHandle<Wry>, focus: Option<&str>) {
     if let Some(w) = app_handle.get_webview_window("guide_overlay") {
         if let Some((x, y, wd, ht)) = restored_hud_frame(app_handle) {
             let _ = w.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
-            let _ = w.set_size(tauri::Size::Logical(tauri::LogicalSize { width: wd, height: ht }));
+            let _ = w.set_size(tauri::Size::Logical(tauri::LogicalSize {
+                width: wd,
+                height: ht,
+            }));
         } else if let Some((x, y)) = calculate_hud_default_position(app_handle) {
             let _ = w.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
         }
@@ -557,8 +555,9 @@ pub fn create_screenrec_setup(app_handle: &AppHandle<Wry>) {
         return;
     }
 
-    let (x, y) = calculate_center_position(app_handle, SCREENREC_SETUP_WIDTH, SCREENREC_SETUP_HEIGHT)
-        .unwrap_or((200.0, 200.0));
+    let (x, y) =
+        calculate_center_position(app_handle, SCREENREC_SETUP_WIDTH, SCREENREC_SETUP_HEIGHT)
+            .unwrap_or((200.0, 200.0));
 
     match WebviewWindowBuilder::new(
         app_handle,
@@ -596,7 +595,9 @@ pub fn show_screenrec_setup(app_handle: &AppHandle<Wry>) {
     if let Some(w) = app_handle.get_webview_window("screenrec_setup") {
         // Re-centre on show so the window lands correctly even if the user
         // moved it or changed their monitor layout since startup.
-        if let Some((x, y)) = calculate_center_position(app_handle, SCREENREC_SETUP_WIDTH, SCREENREC_SETUP_HEIGHT) {
+        if let Some((x, y)) =
+            calculate_center_position(app_handle, SCREENREC_SETUP_WIDTH, SCREENREC_SETUP_HEIGHT)
+        {
             let _ = w.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
         }
         let _ = w.show();
@@ -795,7 +796,8 @@ pub fn create_area_picker(app_handle: &AppHandle<Wry>) {
 pub fn show_area_picker(app_handle: &AppHandle<Wry>, display_id: u32) -> Result<(), String> {
     let (x, y, w, h) = crate::screenrec::display_bounds(display_id).ok_or_else(|| {
         error!(target: "screenrec", display_id, "show_area_picker: display not found");
-        "That display is no longer available. Reopen the recording setup and pick a display again.".to_string()
+        "That display is no longer available. Reopen the recording setup and pick a display again."
+            .to_string()
     })?;
     if app_handle.get_webview_window("area_picker").is_none() {
         create_area_picker(app_handle);
@@ -804,7 +806,10 @@ pub fn show_area_picker(app_handle: &AppHandle<Wry>, display_id: u32) -> Result<
         .get_webview_window("area_picker")
         .ok_or_else(|| "area picker window missing after create".to_string())?;
     let _ = w_handle.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
-    let _ = w_handle.set_size(tauri::Size::Logical(tauri::LogicalSize { width: w, height: h }));
+    let _ = w_handle.set_size(tauri::Size::Logical(tauri::LogicalSize {
+        width: w,
+        height: h,
+    }));
     if let Err(e) = w_handle.show() {
         error!(target: "screenrec", ?e, "area_picker show failed");
     }
@@ -872,10 +877,15 @@ pub fn create_countdown(app_handle: &AppHandle<Wry>) {
 /// Shows the countdown window centered on `display_id`'s bounds and tells the
 /// page to start ticking from `seconds`. Returns `Err` (friendly, already
 /// logged) if the display id no longer resolves.
-pub fn show_countdown(app_handle: &AppHandle<Wry>, display_id: u32, seconds: u32) -> Result<(), String> {
+pub fn show_countdown(
+    app_handle: &AppHandle<Wry>,
+    display_id: u32,
+    seconds: u32,
+) -> Result<(), String> {
     let (dx, dy, dw, dh) = crate::screenrec::display_bounds(display_id).ok_or_else(|| {
         error!(target: "screenrec", display_id, "show_countdown: display not found");
-        "That display is no longer available. Reopen the recording setup and pick a display again.".to_string()
+        "That display is no longer available. Reopen the recording setup and pick a display again."
+            .to_string()
     })?;
     if app_handle.get_webview_window("countdown").is_none() {
         create_countdown(app_handle);

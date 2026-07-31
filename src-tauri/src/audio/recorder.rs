@@ -99,7 +99,10 @@ impl Recorder {
                     }
                 }
                 Err(e) => {
-                    warn!(?e, "failed to enumerate input devices while resolving preferred");
+                    warn!(
+                        ?e,
+                        "failed to enumerate input devices while resolving preferred"
+                    );
                 }
             }
             match found {
@@ -175,11 +178,18 @@ impl Recorder {
                 |err| warn!(?err, "input stream error"),
                 None,
             ),
-            other => return Err(RecorderError::BuildStream(format!("unsupported sample format {:?}", other))),
+            other => {
+                return Err(RecorderError::BuildStream(format!(
+                    "unsupported sample format {:?}",
+                    other
+                )))
+            }
         }
         .map_err(|e| RecorderError::BuildStream(e.to_string()))?;
 
-        stream.play().map_err(|e| RecorderError::StartStream(e.to_string()))?;
+        stream
+            .play()
+            .map_err(|e| RecorderError::StartStream(e.to_string()))?;
         self.stream = Some(stream);
         self.active_device_name = Some(resolved_name);
         Ok(())
@@ -262,11 +272,7 @@ fn compute_levels(data: &[f32], channels: usize) -> Vec<f32> {
         let rms = (slice.iter().map(|s| s * s).sum::<f32>() / slice.len() as f32).sqrt();
         // Convert to dB, normalize to 0..1 range.
         // dB range: -55 (silence) to -8 (loud speech).
-        let db = if rms > 0.0 {
-            20.0 * rms.log10()
-        } else {
-            -55.0
-        };
+        let db = if rms > 0.0 { 20.0 * rms.log10() } else { -55.0 };
         let db_min = -55.0_f32;
         let db_max = -8.0_f32;
         let normalized = ((db - db_min) / (db_max - db_min)).clamp(0.0, 1.0);

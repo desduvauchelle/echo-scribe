@@ -227,7 +227,10 @@ pub fn code_from_key(k: Key) -> Option<&'static str> {
 impl Binding {
     /// A single-key binding. No modifiers.
     pub fn single(key: Key) -> Self {
-        Self { primary: SerKey(key), modifiers: Vec::new() }
+        Self {
+            primary: SerKey(key),
+            modifiers: Vec::new(),
+        }
     }
 
     /// True if the binding is a single key (no modifiers required).

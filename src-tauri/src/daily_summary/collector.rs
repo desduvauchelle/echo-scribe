@@ -168,8 +168,22 @@ mod tests {
     #[test]
     fn light_day_with_2_dictations_is_empty() {
         let conn = setup();
-        insert_item(&conn, "d1", "voice_at_cursor", "2026-05-12T10:00:00Z", "hi", Some("VS Code"));
-        insert_item(&conn, "d2", "voice_at_cursor", "2026-05-12T11:00:00Z", "ok", Some("VS Code"));
+        insert_item(
+            &conn,
+            "d1",
+            "voice_at_cursor",
+            "2026-05-12T10:00:00Z",
+            "hi",
+            Some("VS Code"),
+        );
+        insert_item(
+            &conn,
+            "d2",
+            "voice_at_cursor",
+            "2026-05-12T11:00:00Z",
+            "ok",
+            Some("VS Code"),
+        );
         let input = collect(&conn, "2026-05-12").unwrap();
         assert_eq!(input.dictations_by_app.len(), 1);
         assert!(is_empty(&input));
@@ -204,7 +218,14 @@ mod tests {
     #[test]
     fn day_with_note_is_not_empty() {
         let conn = setup();
-        insert_item(&conn, "n1", "log_capture", "2026-05-12T10:00:00Z", "note", None);
+        insert_item(
+            &conn,
+            "n1",
+            "log_capture",
+            "2026-05-12T10:00:00Z",
+            "note",
+            None,
+        );
         let input = collect(&conn, "2026-05-12").unwrap();
         assert_eq!(input.notes.len(), 1);
         assert!(!is_empty(&input));
@@ -220,7 +241,14 @@ mod tests {
             ("d3", "VS Code"),
             ("d4", "Slack"),
         ] {
-            insert_item(&conn, i, "voice_at_cursor", "2026-05-12T10:00:00Z", "x", Some(app));
+            insert_item(
+                &conn,
+                i,
+                "voice_at_cursor",
+                "2026-05-12T10:00:00Z",
+                "x",
+                Some(app),
+            );
         }
         let input = collect(&conn, "2026-05-12").unwrap();
         assert_eq!(input.dictations_by_app.len(), 2);
@@ -233,7 +261,14 @@ mod tests {
     fn dictations_with_null_context_group_under_unknown() {
         let conn = setup();
         for i in 0..3 {
-            insert_item(&conn, &format!("d{i}"), "voice_at_cursor", "2026-05-12T10:00:00Z", "x", None);
+            insert_item(
+                &conn,
+                &format!("d{i}"),
+                "voice_at_cursor",
+                "2026-05-12T10:00:00Z",
+                "x",
+                None,
+            );
         }
         let input = collect(&conn, "2026-05-12").unwrap();
         assert_eq!(input.dictations_by_app.len(), 1);
@@ -243,9 +278,30 @@ mod tests {
     #[test]
     fn collect_ignores_other_days() {
         let conn = setup();
-        insert_item(&conn, "n-yesterday", "log_capture", "2026-05-11T10:00:00Z", "x", None);
-        insert_item(&conn, "n-today", "log_capture", "2026-05-12T10:00:00Z", "x", None);
-        insert_item(&conn, "n-tomorrow", "log_capture", "2026-05-13T10:00:00Z", "x", None);
+        insert_item(
+            &conn,
+            "n-yesterday",
+            "log_capture",
+            "2026-05-11T10:00:00Z",
+            "x",
+            None,
+        );
+        insert_item(
+            &conn,
+            "n-today",
+            "log_capture",
+            "2026-05-12T10:00:00Z",
+            "x",
+            None,
+        );
+        insert_item(
+            &conn,
+            "n-tomorrow",
+            "log_capture",
+            "2026-05-13T10:00:00Z",
+            "x",
+            None,
+        );
         let input = collect(&conn, "2026-05-12").unwrap();
         assert_eq!(input.notes.len(), 1);
         assert_eq!(input.notes[0].id, "n-today");
@@ -254,7 +310,14 @@ mod tests {
     #[test]
     fn collect_ignores_deleted_items() {
         let conn = setup();
-        insert_item(&conn, "n1", "log_capture", "2026-05-12T10:00:00Z", "x", None);
+        insert_item(
+            &conn,
+            "n1",
+            "log_capture",
+            "2026-05-12T10:00:00Z",
+            "x",
+            None,
+        );
         conn.execute(
             "UPDATE items SET deleted_at = '2026-05-12T11:00:00Z' WHERE id = 'n1'",
             [],

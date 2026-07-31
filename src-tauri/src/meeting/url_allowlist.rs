@@ -55,9 +55,18 @@ pub fn classify(raw: &str) -> Option<&'static str> {
 
     // Whereby room URLs — exclude marketing/account paths.
     if host == "whereby.com" {
-        const NON_ROOMS: &[&str] =
-            &["/", "/information", "/pricing", "/about", "/login", "/signup"];
-        if !NON_ROOMS.iter().any(|p| path == *p || path.starts_with(&format!("{p}/"))) {
+        const NON_ROOMS: &[&str] = &[
+            "/",
+            "/information",
+            "/pricing",
+            "/about",
+            "/login",
+            "/signup",
+        ];
+        if !NON_ROOMS
+            .iter()
+            .any(|p| path == *p || path.starts_with(&format!("{p}/")))
+        {
             if path.len() > 1 {
                 return Some("Whereby");
             }
@@ -120,7 +129,10 @@ mod tests {
 
     #[test]
     fn google_meet_room_matches() {
-        assert_eq!(classify("https://meet.google.com/abc-defg-hij"), Some("Google Meet"));
+        assert_eq!(
+            classify("https://meet.google.com/abc-defg-hij"),
+            Some("Google Meet")
+        );
         assert_eq!(
             classify("https://meet.google.com/abc-defg-hij?authuser=0"),
             Some("Google Meet")
@@ -202,10 +214,7 @@ mod tests {
 
     #[test]
     fn webex_meet_matches() {
-        assert_eq!(
-            classify("https://acme.webex.com/meet/john"),
-            Some("Webex")
-        );
+        assert_eq!(classify("https://acme.webex.com/meet/john"), Some("Webex"));
         assert_eq!(
             classify("https://acme.webex.com/wbxmjs/joinservice/sites/acme/meeting/12345"),
             Some("Webex")
@@ -247,8 +256,14 @@ mod tests {
     #[test]
     fn unknown_hosts_do_not_match() {
         assert_eq!(classify("https://news.ycombinator.com"), None);
-        assert_eq!(classify("https://github.com/anthropics/anthropic-sdk-python"), None);
-        assert_eq!(classify("https://www.youtube.com/watch?v=dQw4w9WgXcQ"), None);
+        assert_eq!(
+            classify("https://github.com/anthropics/anthropic-sdk-python"),
+            None
+        );
+        assert_eq!(
+            classify("https://www.youtube.com/watch?v=dQw4w9WgXcQ"),
+            None
+        );
     }
 
     #[test]

@@ -114,7 +114,10 @@ pub async fn classify<L: LlmGenerator + ?Sized>(
     let parsed = match parse_raw(&raw) {
         Ok(p) => p,
         Err(e) => {
-            warn!(?e, "classifier first-pass parse failed; retrying with stricter prompt");
+            warn!(
+                ?e,
+                "classifier first-pass parse failed; retrying with stricter prompt"
+            );
             // Re-prompt with the parser's complaint appended. Same model,
             // same temperature — usually the model recovers and produces
             // valid JSON on the second attempt.
@@ -125,9 +128,8 @@ pub async fn classify<L: LlmGenerator + ?Sized>(
                  No prose, no code fences.)"
             );
             let raw2 = llm.generate(req2).await?;
-            parse_raw(&raw2).map_err(|e2| {
-                ClassifierError::Parse(format!("primary: {e}; retry: {e2}"))
-            })?
+            parse_raw(&raw2)
+                .map_err(|e2| ClassifierError::Parse(format!("primary: {e}; retry: {e2}")))?
         }
     };
 
@@ -137,8 +139,12 @@ pub async fn classify<L: LlmGenerator + ?Sized>(
 fn parse_raw(raw: &str) -> Result<RawClassification, String> {
     // The model occasionally emits a leading code-fence or trailing whitespace.
     // Find the first '{' and the last '}' to be tolerant.
-    let start = raw.find('{').ok_or_else(|| "no '{' in output".to_string())?;
-    let end = raw.rfind('}').ok_or_else(|| "no '}' in output".to_string())?;
+    let start = raw
+        .find('{')
+        .ok_or_else(|| "no '{' in output".to_string())?;
+    let end = raw
+        .rfind('}')
+        .ok_or_else(|| "no '}' in output".to_string())?;
     if end <= start {
         return Err(format!("malformed braces: start={start} end={end}"));
     }
@@ -449,9 +455,17 @@ mod tests {
             r#"{"kind":"task","project_id":"bogus","new_project_name":null,"tags":[],"deadline_iso":null,"confidence":0.8}"#,
         ]);
         let projects = vec![proj("p1", "Echo")];
-        let c = classify(&stub, "do the thing", &projects, &[], "2026-05-01T10:00:00Z", "Friday", None)
-            .await
-            .unwrap();
+        let c = classify(
+            &stub,
+            "do the thing",
+            &projects,
+            &[],
+            "2026-05-01T10:00:00Z",
+            "Friday",
+            None,
+        )
+        .await
+        .unwrap();
         assert_eq!(c.project_id, None);
         assert_eq!(c.new_project_name, None);
     }
@@ -463,9 +477,17 @@ mod tests {
             r#"{"kind":"note","project_id":null,"new_project_name":"Echo Scribe","tags":[],"deadline_iso":null,"confidence":0.9}"#,
         ]);
         let projects = vec![proj("p1", "Echo Scribe")];
-        let c = classify(&stub, "a note", &projects, &[], "2026-05-01T10:00:00Z", "Friday", None)
-            .await
-            .unwrap();
+        let c = classify(
+            &stub,
+            "a note",
+            &projects,
+            &[],
+            "2026-05-01T10:00:00Z",
+            "Friday",
+            None,
+        )
+        .await
+        .unwrap();
         assert_eq!(c.project_id.as_deref(), Some("p1"));
         assert_eq!(c.new_project_name, None);
     }
@@ -476,9 +498,17 @@ mod tests {
             r#"{"kind":"note","project_id":null,"new_project_name":"  echo scribe ","tags":[],"deadline_iso":null,"confidence":0.9}"#,
         ]);
         let projects = vec![proj("p1", "Echo Scribe")];
-        let c = classify(&stub, "x", &projects, &[], "2026-05-01T10:00:00Z", "Friday", None)
-            .await
-            .unwrap();
+        let c = classify(
+            &stub,
+            "x",
+            &projects,
+            &[],
+            "2026-05-01T10:00:00Z",
+            "Friday",
+            None,
+        )
+        .await
+        .unwrap();
         assert_eq!(c.project_id.as_deref(), Some("p1"));
         assert_eq!(c.new_project_name, None);
     }
@@ -489,9 +519,17 @@ mod tests {
             r#"{"kind":"note","project_id":null,"new_project_name":"Brand New","tags":[],"deadline_iso":null,"confidence":0.9}"#,
         ]);
         let projects = vec![proj("p1", "Echo Scribe")];
-        let c = classify(&stub, "x", &projects, &[], "2026-05-01T10:00:00Z", "Friday", None)
-            .await
-            .unwrap();
+        let c = classify(
+            &stub,
+            "x",
+            &projects,
+            &[],
+            "2026-05-01T10:00:00Z",
+            "Friday",
+            None,
+        )
+        .await
+        .unwrap();
         assert_eq!(c.project_id, None);
         assert_eq!(c.new_project_name.as_deref(), Some("Brand New"));
     }
@@ -501,7 +539,9 @@ mod tests {
         let stub = StubLlm::new(vec![
             r#"{"kind":"task","project_id":null,"new_project_name":"   ","tags":[],"deadline_iso":null,"confidence":0.5}"#,
         ]);
-        let c = classify(&stub, "x", &[], &[], "2026-05-01T10:00:00Z", "Friday", None).await.unwrap();
+        let c = classify(&stub, "x", &[], &[], "2026-05-01T10:00:00Z", "Friday", None)
+            .await
+            .unwrap();
         assert_eq!(c.new_project_name, None);
     }
 
@@ -510,7 +550,9 @@ mod tests {
         let stub = StubLlm::new(vec![
             r#"{"kind":"note","project_id":null,"new_project_name":null,"tags":["Bug","bug","  IDEA  ","idea"],"deadline_iso":null,"confidence":0.9}"#,
         ]);
-        let c = classify(&stub, "x", &[], &[], "2026-05-01T10:00:00Z", "Friday", None).await.unwrap();
+        let c = classify(&stub, "x", &[], &[], "2026-05-01T10:00:00Z", "Friday", None)
+            .await
+            .unwrap();
         assert_eq!(c.tags, vec!["bug".to_string(), "idea".to_string()]);
     }
 
@@ -519,13 +561,25 @@ mod tests {
         let stub = StubLlm::new(vec![
             r#"{"kind":"note","project_id":null,"new_project_name":null,"tags":[],"deadline_iso":null,"confidence":2.5}"#,
         ]);
-        let c = classify(&stub, "x", &[], &[], "2026-05-01T10:00:00Z", "Friday", None).await.unwrap();
+        let c = classify(&stub, "x", &[], &[], "2026-05-01T10:00:00Z", "Friday", None)
+            .await
+            .unwrap();
         assert!((c.confidence - 1.0).abs() < f32::EPSILON);
 
         let stub2 = StubLlm::new(vec![
             r#"{"kind":"note","project_id":null,"new_project_name":null,"tags":[],"deadline_iso":null,"confidence":-0.3}"#,
         ]);
-        let c2 = classify(&stub2, "x", &[], &[], "2026-05-01T10:00:00Z", "Friday", None).await.unwrap();
+        let c2 = classify(
+            &stub2,
+            "x",
+            &[],
+            &[],
+            "2026-05-01T10:00:00Z",
+            "Friday",
+            None,
+        )
+        .await
+        .unwrap();
         assert!(c2.confidence >= 0.0 && c2.confidence < f32::EPSILON);
     }
 
@@ -534,7 +588,9 @@ mod tests {
         let stub = StubLlm::new(vec![
             r#"{"kind":"note","project_id":null,"new_project_name":null,"tags":[],"deadline_iso":"2026-05-10T00:00:00Z","confidence":0.5}"#,
         ]);
-        let c = classify(&stub, "x", &[], &[], "2026-05-01T10:00:00Z", "Friday", None).await.unwrap();
+        let c = classify(&stub, "x", &[], &[], "2026-05-01T10:00:00Z", "Friday", None)
+            .await
+            .unwrap();
         assert_eq!(c.deadline_iso, None);
     }
 
@@ -581,10 +637,22 @@ mod tests {
             content_source: Some("browser_tab".into()),
         };
         let prompt = build_system_prompt(&[], &[], "2026-05-03T10:00:00Z", "Sunday", Some(&ctx));
-        assert!(prompt.contains("Google Chrome"), "app_name missing from prompt");
-        assert!(prompt.contains("Inbox — Gmail"), "window_title missing from prompt");
-        assert!(prompt.contains("https://mail.google.com/"), "browser_url missing from prompt");
-        assert!(prompt.contains("Important customer thread"), "content_title missing from prompt");
+        assert!(
+            prompt.contains("Google Chrome"),
+            "app_name missing from prompt"
+        );
+        assert!(
+            prompt.contains("Inbox — Gmail"),
+            "window_title missing from prompt"
+        );
+        assert!(
+            prompt.contains("https://mail.google.com/"),
+            "browser_url missing from prompt"
+        );
+        assert!(
+            prompt.contains("Important customer thread"),
+            "content_title missing from prompt"
+        );
         assert!(
             prompt.contains("https://mail.google.com/mail/u/0/#inbox/abc"),
             "content_url missing from prompt"
@@ -642,13 +710,7 @@ mod tests {
         p2.description = Some("Voice notes app rebuild.".into());
         p2.keywords = vec!["tauri".into(), "rust".into(), "voice".into()];
 
-        let prompt = build_system_prompt(
-            &[p1, p2],
-            &[],
-            "2026-05-03T10:00:00Z",
-            "Sunday",
-            None,
-        );
+        let prompt = build_system_prompt(&[p1, p2], &[], "2026-05-03T10:00:00Z", "Sunday", None);
 
         assert!(prompt.contains("Acme team"));
         assert!(prompt.contains("Voice notes app rebuild"));

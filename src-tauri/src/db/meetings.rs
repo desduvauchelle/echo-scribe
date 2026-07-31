@@ -120,7 +120,10 @@ pub fn append_guide_template_snapshot(
         )
         .optional()?
         .flatten();
-    let mut arr = match current.as_deref().map(serde_json::from_str::<serde_json::Value>) {
+    let mut arr = match current
+        .as_deref()
+        .map(serde_json::from_str::<serde_json::Value>)
+    {
         Some(Ok(serde_json::Value::Array(a))) => a,
         Some(Ok(v @ serde_json::Value::Object(_))) => vec![v],
         Some(Ok(other)) => {
@@ -141,7 +144,11 @@ pub fn append_guide_template_snapshot(
     Ok(())
 }
 
-pub fn update_status(conn: &Connection, item_id: &str, status: MeetingStatus) -> Result<(), DbError> {
+pub fn update_status(
+    conn: &Connection,
+    item_id: &str,
+    status: MeetingStatus,
+) -> Result<(), DbError> {
     conn.execute(
         "UPDATE meetings SET status = ?1 WHERE item_id = ?2",
         params![status.as_str(), item_id],
@@ -167,7 +174,14 @@ pub fn finalize_meeting(
             failed_chunk_count = ?5,
             status = 'complete'
          WHERE item_id = ?6",
-        params![ended_at, duration_ms, transcript_json, summary_json, failed_chunk_count, item_id],
+        params![
+            ended_at,
+            duration_ms,
+            transcript_json,
+            summary_json,
+            failed_chunk_count,
+            item_id
+        ],
     )?;
     Ok(())
 }
@@ -180,7 +194,12 @@ pub fn update_user_notes(conn: &Connection, item_id: &str, notes: &str) -> Resul
     Ok(())
 }
 
-pub fn link_action(conn: &Connection, meeting_id: &str, item_id: &str, created_at: &str) -> Result<(), DbError> {
+pub fn link_action(
+    conn: &Connection,
+    meeting_id: &str,
+    item_id: &str,
+    created_at: &str,
+) -> Result<(), DbError> {
     conn.execute(
         "INSERT OR IGNORE INTO meeting_action_links (meeting_id, item_id, created_at)
          VALUES (?1, ?2, ?3)",
@@ -323,7 +342,11 @@ mod tests {
     fn list_action_items_returns_links_oldest_first_and_skips_deleted() {
         let conn = fresh();
         insert_test_meeting(&conn, "m-1");
-        for (id, at) in [("a-2", "2026-05-03T01:00:00Z"), ("a-1", "2026-05-03T00:30:00Z"), ("a-3", "2026-05-03T02:00:00Z")] {
+        for (id, at) in [
+            ("a-2", "2026-05-03T01:00:00Z"),
+            ("a-1", "2026-05-03T00:30:00Z"),
+            ("a-3", "2026-05-03T02:00:00Z"),
+        ] {
             conn.execute(
                 "INSERT INTO items (id, content, source, kind, captured_at, created_at)
                  VALUES (?1, 'follow up', 'meeting', 'task', ?2, ?2)",
@@ -333,7 +356,11 @@ mod tests {
             link_action(&conn, "m-1", id, at).unwrap();
         }
         // Soft-deleted action items drop out of the list.
-        conn.execute("UPDATE items SET deleted_at = '2026-05-04T00:00:00Z' WHERE id = 'a-3'", []).unwrap();
+        conn.execute(
+            "UPDATE items SET deleted_at = '2026-05-04T00:00:00Z' WHERE id = 'a-3'",
+            [],
+        )
+        .unwrap();
 
         let ids: Vec<String> = list_action_items(&conn, "m-1")
             .unwrap()
