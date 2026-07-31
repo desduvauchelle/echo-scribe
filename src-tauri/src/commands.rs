@@ -5111,6 +5111,46 @@ pub fn stop_screen_recording_inner(
     };
     let info = handle.stop()?;
     info!(target: "screenrec", n_events = ?info.n_events, n_clicks = ?info.n_clicks, "recording stopped with input events");
+    // The capture is over no matter what happens below — flip the tray icon
+    // back to idle before any fallible bookkeeping so a failure can't strand
+    // an "active" tray state.
+    if let Ok(t) = state.tray.lock() {
+        t.set_screenrec_active(false);
+    }
+    // Zero-frame outcome: the sidecar never received a frame (e.g. a window
+    // recording where the window stayed off-screen on another Space, or Screen
+    // Recording permission missing), cancelled the writer, and reported
+    // size 0 — no playable .mp4 exists. Inserting a row would put a broken
+    // entry in the library, so clean up the orphan sidecar files and fail with
+    // a friendly message instead.
+    if info.is_empty_capture() {
+        warn!(
+            target: "screenrec",
+            path = %info.path,
+            size = info.size,
+            dur_ms = info.dur_ms,
+            source = %meta.source_label,
+            "no frames were captured; skipping library insert"
+        );
+        remove_orphan_capture_file(&info.path, "mp4");
+        if let Some(p) = info.events_path.as_deref() {
+            remove_orphan_capture_file(p, "events sidecar");
+        }
+        if let Some(p) = info.webcam_path.as_deref() {
+            remove_orphan_capture_file(p, "webcam sidecar");
+        }
+        if !info.thumb.is_empty() {
+            remove_orphan_capture_file(&info.thumb, "thumbnail");
+        }
+        // NOTE: useScreenRecorder.ts matches on the "Nothing was captured"
+        // prefix to show this message verbatim — keep them in sync.
+        return Err(
+            "Nothing was captured — the source never drew any frames (an off-screen \
+             or minimized window, or missing Screen Recording permission), so no \
+             recording was saved."
+                .into(),
+        );
+    }
     let id = std::path::Path::new(&info.path)
         .file_stem()
         .and_then(|s| s.to_str())
@@ -5168,11 +5208,22 @@ pub fn stop_screen_recording_inner(
         let _ =
             db.with_conn(move |c| crate::db::project_tag_jobs::enqueue_recording(c, &rec_id, &now));
     }
-    // Flip tray icon back to idle.
-    if let Ok(t) = state.tray.lock() {
-        t.set_screenrec_active(false);
-    }
     Ok(row)
+}
+
+/// Best-effort removal of a sidecar output nothing will ever reference (the
+/// zero-frame stop path skips the library insert). Missing files are expected
+/// — the sidecar may never have created them.
+fn remove_orphan_capture_file(path: &str, what: &str) {
+    match std::fs::remove_file(path) {
+        Ok(()) => {
+            info!(target: "screenrec", %path, what, "removed orphan file from empty capture")
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => {
+            warn!(target: "screenrec", %path, what, %e, "couldn't remove orphan file from empty capture")
+        }
+    }
 }
 
 #[tauri::command]
@@ -5180,9 +5231,12 @@ pub fn stop_screen_recording(
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<crate::db::recordings::RecordingRow, String> {
-    let row = stop_screen_recording_inner(&state, &app)?;
-    // Notify the frontend so RecordingsView refreshes.
+    let res = stop_screen_recording_inner(&state, &app);
+    // Notify the frontend so RecordingsView refreshes. Emit even when the stop
+    // failed (e.g. the zero-frame path): the active-recording state is already
+    // torn down, so the UI must reconcile either way.
     let _ = app.emit("screenrec-changed", ());
+    let row = res?;
     spawn_auto_denoise(app, row.id.clone());
     Ok(row)
 }

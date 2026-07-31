@@ -61,14 +61,19 @@ export function useScreenRecorder(): ScreenRecorder {
         // screenrec-changed, which flips `active` on.
         await openScreenrecSetup();
       }
-    } catch {
+    } catch (e) {
       // The backend logs the full technical detail (syscap sidecar). Surface
-      // only a short, human message here.
+      // only a short, human message here. The zero-frame stop path returns a
+      // purpose-built friendly message (stop_screen_recording_inner in
+      // commands.rs) — show that one verbatim instead of the generic fallback.
+      const msg = String(e);
       toasts.push({
         tone: "error",
-        message: active
-          ? "Couldn't stop the screen recording. See Settings → Diagnostics → logs for details."
-          : "Couldn't start screen recording. Check Screen Recording permission in Settings → Diagnostics.",
+        message: msg.startsWith("Nothing was captured")
+          ? msg
+          : active
+            ? "Couldn't stop the screen recording. See Settings → Diagnostics → logs for details."
+            : "Couldn't start screen recording. Check Screen Recording permission in Settings → Diagnostics.",
       });
     } finally {
       setBusy(false);

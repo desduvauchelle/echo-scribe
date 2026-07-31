@@ -382,6 +382,19 @@ impl TrayHandle<Wry> {
                                 }
                                 Err(e) => {
                                     tracing::warn!(%e, "tray stop screenrec failed");
+                                    // The active-recording state is torn down even on
+                                    // failure (e.g. the zero-frame "nothing was
+                                    // captured" path) — flip the tray back to idle,
+                                    // let the UI reconcile, and surface the friendly
+                                    // message as a toast.
+                                    if let Ok(t) = st.tray.lock() {
+                                        t.set_screenrec_active(false);
+                                    }
+                                    let _ = app.emit("screenrec-changed", ());
+                                    let _ = app.emit(
+                                        "screenrec-warning",
+                                        serde_json::json!({ "message": e }),
+                                    );
                                 }
                             }
                         });

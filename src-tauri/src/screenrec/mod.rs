@@ -903,6 +903,19 @@ pub struct StoppedInfo {
     pub webcam_offset_ms: Option<i64>,
 }
 
+impl StoppedInfo {
+    /// True when the stop produced no usable recording: the sidecar's
+    /// no-frames abort path cancels the writer and reports `size: 0` (no
+    /// playable .mp4 was ever finalized), and a missing .mp4 on disk means the
+    /// same thing regardless of the reported size. Happens e.g. when recording
+    /// a window that stays off-screen on another Space — ScreenCaptureKit
+    /// never delivers a frame. Callers must not insert a library row for such
+    /// a stop; it would point at a file that doesn't exist.
+    pub fn is_empty_capture(&self) -> bool {
+        self.size <= 0 || !std::path::Path::new(&self.path).is_file()
+    }
+}
+
 /// Parse one line of sidecar stderr JSON into a `StoppedInfo`, if it is the
 /// `stopped` event. Returns `None` for any other event or malformed line.
 pub fn parse_stopped(line: &str) -> Option<StoppedInfo> {
@@ -1467,6 +1480,52 @@ mod tests {
         let line = r#"{"event":"stopped","path":"/r/a.mp4","dur_ms":5000,"width":100,"height":100,"size":1,"thumb":"","webcam":""}"#;
         let info = parse_stopped(line).unwrap();
         assert_eq!(info.webcam_path, None);
+    }
+
+    // ---- is_empty_capture ------------------------------------------------
+
+    /// A `StoppedInfo` pointing at `path` with the given reported size; the
+    /// remaining fields don't matter for empty-capture detection.
+    fn stopped_info(path: &str, size: i64) -> StoppedInfo {
+        StoppedInfo {
+            path: path.to_string(),
+            dur_ms: 0,
+            width: 100,
+            height: 100,
+            size,
+            thumb: String::new(),
+            events_path: None,
+            n_events: None,
+            n_clicks: None,
+            webcam_path: None,
+            webcam_offset_ms: None,
+        }
+    }
+
+    #[test]
+    fn empty_capture_when_size_zero() {
+        // The no-frames abort path reports size 0 after cancelling the writer.
+        // Even if a stub file was left on disk, there's nothing playable in it.
+        let dir = tempfile::tempdir().unwrap();
+        let mp4 = dir.path().join("rec-1.mp4");
+        std::fs::write(&mp4, b"partial header").unwrap();
+        assert!(stopped_info(mp4.to_str().unwrap(), 0).is_empty_capture());
+    }
+
+    #[test]
+    fn empty_capture_when_file_missing() {
+        // A plausible size with no file on disk is still a broken recording.
+        let dir = tempfile::tempdir().unwrap();
+        let mp4 = dir.path().join("never-written.mp4");
+        assert!(stopped_info(mp4.to_str().unwrap(), 123_456).is_empty_capture());
+    }
+
+    #[test]
+    fn not_empty_capture_when_file_exists_with_size() {
+        let dir = tempfile::tempdir().unwrap();
+        let mp4 = dir.path().join("rec-1.mp4");
+        std::fs::write(&mp4, b"real recording bytes").unwrap();
+        assert!(!stopped_info(mp4.to_str().unwrap(), 20).is_empty_capture());
     }
 
     // ---- parse_pause_event -----------------------------------------------
