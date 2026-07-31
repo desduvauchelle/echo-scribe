@@ -2,11 +2,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use tauri::image::Image;
-use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+use tauri::menu::{CheckMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::path::BaseDirectory;
 use tauri::tray::{TrayIcon, TrayIconBuilder};
 use tauri::{AppHandle, Emitter, Manager, Runtime, Theme, Wry};
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 use crate::commands::AppState;
 use crate::coordinator::TrayPipelineState;
@@ -23,12 +23,13 @@ pub struct TrayHandle<R: Runtime> {
     /// The Pause/Resume toggle item — relabelled when the user flips the
     /// pause state via the menu.
     pause_item: Mutex<Option<MenuItem<R>>>,
-    /// The Start/Stop meeting toggle item — relabelled when a meeting begins
-    /// or ends (via tray, MeetingsView button, auto-detect, or hard-cap).
-    meeting_item: Mutex<Option<MenuItem<R>>>,
-    /// The Start/Stop screen recording toggle item — relabelled when a
-    /// screen recording begins or ends.
-    screenrec_item: Mutex<Option<MenuItem<R>>>,
+    /// Meeting actions are separate from screen recording actions. Start and
+    /// Stop are enabled in opposition as the meeting state changes.
+    meeting_start_item: Mutex<Option<MenuItem<R>>>,
+    meeting_stop_item: Mutex<Option<MenuItem<R>>>,
+    /// Screen recording has its own Start, Pause/Resume, and Stop actions.
+    screenrec_start_item: Mutex<Option<MenuItem<R>>>,
+    screenrec_stop_item: Mutex<Option<MenuItem<R>>>,
     /// The Pause/Resume RECORDING toggle item (distinct from the hotkey-pause
     /// item above). Hidden unless a recording is active; label flips between
     /// "Pause recording" and "Resume recording" as the sidecar pauses/resumes.
@@ -55,10 +56,24 @@ pub struct TrayHandle<R: Runtime> {
 impl<R: Runtime> TrayHandle<R> {
     pub fn install(app: &AppHandle<R>) -> tauri::Result<TrayHandle<R>> {
         let open = MenuItem::with_id(app, "open", "Open Echo Scribe", true, None::<&str>)?;
-        let meeting =
-            MenuItem::with_id(app, "meeting", "Start meeting", true, None::<&str>)?;
-        let screenrec =
-            MenuItem::with_id(app, "screenrec", "Start screen recording", true, None::<&str>)?;
+        let meeting_start =
+            MenuItem::with_id(app, "meeting_start", "Start meeting", true, None::<&str>)?;
+        let meeting_stop =
+            MenuItem::with_id(app, "meeting_stop", "Stop meeting", false, None::<&str>)?;
+        let screenrec_start = MenuItem::with_id(
+            app,
+            "screenrec_start",
+            "Start screen recording",
+            true,
+            None::<&str>,
+        )?;
+        let screenrec_stop = MenuItem::with_id(
+            app,
+            "screenrec_stop",
+            "Stop screen recording",
+            false,
+            None::<&str>,
+        )?;
         // Pause/Resume RECORDING — created DISABLED (greyed out) since no
         // recording is active at install. Tauri 2's MenuItem exposes
         // set_enabled but not per-item set_visible, so "only actionable while
@@ -74,17 +89,22 @@ impl<R: Runtime> TrayHandle<R> {
         let settings = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
         let sep1 = PredefinedMenuItem::separator(app)?;
         let sep2 = PredefinedMenuItem::separator(app)?;
+        let sep3 = PredefinedMenuItem::separator(app)?;
         let quit = MenuItem::with_id(app, "quit", "Quit Echo Scribe", true, None::<&str>)?;
-        let menu = Menu::with_items(
+
+        let meeting_recording_menu = Submenu::with_id_and_items(
             app,
-            &[&open, &sep1, &copy_last, &paste_last, &meeting, &screenrec, &screenrec_pause, &pause, &settings, &sep2, &quit],
+            "meeting_recording",
+            "Meeting recording",
+            true,
+            &[&meeting_start, &meeting_stop],
         )?;
         let screen_recording_menu = Submenu::with_id_and_items(
             app,
             "screen_recording",
             "Screen recording",
             true,
-            &[&screenrec, &screenrec_pause],
+            &[&screenrec_start, &screenrec_pause, &screenrec_stop],
         )?;
         let transcript_menu = Submenu::with_id_and_items(
             app,
@@ -123,8 +143,10 @@ impl<R: Runtime> TrayHandle<R> {
         let menu = Menu::with_items(app, &menu_items)?;
 
         let pause_for_handle = pause.clone();
-        let meeting_for_handle = meeting.clone();
-        let screenrec_for_handle = screenrec.clone();
+        let meeting_start_for_handle = meeting_start.clone();
+        let meeting_stop_for_handle = meeting_stop.clone();
+        let screenrec_start_for_handle = screenrec_start.clone();
+        let screenrec_stop_for_handle = screenrec_stop.clone();
         let screenrec_pause_for_handle = screenrec_pause.clone();
         let icon = TrayIconBuilder::new()
             .menu(&menu)
@@ -135,8 +157,10 @@ impl<R: Runtime> TrayHandle<R> {
         Ok(TrayHandle {
             icon,
             pause_item: Mutex::new(Some(pause_for_handle)),
-            meeting_item: Mutex::new(Some(meeting_for_handle)),
-            screenrec_item: Mutex::new(Some(screenrec_for_handle)),
+            meeting_start_item: Mutex::new(Some(meeting_start_for_handle)),
+            meeting_stop_item: Mutex::new(Some(meeting_stop_for_handle)),
+            screenrec_start_item: Mutex::new(Some(screenrec_start_for_handle)),
+            screenrec_stop_item: Mutex::new(Some(screenrec_stop_for_handle)),
             screenrec_pause_item: Mutex::new(Some(screenrec_pause_for_handle)),
             keep_awake_menu: Mutex::new(keep_awake_menu),
             keep_awake_items: Mutex::new(keep_awake_items),
@@ -267,49 +291,70 @@ impl TrayHandle<Wry> {
                         }
                     }
                 }
-                "meeting" => {
+                "meeting_start" => {
                     let app = app_for_handler.clone();
                     tauri::async_runtime::spawn(async move {
                         let state = app.state::<AppState>();
                         let manager = state.meeting_manager.clone();
                         if manager.is_active().await {
-                            if let Err(e) = manager.stop().await {
-                                warn!(?e, "tray: stop_meeting failed");
+                            return;
+                        }
+                        let start_ctx = {
+                            let ctx = crate::input::focus::capture_context();
+                            crate::meeting::MeetingStartContext {
+                                window_title: ctx.as_ref().and_then(|c| c.window_title.clone()),
+                                browser_url: ctx.as_ref().and_then(|c| c.browser_url.clone()),
+                                browser_tab_title: ctx
+                                    .as_ref()
+                                    .and_then(|c| c.browser_tab_title.clone()),
+                            }
+                        };
+                        match manager.clone().start(None, None, start_ctx).await {
+                            Ok(id) => {
+                                info!(%id, "meeting started via tray");
+                                crate::meeting::detector::spawn_end_monitor(manager, None);
+                            }
+                            Err(e) => {
+                                warn!(?e, "tray: start_meeting failed");
                                 let _ = app.emit(
                                     "meeting-action-error",
                                     e.to_string(),
                                 );
-                            } else {
-                                info!("meeting stopped via tray");
-                            }
-                        } else {
-                            let start_ctx = {
-                                let ctx = crate::input::focus::capture_context();
-                                crate::meeting::MeetingStartContext {
-                                    window_title: ctx.as_ref().and_then(|c| c.window_title.clone()),
-                                    browser_url: ctx.as_ref().and_then(|c| c.browser_url.clone()),
-                                    browser_tab_title: ctx
-                                        .as_ref()
-                                        .and_then(|c| c.browser_tab_title.clone()),
-                                }
-                            };
-                            match manager.clone().start(None, None, start_ctx).await {
-                                Ok(id) => {
-                                    info!(%id, "meeting started via tray");
-                                    crate::meeting::detector::spawn_end_monitor(manager, None);
-                                }
-                                Err(e) => {
-                                    warn!(?e, "tray: start_meeting failed");
-                                    let _ = app.emit(
-                                        "meeting-action-error",
-                                        e.to_string(),
-                                    );
-                                }
                             }
                         }
                     });
                 }
-                "screenrec" => {
+                "meeting_stop" => {
+                    let app = app_for_handler.clone();
+                    tauri::async_runtime::spawn(async move {
+                        let state = app.state::<AppState>();
+                        let manager = state.meeting_manager.clone();
+                        if !manager.is_active().await {
+                            return;
+                        }
+                        if let Err(e) = manager.stop_by_user().await {
+                            warn!(?e, "tray: stop_meeting failed");
+                            let _ = app.emit(
+                                "meeting-action-error",
+                                e.to_string(),
+                            );
+                        } else {
+                            info!("meeting stopped via tray");
+                        }
+                    });
+                }
+                "screenrec_start" => {
+                    let state = app_for_handler.state::<AppState>();
+                    let recording = state
+                        .active_recording
+                        .lock()
+                        .map(|g| g.is_some())
+                        .unwrap_or(false);
+                    if !recording {
+                        crate::overlay::show_screenrec_setup(&app_for_handler);
+                    }
+                }
+                "screenrec_stop" => {
                     let app = app_for_handler.clone();
                     let state = app.state::<AppState>();
                     let recording = state
@@ -318,24 +363,21 @@ impl TrayHandle<Wry> {
                         .map(|g| g.is_some())
                         .unwrap_or(false);
                     if recording {
-                        let app2 = app.clone();
                         std::thread::spawn(move || {
-                            let st = app2.state::<AppState>();
-                            match crate::commands::stop_screen_recording_inner(&st, &app2) {
+                            let st = app.state::<AppState>();
+                            match crate::commands::stop_screen_recording_inner(&st, &app) {
                                 Ok(row) => {
                                     if let Ok(t) = st.tray.lock() {
                                         t.set_screenrec_active(false);
                                     }
-                                    let _ = app2.emit("screenrec-changed", ());
-                                    crate::commands::spawn_auto_denoise(app2.clone(), row.id);
+                                    let _ = app.emit("screenrec-changed", ());
+                                    crate::commands::spawn_auto_denoise(app.clone(), row.id);
                                 }
                                 Err(e) => {
                                     tracing::warn!(%e, "tray stop screenrec failed");
                                 }
                             }
                         });
-                    } else {
-                        crate::overlay::show_screenrec_setup(&app);
                     }
                 }
                 "screenrec_pause" => {
@@ -411,37 +453,55 @@ impl TrayHandle<Wry> {
         });
     }
 
-    /// Update the "Start meeting" / "Stop meeting" label. Idempotent.
+    /// Enable only the meeting action that is currently valid. Idempotent.
     /// Called from event listeners in `lib.rs` so the label tracks the true
     /// `MeetingManager` state regardless of who started/stopped the meeting
     /// (tray, MeetingsView button, auto-detect, hard-cap).
     pub fn set_meeting_active(&self, active: bool) {
-        let item = self
-            .meeting_item
+        let start_item = self
+            .meeting_start_item
             .lock()
             .ok()
-            .and_then(|g| g.as_ref().map(|m| m.clone()));
-        if let Some(item) = item {
-            let label = if active { "Stop meeting" } else { "Start meeting" };
-            if let Err(e) = item.set_text(label) {
-                warn!(?e, "failed to relabel meeting menu item");
+            .and_then(|g| g.as_ref().cloned());
+        if let Some(item) = start_item {
+            if let Err(e) = item.set_enabled(!active) {
+                warn!(?e, "failed to update start meeting menu item");
+            }
+        }
+        let stop_item = self
+            .meeting_stop_item
+            .lock()
+            .ok()
+            .and_then(|g| g.as_ref().cloned());
+        if let Some(item) = stop_item {
+            if let Err(e) = item.set_enabled(active) {
+                warn!(?e, "failed to update stop meeting menu item");
             }
         }
     }
 
-    /// Update the "Start screen recording" / "Stop screen recording" label
-    /// and flip the tray icon to red (Recording) or back to Idle.
+    /// Enable the screen recording actions that are currently valid and flip
+    /// the tray icon to red (Recording) or back to Idle.
     pub fn set_screenrec_active(&self, active: bool) {
         self.screenrec_active.store(active, Ordering::SeqCst);
-        let item = self
-            .screenrec_item
+        let start_item = self
+            .screenrec_start_item
             .lock()
             .ok()
-            .and_then(|g| g.as_ref().map(|m| m.clone()));
-        if let Some(item) = item {
-            let label = if active { "Stop screen recording" } else { "Start screen recording" };
-            if let Err(e) = item.set_text(label) {
-                warn!(?e, "failed to relabel screenrec menu item");
+            .and_then(|g| g.as_ref().cloned());
+        if let Some(item) = start_item {
+            if let Err(e) = item.set_enabled(!active) {
+                warn!(?e, "failed to update start screen recording menu item");
+            }
+        }
+        let stop_item = self
+            .screenrec_stop_item
+            .lock()
+            .ok()
+            .and_then(|g| g.as_ref().cloned());
+        if let Some(item) = stop_item {
+            if let Err(e) = item.set_enabled(active) {
+                warn!(?e, "failed to update stop screen recording menu item");
             }
         }
         // Enable/disable the Pause recording item alongside the recording state,

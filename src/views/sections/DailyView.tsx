@@ -200,7 +200,7 @@ export default function DailyView({ initialDate }: Props) {
       </aside>
 
       {/* Main */}
-      <main className="flex-1 overflow-y-auto px-8 pt-10">
+      <main className="flex-1 overflow-y-auto px-8 pb-8 pt-10">
         {showFirstRun && (
           <div className="mb-4 flex items-start justify-between gap-3 rounded-md border border-line bg-elevated p-3 text-xs text-muted">
             <p className="leading-relaxed">

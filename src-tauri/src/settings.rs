@@ -47,8 +47,6 @@ const KEY_PROJECT_AUTO_TAGGING_BATCH_SIZE: &str = "project_auto_tagging_batch_si
 const KEY_PROJECT_AUTO_TAGGING_OPPORTUNISTIC: &str = "project_auto_tagging_opportunistic";
 const KEY_MEETING_AUTO_DETECT: &str = "meeting_auto_detect";
 const KEY_MEETING_APP_PREFS: &str = "meeting_app_prefs";
-const KEY_MEETING_SOFT_WARN_MIN: &str = "meeting_soft_warn_minutes";
-const KEY_MEETING_HARD_CAP_MIN: &str = "meeting_hard_cap_minutes";
 const KEY_PREFERRED_INPUT_DEVICE: &str = "preferred_input_device";
 const KEY_RECENT_INPUT_DEVICES: &str = "recent_input_devices";
 const KEY_INPUT_DEVICE_SORT: &str = "input_device_sort";
@@ -934,44 +932,6 @@ impl SettingsStore {
     ) -> Result<(), SettingsError> {
         let value = serde_json::to_value(prefs)?;
         self.store.set(KEY_MEETING_APP_PREFS, value);
-        self.store
-            .save()
-            .map_err(|e| SettingsError::Store(e.to_string()))?;
-        Ok(())
-    }
-
-    pub fn meeting_soft_warn_min(&self) -> u32 {
-        self.store
-            .get(KEY_MEETING_SOFT_WARN_MIN)
-            .and_then(|v| v.as_u64())
-            .map(|n| n as u32)
-            .unwrap_or(120)
-    }
-
-    pub fn set_meeting_soft_warn_min(&self, n: u32) -> Result<(), SettingsError> {
-        self.store.set(
-            KEY_MEETING_SOFT_WARN_MIN,
-            serde_json::Value::Number(n.into()),
-        );
-        self.store
-            .save()
-            .map_err(|e| SettingsError::Store(e.to_string()))?;
-        Ok(())
-    }
-
-    pub fn meeting_hard_cap_min(&self) -> u32 {
-        self.store
-            .get(KEY_MEETING_HARD_CAP_MIN)
-            .and_then(|v| v.as_u64())
-            .map(|n| n as u32)
-            .unwrap_or(240)
-    }
-
-    pub fn set_meeting_hard_cap_min(&self, n: u32) -> Result<(), SettingsError> {
-        self.store.set(
-            KEY_MEETING_HARD_CAP_MIN,
-            serde_json::Value::Number(n.into()),
-        );
         self.store
             .save()
             .map_err(|e| SettingsError::Store(e.to_string()))?;

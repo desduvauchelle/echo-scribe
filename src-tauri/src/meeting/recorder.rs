@@ -18,7 +18,7 @@ const BITS_PER_SAMPLE: u16 = 16;
 /// silence boundary to close the chunk on.
 const CHUNK_TARGET_SECONDS: u64 = 20;
 const CHUNK_TARGET_SAMPLES: u64 = SAMPLE_RATE as u64 * CHUNK_TARGET_SECONDS;
-/// Hard cap: force-close even mid-speech at this many samples.
+/// Maximum chunk length: force-close even mid-speech at this many samples.
 const CHUNK_MAX_SECONDS: u64 = 30;
 const CHUNK_MAX_SAMPLES: u64 = SAMPLE_RATE as u64 * CHUNK_MAX_SECONDS;
 /// The chunk-duration value recorded into transcript JSON metadata.
@@ -80,7 +80,7 @@ impl ChunkedWavWriter {
             if self.writer.is_none() {
                 self.open_new_chunk()?;
             }
-            // How many more samples until the hard cap.
+            // How many more samples until the maximum chunk length.
             let until_cap = (CHUNK_MAX_SAMPLES - self.samples_in_chunk) as usize;
             let take = until_cap.min(samples.len() - offset);
             let slice = &samples[offset..offset + take];
@@ -535,7 +535,7 @@ mod tests {
     }
 
     #[test]
-    fn force_cuts_at_hard_cap_on_continuous_speech() {
+    fn force_cuts_at_max_chunk_length_on_continuous_speech() {
         let tmp = tempdir().unwrap();
         let (mut w, mut rx) = make_writer(tmp.path(), Speaker::You);
         // 31 s of continuous loud audio → must force-cut at 30 s (no silence).
@@ -545,7 +545,7 @@ mod tests {
         for _ in 0..31 {
             w.write(&loud).unwrap();
         }
-        let chunk = rx.try_recv().expect("hard-cap chunk emitted");
+        let chunk = rx.try_recv().expect("maximum-length chunk emitted");
         assert_eq!(chunk.start_ms, 0);
         assert_eq!(chunk.end_ms, CHUNK_MAX_SECONDS * 1000);
     }

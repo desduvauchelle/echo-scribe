@@ -1384,29 +1384,61 @@ pub fn unarchive_project(state: State<'_, AppState>, id: String) -> Result<(), S
 }
 
 #[tauri::command]
-pub fn delete_project(
+pub fn get_project_delete_impact(
     state: State<'_, AppState>,
     id: String,
+) -> Result<db::projects::ProjectDeleteImpact, String> {
+    let db = require_db(&state)?;
+    db.with_conn(|c| db::projects::project_delete_impact(c, &id))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn delete_project(
+    state: State<'_, AppState>,
+    app: AppHandle,
+    id: String,
     reassign_to: Option<String>,
+    delete_related: Option<bool>,
 ) -> Result<(), String> {
     let db = require_db(&state)?;
+    let delete_related = delete_related.unwrap_or(false);
     let id_for_log = id.clone();
     let reassign_for_log = reassign_to.clone();
-    db.with_conn_mut(move |c| db::projects::delete_project(c, &id, reassign_to.as_deref()))
-        .map_err(|e| {
-            error!(
-                target: "projects",
-                error = %e,
-                id = %id_for_log,
-                reassign_to = ?reassign_for_log,
-                "delete_project failed"
-            );
-            "Couldn't delete project. See Settings → Diagnostics → logs for details.".to_string()
-        })?;
+    let recordings = if delete_related {
+        db.with_conn(|c| crate::db::recordings::list(c))
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .filter(|recording| recording.project_id.as_deref() == Some(id.as_str()))
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+    db.with_conn_mut(move |c| {
+        db::projects::delete_project(c, &id, reassign_to.as_deref(), delete_related)
+    })
+    .map_err(|e| {
+        error!(
+            target: "projects",
+            error = %e,
+            id = %id_for_log,
+            reassign_to = ?reassign_for_log,
+            "delete_project failed"
+        );
+        "Couldn't delete project. See Settings → Diagnostics → logs for details.".to_string()
+    })?;
+    for recording in &recordings {
+        delete_recording_files(recording);
+    }
+    if !recordings.is_empty() {
+        let _ = app.emit("screenrec-changed", ());
+    }
     info!(
         target: "projects",
         id = %id_for_log,
         reassign_to = ?reassign_for_log,
+        delete_related,
+        deleted_recordings = recordings.len(),
         "deleted project"
     );
     Ok(())
@@ -3286,7 +3318,7 @@ pub async fn guide_trigger_now(
 pub async fn stop_meeting(state: tauri::State<'_, AppState>) -> Result<String, String> {
     state
         .meeting_manager
-        .stop()
+        .stop_by_user()
         .await
         .map_err(|e| e.to_string())
 }
@@ -3791,6 +3823,14 @@ pub fn save_person(
 }
 
 #[tauri::command]
+pub fn delete_person(state: tauri::State<'_, AppState>, id: String) -> Result<(), String> {
+    let now = chrono::Utc::now().to_rfc3339();
+    let db = require_db(&state)?;
+    db.with_conn(move |conn| crate::db::meeting_intelligence::delete_person(conn, &id, &now))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn list_companies(state: tauri::State<'_, AppState>) -> Result<Vec<crate::db::meeting_intelligence::Company>, String> {
     let db = require_db(&state)?;
     db.with_conn(crate::db::meeting_intelligence::list_companies).map_err(|e| e.to_string())
@@ -3807,6 +3847,14 @@ pub fn save_company(
     let db = require_db(&state)?;
     db.with_conn(move |c| crate::db::meeting_intelligence::upsert_company(c, &saved)).map_err(|e| e.to_string())?;
     Ok(company)
+}
+
+#[tauri::command]
+pub fn delete_company(state: tauri::State<'_, AppState>, id: String) -> Result<(), String> {
+    let now = chrono::Utc::now().to_rfc3339();
+    let db = require_db(&state)?;
+    db.with_conn(move |conn| crate::db::meeting_intelligence::delete_company(conn, &id, &now))
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -4006,8 +4054,6 @@ pub fn get_meeting_settings(state: tauri::State<'_, AppState>) -> serde_json::Va
     serde_json::json!({
         "auto_detect": state.settings.meeting_auto_detect(),
         "app_prefs": state.settings.meeting_app_prefs(),
-        "soft_warn_min": state.settings.meeting_soft_warn_min(),
-        "hard_cap_min": state.settings.meeting_hard_cap_min(),
         "summary_prompt": state.settings.meeting_summary_prompt(),
         "export_folder": state.settings.meeting_export_folder(),
     })
@@ -4972,6 +5018,76 @@ pub fn list_recordings(
         .map_err(|e| e.to_string())
 }
 
+fn delete_recording_files(row: &crate::db::recordings::RecordingRow) {
+    let id = &row.id;
+    match std::fs::remove_file(&row.file_path) {
+        Ok(()) => {
+            info!(target: "screenrec", recording_id = %id, path = %row.file_path, "deleted recording file")
+        }
+        Err(e) => {
+            tracing::warn!(target: "screenrec", recording_id = %id, path = %row.file_path, %e, "failed to delete recording file")
+        }
+    }
+    if let Some(thumb) = &row.thumb_path {
+        match std::fs::remove_file(thumb) {
+            Ok(()) => {
+                info!(target: "screenrec", recording_id = %id, path = %thumb, "deleted thumbnail file")
+            }
+            Err(e) => {
+                tracing::warn!(target: "screenrec", recording_id = %id, path = %thumb, %e, "failed to delete thumbnail file")
+            }
+        }
+    }
+    if let Some(events) = &row.events_path {
+        match std::fs::remove_file(events) {
+            Ok(()) => {
+                info!(target: "screenrec", recording_id = %id, path = %events, "deleted events file")
+            }
+            Err(e) => {
+                tracing::warn!(target: "screenrec", recording_id = %id, path = %events, %e, "failed to delete events file")
+            }
+        }
+    }
+    if let Some(webcam) = &row.webcam_path {
+        match std::fs::remove_file(webcam) {
+            Ok(()) => {
+                info!(target: "screenrec", recording_id = %id, path = %webcam, "deleted webcam file")
+            }
+            Err(e) => {
+                tracing::warn!(target: "screenrec", recording_id = %id, path = %webcam, %e, "failed to delete webcam file")
+            }
+        }
+    }
+    // Editor/export artifacts have no dedicated DB column — sweep
+    // `<id>.bg.*` imports and `<id>.rendered.mp4` by name, plus transcode
+    // outputs recorded in the exports JSON, or they leak on delete.
+    match crate::screenrec::recordings_dir() {
+        Ok(dir) => {
+            let mut leftovers = editor_artifact_files(&dir, id);
+            for p in export_paths(&row.exports) {
+                let p = std::path::PathBuf::from(p);
+                // Only touch files we placed in the recordings dir.
+                if p.parent() == Some(dir.as_path()) && p.exists() && !leftovers.contains(&p) {
+                    leftovers.push(p);
+                }
+            }
+            for path in leftovers {
+                match std::fs::remove_file(&path) {
+                    Ok(()) => {
+                        info!(target: "screenrec", recording_id = %id, path = %path.display(), "deleted editor/export artifact")
+                    }
+                    Err(e) => {
+                        tracing::warn!(target: "screenrec", recording_id = %id, path = %path.display(), %e, "failed to delete editor/export artifact")
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            tracing::warn!(target: "screenrec", recording_id = %id, %e, "recordings dir unavailable; skipped editor artifact cleanup")
+        }
+    }
+}
+
 #[tauri::command]
 pub fn delete_recording(state: State<'_, AppState>, id: String) -> Result<(), String> {
     let db = require_db(&state)?;
@@ -4979,73 +5095,7 @@ pub fn delete_recording(state: State<'_, AppState>, id: String) -> Result<(), St
         .with_conn(|c| crate::db::recordings::get(c, &id))
         .map_err(|e| e.to_string())?;
     if let Some(row) = row {
-        match std::fs::remove_file(&row.file_path) {
-            Ok(()) => {
-                info!(target: "screenrec", recording_id = %id, path = %row.file_path, "deleted recording file")
-            }
-            Err(e) => {
-                tracing::warn!(target: "screenrec", recording_id = %id, path = %row.file_path, %e, "failed to delete recording file")
-            }
-        }
-        if let Some(thumb) = &row.thumb_path {
-            match std::fs::remove_file(thumb) {
-                Ok(()) => {
-                    info!(target: "screenrec", recording_id = %id, path = %thumb, "deleted thumbnail file")
-                }
-                Err(e) => {
-                    tracing::warn!(target: "screenrec", recording_id = %id, path = %thumb, %e, "failed to delete thumbnail file")
-                }
-            }
-        }
-        if let Some(events) = &row.events_path {
-            match std::fs::remove_file(events) {
-                Ok(()) => {
-                    info!(target: "screenrec", recording_id = %id, path = %events, "deleted events file")
-                }
-                Err(e) => {
-                    tracing::warn!(target: "screenrec", recording_id = %id, path = %events, %e, "failed to delete events file")
-                }
-            }
-        }
-        if let Some(webcam) = &row.webcam_path {
-            match std::fs::remove_file(webcam) {
-                Ok(()) => {
-                    info!(target: "screenrec", recording_id = %id, path = %webcam, "deleted webcam file")
-                }
-                Err(e) => {
-                    tracing::warn!(target: "screenrec", recording_id = %id, path = %webcam, %e, "failed to delete webcam file")
-                }
-            }
-        }
-        // Editor/export artifacts have no dedicated DB column — sweep
-        // `<id>.bg.*` imports and `<id>.rendered.mp4` by name, plus transcode
-        // outputs recorded in the exports JSON, or they leak on delete.
-        match crate::screenrec::recordings_dir() {
-            Ok(dir) => {
-                let mut leftovers = editor_artifact_files(&dir, &id);
-                for p in export_paths(&row.exports) {
-                    let p = std::path::PathBuf::from(p);
-                    // Only touch files we placed in the recordings dir.
-                    if p.parent() == Some(dir.as_path()) && p.exists() && !leftovers.contains(&p)
-                    {
-                        leftovers.push(p);
-                    }
-                }
-                for path in leftovers {
-                    match std::fs::remove_file(&path) {
-                        Ok(()) => {
-                            info!(target: "screenrec", recording_id = %id, path = %path.display(), "deleted editor/export artifact")
-                        }
-                        Err(e) => {
-                            tracing::warn!(target: "screenrec", recording_id = %id, path = %path.display(), %e, "failed to delete editor/export artifact")
-                        }
-                    }
-                }
-            }
-            Err(e) => {
-                tracing::warn!(target: "screenrec", recording_id = %id, %e, "recordings dir unavailable; skipped editor artifact cleanup")
-            }
-        }
+        delete_recording_files(&row);
     }
     db.with_conn(|c| crate::db::recordings::delete(c, &id))
         .map_err(|e| e.to_string())

@@ -2,7 +2,7 @@
 //! backgrounded with an active meeting window title + mic in use) and
 //! monitors for meeting end (meeting window title / URL disappears).
 
-use crate::meeting::MeetingManager;
+use crate::meeting::{MeetingDetectionKey, MeetingManager};
 use crate::settings::{MeetingAppPref, SettingsStore};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -37,6 +37,124 @@ struct MeetingCandidate {
     /// "frontmost" when the user is looking at the meeting app, "background"
     /// when we found it via CGWindowList enumeration. Drives logging only.
     source: &'static str,
+}
+
+/// What the detector can currently prove about a meeting that the user
+/// explicitly stopped. Unknown is deliberately conservative: an explicit
+/// stop should never be undone just because the source is temporarily hidden.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SuppressedMeetingPresence {
+    Present,
+    Gone,
+    DifferentMeeting,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AutoStartSuppressionDecision {
+    Suppress,
+    Clear,
+}
+
+/// Pure policy for re-arming auto-start after an explicit user stop.
+/// Production uses 15 two-second ticks: 30 seconds of continuously observed
+/// absence, matching the existing end-monitor grace period.
+#[derive(Debug, Clone)]
+struct AutoStartSuppressionTicker {
+    consecutive_gone: u32,
+    threshold: u32,
+}
+
+impl AutoStartSuppressionTicker {
+    fn new() -> Self {
+        Self::with_threshold(15)
+    }
+
+    fn with_threshold(threshold: u32) -> Self {
+        Self {
+            consecutive_gone: 0,
+            threshold,
+        }
+    }
+
+    fn reset(&mut self) {
+        self.consecutive_gone = 0;
+    }
+
+    fn tick(
+        &mut self,
+        presence: SuppressedMeetingPresence,
+    ) -> AutoStartSuppressionDecision {
+        match presence {
+            SuppressedMeetingPresence::Present => {
+                self.consecutive_gone = 0;
+                AutoStartSuppressionDecision::Suppress
+            }
+            SuppressedMeetingPresence::Unknown => {
+                // Require genuinely consecutive Gone observations. A hidden
+                // browser tab or unavailable window scan must not re-arm.
+                self.consecutive_gone = 0;
+                AutoStartSuppressionDecision::Suppress
+            }
+            SuppressedMeetingPresence::DifferentMeeting => {
+                self.consecutive_gone = 0;
+                AutoStartSuppressionDecision::Clear
+            }
+            SuppressedMeetingPresence::Gone => {
+                self.consecutive_gone = self.consecutive_gone.saturating_add(1);
+                if self.consecutive_gone >= self.threshold {
+                    AutoStartSuppressionDecision::Clear
+                } else {
+                    AutoStartSuppressionDecision::Suppress
+                }
+            }
+        }
+    }
+}
+
+/// Evaluate the stopped meeting independently of normal start eligibility.
+/// Native apps use the same cross-app window presence signal as auto-stop.
+/// Browser meetings stay suppressed while hidden; when the browser is visible,
+/// leaving the meeting URL re-arms after the grace period and switching to a
+/// different provider re-arms immediately.
+fn observe_suppressed_meeting(
+    key: &MeetingDetectionKey,
+    ctx: &crate::input::focus::FocusContext,
+) -> SuppressedMeetingPresence {
+    let Some((_, is_browser)) = lookup(&key.bundle_id) else {
+        return SuppressedMeetingPresence::Unknown;
+    };
+
+    if is_browser {
+        if ctx.bundle_id.as_deref() != Some(key.bundle_id.as_str()) {
+            return SuppressedMeetingPresence::Unknown;
+        }
+        let current_provider = browser_provider_name(ctx.browser_url.as_deref());
+        return match (key.browser_provider.as_deref(), current_provider) {
+            (_, None) => SuppressedMeetingPresence::Gone,
+            (Some(expected), Some(current)) if expected != current => {
+                SuppressedMeetingPresence::DifferentMeeting
+            }
+            _ => SuppressedMeetingPresence::Present,
+        };
+    }
+
+    match app_has_meeting_window(&key.bundle_id) {
+        Some(true) => SuppressedMeetingPresence::Present,
+        Some(false) => SuppressedMeetingPresence::Gone,
+        None if ctx.bundle_id.as_deref() == Some(key.bundle_id.as_str()) => {
+            match ctx
+                .window_title
+                .as_deref()
+                .map(|title| is_meeting_window_title(&key.bundle_id, title))
+            {
+                Some(true) => SuppressedMeetingPresence::Present,
+                Some(false) => SuppressedMeetingPresence::Gone,
+                None => SuppressedMeetingPresence::Unknown,
+            }
+        }
+        None => SuppressedMeetingPresence::Unknown,
+    }
 }
 
 /// Static registry of supported meeting apps.
@@ -143,6 +261,9 @@ pub fn spawn(
         let mut prev_mic_active: bool = false;
         let mut prev_browser_provider: Option<&'static str> = None;
         let mut prev_gate_blocked: Option<&'static str> = None; // "active" | "cooldown" | None
+        let mut suppression_ticker = AutoStartSuppressionTicker::new();
+        let mut tracked_suppression: Option<MeetingDetectionKey> = None;
+        let mut suppression_was_blocking = false;
         loop {
             interval.tick().await;
             if !settings.meeting_auto_detect() {
@@ -173,6 +294,51 @@ pub fn spawn(
                 Some(c) => c,
                 None => continue,
             };
+
+            // An explicit Stop means "not again for this call", not "pause
+            // automation for 60 seconds". Keep evaluating the stopped source
+            // until it is definitively gone; manual starts bypass this loop.
+            if let Some(suppressed) = manager.user_suppressed_detection() {
+                if tracked_suppression.as_ref() != Some(&suppressed) {
+                    suppression_ticker.reset();
+                    tracked_suppression = Some(suppressed.clone());
+                    suppression_was_blocking = false;
+                }
+                let presence = observe_suppressed_meeting(&suppressed, &ctx);
+                match suppression_ticker.tick(presence) {
+                    AutoStartSuppressionDecision::Suppress => {
+                        if !suppression_was_blocking {
+                            info!(
+                                target: "meeting_detect",
+                                app = %suppressed.bundle_id,
+                                provider = ?suppressed.browser_provider,
+                                ?presence,
+                                "auto-start suppressed after explicit user stop"
+                            );
+                            suppression_was_blocking = true;
+                        }
+                        mic_in_use_since = None;
+                        continue;
+                    }
+                    AutoStartSuppressionDecision::Clear => {
+                        if manager.clear_user_suppressed_detection(&suppressed) {
+                            info!(
+                                target: "meeting_detect",
+                                app = %suppressed.bundle_id,
+                                provider = ?suppressed.browser_provider,
+                                ?presence,
+                                "stopped meeting source ended; auto-start re-armed"
+                            );
+                        }
+                        suppression_ticker.reset();
+                        tracked_suppression = None;
+                        suppression_was_blocking = false;
+                    }
+                }
+            } else if tracked_suppression.take().is_some() {
+                suppression_ticker.reset();
+                suppression_was_blocking = false;
+            }
             let frontmost = ctx.bundle_id.as_deref().map(|s| s.to_string());
 
             // Build a candidate from the frontmost app first.
@@ -773,6 +939,51 @@ mod tests {
             None
         );
         assert_eq!(browser_provider_name(None), None);
+    }
+
+    /// Regression test for a user-stopped auto-recording restarting after the
+    /// old 60-second post-stop cooldown expired. As long as the same meeting
+    /// source remains present, explicit user intent must win indefinitely.
+    #[test]
+    fn regression_user_stop_suppresses_same_meeting_beyond_old_cooldown() {
+        let mut ticker = AutoStartSuppressionTicker::with_threshold(3);
+
+        // Production polls every two seconds. 100 ticks is well beyond the
+        // former 60-second cooldown, yet the same call is still in progress.
+        for tick in 0..100 {
+            assert_eq!(
+                ticker.tick(SuppressedMeetingPresence::Present),
+                AutoStartSuppressionDecision::Suppress,
+                "same meeting was allowed to restart at tick {tick}"
+            );
+        }
+    }
+
+    #[test]
+    fn user_stop_suppression_rearms_after_meeting_is_definitively_gone() {
+        let mut ticker = AutoStartSuppressionTicker::with_threshold(3);
+
+        assert_eq!(
+            ticker.tick(SuppressedMeetingPresence::Gone),
+            AutoStartSuppressionDecision::Suppress
+        );
+        assert_eq!(
+            ticker.tick(SuppressedMeetingPresence::Gone),
+            AutoStartSuppressionDecision::Suppress
+        );
+        assert_eq!(
+            ticker.tick(SuppressedMeetingPresence::Gone),
+            AutoStartSuppressionDecision::Clear
+        );
+    }
+
+    #[test]
+    fn a_different_detected_meeting_clears_old_suppression_immediately() {
+        let mut ticker = AutoStartSuppressionTicker::with_threshold(3);
+        assert_eq!(
+            ticker.tick(SuppressedMeetingPresence::DifferentMeeting),
+            AutoStartSuppressionDecision::Clear
+        );
     }
 
     #[test]

@@ -1,6 +1,7 @@
 import { useEffect, useState, type SyntheticEvent } from "react";
 import {
   ArrowLeft,
+  CalendarDays,
   Mic,
   NotebookPen,
   Phone,
@@ -105,6 +106,7 @@ type PageId =
   | "dictation"
   | "logcapture"
   | "meetings"
+  | "daily-recap"
   | "actions"
   | "templates"
   | "language-model"
@@ -125,6 +127,7 @@ const NAV_GROUPS: NavGroup[] = [
       { id: "dictation", label: "Dictation", icon: Mic },
       { id: "logcapture", label: "Log Capture", icon: NotebookPen },
       { id: "meetings", label: "Meetings", icon: Phone },
+      { id: "daily-recap", label: "Daily Recap", icon: CalendarDays },
     ],
   },
   {
@@ -150,28 +153,42 @@ const NAV_GROUPS: NavGroup[] = [
 
 const PAGE_DESC: Record<PageId, string> = {
   dictation:
-    "Speech-to-text at your cursor — model, microphone, hotkey, and cleanup.",
+    "Speech-to-text at your cursor — model, microphone, audio behavior, hotkey, and cleanup.",
   logcapture:
     "Capture a thought, idea, or task by voice, then file and export it.",
-  meetings: "Detect calls, summarize transcripts, and set recording limits.",
+  meetings: "Detect calls and summarize transcripts from supported meeting apps.",
+  "daily-recap":
+    "Choose when Echo Scribe summarizes yesterday's meetings, notes, and dictations.",
   actions:
     "Run app launches, links, emails, and counters straight from your voice.",
   templates:
     "Rewrite dictation into emails, lists, or any style before it's pasted.",
   "language-model":
     "The local Gemma model that powers classification, summaries, and actions.",
-  general: "Sounds, recording behavior, daily recap, and startup.",
+  general: "Launch at login and keep Echo Scribe up to date.",
   drive: "Upload screen recordings to Google Drive and share them with a link.",
-  projects: "Rename, archive, and organize your projects.",
+  projects: "Create, rename, archive, or delete your projects.",
   permissions: "Microphone, accessibility, and screen-recording access.",
   diagnostics: "Inspect logs and reset the app if something breaks.",
   uninstall: "Remove the app while choosing whether to keep your local data.",
 };
 
+const SUPPORTED_MEETING_PLATFORMS = [
+  "Zoom",
+  "Microsoft Teams",
+  "Google Meet",
+  "Slack Huddles",
+  "FaceTime",
+  "Discord",
+  "Webex",
+  "Browser calls",
+] as const;
+
 const PAGES: Record<PageId, () => React.ReactElement> = {
   dictation: DictationPage,
   logcapture: LogCapturePage,
   meetings: MeetingsPage,
+  "daily-recap": DailyRecapPage,
   actions: ActionsPage,
   templates: TemplatesPage,
   "language-model": LanguageModelPage,
@@ -221,57 +238,78 @@ export default function Settings({ onBack }: Props) {
   const ActivePage = activeItem ? PAGES[page] : null;
 
   return (
-    <div className="min-h-full bg-canvas px-4 py-8 text-fg">
-      <div className="mx-auto flex w-full max-w-[900px] flex-col">
-        <button
-          type="button"
-          onClick={onBack}
-          className="mb-4 inline-flex cursor-pointer items-center gap-1.5 self-start rounded-md border border-line px-2.5 py-1 text-xs text-muted transition-colors hover:bg-elevated hover:text-fg"
-        >
-          <ArrowLeft size={12} strokeWidth={2} />
-          Back
-        </button>
-
-        <div className="flex items-start gap-5">
-          {/* Left sidebar */}
-          <nav className="sticky top-4 w-[200px] shrink-0 rounded-xl border border-line bg-surface p-3 shadow-lg shadow-black/30">
-            <div className="flex flex-col gap-4">
-              {visibleGroups.map((group) => (
-                <div key={group.label} className="flex flex-col gap-0.5">
-                  <div className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-faint">
-                    {group.label}
-                  </div>
-                  {group.items.map(({ id, label, icon: Icon }) => {
-                    const active = page === id;
-                    return (
-                      <button
-                        key={id}
-                        type="button"
-                        aria-current={active ? "page" : undefined}
-                        onClick={() => setPage(id)}
-                        className={[
-                          "flex cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-[13px] font-medium transition-colors",
-                          active
-                            ? "bg-accent-soft text-accent"
-                            : "text-muted hover:bg-elevated hover:text-fg",
-                        ].join(" ")}
-                      >
-                        <Icon
-                          size={14}
-                          strokeWidth={2}
-                          className={active ? "text-accent" : "text-faint"}
-                        />
-                        <span className="truncate">{label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              ))}
+    <div className="echo-settings-shell flex h-full min-h-0 flex-col overflow-hidden bg-canvas text-fg">
+      <header className="echo-app-toolbar flex h-12 shrink-0 items-stretch border-b border-line">
+        <div className="echo-app-toolbar-sidebar flex w-[232px] shrink-0 items-center border-r border-line px-3">
+          <span
+            className="h-full w-[72px] shrink-0"
+            aria-hidden="true"
+            data-tauri-drag-region
+          />
+          <button
+            type="button"
+            onClick={onBack}
+            className="native-toolbar-button inline-flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted transition-colors hover:text-fg"
+          >
+            <ArrowLeft size={12} strokeWidth={2} aria-hidden="true" />
+            Back
+          </button>
+        </div>
+        <div className="flex min-w-0 flex-1 items-center px-4">
+          <div className="min-w-0">
+            <h1 className="truncate text-[12px] font-semibold leading-tight">
+              Settings
+            </h1>
+            <div className="truncate text-[9px] leading-tight text-faint">
+              {activeItem?.label ?? "Preferences"}
             </div>
-          </nav>
+          </div>
+          <div className="h-full min-w-12 flex-1" data-tauri-drag-region />
+        </div>
+      </header>
 
-          {/* Content panel */}
-          <div className="min-w-0 flex-1 rounded-xl border border-line bg-surface p-6 shadow-lg shadow-black/30">
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        <nav
+          aria-label="Settings"
+          className="echo-settings-nav echo-sidebar h-full w-[232px] shrink-0 overflow-y-auto overscroll-contain border-r border-line bg-surface p-3"
+        >
+          <div className="flex flex-col gap-4">
+            {visibleGroups.map((group) => (
+              <div key={group.label} className="flex flex-col gap-0.5">
+                <div className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-faint">
+                  {group.label}
+                </div>
+                {group.items.map(({ id, label, icon: Icon }) => {
+                  const active = page === id;
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      aria-current={active ? "page" : undefined}
+                      onClick={() => setPage(id)}
+                      className={[
+                        "echo-nav-item flex w-full cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-[13px] font-medium transition-colors",
+                        active
+                          ? "is-active bg-accent-soft text-accent"
+                          : "text-muted hover:bg-elevated hover:text-fg",
+                      ].join(" ")}
+                    >
+                      <Icon
+                        size={14}
+                        strokeWidth={2}
+                        className={active ? "text-accent" : "text-faint"}
+                      />
+                      <span className="truncate">{label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        </nav>
+
+        <main className="echo-settings-content min-w-0 flex-1 overflow-y-auto overscroll-contain bg-canvas p-6 lg:p-8">
+          <div className="w-full max-w-[960px]">
             {activeItem && ActivePage ? (
               <>
                 <header className="mb-6 border-b border-line pb-4">
@@ -286,13 +324,15 @@ export default function Settings({ onBack }: Props) {
               </>
             ) : null}
           </div>
-        </div>
+        </main>
       </div>
     </div>
   );
 }
 
 function DictationPage() {
+  const gates = uiGates(useCapabilities());
+
   return (
     <div className="flex flex-col gap-8">
       <SpeechModelPicker />
@@ -303,6 +343,24 @@ function DictationPage() {
       >
         <MicrophonePicker />
       </Section>
+
+      <Section
+        title="Audio feedback"
+        subtitle="Subtle blips when recording starts, stops, and a log capture is ready for review."
+      >
+        <AudioFeedbackToggle />
+      </Section>
+
+      {/* Mute-while-recording is implemented via osascript volume control
+       *  (audio/mute.rs), which is macOS-only — hide on other platforms. */}
+      {gates.showSystemAudio && (
+        <Section
+          title="Mute while recording"
+          subtitle="Pause music and system audio while the hotkey is held, then restore it when you release."
+        >
+          <MuteWhileRecordingToggle />
+        </Section>
+      )}
 
       <Section
         title="Voice-at-cursor hotkey"
@@ -344,6 +402,19 @@ function LogCapturePage() {
       <AutoFileSettings />
       <ProjectAutoTaggingSettings />
       <ExportSettings />
+    </div>
+  );
+}
+
+function DailyRecapPage() {
+  return (
+    <div className="flex flex-col gap-8">
+      <Section
+        title="Daily recap"
+        subtitle="A morning notification that summarizes yesterday's meetings, notes, and dictations."
+      >
+        <DailyRecapSection />
+      </Section>
     </div>
   );
 }
@@ -1042,8 +1113,6 @@ function MeetingsPage() {
   const [settings, setSettings] = useState<{
     auto_detect: boolean;
     app_prefs: Record<string, "always" | "ask" | "never">;
-    soft_warn_min: number;
-    hard_cap_min: number;
     summary_prompt: string;
     export_folder: string | null;
   } | null>(null);
@@ -1117,21 +1186,37 @@ function MeetingsPage() {
     <div className="flex flex-col gap-8">
       <Section
         title="Auto-detect meetings"
-        subtitle="Echo Scribe watches for Zoom, Teams, FaceTime, Discord, Slack, and browser tabs and offers to record."
+        subtitle="Echo Scribe watches supported meeting apps and browser calls, then offers to record."
       >
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={settings.auto_detect}
-            onChange={async (e) => {
-              const on = e.target.checked;
-              const { setMeetingAutoDetect } = await import("../lib/api");
-              await setMeetingAutoDetect(on);
-              setSettings({ ...settings, auto_detect: on });
-            }}
-          />
-          <span>Detect supported meeting apps automatically</span>
-        </label>
+        <div className="flex flex-col gap-3">
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={settings.auto_detect}
+              onChange={async (e) => {
+                const on = e.target.checked;
+                const { setMeetingAutoDetect } = await import("../lib/api");
+                await setMeetingAutoDetect(on);
+                setSettings({ ...settings, auto_detect: on });
+              }}
+            />
+            <span>Detect supported meeting apps automatically</span>
+          </label>
+
+          <ul
+            aria-label="Supported meeting apps"
+            className="flex flex-wrap gap-1.5"
+          >
+            {SUPPORTED_MEETING_PLATFORMS.map((platform) => (
+              <li
+                key={platform}
+                className="rounded-full border border-line bg-canvas px-2.5 py-1 text-[11px] font-medium text-muted"
+              >
+                {platform}
+              </li>
+            ))}
+          </ul>
+        </div>
       </Section>
 
       {Object.keys(settings.app_prefs).length > 0 && (
@@ -1270,46 +1355,6 @@ function MeetingsPage() {
       </Section>
 
       <Section
-        title="Time limits"
-        subtitle="Echo Scribe shows a soft warning at the soft-warn time and auto-stops at the hard cap."
-      >
-        <div className="flex flex-col gap-3 text-sm">
-          <label className="flex items-center justify-between gap-3">
-            <span>Soft warn at (minutes)</span>
-            <input
-              type="number"
-              min={1}
-              max={1440}
-              value={settings.soft_warn_min}
-              onChange={(e) =>
-                setSettings({
-                  ...settings,
-                  soft_warn_min: Number(e.target.value),
-                })
-              }
-              className="w-20 rounded-md bg-canvas px-2 py-1 text-right text-xs"
-            />
-          </label>
-          <label className="flex items-center justify-between gap-3">
-            <span>Hard cap at (minutes)</span>
-            <input
-              type="number"
-              min={1}
-              max={1440}
-              value={settings.hard_cap_min}
-              onChange={(e) =>
-                setSettings({
-                  ...settings,
-                  hard_cap_min: Number(e.target.value),
-                })
-              }
-              className="w-20 rounded-md bg-canvas px-2 py-1 text-right text-xs"
-            />
-          </label>
-        </div>
-      </Section>
-
-      <Section
         title="Guide templates"
         subtitle="Reusable meeting guides and opt-in, evidence-backed recap metrics."
       >
@@ -1331,31 +1376,6 @@ function GeneralPage() {
 
   return (
     <div className="flex flex-col gap-8">
-      <Section
-        title="Audio feedback"
-        subtitle="Subtle blips when recording starts, stops, and a log capture is ready for review."
-      >
-        <AudioFeedbackToggle />
-      </Section>
-
-      {/* Mute-while-recording is implemented via osascript volume control
-       *  (audio/mute.rs), which is macOS-only — hide on other platforms. */}
-      {gates.showSystemAudio && (
-        <Section
-          title="Mute while recording"
-          subtitle="Pause music and system audio while the hotkey is held, then restore it when you release."
-        >
-          <MuteWhileRecordingToggle />
-        </Section>
-      )}
-
-      <Section
-        title="Daily recap"
-        subtitle="A morning notification that summarizes yesterday's meetings, notes, and dictations."
-      >
-        <DailyRecapSection />
-      </Section>
-
       <Section
         title="Startup"
         subtitle="Launch Echo Scribe automatically when you log in."
@@ -1428,7 +1448,7 @@ function ProjectsPage() {
     <div className="flex flex-col gap-8">
       <Section
         title="Projects"
-        subtitle="Rename, archive, or unarchive projects."
+        subtitle="Create, rename, archive, or delete projects."
       >
         <ProjectManager />
       </Section>
@@ -1901,25 +1921,29 @@ function AppLauncherSettingsSection() {
             </div>
           </div>
 
-          <div className="flex flex-col gap-2">
+          <div className="flex min-w-0 flex-col gap-2">
             <div className="text-xs font-bold tracking-wide uppercase text-[10px] text-muted mb-1">
               Voice Action Cheatsheet
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-2">
               {templates.map((t) => (
-                <div key={t.category} className="border border-line rounded-lg p-3 bg-surface/50 hover:bg-surface transition-colors flex flex-col gap-2">
+                <div
+                  key={t.category}
+                  data-action-category={t.category}
+                  className="flex min-w-0 flex-col gap-2 rounded-lg border border-line bg-surface/50 p-3 transition-colors hover:bg-surface"
+                >
                   <div className="flex flex-col">
                     <span className="text-xs font-bold text-accent">{t.category}</span>
                     <span className="text-[10px] text-muted leading-snug mt-0.5">{t.description}</span>
                   </div>
-                  <div className="flex flex-wrap gap-1 mt-1">
+                  <div className="mt-1 flex min-w-0 flex-wrap gap-1">
                     {t.voice_phrases.map((phrase) => (
-                      <span
+                      <code
                         key={phrase}
-                        className="rounded font-mono bg-surface-2 px-1.5 py-0.5 border border-line text-[10px] text-fg whitespace-nowrap"
+                        className="min-w-0 max-w-full whitespace-normal break-words rounded border border-line bg-surface-2 px-1.5 py-0.5 font-mono text-[10px] leading-relaxed text-fg [overflow-wrap:anywhere]"
                       >
                         "{phrase}"
-                      </span>
+                      </code>
                     ))}
                   </div>
                 </div>

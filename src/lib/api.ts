@@ -255,6 +255,17 @@ export type Project = {
   routing_negative_examples: string[];
 };
 
+export type ProjectDeleteImpact = {
+  items: number;
+  meetings: number;
+  notes: number;
+  tasks: number;
+  transcriptions: number;
+  recordings: number;
+  chats: number;
+  artifacts: number;
+};
+
 /** Partial update payload mirroring `ProjectPatch` on the Rust side.
  *  Omit a field to leave it alone; set to null to clear; set to value to update.
  *  `keywords` has no clear semantic — pass `[]` to empty it. */
@@ -418,13 +429,21 @@ export const archiveProject = (id: string): Promise<void> =>
 export const unarchiveProject = (id: string): Promise<void> =>
   invoke("unarchive_project", { id });
 
-/** Hard-delete a project. `reassignTo` moves the project's items to a different
- *  project; pass `null` to detach (items become unassigned). */
+export const getProjectDeleteImpact = (
+  id: string,
+): Promise<ProjectDeleteImpact> => invoke("get_project_delete_impact", { id });
+
+/** Hard-delete a project. By default linked content is preserved and becomes
+ *  unassigned; `deleteRelated` permanently removes it instead. */
 export const deleteProject = (
   id: string,
-  reassignTo: string | null = null,
+  options: { deleteRelated?: boolean; reassignTo?: string | null } = {},
 ): Promise<void> =>
-  invoke("delete_project", { id, reassignTo });
+  invoke("delete_project", {
+    id,
+    reassignTo: options.reassignTo ?? null,
+    deleteRelated: options.deleteRelated ?? false,
+  });
 
 export const countItemsForProject = (id: string): Promise<number> =>
   invoke("count_items_for_project", { id });
@@ -1109,9 +1128,13 @@ export const updateMeetingTranscript = (id: string, segments: Segment[]): Promis
 export const listPeople = (): Promise<Person[]> => invoke("list_people");
 export const savePerson = (input: { id?: string | null; name: string; email?: string | null; role?: string | null; companyId?: string | null; notes: string }): Promise<Person> =>
   invoke("save_person", input);
+export const deletePerson = (id: string): Promise<void> =>
+  invoke("delete_person", { id });
 export const listCompanies = (): Promise<Company[]> => invoke("list_companies");
 export const saveCompany = (input: { id?: string | null; name: string; domain?: string | null; notes: string }): Promise<Company> =>
   invoke("save_company", input);
+export const deleteCompany = (id: string): Promise<void> =>
+  invoke("delete_company", { id });
 export const listMeetingArtifacts = (kind?: string | null, meetingId?: string | null): Promise<MeetingArtifact[]> =>
   invoke("list_meeting_artifacts", { kind: kind ?? null, meetingId: meetingId ?? null });
 export const listRelationshipMeetings = (scopeKind: "person" | "company", scopeId: string): Promise<MeetingRow[]> =>
@@ -1126,8 +1149,6 @@ export const deleteMeeting = (id: string): Promise<void> =>
 export type MeetingSettings = {
   auto_detect: boolean;
   app_prefs: Record<string, "always" | "ask" | "never">;
-  soft_warn_min: number;
-  hard_cap_min: number;
   summary_prompt: string;
   export_folder: string | null;
 };

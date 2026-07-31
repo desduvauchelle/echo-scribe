@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { installTauriMock } from "./mock";
+import { installTauriMock, recordedCalls } from "./mock";
 
 test("dashboard scroll never moves the app shell", async ({ page }) => {
   await page.setViewportSize({ width: 1094, height: 600 });
@@ -102,6 +102,212 @@ test("dashboard scroll never moves the app shell", async ({ page }) => {
     sidebarBottom: pinnedShell.viewportHeight,
     viewportHeight: pinnedShell.viewportHeight,
   });
+});
+
+test("settings navigation and content scroll independently", async ({ page }) => {
+  await page.setViewportSize({ width: 1094, height: 600 });
+  await installTauriMock(page, {
+    onboardingCompleted: true,
+    permissions: { microphone: true, accessibility: true },
+    speechModelReady: true,
+  });
+  await page.goto("/");
+
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+
+  const navigation = page.locator(".echo-settings-nav");
+  const content = page.locator(".echo-settings-content");
+  await expect(navigation).toBeVisible();
+  await expect(content).toBeVisible();
+
+  const layout = await page.evaluate(() => {
+    const pageScroller = document.scrollingElement!;
+    const shell = document.querySelector<HTMLElement>(
+      ".echo-settings-shell",
+    )!;
+    const toolbar = shell.querySelector<HTMLElement>("header")!;
+    const navigation = document.querySelector<HTMLElement>(
+      ".echo-settings-nav",
+    )!;
+    const content = document.querySelector<HTMLElement>(
+      ".echo-settings-content",
+    )!;
+
+    return {
+      pageClientHeight: pageScroller.clientHeight,
+      pageScrollHeight: pageScroller.scrollHeight,
+      rootOverflowY: getComputedStyle(document.documentElement).overflowY,
+      rootOverscrollY: getComputedStyle(document.documentElement)
+        .overscrollBehaviorY,
+      navigationOverflowY: getComputedStyle(navigation).overflowY,
+      navigationOverscrollY: getComputedStyle(navigation).overscrollBehaviorY,
+      contentOverflowY: getComputedStyle(content).overflowY,
+      contentOverscrollY: getComputedStyle(content).overscrollBehaviorY,
+      shellTop: shell.getBoundingClientRect().top,
+      shellBottom: shell.getBoundingClientRect().bottom,
+      toolbarBottom: toolbar.getBoundingClientRect().bottom,
+      navigationLeft: navigation.getBoundingClientRect().left,
+      navigationWidth: navigation.getBoundingClientRect().width,
+      navigationTop: navigation.getBoundingClientRect().top,
+      navigationBottom: navigation.getBoundingClientRect().bottom,
+      navigationRadius: getComputedStyle(navigation).borderRadius,
+      contentLeft: content.getBoundingClientRect().left,
+      contentRight: content.getBoundingClientRect().right,
+      contentTop: content.getBoundingClientRect().top,
+      contentBottom: content.getBoundingClientRect().bottom,
+      contentRadius: getComputedStyle(content).borderRadius,
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+    };
+  });
+
+  expect(layout.pageScrollHeight).toBe(layout.pageClientHeight);
+  expect(layout.rootOverflowY).toBe("hidden");
+  expect(layout.rootOverscrollY).toBe("none");
+  expect(layout.navigationOverflowY).toBe("auto");
+  expect(layout.navigationOverscrollY).toBe("contain");
+  expect(layout.contentOverflowY).toBe("auto");
+  expect(layout.contentOverscrollY).toBe("contain");
+  expect(layout.shellTop).toBe(0);
+  expect(layout.shellBottom).toBe(layout.viewportHeight);
+  expect(layout.navigationLeft).toBe(0);
+  expect(layout.navigationWidth).toBe(232);
+  expect(layout.navigationTop).toBe(layout.toolbarBottom);
+  expect(layout.navigationTop).toBe(layout.contentTop);
+  expect(layout.navigationBottom).toBe(layout.contentBottom);
+  expect(layout.navigationBottom).toBe(layout.viewportHeight);
+  expect(layout.navigationRadius).toBe("0px");
+  expect(layout.contentLeft).toBe(232);
+  expect(layout.contentRight).toBe(layout.viewportWidth);
+  expect(layout.contentRadius).toBe("0px");
+
+  // Force deterministic overflow in both real scroll regions without coupling
+  // this shell regression to the current number of settings or form fields.
+  await navigation.evaluate((element) => {
+    const spacer = document.createElement("div");
+    spacer.style.height = "800px";
+    element.append(spacer);
+  });
+  await content.evaluate((element) => {
+    const spacer = document.createElement("div");
+    spacer.style.height = "800px";
+    element.append(spacer);
+  });
+
+  const navigationBox = await navigation.boundingBox();
+  expect(navigationBox).not.toBeNull();
+  await page.mouse.move(
+    navigationBox!.x + navigationBox!.width / 2,
+    navigationBox!.y + navigationBox!.height / 2,
+  );
+  await page.mouse.wheel(0, 500);
+  await expect
+    .poll(() => navigation.evaluate((element) => element.scrollTop))
+    .toBeGreaterThan(0);
+  expect(await content.evaluate((element) => element.scrollTop)).toBe(0);
+
+  const navigationScrollTop = await navigation.evaluate(
+    (element) => element.scrollTop,
+  );
+  const contentBox = await content.boundingBox();
+  expect(contentBox).not.toBeNull();
+  await page.mouse.move(
+    contentBox!.x + contentBox!.width / 2,
+    contentBox!.y + contentBox!.height / 2,
+  );
+  await page.mouse.wheel(0, 500);
+  await expect
+    .poll(() => content.evaluate((element) => element.scrollTop))
+    .toBeGreaterThan(0);
+  expect(await navigation.evaluate((element) => element.scrollTop)).toBe(
+    navigationScrollTop,
+  );
+  expect(await page.evaluate(() => document.scrollingElement!.scrollTop)).toBe(
+    0,
+  );
+});
+
+for (const choice of [
+  { name: "Delete project only", deleteRelated: false },
+  { name: "Delete project and related content", deleteRelated: true },
+] as const) {
+  test(`project deletion supports: ${choice.name}`, async ({ page }) => {
+    await installTauriMock(page, {
+      onboardingCompleted: true,
+      permissions: { microphone: true, accessibility: true },
+      speechModelReady: true,
+      projectCount: 1,
+    });
+    await page.goto("/");
+
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.getByRole("button", { name: "Projects", exact: true }).click();
+    await page.getByRole("button", { name: "Delete Project 1" }).click();
+
+    const dialog = page.getByRole("alertdialog", {
+      name: "Delete “Project 1”?",
+    });
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText("1 meeting");
+    await expect(dialog).toContainText("1 recording");
+    await expect(dialog).toContainText("1 chat");
+    await expect(
+      dialog.getByRole("button", { name: "Delete project only" }),
+    ).toBeVisible();
+    await expect(
+      dialog.getByRole("button", {
+        name: "Delete project and related content",
+      }),
+    ).toBeEnabled();
+
+    await dialog.getByRole("button", { name: choice.name }).click();
+    await expect(dialog).toBeHidden();
+
+    const calls = await recordedCalls(page);
+    expect(calls.filter((call) => call.cmd === "delete_project")).toEqual([
+      {
+        cmd: "delete_project",
+        args: {
+          id: "project-1",
+          reassignTo: null,
+          deleteRelated: choice.deleteRelated,
+        },
+      },
+    ]);
+  });
+}
+
+test("action cheatsheet wraps long email examples without horizontal overflow", async ({ page }) => {
+  await page.setViewportSize({ width: 981, height: 552 });
+  await installTauriMock(page, {
+    onboardingCompleted: true,
+    permissions: { microphone: true, accessibility: true },
+    speechModelReady: true,
+  });
+  await page.goto("/");
+
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("button", { name: "Actions", exact: true }).click();
+
+  const emailCard = page.locator('[data-action-category="Emails"]');
+  const phrases = emailCard.locator("code");
+  await expect(emailCard).toBeVisible();
+  await expect(phrases).toHaveCount(2);
+
+  const overflow = await page.evaluate(() => {
+    const content = document.querySelector<HTMLElement>(".echo-settings-content")!;
+    const card = document.querySelector<HTMLElement>('[data-action-category="Emails"]')!;
+    const phrases = Array.from(card.querySelectorAll<HTMLElement>("code"));
+    return {
+      content: content.scrollWidth - content.clientWidth,
+      card: card.scrollWidth - card.clientWidth,
+      phrases: phrases.map((phrase) => phrase.scrollWidth - phrase.clientWidth),
+    };
+  });
+
+  expect(overflow.content).toBeLessThanOrEqual(1);
+  expect(overflow.card).toBeLessThanOrEqual(1);
+  expect(overflow.phrases.every((amount) => amount <= 1)).toBe(true);
 });
 
 test("dashboard stats follow the active filter and expose the stats page", async ({ page }) => {

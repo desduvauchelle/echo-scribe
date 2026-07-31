@@ -20,6 +20,24 @@ export type Scenario = {
   meetingExportFolder?: string | null;
   /** Folder returned by the native export-folder picker mock. */
   pickedExportFolder?: string | null;
+  people?: Array<{
+    id: string;
+    name: string;
+    email: string | null;
+    role: string | null;
+    company_id: string | null;
+    notes: string;
+    created_at: string;
+    updated_at: string;
+  }>;
+  companies?: Array<{
+    id: string;
+    name: string;
+    domain: string | null;
+    notes: string;
+    created_at: string;
+    updated_at: string;
+  }>;
 };
 
 /**
@@ -49,6 +67,8 @@ export async function installTauriMock(page: Page, scenario: Scenario = {}) {
       meetingExportFolder: sc.meetingExportFolder ?? null,
       pickedExportFolder: sc.pickedExportFolder ?? "/Users/test/Meeting Notes",
       pipelineRunning: false,
+      people: [...(sc.people ?? [])],
+      companies: [...(sc.companies ?? [])],
     };
     const calls: { cmd: string; args: unknown }[] = [];
     const unhandled: string[] = [];
@@ -119,6 +139,35 @@ export async function installTauriMock(page: Page, scenario: Scenario = {}) {
       get_log_capture_binding: () => binding,
       get_action_binding: () => binding,
       get_edit_selection_binding: () => binding,
+      get_app_launcher_enabled: () => true,
+      get_action_counter: () => 21,
+      get_trigger_word_routing_enabled: () => false,
+      get_action_trigger_word: () => "echo",
+      get_common_actions: () => [
+        {
+          category: "Applications",
+          description: "Launch standard macOS applications or workspace web apps",
+          voice_phrases: ["open Slack", "launch Safari", "open Growthinator", "launch LiveCase"],
+        },
+        {
+          category: "Emails",
+          description: "Draft emails inside the system default client prefilled",
+          voice_phrases: [
+            "email denis about Growthinator saying tests passed",
+            "email John about meeting saying I will be there",
+          ],
+        },
+        {
+          category: "Web Browsing",
+          description: "Navigate directly to websites in your default browser",
+          voice_phrases: ["open google", "go to github.com"],
+        },
+        {
+          category: "Persistent Counter",
+          description: "Increment, query, or reset the app action stats",
+          voice_phrases: ["increment counter", "what is the count", "reset action count"],
+        },
+      ],
       set_rebinding: () => undefined,
       smoke_checkpoint: () => undefined,
       get_dashboard_stats: () => {
@@ -166,21 +215,83 @@ export async function installTauriMock(page: Page, scenario: Scenario = {}) {
           id: `project-${index + 1}`,
           name: `Project ${index + 1}`,
           description: null,
-          archived: false,
+          archived_at: null,
           created_at: "2026-07-30T12:00:00Z",
           updated_at: "2026-07-30T12:00:00Z",
+          keywords: [],
+          color: null,
+          emoji: null,
+          export_folder: null,
+          routing_aliases: [],
+          routing_app_hints: [],
+          routing_url_hints: [],
+          routing_window_hints: [],
+          routing_positive_examples: [],
+          routing_negative_examples: [],
         })),
+      get_project_delete_impact: () => ({
+        items: 4,
+        meetings: 1,
+        notes: 1,
+        tasks: 1,
+        transcriptions: 1,
+        recordings: 1,
+        chats: 1,
+        artifacts: 1,
+      }),
+      delete_project: () => {
+        state.projectCount = Math.max(0, state.projectCount - 1);
+      },
       get_meeting_settings: () => ({
         auto_detect: true,
         app_prefs: {},
-        soft_warn_min: 120,
-        hard_cap_min: 240,
         summary_prompt: "Summarize decisions and next steps.",
         export_folder: state.meetingExportFolder,
       }),
       pick_export_folder: () => state.pickedExportFolder,
       set_meeting_export_folder: (a) => {
         state.meetingExportFolder = a.folder ?? null;
+      },
+      list_people: () => [...state.people],
+      list_companies: () => [...state.companies],
+      list_relationship_meetings: () => [],
+      save_person: (a) => {
+        const existing = state.people.find((person) => person.id === a.id);
+        const now = "2026-07-31T17:00:00Z";
+        const person = {
+          id: a.id ?? `person-${state.people.length + 1}`,
+          name: a.name,
+          email: a.email ?? null,
+          role: a.role ?? null,
+          company_id: a.companyId ?? null,
+          notes: a.notes,
+          created_at: existing?.created_at ?? now,
+          updated_at: now,
+        };
+        state.people = state.people.filter((candidate) => candidate.id !== person.id);
+        state.people.push(person);
+        return person;
+      },
+      save_company: (a) => {
+        const existing = state.companies.find((company) => company.id === a.id);
+        const now = "2026-07-31T17:00:00Z";
+        const company = {
+          id: a.id ?? `company-${state.companies.length + 1}`,
+          name: a.name,
+          domain: a.domain ?? null,
+          notes: a.notes,
+          created_at: existing?.created_at ?? now,
+          updated_at: now,
+        };
+        state.companies = state.companies.filter((candidate) => candidate.id !== company.id);
+        state.companies.push(company);
+        return company;
+      },
+      delete_person: (a) => {
+        state.people = state.people.filter((person) => person.id !== a.id);
+      },
+      delete_company: (a) => {
+        state.companies = state.companies.filter((company) => company.id !== a.id);
       },
       daily_summary_get: () => null,
       "plugin:autostart|is_enabled": () => false,

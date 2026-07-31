@@ -84,9 +84,9 @@ html, body, #root {
   text-rendering: optimizeLegibility;
 }
 
-html[data-app-view="main"],
-html[data-app-view="main"] body,
-html[data-app-view="main"] #root {
+html:is([data-app-view="main"], [data-app-view="settings"]),
+html:is([data-app-view="main"], [data-app-view="settings"]) body,
+html:is([data-app-view="main"], [data-app-view="settings"]) #root {
   overflow: hidden;
   overscroll-behavior: none;
 }

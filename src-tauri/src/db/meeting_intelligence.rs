@@ -372,6 +372,22 @@ pub fn list_people(conn: &Connection) -> Result<Vec<Person>, DbError> {
     rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
 }
 
+pub fn delete_person(conn: &Connection, id: &str, now: &str) -> Result<(), DbError> {
+    conn.execute(
+        "UPDATE people SET deleted_at=?2,updated_at=?2 WHERE id=?1 AND deleted_at IS NULL",
+        params![id, now],
+    )?;
+    Ok(())
+}
+
+pub fn delete_company(conn: &Connection, id: &str, now: &str) -> Result<(), DbError> {
+    conn.execute(
+        "UPDATE companies SET deleted_at=?2,updated_at=?2 WHERE id=?1 AND deleted_at IS NULL",
+        params![id, now],
+    )?;
+    Ok(())
+}
+
 pub fn upsert_participant(conn: &Connection, p: &MeetingParticipant) -> Result<(), DbError> {
     conn.execute(
         "INSERT INTO meeting_participants(meeting_id,speaker_key,person_id,display_name,source,confirmed,created_at,updated_at)
@@ -490,5 +506,38 @@ mod tests {
             get_chat_scope(&c, "s").unwrap(),
             Some(("meeting".into(), "m".into()))
         );
+    }
+
+    #[test]
+    fn deleted_people_and_companies_are_hidden_from_relationship_lists() {
+        let c = fresh();
+        let company = Company {
+            id: "company-1".into(),
+            name: "Acme".into(),
+            domain: Some("acme.test".into()),
+            notes: String::new(),
+            created_at: "created".into(),
+            updated_at: "created".into(),
+        };
+        let person = Person {
+            id: "person-1".into(),
+            name: "Mark".into(),
+            email: Some("mark@example.com".into()),
+            role: Some("Founder".into()),
+            company_id: Some(company.id.clone()),
+            notes: String::new(),
+            created_at: "created".into(),
+            updated_at: "created".into(),
+        };
+        upsert_company(&c, &company).unwrap();
+        upsert_person(&c, &person).unwrap();
+
+        delete_person(&c, &person.id, "deleted").unwrap();
+        delete_company(&c, &company.id, "deleted").unwrap();
+
+        assert!(list_people(&c).unwrap().is_empty());
+        assert!(list_companies(&c).unwrap().is_empty());
+        assert_eq!(get_person(&c, &person.id).unwrap(), None);
+        assert_eq!(get_company(&c, &company.id).unwrap(), None);
     }
 }

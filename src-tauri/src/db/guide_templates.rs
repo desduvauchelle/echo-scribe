@@ -306,7 +306,14 @@ mod tests {
             .into_iter()
             .map(|t| t.name)
             .collect();
-        assert_eq!(names, vec!["Alpha".to_string(), "zebra".to_string()]);
+        assert_eq!(
+            names,
+            vec![
+                "Alpha".to_string(),
+                "Conversation signals".to_string(),
+                "zebra".to_string(),
+            ]
+        );
     }
 
     #[test]

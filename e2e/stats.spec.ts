@@ -19,7 +19,7 @@ test("dashboard stats switch categories and open the detailed view", async ({ pa
 
   await page.getByRole("button", { name: "Meetings", exact: true }).click();
   await expect(page.getByText("Time this week")).toBeVisible();
-  await page.getByRole("button", { name: "Open detailed meetings statistics" }).click();
+  await overview.getByRole("button", { name: "View stats" }).click();
 
   await expect(page.getByRole("heading", { name: "Stats" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Last 7 days" })).toBeVisible();

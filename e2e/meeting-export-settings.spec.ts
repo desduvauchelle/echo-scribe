@@ -12,9 +12,13 @@ test("meeting export folder can be cleared and selected", async ({ page }) => {
   await page.goto("/");
 
   await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Dictation" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Dictation", exact: true }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Meetings", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Meetings" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Meetings", exact: true }),
+  ).toBeVisible();
 
   const section = page.getByRole("heading", { name: "Meeting notes folder" }).locator("..");
   await expect(section).toContainText("/Users/test/Old Meetings");

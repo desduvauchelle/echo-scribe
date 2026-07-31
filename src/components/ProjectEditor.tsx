@@ -1,9 +1,6 @@
-import { useEffect, useState } from "react";
-import { ask } from "@tauri-apps/plugin-dialog";
+import { useState } from "react";
 import {
-  countItemsForProject,
   createProject,
-  deleteProject,
   exportProjectBackfill,
   pickExportFolder,
   updateProject,
@@ -14,10 +11,8 @@ import { useToasts } from "./ToastProvider";
 type Props = {
   /** When null, the editor is in create mode. */
   project: Project | null;
-  /** All other projects, used as reassignment targets on delete. */
-  allProjects: Project[];
   onSaved: (p: Project) => void;
-  onDeleted?: () => void;
+  onDeleteRequest?: (project: Project) => void;
   onCancel: () => void;
 };
 
@@ -34,9 +29,8 @@ const COLOR_PALETTE: Array<{ value: string; name: string }> = [
 
 export default function ProjectEditor({
   project,
-  allProjects,
   onSaved,
-  onDeleted,
+  onDeleteRequest,
   onCancel,
 }: Props) {
   const toasts = useToasts();
@@ -62,28 +56,7 @@ export default function ProjectEditor({
     project?.export_folder ?? null,
   );
   const [saving, setSaving] = useState(false);
-  const [deleting, setDeleting] = useState(false);
   const [backfilling, setBackfilling] = useState(false);
-  const [itemCount, setItemCount] = useState<number | null>(null);
-
-  useEffect(() => {
-    if (!project) {
-      setItemCount(null);
-      return;
-    }
-    let cancelled = false;
-    void (async () => {
-      try {
-        const n = await countItemsForProject(project.id);
-        if (!cancelled) setItemCount(n);
-      } catch {
-        // best-effort
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [project]);
 
   const addKeyword = (raw: string) => {
     const normalized = raw.trim().toLowerCase();
@@ -217,57 +190,6 @@ export default function ProjectEditor({
       });
     } finally {
       setBackfilling(false);
-    }
-  };
-
-  const handleDelete = async () => {
-    if (!project) return;
-    const otherActive = allProjects.filter(
-      (p) => p.id !== project.id && !p.archived_at,
-    );
-    const count = itemCount ?? 0;
-
-    let reassignTo: string | null = null;
-    if (count > 0 && otherActive.length > 0) {
-      // Native confirm can't ask for a selection; surface the count and
-      // ask the user via a follow-up prompt. For now, ask binary: reassign
-      // to the FIRST other active project, or detach. A future iteration
-      // could open a custom modal with a dropdown; this keeps Phase 1 lean.
-      const target = otherActive[0];
-      const choice = await ask(
-        `Delete "${project.name}"? It has ${count} item${count === 1 ? "" : "s"}.\n\n` +
-          `Click OK to reassign them to "${target.name}".\nClick Cancel to detach (items become unassigned).`,
-        { title: "Delete project", kind: "warning" },
-      );
-      reassignTo = choice ? target.id : null;
-      const confirmed = await ask(
-        reassignTo
-          ? `Confirm: delete "${project.name}" and move ${count} item${count === 1 ? "" : "s"} to "${target.name}"?`
-          : `Confirm: delete "${project.name}" and detach ${count} item${count === 1 ? "" : "s"}?`,
-        { title: "Delete project", kind: "warning" },
-      );
-      if (!confirmed) return;
-    } else {
-      const confirmed = await ask(
-        count > 0
-          ? `Delete "${project.name}"? Its ${count} item${count === 1 ? "" : "s"} will become unassigned.`
-          : `Delete "${project.name}"?`,
-        { title: "Delete project", kind: "warning" },
-      );
-      if (!confirmed) return;
-    }
-
-    setDeleting(true);
-    try {
-      await deleteProject(project.id, reassignTo);
-      onDeleted?.();
-    } catch (e) {
-      toasts.push({
-        tone: "error",
-        message: `Delete failed: ${e instanceof Error ? e.message : String(e)}`,
-      });
-    } finally {
-      setDeleting(false);
     }
   };
 
@@ -501,11 +423,11 @@ export default function ProjectEditor({
           {isEdit && (
             <button
               type="button"
-              onClick={() => void handleDelete()}
-              disabled={deleting || saving}
+              onClick={() => project && onDeleteRequest?.(project)}
+              disabled={saving}
               className="rounded-md border border-danger/40 px-3 py-1 text-xs font-semibold text-danger hover:bg-danger/10 disabled:opacity-50"
             >
-              {deleting ? "Deleting…" : "Delete project"}
+              Delete project
             </button>
           )}
         </div>

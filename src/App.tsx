@@ -57,13 +57,14 @@ function AppShell() {
   } | null>(null);
   const toasts = useToasts();
 
-  // The main window owns its own scroll regions. Lock the WebView document
-  // while it is mounted so a trackpad gesture cannot escape those regions and
-  // rubber-band the entire application shell in macOS WebKit.
+  // The main and settings windows own their own scroll regions. Lock the
+  // WebView document while either is mounted so a trackpad gesture cannot
+  // escape those regions and rubber-band the application shell in macOS
+  // WebKit.
   useEffect(() => {
     const root = document.documentElement;
     root.dataset.appView = view;
-    if (view === "main") window.scrollTo(0, 0);
+    if (view === "main" || view === "settings") window.scrollTo(0, 0);
 
     return () => {
       if (root.dataset.appView === view) delete root.dataset.appView;
@@ -158,26 +159,6 @@ function AppShell() {
           });
         },
       );
-      if (cancelled) fn();
-      else unlisten = fn;
-    })();
-    return () => {
-      cancelled = true;
-      if (unlisten) unlisten();
-    };
-  }, [toasts]);
-
-  // Surface "meeting-soft-warn" events as a non-blocking toast.
-  useEffect(() => {
-    let unlisten: UnlistenFn | null = null;
-    let cancelled = false;
-    (async () => {
-      const fn = await listen("meeting-soft-warn", () => {
-        toasts.push({
-          tone: "info",
-          message: "Meeting has been running for 2 hours. Stop manually when done.",
-        });
-      });
       if (cancelled) fn();
       else unlisten = fn;
     })();
@@ -420,7 +401,6 @@ function AppShell() {
   if (view === "settings") {
     return (
       <>
-        {dragBar}
         <UpdateBanner />
         <Settings
           onBack={() => {

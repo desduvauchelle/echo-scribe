@@ -64,7 +64,8 @@ use crate::commands::{
     get_filler_removal_enabled, get_filler_words,
     get_format_templates, get_item, get_llm_unload_secs, get_log_capture_binding,
     get_mute_while_recording, get_onboarding_completed, get_project_auto_tagging_enabled,
-    get_recording_project, get_screenrec_audio_prefs, get_trigger_word_routing_enabled,
+    get_project_delete_impact, get_recording_project, get_screenrec_audio_prefs,
+    get_trigger_word_routing_enabled,
     get_voice_at_cursor_binding, get_last_transcript, copy_last_transcript,
     paste_last_transcript,
     hide_countdown_overlay,
@@ -292,6 +293,7 @@ pub fn run() {
             rename_project,
             archive_project,
             unarchive_project,
+            get_project_delete_impact,
             delete_project,
             count_items_for_project,
             list_tasks,
@@ -377,8 +379,10 @@ pub fn run() {
             commands::update_meeting_transcript,
             commands::list_people,
             commands::save_person,
+            commands::delete_person,
             commands::list_companies,
             commands::save_company,
+            commands::delete_company,
             commands::list_meeting_artifacts,
             commands::list_relationship_meetings,
             commands::restore_transcript_backup,
@@ -777,10 +781,10 @@ pub fn run() {
                 });
             }
 
-            // Keep the tray "Start/Stop meeting" label in sync with the actual
-            // MeetingManager state. The tray, the MeetingsView button, the
-            // auto-detect prompt, and the hard-cap timer can all change state,
-            // so we drive the label off the same events the frontend watches.
+            // Keep the tray's separate Start/Stop meeting actions in sync with
+            // the actual MeetingManager state. The tray, the MeetingsView
+            // button and the auto-detect prompt can both change state, so we
+            // drive them off the same events the frontend watches.
             {
                 let tray_started = Arc::clone(&tray);
                 app.handle().listen("meeting-started", move |_evt| {
@@ -791,7 +795,7 @@ pub fn run() {
                 let tray_status = Arc::clone(&tray);
                 app.handle().listen("meeting-status", move |evt| {
                     // Any non-recording status means we're past the recording
-                    // phase; flip the label back to "Start meeting".
+                    // phase; enable Start and disable Stop again.
                     let payload = evt.payload();
                     if payload.contains("\"transcribing\"")
                         || payload.contains("\"summarizing\"")

@@ -129,12 +129,15 @@ pub struct MeetingManager {
     /// Wall-clock millis (UTC) when the most recent `stop()` cleared `state`.
     /// Detector consults `in_cooldown()` to avoid auto-restarting immediately.
     last_stopped_at_ms: AtomicU64,
+    /// A detected meeting that the user explicitly stopped. Auto-detection
+    /// must not start it again until the detector observes that session end.
+    user_suppressed_detection: std::sync::Mutex<Option<MeetingDetectionKey>>,
 }
 
 struct ActiveMeeting {
     item_id: String,
     started_at_ms: u64,
-    detected_app: Option<String>,
+    detection_key: Option<MeetingDetectionKey>,
     detected_app_name: Option<String>,
     /// Frontmost window title at meeting-start time. For Zoom/Teams this often
     /// contains the meeting topic (e.g. "Weekly Standup - Zoom Meeting").
@@ -222,6 +225,27 @@ pub struct MeetingStartContext {
     pub browser_tab_title: Option<String>,
 }
 
+/// Stable-enough identity for the detected meeting source whose auto-start the
+/// user stopped. Native meetings are scoped to the app's current meeting-window
+/// lifecycle. Browser meetings also retain the provider so switching to a
+/// different provider in the same browser can re-arm immediately.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct MeetingDetectionKey {
+    pub(crate) bundle_id: String,
+    pub(crate) browser_provider: Option<String>,
+}
+
+impl MeetingDetectionKey {
+    fn from_start(bundle_id: &str, browser_url: Option<&str>) -> Self {
+        Self {
+            bundle_id: bundle_id.to_string(),
+            browser_provider: browser_url
+                .and_then(crate::meeting::url_allowlist::classify)
+                .map(str::to_string),
+        }
+    }
+}
+
 impl MeetingManager {
     pub fn new(
         asr: Arc<AsrPipeline>,
@@ -238,6 +262,7 @@ impl MeetingManager {
             app_handle,
             state: AsyncMutex::new(None),
             last_stopped_at_ms: AtomicU64::new(0),
+            user_suppressed_detection: std::sync::Mutex::new(None),
         })
     }
 
@@ -254,6 +279,28 @@ impl MeetingManager {
         }
         let now = chrono::Utc::now().timestamp_millis() as u64;
         now.saturating_sub(stopped) < POST_STOP_COOLDOWN_MS
+    }
+
+    /// Meeting source whose auto-start was explicitly stopped by the user.
+    pub(crate) fn user_suppressed_detection(&self) -> Option<MeetingDetectionKey> {
+        self.user_suppressed_detection
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+    }
+
+    /// Clear only the suppression the detector actually evaluated, so a
+    /// concurrent user stop cannot be accidentally overwritten.
+    pub(crate) fn clear_user_suppressed_detection(&self, expected: &MeetingDetectionKey) -> bool {
+        let mut guard = self
+            .user_suppressed_detection
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if guard.as_ref() != Some(expected) {
+            return false;
+        }
+        guard.take();
+        true
     }
 
     pub async fn active_id(&self) -> Option<String> {
@@ -487,6 +534,9 @@ impl MeetingManager {
         let started_at = now.to_rfc3339();
         let started_at_ms = now.timestamp_millis() as u64;
         let dir = self.data_dir.join("meetings").join(&id);
+        let detection_key = detected_app.as_deref().map(|bundle_id| {
+            MeetingDetectionKey::from_start(bundle_id, start_context.browser_url.as_deref())
+        });
 
         let id_for_db = id.clone();
         let started_for_db = started_at.clone();
@@ -611,29 +661,6 @@ impl MeetingManager {
             detected_app_name.as_deref(),
         );
 
-        // Soft-warn timer (emit event after N minutes).
-        let app_handle_warn = self.app_handle.clone();
-        let id_for_warn = id.clone();
-        tokio::spawn(async move {
-            tokio::time::sleep(std::time::Duration::from_secs(120 * 60)).await;
-            let _ = app_handle_warn
-                .emit("meeting-soft-warn", serde_json::json!({"id": id_for_warn}));
-        });
-
-        // Hard-cap timer (auto-stop after N minutes).
-        let manager_weak = Arc::downgrade(&self);
-        let id_for_cap = id.clone();
-        tokio::spawn(async move {
-            tokio::time::sleep(std::time::Duration::from_secs(240 * 60)).await;
-            if let Some(mgr) = manager_weak.upgrade() {
-                let active_id = mgr.active_id().await;
-                if active_id.as_deref() == Some(&id_for_cap) {
-                    tracing::warn!(id = %id_for_cap, "hard cap reached, auto-stopping");
-                    let _ = mgr.stop().await;
-                }
-            }
-        });
-
         // Inactivity backstop: auto-stop after a sustained silence even when
         // window-based end detection is blind (e.g. the user ends a call but
         // stays focused in another app, so the window monitor only ever sees
@@ -669,7 +696,7 @@ impl MeetingManager {
         *guard = Some(ActiveMeeting {
             item_id: id.clone(),
             started_at_ms,
-            detected_app,
+            detection_key,
             detected_app_name,
             start_window_title: start_context.window_title,
             start_browser_url: start_context.browser_url,
@@ -684,10 +711,34 @@ impl MeetingManager {
     }
 
     pub async fn stop(&self) -> Result<String, MeetingError> {
+        self.stop_with_intent(false).await
+    }
+
+    /// Stop requested by an explicit user action. If this recording came from
+    /// meeting detection, remember that source so automation cannot restart
+    /// the same still-running call.
+    pub async fn stop_by_user(&self) -> Result<String, MeetingError> {
+        self.stop_with_intent(true).await
+    }
+
+    async fn stop_with_intent(&self, user_initiated: bool) -> Result<String, MeetingError> {
         let mut guard = self.state.lock().await;
         let Some(mut active) = guard.take() else {
             return Err(MeetingError::NotRecording);
         };
+        if user_initiated {
+            if let Some(key) = active.detection_key.clone() {
+                tracing::info!(
+                    app = %key.bundle_id,
+                    provider = ?key.browser_provider,
+                    "user stopped detected meeting; suppressing auto-start until source ends"
+                );
+                self.user_suppressed_detection
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .replace(key);
+            }
+        }
         // Stamp the cooldown the moment state is cleared, so the auto-detector
         // can't race in while synthesis is still running below.
         self.last_stopped_at_ms.store(

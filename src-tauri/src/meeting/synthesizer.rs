@@ -101,28 +101,48 @@ pub fn flatten_transcript(segments: &[Segment]) -> String {
 /// for prompt scaffolding (~500 tokens) and the model's response (~2000 tokens)
 /// inside the typical 8192-token context window.
 const MAX_TRANSCRIPT_BYTES: usize = 18_000;
+const CONDENSE_CHUNK_BYTES: usize = 15_000;
 
-pub(crate) async fn condense_transcript(llm: &impl crate::llm::LlmGenerator, text: &str) -> Result<String, String> {
+fn split_for_condensing(text: &str) -> Vec<String> {
     let mut chunks = Vec::new();
     let mut current_chunk = String::new();
-    
-    for line in text.lines() {
-        if current_chunk.len() + line.len() + 1 > 15000 && !current_chunk.is_empty() {
+
+    for line in text.split_inclusive('\n') {
+        if line.len() > CONDENSE_CHUNK_BYTES {
+            if !current_chunk.is_empty() {
+                chunks.push(std::mem::take(&mut current_chunk));
+            }
+            let mut start = 0;
+            while start < line.len() {
+                let mut end = (start + CONDENSE_CHUNK_BYTES).min(line.len());
+                while end > start && !line.is_char_boundary(end) {
+                    end -= 1;
+                }
+                chunks.push(line[start..end].to_string());
+                start = end;
+            }
+            continue;
+        }
+        if current_chunk.len() + line.len() > CONDENSE_CHUNK_BYTES && !current_chunk.is_empty() {
             chunks.push(std::mem::take(&mut current_chunk));
         }
         current_chunk.push_str(line);
-        current_chunk.push('\n');
     }
     if !current_chunk.is_empty() {
         chunks.push(current_chunk);
     }
-    
+
+    chunks
+}
+
+async fn condense_pass(llm: &impl crate::llm::LlmGenerator, text: &str) -> Result<String, String> {
+    let chunks = split_for_condensing(text);
     let mut summaries = Vec::new();
     let num_chunks = chunks.len();
     for (i, chunk) in chunks.iter().enumerate() {
         let system_prompt = "You are a precise meeting assistant. Summarize the following meeting segment chronologically. Highlight key points, decisions, and action items discussed during this part of the meeting. Keep it concise but detailed enough for a final synthesizer.".to_string();
         let user_prompt = format!("Meeting Segment {}/{}:\n\n{}", i + 1, num_chunks, chunk);
-        
+
         let req = GenerateRequest {
             system: Some(system_prompt),
             user: user_prompt,
@@ -133,14 +153,46 @@ pub(crate) async fn condense_transcript(llm: &impl crate::llm::LlmGenerator, tex
             grammar_gbnf: None,
             n_ctx: Some(8192),
         };
-        
-        let chunk_summary = llm.generate(req).await
+
+        let chunk_summary = llm
+            .generate(req)
+            .await
             .map_err(|e| format!("Error condensing segment {}: {}", i + 1, e))?;
-            
-        summaries.push(format!("--- Chronological Segment {}/{} ---\n{}", i + 1, num_chunks, chunk_summary.trim()));
+
+        summaries.push(format!(
+            "--- Chronological Segment {}/{} ---\n{}",
+            i + 1,
+            num_chunks,
+            chunk_summary.trim()
+        ));
     }
-    
+
     Ok(summaries.join("\n\n"))
+}
+
+/// Hierarchically condense an arbitrarily long transcript until the final
+/// synthesis prompt is within its byte budget. Each pass preserves chronology
+/// while reducing fixed-size groups, so multi-hour meetings never feed an
+/// unbounded map-stage result into the model's finite context window.
+pub(crate) async fn condense_transcript(
+    llm: &impl crate::llm::LlmGenerator,
+    text: &str,
+) -> Result<String, String> {
+    let mut current = text.to_string();
+    loop {
+        let condensed = condense_pass(llm, &current).await?;
+        if condensed.len() <= MAX_TRANSCRIPT_BYTES {
+            return Ok(condensed);
+        }
+        if condensed.len() >= current.len() {
+            return Err(format!(
+                "meeting transcript condensation did not reduce input ({} -> {} bytes)",
+                current.len(),
+                condensed.len()
+            ));
+        }
+        current = condensed;
+    }
 }
 
 pub async fn synthesize(
@@ -280,11 +332,63 @@ mod tests {
         assert!(result.contains("Summary 2"));
     }
 
+    struct FixedSummaryLlm {
+        calls: std::sync::atomic::AtomicUsize,
+    }
+
+    impl crate::llm::LlmGenerator for FixedSummaryLlm {
+        fn generate<'a>(&'a self, _req: GenerateRequest) -> crate::llm::GenerateFuture<'a> {
+            Box::pin(async move {
+                self.calls
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                Ok("s".repeat(3_000))
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn hierarchical_condensation_reduces_multi_hour_sized_transcript_to_budget() {
+        let mock = FixedSummaryLlm {
+            calls: std::sync::atomic::AtomicUsize::new(0),
+        };
+        let text = (0..1_600)
+            .map(|i| format!("You: segment {i} {}\n", "a".repeat(90)))
+            .collect::<String>();
+        assert!(text.len() > MAX_TRANSCRIPT_BYTES * 8);
+
+        let result = condense_transcript(&mock, &text).await.unwrap();
+
+        assert!(result.len() <= MAX_TRANSCRIPT_BYTES);
+        assert!(
+            mock.calls.load(std::sync::atomic::Ordering::Relaxed) > 10,
+            "expected more than one condensation pass"
+        );
+    }
+
+    #[test]
+    fn condensation_chunks_never_exceed_budget_even_for_one_long_line() {
+        let chunks = split_for_condensing(&"é".repeat(CONDENSE_CHUNK_BYTES));
+        assert!(chunks.len() > 1);
+        assert!(chunks
+            .iter()
+            .all(|chunk| chunk.len() <= CONDENSE_CHUNK_BYTES));
+    }
+
     #[test]
     fn flatten_produces_speaker_labeled_lines() {
         let segs = vec![
-            Segment { speaker: Speaker::You, start_ms: 0, end_ms: 1000, text: "hello".into() },
-            Segment { speaker: Speaker::Them, start_ms: 0, end_ms: 1000, text: "hi".into() },
+            Segment {
+                speaker: Speaker::You,
+                start_ms: 0,
+                end_ms: 1000,
+                text: "hello".into(),
+            },
+            Segment {
+                speaker: Speaker::Them,
+                start_ms: 0,
+                end_ms: 1000,
+                text: "hi".into(),
+            },
         ];
         let out = flatten_transcript(&segs);
         assert_eq!(out, "You: hello\nThem: hi\n");
