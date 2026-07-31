@@ -18,6 +18,8 @@ export type Scenario = {
   projectCount?: number;
   /** Folder currently configured for automatic meeting Markdown export. */
   meetingExportFolder?: string | null;
+  /** Per-category MCP permission overrides (id → enabled). */
+  mcpPermissions?: Partial<Record<string, boolean>>;
   /** Folder returned by the native export-folder picker mock. */
   pickedExportFolder?: string | null;
   people?: Array<{
@@ -65,6 +67,16 @@ export async function installTauriMock(page: Page, scenario: Scenario = {}) {
       startPipelineError: sc.startPipelineError ?? null,
       projectCount: sc.projectCount ?? 0,
       meetingExportFolder: sc.meetingExportFolder ?? null,
+      // Mirrors src-tauri/src/mcp_permissions.rs (read-only categories on,
+      // screen recording off).
+      mcpPermissions: {
+        knowledge_search: true,
+        meetings: true,
+        chats: true,
+        contacts: true,
+        screen_recording: false,
+        ...(sc.mcpPermissions ?? {}),
+      } as Record<string, boolean>,
       pickedExportFolder: sc.pickedExportFolder ?? "/Users/test/Meeting Notes",
       pipelineRunning: false,
       people: [...(sc.people ?? [])],
@@ -253,6 +265,20 @@ export async function installTauriMock(page: Page, scenario: Scenario = {}) {
         state.meetingExportFolder = a.folder ?? null;
       },
       open_meeting_export_folder: () => undefined,
+      get_mcp_settings: () => ({
+        binary_path: "/Applications/Echo Scribe.app/Contents/MacOS/echo-scribe",
+        permissions: [
+          { id: "knowledge_search", label: "Search captures & notes", description: "Search dictations and notes, and list projects and tasks. Read-only." },
+          { id: "meetings", label: "Meetings & transcripts", description: "Read meeting transcripts, summaries, participants, and recipes. Read-only." },
+          { id: "chats", label: "Chats", description: "Search and read your Echo Scribe chat conversations. Read-only." },
+          { id: "contacts", label: "People & companies", description: "Read confirmed people and company records. Read-only." },
+          { id: "screen_recording", label: "Screen recording", description: "List windows and start/stop screen recordings with mic, system audio, and camera options. Requires Echo Scribe to be running." },
+        ].map((perm) => ({ ...perm, enabled: !!state.mcpPermissions[perm.id] })),
+      }),
+      set_mcp_permission: (a) => {
+        if (!(a.id in state.mcpPermissions)) throw new Error(`unknown MCP permission: ${a.id}`);
+        state.mcpPermissions[a.id] = !!a.enabled;
+      },
       list_people: () => [...state.people],
       list_companies: () => [...state.companies],
       list_relationship_meetings: () => [],

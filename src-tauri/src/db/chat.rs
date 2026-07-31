@@ -150,6 +150,55 @@ pub fn load_messages(
     Ok(out)
 }
 
+/// One `search_messages` hit, carrying the session name so a caller (the MCP
+/// `search_chats` tool) can present results without a second lookup.
+#[derive(Debug, Clone, Serialize)]
+pub struct ChatSearchHit {
+    pub session_id: String,
+    pub session_name: String,
+    pub role: String,
+    pub content: String,
+    pub created_at: String,
+}
+
+/// Case-insensitive substring search over all chat messages, newest first.
+pub fn search_messages(
+    conn: &Connection,
+    query: &str,
+    limit: u32,
+) -> Result<Vec<ChatSearchHit>, DbError> {
+    // Escape LIKE metacharacters so a literal "%"/"_" in the query can't turn
+    // into a wildcard.
+    let escaped = query
+        .to_lowercase()
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_");
+    let pattern = format!("%{escaped}%");
+    let mut stmt = conn.prepare(
+        "SELECT m.session_id, s.name, m.role, m.content, m.created_at
+         FROM chat_messages m
+         JOIN chat_sessions s ON s.id = m.session_id
+         WHERE LOWER(m.content) LIKE ?1 ESCAPE '\\'
+         ORDER BY m.created_at DESC
+         LIMIT ?2",
+    )?;
+    let rows = stmt.query_map(params![pattern, limit as i64], |row| {
+        Ok(ChatSearchHit {
+            session_id: row.get(0)?,
+            session_name: row.get(1)?,
+            role: row.get(2)?,
+            content: row.get(3)?,
+            created_at: row.get(4)?,
+        })
+    })?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r?);
+    }
+    Ok(out)
+}
+
 fn row_to_session(row: &rusqlite::Row<'_>) -> rusqlite::Result<ChatSession> {
     Ok(ChatSession {
         id: row.get(0)?,
@@ -233,6 +282,22 @@ mod tests {
         }
         let msgs = load_messages(&conn, "s1", 20).unwrap();
         assert_eq!(msgs.len(), 20);
+    }
+
+    #[test]
+    fn search_messages_is_case_insensitive_and_escapes_wildcards() {
+        let conn = fresh_db();
+        insert_session(&conn, "s1", "Roadmap", None).unwrap();
+        insert_message(&conn, "s1", "user", "What about the Q3 Roadmap?").unwrap();
+        insert_message(&conn, "s1", "assistant", "100% done").unwrap();
+        let hits = search_messages(&conn, "roadmap", 10).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].session_name, "Roadmap");
+        // A literal "%" must not act as a match-everything wildcard.
+        let hits = search_messages(&conn, "100%", 10).unwrap();
+        assert_eq!(hits.len(), 1);
+        let hits = search_messages(&conn, "50%", 10).unwrap();
+        assert!(hits.is_empty());
     }
 
     #[test]

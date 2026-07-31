@@ -633,6 +633,25 @@ export const getMuteWhileRecording = (): Promise<boolean> =>
 export const setMuteWhileRecording = (enabled: boolean): Promise<void> =>
   invoke("set_mute_while_recording", { enabled });
 
+// ----- MCP / coding agents -----
+
+export type McpPermissionState = {
+  id: string;
+  label: string;
+  description: string;
+  enabled: boolean;
+};
+
+export type McpSettings = {
+  binary_path: string;
+  permissions: McpPermissionState[];
+};
+
+export const getMcpSettings = (): Promise<McpSettings> => invoke("get_mcp_settings");
+
+export const setMcpPermission = (id: string, enabled: boolean): Promise<void> =>
+  invoke("set_mcp_permission", { id, enabled });
+
 // ----- Transcription post-processing -----
 
 export const getFillerRemovalEnabled = (): Promise<boolean> =>

@@ -30,6 +30,13 @@ pub struct WindowSource {
     pub height: i64,
     #[serde(default)]
     pub thumb: String,
+    /// Whether the window is on the active Space and not minimized. Off-screen
+    /// windows are still valid capture targets (desktopIndependentWindow), but
+    /// ScreenCaptureKit only delivers frames when their content updates — an
+    /// idle off-screen window records nothing. Surfaced so the MCP tools can
+    /// steer agents toward reliable targets.
+    #[serde(default)]
+    pub on_screen: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]

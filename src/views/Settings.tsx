@@ -1,7 +1,9 @@
 import { useEffect, useState, type SyntheticEvent } from "react";
 import {
   ArrowLeft,
+  Bot,
   CalendarDays,
+  Copy,
   Mic,
   NotebookPen,
   Phone,
@@ -19,6 +21,7 @@ import {
   Check,
   type LucideIcon,
 } from "lucide-react";
+import { mcpInstallSnippets } from "../lib/mcpInstall";
 import HotkeyRebinder from "../components/HotkeyRebinder";
 import SpeechModelPicker from "../components/SpeechModelPicker";
 import LlmModelPicker from "../components/LlmModelPicker";
@@ -44,6 +47,10 @@ import {
   getInputDeviceSort,
   getLlmUnloadSecs,
   getLogCaptureBinding,
+  getMcpSettings,
+  setMcpPermission,
+  type McpSettings,
+  type McpPermissionState,
   getMuteWhileRecording,
   getPreferredInputDevice,
   getRecentInputDevices,
@@ -113,6 +120,7 @@ type PageId =
   | "general"
   | "drive"
   | "projects"
+  | "coding-agents"
   | "permissions"
   | "diagnostics"
   | "uninstall";
@@ -144,6 +152,7 @@ const NAV_GROUPS: NavGroup[] = [
       { id: "general", label: "General", icon: SettingsIcon },
       { id: "drive", label: "Google Drive", icon: Cloud },
       { id: "projects", label: "Projects", icon: FolderKanban },
+      { id: "coding-agents", label: "Coding Agents", icon: Bot },
       { id: "permissions", label: "Permissions", icon: ShieldCheck },
       { id: "diagnostics", label: "Diagnostics", icon: Wrench },
       { id: "uninstall", label: "Uninstall", icon: Trash2 },
@@ -168,6 +177,8 @@ const PAGE_DESC: Record<PageId, string> = {
   general: "Launch at login and keep Echo Scribe up to date.",
   drive: "Upload screen recordings to Google Drive and share them with a link.",
   projects: "Create, rename, archive, or delete your projects.",
+  "coding-agents":
+    "Connect Claude Code, Codex, or any MCP client to search your captures — and, if you opt in, record your screen.",
   permissions: "Microphone, accessibility, and screen-recording access.",
   diagnostics: "Inspect logs and reset the app if something breaks.",
   uninstall: "Remove the app while choosing whether to keep your local data.",
@@ -195,6 +206,7 @@ const PAGES: Record<PageId, () => React.ReactElement> = {
   general: GeneralPage,
   drive: DrivePage,
   projects: ProjectsPage,
+  "coding-agents": CodingAgentsPage,
   permissions: PermissionsPage,
   diagnostics: DiagnosticsPage,
   uninstall: UninstallPage,
@@ -1503,6 +1515,188 @@ function DiagnosticsPage() {
       </Section>
 
       <ResetSection />
+    </div>
+  );
+}
+
+/** Fallback for the install snippets when the backend can't report its own
+ *  executable path (it always can on a normal install). */
+const DEFAULT_MCP_BINARY_PATH =
+  "/Applications/Echo Scribe.app/Contents/MacOS/echo-scribe";
+
+function CodingAgentsPage() {
+  const [settings, setSettings] = useState<McpSettings | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    getMcpSettings()
+      .then((s) => {
+        if (!cancelled) setSettings(s);
+      })
+      .catch(() => {
+        // Instructions still render with the canonical install path; only the
+        // permission checkboxes need the real backend.
+        if (!cancelled) {
+          setLoadFailed(true);
+          setSettings({ binary_path: DEFAULT_MCP_BINARY_PATH, permissions: [] });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const snippets = mcpInstallSnippets(
+    settings?.binary_path ?? DEFAULT_MCP_BINARY_PATH,
+  );
+
+  const setPermission = (id: string, enabled: boolean) => {
+    setSettings((prev) =>
+      prev
+        ? {
+            ...prev,
+            permissions: prev.permissions.map((perm) =>
+              perm.id === id ? { ...perm, enabled } : perm,
+            ),
+          }
+        : prev,
+    );
+  };
+
+  return (
+    <div className="flex flex-col gap-8">
+      <Section
+        title="Tool permissions"
+        subtitle="Echo Scribe has a built-in MCP server that agents like Claude Code or Codex can connect to. Tick what they're allowed to access — changes apply immediately, even for agents already connected. Everything stays on this Mac."
+      >
+        {loadFailed ? (
+          <p className="text-[12px] text-muted">
+            Couldn't load permissions — see Settings → Diagnostics → logs for
+            details.
+          </p>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {(settings?.permissions ?? []).map((perm) => (
+              <McpPermissionRow
+                key={perm.id}
+                perm={perm}
+                onChange={(enabled) => setPermission(perm.id, enabled)}
+              />
+            ))}
+          </div>
+        )}
+      </Section>
+
+      <Section
+        title="Connect your coding agent"
+        subtitle="The MCP server is the Echo Scribe app itself — nothing extra to install. Run or paste one of these once."
+      >
+        <div className="flex flex-col gap-3">
+          <McpSnippet
+            title="Claude Code"
+            hint="Run this in a terminal."
+            text={snippets.claudeCode}
+          />
+          <McpSnippet
+            title="Codex CLI"
+            hint="Add to ~/.codex/config.toml."
+            text={snippets.codexToml}
+          />
+          <McpSnippet
+            title="Other MCP clients"
+            hint="Cursor, Windsurf, Gemini CLI — standard mcpServers JSON."
+            text={snippets.genericJson}
+          />
+        </div>
+      </Section>
+    </div>
+  );
+}
+
+/** One permission checkbox row. The label/description come from the backend
+ *  (`mcp_permissions.rs`), so new categories appear here without UI changes. */
+function McpPermissionRow({
+  perm,
+  onChange,
+}: {
+  perm: McpPermissionState;
+  onChange: (enabled: boolean) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const toasts = useToasts();
+
+  const onToggle = async (next: boolean) => {
+    setBusy(true);
+    try {
+      await setMcpPermission(perm.id, next);
+      onChange(next);
+    } catch (e) {
+      toasts.push({
+        tone: "error",
+        message: `Couldn't update the ${perm.label} permission: ${e instanceof Error ? e.message : String(e)}`,
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <label className="flex items-center justify-between gap-4 rounded-lg border border-line bg-canvas p-3">
+      <div>
+        <div className="text-sm font-semibold text-fg">{perm.label}</div>
+        <p className="text-xs text-muted">{perm.description}</p>
+      </div>
+      <input
+        type="checkbox"
+        aria-label={perm.label}
+        disabled={busy}
+        checked={perm.enabled}
+        onChange={(e) => void onToggle(e.target.checked)}
+        className="h-4 w-4 shrink-0 cursor-pointer accent-accent"
+      />
+    </label>
+  );
+}
+
+/** One install option: heading + hint on the left, copy button on the right,
+ *  and the snippet itself in a monospace block underneath. */
+function McpSnippet({
+  title,
+  hint,
+  text,
+}: {
+  title: string;
+  hint: string;
+  text: string;
+}) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="rounded-lg border border-line bg-canvas p-3">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="text-sm font-semibold text-fg">{title}</div>
+          <p className="text-xs text-muted">{hint}</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            void navigator.clipboard.writeText(text);
+            setCopied(true);
+            window.setTimeout(() => setCopied(false), 1200);
+          }}
+          aria-label={`Copy ${title} setup`}
+          className={`inline-flex shrink-0 items-center gap-1.5 rounded-md border px-2.5 py-1 text-[12px] font-medium transition-colors hover:bg-elevated ${
+            copied ? "border-green-500/40 text-green-500" : "border-line text-fg"
+          }`}
+        >
+          {copied ? <Check size={13} /> : <Copy size={13} />}
+          {copied ? "Copied" : "Copy"}
+        </button>
+      </div>
+      <pre className="mt-2 overflow-x-auto rounded-md border border-line bg-canvas p-2 font-mono text-[11px] leading-snug text-muted">
+        {text}
+      </pre>
     </div>
   );
 }

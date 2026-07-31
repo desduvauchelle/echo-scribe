@@ -13,6 +13,9 @@ pub mod export;
 pub mod input;
 pub mod llm;
 pub mod mcp;
+#[cfg(target_os = "macos")]
+pub mod mcp_bridge;
+pub mod mcp_permissions;
 pub mod meeting;
 pub mod overlay;
 pub mod permissions;
@@ -56,7 +59,7 @@ use crate::commands::{
     get_drive_prefs, get_edit_selection_binding, get_editor_defaults,
     get_export_confidence_threshold, get_filler_removal_enabled, get_filler_words,
     get_format_templates, get_item, get_last_transcript, get_llm_unload_secs,
-    get_log_capture_binding, get_mute_while_recording, get_onboarding_completed,
+    get_log_capture_binding, get_mcp_settings, get_mute_while_recording, get_onboarding_completed,
     get_project_auto_tagging_enabled, get_project_delete_impact, get_recording_export_suggestion,
     get_recording_project, get_screenrec_audio_prefs, get_spoken_editing_settings,
     get_transcription_cleanup_language, get_transcription_snippets,
@@ -81,7 +84,8 @@ use crate::commands::{
     set_audio_feedback_enabled, set_auto_file_enabled, set_auto_file_threshold, set_custom_words,
     set_dictionary_entries, set_drive_client_credentials, set_drive_prefs, set_editor_defaults,
     set_export_confidence_threshold, set_filler_removal_enabled, set_filler_words,
-    set_format_templates, set_llm_unload_secs, set_mute_while_recording, set_onboarding_completed,
+    set_format_templates, set_llm_unload_secs, set_mcp_permission,
+    set_mute_while_recording, set_onboarding_completed,
     set_project_auto_tagging_enabled, set_rebinding, set_recording_project,
     set_recording_thumbnail, set_screenrec_audio_prefs, set_spoken_editing_settings,
     set_task_deadline, set_transcription_cleanup_language, set_transcription_snippets,
@@ -458,6 +462,8 @@ pub fn run() {
             list_cameras,
             get_screenrec_audio_prefs,
             set_screenrec_audio_prefs,
+            get_mcp_settings,
+            set_mcp_permission,
             open_screenrec_setup,
             show_camera_preview,
             hide_camera_preview,
@@ -655,6 +661,10 @@ pub fn run() {
             // defaults to false.
             crate::audio::feedback::set_enabled(settings.audio_feedback_enabled());
             crate::audio::mute::set_enabled(settings.mute_while_recording());
+            #[cfg(target_os = "macos")]
+            if let Some(perm) = crate::mcp_permissions::by_id("screen_recording") {
+                crate::mcp_bridge::set_recording_enabled(settings.mcp_permission(perm));
+            }
 
             let paused_hotkeys = Arc::new(AtomicBool::new(false));
             let rebinding = Arc::new(AtomicBool::new(false));
@@ -753,6 +763,12 @@ pub fn run() {
             // Chat-memory embedding indexer — backfills + incrementally indexes
             // history into the vector store once the embedding model is present.
             crate::chat_memory::indexer::spawn(app.handle().clone());
+
+            // MCP recording bridge — local socket the `--mcp` process uses to
+            // drive screen recording. Always listening; every request is
+            // refused unless the Settings → Coding Agents toggle is on.
+            #[cfg(target_os = "macos")]
+            crate::mcp_bridge::spawn(app.handle().clone());
 
             // Wire tray menu events that need access to the managed state
             // (e.g. Pause/Resume toggling). The TrayHandle exposes a

@@ -90,7 +90,7 @@ if CommandLine.arguments.contains("--list-sources") {
                     let thumb = await windowThumbnail(w, dir: thumbsDir)
                     windows.append(["id": w.windowID, "app": app, "title": title,
                                     "width": Int(w.frame.width), "height": Int(w.frame.height),
-                                    "thumb": thumb])
+                                    "thumb": thumb, "on_screen": w.isOnScreen])
                 }
                 let out: [String: Any] = ["displays": displays, "windows": windows]
                 let data = try JSONSerialization.data(withJSONObject: out)

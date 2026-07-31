@@ -66,6 +66,8 @@ const KEY_SCREENREC_HIDE_CURSOR: &str = "screenrec_hide_cursor";
 const KEY_SCREENREC_CAMERA_UID: &str = "screenrec_camera_uid";
 const KEY_SCREENREC_COUNTDOWN: &str = "screenrec_countdown";
 const KEY_SCREENREC_EXPORT_FOLDER: &str = "screenrec_export_folder";
+// MCP tool-permission keys are defined per-category in `mcp_permissions.rs`
+// (`settings_key` field) — the generic accessors below take the category.
 const KEY_DRIVE_CLIENT_ID: &str = "drive_client_id";
 const KEY_DRIVE_CLIENT_SECRET: &str = "drive_client_secret";
 const KEY_DRIVE_ACCOUNT_EMAIL: &str = "drive_account_email";
@@ -1337,6 +1339,30 @@ impl SettingsStore {
     pub fn set_screenrec_countdown(&self, on: bool) -> Result<(), SettingsError> {
         self.store
             .set(KEY_SCREENREC_COUNTDOWN, serde_json::Value::Bool(on));
+        self.store
+            .save()
+            .map_err(|e| SettingsError::Store(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Whether one MCP tool-permission category is enabled for coding agents
+    /// (`echo-scribe --mcp`). The category carries its own default: read-only
+    /// categories are on until unticked, side-effectful ones (screen
+    /// recording) are an explicit opt-in from Settings → Coding Agents.
+    pub fn mcp_permission(&self, perm: &crate::mcp_permissions::McpPermission) -> bool {
+        self.store
+            .get(perm.settings_key)
+            .and_then(|v| v.as_bool())
+            .unwrap_or(perm.default_on)
+    }
+
+    pub fn set_mcp_permission(
+        &self,
+        perm: &crate::mcp_permissions::McpPermission,
+        on: bool,
+    ) -> Result<(), SettingsError> {
+        self.store
+            .set(perm.settings_key, serde_json::Value::Bool(on));
         self.store
             .save()
             .map_err(|e| SettingsError::Store(e.to_string()))?;

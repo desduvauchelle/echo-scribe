@@ -4939,6 +4939,37 @@ pub async fn start_screen_recording(
     camera_uid: Option<String>,
     rect: Option<Vec<f64>>,
 ) -> Result<(), String> {
+    start_screen_recording_inner(
+        &state,
+        &app,
+        display_id,
+        window_id,
+        mic_device,
+        sysaudio,
+        source_label,
+        hide_cursor,
+        camera_uid,
+        rect,
+    )
+    .await
+}
+
+/// Non-command inner implementation so the MCP bridge can start a recording
+/// without going through a `#[tauri::command]` wrapper (which requires
+/// `State<'_>`). Mirrors `stop_screen_recording_inner`.
+#[allow(clippy::too_many_arguments)]
+pub async fn start_screen_recording_inner(
+    state: &AppState,
+    app: &AppHandle<Wry>,
+    display_id: Option<u32>,
+    window_id: Option<u32>,
+    mic_device: Option<String>,
+    sysaudio: bool,
+    source_label: String,
+    hide_cursor: Option<bool>,
+    camera_uid: Option<String>,
+    rect: Option<Vec<f64>>,
+) -> Result<(), String> {
     // Validate the optional crop rect up front: `[x, y, w, h]` (global points).
     // A malformed rect is a caller bug, so fail with a friendly message before
     // spawning anything rather than silently ignoring it. `None` = full display.
@@ -5028,7 +5059,7 @@ pub async fn start_screen_recording(
                 has_name = !camera_name.is_empty(),
                 "showing camera self-view"
             );
-            crate::overlay::show_camera_preview(&app, &camera_name);
+            crate::overlay::show_camera_preview(app, &camera_name);
         }
     }
     // Notify the frontend so RecordingsView refreshes.
@@ -7082,6 +7113,75 @@ pub fn set_screenrec_audio_prefs(
         .settings
         .set_screenrec_countdown(prefs.countdown)
         .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+// ----- MCP / coding agents -----
+
+#[derive(serde::Serialize)]
+pub struct McpPermissionState {
+    pub id: String,
+    pub label: String,
+    pub description: String,
+    pub enabled: bool,
+}
+
+#[derive(serde::Serialize)]
+pub struct McpSettings {
+    /// Absolute path of the running executable — what MCP client configs
+    /// should point at (works for both /Applications installs and dev builds).
+    pub binary_path: String,
+    /// One entry per tool-permission checkbox, in display order. Categories
+    /// come from `mcp_permissions::PERMISSIONS`, so new ones show up in the
+    /// Settings UI without frontend changes.
+    pub permissions: Vec<McpPermissionState>,
+}
+
+#[tauri::command]
+pub fn get_mcp_settings(state: State<'_, AppState>) -> Result<McpSettings, String> {
+    let binary_path = std::env::current_exe()
+        .map_err(|e| {
+            warn!(target: "mcp", %e, "current_exe lookup failed");
+            "Couldn't resolve the app's install path.".to_string()
+        })?
+        .to_string_lossy()
+        .into_owned();
+    let permissions = crate::mcp_permissions::PERMISSIONS
+        .iter()
+        .filter(|perm| !perm.macos_only || cfg!(target_os = "macos"))
+        .map(|perm| McpPermissionState {
+            id: perm.id.to_string(),
+            label: perm.label.to_string(),
+            description: perm.description.to_string(),
+            enabled: state.settings.mcp_permission(perm),
+        })
+        .collect();
+    Ok(McpSettings {
+        binary_path,
+        permissions,
+    })
+}
+
+#[tauri::command]
+pub fn set_mcp_permission(
+    state: State<'_, AppState>,
+    id: String,
+    enabled: bool,
+) -> Result<(), String> {
+    let perm = crate::mcp_permissions::by_id(&id)
+        .ok_or_else(|| format!("unknown MCP permission: {id}"))?;
+    state
+        .settings
+        .set_mcp_permission(perm, enabled)
+        .map_err(|e| e.to_string())?;
+    // Screen recording is enforced live inside the app by the bridge, so the
+    // toggle must reach its atomic too (the settings store alone would only
+    // apply after a restart).
+    #[cfg(target_os = "macos")]
+    if perm.id == "screen_recording" {
+        crate::mcp_bridge::set_recording_enabled(enabled);
+    }
+    info!(target: "mcp", permission = %perm.id, enabled, "mcp permission toggled");
     Ok(())
 }
 
