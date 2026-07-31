@@ -1,0 +1,50 @@
+name: Download stats snapshot
+
+on:
+  schedule:
+    # Daily at 08:17 UTC (off the hour to dodge GitHub's cron congestion)
+    - cron: "17 8 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Record unified download total
+        run: |
+          total=$(curl -fsSL "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+            | jq '[.[].assets[] | select(.name | endswith(".tar.gz") or endswith(".exe")) | .download_count] | add // 0')
+          echo "Current total: $total"
+
+          mkdir -p stats
+          last=$(jq -r '.total // 0' stats/downloads.json 2>/dev/null || echo -1)
+          if [[ "$total" == "$last" ]]; then
+            echo "Unchanged since last snapshot ($last) — nothing to record."
+            exit 0
+          fi
+
+          today=$(date -u +%F)
+          [[ -f stats/downloads.json ]] || echo '{"total":0,"updated":null,"history":[]}' > stats/downloads.json
+          jq --argjson total "$total" --arg date "$today" '
+            .total = $total
+            | .updated = $date
+            | .history += [{date: $date, total: $total}]
+          ' stats/downloads.json > stats/downloads.json.tmp
+          mv stats/downloads.json.tmp stats/downloads.json
+
+      - name: Commit if changed
+        run: |
+          if git diff --quiet -- stats/downloads.json && [ -z "$(git status --porcelain stats/downloads.json)" ]; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add stats/downloads.json
+          git commit -m "chore(stats): download snapshot $(date -u +%F)"
+          git push
