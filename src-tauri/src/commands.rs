@@ -7162,6 +7162,14 @@ pub fn get_mcp_settings(state: State<'_, AppState>) -> Result<McpSettings, Strin
     })
 }
 
+/// One-click registration with a coding agent's CLI ("Install" buttons).
+/// Returns a friendly success message for the toast; failures are friendly
+/// too, with raw CLI output in the log (target: "mcp").
+#[tauri::command]
+pub async fn install_mcp_for_agent(agent: String) -> Result<String, String> {
+    crate::mcp_install::install(&agent).await
+}
+
 #[tauri::command]
 pub fn set_mcp_permission(
     state: State<'_, AppState>,

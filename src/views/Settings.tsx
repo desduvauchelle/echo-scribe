@@ -49,8 +49,10 @@ import {
   getLogCaptureBinding,
   getMcpSettings,
   setMcpPermission,
+  installMcpForAgent,
   type McpSettings,
   type McpPermissionState,
+  type McpInstallAgent,
   getMuteWhileRecording,
   getPreferredInputDevice,
   getRecentInputDevices,
@@ -1590,18 +1592,20 @@ function CodingAgentsPage() {
 
       <Section
         title="Connect your coding agent"
-        subtitle="The MCP server is the Echo Scribe app itself — nothing extra to install. Run or paste one of these once."
+        subtitle="The MCP server is the Echo Scribe app itself — nothing extra to download. Click Install and Echo Scribe registers itself with the agent's own CLI, or copy the snippet to do it by hand."
       >
         <div className="flex flex-col gap-3">
           <McpSnippet
             title="Claude Code"
-            hint="Run this in a terminal."
+            hint="Install runs: claude mcp add (user scope)."
             text={snippets.claudeCode}
+            installAgent="claude-code"
           />
           <McpSnippet
             title="Codex CLI"
-            hint="Add to ~/.codex/config.toml."
+            hint="Install runs: codex mcp add (writes ~/.codex/config.toml)."
             text={snippets.codexToml}
+            installAgent="codex"
           />
           <McpSnippet
             title="Other MCP clients"
@@ -1659,18 +1663,39 @@ function McpPermissionRow({
   );
 }
 
-/** One install option: heading + hint on the left, copy button on the right,
- *  and the snippet itself in a monospace block underneath. */
+/** One install option: heading + hint on the left, Install (when the agent
+ *  has a CLI we can drive) + copy buttons on the right, and the snippet in a
+ *  monospace block underneath as the manual fallback. */
 function McpSnippet({
   title,
   hint,
   text,
+  installAgent,
 }: {
   title: string;
   hint: string;
   text: string;
+  installAgent?: McpInstallAgent;
 }) {
   const [copied, setCopied] = useState(false);
+  const [installing, setInstalling] = useState(false);
+  const toasts = useToasts();
+
+  const onInstall = async (agent: McpInstallAgent) => {
+    setInstalling(true);
+    try {
+      const message = await installMcpForAgent(agent);
+      toasts.push({ tone: "success", message });
+    } catch (e) {
+      toasts.push({
+        tone: "error",
+        message: e instanceof Error ? e.message : String(e),
+      });
+    } finally {
+      setInstalling(false);
+    }
+  };
+
   return (
     <div className="rounded-lg border border-line bg-canvas p-3">
       <div className="flex items-center justify-between gap-3">
@@ -1678,21 +1703,33 @@ function McpSnippet({
           <div className="text-sm font-semibold text-fg">{title}</div>
           <p className="text-xs text-muted">{hint}</p>
         </div>
-        <button
-          type="button"
-          onClick={() => {
-            void navigator.clipboard.writeText(text);
-            setCopied(true);
-            window.setTimeout(() => setCopied(false), 1200);
-          }}
-          aria-label={`Copy ${title} setup`}
-          className={`inline-flex shrink-0 items-center gap-1.5 rounded-md border px-2.5 py-1 text-[12px] font-medium transition-colors hover:bg-elevated ${
-            copied ? "border-green-500/40 text-green-500" : "border-line text-fg"
-          }`}
-        >
-          {copied ? <Check size={13} /> : <Copy size={13} />}
-          {copied ? "Copied" : "Copy"}
-        </button>
+        <div className="flex shrink-0 items-center gap-2">
+          {installAgent && (
+            <button
+              type="button"
+              onClick={() => void onInstall(installAgent)}
+              disabled={installing}
+              className="rounded-md bg-accent px-3 py-1 text-[12px] font-medium text-canvas disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {installing ? "Installing…" : "Install"}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => {
+              void navigator.clipboard.writeText(text);
+              setCopied(true);
+              window.setTimeout(() => setCopied(false), 1200);
+            }}
+            aria-label={`Copy ${title} setup`}
+            className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[12px] font-medium transition-colors hover:bg-elevated ${
+              copied ? "border-green-500/40 text-green-500" : "border-line text-fg"
+            }`}
+          >
+            {copied ? <Check size={13} /> : <Copy size={13} />}
+            {copied ? "Copied" : "Copy"}
+          </button>
+        </div>
       </div>
       <pre className="mt-2 overflow-x-auto rounded-md border border-line bg-canvas p-2 font-mono text-[11px] leading-snug text-muted">
         {text}

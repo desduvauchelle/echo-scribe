@@ -60,4 +60,18 @@ test("coding agents page lists permissions, toggles them, and shows install snip
   );
   await expect(connect).toContainText("[mcp_servers.echo_scribe]");
   await expect(connect).toContainText('"mcpServers"');
+
+  // One-click install drives the backend and reports success in a toast.
+  await connect
+    .getByText("Claude Code", { exact: true })
+    .locator("../..")
+    .getByRole("button", { name: "Install" })
+    .click();
+  await expect(page.getByText("Connected to Claude Code.")).toBeVisible();
+  const installCalls = await recordedCalls(page);
+  expect(
+    installCalls
+      .filter(({ cmd }) => cmd === "install_mcp_for_agent")
+      .map(({ args }) => args),
+  ).toEqual([{ agent: "claude-code" }]);
 });

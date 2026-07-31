@@ -23,7 +23,10 @@ not the desktop app is running. Screen recording is forwarded to the running
 app and is an explicit opt-in.
 
 Settings → Coding Agents in the app shows the same install snippets as below
-with copy buttons.
+with copy buttons — plus one-click **Install** buttons for Claude Code and
+Codex that run the agent's own CLI (`claude mcp add --scope user` /
+`codex mcp add`), resolving it via the user's login shell and common install
+locations.
 
 ## Connect an MCP client
 

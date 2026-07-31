@@ -15,6 +15,7 @@ pub mod llm;
 pub mod mcp;
 #[cfg(target_os = "macos")]
 pub mod mcp_bridge;
+pub mod mcp_install;
 pub mod mcp_permissions;
 pub mod meeting;
 pub mod overlay;
@@ -64,6 +65,7 @@ use crate::commands::{
     get_recording_project, get_screenrec_audio_prefs, get_spoken_editing_settings,
     get_transcription_cleanup_language, get_transcription_snippets,
     get_trigger_word_routing_enabled, get_voice_at_cursor_binding, hide_camera_preview,
+    install_mcp_for_agent,
     hide_countdown_overlay, import_editor_background, is_pipeline_running, is_screen_recording,
     is_screen_recording_paused, list_cameras, list_chat_sessions, list_claude_sessions,
     list_item_events, list_items, list_llm_models, list_projects, list_recordings,
@@ -464,6 +466,7 @@ pub fn run() {
             set_screenrec_audio_prefs,
             get_mcp_settings,
             set_mcp_permission,
+            install_mcp_for_agent,
             open_screenrec_setup,
             show_camera_preview,
             hide_camera_preview,

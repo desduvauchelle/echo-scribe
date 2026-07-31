@@ -279,6 +279,11 @@ export async function installTauriMock(page: Page, scenario: Scenario = {}) {
         if (!(a.id in state.mcpPermissions)) throw new Error(`unknown MCP permission: ${a.id}`);
         state.mcpPermissions[a.id] = !!a.enabled;
       },
+      install_mcp_for_agent: (a) => {
+        if (a.agent !== "claude-code" && a.agent !== "codex")
+          throw new Error(`unknown agent: ${a.agent}`);
+        return `Connected to ${a.agent === "codex" ? "Codex" : "Claude Code"}.`;
+      },
       list_people: () => [...state.people],
       list_companies: () => [...state.companies],
       list_relationship_meetings: () => [],

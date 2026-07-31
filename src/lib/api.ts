@@ -652,6 +652,13 @@ export const getMcpSettings = (): Promise<McpSettings> => invoke("get_mcp_settin
 export const setMcpPermission = (id: string, enabled: boolean): Promise<void> =>
   invoke("set_mcp_permission", { id, enabled });
 
+export type McpInstallAgent = "claude-code" | "codex";
+
+/** One-click registration via the agent's own CLI. Resolves to a friendly
+ *  success message for a toast; rejects with a friendly message otherwise. */
+export const installMcpForAgent = (agent: McpInstallAgent): Promise<string> =>
+  invoke("install_mcp_for_agent", { agent });
+
 // ----- Transcription post-processing -----
 
 export const getFillerRemovalEnabled = (): Promise<boolean> =>
