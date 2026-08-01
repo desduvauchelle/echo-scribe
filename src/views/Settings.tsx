@@ -409,12 +409,7 @@ function LogCapturePage() {
 function DailyRecapPage() {
   return (
     <div className="flex flex-col gap-8">
-      <Section
-        title="Daily recap"
-        subtitle="A morning notification that summarizes yesterday's meetings, notes, and dictations."
-      >
-        <DailyRecapSection />
-      </Section>
+      <DailyRecapSection />
     </div>
   );
 }
@@ -1807,7 +1802,8 @@ function AppLauncherSettingsSection() {
             <span className="rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-medium text-accent">Sonoma+</span>
           </div>
           <p className="text-xs text-muted mt-0.5">
-            Intercept voice dictation to launch apps, open links, compose emails, and manage counters.
+            Intercept voice dictation to launch apps, open links, compose emails, manage counters,
+            start/stop meetings and screen recordings, and keep your Mac awake (e.g. "echo stay awake for 2 hours").
           </p>
         </div>
         <input

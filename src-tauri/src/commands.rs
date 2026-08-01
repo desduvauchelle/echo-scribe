@@ -3222,7 +3222,7 @@ pub async fn start_meeting_manual(state: tauri::State<'_, AppState>) -> Result<S
 /// Snapshot the frontmost window/URL/tab to feed the meeting synthesis prompt.
 /// Best-effort; returns an empty context when AX/AppleScript fails or the app
 /// is non-macOS.
-fn capture_meeting_start_context() -> crate::meeting::MeetingStartContext {
+pub(crate) fn capture_meeting_start_context() -> crate::meeting::MeetingStartContext {
     let ctx = crate::input::focus::capture_context();
     crate::meeting::MeetingStartContext {
         window_title: ctx.as_ref().and_then(|c| c.window_title.clone()),

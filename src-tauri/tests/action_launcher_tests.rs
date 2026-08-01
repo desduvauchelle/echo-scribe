@@ -87,6 +87,61 @@ Hope that helps!"#;
 }
 
 #[tokio::test]
+async fn test_detect_stay_awake_with_duration() {
+    let mock_json = r#"{
+        "is_action": true,
+        "action_type": "stay_awake",
+        "app_name": null,
+        "email_to": null,
+        "email_subject": null,
+        "email_body": null,
+        "url": null,
+        "stay_awake_minutes": 120,
+        "confidence": 0.93
+    }"#;
+
+    let mock = MockLlm {
+        responses: Arc::new(Mutex::new(vec![mock_json.to_string()])),
+        requests: Arc::new(Mutex::new(vec![])),
+    };
+
+    let cmd = detect_action(&mock, "stay awake for 2 hours", &[])
+        .await
+        .unwrap();
+
+    assert!(cmd.is_action);
+    assert_eq!(cmd.action_type, Some("stay_awake".to_string()));
+    assert_eq!(cmd.stay_awake_minutes, Some(120));
+}
+
+#[tokio::test]
+async fn test_detect_stay_awake_without_duration_field() {
+    // Older-shaped LLM output that omits stay_awake_minutes entirely must
+    // still parse (serde default), reading as an indefinite hold.
+    let mock_json = r#"{
+        "is_action": true,
+        "action_type": "stay_awake",
+        "app_name": null,
+        "email_to": null,
+        "email_subject": null,
+        "email_body": null,
+        "url": null,
+        "confidence": 0.9
+    }"#;
+
+    let mock = MockLlm {
+        responses: Arc::new(Mutex::new(vec![mock_json.to_string()])),
+        requests: Arc::new(Mutex::new(vec![])),
+    };
+
+    let cmd = detect_action(&mock, "stay awake", &[]).await.unwrap();
+
+    assert!(cmd.is_action);
+    assert_eq!(cmd.action_type, Some("stay_awake".to_string()));
+    assert_eq!(cmd.stay_awake_minutes, None);
+}
+
+#[tokio::test]
 async fn test_detect_action_retry_logic() {
     // First response is completely invalid JSON that doesn't even contain braces
     let invalid_json = "I cannot classify this message. Please ask again.";

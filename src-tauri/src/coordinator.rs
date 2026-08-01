@@ -1270,7 +1270,7 @@ async fn try_intercept_action(
                     }
                 }
 
-                match crate::llm::action_launcher::execute_action(app, &cmd) {
+                match crate::llm::action_launcher::execute_action(app, &cmd).await {
                     Ok(msg) => {
                         info!(msg, "Voice action executed successfully");
                         feedback::play(Sfx::Ready);
