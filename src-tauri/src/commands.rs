@@ -4675,6 +4675,21 @@ pub fn list_guide_templates(
         .map_err(|e| e.to_string())
 }
 
+/// Validate a template kind coming over IPC; `None`/empty falls back to
+/// "checklist" so older callers keep working.
+fn validate_template_kind(kind: Option<String>) -> Result<String, String> {
+    let kind = kind.unwrap_or_default();
+    let kind = kind.trim();
+    if kind.is_empty() {
+        return Ok("checklist".into());
+    }
+    if crate::db::guide_templates::TEMPLATE_KINDS.contains(&kind) {
+        Ok(kind.to_string())
+    } else {
+        Err(format!("unknown guide template kind: {kind}"))
+    }
+}
+
 #[tauri::command]
 pub fn create_guide_template(
     state: State<'_, AppState>,
@@ -4682,11 +4697,13 @@ pub fn create_guide_template(
     description: String,
     goal: String,
     notes: String,
+    kind: Option<String>,
 ) -> Result<crate::db::guide_templates::GuideTemplate, String> {
     let trimmed = name.trim().to_string();
     if trimmed.is_empty() {
         return Err("template name cannot be empty".into());
     }
+    let kind = validate_template_kind(kind)?;
     let db = require_db(&state)?;
     let now = chrono_now_iso();
     let t = crate::db::guide_templates::GuideTemplate {
@@ -4695,6 +4712,7 @@ pub fn create_guide_template(
         description,
         goal,
         notes,
+        kind,
         created_at: now.clone(),
         updated_at: now,
     };
@@ -4712,11 +4730,13 @@ pub fn update_guide_template(
     description: String,
     goal: String,
     notes: String,
+    kind: Option<String>,
 ) -> Result<(), String> {
     let trimmed = name.trim().to_string();
     if trimmed.is_empty() {
         return Err("template name cannot be empty".into());
     }
+    let kind = validate_template_kind(kind)?;
     let db = require_db(&state)?;
     let now = chrono_now_iso();
     db.with_conn(move |c| {
@@ -4727,6 +4747,7 @@ pub fn update_guide_template(
             &description,
             &goal,
             &notes,
+            &kind,
             &now,
         )
     })
@@ -4853,6 +4874,32 @@ pub async fn regenerate_guide_review(
     let template: crate::db::guide_templates::GuideTemplate =
         serde_json::from_str(&run.template_json)
             .map_err(|e| format!("bad template snapshot: {e}"))?;
+
+    // Tracker runs have no rubric to grade — their timeline is the artifact.
+    // Re-complete with the stub so a stale/failed tracker run heals instantly.
+    if template.kind == "tracker" {
+        let stub = serde_json::json!({
+            "overall": "",
+            "synthesis": "Live notes ran during this meeting — open the coaching timeline below to see how the notes evolved.",
+            "scorecard": [],
+            "emergent": [],
+        })
+        .to_string();
+        let gen_at = chrono::Utc::now().to_rfc3339();
+        let rid = run_id.clone();
+        return db
+            .with_conn(move |c| {
+                crate::db::meeting_guide_runs::complete_guide_run_review(
+                    c,
+                    &rid,
+                    stub.as_str(),
+                    gen_at.as_str(),
+                    // Keep the stored hash; the review content is transcript-independent.
+                    run.transcript_hash.as_str(),
+                )
+            })
+            .map_err(|e| e.to_string());
+    }
 
     // Load the meeting transcript → segments.
     let mid = run.meeting_id.clone();

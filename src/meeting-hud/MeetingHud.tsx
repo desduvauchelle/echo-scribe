@@ -28,6 +28,7 @@ type GuideSession = {
   slot: number;
   templateName: string;
   goal: string;
+  kind?: string;
   mode: "auto" | "on_demand";
   keyPoints: GuideKeyPoint[];
   updatedAt?: string;
@@ -45,10 +46,11 @@ type Card = {
 
 const MAX_CARDS = 50;
 
-function statusMarker(s: string): string {
+function statusMarker(s: string, kind?: string): string {
   if (s === "covered") return "✓";
   if (s === "partial") return "…";
-  return "○";
+  // Tracker points are notes, not to-dos: a plain bullet, not an empty box.
+  return kind === "tracker" ? "•" : "○";
 }
 
 function relativeAge(t: number, now: number): string {
@@ -103,6 +105,7 @@ export default function MeetingHud() {
               slot: g.slot,
               templateName: g.templateName,
               goal: g.goal,
+              kind: g.kind,
               mode: g.mode,
               keyPoints: prev[g.sessionId]?.keyPoints ?? [],
               collapsed: prev[g.sessionId]?.collapsed ?? false,
@@ -164,6 +167,7 @@ export default function MeetingHud() {
             slot: e.payload.slot,
             templateName: e.payload.templateName,
             goal: e.payload.goal,
+            kind: e.payload.kind,
             mode: e.payload.mode,
             keyPoints: [],
             collapsed: false,
@@ -181,6 +185,7 @@ export default function MeetingHud() {
               slot: p.slot,
               templateName: p.templateName ?? existing?.templateName ?? "Guide",
               goal: p.goal ?? existing?.goal ?? "",
+              kind: p.kind ?? existing?.kind,
               mode: p.mode,
               keyPoints: p.keyPoints,
               updatedAt: p.updatedAt,
@@ -434,12 +439,16 @@ export default function MeetingHud() {
                   {s.keyPoints.length === 0 ? (
                     <div className="waiting">
                       <span className="spinner" aria-hidden="true" />
-                      <span>Listening… first guidance arrives after ~20–30s of speech.</span>
+                      <span>
+                        {s.kind === "tracker"
+                          ? "Listening… notes appear after ~20–30s of speech."
+                          : "Listening… first guidance arrives after ~20–30s of speech."}
+                      </span>
                     </div>
                   ) : (
                     s.keyPoints.map((p) => (
                       <div key={p.id} className={`point ${p.status}`}>
-                        <span className="marker">{statusMarker(p.status)}</span>
+                        <span className="marker">{statusMarker(p.status, s.kind)}</span>
                         <span>{p.label}</span>
                       </div>
                     ))

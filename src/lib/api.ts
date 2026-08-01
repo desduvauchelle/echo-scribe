@@ -1292,12 +1292,19 @@ export const dailyRecapNotificationPermissionStatus = (): Promise<boolean> =>
 
 // ===================== Guide templates =====================
 
+/** How a guide behaves during a live meeting:
+ *  - "checklist" — track coverage of agenda points from the notes.
+ *  - "coach" — notes are principles; contextual nudges, silence is normal.
+ *  - "tracker" — silent note-taker; key points are the live bullet notes. */
+export type GuideTemplateKind = "checklist" | "coach" | "tracker";
+
 export type GuideTemplate = {
   id: string;
   name: string;
   description: string;
   goal: string;
   notes: string;
+  kind: GuideTemplateKind;
   created_at: string;
   updated_at: string;
 };
@@ -1310,8 +1317,9 @@ export const createGuideTemplate = (
   description: string,
   goal: string,
   notes: string,
+  kind: GuideTemplateKind,
 ): Promise<GuideTemplate> =>
-  invoke("create_guide_template", { name, description, goal, notes });
+  invoke("create_guide_template", { name, description, goal, notes, kind });
 
 export const updateGuideTemplate = (
   id: string,
@@ -1319,8 +1327,9 @@ export const updateGuideTemplate = (
   description: string,
   goal: string,
   notes: string,
+  kind: GuideTemplateKind,
 ): Promise<void> =>
-  invoke("update_guide_template", { id, name, description, goal, notes });
+  invoke("update_guide_template", { id, name, description, goal, notes, kind });
 
 export const deleteGuideTemplate = (id: string): Promise<void> =>
   invoke("delete_guide_template", { id });
@@ -1400,6 +1409,7 @@ export type GuideInit = {
   slot: number;
   templateName: string;
   goal: string;
+  kind?: GuideTemplateKind;
   mode: "auto" | "on_demand";
 };
 
@@ -1409,6 +1419,7 @@ export type GuideUpdate = {
   meetingId: string;
   templateName?: string;
   goal?: string;
+  kind?: GuideTemplateKind;
   mode: "auto" | "on_demand";
   keyPoints: GuideKeyPoint[];
   suggestions: string[];

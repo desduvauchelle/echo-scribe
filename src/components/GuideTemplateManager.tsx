@@ -8,12 +8,47 @@ import {
   setGuideInsightConfig,
   type GuideInsightConfig,
   type GuideTemplate,
+  type GuideTemplateKind,
 } from "../lib/api";
 import { useToasts } from "./ToastProvider";
 
-type Draft = { name: string; description: string; goal: string; notes: string };
+type Draft = {
+  name: string;
+  description: string;
+  goal: string;
+  notes: string;
+  kind: GuideTemplateKind;
+};
 
-const EMPTY: Draft = { name: "", description: "", goal: "", notes: "" };
+const EMPTY: Draft = { name: "", description: "", goal: "", notes: "", kind: "checklist" };
+
+const KIND_OPTIONS: { value: GuideTemplateKind; label: string; hint: string }[] = [
+  {
+    value: "checklist",
+    label: "Checklist",
+    hint: "Tracks which agenda points from the notes have been covered (sales, discovery).",
+  },
+  {
+    value: "coach",
+    label: "Coach",
+    hint: "Notes are principles, not rules — occasional nudges tied to what was just said.",
+  },
+  {
+    value: "tracker",
+    label: "Note-taker",
+    hint: "Keeps a live bullet list of the main points and posts updates as things change.",
+  },
+];
+
+const KIND_LABELS: Record<string, string> = Object.fromEntries(
+  KIND_OPTIONS.map((option) => [option.value, option.label]),
+);
+
+const NOTES_PLACEHOLDER: Record<GuideTemplateKind, string> = {
+  checklist: "Notes — questions to ask, talking points to cover (one per line)",
+  coach: "Notes — principles to embody, one per line",
+  tracker: "Notes — what to capture, e.g. decisions, numbers, action items (optional)",
+};
 
 export default function GuideTemplateManager() {
   const toasts = useToasts();
@@ -47,7 +82,13 @@ export default function GuideTemplateManager() {
   const startEdit = (t: GuideTemplate) => {
     setCreating(false);
     setEditingId(t.id);
-    setDraft({ name: t.name, description: t.description, goal: t.goal, notes: t.notes });
+    setDraft({
+      name: t.name,
+      description: t.description,
+      goal: t.goal,
+      notes: t.notes,
+      kind: KIND_LABELS[t.kind] ? t.kind : "checklist",
+    });
   };
 
   const cancel = () => {
@@ -63,7 +104,13 @@ export default function GuideTemplateManager() {
     }
     try {
       if (creating) {
-        await createGuideTemplate(draft.name, draft.description, draft.goal, draft.notes);
+        await createGuideTemplate(
+          draft.name,
+          draft.description,
+          draft.goal,
+          draft.notes,
+          draft.kind,
+        );
       } else if (editingId) {
         await updateGuideTemplate(
           editingId,
@@ -71,6 +118,7 @@ export default function GuideTemplateManager() {
           draft.description,
           draft.goal,
           draft.notes,
+          draft.kind,
         );
       }
       cancel();
@@ -133,6 +181,22 @@ export default function GuideTemplateManager() {
         value={draft.description}
         onChange={(e) => setDraft({ ...draft, description: e.target.value })}
       />
+      <label className="flex flex-col gap-1 text-[11px] text-muted">
+        Guide style
+        <select
+          className="rounded-md border border-line bg-canvas px-2 py-1 text-sm text-fg focus:border-accent focus:outline-none"
+          aria-label="Guide style"
+          value={draft.kind}
+          onChange={(e) => setDraft({ ...draft, kind: e.target.value as GuideTemplateKind })}
+        >
+          {KIND_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+        <span>{KIND_OPTIONS.find((option) => option.value === draft.kind)?.hint}</span>
+      </label>
       <textarea
         className="min-h-[48px] rounded-md border border-line bg-canvas px-2 py-1 text-sm focus:border-accent focus:outline-none"
         placeholder="Goal — what should this conversation achieve?"
@@ -142,7 +206,7 @@ export default function GuideTemplateManager() {
       />
       <textarea
         className="min-h-[96px] rounded-md border border-line bg-canvas px-2 py-1 text-sm focus:border-accent focus:outline-none"
-        placeholder="Notes — questions to ask, talking points, context"
+        placeholder={NOTES_PLACEHOLDER[draft.kind]}
         aria-label="Notes"
         value={draft.notes}
         onChange={(e) => setDraft({ ...draft, notes: e.target.value })}
@@ -183,7 +247,12 @@ export default function GuideTemplateManager() {
           <div key={t.id} className="rounded-md border border-line bg-surface px-3 py-2">
             <div className="flex items-center justify-between gap-2">
               <div className="min-w-0 flex-1">
-                <div className="truncate text-sm text-fg">{t.name}</div>
+                <div className="flex items-center gap-2">
+                  <span className="truncate text-sm text-fg">{t.name}</span>
+                  <span className="shrink-0 rounded-full border border-line px-1.5 py-px text-[10px] text-muted">
+                    {KIND_LABELS[t.kind] ?? "Checklist"}
+                  </span>
+                </div>
                 {t.description && (
                   <div className="truncate text-xs text-muted">{t.description}</div>
                 )}
@@ -206,6 +275,9 @@ export default function GuideTemplateManager() {
               </div>
             </div>
             {(() => {
+              // Trackers produce live notes, not a gradable rubric — the
+              // post-meeting insight review doesn't apply to them.
+              if (t.kind === "tracker") return null;
               const config = configFor(t);
               return (
                 <div className="mt-2 border-t border-line pt-2">

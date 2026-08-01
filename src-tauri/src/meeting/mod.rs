@@ -351,6 +351,7 @@ impl MeetingManager {
                             "slot": e.slot(),
                             "templateName": t.name,
                             "goal": t.goal,
+                            "kind": t.kind,
                             "mode": match e.mode() {
                                 crate::meeting::guidance::Mode::Auto => "auto",
                                 crate::meeting::guidance::Mode::OnDemand => "on_demand",
@@ -477,6 +478,7 @@ impl MeetingManager {
                 "slot": engine.slot(),
                 "templateName": template.name,
                 "goal": template.goal,
+                "kind": template.kind,
                 "mode": mode_str,
             }),
         );
@@ -1063,6 +1065,35 @@ impl MeetingManager {
                     }) {
                         tracing::warn!(target: "guide", ?error, "persist guide run metadata failed");
                     }
+                }
+                if template.kind == "tracker" {
+                    // Live notes: the timeline IS the artifact. A rubric
+                    // review of note-taking instructions is meaningless, so
+                    // complete the run immediately with a stub review (a
+                    // permanently-pending run would be flipped to "failed"
+                    // by the interrupted-run sweep at next launch).
+                    let stub = serde_json::json!({
+                        "overall": "",
+                        "synthesis": "Live notes ran during this meeting — open the coaching timeline below to see how the notes evolved.",
+                        "scorecard": [],
+                        "emergent": [],
+                    })
+                    .to_string();
+                    let generated_at = chrono::Utc::now().to_rfc3339();
+                    let run_for_write = run_id.clone();
+                    let hash_for_write = guide_transcript_hash.clone();
+                    if let Err(error) = self.db.with_conn(move |conn| {
+                        crate::db::meeting_guide_runs::complete_guide_run_review(
+                            conn,
+                            &run_for_write,
+                            &stub,
+                            &generated_at,
+                            &hash_for_write,
+                        )
+                    }) {
+                        tracing::warn!(target: "guide", ?error, run=%run_id, "complete tracker run failed");
+                    }
+                    continue;
                 }
                 let config = config_by_template.get(&template.id);
                 spawn_guide_review_job(
