@@ -5,12 +5,15 @@ use tauri::image::Image;
 use tauri::menu::{CheckMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::path::BaseDirectory;
 use tauri::tray::{TrayIcon, TrayIconBuilder};
-use tauri::{AppHandle, Emitter, Manager, Runtime, Theme, Wry};
+use tauri::{AppHandle, Emitter, Manager, Runtime, Wry};
 use tracing::{error, info, warn};
 
 use crate::commands::AppState;
 use crate::coordinator::TrayPipelineState;
 use crate::power::{KeepAwakeMode, KeepAwakeStatus, KEEP_AWAKE_OPTIONS};
+use crate::ui::tray_compose::{
+    self, Activity, ACTIVITY_KNOCKOUT, AWAKE_KNOCKOUT, ICON_SIZE,
+};
 
 /// Prefix for every "Keep awake" menu item id. The suffix is the mode's
 /// `storage_key`, so `keep_awake:off`, `keep_awake:indefinite`, `keep_awake:30`.
@@ -49,8 +52,15 @@ pub struct TrayHandle<R: Runtime> {
     paused: Mutex<Arc<AtomicBool>>,
     /// Whether a screen recording is currently active. Independent of the
     /// pipeline `last_state` so a dictation/meeting cycle ending in Idle does
-    /// not clobber the red recording icon. Takes precedence in `set_state`.
+    /// not clobber the red recording badge. Takes precedence in the icon's
+    /// activity-badge priority.
     screenrec_active: AtomicBool,
+    /// Whether a meeting recording is active — shows the meeting badge while
+    /// no higher-priority activity is running.
+    meeting_active: AtomicBool,
+    /// Whether a keep-awake power assertion is held — shows the top-right
+    /// awake badge regardless of activity.
+    awake_active: AtomicBool,
 }
 
 impl<R: Runtime> TrayHandle<R> {
@@ -160,7 +170,7 @@ impl<R: Runtime> TrayHandle<R> {
         let screenrec_pause_for_handle = screenrec_pause.clone();
         let icon = TrayIconBuilder::new()
             .menu(&menu)
-            .icon(load_icon(app, TrayPipelineState::Idle, false))
+            .icon(load_idle_icon(app))
             .icon_as_template(true)
             .build(app)?;
 
@@ -177,12 +187,63 @@ impl<R: Runtime> TrayHandle<R> {
             last_state: Mutex::new(TrayPipelineState::Idle),
             paused: Mutex::new(Arc::new(AtomicBool::new(false))),
             screenrec_active: AtomicBool::new(false),
+            meeting_active: AtomicBool::new(false),
+            awake_active: AtomicBool::new(false),
         })
+    }
+
+    /// Recompute and apply the composite menu bar icon from the full current
+    /// state (pipeline, screen recording, meeting, keep-awake, paused). With
+    /// no badge to show, the icon reverts to the plain template logo so macOS
+    /// keeps adapting it to the menu bar theme; with any badge it switches to
+    /// a colored composite (template off).
+    pub fn refresh_icon(&self) {
+        let paused = self
+            .paused
+            .lock()
+            .ok()
+            .map(|g| g.load(Ordering::SeqCst))
+            .unwrap_or(false);
+        let pipeline = self
+            .last_state
+            .lock()
+            .map(|g| *g)
+            .unwrap_or(TrayPipelineState::Idle);
+        let screenrec = self.screenrec_active.load(Ordering::SeqCst);
+        let meeting = self.meeting_active.load(Ordering::SeqCst);
+        let awake = self.awake_active.load(Ordering::SeqCst);
+        let activity = tray_compose::activity_for(pipeline, screenrec, meeting, paused);
+
+        let app = self.icon.app_handle();
+        let (img, template) = if activity.is_none() && !awake {
+            (load_idle_icon(app), true)
+        } else {
+            match compose_state_icon(app, activity, awake) {
+                Some(img) => (img, false),
+                // Composition failed (asset missing/corrupt) — fall back to
+                // the plain template logo so the icon never vanishes. The
+                // failure itself was already logged at the load site.
+                None => (load_idle_icon(app), true),
+            }
+        };
+        if let Err(e) = self.icon.set_icon(Some(img)) {
+            warn!(target: "tray", ?e, "failed to update tray icon");
+        }
+        if let Err(e) = self.icon.set_icon_as_template(template) {
+            warn!(target: "tray", ?e, template, "failed to toggle tray icon template mode");
+        }
     }
 
     /// Tick exactly one option and relabel the parent row. Idempotent, and
     /// safe to call from any thread (menu mutations hop to the main thread).
+    /// Also drives the top-right awake badge on the icon — refreshed only on
+    /// an actual on/off flip, since the ticker calls this once a minute just
+    /// to update the countdown label.
     pub fn set_keep_awake(&self, status: KeepAwakeStatus) {
+        let awake = !status.mode.is_off();
+        if self.awake_active.swap(awake, Ordering::SeqCst) != awake {
+            self.refresh_icon();
+        }
         let items = self
             .keep_awake_items
             .lock()
@@ -264,14 +325,6 @@ impl TrayHandle<Wry> {
             .ok()
             .and_then(|g| g.as_ref().map(|m| m.clone()));
         let app_for_handler = app.clone();
-        let last_state = Arc::new(Mutex::new(
-            self.last_state
-                .lock()
-                .map(|g| *g)
-                .unwrap_or(TrayPipelineState::Idle),
-        ));
-        let last_state_for_handler = Arc::clone(&last_state);
-        let icon = self.icon.clone();
         self.icon.on_menu_event(move |_app, event| {
             match event.id().as_ref() {
                 "quit" => {
@@ -458,14 +511,18 @@ impl TrayHandle<Wry> {
                             warn!(?e, "failed to relabel pause menu item");
                         }
                     }
-                    let state = last_state_for_handler
-                        .lock()
-                        .map(|g| *g)
-                        .unwrap_or(TrayPipelineState::Idle);
-                    let img = load_icon(&app_for_handler, state, now_paused);
-                    if let Err(e) = icon.set_icon(Some(img)) {
-                        warn!(?e, "failed to update tray icon after pause toggle");
-                    }
+                    // Recompute the icon through the handle so the badge
+                    // state (screenrec/meeting/awake) survives the toggle.
+                    // Off the menu thread: taking the tray lock on the main
+                    // thread could deadlock against a worker that holds it
+                    // while its icon update dispatches back to main.
+                    let app = app_for_handler.clone();
+                    std::thread::spawn(move || {
+                        let tray = app.state::<AppState>().tray.clone();
+                        if let Ok(t) = tray.lock() {
+                            t.refresh_icon();
+                        };
+                    });
                     info!(now_paused, "hotkeys pause toggled via tray");
                 }
                 _ => {}
@@ -473,11 +530,15 @@ impl TrayHandle<Wry> {
         });
     }
 
-    /// Enable only the meeting action that is currently valid. Idempotent.
-    /// Called from event listeners in `lib.rs` so the label tracks the true
-    /// `MeetingManager` state regardless of who started/stopped the meeting
-    /// (tray, MeetingsView button, auto-detect, hard-cap).
+    /// Enable only the meeting action that is currently valid, and show/clear
+    /// the meeting badge on the icon. Idempotent. Called from event listeners
+    /// in `lib.rs` so the label tracks the true `MeetingManager` state
+    /// regardless of who started/stopped the meeting (tray, MeetingsView
+    /// button, auto-detect, hard-cap).
     pub fn set_meeting_active(&self, active: bool) {
+        if self.meeting_active.swap(active, Ordering::SeqCst) != active {
+            self.refresh_icon();
+        }
         let start_item = self
             .meeting_start_item
             .lock()
@@ -542,17 +603,10 @@ impl TrayHandle<Wry> {
                 }
             }
         }
-        // Re-apply the icon. When turning ON, set_state honors screenrec_active
-        // and forces Recording. When turning OFF, the flag is now false so the
-        // icon reverts to the pipeline's current last_state. Read last_state and
-        // drop its guard BEFORE calling set_state (which re-locks last_state) to
-        // avoid a deadlock.
-        let base = self
-            .last_state
-            .lock()
-            .map(|g| *g)
-            .unwrap_or(TrayPipelineState::Idle);
-        self.set_state(base);
+        // Re-apply the icon: turning ON forces the screen recording badge
+        // (highest priority); turning OFF lets it fall back to whatever the
+        // pipeline/meeting state currently is.
+        self.refresh_icon();
     }
 
     /// Relabel the Pause/Resume recording item to reflect the sidecar's paused
@@ -581,25 +635,7 @@ impl TrayHandle<Wry> {
         if let Ok(mut g) = self.last_state.lock() {
             *g = state;
         }
-        let paused = self
-            .paused
-            .lock()
-            .ok()
-            .map(|g| g.load(Ordering::SeqCst))
-            .unwrap_or(false);
-        // A live screen recording forces the red Recording icon regardless of
-        // the pipeline state, so a dictation/meeting cycle ending in Idle does
-        // not turn the icon idle while recording continues.
-        let effective = if self.screenrec_active.load(Ordering::SeqCst) {
-            TrayPipelineState::Recording
-        } else {
-            state
-        };
-        let app = self.icon.app_handle();
-        let img = load_icon(app, effective, paused);
-        if let Err(e) = self.icon.set_icon(Some(img)) {
-            warn!(?e, "failed to update tray icon");
-        }
+        self.refresh_icon();
     }
 }
 
@@ -720,55 +756,70 @@ fn show_main_window<R: Runtime>(app: &AppHandle<R>) {
     }
 }
 
-/// Resolve the bundled PNG for the current state + system theme. Paused
-/// reuses the idle glyph — template mode lets the OS handle visual muting,
-/// and the menu label flip to "Resume hotkeys" already signals state.
-fn load_icon<R: Runtime>(
-    app: &AppHandle<R>,
-    state: TrayPipelineState,
-    paused: bool,
-) -> Image<'static> {
-    let dark_menu_bar = matches!(
-        app.get_webview_window("main").and_then(|w| w.theme().ok()),
-        Some(Theme::Dark)
-    ) || app.get_webview_window("main").is_none();
-
-    let effective_state = if paused {
-        TrayPipelineState::Idle
-    } else {
-        state
-    };
-
-    let path = match (effective_state, dark_menu_bar) {
-        (TrayPipelineState::Idle, true) => "resources/tray_idle.png",
-        (TrayPipelineState::Idle, false) => "resources/tray_idle_dark.png",
-        (TrayPipelineState::Recording, true) => "resources/tray_recording.png",
-        (TrayPipelineState::Recording, false) => "resources/tray_recording_dark.png",
-        (TrayPipelineState::Transcribing, true) => "resources/tray_transcribing.png",
-        (TrayPipelineState::Transcribing, false) => "resources/tray_transcribing_dark.png",
-        (TrayPipelineState::Thinking, true) => "resources/tray_thinking.png",
-        (TrayPipelineState::Thinking, false) => "resources/tray_thinking_dark.png",
-    };
-
-    match app.path().resolve(path, BaseDirectory::Resource) {
-        Ok(resolved) => match Image::from_path(&resolved) {
-            Ok(img) => img,
-            Err(e) => {
-                warn!(
-                    ?e,
-                    ?resolved,
-                    "failed to load tray icon, falling back to solid"
-                );
-                fallback_icon()
-            }
-        },
+/// Load a bundled tray asset as raw RGBA. Returns `None` (with a log) when
+/// the file is missing/corrupt or isn't the expected 64x64.
+fn load_resource_rgba<R: Runtime>(app: &AppHandle<R>, path: &str) -> Option<Vec<u8>> {
+    let resolved = match app.path().resolve(path, BaseDirectory::Resource) {
+        Ok(p) => p,
         Err(e) => {
-            warn!(
-                ?e,
-                "failed to resolve tray icon path, falling back to solid"
-            );
-            fallback_icon()
+            warn!(target: "tray", ?e, path, "failed to resolve tray asset path");
+            return None;
         }
+    };
+    match Image::from_path(&resolved) {
+        Ok(img) if img.width() == ICON_SIZE && img.height() == ICON_SIZE => {
+            Some(img.rgba().to_vec())
+        }
+        Ok(img) => {
+            warn!(
+                target: "tray",
+                path,
+                width = img.width(),
+                height = img.height(),
+                "tray asset has unexpected dimensions, skipping"
+            );
+            None
+        }
+        Err(e) => {
+            warn!(target: "tray", ?e, ?resolved, "failed to load tray asset");
+            None
+        }
+    }
+}
+
+/// Build the colored composite: brand-green logo base, a knockout hole under
+/// each badge, then the badge discs on top. Rendered fresh per state change —
+/// decoding three 64x64 PNGs is far below perceptibility, and state changes
+/// are rare.
+fn compose_state_icon<R: Runtime>(
+    app: &AppHandle<R>,
+    activity: Option<Activity>,
+    awake: bool,
+) -> Option<Image<'static>> {
+    let mut base = load_resource_rgba(app, "resources/tray_logo_active.png")?;
+    if activity.is_some() {
+        tray_compose::punch(&mut base, ICON_SIZE, ACTIVITY_KNOCKOUT);
+    }
+    if awake {
+        tray_compose::punch(&mut base, ICON_SIZE, AWAKE_KNOCKOUT);
+    }
+    if let Some(activity) = activity {
+        let badge = load_resource_rgba(app, activity.badge_resource())?;
+        tray_compose::over(&mut base, &badge);
+    }
+    if awake {
+        let badge = load_resource_rgba(app, "resources/tray_badge_awake.png")?;
+        tray_compose::over(&mut base, &badge);
+    }
+    Some(Image::new_owned(base, ICON_SIZE, ICON_SIZE))
+}
+
+/// The plain template logo shown when nothing is happening. macOS derives
+/// the glyph from the alpha channel and matches it to the menu bar theme.
+fn load_idle_icon<R: Runtime>(app: &AppHandle<R>) -> Image<'static> {
+    match load_resource_rgba(app, "resources/tray_idle.png") {
+        Some(rgba) => Image::new_owned(rgba, ICON_SIZE, ICON_SIZE),
+        None => fallback_icon(),
     }
 }
 

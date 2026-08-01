@@ -816,6 +816,7 @@ pub fn run() {
             crate::overlay::create_recording_overlay(&app.handle().clone());
             crate::overlay::create_consent_overlay(&app.handle().clone());
             crate::overlay::create_meeting_start_toast(&app.handle().clone());
+            crate::overlay::create_action_toast(&app.handle().clone());
             crate::overlay::create_meeting_hud(&app.handle().clone());
 
             // Seed builtin guide templates exactly once. The settings flag —

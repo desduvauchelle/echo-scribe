@@ -15,6 +15,12 @@ const CONSENT_OVERLAY_HEIGHT: f64 = 96.0;
 /// Granola-style meeting-start toast dimensions and screen-edge spacing.
 const MEETING_TOAST_WIDTH: f64 = 460.0;
 const MEETING_TOAST_HEIGHT: f64 = 96.0;
+/// Voice-action confirmation toast dimensions ("Keeping your Mac awake for
+/// 2 hours" etc.). Slimmer than the meeting toast — icon + two text lines.
+const ACTION_TOAST_WIDTH: f64 = 380.0;
+const ACTION_TOAST_HEIGHT: f64 = 84.0;
+/// Vertical gap between the meeting toast and an action toast shown below it.
+const ACTION_TOAST_STACK_GAP: f64 = 10.0;
 const CUSTOM_TOAST_RIGHT_MARGIN: f64 = 20.0;
 /// Leave room for one ordinary macOS notification banner. The supported
 /// notification APIs do not expose other apps' live banner geometry, so a
@@ -378,6 +384,104 @@ pub fn hide_meeting_start_toast(app_handle: &AppHandle<Wry>) {
     if let Some(toast) = app_handle.get_webview_window("meeting_start_toast") {
         let _ = toast.emit("hide-meeting-toast", ());
         let _ = toast.hide();
+    }
+}
+
+/// Top-right slot for the action toast — same anchor as the meeting toast,
+/// pushed one slot down when the meeting toast is currently visible so the
+/// two never overlap (e.g. "stop meeting" spoken while the start toast is
+/// still fading).
+fn calculate_action_toast_position(app_handle: &AppHandle<Wry>) -> Option<(f64, f64)> {
+    let monitor = app_handle.primary_monitor().ok().flatten()?;
+    let scale = monitor.scale_factor();
+    let monitor_x = monitor.position().x as f64 / scale;
+    let monitor_y = monitor.position().y as f64 / scale;
+    let monitor_width = monitor.size().width as f64 / scale;
+
+    let x = monitor_x + monitor_width - ACTION_TOAST_WIDTH - CUSTOM_TOAST_RIGHT_MARGIN;
+    let mut y = monitor_y + CUSTOM_TOAST_TOP_MARGIN;
+    let meeting_toast_visible = app_handle
+        .get_webview_window("meeting_start_toast")
+        .map(|w| w.is_visible().unwrap_or(false))
+        .unwrap_or(false);
+    if meeting_toast_visible {
+        y += MEETING_TOAST_HEIGHT + ACTION_TOAST_STACK_GAP;
+    }
+    Some((x, y))
+}
+
+/// Creates the voice-action confirmation toast window (hidden by default).
+/// Same chrome-less always-on-top recipe as the meeting-start toast.
+pub fn create_action_toast(app_handle: &AppHandle<Wry>) {
+    if app_handle.get_webview_window("action_toast").is_some() {
+        return;
+    }
+    let (x, y) = match calculate_action_toast_position(app_handle) {
+        Some(pos) => pos,
+        None => {
+            debug!("failed to determine action toast position; skipping creation");
+            return;
+        }
+    };
+
+    match WebviewWindowBuilder::new(
+        app_handle,
+        "action_toast",
+        tauri::WebviewUrl::App("src/action-toast/index.html".into()),
+    )
+    .title("Action")
+    .position(x, y)
+    .inner_size(ACTION_TOAST_WIDTH, ACTION_TOAST_HEIGHT)
+    .resizable(false)
+    .shadow(false)
+    .maximizable(false)
+    .minimizable(false)
+    .closable(false)
+    .accept_first_mouse(true)
+    .decorations(false)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .transparent(true)
+    .focused(false)
+    .visible(false)
+    .build()
+    {
+        Ok(_) => debug!("action toast window created (hidden)"),
+        Err(e) => error!("failed to create action toast window: {}", e),
+    }
+}
+
+/// Shows the voice-action confirmation toast: "the command you spoke was
+/// actually executed". `kind` is the ActionCommand action_type (drives the
+/// icon in the frontend), `message` is the human confirmation line returned
+/// by `execute_action`. Safe to call from any thread — window creation and
+/// show hop to the main thread. The toast auto-dismisses in the frontend.
+pub fn show_action_toast(app_handle: &AppHandle<Wry>, kind: &str, message: &str) {
+    let app = app_handle.clone();
+    let payload = serde_json::json!({ "kind": kind, "message": message });
+    let result = app_handle.run_on_main_thread(move || {
+        if app.get_webview_window("action_toast").is_none() {
+            create_action_toast(&app);
+        }
+        let Some(toast) = app.get_webview_window("action_toast") else {
+            warn!("action toast window unavailable; confirmation not shown");
+            return;
+        };
+        if let Some((x, y)) = calculate_action_toast_position(&app) {
+            let _ = toast.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
+        }
+        if let Err(e) = toast.show() {
+            warn!(?e, "action toast show failed");
+        }
+        // Showing may make it key on macOS; reassert level without stealing
+        // keyboard focus (same dance as the meeting toast).
+        let _ = toast.set_always_on_top(true);
+        if let Err(e) = toast.emit("show-action-toast", payload) {
+            warn!(?e, "show-action-toast emit failed");
+        }
+    });
+    if let Err(e) = result {
+        warn!(?e, "failed to dispatch action toast to main thread");
     }
 }
 

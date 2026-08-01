@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <!-- Echo Scribe bars logo, brand green. Used as the composite base whenever
+       any activity badge is shown (template mode off, so the color renders).
+       Geometry matches resources/tray_idle.png exactly. -->
+  <g fill="#35B184">
+    <rect x="2"  y="38" width="8" height="17" rx="4"/>
+    <rect x="15" y="26" width="8" height="29" rx="4"/>
+    <rect x="28" y="15" width="8" height="40" rx="4"/>
+    <rect x="41" y="26" width="8" height="29" rx="4"/>
+    <rect x="54" y="38" width="8" height="17" rx="4"/>
+  </g>
+</svg>

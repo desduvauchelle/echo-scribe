@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <!-- Activity badge, bottom-right: purple disc + white brain (thinking / LLM). -->
+  <circle cx="47" cy="47" r="15" fill="#BF5AF2"/>
+  <g fill="#fff">
+    <circle cx="43.2" cy="43.8" r="4.6"/>
+    <circle cx="50.8" cy="43.8" r="4.6"/>
+    <circle cx="41.6" cy="48.4" r="4.2"/>
+    <circle cx="52.4" cy="48.4" r="4.2"/>
+    <circle cx="44.6" cy="51.2" r="4.4"/>
+    <circle cx="49.4" cy="51.2" r="4.4"/>
+    <rect x="41.5" y="43.5" width="11" height="8" />
+  </g>
+  <!-- central cleft + two sulci, in disc color, carve the lobes -->
+  <line x1="47" y1="39.4" x2="47" y2="55.4" stroke="#BF5AF2" stroke-width="1.7"/>
+  <line x1="41.6" y1="46.2" x2="44.8" y2="46.2" stroke="#BF5AF2" stroke-width="1.4" stroke-linecap="round"/>
+  <line x1="49.2" y1="49.4" x2="52.4" y2="49.4" stroke="#BF5AF2" stroke-width="1.4" stroke-linecap="round"/>
+</svg>

@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Capability for the main window and overlay",
-  "windows": ["main", "recording_overlay", "consent_overlay", "meeting_start_toast", "guide_overlay", "screenrec_setup", "camera_preview", "area_picker", "countdown", "editor-*"],
+  "windows": ["main", "recording_overlay", "consent_overlay", "meeting_start_toast", "action_toast", "guide_overlay", "screenrec_setup", "camera_preview", "area_picker", "countdown", "editor-*"],
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",
