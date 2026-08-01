@@ -13,6 +13,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import {
+  frontendLog,
   getVoiceAtCursorBinding,
   listProjects,
   type JsBinding,
@@ -27,6 +28,7 @@ import DashboardView from "./sections/DashboardView";
 import DailyView from "./sections/DailyView";
 import StatsView from "./sections/StatsView";
 import RelationshipsView from "./sections/RelationshipsView";
+import SectionErrorBoundary from "../components/SectionErrorBoundary";
 import ThemeToggle from "../components/ThemeToggle";
 import SidebarRecordButton from "../components/SidebarRecordButton";
 import ScreenRecordButton from "../components/ScreenRecordButton";
@@ -65,6 +67,13 @@ export default function Main({ onOpenSettings }: Props) {
   useEffect(() => {
     void refreshProjects();
   }, [refreshProjects]);
+
+  // Navigation trace (target: "frontend" in the daily log). Cheap, and it
+  // turns "the back button doesn't work" reports into greppable evidence:
+  // a click log without a matching section change pinpoints where it died.
+  useEffect(() => {
+    frontendLog("info", `nav: section=${JSON.stringify(section)}`);
+  }, [section]);
 
   useEffect(() => {
     let cancelled = false;
@@ -135,7 +144,10 @@ export default function Main({ onOpenSettings }: Props) {
         return (
           <StatsView
             initialCategory={section.category}
-            onBack={() => setSection({ kind: "dashboard" })}
+            onBack={() => {
+              frontendLog("info", "nav: stats back button clicked");
+              setSection({ kind: "dashboard" });
+            }}
           />
         );
       case "daily":
@@ -334,7 +346,12 @@ export default function Main({ onOpenSettings }: Props) {
       </aside>
 
       <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        {renderContent()}
+        <SectionErrorBoundary
+          section={section.kind}
+          onBackToDashboard={() => setSection({ kind: "dashboard" })}
+        >
+          {renderContent()}
+        </SectionErrorBoundary>
       </main>
       </div>
     </div>

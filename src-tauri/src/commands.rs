@@ -7583,6 +7583,30 @@ pub fn embedding_index_status(state: State<'_, AppState>) -> Result<EmbeddingInd
     })
 }
 
+/// Sink for webview-side diagnostics (JS errors, navigation traces) so
+/// frontend failures land in the same daily log as backend ones and stay
+/// debuggable without a rebuild. Messages are truncated defensively — the
+/// frontend controls the content, and a runaway error string shouldn't
+/// bloat the log.
+#[tauri::command]
+pub fn frontend_log(level: String, message: String) {
+    const MAX_LEN: usize = 4000;
+    let msg: &str = if message.len() > MAX_LEN {
+        let mut end = MAX_LEN;
+        while !message.is_char_boundary(end) {
+            end -= 1;
+        }
+        &message[..end]
+    } else {
+        &message
+    };
+    match level.as_str() {
+        "error" => error!(target: "frontend", "{msg}"),
+        "warn" => warn!(target: "frontend", "{msg}"),
+        _ => info!(target: "frontend", "{msg}"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

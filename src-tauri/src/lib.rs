@@ -341,6 +341,7 @@ pub fn run() {
             list_claude_sessions,
             load_claude_session,
             get_dashboard_stats,
+            commands::frontend_log,
             commands::start_meeting_manual,
             commands::stop_meeting,
             commands::is_meeting_active,

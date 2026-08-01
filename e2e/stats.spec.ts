@@ -28,4 +28,9 @@ test("dashboard stats switch categories and open the detailed view", async ({ pa
     "aria-selected",
     "true",
   );
+
+  // The back button must return to the dashboard.
+  await page.getByRole("button", { name: "Back to dashboard" }).click();
+  await expect(page.getByRole("heading", { name: "Stats" })).toHaveCount(0);
+  await expect(overview.getByText("Transcriptions", { exact: true })).toBeVisible();
 });

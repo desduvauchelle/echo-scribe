@@ -898,6 +898,24 @@ export type DashboardStats = {
 export const getDashboardStats = (): Promise<DashboardStats> =>
   invoke("get_dashboard_stats");
 
+// ============= Frontend diagnostics =============
+
+/**
+ * Forward a webview-side diagnostic line into the daily backend log
+ * (Settings → Diagnostics), tagged `target: "frontend"`. Fire-and-forget:
+ * failures are swallowed so logging can never take the UI down with it.
+ */
+export const frontendLog = (
+  level: "info" | "warn" | "error",
+  message: string,
+): void => {
+  try {
+    void invoke("frontend_log", { level, message }).catch(() => {});
+  } catch {
+    // No IPC bridge (plain-browser preview) — drop the line.
+  }
+};
+
 // ============= Meetings =============
 
 export type MeetingStatus =
