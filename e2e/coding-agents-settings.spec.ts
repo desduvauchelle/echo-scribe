@@ -74,4 +74,8 @@ test("coding agents page lists permissions, toggles them, and shows install snip
       .filter(({ cmd }) => cmd === "install_mcp_for_agent")
       .map(({ args }) => args),
   ).toEqual([{ agent: "claude-code" }]);
+
+  // Usage explainer with example prompts.
+  const usage = page.getByRole("heading", { name: "How to use it" }).locator("..");
+  await expect(usage).toContainText("record the Chrome window with system audio");
 });

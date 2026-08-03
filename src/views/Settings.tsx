@@ -1609,6 +1609,55 @@ function CodingAgentsPage() {
           />
         </div>
       </Section>
+
+      <Section
+        title="How to use it"
+        subtitle="There's no command to memorize — talk to your agent normally. It sees the Echo Scribe tools and calls them whenever your request needs them; mentioning “Echo Scribe” nudges it to look there. Try one of these:"
+      >
+        <div className="flex flex-col gap-2">
+          {MCP_EXAMPLE_PROMPTS.map((prompt) => (
+            <McpExamplePrompt key={prompt} text={prompt} />
+          ))}
+          <p className="mt-1 text-xs leading-relaxed text-muted">
+            For recording prompts, Echo Scribe must be running and the Screen
+            recording permission ticked above. The agent lists your windows,
+            starts and stops the recording itself, gets the video file path
+            back, and can then watch or analyze the file — the recording also
+            lands in your library like any other.
+          </p>
+        </div>
+      </Section>
+    </div>
+  );
+}
+
+const MCP_EXAMPLE_PROMPTS = [
+  "List my windows with echo-scribe and record the Chrome window with system audio. Stop when I tell you and summarize what happened in the video.",
+  "Record my screen with mic on while I reproduce this bug, then stop and analyze the video for what went wrong.",
+  "Search my Echo Scribe meetings for the pricing discussion and summarize the decisions.",
+  "What did I dictate last week about the onboarding flow?",
+];
+
+/** One example prompt the user can paste into their coding agent. */
+function McpExamplePrompt({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-lg border border-line bg-canvas p-3">
+      <p className="text-[12px] leading-relaxed text-fg">“{text}”</p>
+      <button
+        type="button"
+        onClick={() => {
+          void navigator.clipboard.writeText(text);
+          setCopied(true);
+          window.setTimeout(() => setCopied(false), 1200);
+        }}
+        aria-label="Copy example prompt"
+        className={`grid h-7 w-7 shrink-0 place-items-center rounded-md border hover:bg-elevated ${
+          copied ? "border-green-500/40 text-green-500" : "border-line text-fg"
+        }`}
+      >
+        {copied ? <Check size={14} /> : <Copy size={14} />}
+      </button>
     </div>
   );
 }

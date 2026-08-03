@@ -63,6 +63,24 @@ For a source build, replace the command with the absolute path to
 The server uses newline-delimited JSON-RPC over standard input and output. The
 client should negotiate MCP protocol version `2024-11-05`.
 
+## Using it from an agent
+
+There is no slash command — the agent discovers the tools and calls them when
+a request needs them; mentioning "Echo Scribe" nudges it to look there.
+Example prompts:
+
+- "List my windows with echo-scribe and record the Chrome window with system
+  audio. Stop when I tell you and summarize what happened in the video."
+- "Record my screen with mic on while I reproduce this bug, then stop and
+  analyze the video for what went wrong."
+- "Search my Echo Scribe meetings for the pricing discussion and summarize
+  the decisions."
+- "What did I dictate last week about the onboarding flow?"
+
+For recording, the app must be running with the Screen recording permission
+ticked; `stop_recording` returns the video path so the agent can analyze the
+file (frames via ffmpeg, transcript, etc.).
+
 ## Knowledge tools (read-only)
 
 - `search_echoscribe` searches local captures.
