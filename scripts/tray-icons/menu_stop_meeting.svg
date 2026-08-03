@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <!-- Menu item icon (centered): cyan disc + two white people. Shown next to
+       "Stop meeting" in the tray menu. -->
+  <circle cx="32" cy="32" r="28" fill="#21B0CF"/>
+  <!-- back person -->
+  <g fill="#fff">
+    <circle cx="39.9" cy="25.6" r="4.5"/>
+    <rect x="33.1" y="32.7" width="13.5" height="12" rx="6"/>
+  </g>
+  <!-- front person, outlined in disc color to separate from the back one -->
+  <g fill="#fff" stroke="#21B0CF" stroke-width="2.2">
+    <circle cx="26.4" cy="24.1" r="5.4"/>
+    <rect x="17.8" y="32" width="17.2" height="13.5" rx="7.1"/>
+  </g>
+</svg>

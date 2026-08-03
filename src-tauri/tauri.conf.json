@@ -50,7 +50,9 @@
       "resources/tray_badge_transcribing.png",
       "resources/tray_badge_thinking.png",
       "resources/tray_badge_meeting.png",
-      "resources/tray_badge_awake.png"
+      "resources/tray_badge_awake.png",
+      "resources/menu_stop_screenrec.png",
+      "resources/menu_stop_meeting.png"
     ],
     "icon": [
       "icons/32x32.png",

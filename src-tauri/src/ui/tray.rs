@@ -2,7 +2,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use tauri::image::Image;
-use tauri::menu::{CheckMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::menu::{
+    CheckMenuItem, IconMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu,
+};
 use tauri::path::BaseDirectory;
 use tauri::tray::{TrayIcon, TrayIconBuilder};
 use tauri::{AppHandle, Emitter, Manager, Runtime, Wry};
@@ -20,31 +22,29 @@ use crate::ui::tray_compose::{
 const KEEP_AWAKE_ID_PREFIX: &str = "keep_awake:";
 
 /// Owned by the app for its full lifetime. Holds the tray icon plus the
-/// menu items we need to mutate (Pause/Resume label flips between modes).
+/// state the menu is derived from.
+///
+/// The menu is REBUILT from scratch (see `menu_plan`) whenever its structure
+/// changes — a live recording/meeting hoists its stop action to the top and
+/// hides its start action entirely, rather than greying things out. Only the
+/// keep-awake submenu is mutated in place between rebuilds, because its
+/// countdown label ticks once a minute and rebuilding a menu the user may be
+/// looking at would be disruptive.
 pub struct TrayHandle<R: Runtime> {
     icon: TrayIcon<R>,
-    /// The Pause/Resume toggle item — relabelled when the user flips the
-    /// pause state via the menu.
-    pause_item: Mutex<Option<MenuItem<R>>>,
-    /// Meeting actions are separate from screen recording actions. Start and
-    /// Stop are enabled in opposition as the meeting state changes.
-    meeting_start_item: Mutex<Option<MenuItem<R>>>,
-    meeting_stop_item: Mutex<Option<MenuItem<R>>>,
-    /// Screen recording has its own Start, Pause/Resume, and Stop actions.
-    screenrec_start_item: Mutex<Option<MenuItem<R>>>,
-    screenrec_stop_item: Mutex<Option<MenuItem<R>>>,
-    /// The Pause/Resume RECORDING toggle item (distinct from the hotkey-pause
-    /// item above). Hidden unless a recording is active; label flips between
-    /// "Pause recording" and "Resume recording" as the sidecar pauses/resumes.
-    screenrec_pause_item: Mutex<Option<MenuItem<R>>>,
     /// The "Keep awake" parent row. Relabelled to carry the current state
     /// ("Keep awake: 42m left") so it's readable without opening the submenu.
     /// `None` on platforms where `power::is_supported()` is false — there we
-    /// omit the submenu entirely rather than offer a no-op.
+    /// omit the submenu entirely rather than offer a no-op. Replaced with
+    /// fresh handles on every menu rebuild.
     keep_awake_menu: Mutex<Option<Submenu<R>>>,
     /// Every keep-awake option paired with its check item, so exactly one can
-    /// be ticked. Ordered `Off` first, then `KEEP_AWAKE_OPTIONS`.
+    /// be ticked. Ordered `Off` first, then `KEEP_AWAKE_OPTIONS`. Replaced on
+    /// every menu rebuild.
     keep_awake_items: Mutex<Vec<(KeepAwakeMode, CheckMenuItem<R>)>>,
+    /// Last keep-awake status, so a menu rebuild can reproduce the current
+    /// checkmark + parent label without reaching into `AppState`.
+    keep_awake_status: Mutex<KeepAwakeStatus>,
     /// Last applied pipeline state, so we can re-apply the right icon when
     /// the user toggles "Paused" on/off without losing the underlying state.
     last_state: Mutex<TrayPipelineState>,
@@ -55,6 +55,9 @@ pub struct TrayHandle<R: Runtime> {
     /// not clobber the red recording badge. Takes precedence in the icon's
     /// activity-badge priority.
     screenrec_active: AtomicBool,
+    /// Whether the active screen recording is paused — drives the
+    /// Pause/Resume recording label on rebuild.
+    screenrec_paused: AtomicBool,
     /// Whether a meeting recording is active — shows the meeting badge while
     /// no higher-priority activity is running.
     meeting_active: AtomicBool,
@@ -65,131 +68,84 @@ pub struct TrayHandle<R: Runtime> {
 
 impl<R: Runtime> TrayHandle<R> {
     pub fn install(app: &AppHandle<R>) -> tauri::Result<TrayHandle<R>> {
-        let open = MenuItem::with_id(app, "open", "Open Echo Scribe", true, None::<&str>)?;
-        let meeting_start =
-            MenuItem::with_id(app, "meeting_start", "Start meeting", true, None::<&str>)?;
-        let meeting_stop =
-            MenuItem::with_id(app, "meeting_stop", "Stop meeting", false, None::<&str>)?;
-        let screenrec_start = MenuItem::with_id(
-            app,
-            "screenrec_start",
-            "Start screen recording",
-            true,
-            None::<&str>,
-        )?;
-        let screenrec_stop = MenuItem::with_id(
-            app,
-            "screenrec_stop",
-            "Stop screen recording",
-            false,
-            None::<&str>,
-        )?;
-        // Pause/Resume RECORDING — created DISABLED (greyed out) since no
-        // recording is active at install. Tauri 2's MenuItem exposes
-        // set_enabled but not per-item set_visible, so "only actionable while
-        // recording" is implemented via the enabled flag: enabled + relabelled
-        // in set_screenrec_active(true), disabled again on stop.
-        let screenrec_pause = MenuItem::with_id(
-            app,
-            "screenrec_pause",
-            "Pause recording",
-            false,
-            None::<&str>,
-        )?;
-        let copy_last =
-            MenuItem::with_id(app, "copy_last", "Copy last transcript", true, None::<&str>)?;
-        let paste_last = MenuItem::with_id(
-            app,
-            "paste_last",
-            "Paste last transcript",
-            true,
-            None::<&str>,
-        )?;
-        let pause = MenuItem::with_id(app, "pause", "Pause hotkeys", true, None::<&str>)?;
-        let settings = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
-        let sep1 = PredefinedMenuItem::separator(app)?;
-        let sep2 = PredefinedMenuItem::separator(app)?;
-        let sep3 = PredefinedMenuItem::separator(app)?;
-        let quit = MenuItem::with_id(app, "quit", "Quit Echo Scribe", true, None::<&str>)?;
-
-        let meeting_recording_menu = Submenu::with_id_and_items(
-            app,
-            "meeting_recording",
-            "Meeting recording",
-            true,
-            &[&meeting_start, &meeting_stop],
-        )?;
-        let screen_recording_menu = Submenu::with_id_and_items(
-            app,
-            "screen_recording",
-            "Screen recording",
-            true,
-            &[&screenrec_start, &screenrec_pause, &screenrec_stop],
-        )?;
-        let transcript_menu = Submenu::with_id_and_items(
-            app,
-            "last_transcript",
-            "Last transcript",
-            true,
-            &[&copy_last, &paste_last],
-        )?;
-
-        // "Keep awake" — a submenu of mutually-exclusive durations. Built only
-        // where we can actually hold a power assertion; `keep_awake_items`
-        // stays empty elsewhere and every update method no-ops.
-        let (keep_awake_menu, keep_awake_items) = if crate::power::is_supported() {
-            let (submenu, items) = build_keep_awake_menu(app)?;
-            (Some(submenu), items)
-        } else {
-            info!("keep awake unavailable on this platform, omitting tray submenu");
-            (None, Vec::new())
+        // Nothing is active at install; `restore_keep_awake` and the state
+        // listeners rebuild with the real state right after setup.
+        let initial = MenuState {
+            keep_awake_supported: crate::power::is_supported(),
+            ..MenuState::default()
         };
+        let status = KeepAwakeStatus {
+            mode: KeepAwakeMode::Off,
+            remaining_secs: None,
+        };
+        let built = build_menu(app, &initial, &status)?;
 
-        let mut menu_items: Vec<&dyn IsMenuItem<R>> = vec![
-            &open,
-            &sep1,
-            &meeting_recording_menu,
-            &screen_recording_menu,
-            &transcript_menu,
-            &sep2,
-            &pause,
-        ];
-        if let Some(submenu) = &keep_awake_menu {
-            menu_items.push(submenu);
-        }
-        menu_items.push(&settings);
-        menu_items.push(&sep3);
-        menu_items.push(&quit);
-        let menu = Menu::with_items(app, &menu_items)?;
-
-        let pause_for_handle = pause.clone();
-        let meeting_start_for_handle = meeting_start.clone();
-        let meeting_stop_for_handle = meeting_stop.clone();
-        let screenrec_start_for_handle = screenrec_start.clone();
-        let screenrec_stop_for_handle = screenrec_stop.clone();
-        let screenrec_pause_for_handle = screenrec_pause.clone();
         let icon = TrayIconBuilder::new()
-            .menu(&menu)
+            .menu(&built.menu)
             .icon(load_idle_icon(app))
             .icon_as_template(true)
             .build(app)?;
 
         Ok(TrayHandle {
             icon,
-            pause_item: Mutex::new(Some(pause_for_handle)),
-            meeting_start_item: Mutex::new(Some(meeting_start_for_handle)),
-            meeting_stop_item: Mutex::new(Some(meeting_stop_for_handle)),
-            screenrec_start_item: Mutex::new(Some(screenrec_start_for_handle)),
-            screenrec_stop_item: Mutex::new(Some(screenrec_stop_for_handle)),
-            screenrec_pause_item: Mutex::new(Some(screenrec_pause_for_handle)),
-            keep_awake_menu: Mutex::new(keep_awake_menu),
-            keep_awake_items: Mutex::new(keep_awake_items),
+            keep_awake_menu: Mutex::new(built.keep_awake_menu),
+            keep_awake_items: Mutex::new(built.keep_awake_items),
+            keep_awake_status: Mutex::new(status),
             last_state: Mutex::new(TrayPipelineState::Idle),
             paused: Mutex::new(Arc::new(AtomicBool::new(false))),
             screenrec_active: AtomicBool::new(false),
+            screenrec_paused: AtomicBool::new(false),
             meeting_active: AtomicBool::new(false),
             awake_active: AtomicBool::new(false),
         })
+    }
+
+    /// Rebuild the dropdown from current state and swap it onto the tray
+    /// icon. Called whenever the menu STRUCTURE changes (recording/meeting
+    /// start/stop, pause toggles) — label-only ticks (keep-awake countdown)
+    /// keep mutating items in place instead. Safe from any thread; menu
+    /// construction hops to the main thread internally. Do not call while
+    /// holding the tray lock ON the main thread (see `bind_menu`'s pause
+    /// branch).
+    pub fn rebuild_menu(&self) {
+        let state = MenuState {
+            screenrec_active: self.screenrec_active.load(Ordering::SeqCst),
+            screenrec_paused: self.screenrec_paused.load(Ordering::SeqCst),
+            meeting_active: self.meeting_active.load(Ordering::SeqCst),
+            hotkeys_paused: self
+                .paused
+                .lock()
+                .ok()
+                .map(|g| g.load(Ordering::SeqCst))
+                .unwrap_or(false),
+            keep_awake_supported: crate::power::is_supported(),
+        };
+        let status = self
+            .keep_awake_status
+            .lock()
+            .map(|g| *g)
+            .unwrap_or(KeepAwakeStatus {
+                mode: KeepAwakeMode::Off,
+                remaining_secs: None,
+            });
+        let app = self.icon.app_handle();
+        match build_menu(app, &state, &status) {
+            Ok(built) => {
+                if let Err(e) = self.icon.set_menu(Some(built.menu)) {
+                    warn!(target: "tray", ?e, "failed to swap tray menu");
+                    return;
+                }
+                // Store the fresh keep-awake handles so the ticker keeps
+                // relabelling the menu that is actually installed.
+                if let Ok(mut g) = self.keep_awake_menu.lock() {
+                    *g = built.keep_awake_menu;
+                }
+                if let Ok(mut g) = self.keep_awake_items.lock() {
+                    *g = built.keep_awake_items;
+                }
+            }
+            Err(e) => warn!(target: "tray", ?e, "failed to rebuild tray menu"),
+        }
     }
 
     /// Recompute and apply the composite menu bar icon from the full current
@@ -240,6 +196,9 @@ impl<R: Runtime> TrayHandle<R> {
     /// an actual on/off flip, since the ticker calls this once a minute just
     /// to update the countdown label.
     pub fn set_keep_awake(&self, status: KeepAwakeStatus) {
+        if let Ok(mut g) = self.keep_awake_status.lock() {
+            *g = status;
+        }
         let awake = !status.mode.is_off();
         if self.awake_active.swap(awake, Ordering::SeqCst) != awake {
             self.refresh_icon();
@@ -272,24 +231,22 @@ impl<R: Runtime> TrayHandle<R> {
 }
 
 /// Build the "Keep awake" submenu: `Off`, a separator, then every option in
-/// `KEEP_AWAKE_OPTIONS`. Returns the submenu plus the (mode, item) pairs so
-/// the caller can tick the active one later.
+/// `KEEP_AWAKE_OPTIONS`, with the row matching `status` ticked and the parent
+/// label carrying the current state. Returns the submenu plus the
+/// (mode, item) pairs so the ticker can keep mutating the live menu.
 #[allow(clippy::type_complexity)]
 fn build_keep_awake_menu<R: Runtime>(
     app: &AppHandle<R>,
+    status: &KeepAwakeStatus,
 ) -> tauri::Result<(Submenu<R>, Vec<(KeepAwakeMode, CheckMenuItem<R>)>)> {
     let mut items: Vec<(KeepAwakeMode, CheckMenuItem<R>)> = Vec::new();
-    // `Off` is checked at install because nothing is held yet; the persisted
-    // mode is applied afterwards by `restore_keep_awake`.
-    for (mode, checked) in std::iter::once((KeepAwakeMode::Off, true))
-        .chain(KEEP_AWAKE_OPTIONS.iter().map(|m| (*m, false)))
-    {
+    for mode in std::iter::once(KeepAwakeMode::Off).chain(KEEP_AWAKE_OPTIONS.iter().copied()) {
         let item = CheckMenuItem::with_id(
             app,
             format!("{KEEP_AWAKE_ID_PREFIX}{}", mode.storage_key()),
             mode.menu_label(),
             true,
-            checked,
+            mode == status.mode,
             None::<&str>,
         )?;
         items.push((mode, item));
@@ -305,8 +262,233 @@ fn build_keep_awake_menu<R: Runtime>(
         refs.push(item);
     }
 
-    let submenu = Submenu::with_id_and_items(app, "keep_awake", "Keep awake", true, &refs)?;
+    let submenu =
+        Submenu::with_id_and_items(app, "keep_awake", status.menu_label(), true, &refs)?;
     Ok((submenu, items))
+}
+
+/// The state the dropdown structure is derived from.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct MenuState {
+    screenrec_active: bool,
+    screenrec_paused: bool,
+    meeting_active: bool,
+    hotkeys_paused: bool,
+    keep_awake_supported: bool,
+}
+
+/// One row of the dropdown, as data. `menu_plan` is the single source of
+/// truth for the menu's structure and ordering, kept pure so the logic is
+/// unit-testable without a running app.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MenuEntry {
+    /// "Stop screen recording" with the red disc icon — hoisted to the top
+    /// while a recording runs.
+    StopScreenrec,
+    /// "Pause recording" / "Resume recording", directly under its stop row.
+    PauseRecording { paused: bool },
+    /// "Stop meeting" with the cyan disc icon — hoisted to the top while a
+    /// meeting runs.
+    StopMeeting,
+    Separator,
+    Open,
+    StartMeeting,
+    StartScreenrec,
+    LastTranscript,
+    PauseHotkeys { paused: bool },
+    KeepAwake,
+    Settings,
+    Quit,
+}
+
+/// Derive the dropdown rows: live activities surface their stop actions at
+/// the very top (the thing you most likely opened the menu for), start
+/// actions exist only while they're actually possible, and app-level rows
+/// stay in a stable order below so nothing jumps around unexpectedly.
+fn menu_plan(s: &MenuState) -> Vec<MenuEntry> {
+    let mut plan = Vec::with_capacity(12);
+    if s.screenrec_active {
+        plan.push(MenuEntry::StopScreenrec);
+        plan.push(MenuEntry::PauseRecording {
+            paused: s.screenrec_paused,
+        });
+    }
+    if s.meeting_active {
+        plan.push(MenuEntry::StopMeeting);
+    }
+    if !plan.is_empty() {
+        plan.push(MenuEntry::Separator);
+    }
+    plan.push(MenuEntry::Open);
+    plan.push(MenuEntry::Separator);
+    if !s.meeting_active {
+        plan.push(MenuEntry::StartMeeting);
+    }
+    if !s.screenrec_active {
+        plan.push(MenuEntry::StartScreenrec);
+    }
+    plan.push(MenuEntry::LastTranscript);
+    plan.push(MenuEntry::Separator);
+    plan.push(MenuEntry::PauseHotkeys {
+        paused: s.hotkeys_paused,
+    });
+    if s.keep_awake_supported {
+        plan.push(MenuEntry::KeepAwake);
+    }
+    plan.push(MenuEntry::Settings);
+    plan.push(MenuEntry::Separator);
+    plan.push(MenuEntry::Quit);
+    plan
+}
+
+/// A freshly built dropdown plus the keep-awake handles that stay mutable
+/// between rebuilds.
+struct BuiltMenu<R: Runtime> {
+    menu: Menu<R>,
+    keep_awake_menu: Option<Submenu<R>>,
+    keep_awake_items: Vec<(KeepAwakeMode, CheckMenuItem<R>)>,
+}
+
+/// Render a `menu_plan` into real menu items. Item ids are stable across
+/// rebuilds — the single global menu-event handler registered in `bind_menu`
+/// matches on ids, so swapped-in menus keep working without rebinding.
+fn build_menu<R: Runtime>(
+    app: &AppHandle<R>,
+    state: &MenuState,
+    keep_awake: &KeepAwakeStatus,
+) -> tauri::Result<BuiltMenu<R>> {
+    let mut items: Vec<Box<dyn IsMenuItem<R>>> = Vec::new();
+    let mut keep_awake_menu = None;
+    let mut keep_awake_items = Vec::new();
+
+    for entry in menu_plan(state) {
+        match entry {
+            MenuEntry::StopScreenrec => items.push(Box::new(IconMenuItem::with_id(
+                app,
+                "screenrec_stop",
+                "Stop screen recording",
+                true,
+                menu_icon(app, "resources/menu_stop_screenrec.png"),
+                None::<&str>,
+            )?)),
+            MenuEntry::PauseRecording { paused } => {
+                let label = if paused {
+                    "Resume recording"
+                } else {
+                    "Pause recording"
+                };
+                items.push(Box::new(MenuItem::with_id(
+                    app,
+                    "screenrec_pause",
+                    label,
+                    true,
+                    None::<&str>,
+                )?));
+            }
+            MenuEntry::StopMeeting => items.push(Box::new(IconMenuItem::with_id(
+                app,
+                "meeting_stop",
+                "Stop meeting",
+                true,
+                menu_icon(app, "resources/menu_stop_meeting.png"),
+                None::<&str>,
+            )?)),
+            MenuEntry::Separator => items.push(Box::new(PredefinedMenuItem::separator(app)?)),
+            MenuEntry::Open => items.push(Box::new(MenuItem::with_id(
+                app,
+                "open",
+                "Open Echo Scribe",
+                true,
+                None::<&str>,
+            )?)),
+            MenuEntry::StartMeeting => items.push(Box::new(MenuItem::with_id(
+                app,
+                "meeting_start",
+                "Start meeting",
+                true,
+                None::<&str>,
+            )?)),
+            MenuEntry::StartScreenrec => items.push(Box::new(MenuItem::with_id(
+                app,
+                "screenrec_start",
+                "Start screen recording",
+                true,
+                None::<&str>,
+            )?)),
+            MenuEntry::LastTranscript => {
+                let copy_last = MenuItem::with_id(
+                    app,
+                    "copy_last",
+                    "Copy last transcript",
+                    true,
+                    None::<&str>,
+                )?;
+                let paste_last = MenuItem::with_id(
+                    app,
+                    "paste_last",
+                    "Paste last transcript",
+                    true,
+                    None::<&str>,
+                )?;
+                items.push(Box::new(Submenu::with_id_and_items(
+                    app,
+                    "last_transcript",
+                    "Last transcript",
+                    true,
+                    &[&copy_last, &paste_last],
+                )?));
+            }
+            MenuEntry::PauseHotkeys { paused } => {
+                let label = if paused {
+                    "Resume hotkeys"
+                } else {
+                    "Pause hotkeys"
+                };
+                items.push(Box::new(MenuItem::with_id(
+                    app,
+                    "pause",
+                    label,
+                    true,
+                    None::<&str>,
+                )?));
+            }
+            MenuEntry::KeepAwake => {
+                let (submenu, ka_items) = build_keep_awake_menu(app, keep_awake)?;
+                items.push(Box::new(submenu.clone()));
+                keep_awake_menu = Some(submenu);
+                keep_awake_items = ka_items;
+            }
+            MenuEntry::Settings => items.push(Box::new(MenuItem::with_id(
+                app,
+                "settings",
+                "Settings…",
+                true,
+                None::<&str>,
+            )?)),
+            MenuEntry::Quit => items.push(Box::new(MenuItem::with_id(
+                app,
+                "quit",
+                "Quit Echo Scribe",
+                true,
+                None::<&str>,
+            )?)),
+        }
+    }
+
+    let refs: Vec<&dyn IsMenuItem<R>> = items.iter().map(|b| b.as_ref()).collect();
+    let menu = Menu::with_items(app, &refs)?;
+    Ok(BuiltMenu {
+        menu,
+        keep_awake_menu,
+        keep_awake_items,
+    })
+}
+
+/// Load a bundled PNG as a menu-item icon. macOS renders menu icons at 18pt
+/// (muda scales them down), so the 64px asset stays crisp on retina. `None`
+/// on failure — the item still works, it just loses its colored disc.
+fn menu_icon<R: Runtime>(app: &AppHandle<R>, path: &str) -> Option<Image<'static>> {
+    load_resource_rgba(app, path).map(|rgba| Image::new_owned(rgba, ICON_SIZE, ICON_SIZE))
 }
 
 /// Wry-specific impl for `bind_menu` — needs concrete `AppHandle<Wry>` to
@@ -318,12 +500,6 @@ impl TrayHandle<Wry> {
         if let Ok(mut slot) = self.paused.lock() {
             *slot = Arc::clone(&paused);
         }
-        // Re-clone the pause MenuItem so the closure can update its label.
-        let pause_item = self
-            .pause_item
-            .lock()
-            .ok()
-            .and_then(|g| g.as_ref().map(|m| m.clone()));
         let app_for_handler = app.clone();
         self.icon.on_menu_event(move |_app, event| {
             match event.id().as_ref() {
@@ -501,26 +677,17 @@ impl TrayHandle<Wry> {
                     let was_paused = paused.load(Ordering::SeqCst);
                     let now_paused = !was_paused;
                     paused.store(now_paused, Ordering::SeqCst);
-                    if let Some(item) = &pause_item {
-                        let label = if now_paused {
-                            "Resume hotkeys"
-                        } else {
-                            "Pause hotkeys"
-                        };
-                        if let Err(e) = item.set_text(label) {
-                            warn!(?e, "failed to relabel pause menu item");
-                        }
-                    }
-                    // Recompute the icon through the handle so the badge
-                    // state (screenrec/meeting/awake) survives the toggle.
-                    // Off the menu thread: taking the tray lock on the main
-                    // thread could deadlock against a worker that holds it
-                    // while its icon update dispatches back to main.
+                    // Recompute the icon and the menu (its Pause/Resume label
+                    // comes from the rebuild) through the handle. Off the
+                    // menu thread: taking the tray lock on the main thread
+                    // could deadlock against a worker that holds it while
+                    // its icon/menu update dispatches back to main.
                     let app = app_for_handler.clone();
                     std::thread::spawn(move || {
                         let tray = app.state::<AppState>().tray.clone();
                         if let Ok(t) = tray.lock() {
                             t.refresh_icon();
+                            t.rebuild_menu();
                         };
                     });
                     info!(now_paused, "hotkeys pause toggled via tray");
@@ -530,104 +697,40 @@ impl TrayHandle<Wry> {
         });
     }
 
-    /// Enable only the meeting action that is currently valid, and show/clear
-    /// the meeting badge on the icon. Idempotent. Called from event listeners
-    /// in `lib.rs` so the label tracks the true `MeetingManager` state
-    /// regardless of who started/stopped the meeting (tray, MeetingsView
-    /// button, auto-detect, hard-cap).
+    /// Show/clear the meeting badge on the icon and rebuild the dropdown
+    /// ("Stop meeting" hoisted to the top while active, "Start meeting"
+    /// otherwise). Idempotent. Called from event listeners in `lib.rs` so
+    /// the menu tracks the true `MeetingManager` state regardless of who
+    /// started/stopped the meeting (tray, MeetingsView button, auto-detect,
+    /// hard-cap).
     pub fn set_meeting_active(&self, active: bool) {
         if self.meeting_active.swap(active, Ordering::SeqCst) != active {
             self.refresh_icon();
-        }
-        let start_item = self
-            .meeting_start_item
-            .lock()
-            .ok()
-            .and_then(|g| g.as_ref().cloned());
-        if let Some(item) = start_item {
-            if let Err(e) = item.set_enabled(!active) {
-                warn!(?e, "failed to update start meeting menu item");
-            }
-        }
-        let stop_item = self
-            .meeting_stop_item
-            .lock()
-            .ok()
-            .and_then(|g| g.as_ref().cloned());
-        if let Some(item) = stop_item {
-            if let Err(e) = item.set_enabled(active) {
-                warn!(?e, "failed to update stop meeting menu item");
-            }
+            self.rebuild_menu();
         }
     }
 
-    /// Enable the screen recording actions that are currently valid and flip
-    /// the tray icon to red (Recording) or back to Idle.
+    /// Flip the screen recording state: updates the icon badge and rebuilds
+    /// the dropdown ("Stop screen recording" + "Pause recording" hoisted to
+    /// the top while recording, "Start screen recording" otherwise).
     pub fn set_screenrec_active(&self, active: bool) {
+        // A fresh recording is never paused; clear the flag on every flip so
+        // a stale "Resume recording" label can't survive into the next run.
+        self.screenrec_paused.store(false, Ordering::SeqCst);
         self.screenrec_active.store(active, Ordering::SeqCst);
-        let start_item = self
-            .screenrec_start_item
-            .lock()
-            .ok()
-            .and_then(|g| g.as_ref().cloned());
-        if let Some(item) = start_item {
-            if let Err(e) = item.set_enabled(!active) {
-                warn!(?e, "failed to update start screen recording menu item");
-            }
-        }
-        let stop_item = self
-            .screenrec_stop_item
-            .lock()
-            .ok()
-            .and_then(|g| g.as_ref().cloned());
-        if let Some(item) = stop_item {
-            if let Err(e) = item.set_enabled(active) {
-                warn!(?e, "failed to update stop screen recording menu item");
-            }
-        }
-        // Enable/disable the Pause recording item alongside the recording state,
-        // and reset its label to "Pause recording" whenever a recording starts
-        // (a fresh recording is never paused). Greyed out when idle.
-        let pause_item = self
-            .screenrec_pause_item
-            .lock()
-            .ok()
-            .and_then(|g| g.as_ref().map(|m| m.clone()));
-        if let Some(item) = pause_item {
-            if let Err(e) = item.set_enabled(active) {
-                warn!(?e, "failed to toggle screenrec pause item enabled state");
-            }
-            if active {
-                if let Err(e) = item.set_text("Pause recording") {
-                    warn!(?e, "failed to reset screenrec pause item label");
-                }
-            }
-        }
         // Re-apply the icon: turning ON forces the screen recording badge
         // (highest priority); turning OFF lets it fall back to whatever the
         // pipeline/meeting state currently is.
         self.refresh_icon();
+        self.rebuild_menu();
     }
 
-    /// Relabel the Pause/Resume recording item to reflect the sidecar's paused
-    /// state. `paused == true` → "Resume recording"; `false` → "Pause
-    /// recording". Idempotent. Called from the tray handler and can be called
-    /// from command paths if pause is ever triggered from the frontend.
+    /// Reflect the sidecar's paused state in the dropdown: the row under
+    /// "Stop screen recording" reads "Resume recording" while paused,
+    /// "Pause recording" while running. Idempotent.
     pub fn set_screenrec_paused(&self, paused: bool) {
-        let item = self
-            .screenrec_pause_item
-            .lock()
-            .ok()
-            .and_then(|g| g.as_ref().map(|m| m.clone()));
-        if let Some(item) = item {
-            let label = if paused {
-                "Resume recording"
-            } else {
-                "Pause recording"
-            };
-            if let Err(e) = item.set_text(label) {
-                warn!(?e, "failed to relabel screenrec pause item");
-            }
+        if self.screenrec_paused.swap(paused, Ordering::SeqCst) != paused {
+            self.rebuild_menu();
         }
     }
 
@@ -833,4 +936,123 @@ fn fallback_icon() -> Image<'static> {
     }
     let leaked: &'static [u8] = Box::leak(buf.into_boxed_slice());
     Image::new(leaked, size, size)
+}
+
+#[cfg(test)]
+mod menu_plan_tests {
+    use super::*;
+
+    fn idle() -> MenuState {
+        MenuState {
+            keep_awake_supported: true,
+            ..MenuState::default()
+        }
+    }
+
+    #[test]
+    fn idle_menu_has_start_actions_and_no_stop_rows() {
+        let plan = menu_plan(&idle());
+        assert_eq!(plan[0], MenuEntry::Open, "nothing active → Open leads");
+        assert!(plan.contains(&MenuEntry::StartMeeting));
+        assert!(plan.contains(&MenuEntry::StartScreenrec));
+        assert!(!plan.contains(&MenuEntry::StopScreenrec));
+        assert!(!plan.contains(&MenuEntry::StopMeeting));
+        assert!(plan.contains(&MenuEntry::KeepAwake));
+        assert_eq!(plan.last(), Some(&MenuEntry::Quit));
+    }
+
+    #[test]
+    fn live_screen_recording_hoists_stop_and_pause() {
+        let plan = menu_plan(&MenuState {
+            screenrec_active: true,
+            ..idle()
+        });
+        assert_eq!(
+            &plan[..3],
+            &[
+                MenuEntry::StopScreenrec,
+                MenuEntry::PauseRecording { paused: false },
+                MenuEntry::Separator,
+            ]
+        );
+        assert!(!plan.contains(&MenuEntry::StartScreenrec));
+        assert!(plan.contains(&MenuEntry::StartMeeting), "meeting still startable");
+    }
+
+    #[test]
+    fn paused_recording_offers_resume() {
+        let plan = menu_plan(&MenuState {
+            screenrec_active: true,
+            screenrec_paused: true,
+            ..idle()
+        });
+        assert!(plan.contains(&MenuEntry::PauseRecording { paused: true }));
+    }
+
+    #[test]
+    fn live_meeting_hoists_stop_and_hides_start() {
+        let plan = menu_plan(&MenuState {
+            meeting_active: true,
+            ..idle()
+        });
+        assert_eq!(&plan[..2], &[MenuEntry::StopMeeting, MenuEntry::Separator]);
+        assert!(!plan.contains(&MenuEntry::StartMeeting));
+        assert!(plan.contains(&MenuEntry::StartScreenrec), "screenrec still startable");
+    }
+
+    #[test]
+    fn both_active_stacks_stop_rows_with_no_start_actions() {
+        let plan = menu_plan(&MenuState {
+            screenrec_active: true,
+            meeting_active: true,
+            ..idle()
+        });
+        assert_eq!(
+            &plan[..4],
+            &[
+                MenuEntry::StopScreenrec,
+                MenuEntry::PauseRecording { paused: false },
+                MenuEntry::StopMeeting,
+                MenuEntry::Separator,
+            ]
+        );
+        assert!(!plan.contains(&MenuEntry::StartMeeting));
+        assert!(!plan.contains(&MenuEntry::StartScreenrec));
+    }
+
+    #[test]
+    fn hotkeys_paused_flips_the_toggle_label() {
+        let plan = menu_plan(&MenuState {
+            hotkeys_paused: true,
+            ..idle()
+        });
+        assert!(plan.contains(&MenuEntry::PauseHotkeys { paused: true }));
+    }
+
+    #[test]
+    fn keep_awake_row_absent_when_unsupported() {
+        let plan = menu_plan(&MenuState::default());
+        assert!(!plan.contains(&MenuEntry::KeepAwake));
+    }
+
+    #[test]
+    fn separators_never_double_up_or_dangle() {
+        for state in [
+            MenuState::default(),
+            idle(),
+            MenuState { screenrec_active: true, ..idle() },
+            MenuState { meeting_active: true, ..idle() },
+            MenuState { screenrec_active: true, meeting_active: true, ..idle() },
+        ] {
+            let plan = menu_plan(&state);
+            assert_ne!(plan.first(), Some(&MenuEntry::Separator));
+            assert_ne!(plan.last(), Some(&MenuEntry::Separator));
+            for pair in plan.windows(2) {
+                assert!(
+                    !(pair[0] == MenuEntry::Separator && pair[1] == MenuEntry::Separator),
+                    "double separator in {state:?}: {plan:?}"
+                );
+            }
+        }
+    }
 }
