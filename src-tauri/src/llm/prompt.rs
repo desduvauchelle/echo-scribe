@@ -133,13 +133,17 @@ pub fn strip_trailing_stops(text: &str, stops: &[String]) -> String {
     out.trim().to_string()
 }
 
-/// Build the prompt for meeting transcript → summary + action items + suggested title.
-/// Output must conform to MEETING_SYNTHESIS_GBNF.
-pub fn build_meeting_synthesis_prompt(
+/// Build the prompt for meeting transcript → free-form markdown notes.
+///
+/// Stage 1 of synthesis: the model writes readable markdown following the
+/// user's summary template. Deliberately no structured output — whatever the
+/// template asks for, the result is displayable as-is, so a template change
+/// can never break the pipeline. Title/tags/project come from a separate
+/// small extraction pass (`build_meeting_metadata_prompt`).
+pub fn build_meeting_notes_prompt(
     flattened_transcript: &str,
     detected_app_name: Option<&str>,
     duration_minutes: u64,
-    existing_projects: &[crate::db::projects::Project],
     start_context: &crate::meeting::MeetingStartContext,
     custom_prompt: Option<&str>,
     user_notes: Option<&str>,
@@ -152,6 +156,71 @@ pub fn build_meeting_synthesis_prompt(
     // sometimes the participant list, even before reading the transcript.
     let context_block = build_start_context_block(start_context);
 
+    let base_guidelines = custom_prompt.unwrap_or(
+        "You are an expert meeting note-taker. You receive a transcript of a {duration_minutes}-minute conversation captured from {app}. \
+The transcript labels each segment as 'You:' (the user) or 'Them:' (the other side)."
+    );
+    let resolved_guidelines = base_guidelines
+        .replace("{duration_minutes}", &duration_minutes.to_string())
+        .replace("{app}", app);
+
+    let template_block = summary_template
+        .map(|t| {
+            let sections: Vec<String> =
+                serde_json::from_str(&t.sections_json).unwrap_or_default();
+            let sections_line = if sections.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    "\nOrganize the notes under these '##' headings, in this order (skip a heading when the conversation had nothing for it): {}.",
+                    sections.join(", ")
+                )
+            };
+            format!(
+                "\nFollow the '{}' template. {}{}",
+                t.name, t.instructions, sections_line
+            )
+        })
+        .unwrap_or_default();
+
+    let system = format!(
+        "{resolved_guidelines}{template_block}\n\
+Write the meeting notes as clean markdown:\n\
+- Use '##' headings for sections and short '-' bullet points under them.\n\
+- Bullets are self-contained factual statements — decisions, key topics, outcomes, and explicit commitments (with who owns them).\n\
+- Be concise: capture what matters, skip filler and pleasantries.\n\
+- Never invent facts, names, dates, or commitments that are not in the transcript.\n\
+- Do not start with a document title heading and do not add commentary before or after the notes.\n\
+Output markdown only."
+    );
+    let notes_block = user_notes
+        .filter(|n| !n.trim().is_empty())
+        .map(|n| {
+            format!(
+                "User-authored notes (prioritize these, but do not treat them as transcript evidence):\n{}\n\n",
+                n.trim()
+            )
+        })
+        .unwrap_or_default();
+    let user = if context_block.is_empty() {
+        format!("{notes_block}Transcript:\n\n{flattened_transcript}\n\nWrite the markdown notes now.")
+    } else {
+        format!(
+            "Context at meeting start:\n{context_block}\n{notes_block}Transcript:\n\n{flattened_transcript}\n\nWrite the markdown notes now."
+        )
+    };
+    (Some(system), user)
+}
+
+/// Build the prompt for markdown notes → `{suggested_title, tags, project_name}`.
+///
+/// Stage 2 of synthesis. Runs over the (short) notes rather than the full
+/// transcript, so it is cheap; a parse failure degrades to a heuristic title
+/// in the synthesizer instead of failing the meeting.
+pub fn build_meeting_metadata_prompt(
+    markdown_notes: &str,
+    existing_projects: &[crate::db::projects::Project],
+) -> (Option<String>, String) {
     let project_hint = if existing_projects.is_empty() {
         "If the meeting clearly relates to a specific project or initiative, set \"project_name\" to a short name for it. \
 Otherwise set it to null.".to_string()
@@ -169,62 +238,14 @@ Otherwise set it to null."
         )
     };
 
-    let base_guidelines = custom_prompt.unwrap_or(
-        "You are an expert meeting note-taker. You receive a transcript of a {duration_minutes}-minute conversation captured from {app}. \
-The transcript labels each segment as 'You:' (the user) or 'Them:' (the other side)."
-    );
-    let resolved_guidelines = base_guidelines
-        .replace("{duration_minutes}", &duration_minutes.to_string())
-        .replace("{app}", app);
-
-    let template_block = summary_template
-        .map(|t| {
-            format!(
-                "\nUse the '{}' output template. Instructions: {}\nRequested sections: {}",
-                t.name, t.instructions, t.sections_json
-            )
-        })
-        .unwrap_or_default();
-
     let system = format!(
-        "{resolved_guidelines}{template_block}\n\
-Produce a JSON object with exactly these fields:\n\
-- summary: array of 3 to 5 bullet strings. Each bullet covers one decision, key topic, or outcome. \
-Bullets must be self-contained sentences, no leading dashes.\n\
-- action_items: array (possibly empty) of objects {{ \"text\": string, \"owner\": \"you\" | \"them\" | \"unspecified\", \
-\"tags\": array of short keyword strings (1-3 tags), \"project_name\": string or null, \
-\"evidence\": array of zero or more objects {{ \"segment_index\": integer, \"start_ms\": integer, \"end_ms\": integer, \"quote\": string }} }}. \
-Only include items the speakers explicitly committed to or were explicitly asked to do. Do not invent action items. \
-Each action item's tags and project_name describe that specific task.\n\
+        "You label meeting notes. Produce a JSON object with exactly these fields:\n\
 - suggested_title: short string (max 60 characters) capturing the meeting's purpose.\n\
 - tags: array of 1-3 short keyword strings that categorize the overall meeting topic (e.g. \"design\", \"planning\", \"bugfix\").\n\
 - project_name: string or null. {project_hint}\n\
-- evidence: array of objects {{ \"summary_index\": integer, \"segment_index\": integer, \"start_ms\": integer, \"end_ms\": integer, \"quote\": string }}. \
-Only cite an exact short quote from the referenced transcript segment, using its exact index and timestamps. Omit evidence when no exact support exists.\n\
 Output JSON only — no preamble, no commentary, no markdown fences."
     );
-    let indexed_transcript = flattened_transcript
-        .lines()
-        .enumerate()
-        .map(|(i, line)| format!("[{i}] {line}"))
-        .collect::<Vec<_>>()
-        .join("\n");
-    let notes_block = user_notes
-        .filter(|n| !n.trim().is_empty())
-        .map(|n| {
-            format!(
-                "User-authored notes (prioritize these, but do not treat them as transcript evidence):\n{}\n\n",
-                n.trim()
-            )
-        })
-        .unwrap_or_default();
-    let user = if context_block.is_empty() {
-        format!("{notes_block}Transcript:\n\n{indexed_transcript}\n\nProduce the JSON now.")
-    } else {
-        format!(
-            "Context at meeting start:\n{context_block}\n{notes_block}Transcript:\n\n{indexed_transcript}\n\nProduce the JSON now."
-        )
-    };
+    let user = format!("Meeting notes:\n\n{markdown_notes}\n\nProduce the JSON now.");
     (Some(system), user)
 }
 
@@ -388,16 +409,15 @@ mod tests {
         );
     }
 
-    // ── meeting synthesis start-context tests ────────────────────────────
+    // ── meeting notes prompt tests ───────────────────────────────────────
 
     #[test]
-    fn meeting_synthesis_omits_context_block_when_empty() {
+    fn meeting_notes_omits_context_block_when_empty() {
         let ctx = crate::meeting::MeetingStartContext::default();
-        let (_sys, user) = build_meeting_synthesis_prompt(
+        let (_sys, user) = build_meeting_notes_prompt(
             "You: hi\nThem: hello\n",
             Some("Zoom"),
             5,
-            &[],
             &ctx,
             None,
             None,
@@ -410,22 +430,14 @@ mod tests {
     }
 
     #[test]
-    fn meeting_synthesis_includes_window_title_and_url() {
+    fn meeting_notes_includes_window_title_and_url() {
         let ctx = crate::meeting::MeetingStartContext {
             window_title: Some("Weekly Standup - Zoom Meeting".into()),
             browser_url: Some("https://meet.google.com/abc-defg-hij".into()),
             browser_tab_title: Some("Meeting – Alice, Bob".into()),
         };
-        let (_sys, user) = build_meeting_synthesis_prompt(
-            "You: hi\n",
-            Some("Zoom"),
-            30,
-            &[],
-            &ctx,
-            None,
-            None,
-            None,
-        );
+        let (_sys, user) =
+            build_meeting_notes_prompt("You: hi\n", Some("Zoom"), 30, &ctx, None, None, None);
         assert!(user.contains("Context at meeting start"));
         assert!(user.contains("Weekly Standup - Zoom Meeting"));
         assert!(user.contains("https://meet.google.com/abc-defg-hij"));
@@ -433,7 +445,7 @@ mod tests {
     }
 
     #[test]
-    fn meeting_synthesis_drops_redundant_tab_title() {
+    fn meeting_notes_drops_redundant_tab_title() {
         // Safari often returns the same string for window title and tab title;
         // the renderer should not repeat it.
         let ctx = crate::meeting::MeetingStartContext {
@@ -442,7 +454,7 @@ mod tests {
             browser_tab_title: Some("Echo Scribe — pricing".into()),
         };
         let (_sys, user) =
-            build_meeting_synthesis_prompt("You: hi\n", None, 1, &[], &ctx, None, None, None);
+            build_meeting_notes_prompt("You: hi\n", None, 1, &ctx, None, None, None);
         let occurrences = user.matches("Echo Scribe — pricing").count();
         assert_eq!(
             occurrences, 1,
@@ -451,14 +463,13 @@ mod tests {
     }
 
     #[test]
-    fn meeting_synthesis_custom_prompt_substitutions() {
+    fn meeting_notes_custom_prompt_substitutions() {
         let ctx = crate::meeting::MeetingStartContext::default();
         let custom = "Tone: formal. Duration: {duration_minutes}m, platform: {app}. Be concise.";
-        let (sys, _user) = build_meeting_synthesis_prompt(
+        let (sys, _user) = build_meeting_notes_prompt(
             "You: hi\n",
             Some("Google Meet"),
             45,
-            &[],
             &ctx,
             Some(custom),
             None,
@@ -470,9 +481,54 @@ mod tests {
             "got: {sys_content}"
         );
         assert!(
-            sys_content.contains("Produce a JSON object with exactly these fields:"),
+            sys_content.contains("Output markdown only."),
             "got: {sys_content}"
         );
+    }
+
+    #[test]
+    fn meeting_notes_template_sections_become_headings_hint() {
+        let ctx = crate::meeting::MeetingStartContext::default();
+        let template = crate::db::meeting_intelligence::SummaryTemplate {
+            id: "t1".into(),
+            name: "Sales".into(),
+            description: "d".into(),
+            instructions: "Emphasize objections.".into(),
+            sections_json: r#"["Goals","Objections"]"#.into(),
+            is_builtin: false,
+            archived_at: None,
+            created_at: "2026-01-01".into(),
+            updated_at: "2026-01-01".into(),
+        };
+        let (sys, _user) = build_meeting_notes_prompt(
+            "You: hi\n",
+            None,
+            10,
+            &ctx,
+            None,
+            None,
+            Some(&template),
+        );
+        let sys_content = sys.unwrap();
+        assert!(sys_content.contains("Follow the 'Sales' template."));
+        assert!(sys_content.contains("Emphasize objections."));
+        assert!(sys_content.contains("Goals, Objections"));
+    }
+
+    #[test]
+    fn meeting_metadata_prompt_lists_projects_and_requires_json() {
+        let projects = vec![crate::db::projects::Project {
+            id: "p1".into(),
+            name: "Alpha".into(),
+            created_at: "2026-01-01".into(),
+            archived_at: None,
+            ..Default::default()
+        }];
+        let (sys, user) = build_meeting_metadata_prompt("## Notes\n- point", &projects);
+        let sys_content = sys.unwrap();
+        assert!(sys_content.contains("suggested_title"));
+        assert!(sys_content.contains("Alpha"));
+        assert!(user.contains("## Notes"));
     }
 
     #[test]

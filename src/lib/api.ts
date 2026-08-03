@@ -987,15 +987,18 @@ export type StoredTranscript = {
 };
 
 export type StoredSummary = {
-    summary: string[];
-    action_items: {
+    /** Markdown notes body — the primary summary for new meetings. Absent on
+     *  meetings summarized before the markdown rework. */
+    markdown?: string | null;
+    summary?: string[];
+    action_items?: {
       text: string;
       owner: "you" | "them" | "unspecified";
       tags?: string[];
       project_name?: string | null;
       evidence?: EvidenceRef[];
     }[];
-    suggested_title: string;
+    suggested_title?: string;
     raw?: string | null;
     tags?: string[];
     project_name?: string | null;
@@ -1167,6 +1170,8 @@ export const rewriteMeetingText = (text: string, instruction: string): Promise<s
   invoke("rewrite_meeting_text", { text, instruction });
 export const replaceMeetingSummaryPoint = (id: string, summaryIndex: number, text: string): Promise<void> =>
   invoke("replace_meeting_summary_point", { id, summaryIndex, text });
+export const updateMeetingSummaryMarkdown = (id: string, markdown: string): Promise<void> =>
+  invoke("update_meeting_summary_markdown", { id, markdown });
 export const updateMeetingTranscript = (id: string, segments: Segment[]): Promise<void> =>
   invoke("update_meeting_transcript", { id, segments });
 export const listPeople = (): Promise<Person[]> => invoke("list_people");

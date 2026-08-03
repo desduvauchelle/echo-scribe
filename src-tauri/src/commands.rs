@@ -3790,6 +3790,63 @@ pub async fn rewrite_meeting_text(
     }).await.map_err(|e| e.to_string())
 }
 
+/// Overwrite the markdown body of a meeting summary (the user edited it).
+/// Also refreshes the flattened item body so FTS and chat memory see the edit.
+#[tauri::command]
+pub fn update_meeting_summary_markdown(
+    state: tauri::State<'_, AppState>,
+    id: String,
+    markdown: String,
+) -> Result<(), String> {
+    if markdown.trim().is_empty() {
+        return Err("Summary text cannot be empty".into());
+    }
+    let db = require_db(&state)?;
+    let export_id = id.clone();
+    db.with_conn(move |conn| {
+        let meeting = crate::db::meetings::get_meeting(conn, &id)?
+            .ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+        let mut summary: crate::meeting::synthesizer::StoredSummary = meeting
+            .summary_json
+            .as_deref()
+            .and_then(|s| serde_json::from_str(s).ok())
+            .unwrap_or_default();
+        summary.markdown = Some(markdown.trim().to_string());
+        // The markdown body supersedes the legacy bullet fields; clear them so
+        // exports and cards don't show stale pre-edit content alongside it.
+        summary.summary = vec![];
+        summary.evidence = vec![];
+        summary.raw = None;
+        let summary_json =
+            serde_json::to_string(&summary).map_err(|_| rusqlite::Error::InvalidQuery)?;
+        conn.execute(
+            "UPDATE meetings SET summary_json=?1 WHERE item_id=?2",
+            rusqlite::params![summary_json, id],
+        )?;
+        let transcript: serde_json::Value = meeting
+            .transcript_json
+            .as_deref()
+            .and_then(|s| serde_json::from_str(s).ok())
+            .unwrap_or_else(|| serde_json::json!({}));
+        let segments: Vec<crate::meeting::Segment> =
+            serde_json::from_value(transcript.get("segments").cloned().unwrap_or_default())
+                .unwrap_or_default();
+        let body = crate::meeting::build_flattened_body(
+            &segments,
+            Some(&summary_json),
+            meeting.user_notes.as_deref(),
+        );
+        conn.execute(
+            "UPDATE items SET content=?1 WHERE id=?2",
+            rusqlite::params![body, id],
+        )?;
+        Ok(())
+    })
+    .map_err(|e| e.to_string())?;
+    sync_meeting_markdown_after_change(&state, &export_id);
+    Ok(())
+}
+
 #[tauri::command]
 pub fn replace_meeting_summary_point(
     state: tauri::State<'_, AppState>,

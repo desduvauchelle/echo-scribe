@@ -1,5 +1,5 @@
 //! Meeting capture: passive recording of mic + system audio during calls,
-//! chunked transcription via Parakeet, and LLM synthesis of summary + tasks.
+//! chunked transcription via Parakeet, and LLM synthesis of markdown notes.
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -885,10 +885,11 @@ impl MeetingManager {
             }
         };
 
-        // Step 7: Persist + flatten body for FTS, assign project/tags, and
-        // create action-item tasks — all in a single atomic transaction so a
-        // partial failure can't leave the meeting in an inconsistent state
-        // (e.g. status = 'complete' but no project/tags assigned).
+        // Step 7: Persist + flatten body for FTS and assign project/tags —
+        // all in a single atomic transaction so a partial failure can't leave
+        // the meeting in an inconsistent state (e.g. status = 'complete' but
+        // no project/tags assigned). Deliberately NO automatic task creation:
+        // next steps live in the markdown notes until the user promotes them.
         let body = build_flattened_body(&segments, summary_json.as_deref(), Some(&user_notes));
         let id_db3 = id.clone();
         let ended_at = now.to_rfc3339();
@@ -942,7 +943,7 @@ impl MeetingManager {
                     rusqlite::params![body, id_db3],
                 )?;
 
-                // If synthesis succeeded, assign project/tags and create tasks.
+                // If synthesis succeeded, assign project/tags.
                 if let Some(s) = &synthesis_for_db {
                     let meeting_project_id = resolve_project_name(
                         conn,
@@ -966,43 +967,6 @@ impl MeetingManager {
                     }
                     if !s.tags.is_empty() {
                         crate::db::items::replace_tags(conn, &id_db3, &s.tags)?;
-                    }
-
-                    for action in &s.action_items {
-                        let task_id = uuid::Uuid::new_v4().to_string();
-                        let now_iso = chrono::Utc::now().to_rfc3339();
-
-                        let task_project_id = if action.project_name.is_some() {
-                            resolve_project_name(
-                                conn,
-                                action.project_name.as_deref(),
-                                &existing_projects_clone,
-                            )?
-                        } else {
-                            meeting_project_id.clone()
-                        };
-
-                        conn.execute(
-                            "INSERT INTO items (id, content, source, kind, project_id, captured_at, created_at)
-                             VALUES (?1, ?2, 'meeting', 'task', ?3, ?4, ?4)",
-                            rusqlite::params![task_id, action.text, task_project_id, now_iso],
-                        )?;
-                        if task_project_id.is_none() {
-                            crate::db::project_tag_jobs::enqueue(conn, &task_id, &now_iso)?;
-                        }
-                        conn.execute(
-                            "INSERT INTO tasks (item_id, deadline, completed_at) VALUES (?1, NULL, NULL)",
-                            rusqlite::params![task_id],
-                        )?;
-                        let task_tags = if action.tags.is_empty() {
-                            &s.tags
-                        } else {
-                            &action.tags
-                        };
-                        if !task_tags.is_empty() {
-                            crate::db::items::replace_tags(conn, &task_id, task_tags)?;
-                        }
-                        crate::db::meetings::link_action(conn, &id_db3, &task_id, &now_iso)?;
                     }
                 }
                 Ok(())
@@ -1322,7 +1286,6 @@ impl MeetingManager {
         if let Ok(s) = synthesis {
             let summary_str = serde_json::to_string(&s).unwrap_or_default();
             let id_for_db = id.to_string();
-            let actions = s.action_items.clone();
             let meeting_tags = s.tags.clone();
             let meeting_project_name = s.project_name.clone();
             let existing_projects_clone = existing_projects.clone();
@@ -1370,15 +1333,9 @@ impl MeetingManager {
                         },
                     )?;
 
-                    // Bring project + tag + task assignment to parity with the
-                    // primary stop() path. Skip task creation if this meeting
-                    // already has linked action items so retries don't dupe.
-                    let existing_action_count: i64 = conn.query_row(
-                        "SELECT COUNT(*) FROM meeting_action_links WHERE meeting_id = ?1",
-                        rusqlite::params![id_for_db],
-                        |row| row.get(0),
-                    )?;
-
+                    // Bring project + tag assignment to parity with the
+                    // primary stop() path. No automatic task creation — next
+                    // steps stay in the markdown notes.
                     let meeting_project_id = resolve_project_name(
                         conn,
                         meeting_project_name.as_deref(),
@@ -1398,43 +1355,6 @@ impl MeetingManager {
                     }
                     if !meeting_tags.is_empty() {
                         crate::db::items::replace_tags(conn, &id_for_db, &meeting_tags)?;
-                    }
-
-                    if existing_action_count == 0 {
-                        for action in &actions {
-                            let task_id = uuid::Uuid::new_v4().to_string();
-                            let now_iso = chrono::Utc::now().to_rfc3339();
-                            let task_project_id = if action.project_name.is_some() {
-                                resolve_project_name(
-                                    conn,
-                                    action.project_name.as_deref(),
-                                    &existing_projects_clone,
-                                )?
-                            } else {
-                                meeting_project_id.clone()
-                            };
-                            conn.execute(
-                                "INSERT INTO items (id, content, source, kind, project_id, captured_at, created_at)
-                                 VALUES (?1, ?2, 'meeting', 'task', ?3, ?4, ?4)",
-                                rusqlite::params![task_id, action.text, task_project_id, now_iso],
-                            )?;
-                            if task_project_id.is_none() {
-                                crate::db::project_tag_jobs::enqueue(conn, &task_id, &now_iso)?;
-                            }
-                            conn.execute(
-                                "INSERT INTO tasks (item_id, deadline, completed_at) VALUES (?1, NULL, NULL)",
-                                rusqlite::params![task_id],
-                            )?;
-                            let task_tags = if action.tags.is_empty() {
-                                &meeting_tags
-                            } else {
-                                &action.tags
-                            };
-                            if !task_tags.is_empty() {
-                                crate::db::items::replace_tags(conn, &task_id, task_tags)?;
-                            }
-                            crate::db::meetings::link_action(conn, &id_for_db, &task_id, &now_iso)?;
-                        }
                     }
                     Ok(())
                 })
@@ -1590,10 +1510,15 @@ pub fn build_flattened_body(
     out.push_str("[Summary]\n");
     if let Some(s) = summary_json {
         if let Ok(stored) = serde_json::from_str::<StoredSummary>(s) {
-            for bullet in &stored.summary {
-                out.push_str("- ");
-                out.push_str(bullet);
+            if let Some(md) = stored.markdown.as_deref().filter(|m| !m.trim().is_empty()) {
+                out.push_str(md.trim());
                 out.push('\n');
+            } else {
+                for bullet in &stored.summary {
+                    out.push_str("- ");
+                    out.push_str(bullet);
+                    out.push('\n');
+                }
             }
         }
     }

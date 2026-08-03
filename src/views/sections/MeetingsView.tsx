@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlignLeft, Folder, ListChecks, Loader } from "lucide-react";
+import { Folder, Loader } from "lucide-react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
   isMeetingActive,
@@ -13,6 +13,7 @@ import {
   type MeetingStatus,
 } from "../../lib/api";
 import { meetingStatusDisplay } from "../../lib/meetingStatus";
+import { parseSummary, summaryPreview } from "../../lib/meetingDisplay";
 import Menu from "../../components/a11y/Menu";
 import { useToasts } from "../../components/ToastProvider";
 import { useActivityPanel } from "../../components/ActivityPanelContext";
@@ -268,21 +269,7 @@ export function MeetingsView() {
           </div>
           <ul className="meeting-rows flex flex-col gap-2">
             {filtered.map((r) => {
-              const parsed = r.summary_json
-                ? (() => {
-                    try {
-                      return JSON.parse(r.summary_json!) as {
-                        summary?: string[];
-                        action_items?: unknown[];
-                      };
-                    } catch {
-                      return null;
-                    }
-                  })()
-                : null;
-              const firstPoint = parsed?.summary?.[0] ?? "";
-              const summaryCount = parsed?.summary?.length ?? 0;
-              const actionCount = parsed?.action_items?.length ?? 0;
+              const firstPoint = summaryPreview(parseSummary(r.summary_json));
               const sd = meetingStatusDisplay(r.status);
               return (
                 <li key={r.item_id}>
@@ -316,29 +303,9 @@ export function MeetingsView() {
                           {sd.label}
                         </span>
                       ) : (
-                        <>
-                          {summaryCount > 0 && (
-                            <span
-                              className="inline-flex items-center gap-1"
-                              title={`${summaryCount} summary point${summaryCount === 1 ? "" : "s"}`}
-                            >
-                              <AlignLeft size={13} strokeWidth={2} />
-                              {summaryCount}
-                            </span>
-                          )}
-                          {actionCount > 0 && (
-                            <span
-                              className="inline-flex items-center gap-1"
-                              title={`${actionCount} action item${actionCount === 1 ? "" : "s"}`}
-                            >
-                              <ListChecks size={13} strokeWidth={2} />
-                              {actionCount}
-                            </span>
-                          )}
-                          <span title="Duration">
-                            {Math.round((r.duration_ms ?? 0) / 60000)}m
-                          </span>
-                        </>
+                        <span title="Duration">
+                          {Math.round((r.duration_ms ?? 0) / 60000)}m
+                        </span>
                       )}
                     </div>
                   </div>

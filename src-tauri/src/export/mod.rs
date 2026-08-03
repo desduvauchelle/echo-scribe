@@ -278,19 +278,25 @@ fn render_meeting(
 
     if sections.summary {
         if let Some(s) = stored {
-            if !s.summary.is_empty() {
+            if let Some(md) = s.markdown.as_deref().filter(|m| !m.trim().is_empty()) {
                 body.push_str("## Summary\n\n");
-                for bullet in &s.summary {
-                    body.push_str(&format!("- {bullet}\n"));
+                body.push_str(md.trim());
+                body.push_str("\n\n");
+            } else {
+                if !s.summary.is_empty() {
+                    body.push_str("## Summary\n\n");
+                    for bullet in &s.summary {
+                        body.push_str(&format!("- {bullet}\n"));
+                    }
+                    body.push('\n');
                 }
-                body.push('\n');
-            }
-            if !s.action_items.is_empty() {
-                body.push_str("## Action items\n\n");
-                for a in &s.action_items {
-                    body.push_str(&format!("- [ ] ({}) {}\n", a.owner, a.text));
+                if !s.action_items.is_empty() {
+                    body.push_str("## Action items\n\n");
+                    for a in &s.action_items {
+                        body.push_str(&format!("- [ ] ({}) {}\n", a.owner, a.text));
+                    }
+                    body.push('\n');
                 }
-                body.push('\n');
             }
         }
 

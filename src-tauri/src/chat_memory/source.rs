@@ -19,16 +19,22 @@ pub fn render_meeting_summary(summary_json: &str) -> Option<String> {
     if !s.suggested_title.trim().is_empty() {
         parts.push(s.suggested_title.trim().to_string());
     }
-    for b in &s.summary {
-        if !b.trim().is_empty() {
-            parts.push(format!("- {}", b.trim()));
+    if let Some(md) = s.markdown.as_deref().filter(|m| !m.trim().is_empty()) {
+        // Markdown-era summary: embed the notes as-is.
+        parts.push(md.trim().to_string());
+    } else {
+        // Legacy bullet-era summary.
+        for b in &s.summary {
+            if !b.trim().is_empty() {
+                parts.push(format!("- {}", b.trim()));
+            }
         }
-    }
-    if !s.action_items.is_empty() {
-        parts.push("Action items:".to_string());
-        for a in &s.action_items {
-            if !a.text.trim().is_empty() {
-                parts.push(format!("- {} ({})", a.text.trim(), a.owner));
+        if !s.action_items.is_empty() {
+            parts.push("Action items:".to_string());
+            for a in &s.action_items {
+                if !a.text.trim().is_empty() {
+                    parts.push(format!("- {} ({})", a.text.trim(), a.owner));
+                }
             }
         }
     }
@@ -99,7 +105,7 @@ mod tests {
     use crate::meeting::synthesizer::{ActionItem, StoredSummary};
 
     #[test]
-    fn renders_meeting_summary_with_actions() {
+    fn renders_legacy_meeting_summary_with_actions() {
         let s = StoredSummary {
             summary: vec!["Discussed Q3 launch".into()],
             action_items: vec![ActionItem {
@@ -110,16 +116,26 @@ mod tests {
                 evidence: vec![],
             }],
             suggested_title: "Q3 Planning".into(),
-            raw: None,
-            tags: vec![],
-            project_name: None,
-            evidence: vec![],
+            ..Default::default()
         };
         let json = serde_json::to_string(&s).unwrap();
         let text = render_meeting_summary(&json).unwrap();
         assert!(text.contains("Q3 Planning"));
         assert!(text.contains("Discussed Q3 launch"));
         assert!(text.contains("Send pricing deck (you)"));
+    }
+
+    #[test]
+    fn renders_markdown_meeting_summary() {
+        let s = StoredSummary {
+            markdown: Some("## Summary\n- Discussed Q3 launch".into()),
+            suggested_title: "Q3 Planning".into(),
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&s).unwrap();
+        let text = render_meeting_summary(&json).unwrap();
+        assert!(text.contains("Q3 Planning"));
+        assert!(text.contains("Discussed Q3 launch"));
     }
 
     #[test]

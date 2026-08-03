@@ -75,19 +75,25 @@ pub fn render_markdown(entries: &[ActivityEntry], range_label: &str, generated_a
                 if !s.suggested_title.trim().is_empty() {
                     out.push_str(&format!("**{}**\n\n", s.suggested_title.trim()));
                 }
-                if !s.summary.is_empty() {
+                if let Some(md) = s.markdown.as_deref().filter(|m| !m.trim().is_empty()) {
                     out.push_str("### Summary\n\n");
-                    for bullet in &s.summary {
-                        out.push_str(&format!("- {bullet}\n"));
+                    out.push_str(md.trim());
+                    out.push_str("\n\n");
+                } else {
+                    if !s.summary.is_empty() {
+                        out.push_str("### Summary\n\n");
+                        for bullet in &s.summary {
+                            out.push_str(&format!("- {bullet}\n"));
+                        }
+                        out.push('\n');
                     }
-                    out.push('\n');
-                }
-                if !s.action_items.is_empty() {
-                    out.push_str("### Action items\n\n");
-                    for a in &s.action_items {
-                        out.push_str(&format!("- ({}) {}\n", a.owner, a.text));
+                    if !s.action_items.is_empty() {
+                        out.push_str("### Action items\n\n");
+                        for a in &s.action_items {
+                            out.push_str(&format!("- ({}) {}\n", a.owner, a.text));
+                        }
+                        out.push('\n');
                     }
-                    out.push('\n');
                 }
             }
             if let Some(notes) = m.user_notes.as_deref() {

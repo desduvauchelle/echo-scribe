@@ -3,6 +3,8 @@ import {
   meetingDuration,
   meetingTitle,
   parseSummary,
+  summaryMarkdown,
+  summaryPreview,
 } from "../src/lib/meetingDisplay";
 import type { MeetingRow } from "../src/lib/api";
 
@@ -64,6 +66,66 @@ describe("meetingTitle", () => {
       JSON.stringify({ summary: [], action_items: [], suggested_title: "   " }),
     );
     expect(meetingTitle(row({ detected_app_name: "Teams" }), s)).toBe("Teams meeting");
+  });
+});
+
+describe("summaryMarkdown", () => {
+  test("returns the markdown body verbatim when present", () => {
+    const s = parseSummary(
+      JSON.stringify({
+        markdown: "## Summary\n- Shipped it",
+        summary: ["stale bullet"],
+        suggested_title: "T",
+      }),
+    );
+    expect(summaryMarkdown(s)).toBe("## Summary\n- Shipped it");
+  });
+
+  test("assembles legacy bullets and action items into markdown", () => {
+    const s = parseSummary(
+      JSON.stringify({
+        summary: ["Discussed launch", "Agreed on pricing"],
+        action_items: [
+          { text: "Send deck", owner: "you" },
+          { text: "Review copy", owner: "unspecified" },
+        ],
+        suggested_title: "T",
+      }),
+    );
+    const md = summaryMarkdown(s)!;
+    expect(md).toContain("- Discussed launch");
+    expect(md).toContain("## Action items");
+    expect(md).toContain("- Send deck *(you)*");
+    expect(md.endsWith("- Review copy")).toBe(true);
+    expect(md).not.toContain("(unspecified)");
+  });
+
+  test("falls back to legacy raw text, and to null when empty", () => {
+    expect(
+      summaryMarkdown(parseSummary(JSON.stringify({ raw: "plain text notes" }))),
+    ).toBe("plain text notes");
+    expect(summaryMarkdown(parseSummary(JSON.stringify({ summary: [] })))).toBeNull();
+    expect(summaryMarkdown(null)).toBeNull();
+  });
+});
+
+describe("summaryPreview", () => {
+  test("skips headings and strips bullet markers", () => {
+    const s = parseSummary(
+      JSON.stringify({ markdown: "## Summary\n\n- **Key win**: closed the deal\n- More" }),
+    );
+    expect(summaryPreview(s)).toBe("Key win: closed the deal");
+  });
+
+  test("uses the first legacy bullet", () => {
+    const s = parseSummary(
+      JSON.stringify({ summary: ["Discussed launch"], action_items: [] }),
+    );
+    expect(summaryPreview(s)).toBe("Discussed launch");
+  });
+
+  test("returns empty string when there is no summary", () => {
+    expect(summaryPreview(null)).toBe("");
   });
 });
 

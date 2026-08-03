@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Copy, Download, Eye, Loader, MessageSquare, Pencil, Quote, RotateCcw, Send, Sparkles, Trash2, X } from "lucide-react";
+import { AlignLeft, Copy, Download, Eye, Info, Loader, MessageSquare, Pencil, Quote, RotateCcw, Send, Sparkles, Tag, Trash2, Users, X } from "lucide-react";
 import Markdown from "./Markdown";
 import Dialog, { useFocusTrap } from "./a11y/Dialog";
 import {
@@ -28,10 +28,8 @@ import {
   regenerateGuideReview,
   renameMeeting,
   regenerateMeetingSummary,
-  replaceMeetingSummaryPoint,
   restoreItem,
   restoreTranscriptBackup,
-  rewriteMeetingText,
   runRecipe,
   saveRecipe,
   saveSummaryTemplate,
@@ -40,6 +38,7 @@ import {
   uncompleteTask,
   updateItem,
   updateMeetingNotes,
+  updateMeetingSummaryMarkdown,
   updateMeetingTranscript,
   type GuideRun,
   type Item,
@@ -60,6 +59,7 @@ import { listen } from "@tauri-apps/api/event";
 import { parseGuideReview, parseTimeline, verdictClass } from "../lib/guideReview";
 import GuideTrendView from "./GuideTrendView";
 import { relativeTime } from "../lib/format";
+import { summaryMarkdown } from "../lib/meetingDisplay";
 import { useActivityPanel } from "./ActivityPanelContext";
 import { useToasts } from "./ToastProvider";
 import ItemDetailPanel from "./ItemDetailPanel";
@@ -951,13 +951,23 @@ function MeetingView({
     ? Math.round(meeting.duration_ms / 60000)
     : null;
   const projectName = projects.find((p) => p.id === item.project_id)?.name ?? null;
+  const [panel, setPanel] = useState<MeetingPanel>(null);
   const [localEvidenceTarget, setLocalEvidenceTarget] = useState<{
     segmentIndex: number;
     nonce: number;
   } | null>(null);
   const selectedEvidence = evidenceTarget ?? localEvidenceTarget;
+  const hasTranscript = !!transcript && transcript.segments.length > 0;
+
+  // An evidence citation (guide review) always jumps to the transcript panel.
+  useEffect(() => {
+    if (selectedEvidence && hasTranscript) setPanel("transcript");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedEvidence?.nonce]);
 
   const statusDisplay = meetingStatusDisplay(meeting.status);
+  const onEvidenceClick = (segmentIndex: number) =>
+    setLocalEvidenceTarget({ segmentIndex, nonce: Date.now() });
 
   return (
     <div className="space-y-5">
@@ -983,104 +993,114 @@ function MeetingView({
       ) : null}
 
       <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted">
-        <span className="rounded-full bg-elevated px-2 py-0.5 text-fg">Meeting</span>
+        <span>
+          {new Date(meeting.started_at).toLocaleDateString()}{" "}
+          {new Date(meeting.started_at).toLocaleTimeString([], {
+            hour: "numeric",
+            minute: "2-digit",
+          })}
+        </span>
+        {durationMin != null ? <span>· {durationMin} min</span> : null}
+        {meeting.detected_app_name ? <span>· {meeting.detected_app_name}</span> : null}
         {projectName ? (
           <span className="rounded-full bg-accent-soft px-2 py-0.5 font-medium text-accent">
             {projectName}
           </span>
         ) : null}
-        {meeting.detected_app_name ? <span>{meeting.detected_app_name}</span> : null}
-        <span>{relativeTime(item.captured_at)}</span>
-        {durationMin != null ? <span>· {durationMin} min</span> : null}
       </div>
 
-      <ProjectSection
-        item={item}
-        projects={projects}
-        onProjectsChange={onProjectsChange}
-        onChange={onItemChange}
-      />
+      <div className="flex flex-wrap gap-1.5" role="group" aria-label="Meeting details">
+        <PanelToggle
+          icon={<Users size={12} strokeWidth={2.25} aria-hidden="true" />}
+          label="People"
+          active={panel === "people"}
+          onClick={() => setPanel((p) => (p === "people" ? null : "people"))}
+        />
+        <PanelToggle
+          icon={<Tag size={12} strokeWidth={2.25} aria-hidden="true" />}
+          label="Tags"
+          active={panel === "tags"}
+          onClick={() => setPanel((p) => (p === "tags" ? null : "tags"))}
+        />
+        <PanelToggle
+          icon={<Info size={12} strokeWidth={2.25} aria-hidden="true" />}
+          label="Details"
+          active={panel === "details"}
+          onClick={() => setPanel((p) => (p === "details" ? null : "details"))}
+        />
+        {hasTranscript ? (
+          <PanelToggle
+            icon={<AlignLeft size={12} strokeWidth={2.25} aria-hidden="true" />}
+            label="Transcript"
+            active={panel === "transcript"}
+            onClick={() => setPanel((p) => (p === "transcript" ? null : "transcript"))}
+          />
+        ) : null}
+      </div>
 
-      <MeetingIntelligenceControls meeting={meeting} onMeetingChange={onMeetingChange} />
-
-      <MeetingRecap
-        item={item}
-        summary={summary}
-        onItemChange={onItemChange}
-        onEvidenceClick={(segmentIndex) =>
-          setLocalEvidenceTarget({ segmentIndex, nonce: Date.now() })
-        }
-      />
-
-      {summary && summary.action_items.length > 0 ? (
-        <div>
-          <SectionLabel>Action items</SectionLabel>
-          <ul className="space-y-1.5 text-[12px] text-fg">
-            {summary.action_items.map((a, i) => (
-              <li key={i} className="flex gap-2">
-                <span className="mt-0.5 shrink-0 rounded bg-elevated px-1.5 py-0.5 text-[10px] text-muted">
-                  {a.owner}
-                </span>
-                <span className="leading-relaxed">{a.text}</span>
-              </li>
-            ))}
-          </ul>
+      {panel === "people" ? (
+        <MeetingPeoplePanel meeting={meeting} />
+      ) : null}
+      {panel === "tags" ? (
+        <TagsSection
+          item={item}
+          tags={tags}
+          onTagsChange={onTagsChange}
+          onSaved={onSaved}
+        />
+      ) : null}
+      {panel === "details" ? (
+        <div className="space-y-4">
+          <ProjectSection
+            item={item}
+            projects={projects}
+            onProjectsChange={onProjectsChange}
+            onChange={onItemChange}
+          />
+          <div>
+            <SectionLabel>Meeting metadata</SectionLabel>
+            <dl className="space-y-1 text-[11px]">
+              <div className="flex gap-2">
+                <dt className="w-24 shrink-0 text-faint">Status</dt>
+                <dd className="text-muted">{statusDisplay.label || "Complete"}</dd>
+              </div>
+              <div className="flex gap-2">
+                <dt className="w-24 shrink-0 text-faint">Started</dt>
+                <dd className="text-muted">{new Date(meeting.started_at).toLocaleString()}</dd>
+              </div>
+              {meeting.ended_at ? (
+                <div className="flex gap-2">
+                  <dt className="w-24 shrink-0 text-faint">Ended</dt>
+                  <dd className="text-muted">{new Date(meeting.ended_at).toLocaleString()}</dd>
+                </div>
+              ) : null}
+              {meeting.detected_app_name ? (
+                <div className="flex gap-2">
+                  <dt className="w-24 shrink-0 text-faint">Detected app</dt>
+                  <dd className="text-muted">{meeting.detected_app_name}</dd>
+                </div>
+              ) : null}
+              {durationMin != null ? (
+                <div className="flex gap-2">
+                  <dt className="w-24 shrink-0 text-faint">Duration</dt>
+                  <dd className="text-muted">{durationMin} min</dd>
+                </div>
+              ) : null}
+              <div className="flex gap-2">
+                <dt className="w-24 shrink-0 text-faint">Audio source</dt>
+                <dd className="text-muted">{meeting.mic_only ? "Mic only" : "Mic + system"}</dd>
+              </div>
+              {meeting.failed_chunk_count > 0 ? (
+                <div className="flex gap-2">
+                  <dt className="w-24 shrink-0 text-faint">Failed chunks</dt>
+                  <dd className="text-warning">{meeting.failed_chunk_count}</dd>
+                </div>
+              ) : null}
+            </dl>
+          </div>
         </div>
       ) : null}
-
-      <GuideReviewSection
-        meetingId={meeting.item_id}
-        onEvidenceClick={(segmentIndex) =>
-          setLocalEvidenceTarget({ segmentIndex, nonce: Date.now() })
-        }
-      />
-
-      <MeetingChatSection meetingId={meeting.item_id} />
-
-      <MeetingWorkflowsSection meeting={meeting} summary={summary} onMeetingChange={onMeetingChange} />
-
-      <NotesSection meeting={meeting} onMeetingChange={onMeetingChange} />
-
-      <TagsSection
-        item={item}
-        tags={tags}
-        onTagsChange={onTagsChange}
-        onSaved={onSaved}
-      />
-
-      <div>
-        <SectionLabel>Meeting metadata</SectionLabel>
-        <dl className="space-y-1 text-[11px]">
-          <div className="flex gap-2">
-            <dt className="w-24 shrink-0 text-faint">Status</dt>
-            <dd className="text-muted">{statusDisplay.label || "Complete"}</dd>
-          </div>
-          {meeting.detected_app_name ? (
-            <div className="flex gap-2">
-              <dt className="w-24 shrink-0 text-faint">Detected app</dt>
-              <dd className="text-muted">{meeting.detected_app_name}</dd>
-            </div>
-          ) : null}
-          {durationMin != null ? (
-            <div className="flex gap-2">
-              <dt className="w-24 shrink-0 text-faint">Duration</dt>
-              <dd className="text-muted">{durationMin} min</dd>
-            </div>
-          ) : null}
-          <div className="flex gap-2">
-            <dt className="w-24 shrink-0 text-faint">Audio source</dt>
-            <dd className="text-muted">{meeting.mic_only ? "Mic only" : "Mic + system"}</dd>
-          </div>
-          {meeting.failed_chunk_count > 0 ? (
-            <div className="flex gap-2">
-              <dt className="w-24 shrink-0 text-faint">Failed chunks</dt>
-              <dd className="text-warning">{meeting.failed_chunk_count}</dd>
-            </div>
-          ) : null}
-        </dl>
-      </div>
-
-      {transcript && transcript.segments.length > 0 ? (
+      {panel === "transcript" && transcript ? (
         <TranscriptEditor
           meeting={meeting}
           transcript={transcript}
@@ -1088,45 +1108,73 @@ function MeetingView({
           evidenceTarget={selectedEvidence}
         />
       ) : null}
+
+      <MeetingSummarySection meeting={meeting} summary={summary} onMeetingChange={onMeetingChange} />
+
+      <NotesSection meeting={meeting} onMeetingChange={onMeetingChange} />
+
+      <GuideReviewSection
+        meetingId={meeting.item_id}
+        onEvidenceClick={onEvidenceClick}
+      />
+
+      <MeetingChatSection meetingId={meeting.item_id} />
+
+      <MeetingWorkflowsSection meeting={meeting} />
     </div>
   );
 }
 
-function MeetingIntelligenceControls({
-  meeting,
-  onMeetingChange,
+type MeetingPanel = "people" | "tags" | "details" | "transcript" | null;
+
+function PanelToggle({
+  icon,
+  label,
+  active,
+  onClick,
 }: {
-  meeting: MeetingRow;
-  onMeetingChange: (meeting: MeetingRow) => void;
+  icon: React.ReactNode;
+  label: string;
+  active: boolean;
+  onClick: () => void;
 }) {
-  const [templates, setTemplates] = useState<SummaryTemplate[]>([]);
-  const [templateId, setTemplateId] = useState("builtin-general");
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+        active
+          ? "border-accent bg-accent-soft text-accent"
+          : "border-line text-muted hover:bg-elevated hover:text-fg"
+      }`}
+    >
+      {icon}
+      {label}
+    </button>
+  );
+}
+
+/** "People" panel: confirmed speaker labels for the mic/call channels and the
+ *  optional link from the call channel to a known person. */
+function MeetingPeoplePanel({ meeting }: { meeting: MeetingRow }) {
   const [participants, setParticipants] = useState<MeetingParticipant[]>([]);
   const [people, setPeople] = useState<Person[]>([]);
   const [labels, setLabels] = useState({ you: "You", them: "Them" });
-  const [regenerating, setRegenerating] = useState(false);
-  const [creatingTemplate, setCreatingTemplate] = useState(false);
-  const [templateName, setTemplateName] = useState("");
-  const [templateInstructions, setTemplateInstructions] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all([
-      listSummaryTemplates(),
-      getMeetingPreferences(meeting.item_id),
-      listMeetingParticipants(meeting.item_id),
-      listPeople(),
-    ]).then(([available, preferences, meetingParticipants, knownPeople]) => {
-      setTemplates(available);
-      setTemplateId(preferences?.summary_template_id ?? "builtin-general");
-      setParticipants(meetingParticipants);
-      setPeople(knownPeople);
-      const next = { you: "You", them: "Them" };
-      for (const participant of meetingParticipants) {
-        next[participant.speaker_key] = participant.display_name;
-      }
-      setLabels(next);
-    }).catch((e) => setError(String(e)));
+    Promise.all([listMeetingParticipants(meeting.item_id), listPeople()])
+      .then(([meetingParticipants, knownPeople]) => {
+        setParticipants(meetingParticipants);
+        setPeople(knownPeople);
+        const next = { you: "You", them: "Them" };
+        for (const participant of meetingParticipants) {
+          next[participant.speaker_key] = participant.display_name;
+        }
+        setLabels(next);
+      })
+      .catch((e) => setError(String(e)));
   }, [meeting.item_id]);
 
   const saveLabel = async (speaker: "you" | "them") => {
@@ -1140,43 +1188,10 @@ function MeetingIntelligenceControls({
     }
   };
 
-  const regenerate = async () => {
-    setRegenerating(true);
-    setError(null);
-    try {
-      await regenerateMeetingSummary(meeting.item_id, templateId);
-      const refreshed = await getMeeting(meeting.item_id);
-      if (refreshed) onMeetingChange(refreshed);
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setRegenerating(false);
-    }
-  };
-
   return (
-    <div className="rounded-lg border border-line bg-surface/60 p-3">
-      <div className="mb-2 flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.08em] text-muted">
-        <Sparkles size={13} className="text-accent" /> Meeting intelligence
-      </div>
+    <div>
+      <SectionLabel>People</SectionLabel>
       <div className="space-y-2.5 text-[12px]">
-        <label className="flex items-center gap-2">
-          <span className="w-24 shrink-0 text-faint">Summary format</span>
-          <select value={templateId} onChange={(e) => setTemplateId(e.target.value)} className="min-w-0 flex-1 rounded-md border border-line bg-canvas px-2 py-1.5 text-fg">
-            {templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
-          </select>
-          <button type="button" onClick={() => void regenerate()} disabled={regenerating} className="inline-flex items-center gap-1 rounded-md border border-line px-2 py-1.5 text-accent hover:bg-elevated disabled:opacity-50">
-            {regenerating ? <Loader size={12} className="animate-spin" /> : <RotateCcw size={12} />}
-            Regenerate
-          </button>
-        </label>
-        {creatingTemplate ? (
-          <div className="space-y-2 rounded-md border border-line bg-canvas p-2">
-            <input value={templateName} onChange={(e) => setTemplateName(e.target.value)} placeholder="Template name" className="w-full rounded border border-line bg-surface px-2 py-1.5 text-fg" />
-            <textarea value={templateInstructions} onChange={(e) => setTemplateInstructions(e.target.value)} placeholder="What should this summary emphasize and how should it be organized?" rows={3} className="w-full resize-y rounded border border-line bg-surface px-2 py-1.5 text-fg" />
-            <div className="flex justify-end gap-1"><button onClick={() => setCreatingTemplate(false)} className="px-2 py-1 text-faint">Cancel</button><button onClick={() => { saveSummaryTemplate({ name: templateName, description: "Custom meeting summary", instructions: templateInstructions, sections: [] }).then((created) => { setTemplates((current) => [...current, created]); setTemplateId(created.id); setCreatingTemplate(false); setTemplateName(""); setTemplateInstructions(""); }).catch((reason) => setError(String(reason))); }} disabled={!templateName.trim() || !templateInstructions.trim()} className="rounded bg-accent px-2 py-1 text-white disabled:opacity-50">Save template</button></div>
-          </div>
-        ) : <button type="button" onClick={() => setCreatingTemplate(true)} className="text-left text-[10px] text-accent hover:underline">+ New summary template</button>}
         <div className="grid grid-cols-2 gap-2">
           {(["you", "them"] as const).map((speaker) => (
             <label key={speaker} className="flex items-center gap-2">
@@ -1209,6 +1224,179 @@ function MeetingIntelligenceControls({
         </p>
         {error ? <p role="alert" className="text-[11px] text-danger">{error}</p> : null}
       </div>
+    </div>
+  );
+}
+
+/** The default meeting content: the summary rendered as markdown. The header
+ *  carries the template picker + regenerate control and an edit toggle that
+ *  edits the markdown directly, so any template's output stays displayable
+ *  and editable without structure-specific UI. */
+function MeetingSummarySection({
+  meeting,
+  summary,
+  onMeetingChange,
+}: {
+  meeting: MeetingRow;
+  summary: StoredSummary | null;
+  onMeetingChange: (m: MeetingRow) => void;
+}) {
+  const markdown = summaryMarkdown(summary) ?? "";
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(markdown);
+  const [saving, setSaving] = useState(false);
+  const [templates, setTemplates] = useState<SummaryTemplate[]>([]);
+  const [templateId, setTemplateId] = useState("builtin-general");
+  const [regenerating, setRegenerating] = useState(false);
+  const [creatingTemplate, setCreatingTemplate] = useState(false);
+  const [templateName, setTemplateName] = useState("");
+  const [templateInstructions, setTemplateInstructions] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    setDraft(markdown);
+  }, [meeting.item_id, markdown]);
+
+  useEffect(() => {
+    Promise.all([
+      listSummaryTemplates(),
+      getMeetingPreferences(meeting.item_id),
+    ])
+      .then(([available, preferences]) => {
+        setTemplates(available);
+        setTemplateId(preferences?.summary_template_id ?? "builtin-general");
+      })
+      .catch((e) => setError(String(e)));
+  }, [meeting.item_id]);
+
+  // Debounced auto-save of markdown edits.
+  useEffect(() => {
+    if (draft === markdown) return;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(async () => {
+      if (!draft.trim()) return;
+      setSaving(true);
+      try {
+        await updateMeetingSummaryMarkdown(meeting.item_id, draft);
+        const refreshed = await getMeeting(meeting.item_id);
+        if (refreshed) onMeetingChange(refreshed);
+      } catch (e) {
+        setError(String(e));
+      } finally {
+        setSaving(false);
+      }
+    }, 600);
+    return () => {
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+    };
+  }, [draft, markdown, meeting.item_id, onMeetingChange]);
+
+  const regenerate = async () => {
+    setRegenerating(true);
+    setError(null);
+    try {
+      await regenerateMeetingSummary(meeting.item_id, templateId);
+      const refreshed = await getMeeting(meeting.item_id);
+      if (refreshed) onMeetingChange(refreshed);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setRegenerating(false);
+    }
+  };
+
+  const onTemplateSelect = (next: string) => {
+    if (next === "__new__") {
+      setCreatingTemplate(true);
+      return;
+    }
+    setTemplateId(next);
+  };
+
+  return (
+    <div>
+      <div className="mb-1.5 flex items-center justify-between gap-2">
+        <SectionLabel>Summary</SectionLabel>
+        <div className="flex items-center gap-1.5">
+          {editing ? (
+            <span role="status" className="text-[10px] text-faint">
+              {saving ? "Saving…" : draft !== markdown ? "Unsaved" : "Saved"}
+            </span>
+          ) : (
+            <>
+              <select
+                value={templateId}
+                onChange={(e) => onTemplateSelect(e.target.value)}
+                aria-label="Summary template"
+                className="max-w-[130px] rounded-md border border-line bg-canvas px-1.5 py-1 text-[11px] text-muted focus:border-accent focus:outline-none"
+              >
+                {templates.map((template) => (
+                  <option key={template.id} value={template.id}>{template.name}</option>
+                ))}
+                <option value="__new__">+ New template…</option>
+              </select>
+              <button
+                type="button"
+                onClick={() => void regenerate()}
+                disabled={regenerating}
+                title="Regenerate the summary with the selected template"
+                className="inline-flex items-center gap-1 rounded-md border border-line px-2 py-1 text-[11px] text-accent hover:bg-elevated disabled:opacity-50"
+              >
+                {regenerating ? <Loader size={11} className="animate-spin" /> : <Sparkles size={11} />}
+                Regenerate
+              </button>
+            </>
+          )}
+          <EditToggle editing={editing} onClick={() => setEditing((e) => !e)} />
+        </div>
+      </div>
+      {creatingTemplate ? (
+        <div className="mb-2 space-y-2 rounded-md border border-line bg-canvas p-2 text-[12px]">
+          <input value={templateName} onChange={(e) => setTemplateName(e.target.value)} placeholder="Template name" className="w-full rounded border border-line bg-surface px-2 py-1.5 text-fg" />
+          <textarea value={templateInstructions} onChange={(e) => setTemplateInstructions(e.target.value)} placeholder="What should this summary emphasize and how should it be organized?" rows={3} className="w-full resize-y rounded border border-line bg-surface px-2 py-1.5 text-fg" />
+          <div className="flex justify-end gap-1">
+            <button onClick={() => setCreatingTemplate(false)} className="px-2 py-1 text-faint">Cancel</button>
+            <button
+              onClick={() => {
+                saveSummaryTemplate({ name: templateName, description: "Custom meeting summary", instructions: templateInstructions, sections: [] })
+                  .then((created) => {
+                    setTemplates((current) => [...current, created]);
+                    setTemplateId(created.id);
+                    setCreatingTemplate(false);
+                    setTemplateName("");
+                    setTemplateInstructions("");
+                  })
+                  .catch((reason) => setError(String(reason)));
+              }}
+              disabled={!templateName.trim() || !templateInstructions.trim()}
+              className="rounded bg-accent px-2 py-1 text-white disabled:opacity-50"
+            >
+              Save template
+            </button>
+          </div>
+        </div>
+      ) : null}
+      {regenerating ? (
+        <div className="mb-2 flex items-center gap-2 text-[11px] text-muted">
+          <Loader size={12} className="animate-spin" /> Rewriting the summary locally…
+        </div>
+      ) : null}
+      {editing ? (
+        <textarea
+          autoFocus
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          rows={14}
+          placeholder="Write the summary as markdown…"
+          className="w-full rounded-md border border-line bg-surface px-2.5 py-2 font-mono text-[12.5px] text-fg transition-colors focus:border-accent focus:outline-none"
+        />
+      ) : markdown.trim() ? (
+        <Markdown>{markdown}</Markdown>
+      ) : (
+        <div className="text-[12px] italic text-faint">No summary yet.</div>
+      )}
+      {error ? <p role="alert" className="mt-1.5 text-[11px] text-danger">{error}</p> : null}
     </div>
   );
 }
@@ -1269,19 +1457,13 @@ function MeetingChatSection({ meetingId }: { meetingId: string }) {
 
 function MeetingWorkflowsSection({
   meeting,
-  summary,
-  onMeetingChange,
 }: {
   meeting: MeetingRow;
-  summary: StoredSummary | null;
-  onMeetingChange: (meeting: MeetingRow) => void;
 }) {
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [recipeId, setRecipeId] = useState("");
   const [artifact, setArtifact] = useState<MeetingArtifact | null>(null);
   const [loading, setLoading] = useState(false);
-  const [rewriteIndex, setRewriteIndex] = useState(0);
-  const [rewriteInstruction, setRewriteInstruction] = useState("Make this clearer and more concise");
   const [error, setError] = useState<string | null>(null);
   const [creatingRecipe, setCreatingRecipe] = useState(false);
   const [recipeName, setRecipeName] = useState("");
@@ -1302,23 +1484,6 @@ function MeetingWorkflowsSection({
         ? await runRecipe(recipeId, "meeting", meeting.item_id)
         : await generateMeetingArtifact(kind, "meeting", meeting.item_id);
       setArtifact(result);
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const rewrite = async () => {
-    const current = summary?.summary[rewriteIndex];
-    if (!current) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const revised = await rewriteMeetingText(current, rewriteInstruction);
-      await replaceMeetingSummaryPoint(meeting.item_id, rewriteIndex, revised);
-      const refreshed = await getMeeting(meeting.item_id);
-      if (refreshed) onMeetingChange(refreshed);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -1349,18 +1514,6 @@ function MeetingWorkflowsSection({
           <button type="button" onClick={() => void run("follow_up")} disabled={loading} className="rounded-md border border-line px-2 py-1.5 text-[11px] text-muted hover:bg-elevated">Draft follow-up</button>
           <button type="button" onClick={() => void run("prep_brief")} disabled={loading} className="rounded-md border border-line px-2 py-1.5 text-[11px] text-muted hover:bg-elevated">Create Prep brief</button>
         </div>
-        {summary && summary.summary.length > 0 ? (
-          <div className="space-y-2 border-t border-line pt-2">
-            <div className="flex gap-2">
-              <select value={rewriteIndex} onChange={(e) => setRewriteIndex(Number(e.target.value))} className="w-28 rounded-md border border-line bg-canvas px-2 py-1.5 text-[11px] text-fg">
-                {summary.summary.map((_, index) => <option key={index} value={index}>Point {index + 1}</option>)}
-              </select>
-              <input value={rewriteInstruction} onChange={(e) => setRewriteInstruction(e.target.value)} className="min-w-0 flex-1 rounded-md border border-line bg-canvas px-2 py-1.5 text-[11px] text-fg" />
-              <button type="button" onClick={() => void rewrite()} disabled={loading || !rewriteInstruction.trim()} className="rounded-md border border-line px-2 py-1.5 text-[11px] text-accent hover:bg-elevated">Rewrite</button>
-            </div>
-            <p className="text-[10px] text-faint">Rewriting removes the old citation from that point because its wording changed.</p>
-          </div>
-        ) : null}
         {loading ? <div className="flex items-center gap-2 text-[11px] text-muted"><Loader size={12} className="animate-spin" /> Running locally…</div> : null}
         {artifact ? (
           <div className="rounded-md border border-line bg-canvas p-2 text-[11px] text-fg">
@@ -1388,7 +1541,6 @@ function TranscriptEditor({
   onMeetingChange: (meeting: MeetingRow) => void;
   evidenceTarget: { segmentIndex: number; nonce: number } | null;
 }) {
-  const detailsRef = useRef<HTMLDetailsElement>(null);
   const [editing, setEditing] = useState(false);
   const [segments, setSegments] = useState<Segment[]>(transcript.segments);
   const [saving, setSaving] = useState(false);
@@ -1400,7 +1552,6 @@ function TranscriptEditor({
   useEffect(() => {
     if (!evidenceTarget) return;
     if (evidenceTarget.segmentIndex < 0 || evidenceTarget.segmentIndex >= segments.length) return;
-    if (detailsRef.current) detailsRef.current.open = true;
     requestAnimationFrame(() => {
       document
         .getElementById(`meeting-segment-${evidenceTarget.segmentIndex}`)
@@ -1424,9 +1575,9 @@ function TranscriptEditor({
   };
 
   return (
-    <details ref={detailsRef}>
-      <summary className="cursor-pointer text-[11px] text-faint hover:text-muted">Transcript ({segments.length} segments)</summary>
-      <div className="mt-2 space-y-2">
+    <div>
+      <SectionLabel>Transcript ({segments.length} segments)</SectionLabel>
+      <div className="space-y-2">
         <div className="flex items-center justify-between">
           <span className="text-[10px] text-faint">Edits automatically preserve a recoverable transcript backup.</span>
           {editing ? (
@@ -1457,7 +1608,7 @@ function TranscriptEditor({
         </div>
         {error ? <p role="alert" className="text-[11px] text-danger">{error}</p> : null}
       </div>
-    </details>
+    </div>
   );
 }
 
@@ -1533,96 +1684,6 @@ function MeetingTitle({
             <Pencil size={13} strokeWidth={2.25} />
           </button>
         </div>
-      )}
-    </div>
-  );
-}
-
-function MeetingRecap({
-  item,
-  summary,
-  onItemChange,
-  onEvidenceClick,
-}: {
-  item: Item;
-  summary: StoredSummary | null;
-  onItemChange: (i: Item) => void;
-  onEvidenceClick: (segmentIndex: number) => void;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(item.content);
-  const [saving, setSaving] = useState(false);
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    setDraft(item.content);
-  }, [item.id, item.content]);
-
-  useEffect(() => {
-    if (draft === item.content) return;
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(async () => {
-      setSaving(true);
-      try {
-        const updated = await updateItem({ id: item.id, content: draft });
-        onItemChange(updated);
-      } finally {
-        setSaving(false);
-      }
-    }, 600);
-    return () => {
-      if (saveTimer.current) clearTimeout(saveTimer.current);
-    };
-  }, [draft, item.content, item.id, onItemChange]);
-
-  const bullets = summary?.summary ?? [];
-
-  return (
-    <div>
-      <div className="mb-1.5 flex items-center justify-between">
-        <SectionLabel>Summary</SectionLabel>
-        <div className="flex items-center gap-2">
-          {editing ? (
-            <span role="status" className="text-[10px] text-faint">
-              {saving ? "Saving…" : draft !== item.content ? "Unsaved" : "Saved"}
-            </span>
-          ) : null}
-          <EditToggle editing={editing} onClick={() => setEditing((e) => !e)} />
-        </div>
-      </div>
-      {editing ? (
-        <textarea
-          autoFocus
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          rows={10}
-          className="w-full rounded-md border border-line bg-surface px-2.5 py-2 font-mono text-[12.5px] text-fg transition-colors focus:border-accent focus:outline-none"
-        />
-      ) : bullets.length > 0 ? (
-        <ul className="space-y-1.5 text-[13px] text-fg">
-          {bullets.map((b, i) => (
-            <li key={i} className="flex gap-2 leading-relaxed">
-              <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-accent/70" />
-              <span className="min-w-0 flex-1">{b}</span>
-              {(summary?.evidence ?? []).filter((e) => e.summary_index === i).map((e, evidenceIndex) => (
-                <button
-                  key={`${e.segment_index}-${evidenceIndex}`}
-                  type="button"
-                  onClick={() => onEvidenceClick(e.segment_index)}
-                  title={e.quote}
-                  aria-label={`Show source: ${e.quote}`}
-                  className="mt-0.5 shrink-0 rounded p-1 text-faint hover:bg-elevated hover:text-accent"
-                >
-                  <Quote size={12} />
-                </button>
-              ))}
-            </li>
-          ))}
-        </ul>
-      ) : item.content.trim() ? (
-        <Markdown>{item.content}</Markdown>
-      ) : (
-        <div className="text-[12px] italic text-faint">No summary yet.</div>
       )}
     </div>
   );

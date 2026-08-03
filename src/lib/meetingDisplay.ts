@@ -34,3 +34,52 @@ export function meetingDuration(ms: number | null | undefined): string {
   const h = Math.floor(mins / 60);
   return `${h}h ${mins % 60}m`;
 }
+
+/** The summary body as markdown. New meetings store markdown directly; legacy
+ *  meetings get their bullets + action items assembled into equivalent
+ *  markdown so one rendering path serves both eras. Null when there is no
+ *  summary content at all. */
+export function summaryMarkdown(summary: StoredSummary | null): string | null {
+  if (!summary) return null;
+  const md = summary.markdown?.trim();
+  if (md) return md;
+  const parts: string[] = [];
+  const bullets = summary.summary ?? [];
+  if (bullets.length > 0) {
+    parts.push(bullets.map((b) => `- ${b}`).join("\n"));
+  }
+  const actions = summary.action_items ?? [];
+  if (actions.length > 0) {
+    parts.push(
+      "## Action items\n" +
+        actions
+          .map((a) => {
+            const owner = a.owner && a.owner !== "unspecified" ? ` *(${a.owner})*` : "";
+            return `- ${a.text}${owner}`;
+          })
+          .join("\n"),
+    );
+  }
+  if (parts.length === 0) {
+    const raw = summary.raw?.trim();
+    return raw ? raw : null;
+  }
+  return parts.join("\n\n");
+}
+
+/** One-line preview for list cards: the first non-heading, non-empty line of
+ *  the summary body, stripped of bullet markers and emphasis. */
+export function summaryPreview(summary: StoredSummary | null): string {
+  const md = summaryMarkdown(summary);
+  if (!md) return "";
+  for (const rawLine of md.split("\n")) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    return line
+      .replace(/^[-*+]\s+/, "")
+      .replace(/^\d+\.\s+/, "")
+      .replace(/\*\*/g, "")
+      .trim();
+  }
+  return "";
+}

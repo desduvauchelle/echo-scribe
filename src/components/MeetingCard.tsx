@@ -1,6 +1,5 @@
 import { useState } from "react";
 import {
-  AlignLeft,
   ChevronDown,
   ChevronRight,
   ListChecks,
@@ -14,6 +13,7 @@ import {
   meetingDuration,
   meetingTitle,
   parseSummary,
+  summaryPreview,
 } from "../lib/meetingDisplay";
 import { meetingStatusDisplay } from "../lib/meetingStatus";
 import { useActivityPanel } from "./ActivityPanelContext";
@@ -40,10 +40,11 @@ export default function MeetingCard({ mtg, projects, variant = "card" }: Props) 
 
   const summary = parseSummary(mtg.summary_json);
   const status = meetingStatusDisplay(mtg.status);
-  const summaryPoints = summary?.summary ?? [];
+  // Legacy meetings only: action items promoted to tasks before the markdown
+  // rework. New meetings keep next steps inside the summary markdown.
   const summaryActions = summary?.action_items ?? [];
   const actionCount = summaryActions.length;
-  const firstPoint = summaryPoints[0] ?? "";
+  const firstPoint = summaryPreview(summary);
   const ledger = variant === "ledger";
 
   const toggleActions = async () => {
@@ -140,15 +141,6 @@ export default function MeetingCard({ mtg, projects, variant = "card" }: Props) 
             {mtg.project_name ? (
               <span className="rounded-full bg-elevated px-2 py-0.5 text-fg">
                 {mtg.project_name}
-              </span>
-            ) : null}
-            {summaryPoints.length > 0 ? (
-              <span
-                className="inline-flex items-center gap-1"
-                title={`${summaryPoints.length} summary point${summaryPoints.length === 1 ? "" : "s"}`}
-              >
-                <AlignLeft size={11} strokeWidth={2} aria-hidden="true" />
-                {summaryPoints.length}
               </span>
             ) : null}
           </div>

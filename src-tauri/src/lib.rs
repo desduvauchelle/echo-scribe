@@ -371,6 +371,7 @@ pub fn run() {
             commands::generate_meeting_artifact,
             commands::rewrite_meeting_text,
             commands::replace_meeting_summary_point,
+            commands::update_meeting_summary_markdown,
             commands::update_meeting_transcript,
             commands::list_people,
             commands::save_person,

@@ -23,6 +23,47 @@ const projects = [
   routing_negative_examples: [],
 }));
 
+const meetingRow = {
+  item_id: "meeting-1",
+  started_at: "2026-07-30T17:21:00Z",
+  ended_at: "2026-07-30T17:59:00Z",
+  duration_ms: 2_280_000,
+  detected_app: "com.google.Chrome",
+  detected_app_name: "Google Meet",
+  status: "complete",
+  transcript_json: JSON.stringify({
+    segments: [
+      { speaker: "you", start_ms: 0, end_ms: 9_000, text: "Let's lock the delivery milestones for the content push." },
+      { speaker: "them", start_ms: 9_000, end_ms: 21_000, text: "Design hand-off lands Friday, then engineering owns the rollout." },
+      { speaker: "you", start_ms: 21_000, end_ms: 30_000, text: "I'll share the delivery plan with both teams after this call." },
+    ],
+    duration_ms: 2_280_000,
+    asr_model: "parakeet",
+    chunk_seconds: 30,
+    failed_chunk_count: 0,
+    mic_only: false,
+  }),
+  summary_json: JSON.stringify({
+    markdown: [
+      "## Summary",
+      "- Aligned on content delivery milestones and technical ownership.",
+      "- Design hand-off lands Friday; engineering owns the rollout after that.",
+      "",
+      "## Decisions",
+      "- The delivery plan is the single source of truth for both teams.",
+      "",
+      "## Next steps",
+      "- Share the delivery plan with design and engineering.",
+    ].join("\n"),
+    suggested_title: "Product delivery sync",
+    tags: ["planning"],
+  }),
+  user_notes: null,
+  failed_chunk_count: 0,
+  mic_only: false,
+  project_name: "Recursive Solutions",
+};
+
 const items = [
   {
     id: "voice-1",
@@ -92,30 +133,63 @@ const handlers: Record<string, (args: Record<string, unknown>) => unknown> = {
     const kind = args.kind as string | undefined;
     return kind ? items.filter((item) => item.kind === kind) : items;
   },
-  list_tags_for_item: () => [],
-  list_meetings: () => [
+  list_tags_for_item: () => ["planning", "delivery"],
+  list_meetings: () => [meetingRow],
+  get_meeting: () => meetingRow,
+  get_item: (args) =>
+    args.id === "meeting-1"
+      ? {
+          id: "meeting-1",
+          content: "[Summary]\nAligned on delivery milestones.\n\n[Transcript]\nYou: hi\n",
+          source: "meeting",
+          kind: null,
+          project_id: "recursive",
+          captured_at: "2026-07-30T17:21:00Z",
+          created_at: "2026-07-30T17:21:00Z",
+          deleted_at: null,
+          confidence: null,
+          classified_by: null,
+          capture_context: null,
+        }
+      : (items.find((item) => item.id === args.id) ?? null),
+  list_summary_templates: () => [
     {
-      item_id: "meeting-1",
-      started_at: "2026-07-30T17:21:00Z",
-      ended_at: "2026-07-30T17:59:00Z",
-      duration_ms: 2_280_000,
-      detected_app: "com.google.Chrome",
-      detected_app_name: "Google Meet",
-      status: "complete",
-      transcript_json: null,
-      summary_json: JSON.stringify({
-        title: "Product delivery sync",
-        summary: ["Aligned on content delivery milestones and technical ownership."],
-        action_items: [
-          { text: "Share delivery plan with design and engineering", owner: "Jordan" },
-        ],
-      }),
-      user_notes: null,
-      failed_chunk_count: 0,
-      mic_only: false,
-      project_name: "Recursive Solutions",
+      id: "builtin-general",
+      name: "General",
+      description: "Balanced notes for any conversation",
+      instructions: "Summarize the key points, decisions, risks, and next steps.",
+      sections_json: '["Summary","Decisions","Action items"]',
+      is_builtin: true,
+      archived_at: null,
+      created_at: now,
+      updated_at: now,
+    },
+    {
+      id: "builtin-sales-summary",
+      name: "Sales",
+      description: "Discovery, objections, commitments, and follow-up",
+      instructions: "Emphasize goals, objections, commitments, and next steps.",
+      sections_json: '["Goals","Objections","Next steps"]',
+      is_builtin: true,
+      archived_at: null,
+      created_at: now,
+      updated_at: now,
     },
   ],
+  get_meeting_preferences: () => null,
+  list_meeting_participants: () => [
+    {
+      meeting_id: "meeting-1",
+      speaker_key: "them",
+      person_id: null,
+      display_name: "Jordan",
+      source: "manual",
+      confirmed: true,
+      created_at: now,
+      updated_at: now,
+    },
+  ],
+  list_people: () => [],
   list_recordings: () => [
     {
       id: "recording-1",

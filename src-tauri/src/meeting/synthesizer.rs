@@ -1,4 +1,10 @@
-//! Calls the LLM with a meeting transcript and parses the structured JSON response.
+//! Calls the LLM with a meeting transcript and produces the stored summary.
+//!
+//! Two-stage flow: stage 1 writes free-form markdown notes following the
+//! user's summary template (no structured output — a template change can
+//! never break parsing), stage 2 extracts a small metadata JSON object
+//! (title / tags / project) from those notes, with a heuristic fallback so
+//! a parse failure still yields a usable summary.
 
 use crate::llm::{GenerateRequest, Llm};
 use crate::meeting::{MeetingStartContext, Segment};
@@ -33,52 +39,39 @@ pub struct ActionItem {
     pub evidence: Vec<EvidenceRef>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MeetingSynthesis {
-    pub summary: Vec<String>,
-    pub action_items: Vec<ActionItem>,
+/// Metadata extracted from the markdown notes in a second, small LLM call.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SummaryMetadata {
+    #[serde(default)]
     pub suggested_title: String,
     #[serde(default)]
     pub tags: Vec<String>,
     #[serde(default)]
     pub project_name: Option<String>,
-    #[serde(default)]
-    pub evidence: Vec<SummaryEvidence>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// The persisted summary. `markdown` is the primary body for new summaries;
+/// the `summary` bullets / `action_items` / `evidence` fields remain so
+/// meetings synthesized before the markdown rework stay readable. Every field
+/// defaults so any historical or partial JSON still parses.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct StoredSummary {
+    #[serde(default)]
+    pub markdown: Option<String>,
+    #[serde(default)]
     pub summary: Vec<String>,
+    #[serde(default)]
     pub action_items: Vec<ActionItem>,
+    #[serde(default)]
     pub suggested_title: String,
-    pub raw: Option<String>, // populated when JSON parse fails after retry
+    #[serde(default)]
+    pub raw: Option<String>, // legacy: populated when JSON parse failed after retry
     #[serde(default)]
     pub tags: Vec<String>,
     #[serde(default)]
     pub project_name: Option<String>,
     #[serde(default)]
     pub evidence: Vec<SummaryEvidence>,
-}
-
-fn validated_evidence(mut synthesis: MeetingSynthesis, segments: &[Segment]) -> MeetingSynthesis {
-    let valid = |e: &EvidenceRef| {
-        segments.get(e.segment_index).is_some_and(|segment| {
-            segment.start_ms == e.start_ms
-                && segment.end_ms == e.end_ms
-                && !e.quote.trim().is_empty()
-                && segment
-                    .text
-                    .to_lowercase()
-                    .contains(&e.quote.trim().to_lowercase())
-        })
-    };
-    synthesis
-        .evidence
-        .retain(|e| e.summary_index < synthesis.summary.len() && valid(&e.source));
-    for action in &mut synthesis.action_items {
-        action.evidence.retain(valid);
-    }
-    synthesis
 }
 
 pub fn flatten_transcript(segments: &[Segment]) -> String {
@@ -195,6 +188,74 @@ pub(crate) async fn condense_transcript(
     }
 }
 
+/// Strip a ```json / ``` fence the model may wrap its JSON in.
+fn strip_code_fence(raw: &str) -> &str {
+    let trimmed = raw.trim();
+    let Some(inner) = trimmed.strip_prefix("```") else {
+        return trimmed;
+    };
+    let inner = inner.strip_prefix("json").unwrap_or(inner);
+    inner.strip_suffix("```").unwrap_or(inner).trim()
+}
+
+/// Heuristic title when metadata extraction fails: the first markdown heading,
+/// else the first non-empty line, clipped to 60 chars.
+fn fallback_title(markdown: &str) -> String {
+    let line = markdown
+        .lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .unwrap_or("");
+    let line = line.trim_start_matches('#').trim_start_matches(['-', '*', ' ']).trim();
+    line.chars().take(60).collect()
+}
+
+/// Stage 2: extract title / tags / project from the markdown notes. Never
+/// fails the overall synthesis — falls back to a heuristic title on error.
+async fn extract_metadata(
+    llm: &impl crate::llm::LlmGenerator,
+    markdown: &str,
+    existing_projects: &[crate::db::projects::Project],
+) -> SummaryMetadata {
+    let (system, user) =
+        crate::llm::prompt::build_meeting_metadata_prompt(markdown, existing_projects);
+    for attempt in 0..2u8 {
+        let req = GenerateRequest {
+            system: system.clone(),
+            user: user.clone(),
+            history: Vec::new(),
+            max_tokens: 256,
+            temperature: if attempt == 0 { 0.2 } else { 0.0 },
+            stop_strings: Vec::new(),
+            grammar_gbnf: None,
+            n_ctx: Some(8192),
+        };
+        let raw = match llm.generate(req).await {
+            Ok(r) => r,
+            Err(e) => {
+                warn!(?e, attempt, "metadata generation failed");
+                continue;
+            }
+        };
+        match serde_json::from_str::<SummaryMetadata>(strip_code_fence(&raw)) {
+            Ok(mut meta) => {
+                meta.suggested_title = meta.suggested_title.trim().chars().take(60).collect();
+                if meta.suggested_title.is_empty() {
+                    meta.suggested_title = fallback_title(markdown);
+                }
+                meta.tags.truncate(3);
+                return meta;
+            }
+            Err(e) => warn!(?e, attempt, "metadata JSON parse failed"),
+        }
+    }
+    warn!("metadata extraction failed after retries; using fallback title");
+    SummaryMetadata {
+        suggested_title: fallback_title(markdown),
+        ..Default::default()
+    }
+}
+
 pub async fn synthesize(
     llm: Arc<Llm>,
     segments: &[Segment],
@@ -216,76 +277,75 @@ pub async fn synthesize(
         )
     };
     let duration_minutes = duration_ms / 60_000;
-    let (system, user) = crate::llm::prompt::build_meeting_synthesis_prompt(
+
+    // Stage 1: free-form markdown notes. Plain text out — nothing to parse,
+    // so a custom or reworded template can't break this stage.
+    let (system, user) = crate::llm::prompt::build_meeting_notes_prompt(
         &flattened,
         detected_app_name,
         duration_minutes,
-        existing_projects,
         start_context,
         custom_prompt,
         user_notes,
         summary_template,
     );
-
+    let mut markdown = String::new();
     for attempt in 0..2u8 {
-        let temperature = if attempt == 0 { 0.3 } else { 0.1 };
         let req = GenerateRequest {
             system: system.clone(),
             user: user.clone(),
             history: Vec::new(),
             max_tokens: 2048,
-            temperature,
+            temperature: if attempt == 0 { 0.3 } else { 0.1 },
             stop_strings: Vec::new(),
             grammar_gbnf: None,
             n_ctx: Some(16384),
         };
-        let raw = match llm.generate(req).await {
-            Ok(r) => r,
+        match llm.generate(req).await {
+            Ok(raw) => {
+                let cleaned = raw.trim();
+                // A markdown fence around the whole answer is the only
+                // "formatting failure" possible — unwrap it.
+                let cleaned = cleaned
+                    .strip_prefix("```markdown")
+                    .or_else(|| cleaned.strip_prefix("```md"))
+                    .map(|rest| rest.strip_suffix("```").unwrap_or(rest))
+                    .unwrap_or(cleaned)
+                    .trim();
+                if !cleaned.is_empty() {
+                    markdown = cleaned.to_string();
+                    break;
+                }
+                warn!(attempt, "notes generation returned empty output");
+            }
             Err(e) => {
-                warn!(?e, attempt, "synthesis generation failed");
+                warn!(?e, attempt, "notes generation failed");
                 if attempt == 1 {
                     return Err(format!("llm generate: {e}"));
-                }
-                continue;
-            }
-        };
-        match serde_json::from_str::<MeetingSynthesis>(&raw) {
-            Ok(s) => {
-                let s = validated_evidence(s, segments);
-                info!(
-                    summary_bullets = s.summary.len(),
-                    actions = s.action_items.len(),
-                    project = ?s.project_name,
-                    tags = ?s.tags,
-                    "synthesis ok"
-                );
-                return Ok(StoredSummary {
-                    summary: s.summary,
-                    action_items: s.action_items,
-                    suggested_title: s.suggested_title,
-                    raw: None,
-                    tags: s.tags,
-                    project_name: s.project_name,
-                    evidence: s.evidence,
-                });
-            }
-            Err(e) => {
-                warn!(?e, attempt, "synthesis JSON parse failed");
-                if attempt == 1 {
-                    return Ok(StoredSummary {
-                        summary: vec![],
-                        action_items: vec![],
-                        suggested_title: String::new(),
-                        raw: Some(raw),
-                        tags: vec![],
-                        project_name: None,
-                        evidence: vec![],
-                    });
                 }
             }
         }
     }
-    unreachable!()
+    if markdown.is_empty() {
+        return Err("notes generation returned empty output".into());
+    }
+
+    // Stage 2: small metadata extraction over the notes (never fatal).
+    let meta = extract_metadata(llm.as_ref(), &markdown, existing_projects).await;
+    info!(
+        notes_bytes = markdown.len(),
+        title = %meta.suggested_title,
+        project = ?meta.project_name,
+        tags = ?meta.tags,
+        "synthesis ok (markdown)"
+    );
+    Ok(StoredSummary {
+        markdown: Some(markdown),
+        suggested_title: meta.suggested_title,
+        tags: meta.tags,
+        project_name: meta.project_name,
+        ..Default::default()
+    })
 }
 
 #[cfg(test)]
@@ -395,113 +455,82 @@ mod tests {
     }
 
     #[test]
-    fn synthesis_json_with_tags_and_project() {
+    fn legacy_stored_summary_json_still_parses() {
+        // Pre-markdown rows: bullets + action items, no `markdown` field.
         let json = r#"{
             "summary": ["Discussed roadmap"],
             "action_items": [
                 {"text": "Write spec", "owner": "you", "tags": ["design"], "project_name": "Alpha"}
             ],
             "suggested_title": "Roadmap sync",
-            "tags": ["planning", "roadmap"],
+            "raw": null,
+            "tags": ["planning"],
             "project_name": "Alpha"
         }"#;
-        let s: MeetingSynthesis = serde_json::from_str(json).unwrap();
-        assert_eq!(s.tags, vec!["planning", "roadmap"]);
-        assert_eq!(s.project_name.as_deref(), Some("Alpha"));
-        assert_eq!(s.action_items[0].tags, vec!["design"]);
-        assert_eq!(s.action_items[0].project_name.as_deref(), Some("Alpha"));
+        let s: StoredSummary = serde_json::from_str(json).unwrap();
+        assert!(s.markdown.is_none());
+        assert_eq!(s.summary, vec!["Discussed roadmap"]);
+        assert_eq!(s.action_items[0].text, "Write spec");
+        assert_eq!(s.suggested_title, "Roadmap sync");
     }
 
     #[test]
-    fn synthesis_json_without_tags_and_project_defaults() {
-        let json = r#"{
-            "summary": ["Quick chat"],
-            "action_items": [{"text": "Follow up", "owner": "them"}],
-            "suggested_title": "Quick chat"
-        }"#;
-        let s: MeetingSynthesis = serde_json::from_str(json).unwrap();
-        assert!(s.tags.is_empty());
-        assert!(s.project_name.is_none());
-        assert!(s.action_items[0].tags.is_empty());
-        assert!(s.action_items[0].project_name.is_none());
-    }
-
-    #[test]
-    fn stored_summary_roundtrip_with_tags() {
+    fn markdown_stored_summary_roundtrip() {
         let summary = StoredSummary {
-            summary: vec!["bullet".into()],
-            action_items: vec![ActionItem {
-                text: "do thing".into(),
-                owner: "you".into(),
-                tags: vec!["urgent".into()],
-                project_name: Some("Beta".into()),
-                evidence: vec![],
-            }],
-            suggested_title: "Test".into(),
-            raw: None,
-            tags: vec!["meeting".into()],
+            markdown: Some("## Summary\n- Shipped the thing".into()),
+            suggested_title: "Ship review".into(),
+            tags: vec!["shipping".into()],
             project_name: Some("Beta".into()),
-            evidence: vec![],
+            ..Default::default()
         };
         let json = serde_json::to_string(&summary).unwrap();
         let parsed: StoredSummary = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed.tags, vec!["meeting"]);
+        assert_eq!(parsed.markdown.as_deref(), Some("## Summary\n- Shipped the thing"));
+        assert_eq!(parsed.suggested_title, "Ship review");
         assert_eq!(parsed.project_name.as_deref(), Some("Beta"));
-        assert_eq!(parsed.action_items[0].tags, vec!["urgent"]);
+        assert!(parsed.action_items.is_empty());
     }
 
     #[test]
-    fn evidence_must_match_the_indexed_transcript_exactly() {
-        let segments = vec![Segment {
-            speaker: Speaker::Them,
-            start_ms: 1_000,
-            end_ms: 2_500,
-            text: "We will send the proposal on Friday.".into(),
-        }];
-        let valid = EvidenceRef {
-            segment_index: 0,
-            start_ms: 1_000,
-            end_ms: 2_500,
-            quote: "send the proposal".into(),
-        };
-        let invalid = EvidenceRef {
-            segment_index: 0,
-            start_ms: 999,
-            end_ms: 2_500,
-            quote: "send the proposal".into(),
-        };
-        let synthesis = MeetingSynthesis {
-            summary: vec!["Proposal due Friday".into()],
-            action_items: vec![ActionItem {
-                text: "Send proposal".into(),
-                owner: "them".into(),
-                tags: vec![],
-                project_name: None,
-                evidence: vec![valid.clone(), invalid.clone()],
-            }],
-            suggested_title: "Proposal".into(),
-            tags: vec![],
-            project_name: None,
-            evidence: vec![
-                SummaryEvidence {
-                    summary_index: 0,
-                    source: valid.clone(),
-                },
-                SummaryEvidence {
-                    summary_index: 2,
-                    source: valid.clone(),
-                },
-                SummaryEvidence {
-                    summary_index: 0,
-                    source: invalid,
-                },
-            ],
-        };
+    fn fallback_title_prefers_first_heading() {
+        assert_eq!(fallback_title("# Kickoff notes\n\n- a"), "Kickoff notes");
+        assert_eq!(fallback_title("\n\n- First point made\n- Second"), "First point made");
+        assert_eq!(fallback_title(""), "");
+        let long = format!("# {}", "x".repeat(100));
+        assert_eq!(fallback_title(&long).chars().count(), 60);
+    }
 
-        let validated = validated_evidence(synthesis, &segments);
+    #[test]
+    fn strip_code_fence_unwraps_json_fences() {
+        assert_eq!(strip_code_fence("{\"a\":1}"), "{\"a\":1}");
+        assert_eq!(strip_code_fence("```json\n{\"a\":1}\n```"), "{\"a\":1}");
+        assert_eq!(strip_code_fence("```\n{\"a\":1}\n```"), "{\"a\":1}");
+    }
 
-        assert_eq!(validated.evidence.len(), 1);
-        assert_eq!(validated.evidence[0].source, valid);
-        assert_eq!(validated.action_items[0].evidence.len(), 1);
+    #[tokio::test]
+    async fn extract_metadata_parses_json_and_clips() {
+        let mock = MockLlm {
+            generated_responses: std::sync::Mutex::new(vec![
+                r#"{"suggested_title": "Roadmap sync", "tags": ["a", "b", "c", "d"], "project_name": "Alpha"}"#.to_string(),
+            ]),
+        };
+        let meta = extract_metadata(&mock, "## Notes\n- point", &[]).await;
+        assert_eq!(meta.suggested_title, "Roadmap sync");
+        assert_eq!(meta.tags.len(), 3, "tags clipped to 3");
+        assert_eq!(meta.project_name.as_deref(), Some("Alpha"));
+    }
+
+    #[tokio::test]
+    async fn extract_metadata_falls_back_to_heading_on_bad_json() {
+        let mock = MockLlm {
+            generated_responses: std::sync::Mutex::new(vec![
+                "not json".to_string(),
+                "still not json".to_string(),
+            ]),
+        };
+        let meta = extract_metadata(&mock, "# Standup notes\n- point", &[]).await;
+        assert_eq!(meta.suggested_title, "Standup notes");
+        assert!(meta.tags.is_empty());
+        assert!(meta.project_name.is_none());
     }
 }
