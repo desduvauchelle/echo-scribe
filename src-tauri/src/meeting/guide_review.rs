@@ -31,9 +31,9 @@ impl Default for ReviewOptions {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct GuideReview {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "flex_string")]
     pub overall: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "flex_string")]
     pub synthesis: String,
     #[serde(default)]
     pub scorecard: Vec<ScorecardItem>,
@@ -43,30 +43,58 @@ pub struct GuideReview {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct ScorecardItem {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "flex_string")]
     pub criterion: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "flex_string")]
     pub verdict: String,
     /// Kept for backwards compatibility with reviews created before evidence
     /// references were introduced.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "flex_string")]
     pub evidence: String,
     #[serde(default)]
     pub evidence_refs: Vec<EvidenceRef>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "flex_string")]
     pub why: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "flex_string")]
     pub tip: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct EmergentItem {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "flex_string")]
     pub observation: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "flex_string")]
     pub evidence: String,
     #[serde(default)]
     pub evidence_refs: Vec<EvidenceRef>,
+}
+
+/// Accept whatever the model put where a string belongs. Gemma sometimes
+/// emits an array of quotes for `evidence` (seen in production on
+/// 2026-08-03) — join list items instead of failing the whole review; map
+/// null to empty and scalars to their display form.
+fn flex_string<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(value_to_string(&value))
+}
+
+fn value_to_string(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::String(s) => s.clone(),
+        serde_json::Value::Null => String::new(),
+        serde_json::Value::Number(n) => n.to_string(),
+        serde_json::Value::Bool(b) => b.to_string(),
+        serde_json::Value::Array(items) => items
+            .iter()
+            .map(value_to_string)
+            .filter(|s| !s.trim().is_empty())
+            .collect::<Vec<_>>()
+            .join("; "),
+        serde_json::Value::Object(_) => String::new(),
+    }
 }
 
 pub async fn generate_review(
@@ -162,20 +190,41 @@ async fn call_review(
             }
         };
         last_raw = raw.clone();
-        let isolated = isolate_json_object(&raw).unwrap_or(raw);
-        match serde_json::from_str::<GuideReview>(&isolated) {
-            Ok(review) => {
-                info!(target: "guide", criteria=review.scorecard.len(), emergent=review.emergent.len(), overall=%review.overall, "[guide-review] parsed ok");
+        match parse_review(&raw) {
+            Ok((review, repaired)) => {
+                info!(target: "guide", criteria=review.scorecard.len(), emergent=review.emergent.len(), overall=%review.overall, repaired, "[guide-review] parsed ok");
                 return Ok(review);
             }
             Err(error) => {
-                warn!(target: "guide", ?error, attempt, "[guide-review] JSON parse failed")
+                warn!(target: "guide", ?error, attempt, "[guide-review] JSON parse failed (repair did not help)")
             }
         }
     }
     Err(format!(
         "guide review JSON parse failed after 2 attempts: {last_raw}"
     ))
+}
+
+/// Parse a raw model reply into a review: isolate the JSON object, and if a
+/// straight parse fails, run the bracket repairer and try once more. The
+/// returned flag says whether repair was needed (for the log).
+fn parse_review(raw: &str) -> Result<(GuideReview, bool), serde_json::Error> {
+    let isolated = isolate_json_object(raw).unwrap_or_else(|| raw.to_string());
+    match serde_json::from_str::<GuideReview>(&isolated) {
+        Ok(review) => Ok((review, false)),
+        Err(error) => {
+            // Almost-valid output (missing bracket, truncated tail) is common
+            // from the local model — repair before spending another
+            // generation attempt.
+            let Some(repaired) = crate::meeting::json_repair::repair_json(&isolated) else {
+                return Err(error);
+            };
+            match serde_json::from_str::<GuideReview>(&repaired) {
+                Ok(review) => Ok((review, true)),
+                Err(_) => Err(error),
+            }
+        }
+    }
 }
 
 fn build_review_chunks(segments: &[Segment]) -> Vec<String> {
@@ -268,6 +317,101 @@ mod tests {
             start_ms: 100,
             end_ms: 400,
             text: text.into(),
+        }
+    }
+
+    #[test]
+    fn parses_review_with_array_where_string_expected() {
+        // Real failure 2026-08-03 ("Emotional signals"): the model emitted an
+        // array of quotes for `evidence`, which must not fail the review.
+        let json = r#"{
+            "overall": "mixed",
+            "synthesis": "Functional exchange.",
+            "scorecard": [{
+                "criterion": "frustration",
+                "verdict": "partial",
+                "evidence": ["j'ai ce que tu veux.", "Il y a trop de trucs."],
+                "evidence_refs": [],
+                "why": "",
+                "tip": ""
+            }]
+        }"#;
+        let (review, repaired) = parse_review(json).unwrap();
+        assert!(!repaired);
+        assert_eq!(
+            review.scorecard[0].evidence,
+            "j'ai ce que tu veux.; Il y a trop de trucs."
+        );
+    }
+
+    #[test]
+    fn parses_review_with_unclosed_emergent_list() {
+        // Real failure 2026-08-03 ("Leadership presence"): missing `]` before
+        // the final `}` — the bracket repairer must recover it.
+        let json = r#"{
+            "overall": "weak",
+            "synthesis": "Lacked structure.",
+            "scorecard": [],
+            "emergent": [
+                {"observation": "drifted", "evidence": "", "evidence_refs": []},
+                {"observation": "contention", "evidence": "", "evidence_refs": []}
+        }"#;
+        let (review, repaired) = parse_review(json).unwrap();
+        assert!(repaired);
+        assert_eq!(review.emergent.len(), 2);
+        assert_eq!(review.overall, "weak");
+    }
+
+    #[test]
+    fn parses_review_truncated_mid_structure() {
+        // Real failure 2026-08-03 ("Sales conversation"): output stops before
+        // the root object closes.
+        let json = r#"{
+            "overall": "mixed",
+            "synthesis": "ok",
+            "scorecard": [
+                {"criterion": "x", "verdict": "met", "evidence": "", "evidence_refs": [], "why": "solid", "tip": ""},
+                {"criterion": "y", "verdict": "part"#;
+        let (review, repaired) = parse_review(json).unwrap();
+        assert!(repaired);
+        assert_eq!(review.overall, "mixed");
+        assert!(!review.scorecard.is_empty());
+        assert_eq!(review.scorecard[0].criterion, "x");
+    }
+
+    #[test]
+    fn unrepairable_output_still_errors() {
+        assert!(parse_review("total nonsense, no json").is_err());
+    }
+
+    // Real-data harness (no-op in CI): point ECHO_SCRIBE_RAW_REVIEW_DIR at a
+    // directory of raw model outputs (e.g. extracted from failed
+    // meeting_guide_runs.error rows) to check they all parse. Used to verify
+    // the 2026-08-03 production failures end-to-end.
+    #[test]
+    fn real_failed_payloads_parse_when_dir_provided() {
+        let Ok(dir) = std::env::var("ECHO_SCRIBE_RAW_REVIEW_DIR") else {
+            return;
+        };
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                continue;
+            }
+            let raw = std::fs::read_to_string(&path).unwrap();
+            let (review, repaired) = parse_review(&raw)
+                .unwrap_or_else(|e| panic!("{} still fails: {e}", path.display()));
+            assert!(
+                !review.scorecard.is_empty() || !review.emergent.is_empty(),
+                "{} parsed to an empty review",
+                path.display()
+            );
+            eprintln!(
+                "{}: ok (repaired={repaired}, criteria={}, emergent={})",
+                path.file_name().unwrap().to_string_lossy(),
+                review.scorecard.len(),
+                review.emergent.len()
+            );
         }
     }
 

@@ -8,6 +8,7 @@ pub mod detector;
 pub mod grammar;
 pub mod guidance;
 pub mod guide_review;
+pub(crate) mod json_repair;
 pub mod pipeline;
 pub mod recorder;
 pub mod stitch;
