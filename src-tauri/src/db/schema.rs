@@ -602,6 +602,48 @@ kindness or warmth',
    datetime('now'));
 "#,
     ),
+    (
+        32,
+        r#"
+ALTER TABLE guide_templates ADD COLUMN kind TEXT NOT NULL DEFAULT 'checklist';
+
+UPDATE guide_templates SET kind='coach'
+WHERE id IN ('builtin-communication','builtin-deescalate','builtin-leadership','builtin-emotional-signals');
+
+UPDATE guide_templates SET
+  description='Adaptive leadership coaching — timely nudges, not scripts.',
+  goal='Lead the room so every voice is heard, decisions land clearly, and people leave knowing what happens next.',
+  notes='if someone affected by the topic hasn''t spoken, draw them out by name
+if you''ve held the floor for a while, hand it back with a question
+credit useful contributions by name, in the moment
+when a decision lands, restate it plainly: what, why, who, by when
+if the group is circling, say so and propose a way to decide
+saying ''I don''t know'' is fine — pair it with how you''ll find out'
+WHERE id='builtin-leadership'
+  AND goal='Listen more than you speak, ask before telling, give specific credit, and end with clear owners and dates.'
+  AND notes='speak last: gather everyone''s view first
+ask ''what do you think?'' before giving your answer
+give credit by name for specific contributions
+state decisions and the reasoning plainly
+every action item gets an owner and a date
+admit uncertainty openly; it builds trust';
+
+INSERT OR IGNORE INTO guide_templates
+  (id, name, description, goal, notes, kind, created_at, updated_at)
+VALUES
+  ('builtin-live-notes',
+   'Live notes',
+   'A live bullet-point record of the conversation: main points, decisions, and updates.',
+   'Keep a short, current bullet list of the main things discussed so far, and update it as the conversation moves.',
+   'capture main topics, decisions, numbers, names, and action items
+merge related remarks into one bullet instead of listing every comment
+mark a point settled once it''s decided or the group moves on
+call out when an earlier point changes or gets reopened',
+   'tracker',
+   datetime('now'),
+   datetime('now'));
+"#,
+    ),
 ];
 
 const META_TABLE_SQL: &str = r#"
@@ -663,7 +705,7 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(v, "31");
+        assert_eq!(v, "32");
     }
 
     #[test]
@@ -831,7 +873,7 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(version, "31");
+        assert_eq!(version, "32");
     }
 
     #[test]
@@ -1039,5 +1081,98 @@ mod tests {
             )
             .unwrap();
         assert_eq!(preset_count, 1);
+    }
+
+    #[test]
+    fn migration_v32_adds_template_kind_and_live_notes_preset() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        run_migrations(&mut conn).unwrap();
+        // Signals preset (inserted by v31, before kind existed) is re-kinded.
+        let signals_kind: String = conn
+            .query_row(
+                "SELECT kind FROM guide_templates WHERE id='builtin-emotional-signals'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(signals_kind, "coach");
+        let tracker_kind: String = conn
+            .query_row(
+                "SELECT kind FROM guide_templates WHERE id='builtin-live-notes'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(tracker_kind, "tracker");
+    }
+
+    /// Apply migrations through `version` only (upgrade-path simulation).
+    fn run_migrations_up_to(conn: &mut Connection, version: u32) {
+        conn.execute_batch(META_TABLE_SQL).unwrap();
+        for (v, sql) in MIGRATIONS {
+            if *v > version {
+                break;
+            }
+            let tx = conn.transaction().unwrap();
+            tx.execute_batch(sql).unwrap();
+            tx.execute(
+                "INSERT INTO schema_meta(key, value) VALUES (?1, ?2)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                params![VERSION_KEY, v.to_string()],
+            )
+            .unwrap();
+            tx.commit().unwrap();
+        }
+    }
+
+    #[test]
+    fn migration_v32_rewrites_untouched_leadership_but_not_user_edits() {
+        // Simulate a v31 DB where the old-format leadership builtin was seeded.
+        let old_goal = "Listen more than you speak, ask before telling, give specific credit, and end with clear owners and dates.";
+        let old_notes = "speak last: gather everyone's view first\nask 'what do you think?' before giving your answer\ngive credit by name for specific contributions\nstate decisions and the reasoning plainly\nevery action item gets an owner and a date\nadmit uncertainty openly; it builds trust";
+
+        let mut pristine = Connection::open_in_memory().unwrap();
+        run_migrations_up_to(&mut pristine, 31);
+        pristine
+            .execute(
+                "INSERT INTO guide_templates (id, name, description, goal, notes, created_at, updated_at)
+                 VALUES ('builtin-leadership', 'Leadership presence', 'd', ?1, ?2, 't', 't')",
+                params![old_goal, old_notes],
+            )
+            .unwrap();
+        run_migrations(&mut pristine).unwrap();
+        let (kind, notes): (String, String) = pristine
+            .query_row(
+                "SELECT kind, notes FROM guide_templates WHERE id='builtin-leadership'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(kind, "coach");
+        assert!(
+            notes.contains("hand it back with a question"),
+            "untouched builtin should be rewritten; got: {notes}"
+        );
+
+        // A user-edited leadership row keeps its text (but still gets the kind).
+        let mut edited = Connection::open_in_memory().unwrap();
+        run_migrations_up_to(&mut edited, 31);
+        edited
+            .execute(
+                "INSERT INTO guide_templates (id, name, description, goal, notes, created_at, updated_at)
+                 VALUES ('builtin-leadership', 'Leadership presence', 'd', ?1, 'my own notes', 't', 't')",
+                params![old_goal],
+            )
+            .unwrap();
+        run_migrations(&mut edited).unwrap();
+        let (kind, notes): (String, String) = edited
+            .query_row(
+                "SELECT kind, notes FROM guide_templates WHERE id='builtin-leadership'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(kind, "coach");
+        assert_eq!(notes, "my own notes");
     }
 }

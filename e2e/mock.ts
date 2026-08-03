@@ -182,6 +182,7 @@ export async function installTauriMock(page: Page, scenario: Scenario = {}) {
       ],
       set_rebinding: () => undefined,
       smoke_checkpoint: () => undefined,
+      frontend_log: () => undefined,
       get_dashboard_stats: () => {
         const period = { transcriptions: 0, words: 0 };
         const category = (today: number, week: number, month: number, all: number, timed = false) => ({

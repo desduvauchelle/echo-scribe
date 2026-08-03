@@ -20,7 +20,7 @@ type DownloadState = {
   bytes_total: number;
 };
 
-const ACCENT_FILL = "bg-danger";
+const ACCENT_FILL = "bg-accent";
 const ACCENT_TRACK = "bg-elevated";
 
 function SegmentBar({ value, max = 5 }: { value: number; max?: number }) {
@@ -74,7 +74,7 @@ function ModelCard({
       className={[
         "rounded-xl border p-4 transition-colors",
         active
-          ? "border-danger/40 bg-surface"
+          ? "border-accent/40 bg-surface"
           : "border-line bg-surface/70",
         disabled ? "cursor-not-allowed opacity-50" : "",
       ].join(" ")}
@@ -91,7 +91,7 @@ function ModelCard({
               ) : null}
             </span>
             {active ? (
-              <span className="inline-flex items-center gap-1 rounded-full bg-danger/15 px-2 py-0.5 text-[11px] font-medium text-danger">
+              <span className="inline-flex items-center gap-1 rounded-full bg-accent/15 px-2 py-0.5 text-[11px] font-medium text-accent">
                 <svg
                   width="10"
                   height="10"
@@ -153,7 +153,7 @@ function ModelCard({
             className="h-1.5 w-full overflow-hidden rounded-full bg-elevated"
           >
             <div
-              className="h-full bg-danger transition-all"
+              className="h-full bg-accent transition-all"
               style={{
                 width: `${
                   downloading.bytes_total > 0

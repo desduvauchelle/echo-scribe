@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <!-- Activity badge, bottom-right: red disc + white mic (dictation recording).
+       Disc geometry (cx=47 cy=47 r=15) must match ACTIVITY_BADGE in
+       src-tauri/src/ui/tray.rs, which punches the knockout hole. -->
+  <circle cx="47" cy="47" r="15" fill="#FF453A"/>
+  <rect x="43.5" y="38.5" width="7" height="10.5" rx="3.5" fill="#fff"/>
+  <path d="M40.5 46.5 a6.5 6.5 0 0 0 13 0" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
+  <line x1="47" y1="53" x2="47" y2="55.5" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
+</svg>

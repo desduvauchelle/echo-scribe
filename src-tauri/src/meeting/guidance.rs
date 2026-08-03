@@ -77,6 +77,10 @@ pub(crate) const ROLLING_BYTES: usize = 4_000;
 /// `max_tokens` for one guidance cycle — small JSON only.
 const GUIDANCE_MAX_TOKENS: usize = 384;
 
+/// Trackers maintain up to 10 bullet notes (vs 3-6 checklist points), so
+/// their JSON needs more room.
+const TRACKER_MAX_TOKENS: usize = 640;
+
 /// Suffix of `s` at most `max` bytes long, aligned to a char boundary and —
 /// when possible — to the start of a line so seeded context never opens
 /// mid-sentence.
@@ -377,12 +381,18 @@ async fn run_one_cycle(inner: &Inner) -> Result<(), String> {
     }
 
     let (system, user) = crate::llm::prompt::build_guidance_prompt(
+        &inner.template.kind,
         &inner.template.goal,
         &inner.template.notes,
         &rolling,
         Some(&prior_json),
         &recent,
     );
+    let max_tokens = if inner.template.kind == "tracker" {
+        TRACKER_MAX_TOKENS
+    } else {
+        GUIDANCE_MAX_TOKENS
+    };
 
     // 2-attempt JSON-parse loop matching the synthesizer's robustness pattern.
     let mut last_raw = String::new();
@@ -392,7 +402,7 @@ async fn run_one_cycle(inner: &Inner) -> Result<(), String> {
             system: system.clone(),
             user: user.clone(),
             history: Vec::new(),
-            max_tokens: GUIDANCE_MAX_TOKENS,
+            max_tokens,
             temperature,
             stop_strings: Vec::new(),
             grammar_gbnf: None,
@@ -483,6 +493,7 @@ fn emit_update(inner: &Inner, resp: &GuidanceResponse) {
         "meetingId": inner.meeting_id,
         "templateName": inner.template.name,
         "goal": inner.template.goal,
+        "kind": inner.template.kind,
         "mode": match *inner.mode.lock().unwrap() {
             Mode::Auto => "auto",
             Mode::OnDemand => "on_demand",
@@ -511,6 +522,7 @@ mod tests {
             description: "".into(),
             goal: "Surface their pains and tools.".into(),
             notes: "ask about current tools\nask about bottlenecks".into(),
+            kind: "checklist".into(),
             created_at: "2026-05-19T00:00:00Z".into(),
             updated_at: "2026-05-19T00:00:00Z".into(),
         }

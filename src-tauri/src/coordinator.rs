@@ -1270,7 +1270,7 @@ async fn try_intercept_action(
                     }
                 }
 
-                match crate::llm::action_launcher::execute_action(app, &cmd) {
+                match crate::llm::action_launcher::execute_action(app, &cmd).await {
                     Ok(msg) => {
                         info!(msg, "Voice action executed successfully");
                         feedback::play(Sfx::Ready);
@@ -1282,14 +1282,16 @@ async fn try_intercept_action(
                             }),
                         );
 
-                        // Fire a macOS system notification
-                        use tauri_plugin_notification::NotificationExt;
-                        let _ = app
-                            .notification()
-                            .builder()
-                            .title("Echo Scribe Action")
-                            .body(&msg)
-                            .show();
+                        // Confirm on screen with the transient action toast.
+                        // Meeting start and screen-recording start already
+                        // surface their own richer UI (start toast / setup
+                        // window), so skip the generic confirmation there.
+                        let action_type = cmd.action_type.as_deref().unwrap_or("");
+                        if action_type != "start_meeting"
+                            && action_type != "start_screen_recording"
+                        {
+                            crate::overlay::show_action_toast(app, action_type, &msg);
+                        }
 
                         // Increment action counter
                         if let Some(s) = app.try_state::<crate::commands::AppState>() {

@@ -3222,7 +3222,7 @@ pub async fn start_meeting_manual(state: tauri::State<'_, AppState>) -> Result<S
 /// Snapshot the frontmost window/URL/tab to feed the meeting synthesis prompt.
 /// Best-effort; returns an empty context when AX/AppleScript fails or the app
 /// is non-macOS.
-fn capture_meeting_start_context() -> crate::meeting::MeetingStartContext {
+pub(crate) fn capture_meeting_start_context() -> crate::meeting::MeetingStartContext {
     let ctx = crate::input::focus::capture_context();
     crate::meeting::MeetingStartContext {
         window_title: ctx.as_ref().and_then(|c| c.window_title.clone()),
@@ -4675,6 +4675,21 @@ pub fn list_guide_templates(
         .map_err(|e| e.to_string())
 }
 
+/// Validate a template kind coming over IPC; `None`/empty falls back to
+/// "checklist" so older callers keep working.
+fn validate_template_kind(kind: Option<String>) -> Result<String, String> {
+    let kind = kind.unwrap_or_default();
+    let kind = kind.trim();
+    if kind.is_empty() {
+        return Ok("checklist".into());
+    }
+    if crate::db::guide_templates::TEMPLATE_KINDS.contains(&kind) {
+        Ok(kind.to_string())
+    } else {
+        Err(format!("unknown guide template kind: {kind}"))
+    }
+}
+
 #[tauri::command]
 pub fn create_guide_template(
     state: State<'_, AppState>,
@@ -4682,11 +4697,13 @@ pub fn create_guide_template(
     description: String,
     goal: String,
     notes: String,
+    kind: Option<String>,
 ) -> Result<crate::db::guide_templates::GuideTemplate, String> {
     let trimmed = name.trim().to_string();
     if trimmed.is_empty() {
         return Err("template name cannot be empty".into());
     }
+    let kind = validate_template_kind(kind)?;
     let db = require_db(&state)?;
     let now = chrono_now_iso();
     let t = crate::db::guide_templates::GuideTemplate {
@@ -4695,6 +4712,7 @@ pub fn create_guide_template(
         description,
         goal,
         notes,
+        kind,
         created_at: now.clone(),
         updated_at: now,
     };
@@ -4712,11 +4730,13 @@ pub fn update_guide_template(
     description: String,
     goal: String,
     notes: String,
+    kind: Option<String>,
 ) -> Result<(), String> {
     let trimmed = name.trim().to_string();
     if trimmed.is_empty() {
         return Err("template name cannot be empty".into());
     }
+    let kind = validate_template_kind(kind)?;
     let db = require_db(&state)?;
     let now = chrono_now_iso();
     db.with_conn(move |c| {
@@ -4727,6 +4747,7 @@ pub fn update_guide_template(
             &description,
             &goal,
             &notes,
+            &kind,
             &now,
         )
     })
@@ -4853,6 +4874,32 @@ pub async fn regenerate_guide_review(
     let template: crate::db::guide_templates::GuideTemplate =
         serde_json::from_str(&run.template_json)
             .map_err(|e| format!("bad template snapshot: {e}"))?;
+
+    // Tracker runs have no rubric to grade — their timeline is the artifact.
+    // Re-complete with the stub so a stale/failed tracker run heals instantly.
+    if template.kind == "tracker" {
+        let stub = serde_json::json!({
+            "overall": "",
+            "synthesis": "Live notes ran during this meeting — open the coaching timeline below to see how the notes evolved.",
+            "scorecard": [],
+            "emergent": [],
+        })
+        .to_string();
+        let gen_at = chrono::Utc::now().to_rfc3339();
+        let rid = run_id.clone();
+        return db
+            .with_conn(move |c| {
+                crate::db::meeting_guide_runs::complete_guide_run_review(
+                    c,
+                    &rid,
+                    stub.as_str(),
+                    gen_at.as_str(),
+                    // Keep the stored hash; the review content is transcript-independent.
+                    run.transcript_hash.as_str(),
+                )
+            })
+            .map_err(|e| e.to_string());
+    }
 
     // Load the meeting transcript → segments.
     let mid = run.meeting_id.clone();
@@ -5142,6 +5189,46 @@ pub fn stop_screen_recording_inner(
     };
     let info = handle.stop()?;
     info!(target: "screenrec", n_events = ?info.n_events, n_clicks = ?info.n_clicks, "recording stopped with input events");
+    // The capture is over no matter what happens below — flip the tray icon
+    // back to idle before any fallible bookkeeping so a failure can't strand
+    // an "active" tray state.
+    if let Ok(t) = state.tray.lock() {
+        t.set_screenrec_active(false);
+    }
+    // Zero-frame outcome: the sidecar never received a frame (e.g. a window
+    // recording where the window stayed off-screen on another Space, or Screen
+    // Recording permission missing), cancelled the writer, and reported
+    // size 0 — no playable .mp4 exists. Inserting a row would put a broken
+    // entry in the library, so clean up the orphan sidecar files and fail with
+    // a friendly message instead.
+    if info.is_empty_capture() {
+        warn!(
+            target: "screenrec",
+            path = %info.path,
+            size = info.size,
+            dur_ms = info.dur_ms,
+            source = %meta.source_label,
+            "no frames were captured; skipping library insert"
+        );
+        remove_orphan_capture_file(&info.path, "mp4");
+        if let Some(p) = info.events_path.as_deref() {
+            remove_orphan_capture_file(p, "events sidecar");
+        }
+        if let Some(p) = info.webcam_path.as_deref() {
+            remove_orphan_capture_file(p, "webcam sidecar");
+        }
+        if !info.thumb.is_empty() {
+            remove_orphan_capture_file(&info.thumb, "thumbnail");
+        }
+        // NOTE: useScreenRecorder.ts matches on the "Nothing was captured"
+        // prefix to show this message verbatim — keep them in sync.
+        return Err(
+            "Nothing was captured — the source never drew any frames (an off-screen \
+             or minimized window, or missing Screen Recording permission), so no \
+             recording was saved."
+                .into(),
+        );
+    }
     let id = std::path::Path::new(&info.path)
         .file_stem()
         .and_then(|s| s.to_str())
@@ -5199,11 +5286,22 @@ pub fn stop_screen_recording_inner(
         let _ =
             db.with_conn(move |c| crate::db::project_tag_jobs::enqueue_recording(c, &rec_id, &now));
     }
-    // Flip tray icon back to idle.
-    if let Ok(t) = state.tray.lock() {
-        t.set_screenrec_active(false);
-    }
     Ok(row)
+}
+
+/// Best-effort removal of a sidecar output nothing will ever reference (the
+/// zero-frame stop path skips the library insert). Missing files are expected
+/// — the sidecar may never have created them.
+fn remove_orphan_capture_file(path: &str, what: &str) {
+    match std::fs::remove_file(path) {
+        Ok(()) => {
+            info!(target: "screenrec", %path, what, "removed orphan file from empty capture")
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => {
+            warn!(target: "screenrec", %path, what, %e, "couldn't remove orphan file from empty capture")
+        }
+    }
 }
 
 #[tauri::command]
@@ -5211,9 +5309,12 @@ pub fn stop_screen_recording(
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<crate::db::recordings::RecordingRow, String> {
-    let row = stop_screen_recording_inner(&state, &app)?;
-    // Notify the frontend so RecordingsView refreshes.
+    let res = stop_screen_recording_inner(&state, &app);
+    // Notify the frontend so RecordingsView refreshes. Emit even when the stop
+    // failed (e.g. the zero-frame path): the active-recording state is already
+    // torn down, so the UI must reconcile either way.
     let _ = app.emit("screenrec-changed", ());
+    let row = res?;
     spawn_auto_denoise(app, row.id.clone());
     Ok(row)
 }
@@ -7635,6 +7736,30 @@ pub fn embedding_index_status(state: State<'_, AppState>) -> Result<EmbeddingInd
         tracing::error!(target: "embed", error = %e, "embedding_index_status failed");
         "Could not read index status.".to_string()
     })
+}
+
+/// Sink for webview-side diagnostics (JS errors, navigation traces) so
+/// frontend failures land in the same daily log as backend ones and stay
+/// debuggable without a rebuild. Messages are truncated defensively — the
+/// frontend controls the content, and a runaway error string shouldn't
+/// bloat the log.
+#[tauri::command]
+pub fn frontend_log(level: String, message: String) {
+    const MAX_LEN: usize = 4000;
+    let msg: &str = if message.len() > MAX_LEN {
+        let mut end = MAX_LEN;
+        while !message.is_char_boundary(end) {
+            end -= 1;
+        }
+        &message[..end]
+    } else {
+        &message
+    };
+    match level.as_str() {
+        "error" => error!(target: "frontend", "{msg}"),
+        "warn" => warn!(target: "frontend", "{msg}"),
+        _ => info!(target: "frontend", "{msg}"),
+    }
 }
 
 #[cfg(test)]

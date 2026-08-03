@@ -5,6 +5,16 @@ use crate::db::DbError;
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use serde::{Deserialize, Serialize};
 
+/// Guide behaviors a template can run as during a live meeting:
+/// - `checklist` — track coverage of agenda points derived from the notes.
+/// - `coach` — notes are principles; contextual nudges only, silence is normal.
+/// - `tracker` — silent note-taker; key points ARE the live bullet notes.
+pub const TEMPLATE_KINDS: &[&str] = &["checklist", "coach", "tracker"];
+
+fn default_template_kind() -> String {
+    "checklist".into()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GuideTemplate {
     pub id: String,
@@ -12,6 +22,10 @@ pub struct GuideTemplate {
     pub description: String,
     pub goal: String,
     pub notes: String,
+    /// One of `TEMPLATE_KINDS`. Serde default keeps pre-kind `template_json`
+    /// snapshots on `meeting_guide_runs` deserializable.
+    #[serde(default = "default_template_kind")]
+    pub kind: String,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -23,6 +37,7 @@ fn row_to_template(row: &Row<'_>) -> rusqlite::Result<GuideTemplate> {
         description: row.get("description")?,
         goal: row.get("goal")?,
         notes: row.get("notes")?,
+        kind: row.get("kind")?,
         created_at: row.get("created_at")?,
         updated_at: row.get("updated_at")?,
     })
@@ -31,14 +46,15 @@ fn row_to_template(row: &Row<'_>) -> rusqlite::Result<GuideTemplate> {
 pub fn insert_template(conn: &Connection, t: &GuideTemplate) -> Result<(), DbError> {
     conn.execute(
         "INSERT INTO guide_templates
-            (id, name, description, goal, notes, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            (id, name, description, goal, notes, kind, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         params![
             t.id,
             t.name,
             t.description,
             t.goal,
             t.notes,
+            t.kind,
             t.created_at,
             t.updated_at
         ],
@@ -48,7 +64,7 @@ pub fn insert_template(conn: &Connection, t: &GuideTemplate) -> Result<(), DbErr
 
 pub fn list_templates(conn: &Connection) -> Result<Vec<GuideTemplate>, DbError> {
     let mut stmt = conn.prepare(
-        "SELECT id, name, description, goal, notes, created_at, updated_at
+        "SELECT id, name, description, goal, notes, kind, created_at, updated_at
          FROM guide_templates ORDER BY name COLLATE NOCASE ASC",
     )?;
     let rows = stmt
@@ -59,7 +75,7 @@ pub fn list_templates(conn: &Connection) -> Result<Vec<GuideTemplate>, DbError> 
 
 pub fn get_template(conn: &Connection, id: &str) -> Result<Option<GuideTemplate>, DbError> {
     conn.query_row(
-        "SELECT id, name, description, goal, notes, created_at, updated_at
+        "SELECT id, name, description, goal, notes, kind, created_at, updated_at
          FROM guide_templates WHERE id = ?1",
         [id],
         row_to_template,
@@ -68,6 +84,7 @@ pub fn get_template(conn: &Connection, id: &str) -> Result<Option<GuideTemplate>
     .map_err(DbError::from)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn update_template(
     conn: &Connection,
     id: &str,
@@ -75,13 +92,14 @@ pub fn update_template(
     description: &str,
     goal: &str,
     notes: &str,
+    kind: &str,
     updated_at: &str,
 ) -> Result<(), DbError> {
     conn.execute(
         "UPDATE guide_templates
-         SET name = ?1, description = ?2, goal = ?3, notes = ?4, updated_at = ?5
-         WHERE id = ?6",
-        params![name, description, goal, notes, updated_at, id],
+         SET name = ?1, description = ?2, goal = ?3, notes = ?4, kind = ?5, updated_at = ?6
+         WHERE id = ?7",
+        params![name, description, goal, notes, kind, updated_at, id],
     )?;
     Ok(())
 }
@@ -154,7 +172,7 @@ pub fn list_enabled_insight_templates(
     conn: &Connection,
 ) -> Result<Vec<(GuideTemplate, GuideInsightConfig)>, DbError> {
     let mut stmt = conn.prepare(
-        "SELECT t.id, t.name, t.description, t.goal, t.notes, t.created_at, t.updated_at,
+        "SELECT t.id, t.name, t.description, t.goal, t.notes, t.kind, t.created_at, t.updated_at,
                 c.enabled, c.show_in_daily_recap, c.insight_kind, c.subject_scope, c.updated_at
          FROM guide_templates t
          JOIN guide_template_insight_settings c ON c.template_id=t.id
@@ -169,16 +187,17 @@ pub fn list_enabled_insight_templates(
                 description: row.get(2)?,
                 goal: row.get(3)?,
                 notes: row.get(4)?,
-                created_at: row.get(5)?,
-                updated_at: row.get(6)?,
+                kind: row.get(5)?,
+                created_at: row.get(6)?,
+                updated_at: row.get(7)?,
             };
             let config = GuideInsightConfig {
                 template_id: template.id.clone(),
-                enabled: row.get(7)?,
-                show_in_daily_recap: row.get(8)?,
-                insight_kind: row.get(9)?,
-                subject_scope: row.get(10)?,
-                updated_at: row.get(11)?,
+                enabled: row.get(8)?,
+                show_in_daily_recap: row.get(9)?,
+                insight_kind: row.get(10)?,
+                subject_scope: row.get(11)?,
+                updated_at: row.get(12)?,
             };
             Ok((template, config))
         })?
@@ -195,15 +214,25 @@ pub struct BuiltinTemplate {
     pub description: &'static str,
     pub goal: &'static str,
     pub notes: &'static str,
+    pub kind: &'static str,
 }
 
 pub const BUILTIN_TEMPLATES: &[BuiltinTemplate] = &[
+    BuiltinTemplate {
+        id: "builtin-live-notes",
+        name: "Live notes",
+        description: "A live bullet-point record of the conversation: main points, decisions, and updates.",
+        goal: "Keep a short, current bullet list of the main things discussed so far, and update it as the conversation moves.",
+        notes: "capture main topics, decisions, numbers, names, and action items\nmerge related remarks into one bullet instead of listing every comment\nmark a point settled once it's decided or the group moves on\ncall out when an earlier point changes or gets reopened",
+        kind: "tracker",
+    },
     BuiltinTemplate {
         id: "builtin-emotional-signals",
         name: "Conversation signals",
         description: "Track evidence-backed emotional and interpersonal signals in meetings.",
         goal: "Notice language that may indicate tension or warmth without diagnosing anyone's internal emotional state.",
         notes: "frustration\nanger or escalating tension\nkindness or warmth",
+        kind: "coach",
     },
     BuiltinTemplate {
         id: "builtin-sales",
@@ -211,6 +240,7 @@ pub const BUILTIN_TEMPLATES: &[BuiltinTemplate] = &[
         description: "Guide a sales call toward a clear next step.",
         goal: "Understand their problem, budget, timeline, and decision process; agree on a concrete next step before the call ends.",
         notes: "ask what prompted them to take this call\nget specific about the problem: frequency, cost, who feels it\nask what they've tried already and why it fell short\nidentify who else is involved in the decision\nask about timeline and budget range\ndon't pitch until the problem is confirmed\nclose with a concrete next step: date, owner, deliverable",
+        kind: "checklist",
     },
     BuiltinTemplate {
         id: "builtin-discovery",
@@ -218,6 +248,7 @@ pub const BUILTIN_TEMPLATES: &[BuiltinTemplate] = &[
         description: "Validate the problem before the solution.",
         goal: "Learn their current workflow, pains, and workarounds without pitching; validate whether the problem is real and painful.",
         notes: "ask them to walk through their current workflow step by step\ndig into the last time the problem actually happened\nask what workarounds they use today\nask how much time or money the problem costs\navoid pitching or leading the witness\nask who else has this problem\nask what would make them switch from their current approach",
+        kind: "checklist",
     },
     BuiltinTemplate {
         id: "builtin-communication",
@@ -225,6 +256,7 @@ pub const BUILTIN_TEMPLATES: &[BuiltinTemplate] = &[
         description: "Keep the conversation crisp and mutual.",
         goal: "Keep statements short and concrete, check understanding often, and close every loop explicitly.",
         notes: "one idea per statement; pause after key points\nreplace abstractions with concrete examples\ncheck understanding: 'does that match how you see it?'\nlet them finish; don't interrupt\nsummarize agreements out loud before moving on\nflag open questions explicitly instead of letting them drop",
+        kind: "coach",
     },
     BuiltinTemplate {
         id: "builtin-deescalate",
@@ -232,13 +264,15 @@ pub const BUILTIN_TEMPLATES: &[BuiltinTemplate] = &[
         description: "Lower the temperature and find the shared goal.",
         goal: "Acknowledge before countering, name emotions, slow the pace, and steer toward the shared goal instead of winning the point.",
         notes: "acknowledge their point before responding to it\nname the emotion you hear: 'sounds like this has been frustrating'\nslow down and lower your volume when tension rises\nask questions instead of stating counterpoints\nfind and restate the shared goal\nif it keeps heating up, suggest a pause or a follow-up",
+        kind: "coach",
     },
     BuiltinTemplate {
         id: "builtin-leadership",
         name: "Leadership presence",
-        description: "Lead the room by listening and committing clearly.",
-        goal: "Listen more than you speak, ask before telling, give specific credit, and end with clear owners and dates.",
-        notes: "speak last: gather everyone's view first\nask 'what do you think?' before giving your answer\ngive credit by name for specific contributions\nstate decisions and the reasoning plainly\nevery action item gets an owner and a date\nadmit uncertainty openly; it builds trust",
+        description: "Adaptive leadership coaching — timely nudges, not scripts.",
+        goal: "Lead the room so every voice is heard, decisions land clearly, and people leave knowing what happens next.",
+        notes: "if someone affected by the topic hasn't spoken, draw them out by name\nif you've held the floor for a while, hand it back with a question\ncredit useful contributions by name, in the moment\nwhen a decision lands, restate it plainly: what, why, who, by when\nif the group is circling, say so and propose a way to decide\nsaying 'I don't know' is fine — pair it with how you'll find out",
+        kind: "coach",
     },
 ];
 
@@ -251,9 +285,9 @@ pub fn seed_builtin_templates(conn: &Connection, now_iso: &str) -> Result<usize,
     for b in BUILTIN_TEMPLATES {
         inserted += conn.execute(
             "INSERT OR IGNORE INTO guide_templates
-                (id, name, description, goal, notes, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
-            params![b.id, b.name, b.description, b.goal, b.notes, now_iso],
+                (id, name, description, goal, notes, kind, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)",
+            params![b.id, b.name, b.description, b.goal, b.notes, b.kind, now_iso],
         )?;
     }
     Ok(inserted)
@@ -277,6 +311,7 @@ mod tests {
             description: "desc".into(),
             goal: "the goal".into(),
             notes: "ask about tools\nask about bottlenecks".into(),
+            kind: "checklist".into(),
             created_at: "2026-05-18T00:00:00Z".into(),
             updated_at: "2026-05-18T00:00:00Z".into(),
         }
@@ -311,6 +346,7 @@ mod tests {
             vec![
                 "Alpha".to_string(),
                 "Conversation signals".to_string(),
+                "Live notes".to_string(),
                 "zebra".to_string(),
             ]
         );
@@ -327,6 +363,7 @@ mod tests {
             "d2",
             "g2",
             "n2",
+            "tracker",
             "2026-05-19T00:00:00Z",
         )
         .unwrap();
@@ -335,6 +372,7 @@ mod tests {
         assert_eq!(got.description, "d2");
         assert_eq!(got.goal, "g2");
         assert_eq!(got.notes, "n2");
+        assert_eq!(got.kind, "tracker");
         assert_eq!(got.updated_at, "2026-05-19T00:00:00Z");
         assert_eq!(got.created_at, "2026-05-18T00:00:00Z");
     }
@@ -348,17 +386,40 @@ mod tests {
     }
 
     #[test]
-    fn seed_builtins_inserts_five_then_zero() {
+    fn seed_builtins_inserts_missing_then_zero() {
         let c = fresh();
+        // Migrations pre-seed signals (v31) and live-notes (v32); the seeder
+        // fills in the remaining builtins.
         assert_eq!(
             seed_builtin_templates(&c, "2026-07-03T00:00:00Z").unwrap(),
-            5
+            BUILTIN_TEMPLATES.len() - 2
         );
         assert_eq!(
             seed_builtin_templates(&c, "2026-07-03T00:00:00Z").unwrap(),
             0
         );
-        assert_eq!(list_templates(&c).unwrap().len(), 6);
+        assert_eq!(list_templates(&c).unwrap().len(), BUILTIN_TEMPLATES.len());
+    }
+
+    #[test]
+    fn seed_builtins_sets_kinds() {
+        let c = fresh();
+        seed_builtin_templates(&c, "2026-07-03T00:00:00Z").unwrap();
+        let kind_of = |id: &str| get_template(&c, id).unwrap().unwrap().kind;
+        assert_eq!(kind_of("builtin-live-notes"), "tracker");
+        assert_eq!(kind_of("builtin-leadership"), "coach");
+        assert_eq!(kind_of("builtin-sales"), "checklist");
+    }
+
+    #[test]
+    fn template_json_without_kind_defaults_to_checklist() {
+        // Old `template_json` snapshots on meeting_guide_runs predate `kind`.
+        let t: GuideTemplate = serde_json::from_str(
+            r#"{"id":"t1","name":"n","description":"d","goal":"g","notes":"n",
+                "created_at":"c","updated_at":"u"}"#,
+        )
+        .unwrap();
+        assert_eq!(t.kind, "checklist");
     }
 
     #[test]
@@ -372,6 +433,7 @@ mod tests {
             "d",
             "g",
             "n",
+            "checklist",
             "2026-07-04T00:00:00Z",
         )
         .unwrap();

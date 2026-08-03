@@ -106,7 +106,7 @@ impl KeepAwakeStatus {
 }
 
 /// "15 minutes", "1 hour", "4 hours".
-fn human_duration(minutes: u32) -> String {
+pub fn human_duration(minutes: u32) -> String {
     if minutes >= 60 && minutes.is_multiple_of(60) {
         let hours = minutes / 60;
         if hours == 1 {

@@ -5,12 +5,13 @@ use tracing::{debug, info, warn};
 
 use crate::commands::AppState;
 use crate::llm::{GenerateRequest, LlmError, LlmGenerator};
+use crate::power::KeepAwakeMode;
 use crate::settings::FormatTemplate;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct ActionCommand {
     pub is_action: bool,
-    pub action_type: Option<String>, // "launch_app" | "draft_email" | "open_url" | "increment_counter" | "reset_counter" | "show_counter" | "format_text"
+    pub action_type: Option<String>, // "launch_app" | "draft_email" | "open_url" | "increment_counter" | "reset_counter" | "show_counter" | "format_text" | "stay_awake" | "stop_stay_awake" | "start_screen_recording" | "start_meeting" | "stop_meeting"
     pub app_name: Option<String>,
     pub email_to: Option<String>,
     pub email_subject: Option<String>,
@@ -24,6 +25,11 @@ pub struct ActionCommand {
     /// i.e. everything after the "format as X" trigger phrase.
     #[serde(default)]
     pub format_body: Option<String>,
+    /// Requested keep-awake duration in minutes. Only meaningful when
+    /// `action_type == "stay_awake"`; `None` means "no duration spoken" and
+    /// engages an indefinite hold.
+    #[serde(default)]
+    pub stay_awake_minutes: Option<u32>,
     pub confidence: f32,
 }
 
@@ -45,7 +51,7 @@ Analyze the user's voice dictation and classify if it represents a system action
 Respond ONLY with a single JSON object matching this schema:
 {
   \"is_action\": true | false,
-  \"action_type\": \"launch_app\" | \"draft_email\" | \"open_url\" | \"increment_counter\" | \"reset_counter\" | \"show_counter\" | \"format_text\" | null,
+  \"action_type\": \"launch_app\" | \"draft_email\" | \"open_url\" | \"increment_counter\" | \"reset_counter\" | \"show_counter\" | \"format_text\" | \"stay_awake\" | \"stop_stay_awake\" | \"start_screen_recording\" | \"start_meeting\" | \"stop_meeting\" | null,
   \"app_name\": \"<name of app to launch or null>\",
   \"email_to\": \"<recipient name or email address or null>\",
   \"email_subject\": \"<subject line or null>\",
@@ -53,6 +59,7 @@ Respond ONLY with a single JSON object matching this schema:
   \"url\": \"<url to open or null>\",
   \"format_id\": \"<id of matched format template or null>\",
   \"format_body\": \"<the portion of dictation that should be reformatted, or null>\",
+  \"stay_awake_minutes\": <duration in minutes as an integer, or null>,
   \"confidence\": <float between 0.0 and 1.0>
 }
 
@@ -63,6 +70,11 @@ Common templates:
 - Increment counter: 'increment counter', 'add one to counter', 'add to count'. action_type: 'increment_counter'
 - Reset counter: 'reset counter', 'clear count', 'reset action count'. action_type: 'reset_counter'
 - Show counter: 'show counter', 'how many actions', 'what is the count'. action_type: 'show_counter'
+- Stay awake: 'stay awake', 'stay awake for 2 hours', 'keep my mac awake for 30 minutes', 'caffeinate for an hour'. action_type: 'stay_awake'. Set stay_awake_minutes to the spoken duration converted to minutes (e.g. '2 hours' -> 120), or null when no duration was spoken (stay awake indefinitely).
+- Stop staying awake: 'stop staying awake', 'let my mac sleep', 'turn off keep awake', 'stop keep awake'. action_type: 'stop_stay_awake'
+- Start screen recording: 'start screen recording', 'record my screen', 'new screen recording'. action_type: 'start_screen_recording'
+- Start meeting: 'start meeting', 'start the meeting', 'record this meeting', 'start meeting recording'. action_type: 'start_meeting'
+- Stop meeting: 'stop meeting', 'end the meeting', 'stop meeting recording'. action_type: 'stop_meeting'
 - Format text: the user dictates a 'format as X' phrase followed by the body to reformat. action_type: 'format_text'. Set format_id to the matching template id, and format_body to the dictation text AFTER the trigger phrase (the content to be reformatted). Only use format_text if the user's dictation clearly starts with or contains a format-trigger phrase from the list below.";
 
 const ACTION_SYSTEM_PROMPT_TAIL: &str = "\n\
@@ -150,8 +162,19 @@ fn parse_raw_action(raw: &str) -> Result<ActionCommand, String> {
     serde_json::from_str::<ActionCommand>(slice).map_err(|e| e.to_string())
 }
 
+/// Map a spoken keep-awake duration to a mode. `None` and `Some(0)` both read
+/// as "no duration given" → indefinite hold. Durations are clamped to 24 hours
+/// so a misheard "2000 hours" can't pin the machine awake for weeks.
+fn keep_awake_mode_from_minutes(minutes: Option<u32>) -> KeepAwakeMode {
+    const MAX_MINUTES: u32 = 24 * 60;
+    match minutes {
+        None | Some(0) => KeepAwakeMode::Indefinite,
+        Some(m) => KeepAwakeMode::Minutes(m.min(MAX_MINUTES)),
+    }
+}
+
 /// Execute a classified action on macOS on behalf of the user
-pub fn execute_action(app: &AppHandle, cmd: &ActionCommand) -> Result<String, ActionError> {
+pub async fn execute_action(app: &AppHandle, cmd: &ActionCommand) -> Result<String, ActionError> {
     let action_type = cmd.action_type.as_deref().unwrap_or("");
     info!(action_type, "executing voice action command");
 
@@ -288,6 +311,88 @@ pub fn execute_action(app: &AppHandle, cmd: &ActionCommand) -> Result<String, Ac
 
             Ok(format!("The current action counter value is {}", count))
         }
+        "stay_awake" => {
+            if !crate::power::is_supported() {
+                return Err(ActionError::Execute(
+                    "Keep awake is only available on macOS".to_string(),
+                ));
+            }
+            let mode = keep_awake_mode_from_minutes(cmd.stay_awake_minutes);
+            // Same path as the tray submenu: engages the assertion, syncs the
+            // tray menu, and persists the mode.
+            crate::ui::tray::apply_keep_awake(app, mode);
+
+            // apply_keep_awake reports failure via logs/events only, so verify
+            // the hold actually engaged before claiming success.
+            let app_state = app
+                .try_state::<AppState>()
+                .ok_or_else(|| ActionError::Settings("app state unavailable".to_string()))?;
+            let status = app_state.keep_awake.status();
+            if status.mode.is_off() {
+                return Err(ActionError::Execute(
+                    "Keep awake could not be engaged. See logs for details.".to_string(),
+                ));
+            }
+
+            Ok(match mode {
+                KeepAwakeMode::Minutes(m) => {
+                    format!("Keeping your Mac awake for {}", crate::power::human_duration(m))
+                }
+                _ => "Keeping your Mac awake until you turn it off".to_string(),
+            })
+        }
+        "stop_stay_awake" => {
+            crate::ui::tray::apply_keep_awake(app, KeepAwakeMode::Off);
+            Ok("Keep awake turned off".to_string())
+        }
+        "start_screen_recording" => {
+            // Window show/create must happen on the main thread.
+            let app_for_main = app.clone();
+            app.run_on_main_thread(move || {
+                crate::overlay::show_screenrec_setup(&app_for_main);
+            })
+            .map_err(|e| {
+                ActionError::Execute(format!("failed to open recording setup window: {e}"))
+            })?;
+            Ok("Opened the screen recording setup".to_string())
+        }
+        "start_meeting" => {
+            let app_state = app
+                .try_state::<AppState>()
+                .ok_or_else(|| ActionError::Settings("app state unavailable".to_string()))?;
+            let start_context = crate::commands::capture_meeting_start_context();
+            let id = app_state
+                .meeting_manager
+                .clone()
+                .start(None, None, start_context)
+                .await
+                .map_err(|e| match e {
+                    crate::meeting::MeetingError::AlreadyRecording => ActionError::Execute(
+                        "A meeting recording is already in progress".to_string(),
+                    ),
+                    other => ActionError::Execute(format!("couldn't start meeting: {other}")),
+                })?;
+            crate::meeting::detector::spawn_end_monitor(app_state.meeting_manager.clone(), None);
+            info!(target: "meeting", meeting_id = %id, "meeting started by voice action");
+            Ok("Meeting recording started".to_string())
+        }
+        "stop_meeting" => {
+            let app_state = app
+                .try_state::<AppState>()
+                .ok_or_else(|| ActionError::Settings("app state unavailable".to_string()))?;
+            let id = app_state
+                .meeting_manager
+                .stop_by_user()
+                .await
+                .map_err(|e| match e {
+                    crate::meeting::MeetingError::NotRecording => ActionError::Execute(
+                        "No meeting recording is in progress".to_string(),
+                    ),
+                    other => ActionError::Execute(format!("couldn't stop meeting: {other}")),
+                })?;
+            info!(target: "meeting", meeting_id = %id, "meeting stopped by voice action");
+            Ok("Meeting recording stopped".to_string())
+        }
         _ => Err(ActionError::Execute(format!(
             "Unsupported or unrecognized action type: '{}'",
             action_type
@@ -383,6 +488,43 @@ pub async fn format_text<L: LlmGenerator + ?Sized>(
     let raw = llm.generate(req).await?;
     let trimmed = raw.trim().to_string();
     Ok(trimmed)
+}
+
+#[cfg(test)]
+mod stay_awake_tests {
+    use super::*;
+
+    #[test]
+    fn no_duration_means_indefinite() {
+        assert_eq!(
+            keep_awake_mode_from_minutes(None),
+            KeepAwakeMode::Indefinite
+        );
+        assert_eq!(
+            keep_awake_mode_from_minutes(Some(0)),
+            KeepAwakeMode::Indefinite
+        );
+    }
+
+    #[test]
+    fn spoken_durations_map_to_timed_holds() {
+        assert_eq!(
+            keep_awake_mode_from_minutes(Some(120)),
+            KeepAwakeMode::Minutes(120)
+        );
+        assert_eq!(
+            keep_awake_mode_from_minutes(Some(15)),
+            KeepAwakeMode::Minutes(15)
+        );
+    }
+
+    #[test]
+    fn absurd_durations_are_clamped_to_a_day() {
+        assert_eq!(
+            keep_awake_mode_from_minutes(Some(120_000)),
+            KeepAwakeMode::Minutes(24 * 60)
+        );
+    }
 }
 
 /// Check if the transcript starts with a command trigger word (e.g., "echo", "eco", "hecho", "ekko").

@@ -22,7 +22,9 @@ fi
 
 echo "husky ▶ package.json is $version and $tag isn't published yet — tagging to trigger a release"
 git tag "$tag" 2>/dev/null || true
-if git push origin "$tag" 2>/dev/null; then
+# --no-verify is load-bearing: without it this push re-enters this same hook,
+# which sees the tag still missing from the remote and pushes again, forever.
+if git push --no-verify origin "$tag" 2>/dev/null; then
   echo "husky ▶ pushed $tag — the Release workflow will build + publish the macOS bundle"
 else
   echo "husky ▶ could not auto-push $tag; run it manually:  git push origin $tag"

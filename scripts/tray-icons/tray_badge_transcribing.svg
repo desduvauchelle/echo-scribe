@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <!-- Activity badge, bottom-right: blue disc + white text lines (transcribing). -->
+  <circle cx="47" cy="47" r="15" fill="#0A84FF"/>
+  <line x1="40" y1="41.5" x2="54" y2="41.5" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/>
+  <line x1="40" y1="47"   x2="54" y2="47"   stroke="#fff" stroke-width="2.6" stroke-linecap="round"/>
+  <line x1="40" y1="52.5" x2="48.5" y2="52.5" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/>
+</svg>

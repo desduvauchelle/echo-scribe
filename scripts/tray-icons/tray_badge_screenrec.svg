@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <!-- Activity badge, bottom-right: crimson disc + white display (screen recording). -->
+  <circle cx="47" cy="47" r="15" fill="#FF375F"/>
+  <rect x="39.5" y="39.5" width="15" height="10.5" rx="2" fill="none" stroke="#fff" stroke-width="2.2"/>
+  <line x1="47" y1="50" x2="47" y2="53.4" stroke="#fff" stroke-width="2.2"/>
+  <line x1="43" y1="54.2" x2="51" y2="54.2" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/>
+</svg>

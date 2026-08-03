@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <!-- Activity badge, bottom-right: cyan disc + two white people (meeting). -->
+  <circle cx="47" cy="47" r="15" fill="#21B0CF"/>
+  <!-- back person -->
+  <g fill="#fff">
+    <circle cx="51.2" cy="43.6" r="2.4"/>
+    <rect x="47.6" y="47.4" width="7.2" height="6.4" rx="3.2"/>
+  </g>
+  <!-- front person, outlined in disc color to separate from the back one -->
+  <g fill="#fff" stroke="#21B0CF" stroke-width="1.2">
+    <circle cx="44" cy="42.8" r="2.9"/>
+    <rect x="39.4" y="47" width="9.2" height="7.2" rx="3.8"/>
+  </g>
+</svg>

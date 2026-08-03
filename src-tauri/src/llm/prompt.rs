@@ -505,36 +505,94 @@ pub const GUIDANCE_JSON_HINT: &str = r#"{
 
 /// Build the system+user prompt for one live guidance cycle.
 ///
-/// The LLM is given the conversation goal + freeform notes, a bounded recent
-/// transcript window, and the prior derived points (for stable IDs and status
-/// progression). It must emit a small JSON document. `max_tokens` is sized
-/// for this in the engine; the prompt asks for terse output.
+/// `kind` selects the guide's persona (see `db::guide_templates::TEMPLATE_KINDS`):
+/// - `checklist` — coverage tracking of agenda points derived from the notes.
+/// - `coach` — notes are principles; contextual nudges only, silence is normal.
+/// - `tracker` — silent note-taker; key_points ARE the live bullet notes and
+///   suggestions carry conversation *updates*, never advice.
+///
+/// All kinds share the same JSON contract so the engine, HUD, and timeline
+/// persistence are kind-agnostic. The LLM also receives a bounded recent
+/// transcript window and the prior derived points (for stable IDs).
 pub fn build_guidance_prompt(
+    kind: &str,
     goal: &str,
     notes: &str,
     rolling_transcript: &str,
     prior_points_json: Option<&str>,
     recent_suggestions: &[String],
 ) -> (Option<String>, String) {
-    let system = format!(
-        "You are a real-time meeting facilitator. Track whether the conversation \
-         has covered each key point implied by the user's goal and notes. Return \
-         ONLY a single JSON object matching this exact schema (no prose, no \
-         markdown, no code fences):\n{GUIDANCE_JSON_HINT}\n\n\
-         Rules:\n\
-         - Reuse the SAME id for a point that already appeared in 'previous \
-         points'. Do not invent new ids for the same concept.\n\
-         - status: 'covered' if clearly addressed, 'partial' if touched but \
-         incomplete, 'open' otherwise.\n\
-         - 3-6 key_points total.\n\
-         - suggestions: emit AT MOST ONE, and ONLY if the recent transcript \
-         introduced something new and actionable. Otherwise return an empty \
-         suggestions array — silence is correct when nothing has changed.\n\
-         - A suggestion must be ≤ 12 words, concrete, and specific to the most \
-         recent transcript. Do NOT restate the goal or notes as a suggestion, \
-         and do NOT repeat or rephrase anything under 'already suggested'.\n\
-         - Output JSON only.",
-    );
+    let system = match kind {
+        "tracker" => format!(
+            "You are a silent note-taker keeping live bullet notes on a \
+             conversation. Maintain the running list of the MAIN things \
+             discussed so far — topics, decisions, numbers, names, action \
+             items. You never give advice. Return ONLY a single JSON object \
+             matching this exact schema (no prose, no markdown, no code \
+             fences):\n{GUIDANCE_JSON_HINT}\n\n\
+             Rules:\n\
+             - key_points ARE the notes: 3-10 short bullets (≤ 12 words each) \
+             covering the whole conversation so far, oldest first.\n\
+             - Merge related remarks into one bullet; do not log every comment.\n\
+             - Reuse the SAME id for the same point across cycles; you may \
+             reword its label as your understanding improves.\n\
+             - status: 'open' while a point is still being discussed or \
+             unresolved, 'partial' when a direction is tentative, 'covered' \
+             once it is settled, decided, or the conversation moved past it.\n\
+             - suggestions carry UPDATES, not advice: at most 2 short lines, \
+             ONLY for a genuinely new development in the recent transcript \
+             (a decision made, an earlier point changed or reopened, a new \
+             commitment). No coaching, no questions to ask, no opinions. An \
+             empty array is correct when nothing new happened.\n\
+             - Do NOT repeat anything under 'already noted'.\n\
+             - Output JSON only.",
+        ),
+        "coach" => format!(
+            "You are a quiet, real-time conversation coach. The user is the \
+             speaker labeled 'you'. The notes are principles the user wants \
+             to embody — they are NOT a checklist to complete and NOT rules \
+             to enforce. Judge only what is actually happening in the recent \
+             transcript. Return ONLY a single JSON object matching this exact \
+             schema (no prose, no markdown, no code fences):\n{GUIDANCE_JSON_HINT}\n\n\
+             Rules:\n\
+             - key_points: up to 4 short observations about how the \
+             conversation is actually going relative to the principles (e.g. \
+             who is getting airtime, whether decisions are landing, rising \
+             tension). Only include what the transcript shows. status: \
+             'covered' = going well, 'partial' = mixed, 'open' = worth \
+             attention.\n\
+             - Reuse the SAME id for an observation that already appeared in \
+             'previous points'; drop observations that no longer apply.\n\
+             - suggestions: at most ONE, ≤ 14 words, and ONLY when a \
+             principle clearly applies to what JUST happened. Tie it to the \
+             specific moment — a name, a topic, a number from the recent \
+             transcript. Generic advice ('listen more', 'speak last') is \
+             forbidden. A real coach is mostly silent: an empty array is the \
+             right answer for most cycles.\n\
+             - Do NOT restate the goal or a note as a suggestion, and do NOT \
+             repeat or rephrase anything under 'already suggested'.\n\
+             - Output JSON only.",
+        ),
+        _ => format!(
+            "You are a real-time meeting facilitator. Track whether the conversation \
+             has covered each key point implied by the user's goal and notes. Return \
+             ONLY a single JSON object matching this exact schema (no prose, no \
+             markdown, no code fences):\n{GUIDANCE_JSON_HINT}\n\n\
+             Rules:\n\
+             - Reuse the SAME id for a point that already appeared in 'previous \
+             points'. Do not invent new ids for the same concept.\n\
+             - status: 'covered' if clearly addressed, 'partial' if touched but \
+             incomplete, 'open' otherwise.\n\
+             - 3-6 key_points total.\n\
+             - suggestions: emit AT MOST ONE, and ONLY if the recent transcript \
+             introduced something new and actionable. Otherwise return an empty \
+             suggestions array — silence is correct when nothing has changed.\n\
+             - A suggestion must be ≤ 12 words, concrete, and specific to the most \
+             recent transcript. Do NOT restate the goal or notes as a suggestion, \
+             and do NOT repeat or rephrase anything under 'already suggested'.\n\
+             - Output JSON only.",
+        ),
+    };
     let prior = prior_points_json.unwrap_or("[]");
     let already = if recent_suggestions.is_empty() {
         "(none yet)".to_string()
@@ -545,8 +603,13 @@ pub fn build_guidance_prompt(
             .collect::<Vec<_>>()
             .join("\n")
     };
+    let already_label = if kind == "tracker" {
+        "Already noted (do NOT repeat)"
+    } else {
+        "Already suggested (do NOT repeat or rephrase)"
+    };
     let user = format!(
-        "Goal: {goal}\n\nNotes:\n{notes}\n\nPrevious points (carry ids forward):\n{prior}\n\nAlready suggested (do NOT repeat or rephrase):\n{already}\n\nRecent transcript:\n{rolling_transcript}\n\nReturn the JSON now."
+        "Goal: {goal}\n\nNotes:\n{notes}\n\nPrevious points (carry ids forward):\n{prior}\n\n{already_label}:\n{already}\n\nRecent transcript:\n{rolling_transcript}\n\nReturn the JSON now."
     );
     (Some(system), user)
 }
@@ -647,6 +710,7 @@ mod guidance_prompt_tests {
     #[test]
     fn embeds_goal_notes_transcript_and_prior() {
         let (sys, user) = build_guidance_prompt(
+            "checklist",
             "Customer discovery",
             "ask about tools\nask about budget",
             "they said spreadsheets break daily",
@@ -663,13 +727,13 @@ mod guidance_prompt_tests {
 
     #[test]
     fn empty_prior_defaults_to_empty_array() {
-        let (_sys, user) = build_guidance_prompt("g", "n", "t", None, &[]);
+        let (_sys, user) = build_guidance_prompt("checklist", "g", "n", "t", None, &[]);
         assert!(user.contains("Previous points (carry ids forward):\n[]"));
     }
 
     #[test]
     fn no_recent_suggestions_renders_placeholder() {
-        let (_sys, user) = build_guidance_prompt("g", "n", "t", None, &[]);
+        let (_sys, user) = build_guidance_prompt("checklist", "g", "n", "t", None, &[]);
         assert!(user.contains("Already suggested (do NOT repeat or rephrase):\n(none yet)"));
     }
 
@@ -679,17 +743,44 @@ mod guidance_prompt_tests {
             "Ask who owns the LinkedIn task".to_string(),
             "Confirm the Titanic case decision".to_string(),
         ];
-        let (_sys, user) = build_guidance_prompt("g", "n", "t", None, &recent);
+        let (_sys, user) = build_guidance_prompt("checklist", "g", "n", "t", None, &recent);
         assert!(user.contains("- Ask who owns the LinkedIn task"));
         assert!(user.contains("- Confirm the Titanic case decision"));
     }
 
     #[test]
     fn rules_enforce_single_suggestion_and_silence() {
-        let (sys, _user) = build_guidance_prompt("g", "n", "t", None, &[]);
+        let (sys, _user) = build_guidance_prompt("checklist", "g", "n", "t", None, &[]);
         let sys = sys.unwrap();
         assert!(sys.contains("AT MOST ONE"), "got: {sys}");
         assert!(sys.contains("empty suggestions array"), "got: {sys}");
         assert!(sys.contains("Do NOT restate the goal"), "got: {sys}");
+    }
+
+    #[test]
+    fn unknown_kind_falls_back_to_checklist_persona() {
+        let (sys, _user) = build_guidance_prompt("bogus", "g", "n", "t", None, &[]);
+        assert!(sys.unwrap().contains("meeting facilitator"));
+    }
+
+    #[test]
+    fn tracker_kind_is_a_note_taker_not_an_advisor() {
+        let (sys, user) = build_guidance_prompt("tracker", "g", "n", "t", None, &[]);
+        let sys = sys.unwrap();
+        assert!(sys.contains("note-taker"), "got: {sys}");
+        assert!(sys.contains("never give advice"), "got: {sys}");
+        assert!(sys.contains("UPDATES, not advice"), "got: {sys}");
+        assert!(sys.contains("3-10 short bullets"), "got: {sys}");
+        assert!(user.contains("Already noted (do NOT repeat):"));
+    }
+
+    #[test]
+    fn coach_kind_treats_notes_as_principles_and_forbids_generic_advice() {
+        let (sys, _user) = build_guidance_prompt("coach", "g", "n", "t", None, &[]);
+        let sys = sys.unwrap();
+        assert!(sys.contains("NOT a checklist"), "got: {sys}");
+        assert!(sys.contains("Generic advice"), "got: {sys}");
+        assert!(sys.contains("mostly silent"), "got: {sys}");
+        assert!(sys.contains("at most ONE"), "got: {sys}");
     }
 }

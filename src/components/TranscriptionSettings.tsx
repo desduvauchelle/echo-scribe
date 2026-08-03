@@ -474,7 +474,7 @@ function ChipListCard(props: {
           type="button"
           onClick={add}
           disabled={disabled || !input.trim() || (!!validate && !validate(input.trim()))}
-          className="rounded-md bg-danger/15 px-3 py-1.5 text-xs font-semibold text-danger hover:bg-danger/15 disabled:opacity-40"
+          className="rounded-md bg-accent/15 px-3 py-1.5 text-xs font-semibold text-accent hover:bg-accent/25 disabled:opacity-40"
         >
           Add
         </button>
