@@ -58,6 +58,10 @@ _old/
 src-tauri/target/
 src-tauri/gen/
 
+# Compiled Swift sidecars (built by scripts/build-syscap.sh + build-screenrec.sh,
+# and by release.yml before every packaged build) — build artifacts, not sources.
+src-tauri/binaries/
+
 # Vite extras
 dist-ssr/
 *.local

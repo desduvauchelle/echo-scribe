@@ -415,29 +415,13 @@ fn build_menu<R: Runtime>(
                 true,
                 None::<&str>,
             )?)),
-            MenuEntry::LastTranscript => {
-                let copy_last = MenuItem::with_id(
-                    app,
-                    "copy_last",
-                    "Copy last transcript",
-                    true,
-                    None::<&str>,
-                )?;
-                let paste_last = MenuItem::with_id(
-                    app,
-                    "paste_last",
-                    "Paste last transcript",
-                    true,
-                    None::<&str>,
-                )?;
-                items.push(Box::new(Submenu::with_id_and_items(
-                    app,
-                    "last_transcript",
-                    "Last transcript",
-                    true,
-                    &[&copy_last, &paste_last],
-                )?));
-            }
+            MenuEntry::LastTranscript => items.push(Box::new(MenuItem::with_id(
+                app,
+                "copy_last",
+                "Copy last transcript",
+                true,
+                None::<&str>,
+            )?)),
             MenuEntry::PauseHotkeys { paused } => {
                 let label = if paused {
                     "Resume hotkeys"
@@ -519,16 +503,6 @@ impl TrayHandle<Wry> {
                         Ok(_) => info!("last transcript copied from tray"),
                         Err(e) => {
                             warn!(%e, "tray: copy last transcript failed");
-                            let _ = app_for_handler.emit("asr:error", e);
-                        }
-                    }
-                }
-                "paste_last" => {
-                    let state = app_for_handler.state::<AppState>();
-                    match crate::commands::paste_last_transcript(app_for_handler.clone(), state) {
-                        Ok(_) => info!("last transcript pasted from tray"),
-                        Err(e) => {
-                            warn!(%e, "tray: paste last transcript failed");
                             let _ = app_for_handler.emit("asr:error", e);
                         }
                     }

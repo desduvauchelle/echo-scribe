@@ -76,13 +76,20 @@ export function DriveReconnectModal({
       panelClassName="w-[400px] rounded-lg border border-line bg-canvas p-5 shadow-xl"
     >
         <h2 className="text-[14px] font-semibold tracking-tight">
-          Google Drive is disconnected
+          Google Drive needs reconnecting
         </h2>
         <p className="mt-2 text-[12.5px] leading-relaxed text-muted">
-          Google no longer accepts this app&apos;s authorization. This happens
-          after a password change, after revoking the app in your Google
-          account, or when Google expires the grant on its own. Reconnect to
-          continue — this upload will resume automatically.
+          Google isn&apos;t accepting this app&apos;s authorization for uploads.
+          That happens after a password change or revoking access — and also
+          when the Drive permission wasn&apos;t granted on the consent screen.
+          Reconnect to continue; this upload will resume automatically.
+        </p>
+        <p className="mt-2 text-[12.5px] leading-relaxed text-muted">
+          On Google&apos;s page, make sure the checkbox for{" "}
+          <span className="text-fg">
+            adding and editing files in your Google Drive
+          </span>{" "}
+          is ticked. Signing in without it leaves uploads blocked.
         </p>
         {error ? <p className="mt-2 text-[12px] text-danger">{error}</p> : null}
         <div className="mt-4 flex justify-end gap-2">

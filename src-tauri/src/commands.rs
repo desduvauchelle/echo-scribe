@@ -7378,6 +7378,14 @@ pub async fn drive_connect(state: State<'_, AppState>) -> Result<DriveStatus, St
         Ok(e) => e,
         Err(e) => {
             error!(target: "drive", error = %e, "Drive connect failed");
+            // Distinguish "you clicked through consent without granting Drive"
+            // from a genuine connect failure — the fix is different, and the
+            // generic message would send the user to the logs for nothing.
+            if e.contains(crate::screenrec::drive::SCOPE_MISSING) {
+                return Err("Google Drive access wasn't granted. Connect again and tick the \
+                            checkbox that lets Echo Scribe upload files to Google Drive."
+                    .into());
+            }
             return Err(
                 "Couldn't connect to Google Drive. See Settings → Diagnostics → logs for details."
                     .into(),
@@ -7713,9 +7721,22 @@ pub async fn upload_recording(
             // e.g. right after an invalid_grant cleared it). The frontend
             // matches the sentinel prefix to offer a reconnect flow instead of
             // a dead-end error.
-            let needs_reconnect = e.contains(crate::screenrec::drive::RECONNECT_REQUIRED)
+            // A grant that never included the Drive scope is its own failure:
+            // the token works, so "reconnect" alone would reproduce it — the
+            // user has to tick the Drive permission on Google's consent screen.
+            let scope_missing = e.contains(crate::screenrec::drive::SCOPE_MISSING);
+            if scope_missing {
+                crate::screenrec::drive::clear_unusable_token(
+                    "upload rejected for insufficient scope",
+                );
+                state.settings.set_drive_account_email(None).ok();
+            }
+            let needs_reconnect = scope_missing
+                || e.contains(crate::screenrec::drive::RECONNECT_REQUIRED)
                 || e.contains("not connected to Drive");
-            let friendly = if needs_reconnect {
+            let friendly = if scope_missing {
+                "Google Drive access wasn't granted — reconnect and tick the Google Drive permission."
+            } else if needs_reconnect {
                 "Google Drive isn't connected — reconnect to upload."
             } else {
                 "Upload to Drive failed. See Settings → Diagnostics → logs for details."

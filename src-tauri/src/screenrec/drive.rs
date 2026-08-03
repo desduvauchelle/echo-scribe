@@ -12,6 +12,12 @@ const AUTH_ENDPOINT: &str = "https://accounts.google.com/o/oauth2/v2/auth";
 const TOKEN_ENDPOINT: &str = "https://oauth2.googleapis.com/token";
 // SCOPE is used by auth_url(); no dead_code allow needed.
 const SCOPE: &str = "https://www.googleapis.com/auth/drive.file openid email";
+/// The one scope uploads actually need. Google's consent screen shows it as its
+/// own checkbox (granular consent), and *unticking it still yields a valid
+/// token* — one that carries `openid email` only. Every `files.create` then
+/// fails 403 `ACCESS_TOKEN_SCOPE_INSUFFICIENT` while the app looks connected,
+/// so we verify this scope was actually granted instead of trusting consent.
+const DRIVE_FILE_SCOPE: &str = "https://www.googleapis.com/auth/drive.file";
 
 const KEYCHAIN_SERVICE: &str = "com.echoscribe.app";
 const KEYCHAIN_ACCOUNT: &str = "google_drive_refresh_token";
@@ -152,6 +158,28 @@ struct TokenResponse {
     refresh_token: Option<String>,
     #[serde(default)]
     id_token: Option<String>,
+    /// Space-separated list of the scopes Google actually granted, which can be
+    /// a strict subset of what we asked for. Absent on some responses — treated
+    /// as "unknown", never as "missing".
+    #[serde(default)]
+    scope: Option<String>,
+}
+
+/// True when a space-separated `scope` string from Google's token endpoint
+/// includes the Drive scope uploads need. Exact-token match, so a lookalike
+/// scope (`drive.file.readonly`, `drive.appdata`) doesn't pass.
+pub fn grants_drive_file(scope: &str) -> bool {
+    scope.split_whitespace().any(|s| s == DRIVE_FILE_SCOPE)
+}
+
+/// Whether a token response's granted scopes are usable for uploads.
+/// `None` (Google didn't tell us) is optimistic — we let the API be the judge
+/// rather than deleting a token that may be fine.
+fn scope_is_usable(scope: Option<&str>) -> bool {
+    match scope {
+        Some(s) => grants_drive_file(s),
+        None => true,
+    }
 }
 
 /// Resolve the effective client id/secret: BYO from settings if non-empty,
@@ -167,14 +195,23 @@ pub fn effective_client(byo_id: &str, byo_secret: &str) -> (String, String) {
     }
 }
 
-/// Exchange an auth `code` for tokens. Returns (access_token, refresh_token, email).
+/// A successful authorization-code exchange.
+pub struct Exchanged {
+    pub access_token: String,
+    pub refresh_token: String,
+    pub email: Option<String>,
+    /// Space-separated scopes Google granted, when it reported them.
+    pub granted_scope: Option<String>,
+}
+
+/// Exchange an auth `code` for tokens.
 pub async fn exchange_code(
     client_id: &str,
     client_secret: &str,
     code: &str,
     code_verifier: &str,
     redirect_uri: &str,
-) -> Result<(String, String, Option<String>), String> {
+) -> Result<Exchanged, String> {
     let client = reqwest::Client::new();
     let mut form = vec![
         ("client_id", client_id),
@@ -201,7 +238,19 @@ pub async fn exchange_code(
     let tok: TokenResponse = resp.json().await.map_err(|e| e.to_string())?;
     let refresh = tok.refresh_token.ok_or("no refresh_token in response")?;
     let email = tok.id_token.as_deref().and_then(email_from_id_token);
-    Ok((tok.access_token, refresh, email))
+    // Scopes are not secret and are the single most useful thing to see when an
+    // upload 403s later.
+    info!(
+        target: "drive",
+        granted_scope = tok.scope.as_deref().unwrap_or("(not reported)"),
+        "exchanged auth code for tokens"
+    );
+    Ok(Exchanged {
+        access_token: tok.access_token,
+        refresh_token: refresh,
+        email,
+        granted_scope: tok.scope,
+    })
 }
 
 /// Use the stored refresh token to get a fresh access token.
@@ -237,17 +286,40 @@ pub async fn refresh_access_token(client_id: &str, client_secret: &str) -> Resul
         // expiry). It will never work again — drop it so the UI flips to
         // "not connected" and offers the Connect button.
         if body.contains("invalid_grant") {
-            if let Err(e) = delete_refresh_token() {
-                warn!(target: "drive", error = %e, "failed to clear revoked refresh token");
-            } else {
-                info!(target: "drive", "cleared revoked refresh token; reconnect required");
-            }
+            clear_unusable_token("revoked by Google (invalid_grant)");
             return Err(RECONNECT_REQUIRED.into());
         }
         return Err(format!("token refresh failed: {body}"));
     }
     let tok: TokenResponse = resp.json().await.map_err(|e| e.to_string())?;
+    info!(
+        target: "drive",
+        granted_scope = tok.scope.as_deref().unwrap_or("(not reported)"),
+        "refreshed Drive access token"
+    );
+    // A token can refresh perfectly well and still be useless: if the Drive
+    // checkbox wasn't ticked at consent, this grant is `openid email` forever.
+    // Catch it here so the failure names itself instead of surfacing later as a
+    // 403 from files.create.
+    if !scope_is_usable(tok.scope.as_deref()) {
+        warn!(
+            target: "drive",
+            granted_scope = tok.scope.as_deref().unwrap_or(""),
+            "Drive grant is missing the drive.file scope; upload cannot work"
+        );
+        clear_unusable_token("granted without the drive.file scope");
+        return Err(SCOPE_MISSING.into());
+    }
     Ok(tok.access_token)
+}
+
+/// Drop the stored refresh token because Google will never accept it for
+/// uploads. Logs the reason either way; an already-absent token is success.
+pub fn clear_unusable_token(why: &str) {
+    match delete_refresh_token() {
+        Ok(()) => info!(target: "drive", why, "cleared unusable refresh token; reconnect required"),
+        Err(e) => warn!(target: "drive", error = %e, why, "failed to clear unusable refresh token"),
+    }
 }
 
 /// Sentinel error returned when Google permanently rejected the refresh token
@@ -255,6 +327,20 @@ pub async fn refresh_access_token(client_id: &str, client_secret: &str) -> Resul
 /// match on this to show a reconnect-specific message instead of a generic
 /// upload failure.
 pub const RECONNECT_REQUIRED: &str = "drive_reconnect_required";
+
+/// Sentinel returned when the grant itself is intact but carries no Drive
+/// scope — the consent screen's Drive checkbox was left unticked, so Google
+/// issues a working `openid email` token that 403s on every `files.create`.
+/// Distinct from [`RECONNECT_REQUIRED`] because the user must do something
+/// extra on the consent page, not just reconnect.
+pub const SCOPE_MISSING: &str = "drive_scope_missing";
+
+/// True when a Drive API error body is Google's "your token lacks the scope"
+/// rejection, as opposed to any other 403 (quota, file-level permission).
+pub fn is_scope_error(body: &str) -> bool {
+    body.contains("ACCESS_TOKEN_SCOPE_INSUFFICIENT")
+        || body.contains("insufficient authentication scopes")
+}
 
 /// Run the full connect flow: bind a loopback listener, open the browser to the
 /// consent page, capture the `code`, exchange it, persist the refresh token, and
@@ -337,16 +423,32 @@ pub async fn connect(client_id: &str, client_secret: &str) -> Result<Option<Stri
         return Err("OAuth state mismatch (possible CSRF); aborting".into());
     }
 
-    let (access, refresh, email) =
-        exchange_code(client_id, client_secret, &code, &verifier, &redirect_uri).await?;
-    store_refresh_token(&refresh)?;
+    let tokens = exchange_code(client_id, client_secret, &code, &verifier, &redirect_uri).await?;
+
+    // Consent can succeed while granting nothing useful: Google's granular
+    // consent lets the user clear the Drive checkbox and continue, and the
+    // resulting token still carries `openid email` — enough to look connected,
+    // never enough to upload. Reject it here rather than storing a token that
+    // reports "Connected" and 403s on every upload. The previous (working)
+    // token, if any, is deliberately left untouched.
+    if !scope_is_usable(tokens.granted_scope.as_deref()) {
+        warn!(
+            target: "drive",
+            granted_scope = tokens.granted_scope.as_deref().unwrap_or(""),
+            "Drive consent completed without the drive.file scope; not storing token"
+        );
+        return Err(SCOPE_MISSING.into());
+    }
+
+    store_refresh_token(&tokens.refresh_token)?;
     info!(
         target: "drive",
-        email = email.as_deref().unwrap_or("(unknown)"),
+        email = tokens.email.as_deref().unwrap_or("(unknown)"),
+        granted_scope = tokens.granted_scope.as_deref().unwrap_or("(not reported)"),
         "Drive connect complete; refresh token persisted"
     );
-    debug_assert!(!access.is_empty());
-    Ok(email)
+    debug_assert!(!tokens.access_token.is_empty());
+    Ok(tokens.email)
 }
 
 /// Find the `folder_name` folder, creating it if absent. Returns its file id.
@@ -369,10 +471,11 @@ pub async fn ensure_folder(access_token: &str, folder_name: &str) -> Result<Stri
         .await
         .map_err(|e| e.to_string())?;
     if !resp.status().is_success() {
-        return Err(format!(
-            "Drive folder lookup failed: {}",
-            resp.text().await.unwrap_or_default()
-        ));
+        let body = resp.text().await.unwrap_or_default();
+        if is_scope_error(&body) {
+            return Err(format!("{SCOPE_MISSING}: Drive folder lookup failed: {body}"));
+        }
+        return Err(format!("Drive folder lookup failed: {body}"));
     }
     let v: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
     if let Some(id) = v
@@ -396,10 +499,11 @@ pub async fn ensure_folder(access_token: &str, folder_name: &str) -> Result<Stri
         .await
         .map_err(|e| e.to_string())?;
     if !resp.status().is_success() {
-        return Err(format!(
-            "Drive folder create failed: {}",
-            resp.text().await.unwrap_or_default()
-        ));
+        let body = resp.text().await.unwrap_or_default();
+        if is_scope_error(&body) {
+            return Err(format!("{SCOPE_MISSING}: Drive folder create failed: {body}"));
+        }
+        return Err(format!("Drive folder create failed: {body}"));
     }
     let v: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
     v.get("id")
@@ -428,10 +532,13 @@ pub async fn upload_resumable(
         .await
         .map_err(|e| e.to_string())?;
     if !start.status().is_success() {
-        return Err(format!(
-            "upload init failed: {}",
-            start.text().await.unwrap_or_default()
-        ));
+        let body = start.text().await.unwrap_or_default();
+        // Tag the scope rejection so callers can offer "reconnect and tick the
+        // Drive box" instead of a generic upload failure.
+        if is_scope_error(&body) {
+            return Err(format!("{SCOPE_MISSING}: upload init failed: {body}"));
+        }
+        return Err(format!("upload init failed: {body}"));
     }
     let session_uri = start
         .headers()
@@ -542,6 +649,54 @@ mod tests {
         assert!(url.contains("state=st8"));
         assert!(url.contains("redirect_uri=http%3A%2F%2F127.0.0.1%3A5555"));
         assert!(url.contains("access_type=offline"));
+    }
+
+    #[test]
+    fn requested_scope_includes_the_drive_scope_we_verify() {
+        assert!(grants_drive_file(SCOPE));
+    }
+
+    #[test]
+    fn granted_scope_detects_the_unticked_drive_checkbox() {
+        // What Google returns when consent granted everything.
+        assert!(grants_drive_file(
+            "https://www.googleapis.com/auth/drive.file openid \
+             https://www.googleapis.com/auth/userinfo.email"
+        ));
+        // What it returns when the Drive checkbox was left unticked — the exact
+        // shape that produced 403 ACCESS_TOKEN_SCOPE_INSUFFICIENT on upload.
+        assert!(!grants_drive_file(
+            "openid https://www.googleapis.com/auth/userinfo.email"
+        ));
+        assert!(!grants_drive_file(""));
+        // Lookalikes must not pass as the real thing.
+        assert!(!grants_drive_file(
+            "https://www.googleapis.com/auth/drive.appdata"
+        ));
+        assert!(!grants_drive_file(
+            "https://www.googleapis.com/auth/drive.file.readonly"
+        ));
+    }
+
+    #[test]
+    fn unreported_scope_is_not_treated_as_missing() {
+        // Google omitting `scope` must never delete a working token.
+        assert!(scope_is_usable(None));
+        assert!(scope_is_usable(Some(SCOPE)));
+        assert!(!scope_is_usable(Some("openid email")));
+    }
+
+    #[test]
+    fn scope_errors_are_told_apart_from_other_403s() {
+        assert!(is_scope_error(
+            r#"{"error":{"code":403,"message":"Request had insufficient authentication scopes.","status":"PERMISSION_DENIED","details":[{"reason":"ACCESS_TOKEN_SCOPE_INSUFFICIENT"}]}}"#
+        ));
+        // A quota / rate 403 is a different problem and must not trigger a
+        // reconnect prompt or wipe the stored token.
+        assert!(!is_scope_error(
+            r#"{"error":{"code":403,"message":"The user has exceeded their Drive storage quota.","errors":[{"reason":"storageQuotaExceeded"}]}}"#
+        ));
+        assert!(!is_scope_error(r#"{"error":{"code":404}}"#));
     }
 
     #[test]

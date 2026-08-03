@@ -8,8 +8,9 @@ use crate::db::{items, project_tag_jobs, Db, DbError};
 use crate::input::focus::FocusContext;
 use crate::llm::LlmGenerator;
 use rusqlite::Connection;
+use std::borrow::Cow;
 use std::sync::Arc;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DeterministicRoute {
@@ -61,6 +62,30 @@ impl TagTarget {
         match self {
             TagTarget::Item(item) => &item.content,
             TagTarget::Recording { text, .. } => text,
+        }
+    }
+
+    /// What the LLM classifier sees. Unlike [`TagTarget::text`] (scanned in
+    /// full by the cheap deterministic router), this is bounded: an unbounded
+    /// meeting body (summary + full transcript + notes, ~168KB in the wild)
+    /// overflows the classifier's 4096-token context and every LLM pass fails.
+    fn classifier_text(&self) -> Cow<'_, str> {
+        match self {
+            TagTarget::Item(item) => {
+                let text = classifier_item_text(&item.content);
+                if let Cow::Owned(ref capped) = text {
+                    debug!(
+                        target: "project_tagger",
+                        item_id = %item.id,
+                        original_chars = item.content.chars().count(),
+                        capped_chars = capped.chars().count(),
+                        "capped oversized item content for classifier"
+                    );
+                }
+                text
+            }
+            // Already bounded by recording_text().
+            TagTarget::Recording { text, .. } => Cow::Borrowed(text.as_str()),
         }
     }
 
@@ -137,6 +162,34 @@ fn load_target(
             _ => Ok(None),
         }
     }
+}
+
+/// Total classifier-input budget for an item, in chars. Routing only needs
+/// the gist; this keeps the prompt comfortably inside n_ctx=4096 alongside
+/// the system prompt and max_tokens=256.
+const CLASSIFIER_ITEM_MAX_CHARS: usize = 3_500;
+/// How much of that budget the pre-`[Transcript]` head (the meeting summary)
+/// may take before the transcript gets a share.
+const CLASSIFIER_SUMMARY_MAX_CHARS: usize = 2_000;
+
+/// Classifier input for an item. Short content passes through borrowed;
+/// oversized content is reduced to the `[Summary]` section head plus the
+/// beginning of the `[Transcript]` (meeting items are flattened as
+/// "[Summary]\n…\n[Transcript]\n…\n[Notes]\n…" by `build_flattened_body`),
+/// bounded to [`CLASSIFIER_ITEM_MAX_CHARS`] total.
+fn classifier_item_text(content: &str) -> Cow<'_, str> {
+    // Byte length bounds char count, so this fast path never truncates.
+    if content.len() <= CLASSIFIER_ITEM_MAX_CHARS {
+        return Cow::Borrowed(content);
+    }
+    let (head, tail) = match content.find("\n[Transcript]\n") {
+        Some(idx) => content.split_at(idx),
+        None => ("", content),
+    };
+    let mut out: String = head.chars().take(CLASSIFIER_SUMMARY_MAX_CHARS).collect();
+    let remaining = CLASSIFIER_ITEM_MAX_CHARS.saturating_sub(out.chars().count());
+    out.extend(tail.chars().take(remaining));
+    Cow::Owned(out)
 }
 
 /// Classifier input for a recording: title + capture source + transcript,
@@ -247,7 +300,7 @@ pub async fn run_llm_batch<L: LlmGenerator + ?Sized>(
         let focus = target.focus();
         match crate::classifier::classify(
             llm,
-            target.text(),
+            &target.classifier_text(),
             &projects,
             &recents,
             now_iso,
@@ -323,7 +376,7 @@ pub async fn run_llm_batch_db<L: LlmGenerator + ?Sized>(
         let focus = target.focus();
         let classified = crate::classifier::classify(
             llm,
-            target.text(),
+            &target.classifier_text(),
             &projects,
             &recents,
             now_iso,
@@ -452,7 +505,7 @@ pub async fn run_full_pass_db<L: LlmGenerator + ?Sized>(
             };
             let classified = crate::classifier::classify(
                 llm,
-                target.text(),
+                &target.classifier_text(),
                 &projects,
                 &recents,
                 now_iso,
@@ -782,6 +835,88 @@ mod tests {
         let mut conn = Connection::open_in_memory().unwrap();
         run_migrations(&mut conn).unwrap();
         conn
+    }
+
+    #[test]
+    fn classifier_item_text_passes_short_content_through() {
+        let content = "Quick note about the LiveCase pricing page.";
+        let out = super::classifier_item_text(content);
+        assert_eq!(out.as_ref(), content);
+        assert!(matches!(out, std::borrow::Cow::Borrowed(_)));
+    }
+
+    #[test]
+    fn classifier_item_text_caps_oversized_meeting_body() {
+        // Shape produced by meeting::build_flattened_body for a long meeting.
+        let summary = "- Discussed Q3 roadmap\n- Agreed on launch date\n";
+        let transcript = "You: hello and welcome everyone. ".repeat(6000); // ~200KB
+        let content =
+            format!("[Summary]\n{summary}\n[Transcript]\n{transcript}\n[Notes]\nfollow up");
+
+        let out = super::classifier_item_text(&content);
+
+        assert!(
+            out.chars().count() <= super::CLASSIFIER_ITEM_MAX_CHARS,
+            "capped output is {} chars, budget is {}",
+            out.chars().count(),
+            super::CLASSIFIER_ITEM_MAX_CHARS
+        );
+        assert!(out.starts_with("[Summary]\n"), "summary head must survive");
+        assert!(
+            out.contains("Agreed on launch date"),
+            "full summary must survive"
+        );
+        assert!(
+            out.contains("[Transcript]\nYou: hello and welcome"),
+            "beginning of transcript must survive"
+        );
+    }
+
+    #[test]
+    fn classifier_item_text_caps_huge_summary_to_leave_room_for_transcript() {
+        let summary = "- point about the roadmap and pricing tiers\n".repeat(200); // ~8.8KB
+        let transcript = "You: opening remarks about the migration. ".repeat(1000);
+        let content = format!("[Summary]\n{summary}\n[Transcript]\n{transcript}");
+
+        let out = super::classifier_item_text(&content);
+
+        assert!(out.chars().count() <= super::CLASSIFIER_ITEM_MAX_CHARS);
+        assert!(
+            out.contains("You: opening remarks"),
+            "transcript must still get a share of the budget when the summary is huge"
+        );
+    }
+
+    #[test]
+    fn classifier_item_text_caps_long_content_without_transcript_marker() {
+        let content = "word ".repeat(10_000);
+        let out = super::classifier_item_text(&content);
+        assert_eq!(out.chars().count(), super::CLASSIFIER_ITEM_MAX_CHARS);
+        assert!(content.starts_with(out.as_ref()));
+    }
+
+    #[test]
+    fn tag_target_classifier_text_is_bounded_for_items() {
+        let item = crate::db::items::Item {
+            id: "it1".into(),
+            content: format!(
+                "[Summary]\n- gist\n\n[Transcript]\n{}",
+                "You: talking. ".repeat(20_000)
+            ),
+            source: ItemSource::Meeting,
+            kind: Some(ItemKind::Note),
+            project_id: None,
+            captured_at: "2026-08-03T10:00:00Z".into(),
+            created_at: "2026-08-03T10:00:00Z".into(),
+            deleted_at: None,
+            confidence: None,
+            classified_by: None,
+            capture_context: None,
+        };
+        let target = super::TagTarget::Item(item);
+        assert!(target.classifier_text().chars().count() <= super::CLASSIFIER_ITEM_MAX_CHARS);
+        // The router still sees the full text.
+        assert!(target.text().chars().count() > super::CLASSIFIER_ITEM_MAX_CHARS);
     }
 
     #[test]

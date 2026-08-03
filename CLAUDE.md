@@ -61,7 +61,16 @@ Things to know:
 
 ## Build commands
 
+The Swift sidecars (`echo-scribe-syscap`, `echo-scribe-screenrec`) are build artifacts, not
+checked-in binaries — `src-tauri/binaries/` is gitignored. On a fresh clone you must build them
+once before the first `tauri build`, or Tauri fails on the missing `externalBin`. Rebuild them
+whenever you touch `src-tauri/syscap/` or `src-tauri/screenrec/`; release CI does this itself.
+
 ```bash
+# Swift sidecars (once per clone, then after any syscap/screenrec change)
+bash scripts/build-syscap.sh
+bash scripts/build-screenrec.sh
+
 # Release .app bundle (what we install to /Applications/)
 bun tauri build --bundles app
 
