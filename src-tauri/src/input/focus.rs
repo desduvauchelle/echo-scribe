@@ -446,18 +446,132 @@ pub fn current_frontmost_pid() -> Option<i32> {
     None
 }
 
+/// Which API actually brought the target app forward.
+///
+/// Logged at paste time so the diagnostics answer *which* activation path
+/// works on this macOS version, rather than only telling us that activation
+/// failed. See `activate_app` for why there is more than one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ActivationPath {
+    /// No API reported success (or the app was already frontmost).
+    #[default]
+    None,
+    /// `-[NSRunningApplication activateFromApplication:options:]` (macOS 14+).
+    Cooperative,
+    /// `-[NSRunningApplication activateWithOptions:]` — deprecated in macOS 14.
+    Legacy,
+    /// `-[NSWorkspace openApplicationAtURL:configuration:]`, which routes
+    /// through LaunchServices instead of the in-process activation path.
+    LaunchServices,
+}
+
+impl ActivationPath {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ActivationPath::None => "none",
+            ActivationPath::Cooperative => "cooperative",
+            ActivationPath::Legacy => "legacy",
+            ActivationPath::LaunchServices => "launch_services",
+        }
+    }
+}
+
 /// Re-activate the previously-frontmost app before synthesising Cmd+V.
+///
+/// macOS 14 replaced free-for-all activation with *cooperative* activation:
+/// `NSApplicationActivateIgnoringOtherApps` is deprecated and, per Apple's own
+/// header, "will have no effect". Echo Scribe is an accessory app that is
+/// never frontmost, so the legacy call is routinely denied — which is exactly
+/// the `activateWithOptions failed` / `frontmost_verified=false` pair we were
+/// logging on the cross-app paste path.
+///
+/// So we try the modern in-process call first and keep the legacy one only as
+/// a fallback for pre-14 systems. `activate_via_launch_services` is the third
+/// tier and lives in its own function because it is asynchronous.
 #[cfg(target_os = "macos")]
-pub fn restore(ctx: &FocusContext) -> bool {
+pub fn activate_app(ctx: &FocusContext) -> ActivationPath {
+    use objc2::runtime::NSObjectProtocol;
+    use objc2::sel;
     use objc2_app_kit::{NSApplicationActivationOptions, NSRunningApplication};
+
+    let Some(app) = NSRunningApplication::runningApplicationWithProcessIdentifier(ctx.pid as pid_t)
+    else {
+        return ActivationPath::None;
+    };
+
+    // macOS 14+: name ourselves as the app handing over active status. The
+    // selector is absent on older systems, so probe before calling it.
+    if app.respondsToSelector(sel!(activateFromApplication:options:)) {
+        let me = NSRunningApplication::currentApplication();
+        if app.activateFromApplication_options(&me, NSApplicationActivationOptions::empty()) {
+            return ActivationPath::Cooperative;
+        }
+    }
+
+    #[allow(deprecated)]
+    let opts = NSApplicationActivationOptions::ActivateIgnoringOtherApps;
+    if app.activateWithOptions(opts) {
+        return ActivationPath::Legacy;
+    }
+
+    ActivationPath::None
+}
+
+/// Ask LaunchServices to bring the app forward.
+///
+/// Unlike `NSRunningApplication`'s in-process activation this goes out to
+/// launchservicesd, which is not bound by the cooperative-activation rules
+/// that block a background app from fronting someone else. It is asynchronous
+/// — the caller must poll `wait_until_frontmost` afterwards; a `true` return
+/// only means the request was dispatched.
+///
+/// Only ever called for a pid we already resolved to a *running* app, and with
+/// `createsNewApplicationInstance = false`, so this can never launch a second
+/// copy of the target.
+#[cfg(target_os = "macos")]
+pub fn activate_via_launch_services(ctx: &FocusContext) -> bool {
+    use block2::RcBlock;
+    use objc2_app_kit::{NSRunningApplication, NSWorkspace, NSWorkspaceOpenConfiguration};
+    use objc2_foundation::NSError;
 
     let Some(app) = NSRunningApplication::runningApplicationWithProcessIdentifier(ctx.pid as pid_t)
     else {
         return false;
     };
-    #[allow(deprecated)]
-    let opts = NSApplicationActivationOptions::ActivateIgnoringOtherApps;
-    app.activateWithOptions(opts)
+    let Some(url) = app.bundleURL() else {
+        tracing::warn!(
+            pid = ctx.pid,
+            "no bundle URL for target app; cannot activate via LaunchServices"
+        );
+        return false;
+    };
+
+    let config = NSWorkspaceOpenConfiguration::configuration();
+    config.setActivates(true);
+    config.setCreatesNewApplicationInstance(false);
+    config.setAddsToRecentItems(false);
+
+    let pid = ctx.pid;
+    let handler = RcBlock::new(move |_app: *mut NSRunningApplication, err: *mut NSError| {
+        if !err.is_null() {
+            // Safety: non-null NSError owned by the caller for the duration
+            // of the callback.
+            let msg = unsafe { (*err).localizedDescription() };
+            tracing::warn!(pid, error = %msg, "LaunchServices activation failed");
+        }
+    });
+
+    NSWorkspace::sharedWorkspace().openApplicationAtURL_configuration_completionHandler(
+        &url,
+        &config,
+        Some(&handler),
+    );
+    true
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn activate_via_launch_services(_ctx: &FocusContext) -> bool {
+    false
 }
 
 /// Decide whether to re-apply the captured AX element at paste time.
@@ -496,21 +610,44 @@ fn probe_focused_role(pid: i32) -> Option<String> {
 }
 
 /// After a cross-app activation, poll until the target app is actually
-/// frontmost. `activateWithOptions` is asynchronous (and unreliable under
-/// modern cooperative-activation rules), so a `true` return does not mean
-/// the app is forward yet — and a paste synthesized before it is lands in
-/// whatever app is still in front.
+/// frontmost. Activation is asynchronous (and unreliable under modern
+/// cooperative-activation rules), so a `true` return from any activation API
+/// does not mean the app is forward yet — and a paste synthesized before it
+/// is lands in whatever app is still in front.
+///
+/// On timeout we log the sequence of pids we actually observed, which
+/// distinguishes "the app never moved" (all polls show the same intruder)
+/// from "it was still coming forward when we gave up" (pid churn, or the
+/// target appearing at the tail) — the two need opposite fixes.
 #[cfg(target_os = "macos")]
-fn wait_until_frontmost(pid: i32) -> bool {
-    for attempt in 0..10 {
-        if current_frontmost_pid() == Some(pid) {
+fn wait_until_frontmost(pid: i32, polls: u32, label: &str) -> bool {
+    let mut observed: Vec<String> = Vec::new();
+    for attempt in 0..polls {
+        let front = current_frontmost_pid();
+        if front == Some(pid) {
             if attempt > 0 {
-                tracing::info!(pid, attempt, "target app became frontmost after wait");
+                tracing::info!(
+                    pid,
+                    attempt,
+                    stage = label,
+                    "target app became frontmost after wait"
+                );
             }
             return true;
         }
+        match observed.last() {
+            Some(last) if *last == format!("{front:?}") => {}
+            _ => observed.push(format!("{front:?}")),
+        }
         std::thread::sleep(std::time::Duration::from_millis(60));
     }
+    tracing::warn!(
+        pid,
+        stage = label,
+        polls,
+        observed_frontmost = %observed.join(" -> "),
+        "target app never became frontmost"
+    );
     false
 }
 
@@ -532,26 +669,56 @@ pub fn restore_focus(ctx: &FocusContext, element: Option<&FocusElement>) -> Rest
     let same_app = frontmost == Some(ctx.pid);
 
     let mut activated = false;
+    let mut activation_path = ActivationPath::None;
     let frontmost_verified = if same_app {
         true
     } else {
+        // Tier 1+2: in-process activation (cooperative, then legacy).
         for attempt in 0..3 {
-            if restore(ctx) {
+            let path = activate_app(ctx);
+            if path != ActivationPath::None {
                 if attempt > 0 {
-                    tracing::info!(attempt, pid = ctx.pid, "app activated on retry");
+                    tracing::info!(
+                        attempt,
+                        pid = ctx.pid,
+                        path = path.as_str(),
+                        "app activated on retry"
+                    );
                 }
                 activated = true;
+                activation_path = path;
                 break;
             }
             std::thread::sleep(std::time::Duration::from_millis(50));
         }
         if !activated {
-            tracing::warn!(pid = ctx.pid, "activateWithOptions failed after 3 attempts");
+            tracing::warn!(
+                pid = ctx.pid,
+                "in-process activation refused after 3 attempts; falling back to LaunchServices"
+            );
         }
-        // Even when activateWithOptions reported failure the app can still
-        // come forward (or already be mid-transition) — trust the observed
-        // frontmost pid, not the API's return value.
-        wait_until_frontmost(ctx.pid)
+        // Even when the API reported failure the app can still come forward
+        // (or already be mid-transition) — trust the observed frontmost pid,
+        // not the return value.
+        if wait_until_frontmost(ctx.pid, 10, "in_process") {
+            true
+        } else {
+            // Tier 3: LaunchServices. Not bound by cooperative activation,
+            // so this is the one that works when a background app needs to
+            // front someone else. Slower (out-of-process), hence the longer
+            // poll budget — but we only pay it on a path that would
+            // otherwise have lost the paste entirely.
+            if activate_via_launch_services(ctx) {
+                let ok = wait_until_frontmost(ctx.pid, 20, "launch_services");
+                if ok {
+                    activated = true;
+                    activation_path = ActivationPath::LaunchServices;
+                }
+                ok
+            } else {
+                false
+            }
+        }
     };
 
     // What has focus in the target app *right now*? Only meaningful when the
@@ -595,6 +762,7 @@ pub fn restore_focus(ctx: &FocusContext, element: Option<&FocusElement>) -> Rest
     RestoreOutcome {
         same_app,
         activated_app: activated,
+        activation_path,
         frontmost_verified,
         ax_focused: ax_set,
         ax_error,
@@ -619,6 +787,9 @@ pub fn restore_focus(_ctx: &FocusContext, _element: Option<&FocusElement>) -> Re
 pub struct RestoreOutcome {
     pub same_app: bool,
     pub activated_app: bool,
+    /// Which activation API brought the app forward. `None` when the app was
+    /// already frontmost or nothing worked.
+    pub activation_path: ActivationPath,
     /// Whether the target app was observed frontmost after (re)activation.
     /// When `false`, a synthesized Cmd+V would land in some *other* app —
     /// callers must not paste.
@@ -660,8 +831,8 @@ impl RestoreOutcome {
 }
 
 #[cfg(not(target_os = "macos"))]
-pub fn restore(_ctx: &FocusContext) -> bool {
-    false
+pub fn activate_app(_ctx: &FocusContext) -> ActivationPath {
+    ActivationPath::None
 }
 
 // ── macOS helpers ─────────────────────────────────────────────────────────────
@@ -1136,7 +1307,7 @@ mod tests {
     }
 
     #[test]
-    fn restore_returns_false_for_invalid_pid() {
+    fn activate_app_reports_no_path_for_invalid_pid() {
         let ctx = FocusContext {
             pid: -1,
             bundle_id: None,
@@ -1148,7 +1319,11 @@ mod tests {
             content_url: None,
             content_source: None,
         };
-        assert!(!restore(&ctx));
+        assert_eq!(activate_app(&ctx), ActivationPath::None);
+        // No running app resolves from pid -1, so the LaunchServices tier
+        // must bail out before it can ever ask launchservicesd to open
+        // anything.
+        assert!(!activate_via_launch_services(&ctx));
     }
 
     #[test]
