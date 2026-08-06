@@ -51,6 +51,28 @@ pub fn secure_input_active() -> bool {
     false
 }
 
+/// `NSPasteboard.generalPasteboard.changeCount` — bumped on every write by
+/// any process on the system.
+///
+/// We sample it around the paste window so a lost paste is attributable. The
+/// suspect case is the clipboard-restore race: we put the transcript on the
+/// clipboard, send Cmd+V, then put the user's original content back after a
+/// fixed delay. If a slow target app (Electron chat clients are the usual
+/// offenders) reads the pasteboard *after* that restore, the user gets their
+/// old clipboard instead of the transcript — and nothing currently reports
+/// it, because the paste itself "succeeded". A changeCount that moved by more
+/// than our own single write means someone else wrote in between.
+#[cfg(target_os = "macos")]
+pub fn clipboard_change_count() -> i64 {
+    use objc2_app_kit::NSPasteboard;
+    NSPasteboard::generalPasteboard().changeCount() as i64
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn clipboard_change_count() -> i64 {
+    0
+}
+
 /// Put `text` on the clipboard *without* synthesizing a paste keystroke and
 /// without any later restore. Used when the paste target can't be confirmed
 /// (e.g. the original app refused to come frontmost): the transcript stays
@@ -102,10 +124,16 @@ pub fn paste_at_cursor_with_options(text: &str, restore_clipboard: bool) -> Resu
     clipboard
         .set_text(text)
         .map_err(|e| PasteError::Clipboard(e.to_string()))?;
-    info!(len = text.len(), "set clipboard text");
+    let change_count_after_set = clipboard_change_count();
+    info!(
+        len = text.len(),
+        change_count = change_count_after_set,
+        "set clipboard text"
+    );
 
     // ── Synthesize paste keystroke ────────────────────────────────
     synthesize_cmd_v()?;
+    let pasted_at = std::time::Instant::now();
 
     // ── Restore original clipboard ───────────────────────────────
     // Wait for the target app to process the paste event, then put
@@ -125,9 +153,25 @@ pub fn paste_at_cursor_with_options(text: &str, restore_clipboard: bool) -> Resu
             "waiting before clipboard restore"
         );
         thread::sleep(Duration::from_millis(delay));
+        // Sample the pasteboard again before we clobber it. If anything other
+        // than our own single write landed in this window, the transcript the
+        // target app reads is not the one we put there.
+        let change_count_at_restore = clipboard_change_count();
+        if change_count_at_restore != change_count_after_set {
+            warn!(
+                change_count_after_set,
+                change_count_at_restore,
+                elapsed_ms = pasted_at.elapsed().as_millis() as u64,
+                "clipboard was written by another process while the paste was in flight; \
+                 the pasted text may not be the transcript"
+            );
+        }
         // Best-effort restore — don't fail the transcription if this errors.
         match clipboard.set_text(&original_text) {
-            Ok(()) => info!("restored original clipboard content"),
+            Ok(()) => info!(
+                elapsed_since_paste_ms = pasted_at.elapsed().as_millis() as u64,
+                "restored original clipboard content"
+            ),
             Err(e) => warn!(?e, "failed to restore original clipboard content"),
         }
     }

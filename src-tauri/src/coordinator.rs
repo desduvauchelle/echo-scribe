@@ -450,6 +450,8 @@ pub fn spawn(
                                                     pid = snap.pid,
                                                     same_app = outcome.same_app,
                                                     activated = outcome.activated_app,
+                                                    activation_path =
+                                                        outcome.activation_path.as_str(),
                                                     frontmost_verified = outcome.frontmost_verified,
                                                     ax_focused = outcome.ax_focused,
                                                     ax_error = ?outcome.ax_error,
