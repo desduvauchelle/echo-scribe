@@ -104,6 +104,102 @@ pub struct SelectionSnapshot {
     pub method: SelectionMethod,
 }
 
+/// Whether an element with a given accessibility role can receive text from a
+/// synthesized ⌘V.
+///
+/// This is the guard against the worst dictation failure: a transcript pasted
+/// into something that cannot hold a caret is swallowed with no error and no
+/// visible effect, so the user watches a long dictation simply vanish.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TextTarget {
+    /// A text-editing role. ⌘V lands.
+    Accepts,
+    /// A role that provably cannot hold a caret (list, button, menu, …).
+    /// ⌘V is delivered and discarded.
+    Rejects,
+    /// Unrecognised role, or no role at all. Deliberately permissive: plenty
+    /// of apps expose custom or container roles over perfectly good text
+    /// views, and blind ⌘V is the long-standing behavior that works for them.
+    #[default]
+    Unknown,
+}
+
+impl TextTarget {
+    pub fn from_role(role: Option<&str>) -> Self {
+        match role {
+            Some(
+                "AXTextArea" | "AXTextField" | "AXSecureTextField" | "AXSearchField"
+                | "AXComboBox",
+            ) => TextTarget::Accepts,
+            Some(
+                "AXList" | "AXTable" | "AXOutline" | "AXRow" | "AXCell" | "AXColumn"
+                | "AXTabGroup" | "AXButton" | "AXRadioButton" | "AXCheckBox" | "AXPopUpButton"
+                | "AXMenuButton" | "AXMenu" | "AXMenuItem" | "AXMenuBar" | "AXMenuBarItem"
+                | "AXImage" | "AXSlider" | "AXScrollBar" | "AXToolbar" | "AXStaticText"
+                | "AXLink" | "AXProgressIndicator" | "AXDisclosureTriangle",
+            ) => TextTarget::Rejects,
+            // Containers (AXGroup, AXScrollArea, AXWebArea, AXWindow, …), custom
+            // roles, and "no role read" all land here.
+            _ => TextTarget::Unknown,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            TextTarget::Accepts => "accepts",
+            TextTarget::Rejects => "rejects",
+            TextTarget::Unknown => "unknown",
+        }
+    }
+}
+
+/// What the caller intends to do once focus is restored. Determines whether a
+/// dead-end target may be swapped for wherever the user is focused now.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PasteIntent {
+    /// Insert text at the caret. Additive and easy to undo, so when the
+    /// captured target cannot accept text we may fall back to the user's
+    /// current field rather than dropping the transcript.
+    Insert,
+    /// Replace the user's selection. Must land in the captured element or not
+    /// at all — redirecting would stomp unrelated text in another app.
+    ReplaceSelection,
+}
+
+/// Why a synthesized paste must not be sent. `None` from
+/// [`RestoreOutcome::blocker`] means it is safe to paste.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PasteBlocker {
+    /// The captured app refused to come forward, so ⌘V would land in whatever
+    /// app is still in front.
+    AppNotFrontmost,
+    /// Nothing that can hold text has keyboard focus, so ⌘V would be
+    /// swallowed (e.g. dictation started with a file list or button focused).
+    NoTextTarget,
+}
+
+impl PasteBlocker {
+    /// Short machine-readable reason, recorded on the capture event.
+    pub fn reason(self) -> &'static str {
+        match self {
+            PasteBlocker::AppNotFrontmost => "focus_restore",
+            PasteBlocker::NoTextTarget => "no_text_target",
+        }
+    }
+
+    /// Friendly, actionable message for the user. Raw AX detail stays in the log.
+    pub fn user_message(self, app_label: &str) -> String {
+        match self {
+            PasteBlocker::AppNotFrontmost => format!(
+                "Couldn't switch back to {app_label}. Your transcript is on the clipboard — press ⌘V to paste it."
+            ),
+            PasteBlocker::NoTextTarget =>
+                "No text field was focused, so there was nowhere to type. Your transcript is on the clipboard — click into a field and press ⌘V."
+                    .to_string(),
+        }
+    }
+}
+
 /// Capture the frontmost application plus window/browser context.
 /// Best-effort: never panics; missing fields are `None`.
 #[cfg(target_os = "macos")]
@@ -652,6 +748,9 @@ fn wait_until_frontmost(pid: i32, polls: u32, label: &str) -> bool {
 }
 
 /// Restore focus before paste. Strategy:
+///   0. If the captured element provably cannot hold a caret, stop: never
+///      activate an app for a paste that would be swallowed (see
+///      [`redirect_or_block`]).
 ///   1. If the captured app is not currently frontmost, call
 ///      `activateWithOptions` to bring the app forward, then **verify** it
 ///      actually became frontmost (`frontmost_verified`) so the caller can
@@ -663,10 +762,26 @@ fn wait_until_frontmost(pid: i32, polls: u32, label: &str) -> bool {
 ///      snapshot can be stale; the visible caret wins). If the app reports
 ///      a focus void — click-activated window with no first responder —
 ///      restore the captured element so Cmd+V has somewhere to land.
+///   4. Re-read the focused role after any restore and refuse to paste into
+///      an element that rejects text.
 #[cfg(target_os = "macos")]
-pub fn restore_focus(ctx: &FocusContext, element: Option<&FocusElement>) -> RestoreOutcome {
+pub fn restore_focus(
+    ctx: &FocusContext,
+    element: Option<&FocusElement>,
+    intent: PasteIntent,
+) -> RestoreOutcome {
     let frontmost = current_frontmost_pid();
     let same_app = frontmost == Some(ctx.pid);
+    let captured_target = TextTarget::from_role(element.and_then(|e| e.role()));
+
+    // Guard 1: the element that was focused at hotkey-press time cannot hold a
+    // caret — dictation started with a file list, a button, or a menu focused.
+    // Activating its app would steal the user's current window for a ⌘V that
+    // gets discarded, which is exactly how a 73-second transcript disappeared
+    // into a Finder list view. Never activate for a dead-end target.
+    if captured_target == TextTarget::Rejects {
+        return redirect_or_block(ctx, element, intent, frontmost, same_app);
+    }
 
     let mut activated = false;
     let mut activation_path = ActivationPath::None;
@@ -759,6 +874,30 @@ pub fn restore_focus(ctx: &FocusContext, element: Option<&FocusElement>) -> Rest
         None => (false, None),
     };
 
+    // Guard 2: `paste_time_focus_role` was read *before* the element restore,
+    // so re-read it after to learn where the caret actually ended up. A role
+    // that rejects text means the ⌘V we are about to send would be swallowed.
+    let final_focus_role = if frontmost_verified && ax_set {
+        probe_focused_role(ctx.pid)
+    } else {
+        paste_time_focus_role.clone()
+    };
+    let final_target = TextTarget::from_role(final_focus_role.as_deref());
+
+    let blocker = if !frontmost_verified {
+        Some(PasteBlocker::AppNotFrontmost)
+    } else if final_target == TextTarget::Rejects {
+        tracing::warn!(
+            pid = ctx.pid,
+            captured_role = ?element.and_then(|e| e.role()),
+            final_focus_role = ?final_focus_role,
+            "focus landed on an element that cannot accept text; refusing synthetic paste"
+        );
+        Some(PasteBlocker::NoTextTarget)
+    } else {
+        None
+    };
+
     RestoreOutcome {
         same_app,
         activated_app: activated,
@@ -769,14 +908,95 @@ pub fn restore_focus(ctx: &FocusContext, element: Option<&FocusElement>) -> Rest
         element_captured: element.is_some(),
         element_role: element.and_then(|e| e.role().map(|s| s.to_string())),
         frontmost_pid_before: frontmost,
-        paste_time_focus_role,
+        paste_time_focus_role: final_focus_role,
+        captured_target,
+        paste_time_target: final_target,
+        redirected_pid: None,
+        blocker,
+    }
+}
+
+/// Handle a captured element that cannot accept text (Guard 1).
+///
+/// The captured target is a dead end, so there is nothing to lose by looking
+/// elsewhere — and one obvious place to look: if the user is *right now*
+/// focused in a real text field, that is where they moved to while speaking
+/// and where they expect the dictation to appear. Pasting there beats pasting
+/// into the void. When no such field exists, block the paste so the caller
+/// falls back to the clipboard instead of losing the transcript silently.
+///
+/// Never redirects for [`PasteIntent::ReplaceSelection`]: overwriting a
+/// selection in an app the user did not dictate from would destroy text.
+#[cfg(target_os = "macos")]
+fn redirect_or_block(
+    ctx: &FocusContext,
+    element: Option<&FocusElement>,
+    intent: PasteIntent,
+    frontmost: Option<i32>,
+    same_app: bool,
+) -> RestoreOutcome {
+    let captured_role = element.and_then(|e| e.role().map(|s| s.to_string()));
+    let base = RestoreOutcome {
+        same_app,
+        element_captured: element.is_some(),
+        element_role: captured_role.clone(),
+        frontmost_pid_before: frontmost,
+        captured_target: TextTarget::Rejects,
+        ..Default::default()
+    };
+
+    // Our own overlay is never a paste destination.
+    let candidate = frontmost.filter(|pid| *pid != std::process::id() as i32);
+
+    if intent == PasteIntent::Insert {
+        if let Some(pid) = candidate {
+            let role = probe_focused_role(pid);
+            if TextTarget::from_role(role.as_deref()) == TextTarget::Accepts {
+                tracing::warn!(
+                    captured_pid = ctx.pid,
+                    captured_role = ?captured_role,
+                    target_pid = pid,
+                    target_role = ?role,
+                    redirected = pid != ctx.pid,
+                    "captured element cannot accept text; pasting into the currently focused text field instead"
+                );
+                return RestoreOutcome {
+                    // The app we are about to paste into is already frontmost,
+                    // so no activation is needed and none was attempted.
+                    frontmost_verified: true,
+                    paste_time_focus_role: role,
+                    paste_time_target: TextTarget::Accepts,
+                    redirected_pid: (pid != ctx.pid).then_some(pid),
+                    blocker: None,
+                    ..base
+                };
+            }
+        }
+    }
+
+    tracing::warn!(
+        captured_pid = ctx.pid,
+        captured_role = ?captured_role,
+        frontmost_pid = ?frontmost,
+        intent = ?intent,
+        "no element able to accept text; refusing synthetic paste"
+    );
+    RestoreOutcome {
+        frontmost_verified: same_app,
+        blocker: Some(PasteBlocker::NoTextTarget),
+        ..base
     }
 }
 
 #[cfg(not(target_os = "macos"))]
-pub fn restore_focus(_ctx: &FocusContext, _element: Option<&FocusElement>) -> RestoreOutcome {
+pub fn restore_focus(
+    _ctx: &FocusContext,
+    _element: Option<&FocusElement>,
+    _intent: PasteIntent,
+) -> RestoreOutcome {
     RestoreOutcome {
-        // Non-macOS has no activation handling; never block the paste on it.
+        // Non-macOS has no activation handling and no AX focus reporting;
+        // never block the paste on either.
         frontmost_verified: true,
         ..RestoreOutcome::default()
     }
@@ -804,9 +1024,22 @@ pub struct RestoreOutcome {
     pub element_captured: bool,
     pub element_role: Option<String>,
     pub frontmost_pid_before: Option<i32>,
-    /// Role of whatever held AX focus in the target app just before Cmd+V
-    /// (`None` = the app reported no focused element — a focus void).
+    /// Role of whatever held AX focus in the target app just before Cmd+V,
+    /// re-read *after* any element restore so it reflects where the caret
+    /// actually ended up (`None` = the app reported no focused element — a
+    /// focus void).
     pub paste_time_focus_role: Option<String>,
+    /// Whether the element captured at hotkey-press time could accept text.
+    pub captured_target: TextTarget,
+    /// Whether whatever holds focus just before Cmd+V can accept text.
+    pub paste_time_target: TextTarget,
+    /// Set when the captured target was a dead end and the paste was pointed
+    /// at the app the user is focused on now instead. Diagnostic only —
+    /// nothing needs to be activated, since that app is already frontmost.
+    pub redirected_pid: Option<i32>,
+    /// `Some` when the paste must not be synthesized at all. Callers fall back
+    /// to leaving the transcript on the clipboard and telling the user.
+    pub blocker: Option<PasteBlocker>,
 }
 
 impl RestoreOutcome {
@@ -1339,9 +1572,135 @@ mod tests {
             content_url: None,
             content_source: None,
         };
-        let outcome = restore_focus(&ctx, None);
+        let outcome = restore_focus(&ctx, None, PasteIntent::Insert);
         assert!(!outcome.activated_app);
         assert!(!outcome.ax_focused);
+    }
+
+    #[test]
+    fn text_roles_accept_paste() {
+        for role in [
+            "AXTextArea",
+            "AXTextField",
+            "AXSecureTextField",
+            "AXSearchField",
+            "AXComboBox",
+        ] {
+            assert_eq!(
+                TextTarget::from_role(Some(role)),
+                TextTarget::Accepts,
+                "{role} edits text"
+            );
+        }
+    }
+
+    #[test]
+    fn structural_roles_reject_paste() {
+        // AXList is the role Finder reported for the file/tab list that
+        // swallowed a 73-second dictation.
+        for role in [
+            "AXList",
+            "AXTabGroup",
+            "AXTable",
+            "AXOutline",
+            "AXRow",
+            "AXButton",
+            "AXMenuItem",
+            "AXImage",
+            "AXStaticText",
+        ] {
+            assert_eq!(
+                TextTarget::from_role(Some(role)),
+                TextTarget::Rejects,
+                "{role} cannot hold a caret"
+            );
+        }
+    }
+
+    #[test]
+    fn container_and_missing_roles_stay_permissive() {
+        // Containers routinely wrap real text views, and plenty of apps expose
+        // custom roles — blocking these would break working pastes.
+        for role in [
+            Some("AXGroup"),
+            Some("AXScrollArea"),
+            Some("AXWebArea"),
+            Some("AXWindow"),
+            Some("AXSomeCustomRole"),
+            Some("?"),
+            None,
+        ] {
+            assert_eq!(
+                TextTarget::from_role(role),
+                TextTarget::Unknown,
+                "{role:?} must not block the paste"
+            );
+        }
+    }
+
+    #[test]
+    fn blocker_messages_are_friendly_and_distinct() {
+        let not_frontmost = PasteBlocker::AppNotFrontmost.user_message("Slack");
+        assert!(not_frontmost.contains("Slack"));
+        assert!(not_frontmost.contains("⌘V"));
+        let no_target = PasteBlocker::NoTextTarget.user_message("Finder");
+        assert!(no_target.contains("⌘V"));
+        assert_ne!(not_frontmost, no_target);
+        assert_ne!(
+            PasteBlocker::AppNotFrontmost.reason(),
+            PasteBlocker::NoTextTarget.reason()
+        );
+    }
+
+    #[test]
+    fn uneditable_capture_blocks_paste_when_nothing_can_accept_text() {
+        // pid -1 never resolves, so no candidate element can accept text: the
+        // paste must be blocked rather than fired blindly.
+        let ctx = FocusContext {
+            pid: -1,
+            bundle_id: None,
+            app_name: None,
+            window_title: None,
+            browser_url: None,
+            browser_tab_title: None,
+            content_title: None,
+            content_url: None,
+            content_source: None,
+        };
+        let outcome = redirect_or_block(&ctx, None, PasteIntent::Insert, Some(-1), true);
+        assert_eq!(outcome.blocker, Some(PasteBlocker::NoTextTarget));
+        assert_eq!(outcome.captured_target, TextTarget::Rejects);
+        assert!(
+            !outcome.activated_app,
+            "a dead-end target must never pull its app forward"
+        );
+        assert_eq!(outcome.redirected_pid, None);
+    }
+
+    #[test]
+    fn uneditable_capture_never_redirects_an_edit() {
+        let ctx = FocusContext {
+            pid: -1,
+            bundle_id: None,
+            app_name: None,
+            window_title: None,
+            browser_url: None,
+            browser_tab_title: None,
+            content_title: None,
+            content_url: None,
+            content_source: None,
+        };
+        // Even with a live frontmost app available as a candidate, replacing a
+        // selection must never be pointed at a different app.
+        let outcome = redirect_or_block(
+            &ctx,
+            None,
+            PasteIntent::ReplaceSelection,
+            current_frontmost_pid(),
+            false,
+        );
+        assert_eq!(outcome.redirected_pid, None);
+        assert_eq!(outcome.blocker, Some(PasteBlocker::NoTextTarget));
     }
 
     #[test]

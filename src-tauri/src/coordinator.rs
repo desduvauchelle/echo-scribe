@@ -444,8 +444,11 @@ pub fn spawn(
                                             let mut target_app_name: Option<String> = None;
                                             if let Some(snap) = pending_context.take() {
                                                 let element = pending_focus_element.take();
-                                                let outcome =
-                                                    focus::restore_focus(&snap, element.as_ref());
+                                                let outcome = focus::restore_focus(
+                                                    &snap,
+                                                    element.as_ref(),
+                                                    focus::PasteIntent::Insert,
+                                                );
                                                 info!(
                                                     pid = snap.pid,
                                                     same_app = outcome.same_app,
@@ -459,6 +462,10 @@ pub fn spawn(
                                                     ax_role = ?outcome.element_role,
                                                     frontmost_before = ?outcome.frontmost_pid_before,
                                                     paste_time_focus = ?outcome.paste_time_focus_role,
+                                                    captured_target = outcome.captured_target.as_str(),
+                                                    paste_time_target = outcome.paste_time_target.as_str(),
+                                                    redirected_to = ?outcome.redirected_pid,
+                                                    blocker = ?outcome.blocker,
                                                     "focus restored before paste"
                                                 );
                                                 let _ = app.emit("voice:paste_pending", ());
@@ -474,43 +481,44 @@ pub fn spawn(
                                                 target_app_name = snap.app_name.clone();
                                                 restore_outcome = Some(outcome);
                                             }
-                                            // Never synthesize Cmd+V into the wrong app: if the
-                                            // original app refused to come frontmost, hand the
-                                            // transcript to the user via the clipboard instead.
-                                            let frontmost_ok = restore_outcome
+                                            // Never synthesize Cmd+V when it cannot land: if the
+                                            // original app refused to come frontmost, or nothing
+                                            // that accepts text has focus, the keystroke would be
+                                            // silently discarded. Hand the transcript to the user
+                                            // via the clipboard instead.
+                                            let blocker = restore_outcome
                                                 .as_ref()
-                                                .map(|o| o.frontmost_verified)
-                                                .unwrap_or(true);
-                                            if !frontmost_ok {
+                                                .and_then(|o| o.blocker);
+                                            if let Some(blocker) = blocker {
                                                 let app_label =
                                                     target_app_name.unwrap_or_else(|| {
                                                         "the original app".to_string()
                                                     });
                                                 warn!(
                                                 chars = text.len(),
-                                                "target app not frontmost after activation; skipping synthetic paste"
+                                                reason = blocker.reason(),
+                                                "no confirmed paste target; skipping synthetic paste"
                                             );
                                                 match crate::input::paste::copy_to_clipboard(&text)
                                                 {
                                                     Ok(()) => {
                                                         let _ = app.emit(
                                                             "voice:paste_failed",
-                                                            "focus_restore",
+                                                            blocker.reason(),
                                                         );
                                                         record_capture_event(
                                                             db.as_ref(),
                                                             &capture_id,
                                                             "paste_failed",
-                                                            Some(
-                                                                "focus_restore; transcript copied",
-                                                            ),
+                                                            Some(&format!(
+                                                                "{}; transcript copied",
+                                                                blocker.reason()
+                                                            )),
                                                         );
                                                         let _ = app.emit(
-                                                        "asr:error",
-                                                        format!(
-                                                            "Couldn't switch back to {app_label}. Your transcript is on the clipboard — press ⌘V to paste it."
-                                                        ),
-                                                    );
+                                                            "asr:error",
+                                                            blocker.user_message(&app_label),
+                                                        );
                                                     }
                                                     Err(e) => {
                                                         error!(?e, "clipboard fallback failed");
@@ -1379,22 +1387,29 @@ async fn run_edit_selection(
 
     if !applied_via_ax {
         if let Some(ctx) = ctx.as_ref() {
-            let outcome = crate::input::focus::restore_focus(ctx, element.as_ref());
+            let outcome = crate::input::focus::restore_focus(
+                ctx,
+                element.as_ref(),
+                crate::input::focus::PasteIntent::ReplaceSelection,
+            );
             info!(
                 target: "edit",
                 same_app = outcome.same_app,
                 activated = outcome.activated_app,
                 frontmost_verified = outcome.frontmost_verified,
                 paste_time_focus = ?outcome.paste_time_focus_role,
+                paste_time_target = outcome.paste_time_target.as_str(),
+                blocker = ?outcome.blocker,
                 "restored focus before edit paste"
             );
             // An edit paste *replaces* the user's selection — sending it to
-            // whatever app happens to be frontmost would stomp foreign text.
-            if !outcome.frontmost_verified {
-                warn!(target: "edit", "target app not frontmost; aborting edit paste");
+            // whatever app happens to be frontmost, or to an element that
+            // can't hold a caret, would stomp foreign text or drop the edit.
+            if let Some(blocker) = outcome.blocker {
+                warn!(target: "edit", reason = blocker.reason(), "no confirmed paste target; aborting edit paste");
                 notify_edit_failure(
                     app,
-                    "Couldn't switch back to the original app — edit not applied.",
+                    "Couldn't return to the original text field — edit not applied.",
                 );
                 return;
             }
