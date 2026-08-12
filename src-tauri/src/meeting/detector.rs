@@ -131,15 +131,38 @@ fn observe_suppressed_meeting(
         };
     }
 
-    match app_has_meeting_window(&key.bundle_id) {
+    observe_native_suppressed_meeting(
+        app_has_meeting_window(&key.bundle_id),
+        ctx.bundle_id.as_deref() == Some(key.bundle_id.as_str()),
+        ctx.window_title.as_deref(),
+        &key.bundle_id,
+        is_default_input_running(),
+    )
+}
+
+/// Combine native-app meeting window evidence with the audio-session signal.
+/// Kept pure so the manual-stop re-arm policy can be regression-tested without
+/// querying live macOS windows or CoreAudio.
+fn observe_native_suppressed_meeting(
+    meeting_window_seen: Option<bool>,
+    app_is_frontmost: bool,
+    frontmost_window_title: Option<&str>,
+    bundle_id: &str,
+    mic_active: bool,
+) -> SuppressedMeetingPresence {
+    // Native meeting apps can leave hidden meeting-titled windows behind
+    // after a call. Their audio session is the stronger end signal: after the
+    // ticker's existing 30-second grace period, an inactive default input
+    // re-arms auto-start even if CGWindowList still contains a stale window.
+    if !mic_active {
+        return SuppressedMeetingPresence::Gone;
+    }
+
+    match meeting_window_seen {
         Some(true) => SuppressedMeetingPresence::Present,
         Some(false) => SuppressedMeetingPresence::Gone,
-        None if ctx.bundle_id.as_deref() == Some(key.bundle_id.as_str()) => {
-            match ctx
-                .window_title
-                .as_deref()
-                .map(|title| is_meeting_window_title(&key.bundle_id, title))
-            {
+        None if app_is_frontmost => {
+            match frontmost_window_title.map(|title| is_meeting_window_title(bundle_id, title)) {
                 Some(true) => SuppressedMeetingPresence::Present,
                 Some(false) => SuppressedMeetingPresence::Gone,
                 None => SuppressedMeetingPresence::Unknown,
@@ -978,6 +1001,27 @@ mod tests {
             ticker.tick(SuppressedMeetingPresence::Gone),
             AutoStartSuppressionDecision::Clear
         );
+    }
+
+    #[test]
+    fn regression_native_suppression_rearms_after_audio_session_ends_even_if_stale_window_remains()
+    {
+        let mut ticker = AutoStartSuppressionTicker::with_threshold(3);
+
+        // Zoom can leave a hidden, meeting-titled window in CGWindowList long
+        // after the call ends. Once the native audio session is inactive, that
+        // stale window must not suppress every future Zoom call in this app
+        // process. Production uses 15 two-second ticks (30 seconds).
+        for tick in 0..3 {
+            let presence =
+                observe_native_suppressed_meeting(Some(true), false, None, "us.zoom.xos", false);
+            let decision = ticker.tick(presence);
+            if tick < 2 {
+                assert_eq!(decision, AutoStartSuppressionDecision::Suppress);
+            } else {
+                assert_eq!(decision, AutoStartSuppressionDecision::Clear);
+            }
+        }
     }
 
     #[test]
