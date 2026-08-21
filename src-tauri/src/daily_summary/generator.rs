@@ -102,7 +102,7 @@ fn truncate(s: &str, max: usize) -> String {
 /// per-item character caps and a total prompt budget so the model never
 /// sees more input than its context window can hold.
 pub fn build_prompt(input: &DailySummaryInput) -> (String, String) {
-    let system = SYSTEM_PROMPT.to_string();
+    let system = full_system_prompt();
     let mut user = build_user_prompt(input, DICTATIONS_PER_APP_CAP);
 
     // If we're still over budget, shrink the per-app dictation cap until the
@@ -172,6 +172,27 @@ fn build_user_prompt(input: &DailySummaryInput, dictation_cap: usize) -> String 
 const SYSTEM_PROMPT: &str =
     "You are summarizing one day of one person's work. Be honest about the shape of the day. Do not inflate. Omit any section that has no real content. Respond with strict JSON matching the provided schema.";
 
+/// Meetings, notes, and dictations for one day can each be in a different
+/// language (Parakeet transcribes 25 of them); without an explicit rule the
+/// model defaults to English, so a French/German-heavy day still produced an
+/// English recap. There's no earlier instruction here for the rule to yield
+/// to, so this always resolves to "match the sources".
+fn language_directive() -> String {
+    format!(
+        "{} The day's sources may mix languages — follow whichever language dominates.",
+        crate::llm::prompt::language_rule(
+            "the day's source material below (meetings, notes, and dictations)"
+        )
+    )
+}
+
+/// Full system prompt, including the language directive. Shared by
+/// [`build_prompt`] and [`prompt_version`] so the version hash always
+/// reflects what the model is actually told.
+fn full_system_prompt() -> String {
+    format!("{SYSTEM_PROMPT} {}", language_directive())
+}
+
 const STYLE_GUIDANCE: &str = r#"
 Produce JSON with this shape:
 {
@@ -211,7 +232,7 @@ ws          ::= [ \t\n\r]*
 /// alongside the LLM model id in `daily_summaries.model_version`.
 pub fn prompt_version() -> String {
     let mut h = Sha256::new();
-    h.update(SYSTEM_PROMPT.as_bytes());
+    h.update(full_system_prompt().as_bytes());
     h.update(STYLE_GUIDANCE.as_bytes());
     h.update(OUTPUT_GRAMMAR.as_bytes());
     let digest = h.finalize();
@@ -477,6 +498,53 @@ mod tests {
         assert!(user.contains("Date: 2026-05-12"));
         assert!(user.contains("\"narrative\""));
         assert!(user.contains("\"things_that_came_up\""));
+    }
+
+    // ── language-follow rule ─────────────────────────────────────────────
+    //
+    // The day's source material (meetings, notes, dictations) can be in any
+    // of Parakeet's 25 languages; the recap must follow it instead of
+    // defaulting to English.
+
+    #[test]
+    fn prompt_system_carries_the_language_rule() {
+        let (system, _user) = build_prompt(&empty_input("2026-05-12"));
+        assert!(
+            system.contains(&crate::llm::prompt::language_rule(
+                "the day's source material below (meetings, notes, and dictations)"
+            )),
+            "got: {system}"
+        );
+    }
+
+    #[test]
+    fn prompt_system_notes_dominant_language_for_mixed_sources() {
+        // A day can mix a German meeting with English dictations; the
+        // recap should follow whichever language dominates, not just "the
+        // transcript" (singular) framing the other prompts use.
+        let (system, _user) = build_prompt(&empty_input("2026-05-12"));
+        assert!(
+            system.contains("follow whichever language dominates"),
+            "got: {system}"
+        );
+    }
+
+    #[test]
+    fn prompt_version_reflects_the_full_system_prompt_not_just_the_static_part() {
+        // Regression guard: prompt_version must hash the language-directive-
+        // inclusive system prompt, not just the static SYSTEM_PROMPT
+        // constant — otherwise this change would silently keep serving
+        // cached recaps tagged with the old (English-only) prompt version.
+        let mut static_only = Sha256::new();
+        static_only.update(SYSTEM_PROMPT.as_bytes());
+        static_only.update(STYLE_GUIDANCE.as_bytes());
+        static_only.update(OUTPUT_GRAMMAR.as_bytes());
+        let static_digest = static_only.finalize();
+        let static_hash: String = static_digest[..4]
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect();
+        assert_ne!(prompt_version(), static_hash);
     }
 
     #[test]

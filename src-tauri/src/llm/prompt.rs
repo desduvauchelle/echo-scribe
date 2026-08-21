@@ -133,6 +133,30 @@ pub fn strip_trailing_stops(text: &str, stops: &[String]) -> String {
     out.trim().to_string()
 }
 
+/// Render the language-follow rule for a prompt whose output is prose the user
+/// reads.
+///
+/// Parakeet v3 transcribes 25 European languages, but every prompt in this file
+/// is written in English — without an explicit rule the model answers in
+/// English, so a German or Spanish meeting produced English notes. `source_label`
+/// names the text the answer must match ("the transcript", "the meeting notes",
+/// …); the rule deliberately yields to an explicit language instruction earlier
+/// in the prompt (a user's custom summary prompt or recipe may ask for one).
+///
+/// NOT for prompts whose output is matched against fixed vocabulary or parsed
+/// structurally — enum verdicts/statuses, project names matched against the
+/// user's project list, tags that group across meetings, and action/intent
+/// classification all break when translated. See the call sites for which
+/// individual JSON fields opt in.
+pub fn language_rule(source_label: &str) -> String {
+    format!(
+        "Language: write the entire response in the same language as {source_label} — \
+German source → German response, Spanish → Spanish, French → French, and so on for every \
+language. Use English only when the source is in English, or when an instruction above \
+explicitly names a different output language. Never silently translate the content."
+    )
+}
+
 /// Build the prompt for meeting transcript → free-form markdown notes.
 ///
 /// Stage 1 of synthesis: the model writes readable markdown following the
@@ -172,7 +196,7 @@ The transcript labels each segment as 'You:' (the user) or 'Them:' (the other si
                 String::new()
             } else {
                 format!(
-                    "\nOrganize the notes under these '##' headings, in this order (skip a heading when the conversation had nothing for it): {}.",
+                    "\nOrganize the notes under these '##' headings, in this order (skip a heading when the conversation had nothing for it): {}. Reuse these heading names exactly as written above, whatever language the transcript is in.",
                     sections.join(", ")
                 )
             };
@@ -183,6 +207,11 @@ The transcript labels each segment as 'You:' (the user) or 'Them:' (the other si
         })
         .unwrap_or_default();
 
+    // Notes are free-form prose the user reads, and nothing downstream parses
+    // the section headings (the exporter writes its own '## Summary' wrapper),
+    // so headings follow the transcript language too — except heading names a
+    // template pinned above.
+    let language = language_rule("the transcript");
     let system = format!(
         "{resolved_guidelines}{template_block}\n\
 Write the meeting notes as clean markdown:\n\
@@ -191,6 +220,7 @@ Write the meeting notes as clean markdown:\n\
 - Be concise: capture what matters, skip filler and pleasantries.\n\
 - Never invent facts, names, dates, or commitments that are not in the transcript.\n\
 - Do not start with a document title heading and do not add commentary before or after the notes.\n\
+- {language} Headings and bullets alike — a German transcript gets German headings.\n\
 Output markdown only."
     );
     let notes_block = user_notes
@@ -238,15 +268,35 @@ Otherwise set it to null."
         )
     };
 
+    // Only `suggested_title` is prose the user reads. `tags` group meetings
+    // across the whole app and `project_name` is matched against the user's
+    // existing project names — translating either would break that matching, so
+    // the language rule is scoped to the title alone.
+    let title_language = language_rule("the meeting notes");
     let system = format!(
         "You label meeting notes. Produce a JSON object with exactly these fields:\n\
-- suggested_title: short string (max 60 characters) capturing the meeting's purpose.\n\
-- tags: array of 1-3 short keyword strings that categorize the overall meeting topic (e.g. \"design\", \"planning\", \"bugfix\").\n\
+- suggested_title: short string (max 60 characters) capturing the meeting's purpose. {title_language}\n\
+- tags: array of 1-3 short keyword strings that categorize the overall meeting topic (e.g. \"design\", \"planning\", \"bugfix\"). Always write tags in English, even when the notes are in another language, so they group with tags from other meetings.\n\
 - project_name: string or null. {project_hint}\n\
 Output JSON only — no preamble, no commentary, no markdown fences."
     );
     let user = format!("Meeting notes:\n\n{markdown_notes}\n\nProduce the JSON now.");
     (Some(system), user)
+}
+
+/// Build the system prompt for a scoped artifact (a recipe, follow-up email
+/// draft, or prep brief) generated from local meeting/person/company/project
+/// context.
+///
+/// `instruction` is either a built-in instruction (follow-up/prep brief) or a
+/// user-authored recipe prompt — a recipe can itself pin an output language
+/// ("always write this in French"), so the language rule is appended *after*
+/// `instruction` and yields to it via its own escape hatch.
+pub fn build_scoped_artifact_system_prompt(instruction: &str) -> String {
+    let language = language_rule("the source context");
+    format!(
+        "You are EchoScribe's private local meeting assistant. {instruction} Use only the supplied source context. If evidence is missing, say so. Never invent people, commitments, dates, or facts. {language}"
+    )
 }
 
 /// Render the optional start-of-meeting context (window title, URL, tab title)
@@ -545,6 +595,173 @@ mod tests {
         assert!(sys.contains("\"scorecard\""));
         assert!(user.contains("You: hi"));
     }
+
+    // ── language-follow rule ─────────────────────────────────────────────
+    //
+    // Parakeet v3 transcribes 25 European languages; prose the user reads must
+    // come back in the transcript's language, while anything matched against
+    // fixed vocabulary must stay English.
+
+    #[test]
+    fn meeting_notes_prompt_asks_for_the_transcript_language() {
+        let ctx = crate::meeting::MeetingStartContext::default();
+        let (sys, _user) =
+            build_meeting_notes_prompt("Them: Guten Tag\n", None, 5, &ctx, None, None, None);
+        let sys = sys.unwrap();
+        assert!(
+            sys.contains(&language_rule("the transcript")),
+            "notes prompt must carry the language rule, got: {sys}"
+        );
+        assert!(
+            sys.contains("German transcript gets German headings"),
+            "headings follow the transcript language too, got: {sys}"
+        );
+    }
+
+    #[test]
+    fn meeting_notes_language_rule_survives_a_custom_prompt() {
+        // A user-supplied summary prompt replaces the guidelines block only —
+        // the language rule lives in the shared tail and must still be there.
+        let ctx = crate::meeting::MeetingStartContext::default();
+        let (sys, _user) = build_meeting_notes_prompt(
+            "You: hi\n",
+            None,
+            5,
+            &ctx,
+            Some("Tone: formal."),
+            None,
+            None,
+        );
+        assert!(sys.unwrap().contains(&language_rule("the transcript")));
+    }
+
+    #[test]
+    fn meeting_notes_template_headings_are_pinned_across_languages() {
+        // Template section names are user-authored; the language rule must not
+        // make the model translate them.
+        let ctx = crate::meeting::MeetingStartContext::default();
+        let template = crate::db::meeting_intelligence::SummaryTemplate {
+            id: "t1".into(),
+            name: "Sales".into(),
+            description: "d".into(),
+            instructions: "Emphasize objections.".into(),
+            sections_json: r#"["Goals","Objections"]"#.into(),
+            is_builtin: false,
+            archived_at: None,
+            created_at: "2026-01-01".into(),
+            updated_at: "2026-01-01".into(),
+        };
+        let (sys, _user) =
+            build_meeting_notes_prompt("You: hi\n", None, 10, &ctx, None, None, Some(&template));
+        let sys = sys.unwrap();
+        assert!(
+            sys.contains("Reuse these heading names exactly as written above"),
+            "got: {sys}"
+        );
+    }
+
+    #[test]
+    fn meeting_metadata_localizes_the_title_but_not_tags_or_projects() {
+        let projects = vec![crate::db::projects::Project {
+            id: "p1".into(),
+            name: "Alpha".into(),
+            created_at: "2026-01-01".into(),
+            archived_at: None,
+            ..Default::default()
+        }];
+        let (sys, _user) = build_meeting_metadata_prompt("## Notizen\n- Punkt", &projects);
+        let sys = sys.unwrap();
+        // The title is prose the user reads.
+        assert!(
+            sys.contains(&language_rule("the meeting notes")),
+            "got: {sys}"
+        );
+        // Tags group meetings app-wide — translating them fragments the facet.
+        assert!(
+            sys.contains("Always write tags in English"),
+            "got: {sys}"
+        );
+        // Project routing still matches the user's exact project names.
+        assert!(sys.contains("EXACT name from the list above"), "got: {sys}");
+    }
+
+    #[test]
+    fn guide_review_localizes_narrative_but_pins_matched_fields() {
+        let (sys, _user) = build_guide_review_prompt("Be clear.", "speak last\n", "You: hi\n");
+        let sys = sys.unwrap();
+        assert!(sys.contains(&language_rule("the transcript")), "got: {sys}");
+        assert!(
+            sys.contains("\"synthesis\", \"why\", \"tip\", and \"observation\" only"),
+            "got: {sys}"
+        );
+        assert!(
+            sys.contains("keep \"overall\" and \"verdict\" as the exact English values listed"),
+            "got: {sys}"
+        );
+        assert!(
+            sys.contains("copy each \"criterion\" verbatim"),
+            "got: {sys}"
+        );
+    }
+
+    #[test]
+    fn guide_review_signals_variant_also_carries_the_language_rule() {
+        let (sys, _user) = build_configured_guide_review_prompt(
+            "Be clear.",
+            "frustration\n",
+            "You: hi\n",
+            "signals",
+            "interaction",
+            true,
+        );
+        assert!(sys.unwrap().contains(&language_rule("the transcript")));
+    }
+
+    #[test]
+    fn guide_review_reduce_prompt_inherits_the_language_rule() {
+        let (sys, user) =
+            build_guide_review_reduce_prompt("Be clear.", "speak last\n", "[]", "rubric", "you");
+        let sys = sys.unwrap();
+        assert!(sys.contains(&language_rule("the transcript")), "got: {sys}");
+        assert!(user.contains("Validated excerpt reviews:"));
+    }
+
+    #[test]
+    fn language_rule_yields_to_an_explicit_instruction() {
+        // A custom summary prompt or recipe may name an output language; the
+        // rule must not override it.
+        let rule = language_rule("the transcript");
+        assert!(
+            rule.contains("explicitly names a different output language"),
+            "got: {rule}"
+        );
+    }
+
+    #[test]
+    fn scoped_artifact_prompt_carries_the_language_rule() {
+        let sys = build_scoped_artifact_system_prompt(
+            "Draft a concise follow-up email with a useful subject line.",
+        );
+        assert!(
+            sys.contains(&language_rule("the source context")),
+            "got: {sys}"
+        );
+    }
+
+    #[test]
+    fn scoped_artifact_prompt_keeps_the_instruction_ahead_of_the_rule() {
+        // A recipe's own prompt may pin an output language ("always answer in
+        // Spanish"); the rule's escape hatch only fires for "an instruction
+        // above", so the recipe instruction must come first.
+        let sys = build_scoped_artifact_system_prompt("Always answer in Spanish.");
+        let instruction_pos = sys
+            .find("Always answer in Spanish.")
+            .expect("instruction present");
+        let rule_pos = sys
+            .find(&language_rule("the source context"))
+            .expect("language rule present");
+        assert!(instruction_pos < rule_pos, "got: {sys}");
+    }
 }
 
 /// One key point the LLM is asked to track during a guided session.
@@ -578,6 +795,16 @@ pub fn build_guidance_prompt(
     prior_points_json: Option<&str>,
     recent_suggestions: &[String],
 ) -> (Option<String>, String) {
+    // `label` and `suggestions` are shown live in the HUD, so they follow the
+    // conversation's language. `id` and `status` are matched (ids must stay
+    // stable across cycles; status is compared against covered/partial/open in
+    // both Rust and the frontend), so they stay English/ASCII.
+    let language = format!(
+        "- {} This applies to every 'label' and every suggestion. Keep each \
+         'id' lowercase ASCII English and each 'status' exactly one of \
+         covered/partial/open, untranslated.",
+        language_rule("the transcript")
+    );
     let system = match kind {
         "tracker" => format!(
             "You are a silent note-taker keeping live bullet notes on a \
@@ -601,6 +828,7 @@ pub fn build_guidance_prompt(
              commitment). No coaching, no questions to ask, no opinions. An \
              empty array is correct when nothing new happened.\n\
              - Do NOT repeat anything under 'already noted'.\n\
+             {language}\n\
              - Output JSON only.",
         ),
         "coach" => format!(
@@ -627,6 +855,7 @@ pub fn build_guidance_prompt(
              right answer for most cycles.\n\
              - Do NOT restate the goal or a note as a suggestion, and do NOT \
              repeat or rephrase anything under 'already suggested'.\n\
+             {language}\n\
              - Output JSON only.",
         ),
         _ => format!(
@@ -646,6 +875,7 @@ pub fn build_guidance_prompt(
              - A suggestion must be ≤ 12 words, concrete, and specific to the most \
              recent transcript. Do NOT restate the goal or notes as a suggestion, \
              and do NOT repeat or rephrase anything under 'already suggested'.\n\
+             {language}\n\
              - Output JSON only.",
         ),
     };
@@ -724,6 +954,17 @@ pub fn build_configured_guide_review_prompt(
     } else {
         "Review the supplied meeting transcript as a whole."
     };
+    // Only the narrative fields are prose the user reads. `overall` and
+    // `verdict` are matched against fixed English vocabulary (validate_review in
+    // meeting/guide_review.rs and verdictClass in the frontend), `criterion` is
+    // keyed on for the trend table, and evidence quotes must stay exact
+    // substrings of the transcript — so none of those may be translated.
+    let language = format!(
+        "{} That covers \"synthesis\", \"why\", \"tip\", and \"observation\" only: \
+copy each \"criterion\" verbatim from the list above, keep \"overall\" and \"verdict\" as the \
+exact English values listed, and copy every quote exactly as it appears in the transcript.",
+        language_rule("the transcript")
+    );
     let system = format!(
         "You are a careful communication analyst reviewing a meeting transcript. The user is the speaker labeled 'You'; the other side is labeled 'Them'. \
 {assessment}, using only words present in the transcript. {chunk_rule}\n\
@@ -735,6 +976,7 @@ Produce a JSON object with exactly these fields:\n\
 - \"scorecard\": an array with ONE object per criterion above, in the same order: {{ \"criterion\": the criterion text, \"verdict\": one of {verdicts}, \"evidence\": the first exact quote or empty string, \"evidence_refs\": zero or more exact sources shaped {{ \"segment_index\": N, \"start_ms\": N, \"end_ms\": N, \"quote\": \"exact substring from that segment\" }}, \"why\": a one-line assessment, \"tip\": one concrete next step or empty string }}.\n\
 - \"emergent\": an array of 0-2 objects {{ \"observation\": something notable NOT covered by the criteria, \"evidence\": the first exact quote, \"evidence_refs\": one or more exact sources in the same shape }}.\n\
 The transcript labels each segment [sINDEX|START_MS-END_MS|SPEAKER]. Copy the index, times, and quote exactly. Never invent or paraphrase evidence. Every signal verdict other than not_observed and every rubric verdict other than unknown requires exact evidence; use missed only for an evidenced counterexample, not merely because a behavior is absent. Do not infer vocal tone, facial expression, intent, or a clinical/emotional state that the words do not establish.\n\
+{language}\n\
 Output JSON only — no preamble, no commentary, no markdown fences."
     );
     let user = format!("Transcript:\n\n{transcript}\n\nProduce the JSON now.");
@@ -838,5 +1080,35 @@ mod guidance_prompt_tests {
         assert!(sys.contains("Generic advice"), "got: {sys}");
         assert!(sys.contains("mostly silent"), "got: {sys}");
         assert!(sys.contains("at most ONE"), "got: {sys}");
+    }
+
+    #[test]
+    fn every_kind_asks_for_the_transcript_language() {
+        // The HUD shows `label` and `suggestions` verbatim, so all three
+        // personas must answer in the conversation's language.
+        for kind in ["checklist", "coach", "tracker", "bogus"] {
+            let (sys, _user) = build_guidance_prompt(kind, "g", "n", "t", None, &[]);
+            let sys = sys.unwrap();
+            assert!(
+                sys.contains(&language_rule("the transcript")),
+                "{kind} prompt is missing the language rule, got: {sys}"
+            );
+        }
+    }
+
+    #[test]
+    fn guidance_keeps_ids_and_statuses_english() {
+        // `id` must stay stable across cycles and `status` is compared against
+        // covered/partial/open in both Rust and the frontend.
+        let (sys, _user) = build_guidance_prompt("checklist", "g", "n", "t", None, &[]);
+        let sys = sys.unwrap();
+        assert!(
+            sys.contains("Keep each 'id' lowercase ASCII English"),
+            "got: {sys}"
+        );
+        assert!(
+            sys.contains("covered/partial/open, untranslated"),
+            "got: {sys}"
+        );
     }
 }

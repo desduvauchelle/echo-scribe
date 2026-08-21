@@ -491,6 +491,29 @@ pub async fn format_text<L: LlmGenerator + ?Sized>(
 }
 
 #[cfg(test)]
+mod language_rule_tests {
+    use super::*;
+
+    /// The action classifier emits fixed English enum values (`action_type`,
+    /// `format_id`) and matches English trigger phrases, so it must NOT get the
+    /// transcript-language rule that the meeting prose prompts carry — a
+    /// translated `action_type` fails every downstream match.
+    #[test]
+    fn action_classifier_prompt_has_no_language_follow_rule() {
+        let prompt = build_action_system_prompt(&[]);
+        assert!(
+            !prompt.contains(&crate::llm::prompt::language_rule("the transcript")),
+            "classification prompt must not force the transcript's language"
+        );
+        assert!(
+            !prompt.contains("Language: write the entire response"),
+            "classification prompt must not force the transcript's language"
+        );
+        assert!(prompt.contains("\"action_type\""));
+    }
+}
+
+#[cfg(test)]
 mod stay_awake_tests {
     use super::*;
 

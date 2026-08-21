@@ -3700,7 +3700,9 @@ async fn generate_scoped_artifact(
         return Err("No local context is available for this workflow.".into());
     }
     let response = state.llm.generate(GenerateRequest {
-        system: Some(format!("You are EchoScribe's private local meeting assistant. {instruction} Use only the supplied source context. If evidence is missing, say so. Never invent people, commitments, dates, or facts.")),
+        system: Some(crate::llm::prompt::build_scoped_artifact_system_prompt(
+            instruction,
+        )),
         user: format!("Source context:\n\n{context}"),
         history: Vec::new(),
         max_tokens: 1200,

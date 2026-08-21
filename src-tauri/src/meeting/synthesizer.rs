@@ -133,7 +133,16 @@ async fn condense_pass(llm: &impl crate::llm::LlmGenerator, text: &str) -> Resul
     let mut summaries = Vec::new();
     let num_chunks = chunks.len();
     for (i, chunk) in chunks.iter().enumerate() {
-        let system_prompt = "You are a precise meeting assistant. Summarize the following meeting segment chronologically. Highlight key points, decisions, and action items discussed during this part of the meeting. Keep it concise but detailed enough for a final synthesizer.".to_string();
+        // The condensed text is fed straight back into the notes prompt, so an
+        // English condensation would force English notes for a non-English
+        // meeting no matter what stage 1 is told.
+        let system_prompt = format!(
+            "You are a precise meeting assistant. Summarize the following meeting segment \
+             chronologically. Highlight key points, decisions, and action items discussed \
+             during this part of the meeting. Keep it concise but detailed enough for a \
+             final synthesizer. {}",
+            crate::llm::prompt::language_rule("the meeting segment")
+        );
         let user_prompt = format!("Meeting Segment {}/{}:\n\n{}", i + 1, num_chunks, chunk);
 
         let req = GenerateRequest {
@@ -390,6 +399,34 @@ mod tests {
         assert!(result.contains("Summary 1"));
         assert!(result.contains("--- Chronological Segment 2/2 ---"));
         assert!(result.contains("Summary 2"));
+    }
+
+    #[derive(Default)]
+    struct CapturingLlm {
+        systems: std::sync::Mutex<Vec<Option<String>>>,
+    }
+
+    impl crate::llm::LlmGenerator for CapturingLlm {
+        fn generate<'a>(&'a self, req: GenerateRequest) -> crate::llm::GenerateFuture<'a> {
+            self.systems.lock().unwrap().push(req.system.clone());
+            Box::pin(async move { Ok("condensed".to_string()) })
+        }
+    }
+
+    #[tokio::test]
+    async fn condense_pass_keeps_the_segment_language() {
+        // The condensation feeds straight back into the notes prompt, so an
+        // English condensation would force English notes for a German meeting.
+        let llm = CapturingLlm::default();
+        condense_pass(&llm, "Them: Guten Tag, wie geht es Ihnen?\n")
+            .await
+            .unwrap();
+        let systems = llm.systems.lock().unwrap();
+        let sys = systems[0].as_deref().expect("condense pass sets a system prompt");
+        assert!(
+            sys.contains(&crate::llm::prompt::language_rule("the meeting segment")),
+            "got: {sys}"
+        );
     }
 
     struct FixedSummaryLlm {

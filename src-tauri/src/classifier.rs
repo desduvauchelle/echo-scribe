@@ -717,4 +717,27 @@ mod tests {
         assert!(prompt.contains("acme, john-smith, q3"));
         assert!(prompt.contains("tauri, rust, voice"));
     }
+
+    /// Tagging / project routing matches the model's output against the user's
+    /// existing project names and a fixed tag vocabulary, so this prompt is
+    /// deliberately excluded from the transcript-language rule that the meeting
+    /// prose prompts carry (see `llm::prompt::language_rule`).
+    #[test]
+    fn classifier_prompt_has_no_language_follow_rule() {
+        let prompt = build_system_prompt(
+            &[proj("p1", "Acme Sales")],
+            &[],
+            "2026-05-03T10:00:00Z",
+            "Sunday",
+            None,
+        );
+        assert!(
+            !prompt.contains(&crate::llm::prompt::language_rule("the transcript")),
+            "matching prompt must not force the transcript's language"
+        );
+        assert!(
+            !prompt.contains("Language: write the entire response"),
+            "matching prompt must not force the transcript's language"
+        );
+    }
 }
