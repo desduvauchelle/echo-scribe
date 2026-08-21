@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   getDictionaryEntries,
   getDefaultFillerWords,
@@ -32,6 +33,7 @@ export default function TranscriptionSettings() {
 }
 
 function SpokenEditingCard() {
+  const { t } = useTranslation();
   const [settings, setSettings] = useState<SpokenEditingSettings | null>(null);
   const toasts = useToasts();
 
@@ -57,23 +59,25 @@ function SpokenEditingCard() {
       setSettings(settings);
       toasts.push({
         tone: "error",
-        message: `Couldn't save spoken editing: ${e instanceof Error ? e.message : String(e)}`,
+        message: t("transcriptionSettings.spokenEditing.saveFailed", {
+          error: e instanceof Error ? e.message : String(e),
+        }),
       });
     }
   };
 
   const rows: Array<{ key: keyof SpokenEditingSettings; label: string; detail: string }> = [
-    { key: "corrections", label: "Natural corrections", detail: '“actually”, “change X to Y”, “scratch that”' },
-    { key: "punctuation", label: "Punctuation and paragraphs", detail: '“comma”, “new line”, “new paragraph”' },
-    { key: "lists", label: "List commands", detail: '“start a list”, “next item”, “end list”' },
-    { key: "press_enter", label: "Allow “press enter”", detail: "Opt in: can submit a message after a successful paste" },
+    { key: "corrections", label: t("transcriptionSettings.spokenEditing.corrections.label"), detail: t("transcriptionSettings.spokenEditing.corrections.detail") },
+    { key: "punctuation", label: t("transcriptionSettings.spokenEditing.punctuation.label"), detail: t("transcriptionSettings.spokenEditing.punctuation.detail") },
+    { key: "lists", label: t("transcriptionSettings.spokenEditing.lists.label"), detail: t("transcriptionSettings.spokenEditing.lists.detail") },
+    { key: "press_enter", label: t("transcriptionSettings.spokenEditing.pressEnter.label"), detail: t("transcriptionSettings.spokenEditing.pressEnter.detail") },
   ];
 
   return (
     <div className="flex flex-col gap-3 rounded-lg border border-line bg-canvas p-4">
       <ToggleRow
-        label="Spoken editing"
-        detail="Apply deterministic voice commands before transcript cleanup."
+        label={t("transcriptionSettings.spokenEditing.title")}
+        detail={t("transcriptionSettings.spokenEditing.detail")}
         checked={settings?.enabled ?? true}
         disabled={!settings}
         onChange={(enabled) => void update({ enabled })}
@@ -91,13 +95,14 @@ function SpokenEditingCard() {
         ))}
       </div>
       <p className="text-[11px] text-muted">
-        Say “cancel that” as the entire utterance to discard it. Press Escape while recording to discard immediately.
+        {t("transcriptionSettings.spokenEditing.cancelHint")}
       </p>
     </div>
   );
 }
 
 function LanguageCard() {
+  const { t } = useTranslation();
   const [language, setLanguage] = useState("auto");
   const toasts = useToasts();
   useEffect(() => {
@@ -105,9 +110,9 @@ function LanguageCard() {
   }, []);
   return (
     <div className="flex flex-col gap-2 rounded-lg border border-line bg-canvas p-4">
-      <div className="text-sm font-semibold text-fg">Language</div>
+      <div className="text-sm font-semibold text-fg">{t("transcriptionSettings.language.title")}</div>
       <p className="text-xs text-muted">
-        Speech is detected automatically. Choose the language used for cleanup and spoken commands.
+        {t("transcriptionSettings.language.description")}
       </p>
       <select
         value={language}
@@ -119,19 +124,19 @@ function LanguageCard() {
             await setTranscriptionCleanupLanguage(next);
           } catch (e) {
             setLanguage(previous);
-            toasts.push({ tone: "error", message: `Couldn't save language: ${e instanceof Error ? e.message : String(e)}` });
+            toasts.push({ tone: "error", message: t("transcriptionSettings.language.saveFailed", { error: e instanceof Error ? e.message : String(e) }) });
           }
         }}
         className="w-fit rounded border border-line bg-canvas px-2 py-1.5 text-sm"
       >
-        <option value="auto">Automatic</option>
-        <option value="en">English</option>
-        <option value="es">Spanish</option>
-        <option value="fr">French</option>
-        <option value="de">German</option>
-        <option value="pt">Portuguese</option>
+        <option value="auto">{t("transcriptionSettings.language.options.auto")}</option>
+        <option value="en">{t("transcriptionSettings.language.options.en")}</option>
+        <option value="es">{t("transcriptionSettings.language.options.es")}</option>
+        <option value="fr">{t("transcriptionSettings.language.options.fr")}</option>
+        <option value="de">{t("transcriptionSettings.language.options.de")}</option>
+        <option value="pt">{t("transcriptionSettings.language.options.pt")}</option>
       </select>
-      <p className="text-[11px] text-muted">Automatic detection supports 25 European languages. Spoken editing commands are currently English.</p>
+      <p className="text-[11px] text-muted">{t("transcriptionSettings.language.footnote")}</p>
     </div>
   );
 }
@@ -161,6 +166,7 @@ function ToggleRow(props: {
 }
 
 function DictionaryCard() {
+  const { t } = useTranslation();
   const [entries, setEntries] = useState<DictionaryEntry[] | null>(null);
   const [spokenForm, setSpokenForm] = useState("");
   const [replacement, setReplacement] = useState("");
@@ -180,7 +186,9 @@ function DictionaryCard() {
       setEntries(previous);
       toasts.push({
         tone: "error",
-        message: `Couldn't save dictionary: ${e instanceof Error ? e.message : String(e)}`,
+        message: t("transcriptionSettings.dictionary.saveFailed", {
+          error: e instanceof Error ? e.message : String(e),
+        }),
       });
     }
   };
@@ -203,16 +211,16 @@ function DictionaryCard() {
     <div className="flex flex-col gap-3 rounded-lg border border-line bg-canvas p-4">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <div className="text-sm font-semibold text-fg">Dictionary</div>
-          <p className="text-xs text-muted">Map a spoken word or phrase to exact spelling, casing, or punctuation.</p>
+          <div className="text-sm font-semibold text-fg">{t("transcriptionSettings.dictionary.title")}</div>
+          <p className="text-xs text-muted">{t("transcriptionSettings.dictionary.description")}</p>
         </div>
         <div className="flex shrink-0 gap-2 text-xs">
-          <button type="button" onClick={() => downloadJson("echo-scribe-dictionary.json", entries ?? [])} className="text-muted hover:text-fg">Export JSON</button>
-          <label className="cursor-pointer text-muted hover:text-fg">Import JSON<input type="file" accept="application/json,.json" className="hidden" onChange={(event) => {
+          <button type="button" onClick={() => downloadJson("echo-scribe-dictionary.json", entries ?? [])} className="text-muted hover:text-fg">{t("transcriptionSettings.dictionary.exportJson")}</button>
+          <label className="cursor-pointer text-muted hover:text-fg">{t("transcriptionSettings.dictionary.importJson")}<input type="file" accept="application/json,.json" className="hidden" onChange={(event) => {
             const file = event.target.files?.[0];
             if (!file) return;
             void readJsonFile<DictionaryEntry[]>(file).then((value) => {
-              if (!Array.isArray(value) || value.some((item) => !item.spoken_form || typeof item.replacement !== "string")) throw new Error("Invalid dictionary file");
+              if (!Array.isArray(value) || value.some((item) => !item.spoken_form || typeof item.replacement !== "string")) throw new Error(t("transcriptionSettings.dictionary.invalidFile"));
               return persist(value.map((item) => ({ ...item, language: item.language || "auto" })));
             }).catch((e) => toasts.push({ tone: "error", message: e instanceof Error ? e.message : String(e) }));
             event.target.value = "";
@@ -220,16 +228,16 @@ function DictionaryCard() {
         </div>
       </div>
       <div className="grid grid-cols-[1fr_1fr_auto] gap-2">
-        <input value={spokenForm} onChange={(e) => setSpokenForm(e.target.value)} placeholder="What Echo hears" className="rounded border border-line bg-canvas px-2 py-1.5 text-sm" />
-        <input value={replacement} onChange={(e) => setReplacement(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") add(); }} placeholder="Replace with" className="rounded border border-line bg-canvas px-2 py-1.5 text-sm" />
-        <button type="button" onClick={add} disabled={!spokenForm.trim() || !replacement.trim()} className="rounded bg-accent px-3 py-1.5 text-sm text-canvas disabled:opacity-40">Add</button>
+        <input value={spokenForm} onChange={(e) => setSpokenForm(e.target.value)} placeholder={t("transcriptionSettings.dictionary.spokenPlaceholder")} className="rounded border border-line bg-canvas px-2 py-1.5 text-sm" />
+        <input value={replacement} onChange={(e) => setReplacement(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") add(); }} placeholder={t("transcriptionSettings.dictionary.replacementPlaceholder")} className="rounded border border-line bg-canvas px-2 py-1.5 text-sm" />
+        <button type="button" onClick={add} disabled={!spokenForm.trim() || !replacement.trim()} className="rounded bg-accent px-3 py-1.5 text-sm text-canvas disabled:opacity-40">{t("transcriptionSettings.dictionary.add")}</button>
       </div>
-      {(entries?.length ?? 0) > 4 && <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search dictionary" className="rounded border border-line bg-canvas px-2 py-1.5 text-sm" />}
+      {(entries?.length ?? 0) > 4 && <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t("transcriptionSettings.dictionary.searchPlaceholder")} className="rounded border border-line bg-canvas px-2 py-1.5 text-sm" />}
       <div className="flex max-h-52 flex-col gap-1 overflow-y-auto">
         {visible.map((entry) => (
           <div key={`${entry.language}:${entry.spoken_form}`} className="flex items-center justify-between gap-3 rounded border border-line px-2 py-1.5 text-sm">
             <span className="min-w-0"><span className="text-muted">{entry.spoken_form}</span> <span className="text-muted">→</span> <span className="font-medium text-fg">{entry.replacement}</span></span>
-            <button type="button" onClick={() => void persist((entries ?? []).filter((item) => item !== entry))} className="text-xs text-muted hover:text-danger">Remove</button>
+            <button type="button" onClick={() => void persist((entries ?? []).filter((item) => item !== entry))} className="text-xs text-muted hover:text-danger">{t("transcriptionSettings.dictionary.remove")}</button>
           </div>
         ))}
       </div>
@@ -238,6 +246,7 @@ function DictionaryCard() {
 }
 
 function SnippetsCard() {
+  const { t } = useTranslation();
   const [snippets, setSnippets] = useState<TranscriptionSnippet[] | null>(null);
   const [trigger, setTrigger] = useState("");
   const [expansion, setExpansion] = useState("");
@@ -250,7 +259,7 @@ function SnippetsCard() {
     try { await setTranscriptionSnippets(next); }
     catch (e) {
       setSnippets(previous);
-      toasts.push({ tone: "error", message: `Couldn't save snippets: ${e instanceof Error ? e.message : String(e)}` });
+      toasts.push({ tone: "error", message: t("transcriptionSettings.snippets.saveFailed", { error: e instanceof Error ? e.message : String(e) }) });
     }
   };
   const conflict = (snippets ?? []).some((item) => item.trigger.toLocaleLowerCase() === trigger.trim().toLocaleLowerCase());
@@ -263,14 +272,14 @@ function SnippetsCard() {
   return (
     <div className="flex flex-col gap-3 rounded-lg border border-line bg-canvas p-4">
       <div className="flex items-start justify-between gap-3">
-        <div><div className="text-sm font-semibold text-fg">Snippets</div><p className="text-xs text-muted">Expand a whole spoken phrase into reusable text. Everything stays local.</p></div>
+        <div><div className="text-sm font-semibold text-fg">{t("transcriptionSettings.snippets.title")}</div><p className="text-xs text-muted">{t("transcriptionSettings.snippets.description")}</p></div>
         <div className="flex shrink-0 gap-2 text-xs">
-          <button type="button" onClick={() => downloadJson("echo-scribe-snippets.json", snippets ?? [])} className="text-muted hover:text-fg">Export JSON</button>
-          <label className="cursor-pointer text-muted hover:text-fg">Import JSON<input type="file" accept="application/json,.json" className="hidden" onChange={(event) => {
+          <button type="button" onClick={() => downloadJson("echo-scribe-snippets.json", snippets ?? [])} className="text-muted hover:text-fg">{t("transcriptionSettings.snippets.exportJson")}</button>
+          <label className="cursor-pointer text-muted hover:text-fg">{t("transcriptionSettings.snippets.importJson")}<input type="file" accept="application/json,.json" className="hidden" onChange={(event) => {
             const file = event.target.files?.[0];
             if (!file) return;
             void readJsonFile<TranscriptionSnippet[]>(file).then((value) => {
-              if (!Array.isArray(value) || value.some((item) => !item.trigger || typeof item.expansion !== "string")) throw new Error("Invalid snippets file");
+              if (!Array.isArray(value) || value.some((item) => !item.trigger || typeof item.expansion !== "string")) throw new Error(t("transcriptionSettings.snippets.invalidFile"));
               return persist(value.map((item) => ({ ...item, language: item.language || "auto" })));
             }).catch((e) => toasts.push({ tone: "error", message: e instanceof Error ? e.message : String(e) }));
             event.target.value = "";
@@ -278,16 +287,16 @@ function SnippetsCard() {
         </div>
       </div>
       <div className="grid grid-cols-[1fr_2fr_auto] gap-2">
-        <input value={trigger} onChange={(e) => setTrigger(e.target.value)} placeholder="Spoken trigger" className="rounded border border-line bg-canvas px-2 py-1.5 text-sm" />
-        <input value={expansion} onChange={(e) => setExpansion(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") add(); }} placeholder="Exact expansion" className="rounded border border-line bg-canvas px-2 py-1.5 text-sm" />
-        <button type="button" onClick={add} disabled={!trigger.trim() || !expansion || conflict} className="rounded bg-accent px-3 py-1.5 text-sm text-canvas disabled:opacity-40">Add</button>
+        <input value={trigger} onChange={(e) => setTrigger(e.target.value)} placeholder={t("transcriptionSettings.snippets.triggerPlaceholder")} className="rounded border border-line bg-canvas px-2 py-1.5 text-sm" />
+        <input value={expansion} onChange={(e) => setExpansion(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") add(); }} placeholder={t("transcriptionSettings.snippets.expansionPlaceholder")} className="rounded border border-line bg-canvas px-2 py-1.5 text-sm" />
+        <button type="button" onClick={add} disabled={!trigger.trim() || !expansion || conflict} className="rounded bg-accent px-3 py-1.5 text-sm text-canvas disabled:opacity-40">{t("transcriptionSettings.snippets.add")}</button>
       </div>
-      {conflict && <p className="text-xs text-warning">That trigger already exists.</p>}
+      {conflict && <p className="text-xs text-warning">{t("transcriptionSettings.snippets.conflict")}</p>}
       <div className="flex max-h-52 flex-col gap-1 overflow-y-auto">
         {(snippets ?? []).map((snippet) => (
           <div key={`${snippet.language}:${snippet.trigger}`} className="flex items-start justify-between gap-3 rounded border border-line px-2 py-1.5 text-sm">
             <span className="min-w-0"><span className="text-muted">{snippet.trigger}</span> <span className="text-muted">→</span> <span className="whitespace-pre-wrap text-fg">{snippet.expansion}</span></span>
-            <button type="button" onClick={() => void persist((snippets ?? []).filter((item) => item !== snippet))} className="text-xs text-muted hover:text-danger">Remove</button>
+            <button type="button" onClick={() => void persist((snippets ?? []).filter((item) => item !== snippet))} className="text-xs text-muted hover:text-danger">{t("transcriptionSettings.snippets.remove")}</button>
           </div>
         ))}
       </div>
@@ -296,6 +305,7 @@ function SnippetsCard() {
 }
 
 function FillerWordsCard() {
+  const { t } = useTranslation();
   const [enabled, setEnabled] = useState<boolean | null>(null);
   const [words, setWords] = useState<string[] | null>(null);
   const toasts = useToasts();
@@ -331,7 +341,9 @@ function FillerWordsCard() {
     } catch (e) {
       toasts.push({
         tone: "error",
-        message: `Couldn't update filler removal: ${e instanceof Error ? e.message : String(e)}`,
+        message: t("transcriptionSettings.fillerWords.updateFailed", {
+          error: e instanceof Error ? e.message : String(e),
+        }),
       });
     }
   };
@@ -343,7 +355,9 @@ function FillerWordsCard() {
     } catch (e) {
       toasts.push({
         tone: "error",
-        message: `Couldn't save filler words: ${e instanceof Error ? e.message : String(e)}`,
+        message: t("transcriptionSettings.fillerWords.saveFailed", {
+          error: e instanceof Error ? e.message : String(e),
+        }),
       });
     }
   };
@@ -355,7 +369,9 @@ function FillerWordsCard() {
     } catch (e) {
       toasts.push({
         tone: "error",
-        message: `Couldn't restore defaults: ${e instanceof Error ? e.message : String(e)}`,
+        message: t("transcriptionSettings.fillerWords.restoreFailed", {
+          error: e instanceof Error ? e.message : String(e),
+        }),
       });
     }
   };
@@ -365,10 +381,10 @@ function FillerWordsCard() {
       <label className="flex items-center justify-between">
         <div>
           <div className="text-sm font-semibold text-fg">
-            Remove filler words
+            {t("transcriptionSettings.fillerWords.title")}
           </div>
           <p className="text-xs text-muted">
-            Strip "uh", "um", "you know", and similar from every transcript.
+            {t("transcriptionSettings.fillerWords.description")}
           </p>
         </div>
         <input
@@ -384,14 +400,14 @@ function FillerWordsCard() {
         <ChipListCard
           inline
           disabled={!enabled}
-          title="Filler list"
-          subtitle="Edit the list. Multi-word phrases like 'you know' work."
-          placeholder="Add a filler"
+          title={t("transcriptionSettings.fillerWords.chipList.title")}
+          subtitle={t("transcriptionSettings.fillerWords.chipList.subtitle")}
+          placeholder={t("transcriptionSettings.fillerWords.chipList.placeholder")}
           words={words}
           onChange={(w) => void persistWords(w)}
           validate={(w) => /^[A-Za-z][A-Za-z' ]*$/.test(w.trim())}
           rightAction={{
-            label: "Restore defaults",
+            label: t("transcriptionSettings.fillerWords.chipList.restoreDefaults"),
             onClick: () => void restoreDefaults(),
           }}
         />
@@ -412,6 +428,7 @@ function ChipListCard(props: {
   disabled?: boolean;
   rightAction?: { label: string; onClick: () => void };
 }) {
+  const { t } = useTranslation();
   const { title, subtitle, placeholder, words, onChange, validate, inline, disabled, rightAction } = props;
   const [input, setInput] = useState("");
 
@@ -476,14 +493,14 @@ function ChipListCard(props: {
           disabled={disabled || !input.trim() || (!!validate && !validate(input.trim()))}
           className="rounded-md bg-accent/15 px-3 py-1.5 text-xs font-semibold text-accent hover:bg-accent/25 disabled:opacity-40"
         >
-          Add
+          {t("transcriptionSettings.chipList.add")}
         </button>
       </div>
 
       <div className="flex flex-wrap gap-1.5">
         {(words ?? []).length === 0 ? (
           <p className="text-xs text-muted">
-            {words === null ? "Loading…" : "No entries yet."}
+            {words === null ? t("transcriptionSettings.chipList.loading") : t("transcriptionSettings.chipList.empty")}
           </p>
         ) : (
           (words ?? []).map((w) => (
@@ -497,7 +514,7 @@ function ChipListCard(props: {
                 onClick={() => remove(w)}
                 disabled={disabled}
                 className="text-faint hover:text-fg"
-                aria-label={`Remove ${w}`}
+                aria-label={t("transcriptionSettings.chipList.removeAria", { word: w })}
               >
                 ×
               </button>

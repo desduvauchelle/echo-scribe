@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { ArrowDownToLine, X } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { applyUpdateAndRestart, dismissUpdate } from "../lib/api";
 import { useCapabilities } from "../lib/capabilitiesContext";
 import { uiGates } from "../lib/capabilities";
@@ -20,6 +21,7 @@ type Props = {
 };
 
 export default function UpdateBanner({ variant = "floating" }: Props) {
+  const { t } = useTranslation();
   const caps = useCapabilities();
   const [updateVersion, setUpdateVersion] = useState<string | null>(null);
 
@@ -61,23 +63,23 @@ export default function UpdateBanner({ variant = "floating" }: Props) {
           type="button"
           onClick={handleDismiss}
           className="absolute right-1.5 top-1.5 cursor-pointer rounded p-0.5 text-accent/70 transition-colors hover:bg-accent/15 hover:text-accent"
-          aria-label="Dismiss update"
+          aria-label={t("updateBanner.dismissAriaLabel")}
         >
           <X size={12} strokeWidth={2} aria-hidden="true" />
         </button>
         <span className="inline-flex items-center gap-1.5 pr-5 font-semibold">
           <ArrowDownToLine size={12} strokeWidth={2} aria-hidden="true" />
-          Update ready
+          {t("updateBanner.updateReady")}
         </span>
         <div className="mt-0.5 text-[11px] text-accent/80">
-          Echo Scribe {updateVersion}
+          {t("updateBanner.versionLabel", { version: updateVersion })}
         </div>
         <button
           type="button"
           onClick={handleRestart}
           className="mt-2 w-full cursor-pointer rounded-md border border-accent/50 bg-accent/15 px-2.5 py-1 font-semibold text-accent transition-colors hover:bg-accent/25"
         >
-          Restart Now
+          {t("updateBanner.restartNow")}
         </button>
       </div>
     );
@@ -90,20 +92,20 @@ export default function UpdateBanner({ variant = "floating" }: Props) {
     >
       <span className="inline-flex items-center gap-1.5 text-accent">
         <ArrowDownToLine size={12} strokeWidth={2} aria-hidden="true" />
-        Echo Scribe {updateVersion} is ready
+        {t("updateBanner.versionReady", { version: updateVersion })}
       </span>
       <button
         type="button"
         onClick={handleRestart}
         className="shrink-0 cursor-pointer rounded-md border border-accent/50 bg-accent/15 px-2.5 py-0.5 font-semibold text-accent transition-colors hover:bg-accent/25"
       >
-        Restart Now
+        {t("updateBanner.restartNow")}
       </button>
       <button
         type="button"
         onClick={handleDismiss}
         className="shrink-0 cursor-pointer rounded p-0.5 text-accent/70 transition-colors hover:bg-accent/15 hover:text-accent"
-        aria-label="Dismiss update"
+        aria-label={t("updateBanner.dismissAriaLabel")}
       >
         <X size={12} strokeWidth={2} aria-hidden="true" />
       </button>

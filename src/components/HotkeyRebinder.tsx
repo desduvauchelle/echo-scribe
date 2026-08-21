@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
 import {
   getVoiceAtCursorBinding,
@@ -59,6 +60,7 @@ function buildBinding(
 }
 
 export default function HotkeyRebinder({ onChange, load, save }: Props) {
+  const { t } = useTranslation();
   const [current, setCurrent] = useState<JsBinding | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [capture, setCapture] = useState<CaptureState>({ kind: "idle" });
@@ -154,7 +156,7 @@ export default function HotkeyRebinder({ onChange, load, save }: Props) {
       setCapture({ kind: "idle" });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      setSaveError(`Unsupported key — try a different one. (${msg})`);
+      setSaveError(t("hotkeyRebinder.unsupportedKey", { msg }));
     } finally {
       setSaving(false);
     }
@@ -166,13 +168,13 @@ export default function HotkeyRebinder({ onChange, load, save }: Props) {
         {capture.kind === "idle" ? (
           <div className="flex items-center justify-between gap-4">
             <div className="text-sm">
-              Current:{" "}
+              {t("hotkeyRebinder.currentLabel")}{" "}
               <span className="font-semibold">
                 {current
                   ? formatBinding(current)
                   : loadError
-                    ? "—"
-                    : "Loading…"}
+                    ? t("hotkeyRebinder.unknownValue")
+                    : t("hotkeyRebinder.loading")}
               </span>
             </div>
             <button
@@ -184,20 +186,20 @@ export default function HotkeyRebinder({ onChange, load, save }: Props) {
               }}
               className="rounded border border-line px-3 py-1 text-xs hover:bg-elevated"
             >
-              Record new shortcut…
+              {t("hotkeyRebinder.recordNewShortcut")}
             </button>
           </div>
         ) : capture.kind === "capturing" ? (
           <div className="text-sm">
-            <div className="font-semibold">Listening…</div>
+            <div className="font-semibold">{t("hotkeyRebinder.listening")}</div>
             <p className="mt-1 text-muted">
-              Press a key combination, then release. Press Esc to cancel.
+              {t("hotkeyRebinder.capturePrompt")}
             </p>
           </div>
         ) : (
           <div className="flex flex-col gap-3">
             <div className="text-sm">
-              Captured:{" "}
+              {t("hotkeyRebinder.capturedLabel")}{" "}
               <span className="font-semibold">
                 {formatBinding(capture.binding)}
               </span>
@@ -211,7 +213,7 @@ export default function HotkeyRebinder({ onChange, load, save }: Props) {
                 }}
                 className="rounded-md bg-accent px-3 py-1 text-xs font-semibold text-canvas hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {saving ? "Saving…" : "Save"}
+                {saving ? t("hotkeyRebinder.saving") : t("hotkeyRebinder.save")}
               </button>
               <button
                 type="button"
@@ -222,7 +224,7 @@ export default function HotkeyRebinder({ onChange, load, save }: Props) {
                 }}
                 className="rounded border border-line px-3 py-1 text-xs hover:bg-elevated"
               >
-                Cancel
+                {t("hotkeyRebinder.cancel")}
               </button>
             </div>
           </div>
@@ -234,7 +236,7 @@ export default function HotkeyRebinder({ onChange, load, save }: Props) {
       ) : null}
       {loadError && capture.kind === "idle" ? (
         <p className="mt-2 text-xs text-warning">
-          Couldn’t load current shortcut: {loadError}
+          {t("hotkeyRebinder.loadErrorPrefix", { error: loadError })}
         </p>
       ) : null}
     </div>

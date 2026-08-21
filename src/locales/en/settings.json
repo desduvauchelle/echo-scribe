@@ -1,0 +1,508 @@
+{
+  "language": {
+    "title": "Language",
+    "subtitle": "Choose the language Echo Scribe's interface uses.",
+    "selectLabel": "Interface language",
+    "system": "System default",
+    "note": "Applies right away."
+  },
+  "header": {
+    "back": "Back",
+    "title": "Settings",
+    "preferences": "Preferences"
+  },
+  "nav": {
+    "ariaLabel": "Settings",
+    "groups": {
+      "capture": "Capture",
+      "automation": "Automation",
+      "system": "System"
+    },
+    "items": {
+      "dictation": "Dictation",
+      "logcapture": "Log Capture",
+      "meetings": "Meetings",
+      "daily-recap": "Daily Recap",
+      "actions": "Actions",
+      "templates": "Templates",
+      "language-model": "Language Model",
+      "general": "General",
+      "drive": "Google Drive",
+      "projects": "Projects",
+      "coding-agents": "Coding Agents",
+      "permissions": "Permissions",
+      "diagnostics": "Diagnostics",
+      "uninstall": "Uninstall"
+    }
+  },
+  "pageDesc": {
+    "dictation": "Speech-to-text at your cursor — model, microphone, audio behavior, hotkey, and cleanup.",
+    "logcapture": "Capture a thought, idea, or task by voice, then file and export it.",
+    "meetings": "Detect calls and summarize transcripts from supported meeting apps.",
+    "daily-recap": "Choose when Echo Scribe summarizes yesterday's meetings, notes, and dictations.",
+    "actions": "Run app launches, links, emails, and counters straight from your voice.",
+    "templates": "Rewrite dictation into emails, lists, or any style before it's pasted.",
+    "language-model": "The local Gemma model that powers classification, summaries, and actions.",
+    "general": "Launch at login and keep Echo Scribe up to date.",
+    "drive": "Upload screen recordings to Google Drive and share them with a link.",
+    "projects": "Create, rename, archive, or delete your projects.",
+    "coding-agents": "Connect Claude Code, Codex, or any MCP client to search your captures — and, if you opt in, record your screen.",
+    "permissions": "Microphone, accessibility, and screen-recording access.",
+    "diagnostics": "Inspect logs and reset the app if something breaks.",
+    "uninstall": "Remove the app while choosing whether to keep your local data."
+  },
+  "common": {
+    "cancel": "Cancel",
+    "save": "Save",
+    "saveChanges": "Save changes",
+    "savingEllipsis": "Saving…",
+    "delete": "Delete",
+    "retry": "Retry",
+    "close": "Close",
+    "open": "Open",
+    "change": "Change…",
+    "clear": "Clear",
+    "copy": "Copy",
+    "copied": "Copied",
+    "edit": "Edit",
+    "reset": "Reset",
+    "refresh": "Refresh",
+    "loading": "Loading…",
+    "duration": {
+      "thirtySeconds": "30 seconds",
+      "oneMinute": "1 minute",
+      "twoMinutes": "2 minutes",
+      "fiveMinutes": "5 minutes",
+      "fifteenMinutes": "15 minutes",
+      "keepLoaded": "Keep loaded"
+    }
+  },
+  "dictation": {
+    "microphone": {
+      "title": "Microphone",
+      "subtitle": "Pick which input device Echo Scribe records from. Default uses whatever macOS has selected."
+    },
+    "audioFeedback": {
+      "title": "Audio feedback",
+      "subtitle": "Subtle blips when recording starts, stops, and a log capture is ready for review.",
+      "label": "Play recording sounds",
+      "description": "Three short tones tied to start, stop, and classification ready.",
+      "toastFailed": "Couldn't update audio feedback: {{error}}"
+    },
+    "muteWhileRecording": {
+      "title": "Mute while recording",
+      "subtitle": "Pause music and system audio while the hotkey is held, then restore it when you release.",
+      "label": "Mute system audio while recording",
+      "description": "Silences music and video playback for the duration of the recording.",
+      "toastFailed": "Couldn't update mute setting: {{error}}"
+    },
+    "hotkey": {
+      "title": "Voice-at-cursor hotkey",
+      "subtitle": "Hold this key combination anywhere in macOS to dictate at the cursor."
+    },
+    "transcription": {
+      "title": "Transcription",
+      "subtitle": "Clean up speech-to-text output before it's pasted or saved."
+    },
+    "keepModelInMemory": {
+      "title": "Keep speech model in memory",
+      "subtitle": "How long the speech-to-text model stays loaded after its last use. Longer = faster next transcription, but uses more RAM."
+    },
+    "microphonePicker": {
+      "loading": "Loading microphones…",
+      "loadError": "Couldn't load microphones: {{error}}",
+      "savedMicMissing": "Saved mic <mono>{{name}}</mono> isn't connected. Pick another below or revert to the system default.",
+      "inputDeviceLabel": "Input device",
+      "systemDefaultOption": "System default",
+      "sortByLabel": "Sort by",
+      "sortLastUsed": "Last used",
+      "sortAlphabetical": "Alphabetical",
+      "footerNote": "When a saved mic is unplugged, Echo Scribe will refuse to record and notify you — it won't silently fall back to another device."
+    },
+    "asrUnloadTimeout": {
+      "title": "Unload after idle",
+      "description": "Frees RAM when you haven't dictated for a while. The model reloads automatically on next use.",
+      "toastFailed": "Couldn't update speech model memory setting: {{error}}"
+    }
+  },
+  "logCapture": {
+    "hotkey": {
+      "title": "Log capture hotkey",
+      "subtitle": "Hold this key combination to capture a thought, idea, or task — classified locally and saved to your log."
+    },
+    "export": {
+      "title": "Markdown export",
+      "subtitle": "When a project has an export folder configured, items routed to it are auto-saved as markdown files for use with external AI tools. Configure the folder per project in Settings → Projects.",
+      "confidenceNote": "Items export when the classifier's confidence reaches <mono>{{percent}}%</mono> or higher. Meetings always export when a project has a folder set.",
+      "confidenceThresholdLabel": "Confidence threshold: {{percent}}%"
+    },
+    "autoTagging": {
+      "title": "Project auto-tagging",
+      "subtitle": "Organize direct dictations later in batches so the local AI model does not load after every paste.",
+      "enableLabel": "Enable deferred project tagging",
+      "status": {
+        "pending": "Pending:",
+        "deferred": "Deferred:",
+        "done": "Done:",
+        "failed": "Failed:"
+      },
+      "buttons": {
+        "queueing": "Queueing...",
+        "queueUnassigned": "Queue unassigned dictations",
+        "running": "Running...",
+        "runRouter": "Run keyword router",
+        "runLlmBatch": "Run local AI batch"
+      },
+      "toasts": {
+        "queued_one": "Queued {{count}} transcription for tagging.",
+        "queued_other": "Queued {{count}} transcriptions for tagging.",
+        "routerAssigned_one": "Router assigned {{assigned}} of {{count}} queued item.",
+        "routerAssigned_other": "Router assigned {{assigned}} of {{count}} queued items.",
+        "llmAssigned_one": "Local AI assigned {{assigned}} of {{count}} queued item.",
+        "llmAssigned_other": "Local AI assigned {{assigned}} of {{count}} queued items.",
+        "failed": "Project tagging failed: {{error}}"
+      }
+    },
+    "autoFile": {
+      "title": "Auto-file confident captures",
+      "subtitle": "File high-confidence captures silently. New-project proposals always show the review overlay.",
+      "confidenceNote": "When the local AI is at least <mono>{{percent}}%</mono> sure about the project and kind, file the capture silently with a toast (or system notification when the window is closed).",
+      "enableLabel": "Enable auto-file",
+      "thresholdLabel": "Threshold: {{percent}}%"
+    }
+  },
+  "meetings": {
+    "summaryTemplates": {
+      "standard": { "name": "Standard Note-Taker", "description": "General summary and actionable next steps" },
+      "action-item": { "name": "Action-Item Focused", "description": "Prioritizes tasks, owners, and deadlines" },
+      "executive": { "name": "Executive Summary", "description": "Strategic roadmaps, outcomes, and business impact" },
+      "technical": { "name": "Technical Sync", "description": "Deep dev syncs, APIs, and blockers" }
+    },
+    "promptModal": {
+      "title": "Meeting Summary Guidelines",
+      "subtitle": "Customize the instructions the local AI uses to summarize and extract action items from transcripts.",
+      "loadTemplatesLabel": "Load from pre-defined templates",
+      "templateLoaded": "Template loaded",
+      "customGuidelinesLabel": "Custom guidelines",
+      "textareaPlaceholder": "Describe how the AI should summarize the meeting transcript...",
+      "placeholdersTitle": "Dynamic Placeholders",
+      "placeholdersBody": "You can insert <code>{duration_minutes}</code> and <code>{app}</code> in your guidelines. They will be replaced at runtime with the meeting's duration and app name (e.g., Zoom, Teams).",
+      "formatSafetyTitle": "Format Safety Handled Automatically",
+      "formatSafetyBody": "Do not worry about instructing the AI to output JSON or specific lists format. The backend automatically appends formatting schemas to ensure the meeting summary is properly parsed and displayed in the application layout.",
+      "saving": "Saving...",
+      "saveGuidelines": "Save Guidelines"
+    },
+    "autoDetect": {
+      "title": "Auto-detect meetings",
+      "subtitle": "Echo Scribe watches supported meeting apps and browser calls, then offers to record.",
+      "checkboxLabel": "Detect supported meeting apps automatically",
+      "platformsAriaLabel": "Supported meeting apps"
+    },
+    "perAppPrefs": {
+      "title": "Per-app preferences",
+      "subtitle": "Override the per-app prompt: always record, always ask, or never record.",
+      "always": "Always",
+      "ask": "Ask",
+      "never": "Never",
+      "clearButton": "Clear",
+      "clearTitle": "Remove this app's preference (revert to Ask on next detection)"
+    },
+    "summaryGuidelines": {
+      "title": "Meeting summary guidelines",
+      "subtitle": "Configure custom prompt guidelines used by the local AI to summarize your meetings.",
+      "activeLabel": "Active guidelines",
+      "noneSet": "No custom guidelines set.",
+      "editButton": "Edit guidelines..."
+    },
+    "notesFolder": {
+      "title": "Meeting notes folder",
+      "subtitle": "Automatically save each completed meeting as a Markdown file that other tools can read.",
+      "chooseFolder": "Choose folder…",
+      "note": "Each file includes the summary, action items, your notes, and the speaker-labelled transcript. Echo Scribe only writes the local file; another app or AI agent needs its own access to this folder."
+    },
+    "guideTemplates": {
+      "title": "Guide templates",
+      "subtitle": "Reusable meeting guides and opt-in, evidence-backed recap metrics."
+    },
+    "toasts": {
+      "guidelinesUpdated": "Meeting summary guidelines updated successfully.",
+      "guidelinesSaveFailed": "Failed to save guidelines: {{error}}",
+      "exportFolderUpdated": "Meeting export folder updated.",
+      "exportDisabled": "Automatic meeting export disabled.",
+      "exportFolderUpdateFailed": "Failed to update meeting export folder: {{error}}",
+      "folderPickerFailed": "Folder picker failed: {{error}}",
+      "openFolderFailed": "Couldn't open meeting notes folder: {{error}}"
+    }
+  },
+  "dailyRecap": {
+    "enable": {
+      "label": "Generate a daily recap each morning",
+      "description": "One macOS notification at your chosen hour, summarizing yesterday."
+    },
+    "deliverAt": {
+      "label": "Deliver at",
+      "description": "Local time. Default 08:00."
+    },
+    "includeWeekends": {
+      "label": "Include weekends",
+      "description": "Off by default — no Sunday morning summary unless you want one."
+    },
+    "toasts": {
+      "loadFailed": "Couldn't load daily recap settings: {{error}}",
+      "saveFailed": "Couldn't save daily recap settings: {{error}}"
+    }
+  },
+  "actions": {
+    "section": {
+      "title": "Voice commands & app launcher",
+      "subtitle": "Detect command actions inside your voice dictations to launch applications, open links, compose emails, and manage counters."
+    },
+    "launcher": {
+      "label": "Voice command app launcher",
+      "badge": "Sonoma+",
+      "description": "Intercept voice dictation to launch apps, open links, compose emails, manage counters, start/stop meetings and screen recordings, and keep your Mac awake (e.g. \"echo stay awake for 2 hours\")."
+    },
+    "prefixRouting": {
+      "title": "Prefix-Based Trigger Routing",
+      "description": "Route normal voice dictations to AI only if they start with a trigger word (e.g. \"echo\"). Prevents dictation latency!",
+      "toastEnabled": "Prefix trigger routing enabled",
+      "toastDisabled": "Prefix trigger routing disabled",
+      "toastUpdateFailed": "Failed to update prefix routing settings",
+      "triggerWordLabel": "Trigger Prefix Word",
+      "toastWordUpdated": "Trigger word updated to \"{{word}}\"",
+      "toastWordSaveFailed": "Failed to save trigger word",
+      "toastWordReset": "Trigger word reset to \"echo\"",
+      "phoneticNote": "* Note: \"echo\" triggers loose phonetic matches (echo, eco, ekko, hecho) automatically!"
+    },
+    "actionHotkey": {
+      "title": "Dedicated Action Hotkey",
+      "description": "Press a custom key combination to trigger Action Command mode directly. Always runs AI and bypasses prefix rules."
+    },
+    "editSelection": {
+      "title": "Edit Selection Hotkey",
+      "description": "Highlight text in any app, hold this hotkey, and speak an instruction (e.g. \"make this more concise\", \"translate to French\"). The local model rewrites the selection in place."
+    },
+    "counter": {
+      "title": "Automated Actions Count",
+      "description": "Number of voice actions run successfully"
+    },
+    "cheatsheet": {
+      "title": "Voice Action Cheatsheet"
+    },
+    "toasts": {
+      "launcherEnabled": "Voice Command App Launcher enabled",
+      "launcherDisabled": "Voice Command App Launcher disabled",
+      "launcherUpdateFailed": "Couldn't update launcher setting: {{error}}",
+      "counterReset": "Action counter reset to 0",
+      "counterResetFailed": "Couldn't reset counter: {{error}}"
+    }
+  },
+  "templates": {
+    "section": {
+      "title": "Voice format templates",
+      "subtitle": "Say \"echo, format as email …\" (or use the Action hotkey) to rewrite your dictation with a custom system prompt before it gets pasted."
+    },
+    "loading": "Loading templates…",
+    "explainer": "When your dictation starts with one of a template's trigger phrases (e.g. <mono>\"echo, format as email …\"</mono>), the rest of the sentence is rewritten through the template's system prompt before it's pasted at your cursor. Works with both the \"echo\" prefix and the dedicated Action hotkey.",
+    "empty": "No templates yet. Add one to enable voice formatting.",
+    "fields": {
+      "namePlaceholder": "Template name",
+      "idLabel": "id: {{id}}",
+      "triggerPhrasesLabel": "Trigger phrases (comma-separated)",
+      "triggerPhrasesPlaceholder": "format as email, make this an email",
+      "systemPromptLabel": "System prompt",
+      "systemPromptPlaceholder": "Describe how the model should rewrite the dictation. Be specific about tone, length, and what to omit."
+    },
+    "addButton": "+ Add template",
+    "newTemplateName": "New template",
+    "confirmDelete": {
+      "message": "Delete this format template? This cannot be undone.",
+      "title": "Delete template"
+    },
+    "toasts": {
+      "saved": "Format templates saved",
+      "saveFailed": "Couldn't save templates: {{error}}"
+    }
+  },
+  "languageModel": {
+    "model": {
+      "title": "Language model",
+      "subtitle": "Local Gemma model used for log-capture classification, meeting summaries, voice actions, and formatting."
+    },
+    "keepInMemory": {
+      "title": "Keep model in memory",
+      "subtitle": "How long the AI model stays loaded after its last use. Longer = faster next use, but more RAM."
+    },
+    "testInference": {
+      "title": "Test inference",
+      "defaultPrompt": "Say hello in five words.",
+      "running": "Running…",
+      "runButton": "Run"
+    },
+    "unloadTimeout": {
+      "title": "Unload after idle",
+      "description": "Frees RAM when you haven't used log-capture for a while.",
+      "toastFailed": "Couldn't update AI memory setting: {{error}}"
+    }
+  },
+  "general": {
+    "startup": {
+      "title": "Startup",
+      "subtitle": "Launch Echo Scribe automatically when you log in."
+    },
+    "updates": {
+      "title": "Updates",
+      "subtitle": "Echo Scribe checks for updates automatically each day. You can also check now.",
+      "currentVersion": "Current version",
+      "currentVersionWithNumber": "Current version {{version}}",
+      "checking": "Checking…",
+      "checkButton": "Check for Updates"
+    }
+  },
+  "drive": {
+    "section": {
+      "title": "Google Drive",
+      "subtitle": "Upload screen recordings to Drive and get an anyone-with-the-link share URL. The app only sees files it creates (scope drive.file)."
+    },
+    "connected": "Connected.",
+    "connectedAsEmail": "Connected as {{email}}.",
+    "disconnectButton": "Disconnect",
+    "connecting": "Connecting…",
+    "connectButton": "Connect Drive",
+    "folderLabel": "Drive folder for uploads",
+    "defaultSharingLabel": "Default sharing: anyone with the link can view",
+    "sharingNote": "Applied to each file (not the folder). Override per video when you upload.",
+    "byoClientLabel": "Use my own Google OAuth client (removes the unverified-app warning)",
+    "clientConfigured": "Client configured (…{{suffix}})",
+    "noClientConfigured": "No client configured.",
+    "setUpButton": "Set up",
+    "howToCreateClientId": "How to create a client ID",
+    "setupModal": {
+      "title": "Set up your own Google OAuth client",
+      "step1": "Open the <link>Google Cloud Console</link> and create a project (or pick an existing one).",
+      "step2": "APIs & Services → Library → search <b>Google Drive API</b> → <b>Enable</b>.",
+      "step3": "APIs & Services → OAuth consent screen → <b>External</b> → fill in the app name and your email → add the scope <code>.../auth/drive.file</code> → add your Google account under <b>Test users</b> → Save. Leave it in <b>Testing</b>.",
+      "step4": "APIs & Services → Credentials → Create credentials → <b>OAuth client ID</b> → Application type: <b>Desktop app</b> → Create.",
+      "step5": "Copy the <b>Client ID</b> and <b>Client secret</b> into the fields below. No redirect URI is needed — Desktop apps allow loopback automatically.",
+      "clientIdPlaceholder": "Client ID (…apps.googleusercontent.com)",
+      "clientSecretPlaceholder": "Client secret",
+      "secretNote": "Stored securely on this Mac. Leave the secret blank when editing to keep the saved one."
+    }
+  },
+  "projects": {
+    "section": {
+      "title": "Projects",
+      "subtitle": "Create, rename, archive, or delete projects."
+    }
+  },
+  "codingAgents": {
+    "toolPermissions": {
+      "title": "Tool permissions",
+      "subtitle": "Echo Scribe has a built-in MCP server that agents like Claude Code or Codex can connect to. Tick what they're allowed to access — changes apply immediately, even for agents already connected. Everything stays on this Mac.",
+      "loadFailed": "Couldn't load permissions — see Settings → Diagnostics → logs for details.",
+      "updateFailed": "Couldn't update the {{label}} permission: {{error}}"
+    },
+    "connect": {
+      "title": "Connect your coding agent",
+      "subtitle": "The MCP server is the Echo Scribe app itself — nothing extra to download. Click Install and Echo Scribe registers itself with the agent's own CLI, or copy the snippet to do it by hand."
+    },
+    "snippets": {
+      "claudeCode": { "title": "Claude Code", "hint": "Install runs: claude mcp add (user scope)." },
+      "codex": { "title": "Codex CLI", "hint": "Install runs: codex mcp add (writes ~/.codex/config.toml)." },
+      "other": { "title": "Other MCP clients", "hint": "Cursor, Windsurf, Gemini CLI — standard mcpServers JSON." },
+      "installing": "Installing…",
+      "installButton": "Install",
+      "copyAriaLabel": "Copy {{title}} setup"
+    },
+    "howToUse": {
+      "title": "How to use it",
+      "subtitle": "There's no command to memorize — talk to your agent normally. It sees the Echo Scribe tools and calls them whenever your request needs them; mentioning “Echo Scribe” nudges it to look there. Try one of these:",
+      "recordingNote": "For recording prompts, Echo Scribe must be running and the Screen recording permission ticked above. The agent lists your windows, starts and stops the recording itself, gets the video file path back, and can then watch or analyze the file — the recording also lands in your library like any other."
+    },
+    "examplePrompts": {
+      "listWindows": "List my windows with echo-scribe and record the Chrome window with system audio. Stop when I tell you and summarize what happened in the video.",
+      "recordBug": "Record my screen with mic on while I reproduce this bug, then stop and analyze the video for what went wrong.",
+      "searchMeetings": "Search my Echo Scribe meetings for the pricing discussion and summarize the decisions.",
+      "lastWeekDictation": "What did I dictate last week about the onboarding flow?",
+      "copyAriaLabel": "Copy example prompt"
+    }
+  },
+  "permissions": {
+    "section": {
+      "title": "Permissions",
+      "subtitle": "Re-grant microphone or accessibility access if something feels broken. Reset & quit clears macOS's TCC grants for both services so the next launch re-prompts cleanly."
+    }
+  },
+  "diagnostics": {
+    "section": {
+      "title": "Diagnostics",
+      "subtitle": "Inspect the rolling crash log Echo Scribe writes to your home folder."
+    },
+    "logFolder": {
+      "title": "Log folder",
+      "openFailed": "Couldn't open folder: {{error}}"
+    },
+    "recentLog": {
+      "title": "Recent log (last 200 lines)",
+      "refreshing": "…",
+      "empty": "(no log content yet)"
+    },
+    "resetSection": {
+      "showButton": "Show reset options",
+      "hideButton": "Hide reset options",
+      "warning": "Wipes the settings store (hotkeys, active models, persisted preferences) and quits the app. Your captured items are preserved — they live in the SQLite database, not the settings store.",
+      "resetting": "Resetting…",
+      "resetButton": "Reset onboarding",
+      "confirmMessage": "Reset onboarding? This clears the settings store and quits the app. You'll need to relaunch.",
+      "confirmTitle": "Reset onboarding",
+      "toastFailed": "Reset failed: {{error}}"
+    }
+  },
+  "uninstall": {
+    "confirmDeleteMessage": "Uninstall Echo Scribe and remove all local data? This includes captured items, recordings, downloaded models, settings, logs, the local event archive, and the Google Drive connection. Files will be moved to the Trash, but the Drive credential and macOS permission grants will be removed.",
+    "confirmKeepMessage": "Uninstall Echo Scribe but keep all local data? The app will quit and move to the Trash. Reinstalling later will restore your items, recordings, models, settings, and preferences.",
+    "confirmDeleteTitle": "Uninstall Echo Scribe and data",
+    "confirmTitle": "Uninstall Echo Scribe",
+    "toastFailed": "Uninstall failed: {{error}}",
+    "appOnly": {
+      "title": "Uninstall application",
+      "body": "Removes only Echo Scribe. Your captured items, recordings, downloaded models, settings, and preferences stay on this Mac and are available after reinstalling.",
+      "button": "Uninstall app"
+    },
+    "appAndData": {
+      "title": "Uninstall application and data",
+      "body": "Removes Echo Scribe and all of its local data, including items, recordings, models, settings, logs, and the local event archive. Use this only when you want the next install to start fresh.",
+      "button": "Uninstall app & data"
+    },
+    "uninstalling": "Uninstalling…",
+    "trashNote": "The application and filesystem data are moved to the macOS Trash."
+  },
+  "logCaptureOverlay": {
+    "recording": {
+      "title": "Log capture",
+      "status": "Recording — release the shortcut to stop.",
+      "listening": "Listening…"
+    },
+    "review": {
+      "title": "Review capture",
+      "classifierUnavailable": "Classifier hint unavailable: {{error}}",
+      "lowConfidence": "Low confidence ({{percent}}%) — please double-check the project and kind below.",
+      "newProjectSuggested": "Suggesting a new project — confirm the name below before saving.",
+      "suggestedFields": "Classifier suggested fields below — adjust as needed.",
+      "transcriptLabel": "Transcript",
+      "kindLabel": "Kind",
+      "kindNote": "Note",
+      "kindTask": "Task",
+      "deadlineLabel": "Deadline",
+      "deadlineTasksOnly": "(tasks only)",
+      "deadlinePlaceholder": "2026-05-10T17:00:00Z",
+      "newProjectLabel": "New project (overrides existing)",
+      "newProjectPlaceholder": "Leave empty to keep existing project",
+      "existingProjectId": "Existing project id: {{id}}",
+      "tagsLabel": "Tags (comma separated)",
+      "discardButton": "Discard",
+      "saveButton": "Save",
+      "savingEllipsis": "Saving…"
+    }
+  }
+}

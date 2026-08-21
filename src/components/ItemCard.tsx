@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Check, CheckSquare, Copy, Mic, StickyNote } from "lucide-react";
 import type { Item, Project } from "../lib/api";
 import { listTagsForItem } from "../lib/api";
@@ -71,6 +72,7 @@ export default function ItemCard({
   rightSlot,
   variant = "card",
 }: Props) {
+  const { t } = useTranslation();
   const { openItem } = useActivityPanel();
   const [tags, setTags] = useState<string[]>([]);
 
@@ -94,10 +96,10 @@ export default function ItemCard({
   const isVoice = item.source === "voice_at_cursor";
   const ledger = variant === "ledger";
   const kindLabel = isVoice
-    ? "Transcription"
+    ? t("itemCard.kindTranscription")
     : item.kind === "task"
-      ? "Task"
-      : "Note";
+      ? t("itemCard.kindTask")
+      : t("itemCard.kindNote");
   const contentClass = isVoice
     ? ledger
       ? "text-[14px] text-fg"
@@ -122,7 +124,10 @@ export default function ItemCard({
         type="button"
         onClick={() => openItem(item.id)}
         className="absolute inset-0 cursor-pointer rounded-lg"
-        aria-label={`Open ${item.kind === "task" ? "task" : "note"}: ${item.content.slice(0, 80)}`}
+        aria-label={t("itemCard.openAriaLabel", {
+          kind: item.kind === "task" ? t("itemCard.openTaskWord") : t("itemCard.openNoteWord"),
+          content: item.content.slice(0, 80),
+        })}
       />
       <div
         className={`mt-0.5 shrink-0 ${leadingSlot ? "relative z-10" : ""}`}
@@ -170,12 +175,13 @@ export default function ItemCard({
 }
 
 function CopyContentButton({ value }: { value: string }) {
+  const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
   return (
     <button
       type="button"
-      aria-label={copied ? "Copied" : "Copy transcription"}
-      title="Copy transcription"
+      aria-label={copied ? t("itemCard.copied") : t("itemCard.copyTranscription")}
+      title={t("itemCard.copyTranscription")}
       onClick={(e) => {
         e.stopPropagation();
         void navigator.clipboard.writeText(value);

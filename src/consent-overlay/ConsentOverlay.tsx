@@ -1,6 +1,7 @@
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import React, { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import "./ConsentOverlay.css";
 
 type ConsentPayload = { bundle_id: string; app_name: string };
@@ -8,6 +9,7 @@ type ConsentPayload = { bundle_id: string; app_name: string };
 const AUTO_DISMISS_MS = 30_000;
 
 const ConsentOverlay: React.FC = () => {
+  const { t } = useTranslation("windows");
   const [payload, setPayload] = useState<ConsentPayload | null>(null);
   const [isVisible, setIsVisible] = useState(false);
   const dismissTimerRef = useRef<number | null>(null);
@@ -109,10 +111,10 @@ const ConsentOverlay: React.FC = () => {
       </div>
       <div className="consent-copy">
         <div className="consent-title" id="consent-title">
-          {payload.app_name} meeting detected
+          {t("consentOverlay.title", { appName: payload.app_name })}
         </div>
         <div className="consent-subtitle" id="consent-subtitle">
-          Private notes · audio stays local
+          {t("consentOverlay.subtitle")}
         </div>
       </div>
       <div className="consent-actions">
@@ -120,20 +122,20 @@ const ConsentOverlay: React.FC = () => {
           className="consent-btn consent-btn-muted"
           onClick={() => decide("never")}
         >
-          Never
+          {t("consentOverlay.never")}
         </button>
         <button
           className="consent-btn consent-btn-secondary"
           onClick={() => decide("always")}
         >
-          Always
+          {t("consentOverlay.always")}
         </button>
         <button
           ref={primaryButtonRef}
           className="consent-btn consent-btn-primary"
           onClick={() => decide("once")}
         >
-          Take notes
+          {t("consentOverlay.takeNotes")}
         </button>
       </div>
     </div>

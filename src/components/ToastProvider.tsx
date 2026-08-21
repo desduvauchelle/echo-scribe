@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import { AlertCircle, CheckCircle2, Info, X } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 export type ToastTone = "info" | "error" | "success";
 
@@ -46,6 +47,7 @@ const TONE_ICON_COLOR: Record<ToastTone, string> = {
 };
 
 export function ToastProvider({ children }: { children: ReactNode }) {
+  const { t } = useTranslation();
   const [toasts, setToasts] = useState<Toast[]>([]);
   const idRef = useRef(0);
 
@@ -75,39 +77,39 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         aria-live="polite"
         className="pointer-events-none fixed bottom-4 right-4 z-[80] flex max-w-[420px] flex-col gap-2"
       >
-        {toasts.map((t) => {
-          const Icon = TONE_ICON[t.tone];
+        {toasts.map((toast) => {
+          const Icon = TONE_ICON[toast.tone];
           return (
             <div
-              key={t.id}
-              role={t.tone === "error" ? "alert" : "status"}
-              className={`pointer-events-auto flex items-start gap-2 rounded-md border ${TONE_BORDER[t.tone]} bg-surface px-3 py-2 text-[13px] text-fg shadow-lg shadow-black/40`}
+              key={toast.id}
+              role={toast.tone === "error" ? "alert" : "status"}
+              className={`pointer-events-auto flex items-start gap-2 rounded-md border ${TONE_BORDER[toast.tone]} bg-surface px-3 py-2 text-[13px] text-fg shadow-lg shadow-black/40`}
             >
               <Icon
                 size={14}
                 strokeWidth={2}
-                className={`mt-0.5 shrink-0 ${TONE_ICON_COLOR[t.tone]}`}
+                className={`mt-0.5 shrink-0 ${TONE_ICON_COLOR[toast.tone]}`}
               />
               <span className="flex-1 whitespace-pre-wrap break-words leading-snug">
-                {t.message}
+                {toast.message}
               </span>
-              {t.action ? (
+              {toast.action ? (
                 <button
                   type="button"
                   onClick={() => {
-                    t.action?.onClick();
-                    dismiss(t.id);
+                    toast.action?.onClick();
+                    dismiss(toast.id);
                   }}
                   className="cursor-pointer rounded-md border border-line px-2 py-0.5 text-xs text-muted transition-colors hover:bg-elevated hover:text-fg"
                 >
-                  {t.action.label}
+                  {toast.action.label}
                 </button>
               ) : null}
               <button
                 type="button"
-                onClick={() => dismiss(t.id)}
+                onClick={() => dismiss(toast.id)}
                 className="ml-0.5 cursor-pointer rounded p-0.5 text-faint transition-colors hover:bg-elevated hover:text-fg"
-                aria-label="Dismiss"
+                aria-label={t("toastProvider.dismiss")}
               >
                 <X size={12} strokeWidth={2} />
               </button>

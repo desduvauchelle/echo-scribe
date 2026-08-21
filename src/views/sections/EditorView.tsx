@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { open, ask, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { useTranslation } from "react-i18next";
 import {
   Copy,
   Download,
@@ -120,48 +121,57 @@ import {
   resizeMaskRect,
 } from "../../lib/editorProject";
 
+/** Background preset filenames. Display labels are looked up at render time
+ *  via `t("appearance.backgroundPresets.<name>")` — this array is module-scope
+ *  (built before any component mounts), so it can't call the translation hook
+ *  itself. */
 const BACKGROUND_PRESETS = [
-  ["midnight-glass", "Midnight glass"],
-  ["terracotta-arches", "Terracotta arches"],
-  ["alpine-blue-hour", "Alpine blue hour"],
-  ["emerald-folds", "Emerald folds"],
-  ["indigo-aurora", "Indigo aurora"],
-  ["zen-sand", "Zen sand"],
-  ["ocean-dawn", "Ocean dawn"],
-  ["cobalt-coral", "Cobalt coral"],
-  ["topographic-night", "Topographic night"],
-  ["golden-dunes", "Golden dunes"],
-  ["foggy-forest", "Foggy forest"],
-  ["ice-crystal", "Ice crystal"],
-  ["rainy-city", "Rainy city"],
-  ["rose-quartz-canyons", "Rose quartz canyons"],
-  ["moonlit-lake", "Moonlit lake"],
-  ["linen-waves", "Linen waves"],
-  ["neon-horizon", "Neon horizon"],
-  ["eucalyptus-glass", "Eucalyptus glass"],
-  ["amber-smoke", "Amber smoke"],
-  ["arctic-coast", "Arctic coast"],
-  ["violet-paper", "Violet paper"],
-  ["sunlit-forest", "Sunlit forest"],
-  ["obsidian-gold", "Obsidian gold"],
+  "midnight-glass",
+  "terracotta-arches",
+  "alpine-blue-hour",
+  "emerald-folds",
+  "indigo-aurora",
+  "zen-sand",
+  "ocean-dawn",
+  "cobalt-coral",
+  "topographic-night",
+  "golden-dunes",
+  "foggy-forest",
+  "ice-crystal",
+  "rainy-city",
+  "rose-quartz-canyons",
+  "moonlit-lake",
+  "linen-waves",
+  "neon-horizon",
+  "eucalyptus-glass",
+  "amber-smoke",
+  "arctic-coast",
+  "violet-paper",
+  "sunlit-forest",
+  "obsidian-gold",
 ] as const;
 
 const presetBackgroundPath = (name: string) => `/editor-backgrounds/${name}.jpg`;
 
-function exportRevealLabel(quality: string): string {
+/** Translate function type, loosely typed (avoids depending on react-i18next's
+ *  exact `TFunction` export shape) — passed down to the few module-level pure
+ *  helpers below that render text but have no hook access of their own. */
+type Translate = (key: string, opts?: Record<string, unknown>) => string;
+
+function exportRevealLabel(t: Translate, quality: string): string {
   switch (quality) {
     case "rendered":
-      return "Latest edited MP4 export";
+      return t("toolbar.exportRevealLabel.rendered");
     case "rendered-gif":
-      return "Latest edited GIF export";
+      return t("toolbar.exportRevealLabel.renderedGif");
     case "1080":
-      return "1080p original export";
+      return t("toolbar.exportRevealLabel.1080");
     case "720":
-      return "720p original export";
+      return t("toolbar.exportRevealLabel.720");
     case "480":
-      return "480p original export";
+      return t("toolbar.exportRevealLabel.480");
     default:
-      return "Exported file";
+      return t("toolbar.exportRevealLabel.default");
   }
 }
 const backgroundImageSrc = (path: string) =>
@@ -303,6 +313,7 @@ export function EditorView({
   recording: RecordingRow;
   onBack: () => void;
 }) {
+  const { t } = useTranslation("editor");
   const toasts = useToasts();
   const [project, setProject] = useState<EditorProject>(defaultProject);
   const [loaded, setLoaded] = useState(false);
@@ -948,7 +959,7 @@ export function EditorView({
       void setRecordingProject(recording.id, JSON.stringify(project)).catch(() => {
         toasts.push({
           tone: "error",
-          message: "Couldn't save editor settings. See Settings → Diagnostics → logs.",
+          message: t("toasts.saveFailed"),
         });
       });
     }, SAVE_DEBOUNCE_MS);
@@ -1003,7 +1014,7 @@ export function EditorView({
       void setRecordingProject(recording.id, JSON.stringify(projectRef.current)).catch(() => {
         toasts.push({
           tone: "error",
-          message: "Couldn't save editor settings. See Settings → Diagnostics → logs.",
+          message: t("toasts.saveFailed"),
         });
       });
     };
@@ -1130,7 +1141,7 @@ export function EditorView({
       const picked = await open({
         multiple: false,
         directory: false,
-        filters: [{ name: "Audio", extensions: ["mp3", "m4a", "wav", "aac"] }],
+        filters: [{ name: t("dialogs.audioFilterName"), extensions: ["mp3", "m4a", "wav", "aac"] }],
       });
       if (typeof picked !== "string") return; // cancelled
       setProject((p) => ({
@@ -1140,15 +1151,12 @@ export function EditorView({
     } catch (e) {
       toasts.push({
         tone: "error",
-        message:
-          typeof e === "string"
-            ? e
-            : "Couldn't select the music file. See Settings → Diagnostics → logs.",
+        message: typeof e === "string" ? e : t("toasts.musicImportFailed"),
       });
     } finally {
       setMusicImporting(false);
     }
-  }, [toasts]);
+  }, [toasts, t]);
 
   // ---- Captions -------------------------------------------------------------
   // Gated on the recording actually having audio to transcribe (same evidence
@@ -1443,7 +1451,7 @@ export function EditorView({
     if (!slot) {
       toasts.push({
         tone: "info",
-        message: "No room for a camera scene here — move the playhead to an open spot.",
+        message: t("toasts.noRoomCameraScene"),
       });
       return;
     }
@@ -1451,7 +1459,7 @@ export function EditorView({
     const scene: WebcamScene = { id: newId, startMs: slot.startMs, endMs: slot.endMs };
     applySceneEdit((scenes) => [...scenes, scene].sort((a, b) => a.startMs - b.startMs));
     setSelectedSceneId(newId);
-  }, [applySceneEdit, toasts]);
+  }, [applySceneEdit, toasts, t]);
 
   // Resize one edge of a scene (id-addressed → index inside the current list).
   const resizeScene = useCallback(
@@ -1924,14 +1932,14 @@ export function EditorView({
   );
 
   const resetToAuto = useCallback(async () => {
-    const confirmed = await ask(
-      "Reset zoom to automatic? Your hand-edited zoom blocks will be replaced by the click-driven auto-zoom.",
-      { title: "Reset zoom to auto", kind: "warning" },
-    );
+    const confirmed = await ask(t("dialogs.resetZoomMessage"), {
+      title: t("dialogs.resetZoomTitle"),
+      kind: "warning",
+    });
     if (!confirmed) return;
     setSelectedBlockId(null);
     setProject((p) => ({ ...p, zoom: { mode: "auto", blocks: null, suppressed: [] } }));
-  }, []);
+  }, [t]);
 
   // ---- Zoom lane pointer drag (chip body + edges) -------------------------
   // Mirrors the trim-handle pattern: pointer-capture on the grabbed element,
@@ -2016,7 +2024,7 @@ export function EditorView({
     if (!slot) {
       toasts.push({
         tone: "info",
-        message: "No room for a speed segment here — move the playhead to an open spot.",
+        message: t("toasts.noRoomSpeedSegment"),
       });
       return;
     }
@@ -2031,7 +2039,7 @@ export function EditorView({
     );
     applySpeedEdit(() => nextSorted);
     setSelectedSpeedIdx(nextSorted.findIndex((r) => r === range));
-  }, [applySpeedEdit, toasts]);
+  }, [applySpeedEdit, toasts, t]);
 
   const setSpeedRate = useCallback(
     (idx: number, rate: number) => {
@@ -2451,7 +2459,7 @@ export function EditorView({
       const picked = await open({
         multiple: false,
         directory: false,
-        filters: [{ name: "Image", extensions: ["png", "jpg", "jpeg", "webp"] }],
+        filters: [{ name: t("dialogs.imageFilterName"), extensions: ["png", "jpg", "jpeg", "webp"] }],
       });
       if (typeof picked !== "string") return; // cancelled
       const dest = await importEditorBackground(recording.id, picked);
@@ -2459,15 +2467,12 @@ export function EditorView({
     } catch (e) {
       toasts.push({
         tone: "error",
-        message:
-          typeof e === "string"
-            ? e
-            : "Couldn't import the image. See Settings → Diagnostics → logs.",
+        message: typeof e === "string" ? e : t("toasts.imageImportFailed"),
       });
     } finally {
       setImporting(false);
     }
-  }, [recording.id, toasts]);
+  }, [recording.id, toasts, t]);
 
   // ---- Top-bar management actions -----------------------------------------
   // Re-fetch this recording's row after a mutation so the toolbar reflects the
@@ -2495,29 +2500,29 @@ export function EditorView({
     try {
       await transcribeRecording(recording.id);
       await reloadRec();
-      toasts.push({ tone: "success", message: "Transcript ready." });
+      toasts.push({ tone: "success", message: t("toasts.transcriptReady") });
     } catch (e) {
       toasts.push({ tone: "error", message: String(e) });
     } finally {
       setTranscribing(false);
     }
-  }, [recording.id, reloadRec, toasts]);
+  }, [recording.id, reloadRec, toasts, t]);
 
   const chooseExportDestination = useCallback(
     async (quality: RecordingExportQuality): Promise<string | null> => {
       const suggestion = await getRecordingExportSuggestion(recording.id, quality);
       const gif = quality === "rendered-gif";
       return saveDialog({
-        title: gif ? "Export edited GIF" : "Export recording",
+        title: gif ? t("dialogs.exportGifTitle") : t("dialogs.exportTitle"),
         defaultPath: suggestion.default_path,
         filters: [
           gif
-            ? { name: "GIF image", extensions: ["gif"] }
-            : { name: "MP4 video", extensions: ["mp4"] },
+            ? { name: t("dialogs.gifFilterName"), extensions: ["gif"] }
+            : { name: t("dialogs.mp4FilterName"), extensions: ["mp4"] },
         ],
       });
     },
-    [recording.id],
+    [recording.id, t],
   );
 
   const onQuickExport = useCallback(
@@ -2543,10 +2548,10 @@ export function EditorView({
         const filename = destination.split(/[\\/]/).pop() ?? destination;
         toasts.push({
           tone: "success",
-          message: `Saved “${filename}”`,
+          message: t("toasts.savedFile", { filename }),
           durationMs: 8000,
           action: {
-            label: "Show in Finder",
+            label: t("toolbar.showInFinder"),
             onClick: () => {
               void revealRecordingExport(recording.id, quality).catch((e) =>
                 toasts.push({ tone: "error", message: String(e) }),
@@ -2560,7 +2565,7 @@ export function EditorView({
         setQuickExporting(false);
       }
     },
-    [chooseExportDestination, recording.id, toasts],
+    [chooseExportDestination, recording.id, toasts, t],
   );
 
   const onUpload = useCallback(
@@ -2576,7 +2581,7 @@ export function EditorView({
             /* link still copyable from the toast/panel */
           }
         }
-        toasts.push({ tone: "success", message: "Uploaded to Drive. Link copied." });
+        toasts.push({ tone: "success", message: t("toasts.uploadedToDrive") });
       } catch (e) {
         if (String(e).includes("drive_reconnect_required")) {
           setReconnect({ quality, makePublic });
@@ -2587,13 +2592,13 @@ export function EditorView({
         setUploading(false);
       }
     },
-    [recording.id, toasts],
+    [recording.id, toasts, t],
   );
 
   const onDelete = useCallback(async () => {
     const confirmed = await ask(
-      `Delete “${recordingDisplayName(rec)}”? This cannot be undone.`,
-      { title: "Delete recording", kind: "warning" },
+      t("dialogs.deleteRecordingMessage", { name: recordingDisplayName(rec) }),
+      { title: t("dialogs.deleteRecordingTitle"), kind: "warning" },
     );
     if (!confirmed) return;
     try {
@@ -2603,7 +2608,7 @@ export function EditorView({
     } catch (e) {
       toasts.push({ tone: "error", message: String(e) });
     }
-  }, [rec, recording.id, onBack, toasts]);
+  }, [rec, recording.id, onBack, toasts, t]);
 
   const startRename = useCallback(() => {
     setNameInput(recordingDisplayName(rec));
@@ -2801,10 +2806,10 @@ export function EditorView({
       const filename = destination.split(/[\\/]/).pop() ?? destination;
       toasts.push({
         tone: "success",
-        message: `Saved “${filename}”`,
+        message: t("toasts.savedFile", { filename }),
         durationMs: 8000,
         action: {
-          label: "Show in Finder",
+          label: t("toolbar.showInFinder"),
           onClick: () => {
             void revealRecordingExport(recording.id, exportQuality).catch((e) =>
               toasts.push({ tone: "error", message: String(e) }),
@@ -2826,24 +2831,24 @@ export function EditorView({
       void logExportError(detail).catch(() => {});
       toasts.push({
         tone: "error",
-        message: "Export failed. See Settings → Diagnostics → logs for details.",
+        message: t("toasts.exportFailed"),
       });
     } finally {
       setExportPhase(null);
       setExportPct(0);
       setExportEta(null);
     }
-  }, [recording.id, recording.events_path, cursorAvailable, src, webcamSrc, webcamOffsetMs, duration, exportFormat, chooseExportDestination, toasts]);
+  }, [recording.id, recording.events_path, cursorAvailable, src, webcamSrc, webcamOffsetMs, duration, exportFormat, chooseExportDestination, toasts, t]);
 
   const exportLabel =
     exportPhase === "decode"
-      ? "Decoding"
+      ? t("export.decoding")
       : exportPhase === "encode"
-        ? "Encoding"
+        ? t("export.encoding")
         : exportPhase === "mux"
-          ? "Finalizing video"
+          ? t("export.finalizingVideo")
           : exportPhase === "finalizing"
-            ? "Finalizing audio"
+            ? t("export.finalizingAudio")
             : null;
 
   const seg = (active: boolean) =>
@@ -2906,7 +2911,7 @@ export function EditorView({
           </h2>
         )}
         {!renaming ? (
-          <IconButton title="Rename" onClick={startRename} disabled={anyBusy}>
+          <IconButton title={t("toolbar.rename")} onClick={startRename} disabled={anyBusy}>
             <Pencil size={15} />
           </IconButton>
         ) : null}
@@ -2915,7 +2920,11 @@ export function EditorView({
             available in the menu, but is no longer the surprising primary
             action immediately after an export. */}
         <SplitButton
-          title={defaultRevealExport ? "Show latest export in Finder" : "Show original in Finder"}
+          title={
+            defaultRevealExport
+              ? t("toolbar.showLatestExportInFinder")
+              : t("toolbar.showOriginalInFinder")
+          }
           icon={<FolderOpen size={16} />}
           defaultValue={
             defaultRevealExport ? `export:${defaultRevealExport.quality}` : "original"
@@ -2923,10 +2932,10 @@ export function EditorView({
           disabled={anyBusy}
           options={[
             ...revealableExports.map((entry) => ({
-              label: exportRevealLabel(entry.quality),
+              label: exportRevealLabel(t, entry.quality),
               value: `export:${entry.quality}`,
             })),
-            { label: "Original recording", value: "original" },
+            { label: t("toolbar.originalRecording"), value: "original" },
           ]}
           onSelect={(v) => {
             const quality = v.startsWith("export:")
@@ -2942,15 +2951,15 @@ export function EditorView({
           }}
         />
         <SplitButton
-          title="Export original copy (no edits)"
+          title={t("toolbar.exportOriginalTitle")}
           icon={<Download size={16} />}
           busy={quickExporting}
           disabled={anyBusy}
           defaultValue="1080"
           options={[
-            { label: "Original at 1080p", value: "1080" },
-            { label: "Original at 720p", value: "720" },
-            { label: "Original at 480p", value: "480" },
+            { label: t("toolbar.original1080"), value: "1080" },
+            { label: t("toolbar.original720"), value: "720" },
+            { label: t("toolbar.original480"), value: "480" },
           ]}
           onSelect={(v) => void onQuickExport(v as "1080" | "720" | "480")}
         />
@@ -2966,12 +2975,12 @@ export function EditorView({
             via a plain anchor (the app's proven way to launch external URLs
             from the Tauri webview — the opener plugin isn't wired in). */}
         {driveLink ? (
-          <Tooltip label="Open Drive link">
+          <Tooltip label={t("toolbar.openDriveLink")}>
             <a
               href={driveLink}
               target="_blank"
               rel="noreferrer"
-              aria-label="Open Drive link"
+              aria-label={t("toolbar.openDriveLink")}
               className="grid h-8 w-8 place-items-center rounded-md border border-line text-accent hover:bg-surface"
             >
               <ExternalLink size={16} />
@@ -2980,10 +2989,10 @@ export function EditorView({
         ) : null}
         {driveLink ? (
           <IconButton
-            title="Copy Drive link"
+            title={t("toolbar.copyDriveLink")}
             onClick={() =>
               navigator.clipboard.writeText(driveLink).then(
-                () => toasts.push({ tone: "success", message: "Drive link copied." }),
+                () => toasts.push({ tone: "success", message: t("toasts.driveLinkCopied") }),
                 (e) => toasts.push({ tone: "error", message: String(e) }),
               )
             }
@@ -2992,13 +3001,13 @@ export function EditorView({
           </IconButton>
         ) : null}
         <IconButton
-          title={hasTranscript ? "Regenerate transcript" : "Get transcript"}
+          title={hasTranscript ? t("toolbar.regenerateTranscript") : t("toolbar.getTranscript")}
           onClick={() => void onTranscribe()}
           disabled={anyBusy}
         >
           {transcribing ? <Loader size={16} className="animate-spin" /> : <FileText size={16} />}
         </IconButton>
-        <IconButton title="Delete" onClick={() => void onDelete()} disabled={anyBusy} danger>
+        <IconButton title={t("toolbar.delete")} onClick={() => void onDelete()} disabled={anyBusy} danger>
           <Trash2 size={16} />
         </IconButton>
 
@@ -3010,10 +3019,10 @@ export function EditorView({
             produced a concrete path. */}
         {exportedRevealPath && !exporting ? (
           <IconButton
-            title="Copy exported file"
+            title={t("toolbar.copyExportedFile")}
             onClick={() => {
               copyExportToClipboard(exportedRevealPath).then(
-                () => toasts.push({ tone: "success", message: "Copied!" }),
+                () => toasts.push({ tone: "success", message: t("toasts.copied") }),
                 (e) => {
                   console.error("[editor] copy to clipboard failed", e);
                   toasts.push({ tone: "error", message: String(e) });
@@ -3025,16 +3034,18 @@ export function EditorView({
           </IconButton>
         ) : null}
         {/* Export format select (session-local; not persisted). GIF renders a
-            silent 15fps ≤960px animated GIF via the same composite pipeline. */}
+            silent 15fps ≤960px animated GIF via the same composite pipeline.
+            MP4/GIF are format acronyms, not natural-language text — kept
+            untranslated (same in every locale), so no t() here. */}
         <label className="sr-only" htmlFor="export-format">
-          Export format
+          {t("toolbar.exportFormat")}
         </label>
         <select
           id="export-format"
           value={exportFormat}
           onChange={(e) => setExportFormat(e.target.value === "gif" ? "gif" : "mp4")}
           disabled={anyBusy || !loaded}
-          title="Export format"
+          title={t("toolbar.exportFormat")}
           className="rounded-md border border-line bg-surface px-2 py-1.5 text-[13px] disabled:opacity-50"
         >
           <option value="mp4">MP4</option>
@@ -3055,10 +3066,10 @@ export function EditorView({
             <Download size={15} />
           )}
           {exporting
-            ? `${exportLabel}… ${exportPct}%${
-                exportEta !== null ? ` · ~${fmtEta(exportEta)} left` : ""
+            ? `${t("toolbar.exportingProgress", { label: exportLabel, pct: exportPct })}${
+                exportEta !== null ? t("toolbar.etaSuffix", { eta: fmtEta(exportEta) }) : ""
               }`
-            : `Export edited ${exportFormat.toUpperCase()}`}
+            : t("toolbar.exportEdited", { format: exportFormat.toUpperCase() })}
         </button>
       </div>
 
@@ -3070,7 +3081,7 @@ export function EditorView({
               ref={canvasRef}
               onClick={pickMode ? onPreviewClick : undefined}
               role="img"
-              aria-label="Video preview"
+              aria-label={t("preview.videoPreviewAriaLabel")}
               className={`max-h-full max-w-full object-contain ${
                 pickMode ? "cursor-crosshair" : ""
               }`}
@@ -3079,7 +3090,7 @@ export function EditorView({
                 sets the selected zoom block's center. */}
             {pickMode ? (
               <div className="pointer-events-none absolute left-1/2 top-2 -translate-x-1/2 rounded-full border border-accent/60 bg-black/60 px-2.5 py-1 text-[11px] font-medium text-accent shadow-sm">
-                Click to set zoom center
+                {t("preview.clickToSetZoomCenter")}
               </div>
             ) : null}
             {/* Selected mask's rect-edit box: an EDIT AFFORDANCE overlay (the
@@ -3161,7 +3172,7 @@ export function EditorView({
           <div className="mt-3 flex items-center gap-3">
             <button
               onClick={togglePlay}
-              aria-label={playing ? "Pause" : "Play"}
+              aria-label={playing ? t("preview.pause") : t("preview.play")}
               className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-accent text-white"
             >
               {playing ? <Pause size={16} /> : <Play size={16} />}
@@ -3173,8 +3184,11 @@ export function EditorView({
               step={0.01}
               value={Math.min(Math.max(current, trimStartMs / 1000), trimEndMs / 1000 || 0)}
               onChange={(e) => onScrub(Number(e.target.value))}
-              aria-label="Playback position"
-              aria-valuetext={`${fmtTime(current)} of ${fmtTime(duration)}`}
+              aria-label={t("preview.playbackPosition")}
+              aria-valuetext={t("preview.playbackPositionValueText", {
+                current: fmtTime(current),
+                duration: fmtTime(duration),
+              })}
               className="min-w-0 flex-1 accent-accent"
             />
             <span className="shrink-0 text-[12px] tabular-nums text-muted">
@@ -3226,7 +3240,7 @@ export function EditorView({
                   onKeyDown={onTrimHandleKeyDown("start")}
                   tabIndex={0}
                   role="slider"
-                  aria-label="Trim start"
+                  aria-label={t("timeline.trimStart")}
                   aria-valuemin={0}
                   aria-valuemax={trimEndMs}
                   aria-valuenow={trimStartMs}
@@ -3243,7 +3257,7 @@ export function EditorView({
                   onKeyDown={onTrimHandleKeyDown("end")}
                   tabIndex={0}
                   role="slider"
-                  aria-label="Trim end"
+                  aria-label={t("timeline.trimEnd")}
                   aria-valuemin={trimStartMs}
                   aria-valuemax={duration * 1000}
                   aria-valuenow={trimEndMs}
@@ -3253,18 +3267,18 @@ export function EditorView({
                 />
               </div>
               <div className="mt-1.5 flex items-center justify-between text-[12px] tabular-nums text-muted">
-                <span>Start {fmtTimeDs(trimStartMs)}</span>
+                <span>{t("timeline.startLabel", { time: fmtTimeDs(trimStartMs) })}</span>
                 {trim !== null ? (
                   <button
                     onClick={resetTrim}
                     className="flex items-center gap-1 rounded-md border border-line px-2 py-0.5 text-[11px] font-medium text-fg hover:bg-surface"
                   >
-                    <RotateCcw size={11} /> Reset trim
+                    <RotateCcw size={11} /> {t("timeline.resetTrim")}
                   </button>
                 ) : (
-                  <span className="text-[11px] text-muted/70">Full length</span>
+                  <span className="text-[11px] text-muted/70">{t("timeline.fullLength")}</span>
                 )}
-                <span>End {fmtTimeDs(trimEndMs)}</span>
+                <span>{t("timeline.endLabel", { time: fmtTimeDs(trimEndMs) })}</span>
               </div>
 
               {/* Zoom lane: effective blocks as chips (position/width
@@ -3275,19 +3289,19 @@ export function EditorView({
               {zoomGateOpen ? (
                 <div className="mt-2">
                   <div className="mb-1 flex items-center justify-between text-[11px] text-muted">
-                    <span>Zoom</span>
+                    <span>{t("timeline.zoomLabel")}</span>
                     {project.zoom.mode === "off" ? (
-                      <span className="text-muted/70">Off</span>
+                      <span className="text-muted/70">{t("timeline.off")}</span>
                     ) : null}
                   </div>
                   <div className="relative h-7 w-full touch-none select-none rounded-md border border-line bg-surface/60">
                     {project.zoom.mode === "off" ? (
                       <div className="pointer-events-none absolute inset-0 grid place-items-center text-[11px] text-muted/60">
-                        Zoom disabled
+                        {t("timeline.zoomDisabled")}
                       </div>
                     ) : effectiveBlocks.length === 0 ? (
                       <div className="pointer-events-none absolute inset-0 grid place-items-center text-[11px] text-muted/60">
-                        No zoom blocks — add one below
+                        {t("timeline.noZoomBlocks")}
                       </div>
                     ) : (
                       effectiveBlocks.map((b) => {
@@ -3314,8 +3328,16 @@ export function EditorView({
                             }
                             tabIndex={b.id != null ? 0 : undefined}
                             role={b.id != null ? "button" : undefined}
-                            aria-label={`${isAuto ? "Auto" : "Manual"} zoom ×${b.scale.toFixed(1)}, ${fmtTimeDs(b.startMs)} to ${fmtTimeDs(b.endMs)}`}
-                            title={`${isAuto ? "Auto" : "Manual"} zoom ×${b.scale.toFixed(1)}`}
+                            aria-label={t("timeline.zoomChipAriaLabel", {
+                              mode: isAuto ? t("timeline.auto") : t("timeline.manual"),
+                              scale: b.scale.toFixed(1),
+                              start: fmtTimeDs(b.startMs),
+                              end: fmtTimeDs(b.endMs),
+                            })}
+                            title={t("timeline.zoomChipTitle", {
+                              mode: isAuto ? t("timeline.auto") : t("timeline.manual"),
+                              scale: b.scale.toFixed(1),
+                            })}
                             className={`group absolute inset-y-0.5 flex cursor-grab items-center justify-center overflow-hidden rounded-sm border text-[10px] font-medium active:cursor-grabbing ${
                               selected
                                 ? "border-accent bg-accent/40 text-fg ring-1 ring-accent"
@@ -3336,8 +3358,8 @@ export function EditorView({
                                 type="button"
                                 title={
                                   isAuto
-                                    ? "Delete this zoom (keeps the rest automatic)"
-                                    : "Delete this zoom"
+                                    ? t("timeline.deleteZoomAutoTitle")
+                                    : t("timeline.deleteZoomTitle")
                                 }
                                 onPointerDown={(e) => e.stopPropagation()}
                                 onClick={(e) => {
@@ -3384,12 +3406,12 @@ export function EditorView({
                   any clip can be sped up / slowed down. */}
               <div className="mt-2">
                 <div className="mb-1 flex items-center justify-between text-[11px] text-muted">
-                  <span>Speed</span>
+                  <span>{t("timeline.speedLabel")}</span>
                 </div>
                 <div className="relative h-7 w-full touch-none select-none rounded-md border border-line bg-surface/60">
                   {project.speed.length === 0 ? (
                     <div className="pointer-events-none absolute inset-0 grid place-items-center text-[11px] text-muted/60">
-                      No speed segments — add one below
+                      {t("timeline.noSpeedSegments")}
                     </div>
                   ) : (
                     project.speed.map((r, i) => {
@@ -3409,8 +3431,12 @@ export function EditorView({
                           )}
                           tabIndex={0}
                           role="button"
-                          aria-label={`Speed ×${r.rate.toFixed(2)} segment, ${fmtTimeDs(r.startMs)} to ${fmtTimeDs(r.endMs)}`}
-                          title={`Speed ×${r.rate.toFixed(2)}`}
+                          aria-label={t("timeline.speedChipAriaLabel", {
+                            rate: r.rate.toFixed(2),
+                            start: fmtTimeDs(r.startMs),
+                            end: fmtTimeDs(r.endMs),
+                          })}
+                          title={t("timeline.speedChipTitle", { rate: r.rate.toFixed(2) })}
                           className={`absolute inset-y-0.5 flex cursor-grab items-center justify-center overflow-hidden rounded-sm border text-[10px] font-medium active:cursor-grabbing ${
                             selected
                               ? "border-accent bg-accent/40 text-fg ring-1 ring-accent"
@@ -3453,12 +3479,12 @@ export function EditorView({
               {webcamAvailable ? (
                 <div className="mt-2">
                   <div className="mb-1 flex items-center justify-between text-[11px] text-muted">
-                    <span>Camera</span>
+                    <span>{t("timeline.cameraLabel")}</span>
                   </div>
                   <div className="relative h-7 w-full touch-none select-none rounded-md border border-line bg-surface/60">
                     {(project.webcam?.scenes.length ?? 0) === 0 ? (
                       <div className="pointer-events-none absolute inset-0 grid place-items-center text-[11px] text-muted/60">
-                        No camera scenes — add one below
+                        {t("timeline.noCameraScenes")}
                       </div>
                     ) : (
                       (project.webcam?.scenes ?? []).map((s) => {
@@ -3478,8 +3504,14 @@ export function EditorView({
                             )}
                             tabIndex={0}
                             role="button"
-                            aria-label={`Camera scene, ${fmtTimeDs(s.startMs)} to ${fmtTimeDs(s.endMs)}`}
-                            title={`Camera scene ${fmtTimeDs(s.startMs)}–${fmtTimeDs(s.endMs)}`}
+                            aria-label={t("timeline.cameraChipAriaLabel", {
+                              start: fmtTimeDs(s.startMs),
+                              end: fmtTimeDs(s.endMs),
+                            })}
+                            title={t("timeline.cameraChipTitle", {
+                              start: fmtTimeDs(s.startMs),
+                              end: fmtTimeDs(s.endMs),
+                            })}
                             className={`absolute inset-y-0.5 flex cursor-grab items-center justify-center overflow-hidden rounded-sm border text-[10px] font-medium active:cursor-grabbing ${
                               selected
                                 ? "border-accent bg-accent/40 text-fg ring-1 ring-accent"
@@ -3524,12 +3556,12 @@ export function EditorView({
                   recording. */}
               <div className="mt-2">
                 <div className="mb-1 flex items-center justify-between text-[11px] text-muted">
-                  <span>Masks</span>
+                  <span>{t("timeline.masksLabel")}</span>
                 </div>
                 <div className="relative h-7 w-full touch-none select-none rounded-md border border-line bg-surface/60">
                   {project.masks.length === 0 ? (
                     <div className="pointer-events-none absolute inset-0 grid place-items-center text-[11px] text-muted/60">
-                      No masks — add one below
+                      {t("timeline.noMasks")}
                     </div>
                   ) : (
                     project.masks.map((m) => {
@@ -3549,8 +3581,16 @@ export function EditorView({
                           )}
                           tabIndex={0}
                           role="button"
-                          aria-label={`${m.kind === "pixelate" ? "Pixelate" : "Highlight"} mask, ${fmtTimeDs(m.startMs)} to ${fmtTimeDs(m.endMs)}`}
-                          title={`${m.kind === "pixelate" ? "Pixelate" : "Highlight"} mask ${fmtTimeDs(m.startMs)}–${fmtTimeDs(m.endMs)}`}
+                          aria-label={t("timeline.maskChipAriaLabel", {
+                            kind: m.kind === "pixelate" ? t("timeline.pixelate") : t("timeline.highlight"),
+                            start: fmtTimeDs(m.startMs),
+                            end: fmtTimeDs(m.endMs),
+                          })}
+                          title={t("timeline.maskChipTitle", {
+                            kind: m.kind === "pixelate" ? t("timeline.pixelate") : t("timeline.highlight"),
+                            start: fmtTimeDs(m.startMs),
+                            end: fmtTimeDs(m.endMs),
+                          })}
                           className={`absolute inset-y-0.5 flex cursor-grab items-center justify-center overflow-hidden rounded-sm border text-[10px] font-medium active:cursor-grabbing ${
                             selected
                               ? "border-accent bg-accent/40 text-fg ring-1 ring-accent"
@@ -3559,7 +3599,7 @@ export function EditorView({
                           style={{ left: `${leftPct}%`, width: `${Math.max(widthPct, 1)}%` }}
                         >
                           <span className="pointer-events-none truncate px-2">
-                            {m.kind === "pixelate" ? "Pixelate" : "Highlight"}
+                            {m.kind === "pixelate" ? t("timeline.pixelate") : t("timeline.highlight")}
                           </span>
                           {/* Left resize edge */}
                           <div
@@ -3589,10 +3629,10 @@ export function EditorView({
 
         {/* Right: controls */}
         <div className="w-[300px] shrink-0 overflow-y-auto rounded-lg border border-line p-4">
-          <h3 className="mb-4 text-[13px] font-semibold">Appearance</h3>
+          <h3 className="mb-4 text-[13px] font-semibold">{t("appearance.title")}</h3>
 
           <label className="mb-1 flex items-center justify-between text-[12px] text-muted">
-            <span>Padding</span>
+            <span>{t("appearance.padding")}</span>
             <span className="tabular-nums text-fg">{project.appearance.padding}px</span>
           </label>
           <input
@@ -3600,13 +3640,13 @@ export function EditorView({
             min={PADDING_MIN}
             max={PADDING_MAX}
             value={project.appearance.padding}
-            aria-label="Padding"
+            aria-label={t("appearance.padding")}
             onChange={(e) => setPadding(Number(e.target.value))}
             className="mb-5 w-full accent-accent"
           />
 
           <label className="mb-1 flex items-center justify-between text-[12px] text-muted">
-            <span>Corner radius</span>
+            <span>{t("appearance.cornerRadius")}</span>
             <span className="tabular-nums text-fg">{project.appearance.cornerRadius}px</span>
           </label>
           <input
@@ -3614,12 +3654,12 @@ export function EditorView({
             min={CORNER_MIN}
             max={CORNER_MAX}
             value={project.appearance.cornerRadius}
-            aria-label="Corner radius"
+            aria-label={t("appearance.cornerRadius")}
             onChange={(e) => setCornerRadius(Number(e.target.value))}
             className="mb-5 w-full accent-accent"
           />
 
-          <div className="mb-2 text-[12px] text-muted">Aspect ratio</div>
+          <div className="mb-2 text-[12px] text-muted">{t("appearance.aspectRatio")}</div>
           <div className="mb-5 grid grid-cols-5 gap-1.5">
             {(
               [
@@ -3640,7 +3680,10 @@ export function EditorView({
                 onClick={() => setAspect(value as AspectPreset)}
                 aria-pressed={project.appearance.aspect === value}
               >
-                {label}
+                {/* Only "Auto" is natural-language text; the ratio labels
+                    (16:9, 9:16, 1:1, 4:3) are numeric/symbolic and identical
+                    in every locale, so they render as-is. */}
+                {value === "auto" ? t("appearance.aspectAuto") : label}
               </button>
             ))}
           </div>
@@ -3653,14 +3696,14 @@ export function EditorView({
               className="accent-accent"
             />
             <span className="flex flex-col">
-              <span>Motion blur</span>
+              <span>{t("appearance.motionBlur")}</span>
               <span className="text-[11px] leading-snug text-muted">
-                Smears zoom transitions for a smoother, cinematic feel.
+                {t("appearance.motionBlurHint")}
               </span>
             </span>
           </label>
 
-          <div className="mb-2 text-[12px] text-muted">Background</div>
+          <div className="mb-2 text-[12px] text-muted">{t("appearance.background")}</div>
           <div className="mb-3 flex gap-2">
             <button
               className={seg(bg.type === "solid")}
@@ -3670,7 +3713,7 @@ export function EditorView({
                 )
               }
             >
-              Solid
+              {t("appearance.solid")}
             </button>
             <button
               className={seg(bg.type === "gradient")}
@@ -3682,7 +3725,7 @@ export function EditorView({
                 )
               }
             >
-              Gradient
+              {t("appearance.gradient")}
             </button>
             <button
               className={seg(bg.type === "image")}
@@ -3690,12 +3733,12 @@ export function EditorView({
                 if (bg.type !== "image") {
                   setBackground({
                     type: "image",
-                    path: presetBackgroundPath(BACKGROUND_PRESETS[0][0]),
+                    path: presetBackgroundPath(BACKGROUND_PRESETS[0]),
                   });
                 }
               }}
             >
-              Image
+              {t("appearance.image")}
             </button>
           </div>
 
@@ -3720,7 +3763,9 @@ export function EditorView({
                   onChange={(e) => setBackground({ ...bg, from: e.target.value })}
                   className="h-9 w-12 shrink-0 rounded border border-line bg-transparent"
                 />
-                <span className="text-[12px] text-muted">From {bg.from}</span>
+                <span className="text-[12px] text-muted">
+                  {t("appearance.fromColor", { color: bg.from })}
+                </span>
               </div>
               <div className="flex items-center gap-2">
                 <input
@@ -3729,7 +3774,9 @@ export function EditorView({
                   onChange={(e) => setBackground({ ...bg, to: e.target.value })}
                   className="h-9 w-12 shrink-0 rounded border border-line bg-transparent"
                 />
-                <span className="text-[12px] text-muted">To {bg.to}</span>
+                <span className="text-[12px] text-muted">
+                  {t("appearance.toColor", { color: bg.to })}
+                </span>
               </div>
             </div>
           ) : null}
@@ -3737,15 +3784,16 @@ export function EditorView({
           {bg.type === "image" ? (
             <div className="space-y-2">
               <div className="grid max-h-64 grid-cols-2 gap-2 overflow-y-auto pr-1">
-                {BACKGROUND_PRESETS.map(([name, label]) => {
+                {BACKGROUND_PRESETS.map((name) => {
                   const path = presetBackgroundPath(name);
                   const selected = bg.path === path;
+                  const label = t(`appearance.backgroundPresets.${name}`);
                   return (
                     <button
                       key={name}
                       type="button"
                       onClick={() => setBackground({ type: "image", path })}
-                      aria-label={`Use ${label} background`}
+                      aria-label={t("appearance.useBackgroundAriaLabel", { name: label })}
                       aria-pressed={selected}
                       title={label}
                       className={`overflow-hidden rounded-md border-2 transition ${
@@ -3767,7 +3815,7 @@ export function EditorView({
               <div className="overflow-hidden rounded-md border border-line bg-black">
                 <img
                   src={backgroundImageSrc(bg.path)}
-                  alt="Background"
+                  alt={t("appearance.background")}
                   className="h-24 w-full object-cover"
                 />
               </div>
@@ -3777,7 +3825,7 @@ export function EditorView({
                 className="flex w-full items-center justify-center gap-1.5 rounded-md border border-line px-3 py-1.5 text-[12px] hover:bg-surface disabled:opacity-50"
               >
                 {importing ? <Loader size={14} className="animate-spin" /> : null}
-                Choose a different image…
+                {t("appearance.chooseImage")}
               </button>
             </div>
           ) : null}
@@ -3789,13 +3837,13 @@ export function EditorView({
           {zoomGateOpen ? (
             <>
               <div className="mb-3 mt-6 flex items-center justify-between border-t border-line pt-4">
-                <h3 className="text-[13px] font-semibold">Zoom</h3>
+                <h3 className="text-[13px] font-semibold">{t("zoom.title")}</h3>
                 <button
                   type="button"
                   role="switch"
                   aria-checked={project.zoom.mode !== "off"}
-                  aria-label="Auto-zoom on clicks"
-                  title={project.zoom.mode !== "off" ? "Turn zoom off" : "Turn zoom on"}
+                  aria-label={t("zoom.autoZoomAriaLabel")}
+                  title={project.zoom.mode !== "off" ? t("zoom.turnOff") : t("zoom.turnOn")}
                   onClick={() => setZoomEnabled(project.zoom.mode === "off")}
                   className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
                     project.zoom.mode !== "off" ? "bg-accent" : "bg-line"
@@ -3811,15 +3859,15 @@ export function EditorView({
 
               {project.zoom.mode === "off" ? (
                 <p className="mb-2 text-[11px] leading-snug text-muted/80">
-                  Zoom is off for this recording. Turn it on to auto-zoom on your clicks.
+                  {t("zoom.offHint")}
                 </p>
               ) : (
                 <>
                   <div className="mb-3 flex gap-2">
                     {(
                       [
-                        ["auto", "Auto"],
-                        ["custom", "Custom"],
+                        ["auto", t("zoom.modeAuto")],
+                        ["custom", t("zoom.modeCustom")],
                       ] as const
                     ).map(([value, label]) => (
                       <button
@@ -3839,15 +3887,15 @@ export function EditorView({
                       disabled={duration <= 0}
                       className="flex flex-1 items-center justify-center gap-1.5 rounded-md border border-line px-3 py-1.5 text-[12px] font-medium hover:bg-surface disabled:opacity-50"
                     >
-                      <Plus size={14} /> Add zoom
+                      <Plus size={14} /> {t("zoom.addZoom")}
                     </button>
                     <button
                       onClick={() => void resetToAuto()}
                       disabled={project.zoom.mode === "auto"}
                       className="flex items-center justify-center gap-1.5 rounded-md border border-line px-3 py-1.5 text-[12px] font-medium hover:bg-surface disabled:opacity-50"
-                      title="Discard hand-edited blocks and use click-driven auto-zoom"
+                      title={t("zoom.resetToAutoTitle")}
                     >
-                      <RotateCcw size={13} /> Reset to auto
+                      <RotateCcw size={13} /> {t("zoom.resetToAuto")}
                     </button>
                   </div>
                 </>
@@ -3864,7 +3912,7 @@ export function EditorView({
                           : "bg-violet-500/25 text-violet-300"
                       }`}
                     >
-                      {selectedBlock.mode}
+                      {selectedBlock.mode === "auto" ? t("zoom.badgeAuto") : t("zoom.badgeManual")}
                     </span>
                     <button
                       onClick={() =>
@@ -3872,16 +3920,16 @@ export function EditorView({
                       }
                       title={
                         selectedBlock.mode === "auto"
-                          ? "Delete this zoom (keeps the rest automatic)"
-                          : "Delete this zoom"
+                          ? t("timeline.deleteZoomAutoTitle")
+                          : t("timeline.deleteZoomTitle")
                       }
                       className="flex items-center gap-1 rounded-md border border-line px-2 py-0.5 text-[11px] font-medium text-fg hover:bg-surface"
                     >
-                      <Trash2 size={12} /> Delete
+                      <Trash2 size={12} /> {t("common.delete")}
                     </button>
                   </div>
                   <label className="mb-1 flex items-center justify-between text-[12px] text-muted">
-                    <span>Zoom level</span>
+                    <span>{t("zoom.zoomLevel")}</span>
                     <span className="tabular-nums text-fg">
                       ×{selectedBlock.scale.toFixed(1)}
                     </span>
@@ -3892,7 +3940,7 @@ export function EditorView({
                     max={ZOOM_SCALE_MAX}
                     step={0.1}
                     value={Math.min(Math.max(selectedBlock.scale, ZOOM_SCALE_MIN), ZOOM_SCALE_MAX)}
-                    aria-label="Zoom level"
+                    aria-label={t("zoom.zoomLevel")}
                     onChange={(e) =>
                       selectedBlock.id != null &&
                       setBlockScale(selectedBlock.id, Number(e.target.value))
@@ -3904,8 +3952,8 @@ export function EditorView({
                   <div className="mb-2 grid grid-cols-2 gap-2">
                     {(
                       [
-                        ["cx", "Center X (%)", selectedBlock.cx],
-                        ["cy", "Center Y (%)", selectedBlock.cy],
+                        ["cx", t("zoom.centerX"), selectedBlock.cx],
+                        ["cy", t("zoom.centerY"), selectedBlock.cy],
                       ] as const
                     ).map(([field, label, value]) => (
                       <label
@@ -3930,12 +3978,12 @@ export function EditorView({
                     ))}
                   </div>
                   <p className="text-[11px] leading-snug text-muted/80">
-                    Click the preview to set this block&rsquo;s center.
+                    {t("zoom.clickPreviewHint")}
                   </p>
                 </div>
               ) : project.zoom.mode !== "off" ? (
                 <p className="mb-2 text-[11px] leading-snug text-muted/80">
-                  Select a zoom block on the timeline to edit it.
+                  {t("zoom.selectBlockHint")}
                 </p>
               ) : null}
 
@@ -3946,10 +3994,10 @@ export function EditorView({
               {project.zoom.mode !== "off" ? (
                 <button
                   onClick={removeAllZooms}
-                  title="Turn zoom off for this recording and clear every zoom"
+                  title={t("zoom.removeAllTitle")}
                   className="flex w-full items-center justify-center gap-1.5 rounded-md border border-line px-3 py-1.5 text-[12px] font-medium text-muted hover:bg-surface hover:text-fg"
                 >
-                  <Trash2 size={13} /> Remove all zooms
+                  <Trash2 size={13} /> {t("zoom.removeAll")}
                 </button>
               ) : null}
             </>
@@ -3959,7 +4007,7 @@ export function EditorView({
               an inspector (rate stepper 0.5–4.0 step 0.25 + delete) for the
               selected segment. Always shown. */}
           <h3 className="mb-3 mt-6 border-t border-line pt-4 text-[13px] font-semibold">
-            Speed
+            {t("speed.title")}
           </h3>
 
           <div className="mb-3 flex gap-2">
@@ -3968,7 +4016,7 @@ export function EditorView({
               disabled={duration <= 0}
               className="flex flex-1 items-center justify-center gap-1.5 rounded-md border border-line px-3 py-1.5 text-[12px] font-medium hover:bg-surface disabled:opacity-50"
             >
-              <Plus size={14} /> Add speed
+              <Plus size={14} /> {t("speed.addSpeed")}
             </button>
           </div>
 
@@ -3982,11 +4030,11 @@ export function EditorView({
                   onClick={() => deleteSpeedRange(selectedSpeedIdx)}
                   className="flex items-center gap-1 rounded-md border border-line px-2 py-0.5 text-[11px] font-medium text-fg hover:bg-surface"
                 >
-                  <Trash2 size={12} /> Delete
+                  <Trash2 size={12} /> {t("common.delete")}
                 </button>
               </div>
               <label className="mb-1 flex items-center justify-between text-[12px] text-muted">
-                <span>Playback rate</span>
+                <span>{t("speed.playbackRate")}</span>
                 <span className="tabular-nums text-fg">
                   ×{selectedSpeed.rate.toFixed(2)}
                 </span>
@@ -3997,18 +4045,17 @@ export function EditorView({
                 max={SPEED_RATE_MAX}
                 step={0.25}
                 value={Math.min(Math.max(selectedSpeed.rate, SPEED_RATE_MIN), SPEED_RATE_MAX)}
-                aria-label="Playback rate"
+                aria-label={t("speed.playbackRate")}
                 onChange={(e) => setSpeedRate(selectedSpeedIdx, Number(e.target.value))}
                 className="mb-2 w-full accent-accent"
               />
               <p className="text-[11px] leading-snug text-muted/80">
-                Above 1× speeds this segment up (audio pitches up); below 1×
-                slows it down.
+                {t("speed.rateHint")}
               </p>
             </div>
           ) : (
             <p className="mb-2 text-[11px] leading-snug text-muted/80">
-              Select a speed segment on the timeline to edit its rate.
+              {t("speed.selectHint")}
             </p>
           )}
 
@@ -4016,14 +4063,10 @@ export function EditorView({
               with the system cursor hidden AND has an event track. Otherwise
               disabled with an explanatory tooltip (title). */}
           <h3 className="mb-4 mt-6 border-t border-line pt-4 text-[13px] font-semibold">
-            Cursor
+            {t("cursor.title")}
           </h3>
           <div
-            title={
-              cursorAvailable
-                ? undefined
-                : "Record with 'Enhance cursor' to enable"
-            }
+            title={cursorAvailable ? undefined : t("cursor.enableHintTitle")}
             className={cursorAvailable ? "" : "opacity-50"}
           >
             <label className="mb-3 flex cursor-pointer items-center gap-2 text-[13px]">
@@ -4034,10 +4077,10 @@ export function EditorView({
                 onChange={(e) => setCursorEnabled(e.target.checked)}
                 className="accent-accent"
               />
-              Show enhanced cursor
+              {t("cursor.showEnhanced")}
             </label>
             <label className="mb-1 flex items-center justify-between text-[12px] text-muted">
-              <span>Size</span>
+              <span>{t("cursor.size")}</span>
               <span className="tabular-nums text-fg">
                 ×{project.cursor.scale.toFixed(1)}
               </span>
@@ -4049,15 +4092,15 @@ export function EditorView({
               step={0.1}
               value={project.cursor.scale}
               disabled={!cursorAvailable || !project.cursor.enabled}
-              aria-label="Cursor size"
+              aria-label={t("cursor.sizeAriaLabel")}
               onChange={(e) => setCursorScale(Number(e.target.value))}
               className="mb-3 w-full accent-accent disabled:opacity-50"
             />
             <label className="mb-1 flex items-center justify-between text-[12px] text-muted">
-              <span>Smoothing</span>
+              <span>{t("cursor.smoothing")}</span>
               <span className="tabular-nums text-fg">
                 {project.cursor.smoothing === 0
-                  ? "Off"
+                  ? t("cursor.off")
                   : `${Math.round(project.cursor.smoothing * 100)}%`}
               </span>
             </label>
@@ -4068,7 +4111,7 @@ export function EditorView({
               step={0.1}
               value={project.cursor.smoothing}
               disabled={!cursorAvailable || !project.cursor.enabled}
-              aria-label="Cursor smoothing"
+              aria-label={t("cursor.smoothingAriaLabel")}
               onChange={(e) => setCursorSmoothing(Number(e.target.value))}
               className="mb-3 w-full accent-accent disabled:opacity-50"
             />
@@ -4080,11 +4123,11 @@ export function EditorView({
                 onChange={(e) => setCursorHideIdle(e.target.checked)}
                 className="accent-accent disabled:opacity-50"
               />
-              Hide when idle
+              {t("cursor.hideWhenIdle")}
             </label>
             {!cursorAvailable ? (
               <p className="text-[11px] leading-snug text-muted">
-                Record with &lsquo;Enhance cursor&rsquo; to enable
+                {t("cursor.enableHintText")}
               </p>
             ) : null}
           </div>
@@ -4095,10 +4138,10 @@ export function EditorView({
               default is modifier-combo-only; "show all keys" is an explicit
               opt-in with a visible warning, never silently enabled. */}
           <h3 className="mb-4 mt-6 border-t border-line pt-4 text-[13px] font-semibold">
-            Keystrokes
+            {t("keystrokes.title")}
           </h3>
           <div
-            title={eventsAvailable ? undefined : "No recorded key events for this clip"}
+            title={eventsAvailable ? undefined : t("keystrokes.noEventsHint")}
             className={eventsAvailable ? "" : "opacity-50"}
           >
             <label className="mb-3 flex cursor-pointer items-center gap-2 text-[13px]">
@@ -4109,7 +4152,7 @@ export function EditorView({
                 onChange={(e) => setKeystrokesEnabled(e.target.checked)}
                 className="accent-accent"
               />
-              Show keystrokes
+              {t("keystrokes.showKeystrokes")}
             </label>
             <label className="mb-1 flex cursor-pointer items-center gap-2 text-[12px] text-muted">
               <input
@@ -4119,15 +4162,15 @@ export function EditorView({
                 onChange={(e) => setKeystrokesAllKeys(e.target.checked)}
                 className="accent-accent disabled:opacity-50"
               />
-              Show all keys (may reveal typed text)
+              {t("keystrokes.showAllKeys")}
             </label>
             {!eventsAvailable ? (
               <p className="text-[11px] leading-snug text-muted">
-                No recorded key events for this clip
+                {t("keystrokes.noEventsHint")}
               </p>
             ) : (
               <p className="text-[11px] leading-snug text-muted/80">
-                By default only modifier shortcuts (⌘⌃⌥ combos) are shown.
+                {t("keystrokes.defaultHint")}
               </p>
             )}
           </div>
@@ -4141,15 +4184,15 @@ export function EditorView({
               deletable, saved (clamped) via the same debounced project path
               every other section uses. */}
           <h3 className="mb-4 mt-6 border-t border-line pt-4 text-[13px] font-semibold">
-            Captions
+            {t("captions.title")}
           </h3>
           <div
-            title={audioAvailable ? undefined : "This recording has no audio to transcribe"}
+            title={audioAvailable ? undefined : t("captions.noAudioTitle")}
             className={audioAvailable ? "" : "opacity-50"}
           >
             {!audioAvailable ? (
               <p className="mb-3 text-[11px] leading-snug text-muted">
-                This recording has no audio to transcribe.
+                {t("captions.noAudioText")}
               </p>
             ) : (
               <>
@@ -4162,10 +4205,10 @@ export function EditorView({
                     <Loader size={14} className="animate-spin" />
                   ) : null}
                   {captionsGenerating
-                    ? `Generating… ${captionsProgress}%`
+                    ? t("captions.generatingProgress", { pct: captionsProgress })
                     : project.captions.segments === null
-                      ? "Generate captions"
-                      : "Regenerate captions"}
+                      ? t("captions.generate")
+                      : t("captions.regenerate")}
                 </button>
 
                 {captionsGenerating ? (
@@ -4186,12 +4229,12 @@ export function EditorView({
                         onChange={(e) => setCaptionsEnabled(e.target.checked)}
                         className="accent-accent"
                       />
-                      Show captions
+                      {t("captions.showCaptions")}
                     </label>
 
                     {project.captions.segments.length === 0 ? (
                       <p className="text-[11px] leading-snug text-muted">
-                        No speech detected in this recording.
+                        {t("captions.noSpeechDetected")}
                       </p>
                     ) : (
                       <div className="mb-2 max-h-64 overflow-y-auto rounded-md border border-line">
@@ -4206,13 +4249,13 @@ export function EditorView({
                             <textarea
                               value={s.text}
                               onChange={(e) => editCaptionSegment(i, e.target.value)}
-                              aria-label={`Caption at ${fmtTimeDs(s.startMs)}`}
+                              aria-label={t("captions.captionAtAriaLabel", { time: fmtTimeDs(s.startMs) })}
                               rows={1}
                               className="min-w-0 flex-1 resize-none rounded border border-line bg-transparent px-1.5 py-1 text-[12px] leading-snug focus:border-accent focus:outline-none"
                             />
                             <button
                               onClick={() => deleteCaptionSegment(i)}
-                              title="Delete this caption"
+                              title={t("captions.deleteCaptionTitle")}
                               className="shrink-0 rounded p-1 text-muted hover:bg-surface hover:text-danger"
                             >
                               <Trash2 size={13} />
@@ -4235,10 +4278,10 @@ export function EditorView({
               normalization (toward −16 dBFS, soft-knee limited at −1 dBFS)
               during export as a best-effort step. */}
           <h3 className="mb-4 mt-6 border-t border-line pt-4 text-[13px] font-semibold">
-            Audio
+            {t("audio.title")}
           </h3>
           <div
-            title={audioAvailable ? undefined : "This recording has no audio"}
+            title={audioAvailable ? undefined : t("audio.noAudioTitle")}
             className={audioAvailable ? "" : "opacity-50"}
           >
             <label className="mb-1 flex cursor-pointer items-center gap-2 text-[13px]">
@@ -4249,12 +4292,10 @@ export function EditorView({
                 onChange={(e) => setDenoise(e.target.checked)}
                 className="accent-accent disabled:opacity-50"
               />
-              Reduce background noise
+              {t("audio.reduceNoise")}
             </label>
             <p className="mb-3 text-[11px] leading-snug text-muted/80">
-              {audioAvailable
-                ? "Runs noise removal on your voice at export (in addition to the automatic cleanup)."
-                : "This recording has no audio."}
+              {audioAvailable ? t("audio.reduceNoiseHint") : t("audio.noAudioText")}
             </p>
             <label className="mb-1 flex cursor-pointer items-center gap-2 text-[13px]">
               <input
@@ -4264,12 +4305,10 @@ export function EditorView({
                 onChange={(e) => setNormalizeLoudness(e.target.checked)}
                 className="accent-accent disabled:opacity-50"
               />
-              Normalize loudness
+              {t("audio.normalizeLoudness")}
             </label>
             <p className="text-[11px] leading-snug text-muted/80">
-              {audioAvailable
-                ? "Evens out the volume toward a consistent level on export."
-                : "This recording has no audio."}
+              {audioAvailable ? t("audio.normalizeLoudnessHint") : t("audio.noAudioText")}
             </p>
           </div>
 
@@ -4281,7 +4320,7 @@ export function EditorView({
               button drops the track back to null. `project.audio.music` is
               null by default (no music), so this is entirely opt-in. */}
           <div className="mt-4">
-            <p className="mb-1 text-[13px] font-medium">Background music</p>
+            <p className="mb-1 text-[13px] font-medium">{t("music.title")}</p>
             {project.audio.music ? (
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
@@ -4291,14 +4330,14 @@ export function EditorView({
                   </span>
                   <button
                     onClick={clearMusic}
-                    title="Remove background music"
+                    title={t("music.removeTitle")}
                     className="shrink-0 rounded p-1 text-muted hover:bg-surface hover:text-fg"
                   >
                     <X size={14} />
                   </button>
                 </div>
                 <label className="flex items-center gap-2 text-[12px] text-muted">
-                  Volume
+                  {t("music.volume")}
                   <input
                     type="range"
                     min={MUSIC_VOLUME_MIN}
@@ -4320,11 +4359,11 @@ export function EditorView({
                 className="flex w-full items-center justify-center gap-1.5 rounded-md border border-line px-3 py-1.5 text-[12px] hover:bg-surface disabled:opacity-50"
               >
                 {musicImporting ? <Loader size={14} className="animate-spin" /> : <Music size={14} />}
-                Choose a music track…
+                {t("music.chooseTrack")}
               </button>
             )}
             <p className="mt-1 text-[11px] leading-snug text-muted/80">
-              Mixed in under your voice at export. MP3, M4A, WAV, or AAC.
+              {t("music.hint")}
             </p>
           </div>
 
@@ -4334,7 +4373,7 @@ export function EditorView({
           {webcamAvailable ? (
             <>
               <h3 className="mb-4 mt-6 border-t border-line pt-4 text-[13px] font-semibold">
-                Webcam
+                {t("webcam.title")}
               </h3>
               <label className="mb-3 flex cursor-pointer items-center gap-2 text-[13px]">
                 <input
@@ -4343,37 +4382,37 @@ export function EditorView({
                   onChange={(e) => setWebcam({ show: e.target.checked })}
                   className="accent-accent"
                 />
-                Show camera
+                {t("webcam.showCamera")}
               </label>
 
               {/* Shape: circle / rounded. */}
-              <div className="mb-1 text-[12px] text-muted">Shape</div>
+              <div className="mb-1 text-[12px] text-muted">{t("webcam.shape")}</div>
               <div className="mb-4 flex gap-2">
                 <button
                   className={seg(project.webcam?.shape === "circle")}
                   disabled={!project.webcam?.show}
                   onClick={() => setWebcam({ shape: "circle" })}
                 >
-                  Circle
+                  {t("webcam.circle")}
                 </button>
                 <button
                   className={seg(project.webcam?.shape === "rounded")}
                   disabled={!project.webcam?.show}
                   onClick={() => setWebcam({ shape: "rounded" })}
                 >
-                  Rounded
+                  {t("webcam.rounded")}
                 </button>
               </div>
 
               {/* Corner: 2×2 grid mirroring on-screen placement. */}
-              <div className="mb-1 text-[12px] text-muted">Position</div>
+              <div className="mb-1 text-[12px] text-muted">{t("webcam.position")}</div>
               <div className="mb-4 grid grid-cols-2 gap-2">
                 {(
                   [
-                    ["tl", "Top left"],
-                    ["tr", "Top right"],
-                    ["bl", "Bottom left"],
-                    ["br", "Bottom right"],
+                    ["tl", t("webcam.topLeft")],
+                    ["tr", t("webcam.topRight")],
+                    ["bl", t("webcam.bottomLeft")],
+                    ["br", t("webcam.bottomRight")],
                   ] as const
                 ).map(([corner, label]) => (
                   <button
@@ -4393,7 +4432,7 @@ export function EditorView({
 
               {/* Size: fraction of output width. */}
               <label className="mb-1 flex items-center justify-between text-[12px] text-muted">
-                <span>Size</span>
+                <span>{t("webcam.size")}</span>
                 <span className="tabular-nums text-fg">
                   {Math.round((project.webcam?.sizeFrac ?? 0.2) * 100)}%
                 </span>
@@ -4405,7 +4444,7 @@ export function EditorView({
                 step={0.01}
                 value={project.webcam?.sizeFrac ?? 0.2}
                 disabled={!project.webcam?.show}
-                aria-label="Webcam size"
+                aria-label={t("webcam.sizeAriaLabel")}
                 onChange={(e) => setWebcam({ sizeFrac: Number(e.target.value) })}
                 className="mb-2 w-full accent-accent disabled:opacity-50"
               />
@@ -4419,9 +4458,9 @@ export function EditorView({
                   className="accent-accent disabled:opacity-50"
                 />
                 <span className="flex flex-col">
-                  <span>Auto-shrink on zoom</span>
+                  <span>{t("webcam.autoShrink")}</span>
                   <span className="text-[11px] leading-snug text-muted">
-                    Shrinks the bubble while a zoom block is active.
+                    {t("webcam.autoShrinkHint")}
                   </span>
                 </span>
               </label>
@@ -4434,7 +4473,7 @@ export function EditorView({
                   onChange={(e) => setWebcam({ mirror: e.target.checked })}
                   className="accent-accent disabled:opacity-50"
                 />
-                Mirror
+                {t("webcam.mirror")}
               </label>
 
               {/* Camera scenes: "Add camera scene" (3s at the playhead) and an
@@ -4446,7 +4485,7 @@ export function EditorView({
                   disabled={duration <= 0}
                   className="flex flex-1 items-center justify-center gap-1.5 rounded-md border border-line px-3 py-1.5 text-[12px] font-medium hover:bg-surface disabled:opacity-50"
                 >
-                  <Plus size={14} /> Add camera scene
+                  <Plus size={14} /> {t("webcam.addScene")}
                 </button>
               </div>
 
@@ -4460,16 +4499,16 @@ export function EditorView({
                       onClick={() => deleteScene(selectedScene.id)}
                       className="flex items-center gap-1 rounded-md border border-line px-2 py-0.5 text-[11px] font-medium text-fg hover:bg-surface"
                     >
-                      <Trash2 size={12} /> Delete
+                      <Trash2 size={12} /> {t("common.delete")}
                     </button>
                   </div>
                   <p className="text-[11px] leading-snug text-muted/80">
-                    Drag the chip to move it, its edges to resize.
+                    {t("webcam.dragHint")}
                   </p>
                 </div>
               ) : (
                 <p className="mb-2 text-[11px] leading-snug text-muted/80">
-                  Select a camera scene on the timeline to edit it.
+                  {t("webcam.selectSceneHint")}
                 </p>
               )}
             </>
@@ -4481,7 +4520,7 @@ export function EditorView({
               inspector pattern. Gated on nothing special (masks apply to any
               recording). */}
           <h3 className="mb-4 mt-6 border-t border-line pt-4 text-[13px] font-semibold">
-            Masks
+            {t("masks.title")}
           </h3>
           <div className="mb-3 flex gap-2">
             <button
@@ -4489,7 +4528,7 @@ export function EditorView({
               disabled={duration <= 0}
               className="flex flex-1 items-center justify-center gap-1.5 rounded-md border border-line px-3 py-1.5 text-[12px] font-medium hover:bg-surface disabled:opacity-50"
             >
-              <Plus size={14} /> Add mask
+              <Plus size={14} /> {t("masks.addMask")}
             </button>
           </div>
 
@@ -4503,23 +4542,23 @@ export function EditorView({
                   onClick={() => deleteMask(selectedMask.id)}
                   className="flex items-center gap-1 rounded-md border border-line px-2 py-0.5 text-[11px] font-medium text-fg hover:bg-surface"
                 >
-                  <Trash2 size={12} /> Delete
+                  <Trash2 size={12} /> {t("common.delete")}
                 </button>
               </div>
 
-              <div className="mb-1 text-[12px] text-muted">Kind</div>
+              <div className="mb-1 text-[12px] text-muted">{t("masks.kind")}</div>
               <div className="mb-2 flex gap-2">
                 <button
                   className={seg(selectedMask.kind === "pixelate")}
                   onClick={() => setMaskKind(selectedMask.id, "pixelate")}
                 >
-                  Pixelate
+                  {t("timeline.pixelate")}
                 </button>
                 <button
                   className={seg(selectedMask.kind === "highlight")}
                   onClick={() => setMaskKind(selectedMask.id, "highlight")}
                 >
-                  Highlight
+                  {t("timeline.highlight")}
                 </button>
               </div>
 
@@ -4529,10 +4568,10 @@ export function EditorView({
               <div className="mb-2 grid grid-cols-4 gap-2">
                 {(
                   [
-                    ["x", "X (%)", selectedMask.rect.x],
-                    ["y", "Y (%)", selectedMask.rect.y],
-                    ["w", "W (%)", selectedMask.rect.w],
-                    ["h", "H (%)", selectedMask.rect.h],
+                    ["x", t("masks.fieldX"), selectedMask.rect.x],
+                    ["y", t("masks.fieldY"), selectedMask.rect.y],
+                    ["w", t("masks.fieldW"), selectedMask.rect.w],
+                    ["h", t("masks.fieldH"), selectedMask.rect.h],
                   ] as const
                 ).map(([field, label, value]) => (
                   <label
@@ -4546,7 +4585,15 @@ export function EditorView({
                       max={100}
                       step={1}
                       value={Math.round(value * 100)}
-                      aria-label={`Mask ${field === "w" ? "width" : field === "h" ? "height" : field.toUpperCase()} percent`}
+                      aria-label={
+                        field === "w"
+                          ? t("masks.fieldWAriaLabel")
+                          : field === "h"
+                            ? t("masks.fieldHAriaLabel")
+                            : field === "x"
+                              ? t("masks.fieldXAriaLabel")
+                              : t("masks.fieldYAriaLabel")
+                      }
                       onChange={(e) => {
                         const pct = Number(e.target.value);
                         if (!Number.isFinite(pct)) return;
@@ -4559,13 +4606,12 @@ export function EditorView({
               </div>
 
               <p className="text-[11px] leading-snug text-muted/80">
-                Drag the chip to move it, its edges to resize. On the preview,
-                drag the box to move it, a corner to resize.
+                {t("masks.dragHint")}
               </p>
             </div>
           ) : (
             <p className="mb-2 text-[11px] leading-snug text-muted/80">
-              Select a mask on the timeline to edit it.
+              {t("masks.selectHint")}
             </p>
           )}
         </div>

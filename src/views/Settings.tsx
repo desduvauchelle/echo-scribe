@@ -21,7 +21,9 @@ import {
   Check,
   type LucideIcon,
 } from "lucide-react";
+import { Trans, useTranslation } from "react-i18next";
 import { mcpInstallSnippets } from "../lib/mcpInstall";
+import AppLanguagePicker from "../components/AppLanguagePicker";
 import HotkeyRebinder from "../components/HotkeyRebinder";
 import SpeechModelPicker from "../components/SpeechModelPicker";
 import LlmModelPicker from "../components/LlmModelPicker";
@@ -127,64 +129,40 @@ type PageId =
   | "diagnostics"
   | "uninstall";
 
-type NavItem = { id: PageId; label: string; icon: LucideIcon };
-type NavGroup = { label: string; items: NavItem[] };
+type NavItem = { id: PageId; icon: LucideIcon };
+type NavGroup = { key: "capture" | "automation" | "system"; items: NavItem[] };
 
 const NAV_GROUPS: NavGroup[] = [
   {
-    label: "Capture",
+    key: "capture",
     items: [
-      { id: "dictation", label: "Dictation", icon: Mic },
-      { id: "logcapture", label: "Log Capture", icon: NotebookPen },
-      { id: "meetings", label: "Meetings", icon: Phone },
-      { id: "daily-recap", label: "Daily Recap", icon: CalendarDays },
+      { id: "dictation", icon: Mic },
+      { id: "logcapture", icon: NotebookPen },
+      { id: "meetings", icon: Phone },
+      { id: "daily-recap", icon: CalendarDays },
     ],
   },
   {
-    label: "Automation",
+    key: "automation",
     items: [
-      { id: "actions", label: "Actions", icon: Zap },
-      { id: "templates", label: "Templates", icon: WandSparkles },
+      { id: "actions", icon: Zap },
+      { id: "templates", icon: WandSparkles },
     ],
   },
   {
-    label: "System",
+    key: "system",
     items: [
-      { id: "language-model", label: "Language Model", icon: Sparkles },
-      { id: "general", label: "General", icon: SettingsIcon },
-      { id: "drive", label: "Google Drive", icon: Cloud },
-      { id: "projects", label: "Projects", icon: FolderKanban },
-      { id: "coding-agents", label: "Coding Agents", icon: Bot },
-      { id: "permissions", label: "Permissions", icon: ShieldCheck },
-      { id: "diagnostics", label: "Diagnostics", icon: Wrench },
-      { id: "uninstall", label: "Uninstall", icon: Trash2 },
+      { id: "language-model", icon: Sparkles },
+      { id: "general", icon: SettingsIcon },
+      { id: "drive", icon: Cloud },
+      { id: "projects", icon: FolderKanban },
+      { id: "coding-agents", icon: Bot },
+      { id: "permissions", icon: ShieldCheck },
+      { id: "diagnostics", icon: Wrench },
+      { id: "uninstall", icon: Trash2 },
     ],
   },
 ];
-
-const PAGE_DESC: Record<PageId, string> = {
-  dictation:
-    "Speech-to-text at your cursor — model, microphone, audio behavior, hotkey, and cleanup.",
-  logcapture:
-    "Capture a thought, idea, or task by voice, then file and export it.",
-  meetings: "Detect calls and summarize transcripts from supported meeting apps.",
-  "daily-recap":
-    "Choose when Echo Scribe summarizes yesterday's meetings, notes, and dictations.",
-  actions:
-    "Run app launches, links, emails, and counters straight from your voice.",
-  templates:
-    "Rewrite dictation into emails, lists, or any style before it's pasted.",
-  "language-model":
-    "The local Gemma model that powers classification, summaries, and actions.",
-  general: "Launch at login and keep Echo Scribe up to date.",
-  drive: "Upload screen recordings to Google Drive and share them with a link.",
-  projects: "Create, rename, archive, or delete your projects.",
-  "coding-agents":
-    "Connect Claude Code, Codex, or any MCP client to search your captures — and, if you opt in, record your screen.",
-  permissions: "Microphone, accessibility, and screen-recording access.",
-  diagnostics: "Inspect logs and reset the app if something breaks.",
-  uninstall: "Remove the app while choosing whether to keep your local data.",
-};
 
 const SUPPORTED_MEETING_PLATFORMS = [
   "Zoom",
@@ -219,6 +197,7 @@ type Props = {
 };
 
 export default function Settings({ onBack }: Props) {
+  const { t } = useTranslation("settings");
   const [page, setPage] = useState<PageId>("dictation");
   const gates = uiGates(useCapabilities());
 
@@ -266,16 +245,16 @@ export default function Settings({ onBack }: Props) {
             className="native-toolbar-button inline-flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted transition-colors hover:text-fg"
           >
             <ArrowLeft size={12} strokeWidth={2} aria-hidden="true" />
-            Back
+            {t("header.back")}
           </button>
         </div>
         <div className="flex min-w-0 flex-1 items-center px-4">
           <div className="min-w-0">
             <h1 className="truncate text-[12px] font-semibold leading-tight">
-              Settings
+              {t("header.title")}
             </h1>
             <div className="truncate text-[9px] leading-tight text-faint">
-              {activeItem?.label ?? "Preferences"}
+              {activeItem ? t(`nav.items.${activeItem.id}`) : t("header.preferences")}
             </div>
           </div>
           <div className="h-full min-w-12 flex-1" data-tauri-drag-region />
@@ -284,16 +263,16 @@ export default function Settings({ onBack }: Props) {
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <nav
-          aria-label="Settings"
+          aria-label={t("nav.ariaLabel")}
           className="echo-settings-nav echo-sidebar h-full w-[232px] shrink-0 overflow-y-auto overscroll-contain border-r border-line bg-surface p-3"
         >
           <div className="flex flex-col gap-4">
             {visibleGroups.map((group) => (
-              <div key={group.label} className="flex flex-col gap-0.5">
+              <div key={group.key} className="flex flex-col gap-0.5">
                 <div className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-faint">
-                  {group.label}
+                  {t(`nav.groups.${group.key}`)}
                 </div>
-                {group.items.map(({ id, label, icon: Icon }) => {
+                {group.items.map(({ id, icon: Icon }) => {
                   const active = page === id;
                   return (
                     <button
@@ -313,7 +292,7 @@ export default function Settings({ onBack }: Props) {
                         strokeWidth={2}
                         className={active ? "text-accent" : "text-faint"}
                       />
-                      <span className="truncate">{label}</span>
+                      <span className="truncate">{t(`nav.items.${id}`)}</span>
                     </button>
                   );
                 })}
@@ -328,10 +307,10 @@ export default function Settings({ onBack }: Props) {
               <>
                 <header className="mb-6 border-b border-line pb-4">
                   <h1 className="text-[15px] font-semibold tracking-tight text-fg">
-                    {activeItem.label}
+                    {t(`nav.items.${activeItem.id}`)}
                   </h1>
                   <p className="mt-1 text-xs leading-relaxed text-muted">
-                    {PAGE_DESC[page]}
+                    {t(`pageDesc.${page}`)}
                   </p>
                 </header>
                 <ActivePage />
@@ -346,21 +325,22 @@ export default function Settings({ onBack }: Props) {
 
 function DictationPage() {
   const gates = uiGates(useCapabilities());
+  const { t } = useTranslation("settings");
 
   return (
     <div className="flex flex-col gap-8">
       <SpeechModelPicker />
 
       <Section
-        title="Microphone"
-        subtitle="Pick which input device Echo Scribe records from. Default uses whatever macOS has selected."
+        title={t("dictation.microphone.title")}
+        subtitle={t("dictation.microphone.subtitle")}
       >
         <MicrophonePicker />
       </Section>
 
       <Section
-        title="Audio feedback"
-        subtitle="Subtle blips when recording starts, stops, and a log capture is ready for review."
+        title={t("dictation.audioFeedback.title")}
+        subtitle={t("dictation.audioFeedback.subtitle")}
       >
         <AudioFeedbackToggle />
       </Section>
@@ -369,30 +349,30 @@ function DictationPage() {
        *  (audio/mute.rs), which is macOS-only — hide on other platforms. */}
       {gates.showSystemAudio && (
         <Section
-          title="Mute while recording"
-          subtitle="Pause music and system audio while the hotkey is held, then restore it when you release."
+          title={t("dictation.muteWhileRecording.title")}
+          subtitle={t("dictation.muteWhileRecording.subtitle")}
         >
           <MuteWhileRecordingToggle />
         </Section>
       )}
 
       <Section
-        title="Voice-at-cursor hotkey"
-        subtitle="Hold this key combination anywhere in macOS to dictate at the cursor."
+        title={t("dictation.hotkey.title")}
+        subtitle={t("dictation.hotkey.subtitle")}
       >
         <HotkeyRebinder />
       </Section>
 
       <Section
-        title="Transcription"
-        subtitle="Clean up speech-to-text output before it's pasted or saved."
+        title={t("dictation.transcription.title")}
+        subtitle={t("dictation.transcription.subtitle")}
       >
         <TranscriptionSettings />
       </Section>
 
       <Section
-        title="Keep speech model in memory"
-        subtitle="How long the speech-to-text model stays loaded after its last use. Longer = faster next transcription, but uses more RAM."
+        title={t("dictation.keepModelInMemory.title")}
+        subtitle={t("dictation.keepModelInMemory.subtitle")}
       >
         <AsrUnloadTimeoutSelect />
       </Section>
@@ -401,11 +381,12 @@ function DictationPage() {
 }
 
 function LogCapturePage() {
+  const { t } = useTranslation("settings");
   return (
     <div className="flex flex-col gap-8">
       <Section
-        title="Log capture hotkey"
-        subtitle="Hold this key combination to capture a thought, idea, or task — classified locally and saved to your log."
+        title={t("logCapture.hotkey.title")}
+        subtitle={t("logCapture.hotkey.subtitle")}
       >
         <HotkeyRebinder
           load={getLogCaptureBinding}
@@ -429,11 +410,12 @@ function DailyRecapPage() {
 }
 
 function LanguageModelPage() {
+  const { t } = useTranslation("settings");
   return (
     <div className="flex flex-col gap-8">
       <Section
-        title="Language model"
-        subtitle="Local Gemma model used for log-capture classification, meeting summaries, voice actions, and formatting."
+        title={t("languageModel.model.title")}
+        subtitle={t("languageModel.model.subtitle")}
       >
         <LlmModelPicker />
         <div className="mt-4">
@@ -442,8 +424,8 @@ function LanguageModelPage() {
       </Section>
 
       <Section
-        title="Keep model in memory"
-        subtitle="How long the AI model stays loaded after its last use. Longer = faster next use, but more RAM."
+        title={t("languageModel.keepInMemory.title")}
+        subtitle={t("languageModel.keepInMemory.subtitle")}
       >
         <LlmUnloadTimeoutSelect />
       </Section>
@@ -452,11 +434,12 @@ function LanguageModelPage() {
 }
 
 function ActionsPage() {
+  const { t } = useTranslation("settings");
   return (
     <div className="flex flex-col gap-8">
       <Section
-        title="Voice commands & app launcher"
-        subtitle="Detect command actions inside your voice dictations to launch applications, open links, compose emails, and manage counters."
+        title={t("actions.section.title")}
+        subtitle={t("actions.section.subtitle")}
       >
         <AppLauncherSettingsSection />
       </Section>
@@ -465,11 +448,12 @@ function ActionsPage() {
 }
 
 function TemplatesPage() {
+  const { t } = useTranslation("settings");
   return (
     <div className="flex flex-col gap-8">
       <Section
-        title="Voice format templates"
-        subtitle='Say "echo, format as email …" (or use the Action hotkey) to rewrite your dictation with a custom system prompt before it gets pasted.'
+        title={t("templates.section.title")}
+        subtitle={t("templates.section.subtitle")}
       >
         <FormatTemplatesSection />
       </Section>
@@ -478,6 +462,7 @@ function TemplatesPage() {
 }
 
 function ExportSettings() {
+  const { t } = useTranslation("settings");
   const [threshold, setThresholdLocal] = useState(0.75);
 
   useEffect(() => {
@@ -506,18 +491,23 @@ function ExportSettings() {
 
   return (
     <Section
-      title="Markdown export"
-      subtitle="When a project has an export folder configured, items routed to it are auto-saved as markdown files for use with external AI tools. Configure the folder per project in Settings → Projects."
+      title={t("logCapture.export.title")}
+      subtitle={t("logCapture.export.subtitle")}
     >
       <div className="flex flex-col gap-3">
         <p className="text-xs text-muted">
-          Items export when the classifier's confidence reaches{" "}
-          <span className="font-mono">{Math.round(threshold * 100)}%</span> or
-          higher. Meetings always export when a project has a folder set.
+          <Trans
+            i18nKey="logCapture.export.confidenceNote"
+            t={t}
+            values={{ percent: Math.round(threshold * 100) }}
+            components={{ mono: <span className="font-mono" /> }}
+          />
         </p>
         <label className="flex flex-col gap-1 text-sm">
           <span className="text-muted">
-            Confidence threshold: {Math.round(threshold * 100)}%
+            {t("logCapture.export.confidenceThresholdLabel", {
+              percent: Math.round(threshold * 100),
+            })}
           </span>
           <input
             type="range"
@@ -539,6 +529,7 @@ function ExportSettings() {
 }
 
 function ProjectAutoTaggingSettings() {
+  const { t } = useTranslation("settings");
   const toasts = useToasts();
   const [enabled, setEnabled] = useState(true);
   const [status, setStatus] = useState<ProjectTaggerStatus | null>(null);
@@ -562,19 +553,33 @@ function ProjectAutoTaggingSettings() {
     try {
       if (kind === "backfill") {
         const n = await projectTaggerBackfill({ source: "voice_at_cursor", limit: 500 });
-        toasts.push({ tone: "success", message: `Queued ${n} transcription${n === 1 ? "" : "s"} for tagging.` });
+        toasts.push({ tone: "success", message: t("logCapture.autoTagging.toasts.queued", { count: n }) });
       } else if (kind === "router") {
         const s = await runProjectTaggerDeterministicOnce();
-        toasts.push({ tone: "success", message: `Router assigned ${s.assigned} of ${s.scanned} queued item${s.scanned === 1 ? "" : "s"}.` });
+        toasts.push({
+          tone: "success",
+          message: t("logCapture.autoTagging.toasts.routerAssigned", {
+            assigned: s.assigned,
+            count: s.scanned,
+          }),
+        });
       } else {
         const s = await runProjectTaggerLlmOnce();
-        toasts.push({ tone: "success", message: `Local AI assigned ${s.assigned} of ${s.scanned} queued item${s.scanned === 1 ? "" : "s"}.` });
+        toasts.push({
+          tone: "success",
+          message: t("logCapture.autoTagging.toasts.llmAssigned", {
+            assigned: s.assigned,
+            count: s.scanned,
+          }),
+        });
       }
       await refresh();
     } catch (e) {
       toasts.push({
         tone: "error",
-        message: `Project tagging failed: ${e instanceof Error ? e.message : String(e)}`,
+        message: t("logCapture.autoTagging.toasts.failed", {
+          error: e instanceof Error ? e.message : String(e),
+        }),
       });
     } finally {
       setBusy(null);
@@ -583,8 +588,8 @@ function ProjectAutoTaggingSettings() {
 
   return (
     <Section
-      title="Project auto-tagging"
-      subtitle="Organize direct dictations later in batches so the local AI model does not load after every paste."
+      title={t("logCapture.autoTagging.title")}
+      subtitle={t("logCapture.autoTagging.subtitle")}
     >
       <div className="flex flex-col gap-3">
         <label className="flex items-center gap-2 text-sm">
@@ -602,14 +607,14 @@ function ProjectAutoTaggingSettings() {
               }
             }}
           />
-          Enable deferred project tagging
+          {t("logCapture.autoTagging.enableLabel")}
         </label>
         {status && (
           <div className="grid grid-cols-2 gap-2 text-xs text-muted sm:grid-cols-4">
-            <span>Pending: <span className="font-mono text-fg">{status.pending}</span></span>
-            <span>Deferred: <span className="font-mono text-fg">{status.deferred}</span></span>
-            <span>Done: <span className="font-mono text-fg">{status.done}</span></span>
-            <span>Failed: <span className="font-mono text-fg">{status.failed}</span></span>
+            <span>{t("logCapture.autoTagging.status.pending")} <span className="font-mono text-fg">{status.pending}</span></span>
+            <span>{t("logCapture.autoTagging.status.deferred")} <span className="font-mono text-fg">{status.deferred}</span></span>
+            <span>{t("logCapture.autoTagging.status.done")} <span className="font-mono text-fg">{status.done}</span></span>
+            <span>{t("logCapture.autoTagging.status.failed")} <span className="font-mono text-fg">{status.failed}</span></span>
           </div>
         )}
         <div className="flex flex-wrap gap-2">
@@ -619,7 +624,7 @@ function ProjectAutoTaggingSettings() {
             onClick={() => void run("backfill")}
             className="rounded-md border border-line px-3 py-1 text-xs hover:bg-elevated disabled:opacity-50"
           >
-            {busy === "backfill" ? "Queueing..." : "Queue unassigned dictations"}
+            {busy === "backfill" ? t("logCapture.autoTagging.buttons.queueing") : t("logCapture.autoTagging.buttons.queueUnassigned")}
           </button>
           <button
             type="button"
@@ -627,7 +632,7 @@ function ProjectAutoTaggingSettings() {
             onClick={() => void run("router")}
             className="rounded-md border border-line px-3 py-1 text-xs hover:bg-elevated disabled:opacity-50"
           >
-            {busy === "router" ? "Running..." : "Run keyword router"}
+            {busy === "router" ? t("logCapture.autoTagging.buttons.running") : t("logCapture.autoTagging.buttons.runRouter")}
           </button>
           <button
             type="button"
@@ -635,7 +640,7 @@ function ProjectAutoTaggingSettings() {
             onClick={() => void run("llm")}
             className="rounded-md border border-line px-3 py-1 text-xs hover:bg-elevated disabled:opacity-50"
           >
-            {busy === "llm" ? "Running..." : "Run local AI batch"}
+            {busy === "llm" ? t("logCapture.autoTagging.buttons.running") : t("logCapture.autoTagging.buttons.runLlmBatch")}
           </button>
         </div>
       </div>
@@ -644,6 +649,7 @@ function ProjectAutoTaggingSettings() {
 }
 
 function AutoFileSettings() {
+  const { t } = useTranslation("settings");
   const [autoFileEnabled, setAutoFileEnabledLocal] = useState(true);
   const [autoFileThreshold, setAutoFileThresholdLocal] = useState(0.75);
 
@@ -679,15 +685,17 @@ function AutoFileSettings() {
 
   return (
     <Section
-      title="Auto-file confident captures"
-      subtitle="File high-confidence captures silently. New-project proposals always show the review overlay."
+      title={t("logCapture.autoFile.title")}
+      subtitle={t("logCapture.autoFile.subtitle")}
     >
       <div className="flex flex-col gap-3">
         <p className="text-xs text-muted">
-          When the local AI is at least <span className="font-mono">
-          {Math.round(autoFileThreshold * 100)}%</span> sure about the project and
-          kind, file the capture silently with a toast (or system notification when
-          the window is closed).
+          <Trans
+            i18nKey="logCapture.autoFile.confidenceNote"
+            t={t}
+            values={{ percent: Math.round(autoFileThreshold * 100) }}
+            components={{ mono: <span className="font-mono" /> }}
+          />
         </p>
         <label className="flex items-center gap-2 text-sm">
           <input
@@ -703,11 +711,13 @@ function AutoFileSettings() {
               }
             }}
           />
-          Enable auto-file
+          {t("logCapture.autoFile.enableLabel")}
         </label>
         <label className="flex flex-col gap-1 text-sm">
           <span className="text-muted">
-            Threshold: {Math.round(autoFileThreshold * 100)}%
+            {t("logCapture.autoFile.thresholdLabel", {
+              percent: Math.round(autoFileThreshold * 100),
+            })}
           </span>
           <input
             type="range"
@@ -730,6 +740,7 @@ function AutoFileSettings() {
 }
 
 function MicrophonePicker() {
+  const { t } = useTranslation("settings");
   const [devices, setDevices] = useState<InputDevice[]>([]);
   const [preferred, setPreferred] = useState<string | null>(null);
   const [recent, setRecent] = useState<string[]>([]);
@@ -751,7 +762,7 @@ function MicrophonePicker() {
       setSort(s);
       setError(null);
     } catch (e) {
-      setError(`Couldn't load microphones: ${String(e)}`);
+      setError(t("dictation.microphonePicker.loadError", { error: String(e) }));
     } finally {
       setLoading(false);
     }
@@ -771,7 +782,7 @@ function MicrophonePicker() {
     preferred !== null && !devices.some((d) => d.name === preferred);
 
   if (loading) {
-    return <p className="text-xs text-muted">Loading microphones…</p>;
+    return <p className="text-xs text-muted">{t("dictation.microphonePicker.loading")}</p>;
   }
   if (error) {
     return (
@@ -782,7 +793,7 @@ function MicrophonePicker() {
           onClick={reload}
           className="self-start rounded border border-line px-2 py-1 text-xs"
         >
-          Retry
+          {t("common.retry")}
         </button>
       </div>
     );
@@ -792,13 +803,17 @@ function MicrophonePicker() {
     <div className="flex flex-col gap-3">
       {preferredMissing && (
         <p className="rounded border border-warning/40 bg-warning/10 px-2 py-1.5 text-xs text-warning">
-          Saved mic <span className="font-mono">{preferred}</span> isn't
-          connected. Pick another below or revert to the system default.
+          <Trans
+            i18nKey="dictation.microphonePicker.savedMicMissing"
+            t={t}
+            values={{ name: preferred }}
+            components={{ mono: <span className="font-mono" /> }}
+          />
         </p>
       )}
 
       <label className="flex flex-col gap-1 text-sm">
-        <span className="text-muted">Input device</span>
+        <span className="text-muted">{t("dictation.microphonePicker.inputDeviceLabel")}</span>
         <select
           className="rounded border border-line bg-canvas px-2 py-1 text-sm"
           value={preferred ?? ""}
@@ -820,7 +835,7 @@ function MicrophonePicker() {
           }}
         >
           <option value="">
-            System default
+            {t("dictation.microphonePicker.systemDefaultOption")}
             {systemDefault ? ` — ${systemDefault.name}` : ""}
           </option>
           {ordered.map((d) => (
@@ -834,7 +849,7 @@ function MicrophonePicker() {
       </label>
 
       <label className="flex items-center gap-2 text-sm">
-        <span className="text-muted">Sort by</span>
+        <span className="text-muted">{t("dictation.microphonePicker.sortByLabel")}</span>
         <select
           className="rounded border border-line bg-canvas px-2 py-1 text-sm"
           value={sort}
@@ -849,14 +864,13 @@ function MicrophonePicker() {
             }
           }}
         >
-          <option value="last_used">Last used</option>
-          <option value="alphabetical">Alphabetical</option>
+          <option value="last_used">{t("dictation.microphonePicker.sortLastUsed")}</option>
+          <option value="alphabetical">{t("dictation.microphonePicker.sortAlphabetical")}</option>
         </select>
       </label>
 
       <p className="text-[11px] text-muted">
-        When a saved mic is unplugged, Echo Scribe will refuse to record and
-        notify you — it won't silently fall back to another device.
+        {t("dictation.microphonePicker.footerNote")}
       </p>
     </div>
   );
@@ -946,6 +960,7 @@ function SummaryPromptModal({
   currentPrompt,
   onSave,
 }: SummaryPromptModalProps) {
+  const { t } = useTranslation("settings");
   const [prompt, setPrompt] = useState(currentPrompt);
   const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -954,7 +969,7 @@ function SummaryPromptModal({
     if (isOpen) {
       setPrompt(currentPrompt);
       const matched = SUMMARY_TEMPLATES.find(
-        (t) => t.prompt.trim() === currentPrompt.trim()
+        (tpl) => tpl.prompt.trim() === currentPrompt.trim()
       );
       setSelectedTemplate(matched ? matched.id : null);
     }
@@ -1006,16 +1021,16 @@ function SummaryPromptModal({
               className="text-base font-semibold tracking-tight flex items-center gap-1.5"
             >
               <Sparkles size={14} className="text-accent animate-pulse" />
-              Meeting Summary Guidelines
+              {t("meetings.promptModal.title")}
             </h2>
             <p className="mt-1 text-xs text-muted">
-              Customize the instructions the local AI uses to summarize and extract action items from transcripts.
+              {t("meetings.promptModal.subtitle")}
             </p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            aria-label="Close"
+            aria-label={t("common.close")}
             className="rounded-md p-1.5 text-muted hover:bg-elevated hover:text-fg transition-colors"
           >
             <X size={14} />
@@ -1026,25 +1041,25 @@ function SummaryPromptModal({
         <div className="mt-4 flex-1 overflow-y-auto pr-1 flex flex-col gap-4">
           {/* Templates Section */}
           <div className="flex flex-col gap-2">
-            <span className="text-xs font-semibold text-fg">Load from pre-defined templates</span>
+            <span className="text-xs font-semibold text-fg">{t("meetings.promptModal.loadTemplatesLabel")}</span>
             <div className="grid grid-cols-2 gap-2">
-              {SUMMARY_TEMPLATES.map((t) => (
+              {SUMMARY_TEMPLATES.map((tpl) => (
                 <button
-                  key={t.id}
+                  key={tpl.id}
                   type="button"
                   onClick={() => {
-                    setPrompt(t.prompt);
-                    setSelectedTemplate(t.id);
+                    setPrompt(tpl.prompt);
+                    setSelectedTemplate(tpl.id);
                   }}
                   className={[
                     "flex flex-col items-start gap-1 p-3 rounded-lg border text-left transition-all",
-                    selectedTemplate === t.id
+                    selectedTemplate === tpl.id
                       ? "border-accent bg-accent-soft/30 text-fg ring-1 ring-accent"
                       : "border-line bg-canvas hover:bg-elevated text-muted hover:text-fg",
                   ].join(" ")}
                 >
-                  <span className="text-xs font-bold">{t.name}</span>
-                  <span className="text-[10px] text-muted leading-tight">{t.description}</span>
+                  <span className="text-xs font-bold">{t(`meetings.summaryTemplates.${tpl.id}.name`)}</span>
+                  <span className="text-[10px] text-muted leading-tight">{t(`meetings.summaryTemplates.${tpl.id}.description`)}</span>
                 </button>
               ))}
             </div>
@@ -1053,10 +1068,10 @@ function SummaryPromptModal({
           {/* Textarea Section */}
           <div className="flex flex-col gap-1.5">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-fg">Custom guidelines</span>
+              <span className="text-xs font-semibold text-fg">{t("meetings.promptModal.customGuidelinesLabel")}</span>
               {selectedTemplate && (
                 <span className="text-[10px] text-accent font-medium">
-                  Template loaded
+                  {t("meetings.promptModal.templateLoaded")}
                 </span>
               )}
             </div>
@@ -1067,7 +1082,7 @@ function SummaryPromptModal({
                 setPrompt(e.target.value);
                 setSelectedTemplate(null);
               }}
-              placeholder="Describe how the AI should summarize the meeting transcript..."
+              placeholder={t("meetings.promptModal.textareaPlaceholder")}
               className="w-full rounded-lg border border-line bg-canvas p-3 text-xs leading-relaxed font-mono focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent transition-all resize-none"
             />
           </div>
@@ -1076,10 +1091,14 @@ function SummaryPromptModal({
           <div className="rounded-lg border border-line bg-canvas p-3 flex flex-col gap-1.5 text-xs text-muted">
             <div className="flex items-center gap-1.5 font-semibold text-fg">
               <Info size={12} className="text-accent" />
-              Dynamic Placeholders
+              {t("meetings.promptModal.placeholdersTitle")}
             </div>
             <p className="text-[11px] leading-relaxed">
-              You can insert <code className="font-mono text-accent bg-accent-soft px-1 rounded">{"{duration_minutes}"}</code> and <code className="font-mono text-accent bg-accent-soft px-1 rounded">{"{app}"}</code> in your guidelines. They will be replaced at runtime with the meeting's duration and app name (e.g., Zoom, Teams).
+              <Trans
+                i18nKey="meetings.promptModal.placeholdersBody"
+                t={t}
+                components={{ code: <code className="font-mono text-accent bg-accent-soft px-1 rounded" /> }}
+              />
             </p>
           </div>
 
@@ -1087,10 +1106,10 @@ function SummaryPromptModal({
           <div className="rounded-lg border border-success/20 bg-success/5 p-3 flex flex-col gap-1.5 text-xs text-success">
             <div className="flex items-center gap-1.5 font-semibold">
               <Check size={12} />
-              Format Safety Handled Automatically
+              {t("meetings.promptModal.formatSafetyTitle")}
             </div>
             <p className="text-[11px] leading-relaxed text-muted">
-              Do not worry about instructing the AI to output JSON or specific lists format. The backend automatically appends formatting schemas to ensure the meeting summary is properly parsed and displayed in the application layout.
+              {t("meetings.promptModal.formatSafetyBody")}
             </p>
           </div>
         </div>
@@ -1103,7 +1122,7 @@ function SummaryPromptModal({
             onClick={onClose}
             className="rounded-md border border-line px-3 py-1.5 text-xs font-semibold text-muted hover:bg-elevated hover:text-fg transition-colors disabled:opacity-50"
           >
-            Cancel
+            {t("common.cancel")}
           </button>
           <button
             type="button"
@@ -1111,7 +1130,7 @@ function SummaryPromptModal({
             onClick={handleSave}
             className="rounded-md bg-accent px-4 py-1.5 text-xs font-semibold text-canvas hover:bg-accent-hover transition-colors flex items-center gap-1 disabled:opacity-50"
           >
-            {busy ? "Saving..." : "Save Guidelines"}
+            {busy ? t("meetings.promptModal.saving") : t("meetings.promptModal.saveGuidelines")}
           </button>
         </div>
     </Dialog>
@@ -1119,6 +1138,7 @@ function SummaryPromptModal({
 }
 
 function MeetingsPage() {
+  const { t } = useTranslation("settings");
   const [settings, setSettings] = useState<{
     auto_detect: boolean;
     app_prefs: Record<string, "always" | "ask" | "never">;
@@ -1142,12 +1162,14 @@ function MeetingsPage() {
       setSettings((prev) => prev ? { ...prev, summary_prompt: nextPrompt } : null);
       toasts.push({
         tone: "success",
-        message: "Meeting summary guidelines updated successfully.",
+        message: t("meetings.toasts.guidelinesUpdated"),
       });
     } catch (e) {
       toasts.push({
         tone: "error",
-        message: `Failed to save guidelines: ${e instanceof Error ? e.message : String(e)}`,
+        message: t("meetings.toasts.guidelinesSaveFailed", {
+          error: e instanceof Error ? e.message : String(e),
+        }),
       });
     }
   };
@@ -1161,13 +1183,15 @@ function MeetingsPage() {
       toasts.push({
         tone: "success",
         message: folder
-          ? "Meeting export folder updated."
-          : "Automatic meeting export disabled.",
+          ? t("meetings.toasts.exportFolderUpdated")
+          : t("meetings.toasts.exportDisabled"),
       });
     } catch (e) {
       toasts.push({
         tone: "error",
-        message: `Failed to update meeting export folder: ${e instanceof Error ? e.message : String(e)}`,
+        message: t("meetings.toasts.exportFolderUpdateFailed", {
+          error: e instanceof Error ? e.message : String(e),
+        }),
       });
     } finally {
       setExportFolderBusy(false);
@@ -1182,7 +1206,9 @@ function MeetingsPage() {
     } catch (e) {
       toasts.push({
         tone: "error",
-        message: `Folder picker failed: ${e instanceof Error ? e.message : String(e)}`,
+        message: t("meetings.toasts.folderPickerFailed", {
+          error: e instanceof Error ? e.message : String(e),
+        }),
       });
     }
   };
@@ -1195,7 +1221,9 @@ function MeetingsPage() {
     } catch (e) {
       toasts.push({
         tone: "error",
-        message: `Couldn't open meeting notes folder: ${e instanceof Error ? e.message : String(e)}`,
+        message: t("meetings.toasts.openFolderFailed", {
+          error: e instanceof Error ? e.message : String(e),
+        }),
       });
     } finally {
       setExportFolderBusy(false);
@@ -1203,14 +1231,14 @@ function MeetingsPage() {
   };
 
   if (!settings) {
-    return <div className="text-sm text-muted">Loading…</div>;
+    return <div className="text-sm text-muted">{t("common.loading")}</div>;
   }
 
   return (
     <div className="flex flex-col gap-8">
       <Section
-        title="Auto-detect meetings"
-        subtitle="Echo Scribe watches supported meeting apps and browser calls, then offers to record."
+        title={t("meetings.autoDetect.title")}
+        subtitle={t("meetings.autoDetect.subtitle")}
       >
         <div className="flex flex-col gap-3">
           <label className="flex items-center gap-2 text-sm">
@@ -1224,11 +1252,11 @@ function MeetingsPage() {
                 setSettings({ ...settings, auto_detect: on });
               }}
             />
-            <span>Detect supported meeting apps automatically</span>
+            <span>{t("meetings.autoDetect.checkboxLabel")}</span>
           </label>
 
           <ul
-            aria-label="Supported meeting apps"
+            aria-label={t("meetings.autoDetect.platformsAriaLabel")}
             className="flex flex-wrap gap-1.5"
           >
             {SUPPORTED_MEETING_PLATFORMS.map((platform) => (
@@ -1245,8 +1273,8 @@ function MeetingsPage() {
 
       {Object.keys(settings.app_prefs).length > 0 && (
         <Section
-          title="Per-app preferences"
-          subtitle="Override the per-app prompt: always record, always ask, or never record."
+          title={t("meetings.perAppPrefs.title")}
+          subtitle={t("meetings.perAppPrefs.subtitle")}
         >
           <table className="w-full text-sm">
             <tbody>
@@ -1276,9 +1304,9 @@ function MeetingsPage() {
                           });
                         }}
                       >
-                        <option value="always">Always</option>
-                        <option value="ask">Ask</option>
-                        <option value="never">Never</option>
+                        <option value="always">{t("meetings.perAppPrefs.always")}</option>
+                        <option value="ask">{t("meetings.perAppPrefs.ask")}</option>
+                        <option value="never">{t("meetings.perAppPrefs.never")}</option>
                       </select>
                       <button
                         className="rounded-md bg-surface-2 px-2 py-1 text-xs text-muted hover:text-fg"
@@ -1291,9 +1319,9 @@ function MeetingsPage() {
                           delete next[bundle];
                           setSettings({ ...settings, app_prefs: next });
                         }}
-                        title="Remove this app's preference (revert to Ask on next detection)"
+                        title={t("meetings.perAppPrefs.clearTitle")}
                       >
-                        Clear
+                        {t("meetings.perAppPrefs.clearButton")}
                       </button>
                     </div>
                   </td>
@@ -1305,15 +1333,15 @@ function MeetingsPage() {
       )}
 
       <Section
-        title="Meeting summary guidelines"
-        subtitle="Configure custom prompt guidelines used by the local AI to summarize your meetings."
+        title={t("meetings.summaryGuidelines.title")}
+        subtitle={t("meetings.summaryGuidelines.subtitle")}
       >
         <div className="flex flex-col gap-3 rounded-lg border border-line bg-canvas p-4">
           <div className="flex items-start justify-between gap-4">
             <div className="flex flex-col gap-1 min-w-0 flex-1">
-              <span className="text-xs font-semibold text-muted">Active guidelines</span>
+              <span className="text-xs font-semibold text-muted">{t("meetings.summaryGuidelines.activeLabel")}</span>
               <p className="mt-1.5 text-xs text-muted/80 line-clamp-3 italic whitespace-pre-wrap leading-relaxed font-mono">
-                {settings.summary_prompt || "No custom guidelines set."}
+                {settings.summary_prompt || t("meetings.summaryGuidelines.noneSet")}
               </p>
             </div>
             <button
@@ -1322,15 +1350,15 @@ function MeetingsPage() {
               className="shrink-0 inline-flex items-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-xs font-semibold text-fg transition-all hover:bg-elevated hover:text-accent active:scale-[0.98]"
             >
               <Sparkles size={12} className="text-accent" />
-              Edit guidelines...
+              {t("meetings.summaryGuidelines.editButton")}
             </button>
           </div>
         </div>
       </Section>
 
       <Section
-        title="Meeting notes folder"
-        subtitle="Automatically save each completed meeting as a Markdown file that other tools can read."
+        title={t("meetings.notesFolder.title")}
+        subtitle={t("meetings.notesFolder.subtitle")}
       >
         <div className="flex flex-col gap-2 text-xs text-muted">
           <div className="flex items-center gap-2">
@@ -1348,7 +1376,7 @@ function MeetingsPage() {
                   onClick={() => void handleOpenExportFolder()}
                   className="rounded-md border border-line px-2 py-1.5 text-xs hover:bg-elevated disabled:opacity-50"
                 >
-                  Open
+                  {t("common.open")}
                 </button>
                 <button
                   type="button"
@@ -1356,7 +1384,7 @@ function MeetingsPage() {
                   onClick={() => void handlePickExportFolder()}
                   className="rounded-md border border-line px-2 py-1.5 text-xs hover:bg-elevated disabled:opacity-50"
                 >
-                  Change…
+                  {t("common.change")}
                 </button>
                 <button
                   type="button"
@@ -1364,7 +1392,7 @@ function MeetingsPage() {
                   onClick={() => void saveExportFolder(null)}
                   className="text-xs text-faint hover:text-danger disabled:opacity-50"
                 >
-                  Clear
+                  {t("common.clear")}
                 </button>
               </>
             ) : (
@@ -1374,21 +1402,19 @@ function MeetingsPage() {
                 onClick={() => void handlePickExportFolder()}
                 className="rounded-md border border-line px-3 py-1.5 text-xs hover:bg-elevated disabled:opacity-50"
               >
-                {exportFolderBusy ? "Saving…" : "Choose folder…"}
+                {exportFolderBusy ? t("common.savingEllipsis") : t("meetings.notesFolder.chooseFolder")}
               </button>
             )}
           </div>
           <p className="text-[10px] leading-relaxed text-faint">
-            Each file includes the summary, action items, your notes, and the
-            speaker-labelled transcript. Echo Scribe only writes the local file;
-            another app or AI agent needs its own access to this folder.
+            {t("meetings.notesFolder.note")}
           </p>
         </div>
       </Section>
 
       <Section
-        title="Guide templates"
-        subtitle="Reusable meeting guides and opt-in, evidence-backed recap metrics."
+        title={t("meetings.guideTemplates.title")}
+        subtitle={t("meetings.guideTemplates.subtitle")}
       >
         <GuideTemplateManager />
       </Section>
@@ -1405,12 +1431,17 @@ function MeetingsPage() {
 
 function GeneralPage() {
   const gates = uiGates(useCapabilities());
+  const { t } = useTranslation("settings");
 
   return (
     <div className="flex flex-col gap-8">
+      <Section title={t("language.title")} subtitle={t("language.subtitle")}>
+        <AppLanguagePicker />
+      </Section>
+
       <Section
-        title="Startup"
-        subtitle="Launch Echo Scribe automatically when you log in."
+        title={t("general.startup.title")}
+        subtitle={t("general.startup.subtitle")}
       >
         <StartAtLoginToggle />
       </Section>
@@ -1419,8 +1450,8 @@ function GeneralPage() {
        *  as the update banner and uninstall page. */}
       {gates.showSelfUpdate && (
         <Section
-          title="Updates"
-          subtitle="Echo Scribe checks for updates automatically each day. You can also check now."
+          title={t("general.updates.title")}
+          subtitle={t("general.updates.subtitle")}
         >
           <UpdateSettingsSection />
         </Section>
@@ -1430,6 +1461,7 @@ function GeneralPage() {
 }
 
 function UpdateSettingsSection() {
+  const { t } = useTranslation("settings");
   const { check, checking } = useUpdateCheck();
   const [version, setVersion] = useState<string | null>(null);
 
@@ -1448,7 +1480,9 @@ function UpdateSettingsSection() {
   return (
     <div className="flex items-center justify-between gap-4">
       <p className="text-[13px] text-muted">
-        {version ? `Current version ${version}` : "Current version"}
+        {version
+          ? t("general.updates.currentVersionWithNumber", { version })
+          : t("general.updates.currentVersion")}
       </p>
       <button
         type="button"
@@ -1456,18 +1490,19 @@ function UpdateSettingsSection() {
         disabled={checking}
         className="shrink-0 cursor-pointer rounded-md border border-line px-3 py-1.5 text-[13px] font-medium text-fg transition-colors hover:bg-elevated disabled:cursor-not-allowed disabled:opacity-60"
       >
-        {checking ? "Checking…" : "Check for Updates"}
+        {checking ? t("general.updates.checking") : t("general.updates.checkButton")}
       </button>
     </div>
   );
 }
 
 function DrivePage() {
+  const { t } = useTranslation("settings");
   return (
     <div className="flex flex-col gap-8">
       <Section
-        title="Google Drive"
-        subtitle="Upload screen recordings to Drive and get an anyone-with-the-link share URL. The app only sees files it creates (scope drive.file)."
+        title={t("drive.section.title")}
+        subtitle={t("drive.section.subtitle")}
       >
         <DriveSettings />
       </Section>
@@ -1476,11 +1511,12 @@ function DrivePage() {
 }
 
 function ProjectsPage() {
+  const { t } = useTranslation("settings");
   return (
     <div className="flex flex-col gap-8">
       <Section
-        title="Projects"
-        subtitle="Create, rename, archive, or delete projects."
+        title={t("projects.section.title")}
+        subtitle={t("projects.section.subtitle")}
       >
         <ProjectManager />
       </Section>
@@ -1489,11 +1525,12 @@ function ProjectsPage() {
 }
 
 function PermissionsPage() {
+  const { t } = useTranslation("settings");
   return (
     <div className="flex flex-col gap-8">
       <Section
-        title="Permissions"
-        subtitle="Re-grant microphone or accessibility access if something feels broken. Reset & quit clears macOS's TCC grants for both services so the next launch re-prompts cleanly."
+        title={t("permissions.section.title")}
+        subtitle={t("permissions.section.subtitle")}
       >
         <PermissionsSection />
       </Section>
@@ -1502,11 +1539,12 @@ function PermissionsPage() {
 }
 
 function DiagnosticsPage() {
+  const { t } = useTranslation("settings");
   return (
     <div className="flex flex-col gap-8">
       <Section
-        title="Diagnostics"
-        subtitle="Inspect the rolling crash log Echo Scribe writes to your home folder."
+        title={t("diagnostics.section.title")}
+        subtitle={t("diagnostics.section.subtitle")}
       >
         <DiagnosticsPane />
       </Section>
@@ -1522,6 +1560,7 @@ const DEFAULT_MCP_BINARY_PATH =
   "/Applications/Echo Scribe.app/Contents/MacOS/echo-scribe";
 
 function CodingAgentsPage() {
+  const { t } = useTranslation("settings");
   const [settings, setSettings] = useState<McpSettings | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
 
@@ -1564,13 +1603,12 @@ function CodingAgentsPage() {
   return (
     <div className="flex flex-col gap-8">
       <Section
-        title="Tool permissions"
-        subtitle="Echo Scribe has a built-in MCP server that agents like Claude Code or Codex can connect to. Tick what they're allowed to access — changes apply immediately, even for agents already connected. Everything stays on this Mac."
+        title={t("codingAgents.toolPermissions.title")}
+        subtitle={t("codingAgents.toolPermissions.subtitle")}
       >
         {loadFailed ? (
           <p className="text-[12px] text-muted">
-            Couldn't load permissions — see Settings → Diagnostics → logs for
-            details.
+            {t("codingAgents.toolPermissions.loadFailed")}
           </p>
         ) : (
           <div className="flex flex-col gap-2">
@@ -1586,44 +1624,40 @@ function CodingAgentsPage() {
       </Section>
 
       <Section
-        title="Connect your coding agent"
-        subtitle="The MCP server is the Echo Scribe app itself — nothing extra to download. Click Install and Echo Scribe registers itself with the agent's own CLI, or copy the snippet to do it by hand."
+        title={t("codingAgents.connect.title")}
+        subtitle={t("codingAgents.connect.subtitle")}
       >
         <div className="flex flex-col gap-3">
           <McpSnippet
-            title="Claude Code"
-            hint="Install runs: claude mcp add (user scope)."
+            title={t("codingAgents.snippets.claudeCode.title")}
+            hint={t("codingAgents.snippets.claudeCode.hint")}
             text={snippets.claudeCode}
             installAgent="claude-code"
           />
           <McpSnippet
-            title="Codex CLI"
-            hint="Install runs: codex mcp add (writes ~/.codex/config.toml)."
+            title={t("codingAgents.snippets.codex.title")}
+            hint={t("codingAgents.snippets.codex.hint")}
             text={snippets.codexToml}
             installAgent="codex"
           />
           <McpSnippet
-            title="Other MCP clients"
-            hint="Cursor, Windsurf, Gemini CLI — standard mcpServers JSON."
+            title={t("codingAgents.snippets.other.title")}
+            hint={t("codingAgents.snippets.other.hint")}
             text={snippets.genericJson}
           />
         </div>
       </Section>
 
       <Section
-        title="How to use it"
-        subtitle="There's no command to memorize — talk to your agent normally. It sees the Echo Scribe tools and calls them whenever your request needs them; mentioning “Echo Scribe” nudges it to look there. Try one of these:"
+        title={t("codingAgents.howToUse.title")}
+        subtitle={t("codingAgents.howToUse.subtitle")}
       >
         <div className="flex flex-col gap-2">
-          {MCP_EXAMPLE_PROMPTS.map((prompt) => (
-            <McpExamplePrompt key={prompt} text={prompt} />
+          {MCP_EXAMPLE_PROMPT_KEYS.map((key) => (
+            <McpExamplePrompt key={key} text={t(`codingAgents.examplePrompts.${key}`)} />
           ))}
           <p className="mt-1 text-xs leading-relaxed text-muted">
-            For recording prompts, Echo Scribe must be running and the Screen
-            recording permission ticked above. The agent lists your windows,
-            starts and stops the recording itself, gets the video file path
-            back, and can then watch or analyze the file — the recording also
-            lands in your library like any other.
+            {t("codingAgents.howToUse.recordingNote")}
           </p>
         </div>
       </Section>
@@ -1631,15 +1665,16 @@ function CodingAgentsPage() {
   );
 }
 
-const MCP_EXAMPLE_PROMPTS = [
-  "List my windows with echo-scribe and record the Chrome window with system audio. Stop when I tell you and summarize what happened in the video.",
-  "Record my screen with mic on while I reproduce this bug, then stop and analyze the video for what went wrong.",
-  "Search my Echo Scribe meetings for the pricing discussion and summarize the decisions.",
-  "What did I dictate last week about the onboarding flow?",
-];
+const MCP_EXAMPLE_PROMPT_KEYS = [
+  "listWindows",
+  "recordBug",
+  "searchMeetings",
+  "lastWeekDictation",
+] as const;
 
 /** One example prompt the user can paste into their coding agent. */
 function McpExamplePrompt({ text }: { text: string }) {
+  const { t } = useTranslation("settings");
   const [copied, setCopied] = useState(false);
   return (
     <div className="flex items-center justify-between gap-3 rounded-lg border border-line bg-canvas p-3">
@@ -1651,7 +1686,7 @@ function McpExamplePrompt({ text }: { text: string }) {
           setCopied(true);
           window.setTimeout(() => setCopied(false), 1200);
         }}
-        aria-label="Copy example prompt"
+        aria-label={t("codingAgents.examplePrompts.copyAriaLabel")}
         className={`grid h-7 w-7 shrink-0 place-items-center rounded-md border hover:bg-elevated ${
           copied ? "border-green-500/40 text-green-500" : "border-line text-fg"
         }`}
@@ -1671,6 +1706,7 @@ function McpPermissionRow({
   perm: McpPermissionState;
   onChange: (enabled: boolean) => void;
 }) {
+  const { t } = useTranslation("settings");
   const [busy, setBusy] = useState(false);
   const toasts = useToasts();
 
@@ -1682,7 +1718,10 @@ function McpPermissionRow({
     } catch (e) {
       toasts.push({
         tone: "error",
-        message: `Couldn't update the ${perm.label} permission: ${e instanceof Error ? e.message : String(e)}`,
+        message: t("codingAgents.toolPermissions.updateFailed", {
+          label: perm.label,
+          error: e instanceof Error ? e.message : String(e),
+        }),
       });
     } finally {
       setBusy(false);
@@ -1721,6 +1760,7 @@ function McpSnippet({
   text: string;
   installAgent?: McpInstallAgent;
 }) {
+  const { t } = useTranslation("settings");
   const [copied, setCopied] = useState(false);
   const [installing, setInstalling] = useState(false);
   const toasts = useToasts();
@@ -1755,7 +1795,7 @@ function McpSnippet({
               disabled={installing}
               className="rounded-md bg-accent px-3 py-1 text-[12px] font-medium text-canvas disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {installing ? "Installing…" : "Install"}
+              {installing ? t("codingAgents.snippets.installing") : t("codingAgents.snippets.installButton")}
             </button>
           )}
           <button
@@ -1765,13 +1805,13 @@ function McpSnippet({
               setCopied(true);
               window.setTimeout(() => setCopied(false), 1200);
             }}
-            aria-label={`Copy ${title} setup`}
+            aria-label={t("codingAgents.snippets.copyAriaLabel", { title })}
             className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[12px] font-medium transition-colors hover:bg-elevated ${
               copied ? "border-green-500/40 text-green-500" : "border-line text-fg"
             }`}
           >
             {copied ? <Check size={13} /> : <Copy size={13} />}
-            {copied ? "Copied" : "Copy"}
+            {copied ? t("common.copied") : t("common.copy")}
           </button>
         </div>
       </div>
@@ -1783,18 +1823,19 @@ function McpSnippet({
 }
 
 function UninstallPage() {
+  const { t } = useTranslation("settings");
   const [busy, setBusy] = useState<"app" | "all" | null>(null);
   const toasts = useToasts();
 
   const uninstall = async (deleteData: boolean) => {
     const confirmed = await ask(
       deleteData
-        ? "Uninstall Echo Scribe and remove all local data? This includes captured items, recordings, downloaded models, settings, logs, the local event archive, and the Google Drive connection. Files will be moved to the Trash, but the Drive credential and macOS permission grants will be removed."
-        : "Uninstall Echo Scribe but keep all local data? The app will quit and move to the Trash. Reinstalling later will restore your items, recordings, models, settings, and preferences.",
+        ? t("uninstall.confirmDeleteMessage")
+        : t("uninstall.confirmKeepMessage"),
       {
         title: deleteData
-          ? "Uninstall Echo Scribe and data"
-          : "Uninstall Echo Scribe",
+          ? t("uninstall.confirmDeleteTitle")
+          : t("uninstall.confirmTitle"),
         kind: "warning",
       },
     );
@@ -1806,7 +1847,9 @@ function UninstallPage() {
     } catch (e) {
       toasts.push({
         tone: "error",
-        message: `Uninstall failed: ${e instanceof Error ? e.message : String(e)}`,
+        message: t("uninstall.toastFailed", {
+          error: e instanceof Error ? e.message : String(e),
+        }),
       });
       setBusy(null);
     }
@@ -1818,12 +1861,10 @@ function UninstallPage() {
         <div className="flex items-start justify-between gap-5">
           <div>
             <h2 className="text-sm font-semibold text-fg">
-              Uninstall application
+              {t("uninstall.appOnly.title")}
             </h2>
             <p className="mt-1 text-xs leading-relaxed text-muted">
-              Removes only Echo Scribe. Your captured items, recordings,
-              downloaded models, settings, and preferences stay on this Mac
-              and are available after reinstalling.
+              {t("uninstall.appOnly.body")}
             </p>
           </div>
           <button
@@ -1832,7 +1873,7 @@ function UninstallPage() {
             disabled={busy !== null}
             className="shrink-0 rounded-md border border-line px-3 py-1.5 text-xs font-medium text-fg transition-colors hover:bg-elevated disabled:opacity-50"
           >
-            {busy === "app" ? "Uninstalling…" : "Uninstall app"}
+            {busy === "app" ? t("uninstall.uninstalling") : t("uninstall.appOnly.button")}
           </button>
         </div>
       </div>
@@ -1841,12 +1882,10 @@ function UninstallPage() {
         <div className="flex items-start justify-between gap-5">
           <div>
             <h2 className="text-sm font-semibold text-danger">
-              Uninstall application and data
+              {t("uninstall.appAndData.title")}
             </h2>
             <p className="mt-1 text-xs leading-relaxed text-muted">
-              Removes Echo Scribe and all of its local data, including items,
-              recordings, models, settings, logs, and the local event archive.
-              Use this only when you want the next install to start fresh.
+              {t("uninstall.appAndData.body")}
             </p>
           </div>
           <button
@@ -1855,13 +1894,13 @@ function UninstallPage() {
             disabled={busy !== null}
             className="shrink-0 rounded-md border border-danger/50 bg-danger/15 px-3 py-1.5 text-xs font-medium text-danger transition-colors hover:bg-danger/25 disabled:opacity-50"
           >
-            {busy === "all" ? "Uninstalling…" : "Uninstall app & data"}
+            {busy === "all" ? t("uninstall.uninstalling") : t("uninstall.appAndData.button")}
           </button>
         </div>
       </div>
 
       <p className="text-[11px] leading-relaxed text-faint">
-        The application and filesystem data are moved to the macOS Trash.
+        {t("uninstall.trashNote")}
       </p>
     </div>
   );
@@ -1888,6 +1927,7 @@ function Section({
 }
 
 function AudioFeedbackToggle() {
+  const { t } = useTranslation("settings");
   const [enabled, setEnabled] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
   const toasts = useToasts();
@@ -1915,7 +1955,9 @@ function AudioFeedbackToggle() {
     } catch (e) {
       toasts.push({
         tone: "error",
-        message: `Couldn't update audio feedback: ${e instanceof Error ? e.message : String(e)}`,
+        message: t("dictation.audioFeedback.toastFailed", {
+          error: e instanceof Error ? e.message : String(e),
+        }),
       });
     } finally {
       setBusy(false);
@@ -1926,10 +1968,10 @@ function AudioFeedbackToggle() {
     <label className="flex items-center justify-between rounded-lg border border-line bg-canvas p-3">
       <div>
         <div className="text-sm font-semibold text-fg">
-          Play recording sounds
+          {t("dictation.audioFeedback.label")}
         </div>
         <p className="text-xs text-muted">
-          Three short tones tied to start, stop, and classification ready.
+          {t("dictation.audioFeedback.description")}
         </p>
       </div>
       <input
@@ -1944,6 +1986,7 @@ function AudioFeedbackToggle() {
 }
 
 function MuteWhileRecordingToggle() {
+  const { t } = useTranslation("settings");
   const [enabled, setEnabled] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
   const toasts = useToasts();
@@ -1971,7 +2014,9 @@ function MuteWhileRecordingToggle() {
     } catch (e) {
       toasts.push({
         tone: "error",
-        message: `Couldn't update mute setting: ${e instanceof Error ? e.message : String(e)}`,
+        message: t("dictation.muteWhileRecording.toastFailed", {
+          error: e instanceof Error ? e.message : String(e),
+        }),
       });
     } finally {
       setBusy(false);
@@ -1982,10 +2027,10 @@ function MuteWhileRecordingToggle() {
     <label className="flex items-center justify-between rounded-lg border border-line bg-canvas p-3">
       <div>
         <div className="text-sm font-semibold text-fg">
-          Mute system audio while recording
+          {t("dictation.muteWhileRecording.label")}
         </div>
         <p className="text-xs text-muted">
-          Silences music and video playback for the duration of the recording.
+          {t("dictation.muteWhileRecording.description")}
         </p>
       </div>
       <input
@@ -2000,6 +2045,7 @@ function MuteWhileRecordingToggle() {
 }
 
 function AppLauncherSettingsSection() {
+  const { t } = useTranslation("settings");
   const [enabled, setEnabled] = useState<boolean | null>(null);
   const [counter, setCounter] = useState<number>(0);
   const [templates, setTemplates] = useState<CommonActionTemplate[]>([]);
@@ -2042,12 +2088,14 @@ function AppLauncherSettingsSection() {
       setEnabled(next);
       toasts.push({
         tone: "success",
-        message: next ? "Voice Command App Launcher enabled" : "Voice Command App Launcher disabled",
+        message: next ? t("actions.toasts.launcherEnabled") : t("actions.toasts.launcherDisabled"),
       });
     } catch (e) {
       toasts.push({
         tone: "error",
-        message: `Couldn't update launcher setting: ${e instanceof Error ? e.message : String(e)}`,
+        message: t("actions.toasts.launcherUpdateFailed", {
+          error: e instanceof Error ? e.message : String(e),
+        }),
       });
     } finally {
       setBusy(false);
@@ -2061,12 +2109,14 @@ function AppLauncherSettingsSection() {
       setCounter(0);
       toasts.push({
         tone: "success",
-        message: "Action counter reset to 0",
+        message: t("actions.toasts.counterReset"),
       });
     } catch (e) {
       toasts.push({
         tone: "error",
-        message: `Couldn't reset counter: ${e instanceof Error ? e.message : String(e)}`,
+        message: t("actions.toasts.counterResetFailed", {
+          error: e instanceof Error ? e.message : String(e),
+        }),
       });
     } finally {
       setBusy(false);
@@ -2078,12 +2128,11 @@ function AppLauncherSettingsSection() {
       <label className="flex items-center justify-between rounded-lg border border-line bg-canvas p-3 transition-all duration-200 hover:border-accent/40">
         <div>
           <div className="text-sm font-semibold text-fg flex items-center gap-1.5">
-            <span>Voice command app launcher</span>
-            <span className="rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-medium text-accent">Sonoma+</span>
+            <span>{t("actions.launcher.label")}</span>
+            <span className="rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-medium text-accent">{t("actions.launcher.badge")}</span>
           </div>
           <p className="text-xs text-muted mt-0.5">
-            Intercept voice dictation to launch apps, open links, compose emails, manage counters,
-            start/stop meetings and screen recordings, and keep your Mac awake (e.g. "echo stay awake for 2 hours").
+            {t("actions.launcher.description")}
           </p>
         </div>
         <input
@@ -2101,9 +2150,9 @@ function AppLauncherSettingsSection() {
           <div className="border border-line rounded-lg p-4 bg-surface/30 flex flex-col gap-3">
             <div className="flex items-center justify-between">
               <div>
-                <span className="text-xs font-semibold text-fg block">Prefix-Based Trigger Routing</span>
+                <span className="text-xs font-semibold text-fg block">{t("actions.prefixRouting.title")}</span>
                 <span className="text-[11px] text-muted block mt-0.5">
-                  Route normal voice dictations to AI only if they start with a trigger word (e.g. "echo"). Prevents dictation latency!
+                  {t("actions.prefixRouting.description")}
                 </span>
               </div>
               <input
@@ -2115,10 +2164,15 @@ function AppLauncherSettingsSection() {
                   setRoutingEnabled(val);
                   try {
                     await setTriggerWordRoutingEnabled(val);
-                    toasts.push({ tone: "success", message: `Prefix trigger routing ${val ? "enabled" : "disabled"}` });
+                    toasts.push({
+                      tone: "success",
+                      message: val
+                        ? t("actions.prefixRouting.toastEnabled")
+                        : t("actions.prefixRouting.toastDisabled"),
+                    });
                   } catch (err) {
                     setRoutingEnabled(!val);
-                    toasts.push({ tone: "error", message: "Failed to update prefix routing settings" });
+                    toasts.push({ tone: "error", message: t("actions.prefixRouting.toastUpdateFailed") });
                   }
                 }}
                 className="h-4 w-4 cursor-pointer accent-accent"
@@ -2127,7 +2181,7 @@ function AppLauncherSettingsSection() {
 
             {routingEnabled && (
               <div className="flex flex-col gap-1.5 mt-1 border-t border-line/30 pt-3">
-                <label className="text-[11px] font-medium text-muted">Trigger Prefix Word</label>
+                <label className="text-[11px] font-medium text-muted">{t("actions.prefixRouting.triggerWordLabel")}</label>
                 <div className="flex gap-2">
                   <input
                     type="text"
@@ -2142,9 +2196,9 @@ function AppLauncherSettingsSection() {
                       }
                       try {
                         await setActionTriggerWord(word);
-                        toasts.push({ tone: "success", message: `Trigger word updated to "${word}"` });
+                        toasts.push({ tone: "success", message: t("actions.prefixRouting.toastWordUpdated", { word }) });
                       } catch (err) {
-                        toasts.push({ tone: "error", message: "Failed to save trigger word" });
+                        toasts.push({ tone: "error", message: t("actions.prefixRouting.toastWordSaveFailed") });
                       }
                     }}
                     className="flex-1 bg-surface border border-line rounded-md px-2.5 py-1 text-xs text-fg focus:outline-none focus:border-accent"
@@ -2155,15 +2209,15 @@ function AppLauncherSettingsSection() {
                     onClick={async () => {
                       setTriggerWord("echo");
                       await setActionTriggerWord("echo");
-                      toasts.push({ tone: "success", message: 'Trigger word reset to "echo"' });
+                      toasts.push({ tone: "success", message: t("actions.prefixRouting.toastWordReset") });
                     }}
                     className="rounded-md border border-line bg-surface px-2.5 py-1 text-xs font-medium text-fg hover:bg-elevated hover:text-accent transition-colors"
                   >
-                    Reset
+                    {t("common.reset")}
                   </button>
                 </div>
                 <p className="text-[10px] text-faint italic leading-snug">
-                  * Note: "echo" triggers loose phonetic matches (echo, eco, ekko, hecho) automatically!
+                  {t("actions.prefixRouting.phoneticNote")}
                 </p>
               </div>
             )}
@@ -2172,9 +2226,9 @@ function AppLauncherSettingsSection() {
           {/* Option 3: Dedicated Action Hotkey */}
           <div className="border border-line rounded-lg p-4 bg-surface/30 flex flex-col gap-3">
             <div>
-              <span className="text-xs font-semibold text-fg block">Dedicated Action Hotkey</span>
+              <span className="text-xs font-semibold text-fg block">{t("actions.actionHotkey.title")}</span>
               <span className="text-[11px] text-muted block mt-0.5">
-                Press a custom key combination to trigger Action Command mode directly. Always runs AI and bypasses prefix rules.
+                {t("actions.actionHotkey.description")}
               </span>
             </div>
             <div className="mt-1">
@@ -2188,9 +2242,9 @@ function AppLauncherSettingsSection() {
           {/* Edit selection: voice-rewrite highlighted text in place */}
           <div className="border border-line rounded-lg p-4 bg-surface/30 flex flex-col gap-3">
             <div>
-              <span className="text-xs font-semibold text-fg block">Edit Selection Hotkey</span>
+              <span className="text-xs font-semibold text-fg block">{t("actions.editSelection.title")}</span>
               <span className="text-[11px] text-muted block mt-0.5">
-                Highlight text in any app, hold this hotkey, and speak an instruction (e.g. "make this more concise", "translate to French"). The local model rewrites the selection in place.
+                {t("actions.editSelection.description")}
               </span>
             </div>
             <div className="mt-1">
@@ -2202,8 +2256,8 @@ function AppLauncherSettingsSection() {
           </div>
           <div className="flex items-center justify-between bg-surface-2/40 border border-line/50 rounded-lg p-3">
             <div className="flex flex-col">
-              <span className="text-xs font-semibold text-fg">Automated Actions Count</span>
-              <span className="text-[11px] text-muted">Number of voice actions run successfully</span>
+              <span className="text-xs font-semibold text-fg">{t("actions.counter.title")}</span>
+              <span className="text-[11px] text-muted">{t("actions.counter.description")}</span>
             </div>
             <div className="flex items-center gap-3">
               <span className="font-mono text-lg font-bold text-accent px-2.5 py-0.5 rounded-md bg-accent/10 border border-accent/20">
@@ -2215,14 +2269,14 @@ function AppLauncherSettingsSection() {
                 onClick={() => void onReset()}
                 className="rounded-md border border-line bg-surface px-2.5 py-1 text-xs font-medium text-fg hover:bg-elevated hover:text-accent transition-colors disabled:opacity-50"
               >
-                Reset
+                {t("common.reset")}
               </button>
             </div>
           </div>
 
           <div className="flex min-w-0 flex-col gap-2">
             <div className="text-xs font-bold tracking-wide uppercase text-[10px] text-muted mb-1">
-              Voice Action Cheatsheet
+              {t("actions.cheatsheet.title")}
             </div>
             <div className="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-2">
               {templates.map((t) => (
@@ -2256,6 +2310,7 @@ function AppLauncherSettingsSection() {
 }
 
 function FormatTemplatesSection() {
+  const { t } = useTranslation("settings");
   const [templates, setTemplates] = useState<FormatTemplate[] | null>(null);
   const [busy, setBusy] = useState(false);
   const toasts = useToasts();
@@ -2281,11 +2336,13 @@ function FormatTemplatesSection() {
     try {
       await setFormatTemplates(next);
       setTemplates(next);
-      toasts.push({ tone: "success", message: "Format templates saved" });
+      toasts.push({ tone: "success", message: t("templates.toasts.saved") });
     } catch (e) {
       toasts.push({
         tone: "error",
-        message: `Couldn't save templates: ${e instanceof Error ? e.message : String(e)}`,
+        message: t("templates.toasts.saveFailed", {
+          error: e instanceof Error ? e.message : String(e),
+        }),
       });
     } finally {
       setBusy(false);
@@ -2317,7 +2374,7 @@ function FormatTemplatesSection() {
       ...templates,
       {
         id,
-        name: "New template",
+        name: t("templates.newTemplateName"),
         trigger_phrases: ["format as new"],
         system_prompt:
           "Rewrite the user's raw dictation in the desired style. Output ONLY the rewritten text.",
@@ -2328,8 +2385,8 @@ function FormatTemplatesSection() {
 
   const removeOne = async (id: string) => {
     if (!templates) return;
-    const ok = await ask("Delete this format template? This cannot be undone.", {
-      title: "Delete template",
+    const ok = await ask(t("templates.confirmDelete.message"), {
+      title: t("templates.confirmDelete.title"),
       kind: "warning",
     });
     if (!ok) return;
@@ -2353,63 +2410,63 @@ function FormatTemplatesSection() {
   };
 
   if (templates === null) {
-    return <div className="text-xs text-muted">Loading templates…</div>;
+    return <div className="text-xs text-muted">{t("templates.loading")}</div>;
   }
 
   return (
     <div className="flex flex-col gap-4">
       <div className="rounded-lg border border-line/50 bg-surface-2/40 p-3">
         <p className="text-[11px] text-muted leading-snug">
-          When your dictation starts with one of a template's trigger phrases
-          (e.g. <span className="font-mono text-fg">"echo, format as email …"</span>),
-          the rest of the sentence is rewritten through the template's system
-          prompt before it's pasted at your cursor. Works with both the "echo"
-          prefix and the dedicated Action hotkey.
+          <Trans
+            i18nKey="templates.explainer"
+            t={t}
+            components={{ mono: <span className="font-mono text-fg" /> }}
+          />
         </p>
       </div>
 
       {templates.length === 0 && (
         <div className="text-xs text-muted italic">
-          No templates yet. Add one to enable voice formatting.
+          {t("templates.empty")}
         </div>
       )}
 
       <div className="flex flex-col gap-3">
-        {templates.map((t) => (
+        {templates.map((tpl) => (
           <div
-            key={t.id}
+            key={tpl.id}
             className="rounded-lg border border-line bg-canvas p-3 flex flex-col gap-2.5"
           >
             <div className="flex items-center gap-2">
               <input
                 type="text"
-                value={t.name}
-                onChange={(e) => renameId(t.id, e.target.value)}
+                value={tpl.name}
+                onChange={(e) => renameId(tpl.id, e.target.value)}
                 className="flex-1 bg-surface border border-line rounded-md px-2.5 py-1 text-sm font-semibold text-fg focus:outline-none focus:border-accent"
-                placeholder="Template name"
+                placeholder={t("templates.fields.namePlaceholder")}
               />
               <span className="font-mono text-[10px] text-muted px-1.5 py-0.5 rounded bg-surface-2 border border-line">
-                id: {t.id}
+                {t("templates.fields.idLabel", { id: tpl.id })}
               </span>
               <button
                 type="button"
                 disabled={busy}
-                onClick={() => void removeOne(t.id)}
+                onClick={() => void removeOne(tpl.id)}
                 className="rounded-md border border-line bg-surface px-2.5 py-1 text-xs font-medium text-fg hover:bg-elevated hover:text-red-400 transition-colors disabled:opacity-50"
               >
-                Delete
+                {t("common.delete")}
               </button>
             </div>
 
             <div className="flex flex-col gap-1">
               <label className="text-[11px] font-medium text-muted">
-                Trigger phrases (comma-separated)
+                {t("templates.fields.triggerPhrasesLabel")}
               </label>
               <input
                 type="text"
-                value={t.trigger_phrases.join(", ")}
+                value={tpl.trigger_phrases.join(", ")}
                 onChange={(e) =>
-                  updateOne(t.id, {
+                  updateOne(tpl.id, {
                     trigger_phrases: e.target.value
                       .split(",")
                       .map((p) => p.trim())
@@ -2417,22 +2474,22 @@ function FormatTemplatesSection() {
                   })
                 }
                 className="bg-surface border border-line rounded-md px-2.5 py-1 text-xs text-fg focus:outline-none focus:border-accent"
-                placeholder="format as email, make this an email"
+                placeholder={t("templates.fields.triggerPhrasesPlaceholder")}
               />
             </div>
 
             <div className="flex flex-col gap-1">
               <label className="text-[11px] font-medium text-muted">
-                System prompt
+                {t("templates.fields.systemPromptLabel")}
               </label>
               <textarea
-                value={t.system_prompt}
+                value={tpl.system_prompt}
                 onChange={(e) =>
-                  updateOne(t.id, { system_prompt: e.target.value })
+                  updateOne(tpl.id, { system_prompt: e.target.value })
                 }
                 rows={6}
                 className="bg-surface border border-line rounded-md px-2.5 py-1.5 text-xs text-fg leading-relaxed focus:outline-none focus:border-accent font-mono resize-y"
-                placeholder="Describe how the model should rewrite the dictation. Be specific about tone, length, and what to omit."
+                placeholder={t("templates.fields.systemPromptPlaceholder")}
               />
             </div>
           </div>
@@ -2446,7 +2503,7 @@ function FormatTemplatesSection() {
           onClick={addNew}
           className="rounded-md border border-line bg-surface px-3 py-1.5 text-xs font-medium text-fg hover:bg-elevated hover:text-accent transition-colors disabled:opacity-50"
         >
-          + Add template
+          {t("templates.addButton")}
         </button>
         <button
           type="button"
@@ -2454,7 +2511,7 @@ function FormatTemplatesSection() {
           onClick={() => void persist(templates)}
           className="rounded-md border border-accent/40 bg-accent/15 px-3 py-1.5 text-xs font-semibold text-accent hover:bg-accent/25 transition-colors disabled:opacity-50"
         >
-          Save changes
+          {t("common.saveChanges")}
         </button>
       </div>
     </div>
@@ -2462,6 +2519,7 @@ function FormatTemplatesSection() {
 }
 
 function DiagnosticsPane() {
+  const { t } = useTranslation("settings");
   const [logDir, setLogDir] = useState<string>("");
   const [recent, setRecent] = useState<string>("");
   const [busy, setBusy] = useState(false);
@@ -2503,7 +2561,9 @@ function DiagnosticsPane() {
     } catch (e) {
       toasts.push({
         tone: "error",
-        message: `Couldn't open folder: ${e instanceof Error ? e.message : String(e)}`,
+        message: t("diagnostics.logFolder.openFailed", {
+          error: e instanceof Error ? e.message : String(e),
+        }),
       });
     }
   };
@@ -2513,7 +2573,7 @@ function DiagnosticsPane() {
       <div className="flex items-center justify-between gap-3 rounded-lg border border-line bg-canvas p-3">
         <div className="min-w-0 flex-1">
           <div className="text-sm font-semibold text-fg">
-            Log folder
+            {t("diagnostics.logFolder.title")}
           </div>
           <p className="truncate text-xs text-muted" title={logDir}>
             {logDir || "—"}
@@ -2525,14 +2585,14 @@ function DiagnosticsPane() {
           disabled={!logDir}
           className="rounded border border-line px-3 py-1 text-xs hover:bg-elevated disabled:opacity-50"
         >
-          Open
+          {t("common.open")}
         </button>
       </div>
 
       <div className="rounded-lg border border-line bg-canvas p-3">
         <div className="flex items-center justify-between">
           <div className="text-sm font-semibold text-fg">
-            Recent log (last 200 lines)
+            {t("diagnostics.recentLog.title")}
           </div>
           <button
             type="button"
@@ -2540,14 +2600,14 @@ function DiagnosticsPane() {
             disabled={busy}
             className="rounded border border-line px-2 py-0.5 text-xs hover:bg-elevated disabled:opacity-50"
           >
-            {busy ? "…" : "Refresh"}
+            {busy ? t("diagnostics.recentLog.refreshing") : t("common.refresh")}
           </button>
         </div>
         {error ? (
           <p className="mt-2 text-xs text-warninging">{error}</p>
         ) : null}
         <pre className="mt-2 max-h-64 overflow-auto rounded-md border border-line bg-canvas p-2 font-mono text-[11px] leading-snug text-muted">
-          {recent || "(no log content yet)"}
+          {recent || t("diagnostics.recentLog.empty")}
         </pre>
       </div>
     </div>
@@ -2555,7 +2615,8 @@ function DiagnosticsPane() {
 }
 
 function TestInference() {
-  const [prompt, setPrompt] = useState("Say hello in five words.");
+  const { t } = useTranslation("settings");
+  const [prompt, setPrompt] = useState(t("languageModel.testInference.defaultPrompt"));
   const [response, setResponse] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -2577,7 +2638,7 @@ function TestInference() {
   return (
     <div className="rounded-lg border border-line bg-canvas p-3">
       <p className="text-xs font-semibold tracking-tight text-muted">
-        Test inference
+        {t("languageModel.testInference.title")}
       </p>
       <div className="mt-2 flex gap-2">
         <input
@@ -2591,7 +2652,7 @@ function TestInference() {
           disabled={busy || !prompt.trim()}
           className="rounded-md bg-accent px-3 py-1 text-xs font-semibold text-canvas hover:bg-accent-hover disabled:opacity-50"
         >
-          {busy ? "Running…" : "Run"}
+          {busy ? t("languageModel.testInference.running") : t("languageModel.testInference.runButton")}
         </button>
       </div>
       {error ? <p className="mt-2 text-xs text-danger">{error}</p> : null}
@@ -2604,15 +2665,16 @@ function TestInference() {
   );
 }
 
-const LLM_UNLOAD_OPTIONS: { label: string; secs: number }[] = [
-  { label: "1 minute", secs: 60 },
-  { label: "2 minutes", secs: 120 },
-  { label: "5 minutes", secs: 300 },
-  { label: "15 minutes", secs: 900 },
-  { label: "Keep loaded", secs: 0 },
+const LLM_UNLOAD_OPTIONS: { labelKey: string; secs: number }[] = [
+  { labelKey: "common.duration.oneMinute", secs: 60 },
+  { labelKey: "common.duration.twoMinutes", secs: 120 },
+  { labelKey: "common.duration.fiveMinutes", secs: 300 },
+  { labelKey: "common.duration.fifteenMinutes", secs: 900 },
+  { labelKey: "common.duration.keepLoaded", secs: 0 },
 ];
 
 function LlmUnloadTimeoutSelect() {
+  const { t } = useTranslation("settings");
   const [secs, setSecs] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const toasts = useToasts();
@@ -2640,7 +2702,9 @@ function LlmUnloadTimeoutSelect() {
     } catch (e) {
       toasts.push({
         tone: "error",
-        message: `Couldn't update AI memory setting: ${e instanceof Error ? e.message : String(e)}`,
+        message: t("languageModel.unloadTimeout.toastFailed", {
+          error: e instanceof Error ? e.message : String(e),
+        }),
       });
     } finally {
       setBusy(false);
@@ -2651,10 +2715,10 @@ function LlmUnloadTimeoutSelect() {
     <div className="flex items-center justify-between rounded-lg border border-line bg-canvas p-3">
       <div>
         <div className="text-sm font-semibold text-fg">
-          Unload after idle
+          {t("languageModel.unloadTimeout.title")}
         </div>
         <p className="text-xs text-muted">
-          Frees RAM when you haven't used log-capture for a while.
+          {t("languageModel.unloadTimeout.description")}
         </p>
       </div>
       <select
@@ -2663,9 +2727,9 @@ function LlmUnloadTimeoutSelect() {
         onChange={(e) => void onChange(Number(e.target.value))}
         className="rounded border border-line bg-surface px-2 py-1 text-xs text-fg focus:border-accent focus:outline-none disabled:opacity-50"
       >
-        {LLM_UNLOAD_OPTIONS.map(({ label, secs: s }) => (
+        {LLM_UNLOAD_OPTIONS.map(({ labelKey, secs: s }) => (
           <option key={s} value={s}>
-            {label}
+            {t(labelKey)}
           </option>
         ))}
       </select>
@@ -2673,16 +2737,17 @@ function LlmUnloadTimeoutSelect() {
   );
 }
 
-const ASR_UNLOAD_OPTIONS: { label: string; secs: number }[] = [
-  { label: "30 seconds", secs: 30 },
-  { label: "1 minute", secs: 60 },
-  { label: "2 minutes", secs: 120 },
-  { label: "5 minutes", secs: 300 },
-  { label: "15 minutes", secs: 900 },
-  { label: "Keep loaded", secs: 0 },
+const ASR_UNLOAD_OPTIONS: { labelKey: string; secs: number }[] = [
+  { labelKey: "common.duration.thirtySeconds", secs: 30 },
+  { labelKey: "common.duration.oneMinute", secs: 60 },
+  { labelKey: "common.duration.twoMinutes", secs: 120 },
+  { labelKey: "common.duration.fiveMinutes", secs: 300 },
+  { labelKey: "common.duration.fifteenMinutes", secs: 900 },
+  { labelKey: "common.duration.keepLoaded", secs: 0 },
 ];
 
 function AsrUnloadTimeoutSelect() {
+  const { t } = useTranslation("settings");
   const [secs, setSecs] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const toasts = useToasts();
@@ -2710,7 +2775,9 @@ function AsrUnloadTimeoutSelect() {
     } catch (e) {
       toasts.push({
         tone: "error",
-        message: `Couldn't update speech model memory setting: ${e instanceof Error ? e.message : String(e)}`,
+        message: t("dictation.asrUnloadTimeout.toastFailed", {
+          error: e instanceof Error ? e.message : String(e),
+        }),
       });
     } finally {
       setBusy(false);
@@ -2721,10 +2788,10 @@ function AsrUnloadTimeoutSelect() {
     <div className="flex items-center justify-between rounded-lg border border-line bg-canvas p-3">
       <div>
         <div className="text-sm font-semibold text-fg">
-          Unload after idle
+          {t("dictation.asrUnloadTimeout.title")}
         </div>
         <p className="text-xs text-muted">
-          Frees RAM when you haven't dictated for a while. The model reloads automatically on next use.
+          {t("dictation.asrUnloadTimeout.description")}
         </p>
       </div>
       <select
@@ -2733,9 +2800,9 @@ function AsrUnloadTimeoutSelect() {
         onChange={(e) => void onChange(Number(e.target.value))}
         className="rounded border border-line bg-surface px-2 py-1 text-xs text-fg focus:border-accent focus:outline-none disabled:opacity-50"
       >
-        {ASR_UNLOAD_OPTIONS.map(({ label, secs: s }) => (
+        {ASR_UNLOAD_OPTIONS.map(({ labelKey, secs: s }) => (
           <option key={s} value={s}>
-            {label}
+            {t(labelKey)}
           </option>
         ))}
       </select>
@@ -2744,14 +2811,15 @@ function AsrUnloadTimeoutSelect() {
 }
 
 function ResetSection() {
+  const { t } = useTranslation("settings");
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const toasts = useToasts();
 
   const onReset = async () => {
     const confirmed = await ask(
-      "Reset onboarding? This clears the settings store and quits the app. You'll need to relaunch.",
-      { title: "Reset onboarding", kind: "warning" },
+      t("diagnostics.resetSection.confirmMessage"),
+      { title: t("diagnostics.resetSection.confirmTitle"), kind: "warning" },
     );
     if (!confirmed) {
       return;
@@ -2762,7 +2830,9 @@ function ResetSection() {
     } catch (e) {
       toasts.push({
         tone: "error",
-        message: `Reset failed: ${e instanceof Error ? e.message : String(e)}`,
+        message: t("diagnostics.resetSection.toastFailed", {
+          error: e instanceof Error ? e.message : String(e),
+        }),
       });
       setBusy(false);
     }
@@ -2775,14 +2845,12 @@ function ResetSection() {
         onClick={() => setOpen((v) => !v)}
         className="text-xs text-faint underline-offset-2 hover:text-muted hover:underline"
       >
-        {open ? "Hide reset options" : "Show reset options"}
+        {open ? t("diagnostics.resetSection.hideButton") : t("diagnostics.resetSection.showButton")}
       </button>
       {open ? (
         <div className="mt-3 rounded-lg border border-danger/40 bg-danger/15 p-3">
           <p className="text-xs text-danger">
-            Wipes the settings store (hotkeys, active models, persisted
-            preferences) and quits the app. Your captured items are
-            preserved — they live in the SQLite database, not the settings store.
+            {t("diagnostics.resetSection.warning")}
           </p>
           <button
             type="button"
@@ -2790,7 +2858,7 @@ function ResetSection() {
             disabled={busy}
             className="mt-3 rounded-md border border-danger/40 bg-danger/15 px-3 py-1 text-xs text-danger hover:bg-danger/15 disabled:opacity-50"
           >
-            {busy ? "Resetting…" : "Reset onboarding"}
+            {busy ? t("diagnostics.resetSection.resetting") : t("diagnostics.resetSection.resetButton")}
           </button>
         </div>
       ) : null}
@@ -2799,6 +2867,7 @@ function ResetSection() {
 }
 
 function DriveSettings() {
+  const { t } = useTranslation("settings");
   const [status, setStatus] = useState<DriveStatus>({ connected: false, email: null });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -2878,14 +2947,14 @@ function DriveSettings() {
       {status.connected ? (
         <div className="flex items-center gap-3">
           <span className="text-[13px]">
-            Connected{status.email ? ` as ${status.email}` : ""}.
+            {status.email ? t("drive.connectedAsEmail", { email: status.email }) : t("drive.connected")}
           </span>
           <button
             onClick={() => void onDisconnect()}
             disabled={busy}
             className="rounded-md border border-line px-3 py-1.5 text-[13px] hover:bg-surface disabled:opacity-50"
           >
-            Disconnect
+            {t("drive.disconnectButton")}
           </button>
         </div>
       ) : (
@@ -2894,11 +2963,11 @@ function DriveSettings() {
           disabled={busy}
           className="self-start rounded-md bg-accent px-3 py-1.5 text-[13px] font-medium text-canvas disabled:opacity-50"
         >
-          {busy ? "Connecting…" : "Connect Drive"}
+          {busy ? t("drive.connecting") : t("drive.connectButton")}
         </button>
       )}
       <div className="flex flex-col gap-1">
-        <label className="text-[12px] text-muted">Drive folder for uploads</label>
+        <label className="text-[12px] text-muted">{t("drive.folderLabel")}</label>
         <input
           value={folderName}
           onChange={(e) => setFolderName(e.target.value)}
@@ -2917,10 +2986,10 @@ function DriveSettings() {
               void savePrefs(folderName, e.target.checked);
             }}
           />
-          Default sharing: anyone with the link can view
+          {t("drive.defaultSharingLabel")}
         </label>
         <span className="pl-6 text-[11px] text-muted/70">
-          Applied to each file (not the folder). Override per video when you upload.
+          {t("drive.sharingNote")}
         </span>
       </div>
 
@@ -2930,25 +2999,25 @@ function DriveSettings() {
           checked={showByo}
           onChange={(e) => setShowByo(e.target.checked)}
         />
-        Use my own Google OAuth client (removes the unverified-app warning)
+        {t("drive.byoClientLabel")}
       </label>
       {showByo ? (
         <div className="flex items-center gap-2">
           <span className="text-[12px] text-muted">
             {clientId.trim()
-              ? `Client configured (…${clientId.trim().slice(-14)})`
-              : "No client configured."}
+              ? t("drive.clientConfigured", { suffix: clientId.trim().slice(-14) })
+              : t("drive.noClientConfigured")}
           </span>
           <button
             onClick={() => setShowSetup(true)}
             className="rounded-md border border-line px-2.5 py-1 text-[12px] hover:bg-surface"
           >
-            {clientId.trim() ? "Edit" : "Set up"}
+            {clientId.trim() ? t("common.edit") : t("drive.setUpButton")}
           </button>
           <button
             onClick={() => setShowSetup(true)}
-            aria-label="How to create a client ID"
-            title="How to create a client ID"
+            aria-label={t("drive.howToCreateClientId")}
+            title={t("drive.howToCreateClientId")}
             className="grid h-5 w-5 place-items-center rounded-full border border-line text-[11px] text-muted hover:bg-surface"
           >
             ?
@@ -2981,6 +3050,7 @@ function DriveClientSetupModal(props: {
   onSave: () => void;
   onCancel: () => void;
 }) {
+  const { t } = useTranslation("settings");
   return (
     <Dialog
       onClose={props.onCancel}
@@ -2989,57 +3059,57 @@ function DriveClientSetupModal(props: {
       panelClassName="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-lg border border-line bg-canvas p-5 text-fg shadow-xl"
     >
         <h3 id="drive-client-setup-title" className="mb-3 text-[15px] font-semibold">
-          Set up your own Google OAuth client
+          {t("drive.setupModal.title")}
         </h3>
         <ol className="mb-4 list-decimal space-y-2 pl-5 text-[12px] leading-relaxed text-muted">
           <li>
-            Open the{" "}
-            <a
-              className="text-accent underline"
-              href="https://console.cloud.google.com/"
-              target="_blank"
-              rel="noreferrer"
-            >
-              Google Cloud Console
-            </a>{" "}
-            and create a project (or pick an existing one).
+            <Trans
+              i18nKey="drive.setupModal.step1"
+              t={t}
+              components={{
+                link: (
+                  <a
+                    className="text-accent underline"
+                    href="https://console.cloud.google.com/"
+                    target="_blank"
+                    rel="noreferrer"
+                  />
+                ),
+              }}
+            />
           </li>
           <li>
-            APIs &amp; Services → Library → search <b>Google Drive API</b> →{" "}
-            <b>Enable</b>.
+            <Trans i18nKey="drive.setupModal.step2" t={t} components={{ b: <b /> }} />
           </li>
           <li>
-            APIs &amp; Services → OAuth consent screen → <b>External</b> → fill in
-            the app name and your email → add the scope{" "}
-            <code>.../auth/drive.file</code> → add your Google account under{" "}
-            <b>Test users</b> → Save. Leave it in <b>Testing</b>.
+            <Trans
+              i18nKey="drive.setupModal.step3"
+              t={t}
+              components={{ b: <b />, code: <code /> }}
+            />
           </li>
           <li>
-            APIs &amp; Services → Credentials → Create credentials →{" "}
-            <b>OAuth client ID</b> → Application type: <b>Desktop app</b> → Create.
+            <Trans i18nKey="drive.setupModal.step4" t={t} components={{ b: <b /> }} />
           </li>
           <li>
-            Copy the <b>Client ID</b> and <b>Client secret</b> into the fields
-            below. No redirect URI is needed — Desktop apps allow loopback
-            automatically.
+            <Trans i18nKey="drive.setupModal.step5" t={t} components={{ b: <b /> }} />
           </li>
         </ol>
         <div className="flex flex-col gap-2">
           <input
             value={props.clientId}
             onChange={(e) => props.onClientId(e.target.value)}
-            placeholder="Client ID (…apps.googleusercontent.com)"
+            placeholder={t("drive.setupModal.clientIdPlaceholder")}
             className="w-full rounded-md border border-line bg-surface px-2 py-1.5 text-[13px]"
           />
           <input
             value={props.clientSecret}
             onChange={(e) => props.onClientSecret(e.target.value)}
-            placeholder="Client secret"
+            placeholder={t("drive.setupModal.clientSecretPlaceholder")}
             className="w-full rounded-md border border-line bg-surface px-2 py-1.5 text-[13px]"
           />
           <p className="text-[11px] text-muted">
-            Stored securely on this Mac. Leave the secret blank when editing to
-            keep the saved one.
+            {t("drive.setupModal.secretNote")}
           </p>
         </div>
         <div className="mt-4 flex justify-end gap-2">
@@ -3047,14 +3117,14 @@ function DriveClientSetupModal(props: {
             onClick={props.onCancel}
             className="rounded-md border border-line px-3 py-1.5 text-[13px] hover:bg-surface"
           >
-            Cancel
+            {t("common.cancel")}
           </button>
           <button
             onClick={props.onSave}
             disabled={props.saving}
             className="rounded-md bg-accent px-3 py-1.5 text-[13px] font-medium text-canvas disabled:opacity-50"
           >
-            {props.saving ? "Saving…" : "Save"}
+            {props.saving ? t("common.savingEllipsis") : t("common.save")}
           </button>
         </div>
     </Dialog>
@@ -3062,6 +3132,7 @@ function DriveClientSetupModal(props: {
 }
 
 function DailyRecapSection() {
+  const { t } = useTranslation("settings");
   const [settings, setSettings] = useState<DailyRecapSettingsT | null>(null);
   const [busy, setBusy] = useState(false);
   const toasts = useToasts();
@@ -3076,9 +3147,9 @@ function DailyRecapSection() {
         if (!cancelled) {
           toasts.push({
             tone: "error",
-            message: `Couldn't load daily recap settings: ${
-              e instanceof Error ? e.message : String(e)
-            }`,
+            message: t("dailyRecap.toasts.loadFailed", {
+              error: e instanceof Error ? e.message : String(e),
+            }),
           });
         }
       }
@@ -3100,9 +3171,9 @@ function DailyRecapSection() {
     } catch (e) {
       toasts.push({
         tone: "error",
-        message: `Couldn't save daily recap settings: ${
-          e instanceof Error ? e.message : String(e)
-        }`,
+        message: t("dailyRecap.toasts.saveFailed", {
+          error: e instanceof Error ? e.message : String(e),
+        }),
       });
     } finally {
       setBusy(false);
@@ -3112,7 +3183,7 @@ function DailyRecapSection() {
   if (!settings) {
     return (
       <div className="rounded-lg border border-line bg-canvas p-3 text-xs text-muted">
-        Loading…
+        {t("common.loading")}
       </div>
     );
   }
@@ -3122,10 +3193,10 @@ function DailyRecapSection() {
       <label className="flex items-center justify-between rounded-lg border border-line bg-canvas p-3">
         <div>
           <div className="text-sm font-semibold text-fg">
-            Generate a daily recap each morning
+            {t("dailyRecap.enable.label")}
           </div>
           <p className="text-xs text-muted">
-            One macOS notification at your chosen hour, summarizing yesterday.
+            {t("dailyRecap.enable.description")}
           </p>
         </div>
         <input
@@ -3139,8 +3210,8 @@ function DailyRecapSection() {
 
       <label className="flex items-center justify-between rounded-lg border border-line bg-canvas p-3">
         <div>
-          <div className="text-sm font-semibold text-fg">Deliver at</div>
-          <p className="text-xs text-muted">Local time. Default 08:00.</p>
+          <div className="text-sm font-semibold text-fg">{t("dailyRecap.deliverAt.label")}</div>
+          <p className="text-xs text-muted">{t("dailyRecap.deliverAt.description")}</p>
         </div>
         <select
           disabled={busy || !settings.enabled}
@@ -3160,9 +3231,9 @@ function DailyRecapSection() {
 
       <label className="flex items-center justify-between rounded-lg border border-line bg-canvas p-3">
         <div>
-          <div className="text-sm font-semibold text-fg">Include weekends</div>
+          <div className="text-sm font-semibold text-fg">{t("dailyRecap.includeWeekends.label")}</div>
           <p className="text-xs text-muted">
-            Off by default — no Sunday morning summary unless you want one.
+            {t("dailyRecap.includeWeekends.description")}
           </p>
         </div>
         <input

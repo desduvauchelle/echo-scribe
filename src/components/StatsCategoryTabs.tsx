@@ -6,6 +6,7 @@ import {
   Video,
   type LucideIcon,
 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import type { StatsCategoryKey } from "../lib/api";
 
 export const STATS_CATEGORIES: Array<{
@@ -30,11 +31,12 @@ export function StatsCategoryTabs({
   onChange: (value: StatsCategoryKey) => void;
   compact?: boolean;
 }) {
+  const { t } = useTranslation();
   return (
     <div
       className="flex flex-wrap items-center gap-1"
       role="tablist"
-      aria-label="Activity type"
+      aria-label={t("statsCategoryTabs.activityType")}
     >
       {STATS_CATEGORIES.map(({ key, label, icon: Icon }) => {
         const active = key === value;

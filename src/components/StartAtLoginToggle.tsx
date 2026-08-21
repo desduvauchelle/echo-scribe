@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
+import { useTranslation } from "react-i18next";
 import { useToasts } from "./ToastProvider";
 
 type Props = {
@@ -9,6 +10,7 @@ type Props = {
 };
 
 export default function StartAtLoginToggle({ variant = "card" }: Props) {
+  const { t } = useTranslation();
   const [enabled, setEnabled] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
   const toasts = useToasts();
@@ -37,7 +39,9 @@ export default function StartAtLoginToggle({ variant = "card" }: Props) {
     } catch (e) {
       toasts.push({
         tone: "error",
-        message: `Couldn't update start-at-login: ${e instanceof Error ? e.message : String(e)}`,
+        message: t("startAtLoginToggle.updateError", {
+          error: e instanceof Error ? e.message : String(e),
+        }),
       });
     } finally {
       setBusy(false);
@@ -53,10 +57,10 @@ export default function StartAtLoginToggle({ variant = "card" }: Props) {
     <label className={wrapperClass}>
       <div>
         <div className="text-sm font-semibold text-fg">
-          Start at login
+          {t("startAtLoginToggle.title")}
         </div>
         <p className="text-xs text-muted">
-          Launch Echo Scribe automatically when you log in to your Mac.
+          {t("startAtLoginToggle.subtitle")}
         </p>
       </div>
       <input

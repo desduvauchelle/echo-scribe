@@ -1,4 +1,5 @@
 import { Component, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { frontendLog } from "../lib/api";
 
 type Props = {
@@ -9,6 +10,27 @@ type Props = {
 };
 
 type State = { error: Error | null };
+
+/**
+ * Fallback UI shown when a section crashes. Pulled out into its own function
+ * component (rather than inlined in the class's render()) purely so it can
+ * call the useTranslation() hook — hooks aren't usable inside class components.
+ */
+function ErrorFallback({ onBackToDashboard }: { onBackToDashboard: () => void }) {
+  const { t } = useTranslation();
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center text-sm">
+      <p className="text-danger">{t("sectionErrorBoundary.message")}</p>
+      <button
+        type="button"
+        onClick={onBackToDashboard}
+        className="rounded-md border border-line bg-surface px-3 py-1.5 text-muted hover:bg-elevated hover:text-fg"
+      >
+        {t("sectionErrorBoundary.backToDashboard")}
+      </button>
+    </div>
+  );
+}
 
 /**
  * Catches render crashes inside the main content area so a broken section
@@ -39,22 +61,12 @@ export default class SectionErrorBoundary extends Component<Props, State> {
   render() {
     if (this.state.error) {
       return (
-        <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center text-sm">
-          <p className="text-danger">
-            Something went wrong showing this page. See Settings → Diagnostics
-            → logs for details.
-          </p>
-          <button
-            type="button"
-            onClick={() => {
-              this.setState({ error: null });
-              this.props.onBackToDashboard();
-            }}
-            className="rounded-md border border-line bg-surface px-3 py-1.5 text-muted hover:bg-elevated hover:text-fg"
-          >
-            Back to dashboard
-          </button>
-        </div>
+        <ErrorFallback
+          onBackToDashboard={() => {
+            this.setState({ error: null });
+            this.props.onBackToDashboard();
+          }}
+        />
       );
     }
     return this.props.children;

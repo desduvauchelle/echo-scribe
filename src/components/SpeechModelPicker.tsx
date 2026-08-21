@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { useTranslation } from "react-i18next";
 import {
   deleteSpeechModel,
   downloadSpeechModel,
@@ -24,11 +25,12 @@ const ACCENT_FILL = "bg-accent";
 const ACCENT_TRACK = "bg-elevated";
 
 function SegmentBar({ value, max = 5 }: { value: number; max?: number }) {
+  const { t } = useTranslation();
   const v = Math.max(0, Math.min(max, Math.round(value)));
   return (
     <div
       role="img"
-      aria-label={`${v} of ${max}`}
+      aria-label={t("speechModelPicker.segmentBar.ariaLabel", { value: v, max })}
       className="flex items-center gap-1"
     >
       {Array.from({ length: max }).map((_, i) => (
@@ -65,12 +67,13 @@ function ModelCard({
   onActivate,
   onDelete,
 }: CardProps) {
+  const { t } = useTranslation();
   const disabled = !model.supported;
   const isDownloading = downloading !== null && !model.downloaded;
 
   return (
     <div
-      title={disabled ? "Not yet supported" : undefined}
+      title={disabled ? t("speechModelPicker.modelCard.notSupported") : undefined}
       className={[
         "rounded-xl border p-4 transition-colors",
         active
@@ -105,7 +108,7 @@ function ModelCard({
                 >
                   <polyline points="5 12 10 17 19 8" />
                 </svg>
-                Active
+                {t("speechModelPicker.modelCard.active")}
               </span>
             ) : null}
           </div>
@@ -118,13 +121,13 @@ function ModelCard({
           <div className="shrink-0 space-y-1">
             {model.accuracy_bars > 0 ? (
               <div className="flex items-center justify-end gap-2 text-[11px] text-muted">
-                <span>accuracy</span>
+                <span>{t("speechModelPicker.modelCard.accuracy")}</span>
                 <SegmentBar value={model.accuracy_bars} />
               </div>
             ) : null}
             {model.speed_bars > 0 ? (
               <div className="flex items-center justify-end gap-2 text-[11px] text-muted">
-                <span>speed</span>
+                <span>{t("speechModelPicker.modelCard.speed")}</span>
                 <SegmentBar value={model.speed_bars} />
               </div>
             ) : null}
@@ -136,7 +139,7 @@ function ModelCard({
         <div className="mt-3">
           <div
             role="progressbar"
-            aria-label="Download progress"
+            aria-label={t("speechModelPicker.modelCard.downloadProgressAria")}
             aria-valuemin={0}
             aria-valuemax={100}
             aria-valuenow={
@@ -186,23 +189,23 @@ function ModelCard({
 
       {downloadError && !isDownloading ? (
         <p className="mt-2 text-xs text-danger">
-          Download failed: {downloadError}
+          {t("speechModelPicker.modelCard.downloadFailed", { error: downloadError })}
         </p>
       ) : null}
 
       <div className="mt-3 flex items-center justify-between border-t border-line/80 pt-3">
         <div className="inline-flex items-center gap-1.5 text-[11px] text-muted">
           <GlobeIcon english_only={model.english_only} />
-          <span>{model.language_label || (model.english_only ? "English Only" : "Multi-language")}</span>
+          <span>{model.language_label || (model.english_only ? t("speechModelPicker.modelCard.englishOnly") : t("speechModelPicker.modelCard.multiLanguage"))}</span>
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
           {!model.supported ? (
             <span className="inline-flex items-center rounded-full bg-elevated px-2 py-0.5 text-xs text-muted">
-              Unavailable
+              {t("speechModelPicker.modelCard.unavailable")}
             </span>
           ) : isDownloading ? (
-            <span className="text-xs text-muted">Downloading…</span>
+            <span className="text-xs text-muted">{t("speechModelPicker.modelCard.downloading")}</span>
           ) : model.downloaded && active ? (
             <button
               type="button"
@@ -211,7 +214,7 @@ function ModelCard({
               className="inline-flex items-center gap-1 text-xs text-muted transition-colors hover:text-danger disabled:cursor-not-allowed disabled:opacity-50"
             >
               <TrashIcon />
-              Delete
+              {t("speechModelPicker.modelCard.delete")}
             </button>
           ) : model.downloaded ? (
             <>
@@ -222,7 +225,7 @@ function ModelCard({
                 className="inline-flex items-center gap-1 text-xs text-muted transition-colors hover:text-danger disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <TrashIcon />
-                Delete
+                {t("speechModelPicker.modelCard.delete")}
               </button>
               <button
                 type="button"
@@ -230,7 +233,7 @@ function ModelCard({
                 disabled={busy}
                 className="rounded-md border border-line px-3 py-1 text-xs hover:bg-elevated disabled:cursor-not-allowed disabled:opacity-50"
               >
-                Use this model
+                {t("speechModelPicker.modelCard.useThisModel")}
               </button>
             </>
           ) : (
@@ -247,7 +250,7 @@ function ModelCard({
                 className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1 text-xs font-semibold text-canvas transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <DownloadIcon />
-                Download
+                {t("speechModelPicker.modelCard.download")}
               </button>
             </>
           )}
@@ -258,6 +261,7 @@ function ModelCard({
 }
 
 export default function SpeechModelPicker({ onChange }: Props) {
+  const { t } = useTranslation();
   const [models, setModels] = useState<SpeechModelStatus[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [downloads, setDownloads] = useState<Record<string, DownloadState>>({});
@@ -408,7 +412,7 @@ export default function SpeechModelPicker({ onChange }: Props) {
   if (loadError && models.length === 0) {
     return (
       <p className="text-xs text-warning">
-        Couldn’t load speech models: {loadError}
+        {t("speechModelPicker.loadError", { error: loadError })}
       </p>
     );
   }
@@ -420,17 +424,17 @@ export default function SpeechModelPicker({ onChange }: Props) {
     <div className="flex flex-col gap-5">
       <div>
         <h3 className="text-base font-semibold text-fg">
-          Transcription Models
+          {t("speechModelPicker.title")}
         </h3>
         <p className="mt-1 text-sm text-muted">
-          Choose a model to transcribe what you say. Run on-device, no network.
+          {t("speechModelPicker.description")}
         </p>
       </div>
 
       {downloaded.length > 0 ? (
         <section className="space-y-2">
           <h4 className="text-xs font-medium uppercase tracking-[0.08em] text-muted">
-            Downloaded models
+            {t("speechModelPicker.downloadedHeading")}
           </h4>
           <div className="flex flex-col gap-3">
             {downloaded.map((model) => (
@@ -453,7 +457,7 @@ export default function SpeechModelPicker({ onChange }: Props) {
       {available.length > 0 ? (
         <section className="space-y-2">
           <h4 className="text-xs font-medium uppercase tracking-[0.08em] text-muted">
-            Available to download
+            {t("speechModelPicker.availableHeading")}
           </h4>
           <div className="flex flex-col gap-3">
             {available.map((model) => (

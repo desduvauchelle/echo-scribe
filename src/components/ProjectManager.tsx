@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, Trash2 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import {
   archiveProject,
   deleteProject,
@@ -20,6 +21,7 @@ type Props = {
 type EditTarget = { mode: "create" } | { mode: "edit"; project: Project } | null;
 
 export default function ProjectManager({ onChanged }: Props) {
+  const { t } = useTranslation();
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [edit, setEdit] = useState<EditTarget>(null);
@@ -38,12 +40,14 @@ export default function ProjectManager({ onChanged }: Props) {
     } catch (e) {
       toasts.push({
         tone: "error",
-        message: `Couldn't load projects: ${e instanceof Error ? e.message : String(e)}`,
+        message: t("projectManager.loadFailed", {
+          error: e instanceof Error ? e.message : String(e),
+        }),
       });
     } finally {
       setLoading(false);
     }
-  }, [toasts]);
+  }, [toasts, t]);
 
   useEffect(() => {
     void refresh();
@@ -66,9 +70,9 @@ export default function ProjectManager({ onChanged }: Props) {
       .catch((error) => {
         if (!cancelled) {
           setDeleteError(
-            `Couldn't check linked content: ${
-              error instanceof Error ? error.message : String(error)
-            }`,
+            t("projectManager.checkLinkedContentFailed", {
+              error: error instanceof Error ? error.message : String(error),
+            }),
           );
         }
       });
@@ -76,7 +80,7 @@ export default function ProjectManager({ onChanged }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [deleteTarget]);
+  }, [deleteTarget, t]);
 
   const handleArchive = async (p: Project) => {
     try {
@@ -86,7 +90,9 @@ export default function ProjectManager({ onChanged }: Props) {
     } catch (e) {
       toasts.push({
         tone: "error",
-        message: `Archive failed: ${e instanceof Error ? e.message : String(e)}`,
+        message: t("projectManager.archiveFailed", {
+          error: e instanceof Error ? e.message : String(e),
+        }),
       });
     }
   };
@@ -99,7 +105,9 @@ export default function ProjectManager({ onChanged }: Props) {
     } catch (e) {
       toasts.push({
         tone: "error",
-        message: `Unarchive failed: ${e instanceof Error ? e.message : String(e)}`,
+        message: t("projectManager.unarchiveFailed", {
+          error: e instanceof Error ? e.message : String(e),
+        }),
       });
     }
   };
@@ -118,12 +126,14 @@ export default function ProjectManager({ onChanged }: Props) {
       toasts.push({
         tone: "success",
         message: deleteRelated
-          ? `Deleted “${target.name}” and its related content.`
-          : `Deleted “${target.name}”. Linked content is now unassigned.`,
+          ? t("projectManager.deleteSuccessWithContent", { name: target.name })
+          : t("projectManager.deleteSuccessUnassigned", { name: target.name }),
       });
     } catch (error) {
       setDeleteError(
-        `Delete failed: ${error instanceof Error ? error.message : String(error)}`,
+        t("projectManager.deleteFailed", {
+          error: error instanceof Error ? error.message : String(error),
+        }),
       );
     } finally {
       setDeleteBusy(false);
@@ -150,17 +160,16 @@ export default function ProjectManager({ onChanged }: Props) {
             onClick={() => setEdit({ mode: "create" })}
             className="rounded-md bg-accent px-3 py-1 text-xs font-semibold text-canvas hover:bg-accent-hover"
           >
-            New project
+            {t("projectManager.newProjectButton")}
           </button>
         </div>
       )}
 
       {loading ? (
-        <p className="text-xs text-muted">Loading projects…</p>
+        <p className="text-xs text-muted">{t("projectManager.loading")}</p>
       ) : projects.length === 0 ? (
         <p className="text-xs text-muted">
-          No projects yet. Capture a thought referencing a new project, or
-          create one above.
+          {t("projectManager.emptyState")}
         </p>
       ) : (
         <ul className="flex flex-col gap-1">
@@ -204,7 +213,7 @@ export default function ProjectManager({ onChanged }: Props) {
                   onClick={() => setEdit({ mode: "edit", project: p })}
                   className="rounded border border-line px-2 py-0.5 text-xs hover:bg-elevated"
                 >
-                  Edit
+                  {t("projectManager.editButton")}
                 </button>
                 {p.archived_at ? (
                   <button
@@ -212,7 +221,7 @@ export default function ProjectManager({ onChanged }: Props) {
                     onClick={() => void handleUnarchive(p)}
                     className="rounded border border-line px-2 py-0.5 text-xs hover:bg-elevated"
                   >
-                    Unarchive
+                    {t("projectManager.unarchiveButton")}
                   </button>
                 ) : (
                   <button
@@ -220,17 +229,17 @@ export default function ProjectManager({ onChanged }: Props) {
                     onClick={() => void handleArchive(p)}
                     className="rounded border border-line px-2 py-0.5 text-xs hover:bg-elevated"
                   >
-                    Archive
+                    {t("projectManager.archiveButton")}
                   </button>
                 )}
                 <button
                   type="button"
                   onClick={() => setDeleteTarget(p)}
-                  aria-label={`Delete ${p.name}`}
+                  aria-label={t("projectManager.deleteAriaLabel", { name: p.name })}
                   className="inline-flex items-center gap-1 rounded border border-danger/40 px-2 py-0.5 text-xs text-danger hover:bg-danger/10"
                 >
                   <Trash2 size={11} aria-hidden="true" />
-                  Delete
+                  {t("projectManager.deleteButton")}
                 </button>
               </div>
             </li>
@@ -255,11 +264,10 @@ export default function ProjectManager({ onChanged }: Props) {
                 id="delete-project-title"
                 className="text-base font-semibold text-fg"
               >
-                Delete “{deleteTarget.name}”?
+                {t("projectManager.deleteDialogTitle", { name: deleteTarget.name })}
               </h3>
               <p className="mt-1 text-xs leading-relaxed text-muted">
-                Choose what happens to content currently assigned to this
-                project.
+                {t("projectManager.deleteDialogDescription")}
               </p>
             </div>
           </div>
@@ -270,7 +278,7 @@ export default function ProjectManager({ onChanged }: Props) {
             ) : deleteError ? (
               <span>{deleteError}</span>
             ) : (
-              <span>Checking linked content…</span>
+              <span>{t("projectManager.checkingLinkedContent")}</span>
             )}
           </div>
 
@@ -283,12 +291,10 @@ export default function ProjectManager({ onChanged }: Props) {
               className="rounded-lg border border-line px-4 py-3 text-left hover:bg-elevated disabled:opacity-50"
             >
               <span className="block text-sm font-semibold text-fg">
-                Delete project only
+                {t("projectManager.deleteOnlyTitle")}
               </span>
               <span className="mt-1 block text-xs leading-relaxed text-muted">
-                Keep every note, task, transcription, meeting, recording, and
-                chat. The project tag is removed and the content becomes
-                unassigned.
+                {t("projectManager.deleteOnlyDescription")}
               </span>
             </button>
             <button
@@ -298,18 +304,16 @@ export default function ProjectManager({ onChanged }: Props) {
               className="rounded-lg border border-danger/50 px-4 py-3 text-left hover:bg-danger/10 disabled:opacity-50"
             >
               <span className="block text-sm font-semibold text-danger">
-                Delete project and related content
+                {t("projectManager.deleteWithContentTitle")}
               </span>
               <span className="mt-1 block text-xs leading-relaxed text-muted">
-                Permanently delete linked captures, meeting transcripts and
-                summaries, recordings, chats, and generated artifacts. This
-                can’t be undone.
+                {t("projectManager.deleteWithContentDescription")}
               </span>
             </button>
           </div>
 
           <p className="mt-3 text-[11px] leading-relaxed text-faint">
-            Files previously exported outside Echo Scribe are not removed.
+            {t("projectManager.exportedFilesNote")}
           </p>
 
           {deleteError && deleteImpact && (
@@ -325,7 +329,7 @@ export default function ProjectManager({ onChanged }: Props) {
               onClick={() => setDeleteTarget(null)}
               className="rounded-md border border-line px-3 py-1.5 text-xs hover:bg-elevated disabled:opacity-50"
             >
-              {deleteBusy ? "Deleting…" : "Cancel"}
+              {deleteBusy ? t("projectManager.deleting") : t("projectManager.cancelButton")}
             </button>
           </div>
         </Dialog>
@@ -335,35 +339,35 @@ export default function ProjectManager({ onChanged }: Props) {
 }
 
 function LinkedContentSummary({ impact }: { impact: ProjectDeleteImpact }) {
+  const { t } = useTranslation();
   const details = [
-    [impact.meetings, "meeting", "meetings"],
-    [impact.notes, "note", "notes"],
-    [impact.tasks, "task", "tasks"],
-    [impact.transcriptions, "transcription", "transcriptions"],
-    [impact.recordings, "recording", "recordings"],
-    [impact.chats, "chat", "chats"],
-    [impact.artifacts, "generated artifact", "generated artifacts"],
+    ["meetings", impact.meetings],
+    ["notes", impact.notes],
+    ["tasks", impact.tasks],
+    ["transcriptions", impact.transcriptions],
+    ["recordings", impact.recordings],
+    ["chats", impact.chats],
+    ["artifacts", impact.artifacts],
   ] as const;
   const populated = details
-    .filter(([count]) => count > 0)
-    .map(([count, singular, plural]) =>
-      `${count} ${count === 1 ? singular : plural}`,
-    );
+    .filter(([, count]) => count > 0)
+    .map(([key, count]) => t(`projectManager.linkedItems.${key}`, { count }));
 
   if (populated.length === 0 && impact.items === 0) {
-    return <span>No linked content was found.</span>;
+    return <span>{t("projectManager.noLinkedContent")}</span>;
   }
 
   const knownItems =
     impact.meetings + impact.notes + impact.tasks + impact.transcriptions;
   if (impact.items > knownItems) {
     const other = impact.items - knownItems;
-    populated.unshift(`${other} other capture${other === 1 ? "" : "s"}`);
+    populated.unshift(t("projectManager.linkedItems.otherCaptures", { count: other }));
   }
 
   return (
     <span>
-      Linked content: <strong className="font-semibold text-fg">{populated.join(", ")}</strong>.
+      {t("projectManager.linkedContentPrefix")}{" "}
+      <strong className="font-semibold text-fg">{populated.join(", ")}</strong>.
     </span>
   );
 }

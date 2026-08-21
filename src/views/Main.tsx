@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
   CalendarDays,
@@ -48,6 +49,7 @@ type Props = {
 };
 
 export default function Main({ onOpenSettings }: Props) {
+  const { t } = useTranslation("main");
   const [section, setSection] = useState<MainSection>({ kind: "dashboard" });
   const [projects, setProjects] = useState<Project[]>([]);
   const [showAllProjects, setShowAllProjects] = useState(false);
@@ -159,12 +161,12 @@ export default function Main({ onOpenSettings }: Props) {
 
   const sectionTitle = (() => {
     switch (section.kind) {
-      case "dashboard": return "Dashboard";
-      case "chat": return "Chat";
-      case "daily": return "Daily recaps";
-      case "relationships": return "People & companies";
-      case "stats": return "Statistics";
-      case "project": return projectMap.get(section.id)?.name ?? "Project";
+      case "dashboard": return t("app.nav.dashboard");
+      case "chat": return t("app.nav.chat");
+      case "daily": return t("app.nav.dailyRecaps");
+      case "relationships": return t("app.nav.peopleAndCompanies");
+      case "stats": return t("app.nav.statistics");
+      case "project": return projectMap.get(section.id)?.name ?? t("app.projects.fallbackName");
     }
   })();
 
@@ -189,7 +191,7 @@ export default function Main({ onOpenSettings }: Props) {
               className="echo-brand-icon h-[18px] w-[18px]"
               aria-hidden="true"
             />
-            <span className="truncate">Echo Scribe</span>
+            <span className="truncate">{t("app.brand")}</span>
           </div>
         </div>
 
@@ -206,11 +208,11 @@ export default function Main({ onOpenSettings }: Props) {
             <button
               type="button"
               onClick={() => setDashboardSearchRequest((value) => value + 1)}
-              aria-label="Search"
+              aria-label={t("app.toolbar.search")}
               className="echo-toolbar-search native-toolbar-button flex h-7 w-36 shrink-0 items-center gap-2 rounded-md px-2.5 text-left text-[11px] text-faint hover:text-muted"
             >
               <Search size={12} aria-hidden="true" />
-              <span>Search</span>
+              <span>{t("app.toolbar.search")}</span>
             </button>
           ) : null}
         </div>
@@ -224,13 +226,13 @@ export default function Main({ onOpenSettings }: Props) {
               <div
                 title={
                   voiceRecordingActive
-                    ? `Dictating — release ${formatBinding(binding)} to stop`
-                    : `Hold ${formatBinding(binding)} to dictate`
+                    ? t("app.sidebar.dictate.activeTooltip", { binding: formatBinding(binding) })
+                    : t("app.sidebar.dictate.idleTooltip", { binding: formatBinding(binding) })
                 }
                 aria-label={
                   voiceRecordingActive
-                    ? `Dictating. Release ${formatBinding(binding)} to stop.`
-                    : `Hold ${formatBinding(binding)} to dictate.`
+                    ? t("app.sidebar.dictate.activeAriaLabel", { binding: formatBinding(binding) })
+                    : t("app.sidebar.dictate.idleAriaLabel", { binding: formatBinding(binding) })
                 }
                 className="inline-flex items-center gap-1.5 rounded-full border border-line bg-elevated px-2 py-0.5 text-[10px] text-muted"
               >
@@ -260,25 +262,25 @@ export default function Main({ onOpenSettings }: Props) {
         <nav className="flex shrink-0 flex-col gap-0.5 px-2">
           <NavItem
             icon={LayoutDashboard}
-            label="Dashboard"
+            label={t("app.nav.dashboard")}
             active={section.kind === "dashboard" || section.kind === "stats"}
             onClick={() => setSection({ kind: "dashboard" })}
           />
           <NavItem
             icon={MessageSquare}
-            label="Chat"
+            label={t("app.nav.chat")}
             active={section.kind === "chat"}
             onClick={() => setSection({ kind: "chat" })}
           />
           <NavItem
             icon={CalendarDays}
-            label="Daily recaps"
+            label={t("app.nav.dailyRecaps")}
             active={section.kind === "daily"}
             onClick={() => setSection({ kind: "daily" })}
           />
           <NavItem
             icon={Users}
-            label="People & companies"
+            label={t("app.nav.peopleAndCompanies")}
             active={section.kind === "relationships"}
             onClick={() => setSection({ kind: "relationships" })}
           />
@@ -288,7 +290,7 @@ export default function Main({ onOpenSettings }: Props) {
 
         <div className="flex h-5 shrink-0 items-center justify-between px-5">
           <span className="text-[11px] font-medium uppercase leading-none tracking-[0.08em] text-muted">
-            Projects
+            {t("app.projects.label")}
           </span>
           <span className="flex h-4 w-4 items-center justify-center">
             <Folder
@@ -300,11 +302,11 @@ export default function Main({ onOpenSettings }: Props) {
           </span>
         </div>
         <nav
-          aria-label="Projects"
+          aria-label={t("app.projects.ariaLabel")}
           className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto overscroll-contain px-2"
         >
           {visibleProjects.length === 0 ? (
-            <div className="px-3 py-1 text-xs text-muted">No projects yet</div>
+            <div className="px-3 py-1 text-xs text-muted">{t("app.projects.empty")}</div>
           ) : (
             visibleProjects.map((p) => (
               <NavItem
@@ -322,7 +324,9 @@ export default function Main({ onOpenSettings }: Props) {
               onClick={() => setShowAllProjects((v) => !v)}
               className="mx-2 mt-1 cursor-pointer text-left text-[11px] text-faint transition-colors hover:text-muted"
             >
-              {showAllProjects ? "Show fewer" : `Show all (${projects.length})`}
+              {showAllProjects
+                ? t("app.projects.showFewer")
+                : t("app.projects.showAll", { count: projects.length })}
             </button>
           ) : null}
         </nav>
@@ -335,10 +339,10 @@ export default function Main({ onOpenSettings }: Props) {
               type="button"
               onClick={onOpenSettings}
               className="echo-nav-item flex flex-1 cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] text-muted hover:text-fg"
-              title="Open settings"
+              title={t("app.settings.openTooltip")}
             >
               <SettingsIcon size={14} strokeWidth={1.75} aria-hidden="true" />
-              <span>Settings</span>
+              <span>{t("app.settings.label")}</span>
             </button>
             <ThemeToggle />
           </div>

@@ -1,5 +1,6 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { Film, Globe, Loader } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import type { Project, RecordingRow } from "../lib/api";
 import { relativeTime } from "../lib/format";
 import { useActivityPanel } from "./ActivityPanelContext";
@@ -38,6 +39,7 @@ export default function RecordingCard({
   onOpen,
   variant = "card",
 }: Props) {
+  const { t } = useTranslation();
   const project = rec.project_id ? projects?.get(rec.project_id) : null;
   const { openRecording } = useActivityPanel();
   const handleClick = () => {
@@ -60,7 +62,7 @@ export default function RecordingCard({
         type="button"
         onClick={handleClick}
         className="absolute inset-0 cursor-pointer rounded-lg"
-        aria-label={`Open recording: ${recordingDisplayName(rec)}`}
+        aria-label={t("recordingCard.openRecording", { name: recordingDisplayName(rec) })}
       />
       <div className={`recording-thumb relative shrink-0 overflow-hidden rounded bg-elevated ${ledger ? "h-8 w-8" : "h-12 w-20"}`}>
         {rec.thumb_path ? (
@@ -84,7 +86,7 @@ export default function RecordingCard({
       <div className="min-w-0 flex-1">
         {ledger ? (
           <div className="activity-kind mb-0.5 text-[9px] font-semibold uppercase tracking-[0.1em] text-accent">
-            Recording
+            {t("recordingCard.recordingKind")}
           </div>
         ) : null}
         <div className="flex items-center gap-1.5">
@@ -106,16 +108,16 @@ export default function RecordingCard({
           ) : null}
           {rec.upload_status === "uploading" ? (
             <span className="inline-flex items-center gap-1 text-muted">
-              <Loader size={11} className="animate-spin" aria-hidden="true" /> Uploading
+              <Loader size={11} className="animate-spin" aria-hidden="true" /> {t("recordingCard.uploading")}
             </span>
           ) : null}
           {rec.upload_status === "done" && rec.drive_link ? (
             <span className="inline-flex items-center gap-1 text-success">
-              <Globe size={11} aria-hidden="true" /> On Drive
+              <Globe size={11} aria-hidden="true" /> {t("recordingCard.onDrive")}
             </span>
           ) : null}
           {rec.upload_status === "error" ? (
-            <span className="text-danger">Upload failed</span>
+            <span className="text-danger">{t("recordingCard.uploadFailed")}</span>
           ) : null}
         </div>
       </div>

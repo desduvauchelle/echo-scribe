@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { useTranslation } from "react-i18next";
 import { submitAreaPickerResult } from "../lib/api";
 import {
   dragToLocalRect,
@@ -50,6 +51,7 @@ const defaultKeyboardRect = (): Rect => {
 const KB_STEP_PX = 20;
 
 const AreaPicker: React.FC = () => {
+  const { t } = useTranslation("windows");
   const [display, setDisplay] = useState<StartPayload | null>(null);
   const [dragStart, setDragStart] = useState<Point | null>(null);
   const [dragCurrent, setDragCurrent] = useState<Point | null>(null);
@@ -216,10 +218,8 @@ const AreaPicker: React.FC = () => {
           {/* No selection yet: dim the whole surface uniformly. */}
           <div style={styles.backdrop} />
           <div style={styles.hint}>
-            <div>Drag to select a region · Esc to cancel</div>
-            <div style={styles.hintSub}>
-              Arrow keys move, Shift+arrows resize, Enter confirms
-            </div>
+            <div>{t("areaPicker.dragHint")}</div>
+            <div style={styles.hintSub}>{t("areaPicker.keyboardHint")}</div>
           </div>
         </>
       )}

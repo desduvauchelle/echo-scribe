@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Mic } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import HotkeyRebinder from "../components/HotkeyRebinder";
 import LlmModelPicker from "../components/LlmModelPicker";
 import PermissionRow from "../components/PermissionRow";
@@ -36,6 +37,7 @@ type Props = {
 // reused in Settings → Permissions.
 
 function ResetTccBlock() {
+  const { t } = useTranslation("onboarding");
   const [armed, setArmed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -47,7 +49,7 @@ function ResetTccBlock() {
       await resetTccAndQuit();
       // The backend exits the app ~200ms later. If we're still here after
       // a beat, the call returned without quitting — show a hint.
-      setTimeout(() => setErr("Reset returned but the app didn't quit. Try restarting manually."), 1500);
+      setTimeout(() => setErr(t("resetTcc.timeoutError")), 1500);
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
       setBusy(false);
@@ -63,7 +65,7 @@ function ResetTccBlock() {
           onClick={() => setArmed(true)}
           className="text-xs text-faint underline-offset-2 hover:text-warning hover:underline"
         >
-          Permission stuck? Reset & quit
+          {t("resetTcc.linkLabel")}
         </button>
       </div>
     );
@@ -72,9 +74,7 @@ function ResetTccBlock() {
   return (
     <div className="rounded-md border border-warning/40 bg-warning/10 p-3 text-xs text-warning">
       <p>
-        This wipes Microphone + Accessibility + Screen Recording grants and
-        quits Echo Scribe. You'll need to relaunch and re-grant access.
-        Continue?
+        {t("resetTcc.confirmBody")}
       </p>
       <div className="mt-2 flex gap-2">
         <button
@@ -83,7 +83,7 @@ function ResetTccBlock() {
           disabled={busy}
           className="rounded-md border border-warning/40 bg-warning/15 px-3 py-1 font-semibold hover:bg-warning/15 disabled:opacity-50"
         >
-          {busy ? "Resetting…" : "Yes, reset & quit"}
+          {busy ? t("resetTcc.resetting") : t("resetTcc.confirmButton")}
         </button>
         <button
           type="button"
@@ -91,7 +91,7 @@ function ResetTccBlock() {
           disabled={busy}
           className="rounded-md border border-line px-3 py-1 text-muted hover:bg-elevated"
         >
-          Cancel
+          {t("resetTcc.cancelButton")}
         </button>
       </div>
       {err ? <p className="mt-2 text-warning">{err}</p> : null}
@@ -100,6 +100,7 @@ function ResetTccBlock() {
 }
 
 export default function Onboarding({ initialStatus, onStarted, resumeNotice }: Props) {
+  const { t } = useTranslation("onboarding");
   const [status, setStatus] = useState<PermissionsStatus>(initialStatus);
   const [checking, setChecking] = useState(false);
   const [starting, setStarting] = useState(false);
@@ -272,12 +273,10 @@ export default function Onboarding({ initialStatus, onStarted, resumeNotice }: P
           <Mic size={18} strokeWidth={2} aria-hidden="true" />
         </div>
         <h1 className="text-xl font-semibold tracking-tight text-fg">
-          Welcome to Echo Scribe
+          {t("welcome.title")}
         </h1>
         <p className="mt-1.5 text-[13px] leading-relaxed text-muted">
-          Grant the permissions below, pick a speech model, then start
-          dictating anywhere. Screen Recording is optional — only needed if
-          you want meetings to capture the other person's audio.
+          {t("welcome.subtitle")}
         </p>
 
         {resumeNotice ? (
@@ -291,8 +290,8 @@ export default function Onboarding({ initialStatus, onStarted, resumeNotice }: P
 
         <div className="mt-6 flex flex-col gap-6">
           <PermissionRow
-            title="Microphone"
-            subtitle="Echo Scribe needs your microphone to capture what you say."
+            title={t("permissions.microphone.title")}
+            subtitle={t("permissions.microphone.subtitle")}
             granted={status.microphone}
             onGrant={() => {
               void handleGrantMicrophone();
@@ -306,8 +305,8 @@ export default function Onboarding({ initialStatus, onStarted, resumeNotice }: P
           <div className="h-px bg-elevated" />
 
           <PermissionRow
-            title="Accessibility"
-            subtitle="Required to paste transcribed text at the cursor in any app."
+            title={t("permissions.accessibility.title")}
+            subtitle={t("permissions.accessibility.subtitle")}
             granted={status.accessibility}
             onGrant={() => {
               void handleGrantAccessibility();
@@ -321,8 +320,8 @@ export default function Onboarding({ initialStatus, onStarted, resumeNotice }: P
           <div className="h-px bg-elevated" />
 
           <PermissionRow
-            title="Screen Recording"
-            subtitle="Lets Echo Scribe capture the other participant's audio during Zoom, Google Meet, and other meetings. Without it, only your microphone is recorded."
+            title={t("permissions.screenRecording.title")}
+            subtitle={t("permissions.screenRecording.subtitle")}
             granted={status.screen_recording}
             onGrant={() => {
               void handleGrantScreenRecording();
@@ -348,20 +347,19 @@ export default function Onboarding({ initialStatus, onStarted, resumeNotice }: P
           <div>
             <div className="flex items-center justify-between gap-3">
               <h2 className="text-[13px] font-semibold tracking-tight text-fg">
-                Local AI model{" "}
+                {t("llmModel.title")}{" "}
                 <span className="text-xs font-normal text-muted">
-                  (optional)
+                  {t("llmModel.optional")}
                 </span>
               </h2>
               {llmReady ? (
                 <span className="inline-flex items-center rounded-full bg-success/15 px-2 py-0.5 text-xs text-success">
-                  Ready
+                  {t("llmModel.ready")}
                 </span>
               ) : null}
             </div>
             <p className="mt-1 text-sm text-muted">
-              Powers the log-capture flow (auto-classifying notes, tasks,
-              tags). Voice-at-cursor works without it — skip to come back later.
+              {t("llmModel.description")}
             </p>
             <div className="mt-3">
               <LlmModelPicker />
@@ -372,13 +370,12 @@ export default function Onboarding({ initialStatus, onStarted, resumeNotice }: P
                 onClick={() => setLlmSkipped(true)}
                 className="mt-3 text-xs text-muted underline-offset-2 hover:text-fg hover:underline"
               >
-                Skip for now
+                {t("llmModel.skipButton")}
               </button>
             ) : null}
             {llmSkipped && !llmReady ? (
               <p className="mt-3 text-xs text-muted">
-                Skipped. Log-capture will show a friendly notice until you
-                pick a model in Settings.
+                {t("llmModel.skippedNote")}
               </p>
             ) : null}
           </div>
@@ -387,11 +384,10 @@ export default function Onboarding({ initialStatus, onStarted, resumeNotice }: P
 
           <div>
             <h2 className="text-[13px] font-semibold tracking-tight text-fg">
-              Dictation shortcut
+              {t("dictationShortcut.title")}
             </h2>
             <p className="mt-1 text-sm text-muted">
-              Press and hold to record. Default is Right Control — change it
-              here if that conflicts with another app.
+              {t("dictationShortcut.description")}
             </p>
             <div className="mt-3">
               <HotkeyRebinder />
@@ -404,12 +400,10 @@ export default function Onboarding({ initialStatus, onStarted, resumeNotice }: P
 
           <div>
             <h2 className="text-[13px] font-semibold tracking-tight text-fg">
-              Log capture shortcut
+              {t("logCaptureShortcut.title")}
             </h2>
             <p className="mt-1 text-sm text-muted">
-              Press and hold to capture a thought or task. Default is Right
-              Option — Echo Scribe will classify it locally and pop a review
-              overlay.
+              {t("logCaptureShortcut.description")}
             </p>
             <div className="mt-3">
               <HotkeyRebinder
@@ -431,10 +425,10 @@ export default function Onboarding({ initialStatus, onStarted, resumeNotice }: P
           {starting ? (
             <>
               <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-canvas border-t-transparent" />
-              Starting…
+              {t("startButton.starting")}
             </>
           ) : (
-            "Start Echo Scribe"
+            t("startButton.label")
           )}
         </button>
 
@@ -446,10 +440,10 @@ export default function Onboarding({ initialStatus, onStarted, resumeNotice }: P
           }}
           className="mt-2.5 flex w-full items-center justify-center rounded-md border border-line px-4 py-2 text-sm font-medium text-muted hover:border-line-strong hover:bg-elevated hover:text-fg disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {skipping ? "Skipping…" : "Skip setup for now"}
+          {skipping ? t("skipButton.skipping") : t("skipButton.label")}
         </button>
         <p className="mt-2 text-center text-[11px] leading-relaxed text-faint">
-          You can browse Echo Scribe now and finish setup later in Settings.
+          {t("skipButton.note")}
         </p>
 
         {error ? (

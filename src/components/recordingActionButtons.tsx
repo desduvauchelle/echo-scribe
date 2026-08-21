@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import {
   ChevronDown,
   CloudUpload,
@@ -98,6 +99,7 @@ export function SplitButton({
   busy?: boolean;
   disabled?: boolean;
 }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   return (
     <Menu
@@ -116,7 +118,7 @@ export function SplitButton({
           </button>
           <button
             {...props}
-            aria-label={`${title} options`}
+            aria-label={t("recordingActionButtons.titleOptions", { title })}
             disabled={disabled}
             className="grid h-8 w-5 place-items-center rounded-r-md border border-l-0 border-line text-muted hover:bg-surface disabled:opacity-50"
           >
@@ -165,6 +167,7 @@ export function UploadButton({
   disabled?: boolean;
   onUpload: (quality: UploadQuality, makePublic: boolean) => void;
 }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [isPublic, setIsPublic] = useState(defaultPublic);
   // Re-sync when the Settings default loads/changes (defaultPublic starts stale).
@@ -172,11 +175,13 @@ export function UploadButton({
 
   const primary: UploadQuality = hasEdited ? "rendered" : "1080";
   const qualities: { label: string; value: UploadQuality }[] = [
-    ...(hasEdited ? [{ label: "Edited", value: "rendered" as UploadQuality }] : []),
-    { label: "Original", value: "original" },
-    { label: "1080p", value: "1080" },
-    { label: "720p", value: "720" },
-    { label: "480p", value: "480" },
+    ...(hasEdited
+      ? [{ label: t("recordingActionButtons.qualityEdited"), value: "rendered" as UploadQuality }]
+      : []),
+    { label: t("recordingActionButtons.qualityOriginal"), value: "original" },
+    { label: t("recordingActionButtons.quality1080p"), value: "1080" },
+    { label: t("recordingActionButtons.quality720p"), value: "720" },
+    { label: t("recordingActionButtons.quality480p"), value: "480" },
   ];
   const seg = (active: boolean) =>
     `flex flex-1 items-center justify-center gap-1 rounded border px-2 py-1 text-[11px] ${
@@ -191,7 +196,7 @@ export function UploadButton({
       renderTrigger={(props) => (
         <>
           <button
-            aria-label="Upload to Drive"
+            aria-label={t("recordingActionButtons.uploadToDrive")}
             onClick={() => onUpload(primary, isPublic)}
             disabled={disabled}
             className="grid h-8 w-8 place-items-center rounded-l-md border border-line text-fg hover:bg-surface disabled:opacity-50"
@@ -200,7 +205,7 @@ export function UploadButton({
           </button>
           <button
             {...props}
-            aria-label="Upload options"
+            aria-label={t("recordingActionButtons.uploadOptions")}
             disabled={disabled}
             className="grid h-8 w-5 place-items-center rounded-r-md border border-l-0 border-line text-muted hover:bg-surface disabled:opacity-50"
           >
@@ -208,7 +213,9 @@ export function UploadButton({
           </button>
           {open ? null : (
             <span className="pointer-events-none absolute left-1/2 top-full z-[60] mt-1.5 -translate-x-1/2 whitespace-nowrap rounded border border-line bg-elevated px-2 py-1 text-[11px] text-fg opacity-0 shadow-lg transition-opacity duration-100 group-hover/tt:opacity-100">
-              Upload to Drive ({hasEdited ? "edited version" : "1080p"})
+              {hasEdited
+                ? t("recordingActionButtons.uploadTooltipEdited")
+                : t("recordingActionButtons.uploadTooltip1080")}
             </span>
           )}
         </>
@@ -216,18 +223,18 @@ export function UploadButton({
     >
       <div className="absolute right-0 top-full z-50 mt-1 min-w-[170px] overflow-hidden rounded-md border border-line bg-canvas py-1 shadow-lg">
         <div className="px-3 pb-1 pt-1 text-[10px] font-medium uppercase tracking-wide text-muted">
-          Sharing
+          {t("recordingActionButtons.sharing")}
         </div>
         <div className="flex gap-1 px-2 pb-2">
           <button type="button" onClick={() => setIsPublic(true)} className={seg(isPublic)}>
-            <Globe size={12} /> Anyone
+            <Globe size={12} /> {t("recordingActionButtons.anyone")}
           </button>
           <button type="button" onClick={() => setIsPublic(false)} className={seg(!isPublic)}>
-            <Lock size={12} /> Only me
+            <Lock size={12} /> {t("recordingActionButtons.onlyMe")}
           </button>
         </div>
         <div className="border-t border-line px-3 pb-1 pt-1.5 text-[10px] font-medium uppercase tracking-wide text-muted">
-          Quality
+          {t("recordingActionButtons.quality")}
         </div>
         {qualities.map((o) => (
           <button

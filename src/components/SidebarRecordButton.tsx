@@ -1,4 +1,5 @@
 import { Mic } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { useCapabilities } from "../lib/capabilitiesContext";
 import { uiGates } from "../lib/capabilities";
 import { useMeetingRecorder } from "../lib/useMeetingRecorder";
@@ -16,6 +17,7 @@ export default function SidebarRecordButton({
 }: {
   variant?: "sidebar" | "toolbar";
 }) {
+  const { t } = useTranslation();
   const caps = useCapabilities();
   const { active, busy, toggle } = useMeetingRecorder();
 
@@ -28,13 +30,13 @@ export default function SidebarRecordButton({
         onClick={() => void toggle()}
         disabled={busy}
         aria-pressed={active}
-        title={active ? "Stop recording" : "Capture a meeting"}
+        title={active ? t("sidebarRecordButton.stopRecordingTitle") : t("sidebarRecordButton.captureMeetingTitle")}
         className={`echo-capture-command inline-flex h-8 items-center gap-2 rounded-md px-3 text-[13px] font-semibold ${
           active ? "is-recording" : ""
         } ${busy ? "cursor-default opacity-60" : "cursor-pointer"}`}
       >
         <Mic size={14} strokeWidth={2} aria-hidden="true" />
-        <span>{active ? "Stop capture" : "Capture"}</span>
+        <span>{active ? t("sidebarRecordButton.stopCapture") : t("sidebarRecordButton.capture")}</span>
       </button>
     );
   }
@@ -45,7 +47,7 @@ export default function SidebarRecordButton({
       onClick={() => void toggle()}
       disabled={busy}
       aria-pressed={active}
-      title={active ? "Stop recording" : "Record system audio + mic as a meeting"}
+      title={active ? t("sidebarRecordButton.stopRecordingTitle") : t("sidebarRecordButton.recordMeetingTitle")}
       className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-medium transition-colors ${
         active
           ? "border-danger/30 bg-danger/15 text-danger hover:bg-danger/20"
@@ -62,7 +64,7 @@ export default function SidebarRecordButton({
           }`}
         />
       </span>
-      <span>{active ? "Stop" : "Record"}</span>
+      <span>{active ? t("sidebarRecordButton.stop") : t("sidebarRecordButton.record")}</span>
     </button>
   );
 }

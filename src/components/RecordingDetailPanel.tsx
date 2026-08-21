@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { ask } from "@tauri-apps/plugin-dialog";
@@ -45,6 +46,7 @@ import {
 
 /** Copy-to-clipboard icon button; flips to a green check for ~1.2s on click. */
 function CopyButton({ value }: { value: string }) {
+  const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
   return (
     <button
@@ -53,7 +55,7 @@ function CopyButton({ value }: { value: string }) {
         setCopied(true);
         window.setTimeout(() => setCopied(false), 1200);
       }}
-      aria-label="Copy"
+      aria-label={t("recordingDetailPanel.copyButton")}
       className={`grid h-7 w-7 shrink-0 place-items-center rounded-md border hover:bg-surface ${
         copied ? "border-green-500/40 text-green-500" : "border-line text-fg"
       }`}
@@ -110,6 +112,7 @@ export default function RecordingDetailPanel() {
 }
 
 function PanelBody({ id, onClose }: { id: string; onClose: () => void }) {
+  const { t } = useTranslation();
   const { bumpRefresh, refreshTick } = useActivityPanel();
   const toasts = useToasts();
   const [rec, setRec] = useState<RecordingRow | null>(null);
@@ -140,11 +143,11 @@ function PanelBody({ id, onClose }: { id: string; onClose: () => void }) {
       const rows = await listRecordings();
       const found = rows.find((r) => r.id === id) ?? null;
       setRec(found);
-      if (!found) setError("Recording not found.");
+      if (!found) setError(t("recordingDetailPanel.body.recordingNotFound"));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
-  }, [id]);
+  }, [id, t]);
 
   useEffect(() => {
     void reload();
@@ -216,7 +219,10 @@ function PanelBody({ id, onClose }: { id: string; onClose: () => void }) {
     setExporting(true);
     try {
       await exportRecording(rec.id, quality);
-      toasts.push({ tone: "success", message: `Exported ${quality}p MP4` });
+      toasts.push({
+        tone: "success",
+        message: t("recordingDetailPanel.body.exportedToast", { quality }),
+      });
       await reload();
       bumpRefresh();
     } catch (e) {
@@ -256,8 +262,13 @@ function PanelBody({ id, onClose }: { id: string; onClose: () => void }) {
   const onDelete = async () => {
     if (!rec) return;
     const confirmed = await ask(
-      `Delete “${recordingDisplayName(rec)}”? This cannot be undone.`,
-      { title: "Delete recording", kind: "warning" },
+      t("recordingDetailPanel.confirmDelete.message", {
+        name: recordingDisplayName(rec),
+      }),
+      {
+        title: t("recordingDetailPanel.confirmDelete.title"),
+        kind: "warning",
+      },
     );
     if (!confirmed) return;
     try {
@@ -305,14 +316,14 @@ function PanelBody({ id, onClose }: { id: string; onClose: () => void }) {
             id="recording-panel-title"
             className="min-w-0 flex-1 truncate text-sm font-medium text-fg"
           >
-            {rec ? recordingDisplayName(rec) : "Recording"}
+            {rec ? recordingDisplayName(rec) : t("recordingDetailPanel.header.fallbackTitle")}
           </div>
         )}
         {rec && !renaming ? (
           <button
             type="button"
             onClick={startRename}
-            aria-label="Rename recording"
+            aria-label={t("recordingDetailPanel.header.renameRecording")}
             className="rounded p-1 text-muted hover:bg-elevated hover:text-fg"
           >
             <Pencil size={14} strokeWidth={2.25} />
@@ -321,7 +332,7 @@ function PanelBody({ id, onClose }: { id: string; onClose: () => void }) {
         <button
           type="button"
           onClick={onClose}
-          aria-label="Close panel"
+          aria-label={t("recordingDetailPanel.header.closePanel")}
           className="rounded p-1 text-muted hover:bg-elevated hover:text-fg"
         >
           <X size={16} strokeWidth={2.25} />
@@ -332,7 +343,7 @@ function PanelBody({ id, onClose }: { id: string; onClose: () => void }) {
         {error ? (
           <div className="text-xs text-danger">{error}</div>
         ) : !rec ? (
-          <div className="text-xs text-muted">Loading…</div>
+          <div className="text-xs text-muted">{t("recordingDetailPanel.body.loading")}</div>
         ) : (
           <>
             <video
@@ -353,25 +364,25 @@ function PanelBody({ id, onClose }: { id: string; onClose: () => void }) {
                 }
                 className="flex h-8 items-center gap-1.5 rounded-md border border-accent bg-accent/15 px-3 text-[12.5px] font-medium text-fg hover:bg-accent/25"
               >
-                <Wand2 size={14} /> Edit video
+                <Wand2 size={14} /> {t("recordingDetailPanel.body.editVideo")}
               </button>
               <div className="flex-1" />
               <IconButton
-                title="Reveal in Finder"
+                title={t("recordingDetailPanel.body.revealInFinder")}
                 onClick={() => void revealRecording(rec.id).catch(fail)}
               >
                 <FolderOpen size={16} />
               </IconButton>
               <SplitButton
-                title="Export 1080p"
+                title={t("recordingDetailPanel.body.export1080p")}
                 icon={<Download size={16} />}
                 busy={exporting}
                 disabled={exporting || uploading}
                 defaultValue="1080"
                 options={[
-                  { label: "1080p", value: "1080" },
-                  { label: "720p", value: "720" },
-                  { label: "480p", value: "480" },
+                  { label: t("recordingDetailPanel.body.exportOptions.1080"), value: "1080" },
+                  { label: t("recordingDetailPanel.body.exportOptions.720"), value: "720" },
+                  { label: t("recordingDetailPanel.body.exportOptions.480"), value: "480" },
                 ]}
                 onSelect={(v) => void onExport(v as "1080" | "720" | "480")}
               />
@@ -384,7 +395,9 @@ function PanelBody({ id, onClose }: { id: string; onClose: () => void }) {
               />
               <IconButton
                 title={
-                  rec.transcript?.trim() ? "Regenerate transcript" : "Get transcript"
+                  rec.transcript?.trim()
+                    ? t("recordingDetailPanel.body.regenerateTranscript")
+                    : t("recordingDetailPanel.body.getTranscript")
                 }
                 onClick={() => void onTranscribe()}
                 disabled={transcribing}
@@ -395,34 +408,48 @@ function PanelBody({ id, onClose }: { id: string; onClose: () => void }) {
                   <FileText size={16} />
                 )}
               </IconButton>
-              <IconButton title="Delete" onClick={() => void onDelete()} danger>
+              <IconButton
+                title={t("recordingDetailPanel.body.delete")}
+                onClick={() => void onDelete()}
+                danger
+              >
                 <Trash2 size={16} />
               </IconButton>
             </div>
 
             {exportsList.length > 0 ? (
               <div className="mt-2 text-[12px] text-muted">
-                Exported:{" "}
+                {t("recordingDetailPanel.body.exportedPrefix")}{" "}
                 {exportsList
-                  .map(
-                    (e) =>
-                      `${e.quality === "rendered" ? "Rendered" : `${e.quality}p`} (${fmtSize(e.size)})`,
+                  .map((e) =>
+                    t("recordingDetailPanel.body.exportedEntry", {
+                      quality:
+                        e.quality === "rendered"
+                          ? t("recordingDetailPanel.body.exportedQualityRendered")
+                          : `${e.quality}p`,
+                      size: fmtSize(e.size),
+                    }),
                   )
-                  .join(" · ")}
+                  .join(t("recordingDetailPanel.body.exportedSeparator"))}
               </div>
             ) : null}
             {transcribing ? (
               <div className="mt-2 text-[12px] text-muted">
-                Transcribing… {progress}%
+                {t("recordingDetailPanel.body.transcribingProgress", { progress })}
               </div>
             ) : null}
             {uploading ? (
-              <div className="mt-2 text-[12px] text-muted">Uploading to Drive…</div>
+              <div className="mt-2 text-[12px] text-muted">
+                {t("recordingDetailPanel.body.uploadingToDrive")}
+              </div>
             ) : null}
             {rec.upload_status === "error" ? (
               <div className="mt-2 text-[12px] text-danger">
-                Upload failed
-                {rec.upload_error ? `: ${rec.upload_error}` : ""}
+                {rec.upload_error
+                  ? t("recordingDetailPanel.body.uploadFailedWithError", {
+                      error: rec.upload_error,
+                    })
+                  : t("recordingDetailPanel.body.uploadFailed")}
               </div>
             ) : null}
             {rec.upload_status === "done" && rec.drive_link ? (
@@ -442,7 +469,9 @@ function PanelBody({ id, onClose }: { id: string; onClose: () => void }) {
 
             <div className="mt-6 border-t border-line pt-4">
               <div className="mb-2 flex items-center justify-between">
-                <h3 className="text-[13px] font-semibold">Transcript</h3>
+                <h3 className="text-[13px] font-semibold">
+                  {t("recordingDetailPanel.body.transcriptHeading")}
+                </h3>
                 {rec.transcript?.trim() ? <CopyButton value={rec.transcript} /> : null}
               </div>
               {rec.transcript !== null ? (
@@ -452,12 +481,12 @@ function PanelBody({ id, onClose }: { id: string; onClose: () => void }) {
                   </p>
                 ) : (
                   <span className="text-[13px] text-muted">
-                    No speech detected. Use the transcript button above to retry.
+                    {t("recordingDetailPanel.body.noSpeechDetected")}
                   </span>
                 )
               ) : (
                 <span className="text-[13px] text-muted">
-                  No transcript yet — use the transcript button above to generate one.
+                  {t("recordingDetailPanel.body.noTranscriptYet")}
                 </span>
               )}
             </div>

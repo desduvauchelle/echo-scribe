@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Building2,
   Copy,
@@ -31,6 +32,7 @@ type Selection =
   | { kind: "company"; value: Company };
 
 export default function RelationshipsView() {
+  const { t } = useTranslation("main");
   const [people, setPeople] = useState<Person[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [selection, setSelection] = useState<Selection | null>(null);
@@ -198,21 +200,21 @@ export default function RelationshipsView() {
       <aside className="w-72 shrink-0 overflow-y-auto border-r border-line bg-surface/50 p-4">
         <div className="mb-4 flex items-center justify-between">
           <div>
-            <h1 className="text-base font-semibold text-fg">Relationships</h1>
-            <p className="text-[11px] text-faint">Local people and company memory</p>
+            <h1 className="text-base font-semibold text-fg">{t("relationships.header.title")}</h1>
+            <p className="text-[11px] text-faint">{t("relationships.header.subtitle")}</p>
           </div>
           <div className="flex gap-1">
             <button
               onClick={() => setCreating("person")}
               className="rounded p-1.5 text-muted hover:bg-elevated hover:text-accent"
-              title="Add person"
+              title={t("relationships.actions.addPerson")}
             >
               <UserRound size={14} />
             </button>
             <button
               onClick={() => setCreating("company")}
               className="rounded p-1.5 text-muted hover:bg-elevated hover:text-accent"
-              title="Add company"
+              title={t("relationships.actions.addCompany")}
             >
               <Building2 size={14} />
             </button>
@@ -222,37 +224,39 @@ export default function RelationshipsView() {
         {creating ? (
           <div className="mb-4 space-y-2 rounded-lg border border-line bg-canvas p-2.5">
             <div className="flex items-center gap-1 text-[11px] font-medium text-fg">
-              <Plus size={12} /> New {creating}
+              <Plus size={12} /> {t("relationships.create.newLabel", {
+                kind: creating === "person" ? t("relationships.kind.personLower") : t("relationships.kind.companyLower"),
+              })}
             </div>
             <input
               autoFocus
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Name"
+              placeholder={t("relationships.form.name")}
               className="w-full rounded border border-line bg-surface px-2 py-1.5 text-xs text-fg"
             />
             <input
               value={detail}
               onChange={(e) => setDetail(e.target.value)}
-              placeholder={creating === "person" ? "Role (optional)" : "Domain (optional)"}
+              placeholder={creating === "person" ? t("relationships.create.rolePlaceholder") : t("relationships.create.domainPlaceholder")}
               className="w-full rounded border border-line bg-surface px-2 py-1.5 text-xs text-fg"
             />
             <div className="flex justify-end gap-1">
               <button onClick={() => setCreating(null)} className="px-2 py-1 text-[11px] text-muted">
-                Cancel
+                {t("relationships.common.cancel")}
               </button>
               <button
                 onClick={() => void create()}
                 disabled={!name.trim() || loading}
                 className="rounded bg-accent px-2 py-1 text-[11px] text-white disabled:opacity-50"
               >
-                Create
+                {t("relationships.create.submit")}
               </button>
             </div>
           </div>
         ) : null}
 
-        <div className="mb-2 text-[10px] font-medium uppercase tracking-wider text-faint">People</div>
+        <div className="mb-2 text-[10px] font-medium uppercase tracking-wider text-faint">{t("relationships.people.heading")}</div>
         <div className="space-y-1">
           {people.map((person) => (
             <button
@@ -265,16 +269,16 @@ export default function RelationshipsView() {
             >
               <div className="text-xs font-medium text-fg">{person.name}</div>
               <div className="text-[10px] text-faint">
-                {person.role || (person.company_id ? companyMap.get(person.company_id)?.name ?? "No company" : "No company")}
+                {person.role || (person.company_id ? companyMap.get(person.company_id)?.name ?? t("relationships.people.noCompany") : t("relationships.people.noCompany"))}
               </div>
             </button>
           ))}
           {people.length === 0 ? (
-            <div className="px-2 py-2 text-[11px] text-faint">Confirm a meeting speaker or add someone here.</div>
+            <div className="px-2 py-2 text-[11px] text-faint">{t("relationships.people.empty")}</div>
           ) : null}
         </div>
 
-        <div className="mb-2 mt-4 text-[10px] font-medium uppercase tracking-wider text-faint">Companies</div>
+        <div className="mb-2 mt-4 text-[10px] font-medium uppercase tracking-wider text-faint">{t("relationships.companies.heading")}</div>
         <div className="space-y-1">
           {companies.map((company) => (
             <button
@@ -286,7 +290,7 @@ export default function RelationshipsView() {
               className={`w-full rounded-md px-2 py-2 text-left ${selection?.kind === "company" && selection.value.id === company.id ? "bg-accent-soft" : "hover:bg-elevated"}`}
             >
               <div className="text-xs font-medium text-fg">{company.name}</div>
-              <div className="text-[10px] text-faint">{company.domain || "No domain"}</div>
+              <div className="text-[10px] text-faint">{company.domain || t("relationships.companies.noDomain")}</div>
             </button>
           ))}
         </div>
@@ -296,8 +300,8 @@ export default function RelationshipsView() {
         {!selection ? (
           <div className="mx-auto mt-24 max-w-sm text-center">
             <UserRound className="mx-auto mb-3 text-faint" size={28} />
-            <h2 className="text-sm font-medium text-fg">Select a relationship</h2>
-            <p className="mt-1 text-xs text-faint">See confirmed meeting history and create a manually launched Prep brief.</p>
+            <h2 className="text-sm font-medium text-fg">{t("relationships.emptyState.title")}</h2>
+            <p className="mt-1 text-xs text-faint">{t("relationships.emptyState.subtitle")}</p>
             {error ? <p role="alert" className="mt-3 text-xs text-danger">{error}</p> : null}
           </div>
         ) : (
@@ -314,8 +318,8 @@ export default function RelationshipsView() {
                 </div>
                 <p className="mt-1 text-xs text-muted">
                   {selection.kind === "person"
-                    ? selection.value.role || selection.value.email || "Person"
-                    : selection.value.domain || "Company"}
+                    ? selection.value.role || selection.value.email || t("relationships.kind.personLabel")
+                    : selection.value.domain || t("relationships.kind.companyLabel")}
                 </p>
               </div>
               <div className="flex shrink-0 items-center gap-2">
@@ -325,23 +329,23 @@ export default function RelationshipsView() {
                   className="inline-flex items-center gap-1.5 rounded-md border border-line px-3 py-2 text-xs text-accent hover:bg-elevated disabled:opacity-50"
                 >
                   {loading && !editing ? <Loader size={13} className="animate-spin" /> : <Sparkles size={13} />}
-                  Create Prep brief
+                  {t("relationships.actions.createPrepBrief")}
                 </button>
                 <button
                   onClick={startEdit}
                   disabled={loading}
-                  aria-label={selection.kind === "person" ? "Edit contact" : "Edit company"}
+                  aria-label={selection.kind === "person" ? t("relationships.actions.editContactAria") : t("relationships.actions.editCompanyAria")}
                   className="inline-flex items-center gap-1.5 rounded-md border border-line px-3 py-2 text-xs text-fg hover:bg-elevated disabled:opacity-50"
                 >
-                  <Pencil size={13} /> Edit
+                  <Pencil size={13} /> {t("relationships.actions.editButton")}
                 </button>
                 <button
                   onClick={() => setDeleteTarget(selection)}
                   disabled={loading}
-                  aria-label={selection.kind === "person" ? "Delete contact" : "Delete company"}
+                  aria-label={selection.kind === "person" ? t("relationships.actions.deleteContactAria") : t("relationships.actions.deleteCompanyAria")}
                   className="inline-flex items-center gap-1.5 rounded-md border border-danger/40 px-3 py-2 text-xs text-danger hover:bg-danger/10 disabled:opacity-50"
                 >
-                  <Trash2 size={13} /> Delete
+                  <Trash2 size={13} /> {t("relationships.common.delete")}
                 </button>
               </div>
             </div>
@@ -356,7 +360,7 @@ export default function RelationshipsView() {
               >
                 <div className="grid grid-cols-2 gap-3">
                   <label className="space-y-1 text-[11px] text-muted">
-                    <span>Name</span>
+                    <span>{t("relationships.form.name")}</span>
                     <input
                       autoFocus
                       value={editName}
@@ -366,7 +370,7 @@ export default function RelationshipsView() {
                   </label>
                   {selection.kind === "person" ? (
                     <label className="space-y-1 text-[11px] text-muted">
-                      <span>Email</span>
+                      <span>{t("relationships.form.email")}</span>
                       <input
                         type="email"
                         value={editEmail}
@@ -376,7 +380,7 @@ export default function RelationshipsView() {
                     </label>
                   ) : null}
                   <label className="space-y-1 text-[11px] text-muted">
-                    <span>{selection.kind === "person" ? "Role" : "Domain"}</span>
+                    <span>{selection.kind === "person" ? t("relationships.form.role") : t("relationships.form.domain")}</span>
                     <input
                       value={editDetail}
                       onChange={(e) => setEditDetail(e.target.value)}
@@ -385,13 +389,13 @@ export default function RelationshipsView() {
                   </label>
                   {selection.kind === "person" ? (
                     <label className="space-y-1 text-[11px] text-muted">
-                      <span>Company</span>
+                      <span>{t("relationships.form.company")}</span>
                       <select
                         value={editCompanyId}
                         onChange={(e) => setEditCompanyId(e.target.value)}
                         className="w-full rounded border border-line bg-canvas px-2.5 py-2 text-xs text-fg"
                       >
-                        <option value="">No company</option>
+                        <option value="">{t("relationships.people.noCompany")}</option>
                         {companies.map((company) => (
                           <option key={company.id} value={company.id}>{company.name}</option>
                         ))}
@@ -400,7 +404,7 @@ export default function RelationshipsView() {
                   ) : null}
                 </div>
                 <label className="block space-y-1 text-[11px] text-muted">
-                  <span>Notes</span>
+                  <span>{t("relationships.form.notes")}</span>
                   <textarea
                     rows={4}
                     value={editNotes}
@@ -415,7 +419,7 @@ export default function RelationshipsView() {
                     disabled={loading}
                     className="rounded-md px-3 py-2 text-xs text-muted hover:bg-elevated disabled:opacity-50"
                   >
-                    Cancel
+                    {t("relationships.common.cancel")}
                   </button>
                   <button
                     type="submit"
@@ -423,26 +427,26 @@ export default function RelationshipsView() {
                     className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-2 text-xs text-white disabled:opacity-50"
                   >
                     {loading ? <Loader size={13} className="animate-spin" /> : null}
-                    Save changes
+                    {t("relationships.form.saveChanges")}
                   </button>
                 </div>
               </form>
             ) : null}
 
             <section>
-              <h3 className="mb-2 text-[11px] font-medium uppercase tracking-wider text-muted">Meeting history</h3>
+              <h3 className="mb-2 text-[11px] font-medium uppercase tracking-wider text-muted">{t("relationships.meetings.heading")}</h3>
               <div className="space-y-2">
                 {meetings.map((meeting) => (
                   <div key={meeting.item_id} className="rounded-lg border border-line bg-surface p-3">
                     <div className="text-xs font-medium text-fg">
-                      {meeting.detected_app_name ? `Meeting via ${meeting.detected_app_name}` : "Meeting"}
+                      {meeting.detected_app_name ? t("relationships.meetings.viaApp", { app: meeting.detected_app_name }) : t("relationships.meetings.fallback")}
                     </div>
                     <div className="mt-1 text-[10px] text-faint">
                       {new Date(meeting.started_at).toLocaleString()} · {meeting.status}
                     </div>
                   </div>
                 ))}
-                {meetings.length === 0 ? <p className="text-xs text-faint">No confirmed meetings are linked yet.</p> : null}
+                {meetings.length === 0 ? <p className="text-xs text-faint">{t("relationships.meetings.empty")}</p> : null}
               </div>
             </section>
 
@@ -453,7 +457,7 @@ export default function RelationshipsView() {
                   <button
                     onClick={() => navigator.clipboard.writeText(artifact.content)}
                     className="rounded p-1 text-faint hover:text-accent"
-                    aria-label="Copy brief"
+                    aria-label={t("relationships.artifact.copyAria")}
                   >
                     <Copy size={13} />
                   </button>
@@ -475,12 +479,12 @@ export default function RelationshipsView() {
           panelClassName="w-full max-w-sm rounded-xl border border-line bg-surface p-5 shadow-2xl"
         >
           <h2 id="delete-relationship-title" className="text-base font-semibold text-fg">
-            Delete {deleteTarget.value.name}?
+            {t("relationships.deleteDialog.title", { name: deleteTarget.value.name })}
           </h2>
           <p className="mt-2 text-xs leading-5 text-muted">
-            This removes {deleteTarget.value.name} from People &amp; companies.
-            {deleteTarget.kind === "person" ? " Linked meetings stay in your history." : " People in this company are not deleted."}
-            {" "}This cannot be undone.
+            {t("relationships.deleteDialog.removesPrefix", { name: deleteTarget.value.name })}
+            {deleteTarget.kind === "person" ? ` ${t("relationships.deleteDialog.personNote")}` : ` ${t("relationships.deleteDialog.companyNote")}`}
+            {" "}{t("relationships.deleteDialog.cannotUndo")}
           </p>
           <div className="mt-5 flex justify-end gap-2">
             <button
@@ -489,7 +493,7 @@ export default function RelationshipsView() {
               disabled={loading}
               className="rounded-md px-3 py-2 text-xs text-muted hover:bg-elevated disabled:opacity-50"
             >
-              Cancel
+              {t("relationships.common.cancel")}
             </button>
             <button
               type="button"
@@ -498,7 +502,7 @@ export default function RelationshipsView() {
               className="inline-flex items-center gap-1.5 rounded-md bg-danger px-3 py-2 text-xs text-white disabled:opacity-50"
             >
               {loading ? <Loader size={13} className="animate-spin" /> : <Trash2 size={13} />}
-              Delete
+              {t("relationships.common.delete")}
             </button>
           </div>
         </Dialog>

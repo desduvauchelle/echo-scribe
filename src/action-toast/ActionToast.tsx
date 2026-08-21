@@ -1,6 +1,7 @@
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
+import { useTranslation } from "react-i18next";
 
 type ActionToastPayload = {
   /** ActionCommand.action_type, e.g. "stay_awake", "launch_app". */
@@ -12,10 +13,12 @@ type ActionToastPayload = {
 const AUTO_DISMISS_MS = 5_000;
 const EXIT_MS = 240;
 
-/** Per-action icon + accent + short title. Falls back to a green check. */
-const KINDS: Record<string, { title: string; accent: string; icon: ReactElement }> = {
+/** Per-action icon + accent + short title (i18n key, resolved at render time
+ *  via `t()` — this table is module-scope and has no hook access). Falls back
+ *  to a green check. */
+const KINDS: Record<string, { titleKey: string; accent: string; icon: ReactElement }> = {
   stay_awake: {
-    title: "Staying awake",
+    titleKey: "actionToast.kinds.stayAwake",
     accent: "#FF9F0A",
     icon: (
       // coffee cup
@@ -27,7 +30,7 @@ const KINDS: Record<string, { title: string; accent: string; icon: ReactElement 
     ),
   },
   stop_stay_awake: {
-    title: "Back to normal sleep",
+    titleKey: "actionToast.kinds.stopStayAwake",
     accent: "#8E8E93",
     icon: (
       // moon
@@ -37,7 +40,7 @@ const KINDS: Record<string, { title: string; accent: string; icon: ReactElement 
     ),
   },
   launch_app: {
-    title: "App launched",
+    titleKey: "actionToast.kinds.launchApp",
     accent: "#0A84FF",
     icon: (
       // arrow up-right in a square
@@ -48,7 +51,7 @@ const KINDS: Record<string, { title: string; accent: string; icon: ReactElement 
     ),
   },
   open_url: {
-    title: "Opened in browser",
+    titleKey: "actionToast.kinds.openUrl",
     accent: "#0A84FF",
     icon: (
       // globe
@@ -59,7 +62,7 @@ const KINDS: Record<string, { title: string; accent: string; icon: ReactElement 
     ),
   },
   draft_email: {
-    title: "Email drafted",
+    titleKey: "actionToast.kinds.draftEmail",
     accent: "#BF5AF2",
     icon: (
       // envelope
@@ -70,7 +73,7 @@ const KINDS: Record<string, { title: string; accent: string; icon: ReactElement 
     ),
   },
   stop_meeting: {
-    title: "Meeting stopped",
+    titleKey: "actionToast.kinds.stopMeeting",
     accent: "#21B0CF",
     icon: (
       // two people
@@ -89,7 +92,7 @@ const COUNTER_KINDS = new Set(["increment_counter", "reset_counter", "show_count
 function kindMeta(kind: string) {
   if (COUNTER_KINDS.has(kind)) {
     return {
-      title: "Counter",
+      titleKey: "actionToast.kinds.counter",
       accent: "#8E8E93",
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -100,7 +103,7 @@ function kindMeta(kind: string) {
   }
   return (
     KINDS[kind] ?? {
-      title: "Done",
+      titleKey: "actionToast.kinds.done",
       accent: "#30D158",
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
@@ -112,6 +115,7 @@ function kindMeta(kind: string) {
 }
 
 export default function ActionToast() {
+  const { t } = useTranslation("windows");
   const [payload, setPayload] = useState<ActionToastPayload | null>(null);
   const [visible, setVisible] = useState(false);
   const [exiting, setExiting] = useState(false);
@@ -191,7 +195,7 @@ export default function ActionToast() {
     <div className="action-toast-stage">
       <section
         className={`action-toast${visible ? " is-visible" : ""}${exiting ? " is-exiting" : ""}`}
-        aria-label="Voice action executed"
+        aria-label={t("actionToast.ariaLabel")}
         onMouseEnter={clearTimers}
         onMouseLeave={() => scheduleDismiss(1_500)}
       >
@@ -200,7 +204,7 @@ export default function ActionToast() {
         </div>
 
         <div className="action-toast-copy" role="status" aria-live="polite">
-          <strong>{meta.title}</strong>
+          <strong>{t(meta.titleKey)}</strong>
           <span>{payload?.message ?? ""}</span>
         </div>
 
@@ -208,8 +212,8 @@ export default function ActionToast() {
           className="action-toast-close"
           type="button"
           onClick={dismiss}
-          title="Dismiss"
-          aria-label="Dismiss notification"
+          title={t("actionToast.dismiss")}
+          aria-label={t("actionToast.dismissNotification")}
         >
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
             <path d="M3 3l6 6M9 3L3 9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />

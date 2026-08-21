@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   listGuideTemplates,
   createGuideTemplate,
@@ -22,35 +23,16 @@ type Draft = {
 
 const EMPTY: Draft = { name: "", description: "", goal: "", notes: "", kind: "checklist" };
 
-const KIND_OPTIONS: { value: GuideTemplateKind; label: string; hint: string }[] = [
-  {
-    value: "checklist",
-    label: "Checklist",
-    hint: "Tracks which agenda points from the notes have been covered (sales, discovery).",
-  },
-  {
-    value: "coach",
-    label: "Coach",
-    hint: "Notes are principles, not rules — occasional nudges tied to what was just said.",
-  },
-  {
-    value: "tracker",
-    label: "Note-taker",
-    hint: "Keeps a live bullet list of the main points and posts updates as things change.",
-  },
+const KIND_OPTIONS: { value: GuideTemplateKind }[] = [
+  { value: "checklist" },
+  { value: "coach" },
+  { value: "tracker" },
 ];
 
-const KIND_LABELS: Record<string, string> = Object.fromEntries(
-  KIND_OPTIONS.map((option) => [option.value, option.label]),
-);
-
-const NOTES_PLACEHOLDER: Record<GuideTemplateKind, string> = {
-  checklist: "Notes — questions to ask, talking points to cover (one per line)",
-  coach: "Notes — principles to embody, one per line",
-  tracker: "Notes — what to capture, e.g. decisions, numbers, action items (optional)",
-};
+const KIND_VALUES: GuideTemplateKind[] = KIND_OPTIONS.map((option) => option.value);
 
 export default function GuideTemplateManager() {
+  const { t } = useTranslation();
   const toasts = useToasts();
   const [items, setItems] = useState<GuideTemplate[]>([]);
   const [insightConfigs, setInsightConfigs] = useState<Record<string, GuideInsightConfig>>({});
@@ -79,15 +61,15 @@ export default function GuideTemplateManager() {
     setDraft(EMPTY);
   };
 
-  const startEdit = (t: GuideTemplate) => {
+  const startEdit = (tmpl: GuideTemplate) => {
     setCreating(false);
-    setEditingId(t.id);
+    setEditingId(tmpl.id);
     setDraft({
-      name: t.name,
-      description: t.description,
-      goal: t.goal,
-      notes: t.notes,
-      kind: KIND_LABELS[t.kind] ? t.kind : "checklist",
+      name: tmpl.name,
+      description: tmpl.description,
+      goal: tmpl.goal,
+      notes: tmpl.notes,
+      kind: KIND_VALUES.includes(tmpl.kind) ? tmpl.kind : "checklist",
     });
   };
 
@@ -99,7 +81,7 @@ export default function GuideTemplateManager() {
 
   const save = async () => {
     if (!draft.name.trim()) {
-      toasts.push({ tone: "error", message: "Template name is required." });
+      toasts.push({ tone: "error", message: t("guideTemplateManager.nameRequired") });
       return;
     }
     try {
@@ -169,45 +151,45 @@ export default function GuideTemplateManager() {
     <div className="flex flex-col gap-2 rounded-md border border-line bg-canvas p-3">
       <input
         className="rounded-md border border-line bg-canvas px-2 py-1 text-sm focus:border-accent focus:outline-none"
-        placeholder="Name (e.g. Customer discovery)"
-        aria-label="Template name"
+        placeholder={t("guideTemplateManager.namePlaceholder")}
+        aria-label={t("guideTemplateManager.nameAriaLabel")}
         value={draft.name}
         onChange={(e) => setDraft({ ...draft, name: e.target.value })}
       />
       <input
         className="rounded-md border border-line bg-canvas px-2 py-1 text-sm focus:border-accent focus:outline-none"
-        placeholder="Short description"
-        aria-label="Description"
+        placeholder={t("guideTemplateManager.descriptionPlaceholder")}
+        aria-label={t("guideTemplateManager.descriptionAriaLabel")}
         value={draft.description}
         onChange={(e) => setDraft({ ...draft, description: e.target.value })}
       />
       <label className="flex flex-col gap-1 text-[11px] text-muted">
-        Guide style
+        {t("guideTemplateManager.guideStyleLabel")}
         <select
           className="rounded-md border border-line bg-canvas px-2 py-1 text-sm text-fg focus:border-accent focus:outline-none"
-          aria-label="Guide style"
+          aria-label={t("guideTemplateManager.guideStyleLabel")}
           value={draft.kind}
           onChange={(e) => setDraft({ ...draft, kind: e.target.value as GuideTemplateKind })}
         >
           {KIND_OPTIONS.map((option) => (
             <option key={option.value} value={option.value}>
-              {option.label}
+              {t(`guideTemplateManager.kind.${option.value}.label`)}
             </option>
           ))}
         </select>
-        <span>{KIND_OPTIONS.find((option) => option.value === draft.kind)?.hint}</span>
+        <span>{t(`guideTemplateManager.kind.${draft.kind}.hint`)}</span>
       </label>
       <textarea
         className="min-h-[48px] rounded-md border border-line bg-canvas px-2 py-1 text-sm focus:border-accent focus:outline-none"
-        placeholder="Goal — what should this conversation achieve?"
-        aria-label="Goal"
+        placeholder={t("guideTemplateManager.goalPlaceholder")}
+        aria-label={t("guideTemplateManager.goalAriaLabel")}
         value={draft.goal}
         onChange={(e) => setDraft({ ...draft, goal: e.target.value })}
       />
       <textarea
         className="min-h-[96px] rounded-md border border-line bg-canvas px-2 py-1 text-sm focus:border-accent focus:outline-none"
-        placeholder={NOTES_PLACEHOLDER[draft.kind]}
-        aria-label="Notes"
+        placeholder={t(`guideTemplateManager.kind.${draft.kind}.notesPlaceholder`)}
+        aria-label={t("guideTemplateManager.notesAriaLabel")}
         value={draft.notes}
         onChange={(e) => setDraft({ ...draft, notes: e.target.value })}
       />
@@ -217,14 +199,14 @@ export default function GuideTemplateManager() {
           className="rounded-md bg-accent px-3 py-1 text-xs font-semibold text-canvas hover:bg-accent-hover"
           onClick={() => void save()}
         >
-          Save
+          {t("guideTemplateManager.saveButton")}
         </button>
         <button
           type="button"
           className="rounded border border-line px-2 py-0.5 text-xs hover:bg-elevated"
           onClick={cancel}
         >
-          Cancel
+          {t("guideTemplateManager.cancelButton")}
         </button>
       </div>
     </div>
@@ -233,52 +215,52 @@ export default function GuideTemplateManager() {
   return (
     <div className="flex flex-col gap-3">
       <p className="text-xs leading-relaxed text-muted">
-        Optionally run a rubric or conversation-signal check after each meeting. These checks use
-        meeting transcripts only, stay separate from the main recap, and require exact quoted
-        evidence for positive conclusions.
+        {t("guideTemplateManager.description")}
       </p>
       {items.length === 0 && !creating && (
-        <p className="text-xs text-muted">No guide templates yet.</p>
+        <p className="text-xs text-muted">{t("guideTemplateManager.emptyState")}</p>
       )}
-      {items.map((t) =>
-        editingId === t.id ? (
-          <div key={t.id}>{editor}</div>
+      {items.map((tmpl) =>
+        editingId === tmpl.id ? (
+          <div key={tmpl.id}>{editor}</div>
         ) : (
-          <div key={t.id} className="rounded-md border border-line bg-surface px-3 py-2">
+          <div key={tmpl.id} className="rounded-md border border-line bg-surface px-3 py-2">
             <div className="flex items-center justify-between gap-2">
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
-                  <span className="truncate text-sm text-fg">{t.name}</span>
+                  <span className="truncate text-sm text-fg">{tmpl.name}</span>
                   <span className="shrink-0 rounded-full border border-line px-1.5 py-px text-[10px] text-muted">
-                    {KIND_LABELS[t.kind] ?? "Checklist"}
+                    {t(
+                      `guideTemplateManager.kind.${KIND_VALUES.includes(tmpl.kind) ? tmpl.kind : "checklist"}.label`,
+                    )}
                   </span>
                 </div>
-                {t.description && (
-                  <div className="truncate text-xs text-muted">{t.description}</div>
+                {tmpl.description && (
+                  <div className="truncate text-xs text-muted">{tmpl.description}</div>
                 )}
               </div>
               <div className="flex shrink-0 gap-1">
                 <button
                   type="button"
                   className="rounded border border-line px-2 py-0.5 text-xs hover:bg-elevated"
-                  onClick={() => startEdit(t)}
+                  onClick={() => startEdit(tmpl)}
                 >
-                  Edit
+                  {t("guideTemplateManager.editButton")}
                 </button>
                 <button
                   type="button"
                   className="rounded border border-line px-2 py-0.5 text-xs hover:bg-danger/15 hover:text-danger"
-                  onClick={() => void remove(t.id)}
+                  onClick={() => void remove(tmpl.id)}
                 >
-                  Delete
+                  {t("guideTemplateManager.deleteButton")}
                 </button>
               </div>
             </div>
             {(() => {
               // Trackers produce live notes, not a gradable rubric — the
               // post-meeting insight review doesn't apply to them.
-              if (t.kind === "tracker") return null;
-              const config = configFor(t);
+              if (tmpl.kind === "tracker") return null;
+              const config = configFor(tmpl);
               return (
                 <div className="mt-2 border-t border-line pt-2">
                   <label className="flex items-center gap-2 text-xs text-fg">
@@ -286,42 +268,42 @@ export default function GuideTemplateManager() {
                       type="checkbox"
                       checked={config.enabled}
                       onChange={(event) =>
-                        void saveInsightConfig(t, { enabled: event.target.checked })
+                        void saveInsightConfig(tmpl, { enabled: event.target.checked })
                       }
                     />
-                    Track after meetings
+                    {t("guideTemplateManager.trackAfterMeetings")}
                   </label>
                   {config.enabled && (
                     <div className="mt-2 grid gap-2 sm:grid-cols-2">
                       <label className="flex flex-col gap-1 text-[11px] text-muted">
-                        Measure
+                        {t("guideTemplateManager.measureLabel")}
                         <select
                           className="rounded border border-line bg-canvas px-2 py-1 text-xs text-fg"
                           value={config.insight_kind}
                           onChange={(event) =>
-                            void saveInsightConfig(t, {
+                            void saveInsightConfig(tmpl, {
                               insight_kind: event.target.value as GuideInsightConfig["insight_kind"],
                             })
                           }
                         >
-                          <option value="rubric">Rubric performance</option>
-                          <option value="signals">Conversation signals</option>
+                          <option value="rubric">{t("guideTemplateManager.rubricPerformance")}</option>
+                          <option value="signals">{t("guideTemplateManager.conversationSignals")}</option>
                         </select>
                       </label>
                       <label className="flex flex-col gap-1 text-[11px] text-muted">
-                        Analyze
+                        {t("guideTemplateManager.analyzeLabel")}
                         <select
                           className="rounded border border-line bg-canvas px-2 py-1 text-xs text-fg"
                           value={config.subject_scope}
                           onChange={(event) =>
-                            void saveInsightConfig(t, {
+                            void saveInsightConfig(tmpl, {
                               subject_scope: event.target.value as GuideInsightConfig["subject_scope"],
                             })
                           }
                         >
-                          <option value="you">My speech</option>
-                          <option value="them">Other side</option>
-                          <option value="interaction">The interaction</option>
+                          <option value="you">{t("guideTemplateManager.mySpeech")}</option>
+                          <option value="them">{t("guideTemplateManager.otherSide")}</option>
+                          <option value="interaction">{t("guideTemplateManager.theInteraction")}</option>
                         </select>
                       </label>
                       <label className="flex items-center gap-2 text-xs text-fg sm:col-span-2">
@@ -329,12 +311,12 @@ export default function GuideTemplateManager() {
                           type="checkbox"
                           checked={config.show_in_daily_recap}
                           onChange={(event) =>
-                            void saveInsightConfig(t, {
+                            void saveInsightConfig(tmpl, {
                               show_in_daily_recap: event.target.checked,
                             })
                           }
                         />
-                        Show results in Daily recap
+                        {t("guideTemplateManager.showResultsInDailyRecap")}
                       </label>
                     </div>
                   )}
@@ -352,7 +334,7 @@ export default function GuideTemplateManager() {
           className="self-start rounded border border-line px-2 py-0.5 text-xs hover:bg-elevated"
           onClick={startCreate}
         >
-          + New template
+          {t("guideTemplateManager.newTemplateButton")}
         </button>
       )}
     </div>

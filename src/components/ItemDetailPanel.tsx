@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import {
   listItemEvents,
@@ -20,18 +21,8 @@ type Props = {
   itemId: string;
 };
 
-const EVENT_LABELS: Record<string, string> = {
-  created: "Created",
-  deleted: "Deleted",
-  restored: "Restored",
-  content_edited: "Content edited",
-  kind_changed: "Kind changed",
-  project_changed: "Project changed",
-  tags_changed: "Tags updated",
-  classified: "Auto-classified",
-};
-
 export default function ItemDetailPanel({ itemId }: Props) {
+  const { t } = useTranslation();
   const [tab, setTab] = useState<Tab>("activity");
 
   return (
@@ -41,13 +32,13 @@ export default function ItemDetailPanel({ itemId }: Props) {
           active={tab === "activity"}
           onClick={() => setTab("activity")}
         >
-          Activity
+          {t("itemDetailPanel.tabs.activity")}
         </TabButton>
         <TabButton
           active={tab === "sessions"}
           onClick={() => setTab("sessions")}
         >
-          Sessions
+          {t("itemDetailPanel.tabs.sessions")}
         </TabButton>
       </div>
 
@@ -86,6 +77,7 @@ function TabButton({
 }
 
 function ActivityTab({ itemId }: { itemId: string }) {
+  const { t } = useTranslation();
   const [events, setEvents] = useState<ItemEvent[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -104,12 +96,14 @@ function ActivityTab({ itemId }: { itemId: string }) {
   }, [itemId]);
 
   if (loading) {
-    return <div className="text-[11px] text-muted">Loading...</div>;
+    return <div className="text-[11px] text-muted">{t("itemDetailPanel.loading")}</div>;
   }
 
   if (events.length === 0) {
     return (
-      <div className="text-[11px] text-muted">No activity recorded.</div>
+      <div className="text-[11px] text-muted">
+        {t("itemDetailPanel.activityTab.noActivity")}
+      </div>
     );
   }
 
@@ -120,7 +114,7 @@ function ActivityTab({ itemId }: { itemId: string }) {
           <span className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-line-strong" />
           <div className="min-w-0">
             <span className="font-medium text-muted">
-              {EVENT_LABELS[ev.event_type] ?? ev.event_type}
+              {t(`itemDetailPanel.eventLabels.${ev.event_type}`, ev.event_type)}
             </span>
             {ev.detail ? (
               <span className="ml-1 text-faint">{ev.detail}</span>
@@ -136,6 +130,7 @@ function ActivityTab({ itemId }: { itemId: string }) {
 }
 
 function SessionsTab({ itemId }: { itemId: string }) {
+  const { t } = useTranslation();
   const [chatSessions, setChatSessions] = useState<ChatSession[]>([]);
   const [claudeSessions, setClaudeSessions] = useState<ClaudeSessionSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -191,7 +186,7 @@ function SessionsTab({ itemId }: { itemId: string }) {
   };
 
   if (loading) {
-    return <div className="text-[11px] text-muted">Loading...</div>;
+    return <div className="text-[11px] text-muted">{t("itemDetailPanel.loading")}</div>;
   }
 
   const hasChatSessions = chatSessions.length > 0;
@@ -200,7 +195,7 @@ function SessionsTab({ itemId }: { itemId: string }) {
   if (!hasChatSessions && !hasClaudeSessions) {
     return (
       <div className="text-[11px] text-muted">
-        No linked sessions found.
+        {t("itemDetailPanel.sessionsTab.noLinkedSessions")}
       </div>
     );
   }
@@ -210,7 +205,7 @@ function SessionsTab({ itemId }: { itemId: string }) {
       {hasChatSessions && (
         <div>
           <div className="mb-1 text-[11px] font-medium uppercase tracking-[0.08em] text-muted">
-            Echo Scribe Chat
+            {t("itemDetailPanel.sessionsTab.echoScribeChatHeading")}
           </div>
           {chatSessions.map((s) => (
             <div key={s.id}>
@@ -246,18 +241,20 @@ function SessionsTab({ itemId }: { itemId: string }) {
                       }`}
                     >
                       <span className="font-medium">
-                        {msg.role === "user" ? "You" : "AI"}:
+                        {msg.role === "user"
+                          ? t("itemDetailPanel.sessionsTab.youLabel")
+                          : t("itemDetailPanel.sessionsTab.aiLabel")}
                       </span>{" "}
                       <span className="whitespace-pre-wrap">
                         {msg.content.length > 300
-                          ? `${msg.content.slice(0, 300)}...`
+                          ? `${msg.content.slice(0, 300)}${t("itemDetailPanel.sessionsTab.truncationSuffix")}`
                           : msg.content}
                       </span>
                     </div>
                   ))}
                   {chatMessages.length === 0 && (
                     <div className="text-[11px] text-muted">
-                      No messages.
+                      {t("itemDetailPanel.sessionsTab.noMessages")}
                     </div>
                   )}
                 </div>
@@ -270,7 +267,7 @@ function SessionsTab({ itemId }: { itemId: string }) {
       {hasClaudeSessions && (
         <div>
           <div className="mb-1 text-[11px] font-medium uppercase tracking-[0.08em] text-muted">
-            Claude Code Sessions
+            {t("itemDetailPanel.sessionsTab.claudeCodeSessionsHeading")}
           </div>
           {claudeSessions.slice(0, 10).map((s) => (
             <div key={s.session_id}>
@@ -291,7 +288,7 @@ function SessionsTab({ itemId }: { itemId: string }) {
                   {s.preview || s.session_id.slice(0, 12)}
                 </span>
                 <span className="ml-auto shrink-0 text-faint">
-                  {s.message_count} msgs
+                  {t("itemDetailPanel.sessionsTab.msgCount", { count: s.message_count })}
                 </span>
               </button>
               {expandedClaude === s.session_id && (
@@ -307,20 +304,19 @@ function SessionsTab({ itemId }: { itemId: string }) {
                     >
                       <span className="font-medium">
                         {msg.role === "human" || msg.role === "user"
-                          ? "You"
-                          : "Claude"}
-                        :
+                          ? t("itemDetailPanel.sessionsTab.youLabel")
+                          : t("itemDetailPanel.sessionsTab.claudeLabel")}
                       </span>{" "}
                       <span className="whitespace-pre-wrap">
                         {msg.content.length > 300
-                          ? `${msg.content.slice(0, 300)}...`
+                          ? `${msg.content.slice(0, 300)}${t("itemDetailPanel.sessionsTab.truncationSuffix")}`
                           : msg.content}
                       </span>
                     </div>
                   ))}
                   {claudeMessages.length === 0 && (
                     <div className="text-[11px] text-muted">
-                      No messages.
+                      {t("itemDetailPanel.sessionsTab.noMessages")}
                     </div>
                   )}
                 </div>

@@ -1,4 +1,5 @@
 import { CheckCircle2, CircleAlert } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 type Props = {
   title: string;
@@ -10,23 +11,25 @@ type Props = {
 };
 
 export function StatusPill({ granted }: { granted: boolean }) {
+  const { t } = useTranslation();
   // Fixed width: "Granted" and "Not granted" render at different natural
   // widths, and this pill sits in a right-aligned column — without a fixed
   // width the whole column shifts sideways whenever the status flips.
   return granted ? (
     <span className="inline-flex w-28 items-center justify-center gap-1 whitespace-nowrap rounded-full bg-success/15 px-2 py-0.5 text-xs font-medium text-success">
       <CheckCircle2 size={11} strokeWidth={2.25} />
-      Granted
+      {t("permissionRow.granted")}
     </span>
   ) : (
     <span className="inline-flex w-28 items-center justify-center gap-1 whitespace-nowrap rounded-full bg-warning/15 px-2 py-0.5 text-xs font-medium text-warning">
       <CircleAlert size={11} strokeWidth={2.25} />
-      Not granted
+      {t("permissionRow.notGranted")}
     </span>
   );
 }
 
 export default function PermissionRow(props: Props) {
+  const { t } = useTranslation();
   return (
     <div className="flex items-start justify-between gap-6">
       <div className="min-w-0 flex-1">
@@ -45,7 +48,7 @@ export default function PermissionRow(props: Props) {
             onClick={props.onGrant}
             className="cursor-pointer rounded-md border border-line px-3 py-1 text-xs text-muted transition-colors hover:bg-elevated hover:text-fg"
           >
-            Grant access
+            {t("permissionRow.grantAccess")}
           </button>
           <button
             type="button"
@@ -55,7 +58,7 @@ export default function PermissionRow(props: Props) {
           >
             {/* Label never changes — swapping to "…" while busy resized the
                 button and made the whole row wiggle on every refresh. */}
-            Re-check
+            {t("permissionRow.recheck")}
           </button>
         </div>
       </div>

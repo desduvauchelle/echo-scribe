@@ -1,6 +1,8 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
+// Side-effect: resolves + applies the user's language before React mounts.
+import "./i18n";
 import { frontendLog } from "./lib/api";
 import { initTheme } from "./lib/theme";
 import "./styles/globals.css";

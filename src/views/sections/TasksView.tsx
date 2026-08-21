@@ -1,5 +1,6 @@
 import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   completeTask,
   listTasks,
@@ -28,6 +29,7 @@ type Props = {
 };
 
 export default function TasksView({ projects, embedded = false }: Props) {
+  const { t } = useTranslation("main");
   const [open, setOpen] = useState<TaskWithItem[]>([]);
   const [done, setDone] = useState<TaskWithItem[]>([]);
   const [showDone, setShowDone] = useState(false);
@@ -53,17 +55,19 @@ export default function TasksView({ projects, embedded = false }: Props) {
   const fetchDone = useCallback(async () => {
     setLoadingDone(true);
     try {
-      const t = await listTasks({ include_completed: true, project_id: null });
-      setDone(t);
+      const doneTasks = await listTasks({ include_completed: true, project_id: null });
+      setDone(doneTasks);
     } catch (e) {
       toasts.push({
         tone: "error",
-        message: `Couldn't load done tasks: ${e instanceof Error ? e.message : String(e)}`,
+        message: t("tasks.toast.loadDoneFailed", {
+          error: e instanceof Error ? e.message : String(e),
+        }),
       });
     } finally {
       setLoadingDone(false);
     }
-  }, [toasts]);
+  }, [toasts, t]);
 
   useEffect(() => {
     void fetchOpen();
@@ -105,43 +109,49 @@ export default function TasksView({ projects, embedded = false }: Props) {
     };
   }, [fetchOpen, fetchDone, showDone]);
 
-  const onComplete = async (t: TaskWithItem) => {
-    setOpen((prev) => prev.filter((x) => x.item.id !== t.item.id));
+  const onComplete = async (task: TaskWithItem) => {
+    setOpen((prev) => prev.filter((x) => x.item.id !== task.item.id));
     try {
-      await completeTask(t.item.id);
+      await completeTask(task.item.id);
       if (showDone) void fetchDone();
     } catch (e) {
       toasts.push({
         tone: "error",
-        message: `Complete failed: ${e instanceof Error ? e.message : String(e)}`,
+        message: t("tasks.toast.completeFailed", {
+          error: e instanceof Error ? e.message : String(e),
+        }),
       });
       void fetchOpen();
     }
   };
 
-  const onUncomplete = async (t: TaskWithItem) => {
-    setDone((prev) => prev.filter((x) => x.item.id !== t.item.id));
+  const onUncomplete = async (task: TaskWithItem) => {
+    setDone((prev) => prev.filter((x) => x.item.id !== task.item.id));
     try {
-      await uncompleteTask(t.item.id);
+      await uncompleteTask(task.item.id);
       void fetchOpen();
     } catch (e) {
       toasts.push({
         tone: "error",
-        message: `Uncomplete failed: ${e instanceof Error ? e.message : String(e)}`,
+        message: t("tasks.toast.uncompleteFailed", {
+          error: e instanceof Error ? e.message : String(e),
+        }),
       });
       void fetchDone();
     }
   };
 
-  const onChangeDeadline = async (t: TaskWithItem, value: string) => {
+  const onChangeDeadline = async (task: TaskWithItem, value: string) => {
     const iso = dateInputToIso(value);
     try {
-      await setTaskDeadline(t.item.id, iso);
+      await setTaskDeadline(task.item.id, iso);
       void fetchOpen();
     } catch (e) {
       toasts.push({
         tone: "error",
-        message: `Update deadline failed: ${e instanceof Error ? e.message : String(e)}`,
+        message: t("tasks.toast.updateDeadlineFailed", {
+          error: e instanceof Error ? e.message : String(e),
+        }),
       });
     }
   };
@@ -150,13 +160,13 @@ export default function TasksView({ projects, embedded = false }: Props) {
     <div className={embedded ? "flex flex-col" : "flex h-full flex-col"}>
       {embedded ? null : (
         <div className="border-b border-line bg-canvas/40 px-6 py-4">
-          <h1 className="text-lg font-semibold tracking-tight text-fg">Tasks</h1>
+          <h1 className="text-lg font-semibold tracking-tight text-fg">{t("tasks.header.title")}</h1>
           <p className="mt-0.5 text-xs text-muted">
-            <span className="font-medium text-fg">{open.length}</span> open ·{" "}
+            <span className="font-medium text-fg">{open.length}</span> {t("tasks.header.openLabel")} ·{" "}
             <span className="font-medium text-fg">
               {done.length || (showDone ? 0 : "—")}
             </span>{" "}
-            done
+            {t("tasks.header.doneLabel")}
           </p>
         </div>
       )}
@@ -166,22 +176,22 @@ export default function TasksView({ projects, embedded = false }: Props) {
           <div className="mb-3 rounded-md border border-danger/40 bg-danger/15 px-3 py-2 text-sm text-danger">
             {error}{" "}
             <button type="button" onClick={() => void fetchOpen()} className="ml-2 underline">
-              Retry
+              {t("tasks.error.retry")}
             </button>
           </div>
         ) : null}
 
         <section>
           <h2 className="mb-2 text-[11px] font-medium uppercase tracking-[0.08em] text-muted">
-            Open
+            {t("tasks.sections.open")}
           </h2>
           {loadingOpen ? (
             <SkeletonList />
           ) : open.length === 0 ? (
             <EmptyState
               icon={<ListTodo size={20} strokeWidth={1.75} />}
-              title="No open tasks."
-              subtitle="When you capture a task with the log hotkey, it shows up here."
+              title={t("tasks.emptyState.noOpenTasks.title")}
+              subtitle={t("tasks.emptyState.noOpenTasks.subtitle")}
             />
           ) : (
             <div className="flex flex-col gap-2">
@@ -202,14 +212,14 @@ export default function TasksView({ projects, embedded = false }: Props) {
         <section className="mt-8">
           <div className="mb-2 flex items-center justify-between">
             <h2 className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted">
-              Done
+              {t("tasks.sections.done")}
             </h2>
             <button
               type="button"
               onClick={() => setShowDone((v) => !v)}
               className="rounded border border-line px-2 py-0.5 text-xs hover:bg-elevated"
             >
-              {showDone ? "Hide" : "Show"}
+              {showDone ? t("tasks.toggle.hide") : t("tasks.toggle.show")}
             </button>
           </div>
           {showDone ? (
@@ -218,8 +228,8 @@ export default function TasksView({ projects, embedded = false }: Props) {
             ) : done.length === 0 ? (
               <EmptyState
                 icon={<CheckCircle2 size={20} strokeWidth={1.75} />}
-                title="No completed tasks."
-                subtitle="Tasks you check off will appear here."
+                title={t("tasks.emptyState.noCompletedTasks.title")}
+                subtitle={t("tasks.emptyState.noCompletedTasks.subtitle")}
               />
             ) : (
               <div className="flex flex-col gap-2 opacity-80">
@@ -281,13 +291,14 @@ function TaskCheckbox({
   completed: boolean;
   onToggle: () => void;
 }) {
+  const { t } = useTranslation("main");
   return (
     <button
       type="button"
       role="checkbox"
       aria-checked={completed}
-      aria-label={completed ? "Mark task as not done" : "Complete task"}
-      title={completed ? "Mark as open" : "Complete task"}
+      aria-label={completed ? t("tasks.checkbox.markNotDoneAria") : t("tasks.checkbox.completeAria")}
+      title={completed ? t("tasks.checkbox.markOpenTitle") : t("tasks.checkbox.completeAria")}
       onClick={onToggle}
       className={`grid h-5 w-5 place-items-center rounded-md border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 ${
         completed
@@ -309,6 +320,7 @@ function DeadlineBadge({
   completedAtIso: string | null;
   onChange: (value: string) => void;
 }) {
+  const { t } = useTranslation("main");
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState(isoToDateInput(deadlineIso));
 
@@ -319,7 +331,7 @@ function DeadlineBadge({
   if (completedAtIso) {
     return (
       <span className="rounded-full bg-success/15 px-2 py-0.5 text-[10px] text-success">
-        Done {shortDate(completedAtIso)}
+        {t("tasks.deadline.doneLabel", { date: shortDate(completedAtIso) })}
       </span>
     );
   }
@@ -327,14 +339,14 @@ function DeadlineBadge({
   const tMs = parseIso(deadlineIso);
   const now = Date.now();
   let tone = "border-line text-muted";
-  let label = "No deadline";
+  let label = t("tasks.deadline.noDeadline");
   if (tMs !== null) {
     if (tMs < now) {
       tone = "border-danger/40 text-danger";
-      label = `Overdue · ${shortDate(deadlineIso!)}`;
+      label = t("tasks.deadline.overdue", { date: shortDate(deadlineIso!) });
     } else if (isSameLocalDay(tMs, now)) {
       tone = "border-warning/40 text-warning";
-      label = `Today · ${shortDate(deadlineIso!)}`;
+      label = t("tasks.deadline.today", { date: shortDate(deadlineIso!) });
     } else {
       tone = "border-line text-muted";
       label = shortDate(deadlineIso!);
@@ -359,7 +371,7 @@ function DeadlineBadge({
           }}
           className="rounded border border-line px-1 py-0.5 text-[10px] hover:bg-elevated"
         >
-          OK
+          {t("tasks.deadline.ok")}
         </button>
         <button
           type="button"
@@ -369,7 +381,7 @@ function DeadlineBadge({
           }}
           className="rounded border border-line px-1 py-0.5 text-[10px] hover:bg-elevated"
         >
-          Clear
+          {t("tasks.deadline.clear")}
         </button>
       </div>
     );

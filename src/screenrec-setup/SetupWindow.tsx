@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { useTranslation } from "react-i18next";
 import {
   listScreenSources,
   listInputDevices,
@@ -35,6 +36,7 @@ type SourceKind = "screen" | "window" | "area";
 const COUNTDOWN_SECONDS = 3;
 
 const SetupWindow: React.FC = () => {
+  const { t } = useTranslation("windows");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
@@ -299,13 +301,15 @@ const SetupWindow: React.FC = () => {
     let sourceLabel = "";
     if (sourceKind === "screen") {
       const display = displays.find((d) => d.id === selectedDisplayId);
-      sourceLabel = display?.label ?? "Screen";
+      sourceLabel = display?.label ?? t("screenrecSetup.sourceLabelScreen");
     } else if (sourceKind === "window") {
       const win = windows.find((w) => w.id === selectedWindowId);
-      sourceLabel = win ? `${win.app} — ${win.title}` : "Window";
+      sourceLabel = win ? `${win.app} — ${win.title}` : t("screenrecSetup.window");
     } else {
       const display = displays.find((d) => d.id === selectedDisplayId);
-      sourceLabel = display ? `Area of ${display.label}` : "Area";
+      sourceLabel = display
+        ? t("screenrecSetup.areaOfDisplay", { label: display.label })
+        : t("screenrecSetup.area");
     }
 
     await startScreenRecording({
@@ -421,7 +425,7 @@ const SetupWindow: React.FC = () => {
   if (loading) {
     return (
       <div style={styles.root}>
-        <p style={styles.loadingText}>Loading sources…</p>
+        <p style={styles.loadingText}>{t("screenrecSetup.loadingSources")}</p>
       </div>
     );
   }
@@ -438,13 +442,13 @@ const SetupWindow: React.FC = () => {
     <div style={styles.root}>
       {/* Header */}
       <div style={styles.header}>
-        <h2 style={styles.title}>New Recording</h2>
+        <h2 style={styles.title}>{t("screenrecSetup.newRecording")}</h2>
       </div>
 
       <div style={styles.body}>
         {/* Source kind segmented control */}
         <section style={styles.section}>
-          <label style={styles.sectionLabel}>Capture</label>
+          <label style={styles.sectionLabel}>{t("screenrecSetup.capture")}</label>
           <div style={styles.segmentedControl}>
             <button
               style={{
@@ -454,7 +458,7 @@ const SetupWindow: React.FC = () => {
               onClick={() => setSourceKind("screen")}
               aria-pressed={sourceKind === "screen"}
             >
-              Entire Screen
+              {t("screenrecSetup.entireScreen")}
             </button>
             <button
               style={{
@@ -464,7 +468,7 @@ const SetupWindow: React.FC = () => {
               onClick={() => setSourceKind("window")}
               aria-pressed={sourceKind === "window"}
             >
-              Window
+              {t("screenrecSetup.window")}
             </button>
             <button
               style={{
@@ -474,7 +478,7 @@ const SetupWindow: React.FC = () => {
               onClick={() => setSourceKind("area")}
               aria-pressed={sourceKind === "area"}
             >
-              Area
+              {t("screenrecSetup.area")}
             </button>
           </div>
         </section>
@@ -483,13 +487,13 @@ const SetupWindow: React.FC = () => {
         <section style={styles.section}>
           {sourceKind === "screen" ? (
             <>
-              <label style={styles.sectionLabel}>Display</label>
+              <label style={styles.sectionLabel}>{t("screenrecSetup.display")}</label>
               {displays.length === 0 ? (
-                <p style={styles.emptyText}>No displays found</p>
+                <p style={styles.emptyText}>{t("screenrecSetup.noDisplaysFound")}</p>
               ) : (
                 <select
                   style={styles.select}
-                  aria-label="Display"
+                  aria-label={t("screenrecSetup.display")}
                   value={selectedDisplayId ?? ""}
                   onChange={(e) => setSelectedDisplayId(Number(e.target.value))}
                 >
@@ -503,11 +507,9 @@ const SetupWindow: React.FC = () => {
             </>
           ) : sourceKind === "window" ? (
             <>
-              <label style={styles.sectionLabel}>Window</label>
+              <label style={styles.sectionLabel}>{t("screenrecSetup.window")}</label>
               {windows.length === 0 ? (
-                <p style={styles.emptyText}>
-                  No windows found. Screen Recording permission may be needed.
-                </p>
+                <p style={styles.emptyText}>{t("screenrecSetup.noWindowsFound")}</p>
               ) : (
                 <div style={styles.windowList}>
                   {windows.map((w) => (
@@ -541,13 +543,13 @@ const SetupWindow: React.FC = () => {
             </>
           ) : (
             <>
-              <label style={styles.sectionLabel}>Display</label>
+              <label style={styles.sectionLabel}>{t("screenrecSetup.display")}</label>
               {displays.length === 0 ? (
-                <p style={styles.emptyText}>No displays found</p>
+                <p style={styles.emptyText}>{t("screenrecSetup.noDisplaysFound")}</p>
               ) : (
                 <select
                   style={styles.select}
-                  aria-label="Display"
+                  aria-label={t("screenrecSetup.display")}
                   value={selectedDisplayId ?? ""}
                   onChange={(e) => {
                     setSelectedDisplayId(Number(e.target.value));
@@ -571,10 +573,10 @@ const SetupWindow: React.FC = () => {
                   disabled={selectedDisplayId === null || pickerOpen}
                 >
                   {pickerOpen
-                    ? "Selecting…"
+                    ? t("screenrecSetup.selecting")
                     : areaRect
-                      ? "Re-select area"
-                      : "Select area"}
+                      ? t("screenrecSetup.reselectArea")
+                      : t("screenrecSetup.selectArea")}
                 </button>
                 {areaRect && (
                   <span style={styles.areaRectReadout}>
@@ -583,9 +585,7 @@ const SetupWindow: React.FC = () => {
                 )}
               </div>
               {!areaRect && !pickerOpen && (
-                <p style={styles.hintText}>
-                  Drag to select the region to record.
-                </p>
+                <p style={styles.hintText}>{t("screenrecSetup.dragToSelectHint")}</p>
               )}
             </>
           )}
@@ -593,7 +593,7 @@ const SetupWindow: React.FC = () => {
 
         {/* Audio section */}
         <section style={styles.section}>
-          <label style={styles.sectionLabel}>Audio</label>
+          <label style={styles.sectionLabel}>{t("screenrecSetup.audio")}</label>
 
           {/* System audio toggle */}
           <label style={styles.toggleRow}>
@@ -603,7 +603,7 @@ const SetupWindow: React.FC = () => {
               checked={sysaudio}
               onChange={(e) => setSysaudio(e.target.checked)}
             />
-            <span style={styles.toggleLabel}>System audio</span>
+            <span style={styles.toggleLabel}>{t("screenrecSetup.systemAudio")}</span>
           </label>
 
           {/* Microphone toggle */}
@@ -614,25 +614,25 @@ const SetupWindow: React.FC = () => {
               checked={micEnabled}
               onChange={(e) => setMicEnabled(e.target.checked)}
             />
-            <span style={styles.toggleLabel}>Microphone</span>
+            <span style={styles.toggleLabel}>{t("screenrecSetup.microphone")}</span>
           </label>
 
           {/* Mic device select (only when mic is enabled) */}
           {micEnabled && (
             <div style={styles.micSelectWrapper}>
               {inputDevices.length === 0 ? (
-                <p style={styles.emptyText}>No input devices found</p>
+                <p style={styles.emptyText}>{t("screenrecSetup.noInputDevices")}</p>
               ) : (
                 <select
                   style={styles.select}
-                  aria-label="Microphone device"
+                  aria-label={t("screenrecSetup.microphoneDeviceAriaLabel")}
                   value={micDevice}
                   onChange={(e) => setMicDevice(e.target.value)}
                 >
                   {inputDevices.map((d) => (
                     <option key={d.name} value={d.name}>
                       {d.name}
-                      {d.is_system_default ? " (default)" : ""}
+                      {d.is_system_default ? t("screenrecSetup.defaultSuffix") : ""}
                     </option>
                   ))}
                 </select>
@@ -643,7 +643,7 @@ const SetupWindow: React.FC = () => {
 
         {/* Cursor section */}
         <section style={styles.section}>
-          <label style={styles.sectionLabel}>Cursor</label>
+          <label style={styles.sectionLabel}>{t("screenrecSetup.cursor")}</label>
           <label style={styles.toggleRow}>
             <input
               type="checkbox"
@@ -651,19 +651,14 @@ const SetupWindow: React.FC = () => {
               checked={hideCursor}
               onChange={(e) => setHideCursor(e.target.checked)}
             />
-            <span style={styles.toggleLabel}>
-              Enhance cursor in editor (hides the system cursor while recording)
-            </span>
+            <span style={styles.toggleLabel}>{t("screenrecSetup.enhanceCursor")}</span>
           </label>
-          <p style={styles.hintText}>
-            Records without the system cursor so the editor can draw a larger,
-            stylized cursor with click effects.
-          </p>
+          <p style={styles.hintText}>{t("screenrecSetup.enhanceCursorHint")}</p>
         </section>
 
         {/* Countdown section */}
         <section style={styles.section}>
-          <label style={styles.sectionLabel}>Countdown</label>
+          <label style={styles.sectionLabel}>{t("screenrecSetup.countdown")}</label>
           <label style={styles.toggleRow}>
             <input
               type="checkbox"
@@ -671,15 +666,13 @@ const SetupWindow: React.FC = () => {
               checked={countdownEnabled}
               onChange={(e) => setCountdownEnabled(e.target.checked)}
             />
-            <span style={styles.toggleLabel}>
-              Show a 3-second countdown before recording starts
-            </span>
+            <span style={styles.toggleLabel}>{t("screenrecSetup.showCountdown")}</span>
           </label>
         </section>
 
         {/* Camera section */}
         <section style={styles.section}>
-          <label style={styles.sectionLabel}>Camera</label>
+          <label style={styles.sectionLabel}>{t("screenrecSetup.camera")}</label>
           <label
             style={{
               ...styles.toggleRow,
@@ -720,31 +713,25 @@ const SetupWindow: React.FC = () => {
                 }
               }}
             />
-            <span style={styles.toggleLabel}>
-              Record webcam (shown as an overlay in the editor)
-            </span>
+            <span style={styles.toggleLabel}>{t("screenrecSetup.recordWebcam")}</span>
           </label>
 
           {/* Friendly camera-listing error, inline like the sources error */}
           {cameraError && <p style={styles.errorText}>{cameraError}</p>}
           {!cameraError && cameras.length === 0 && (
-            <p style={styles.emptyText}>No cameras found</p>
+            <p style={styles.emptyText}>{t("screenrecSetup.noCamerasFound")}</p>
           )}
 
           {/* Camera permission denied: recording still proceeds without the
               webcam, so this is a nudge, not a blocker. */}
           {cameraEnabled && cameraPermissionDenied && (
             <div style={styles.errorText}>
-              <p style={{ margin: 0 }}>
-                Camera access is off for Echo Scribe. Open System Settings →
-                Privacy &amp; Security → Camera, enable Echo Scribe, then quit
-                and reopen.
-              </p>
+              <p style={{ margin: 0 }}>{t("screenrecSetup.cameraAccessOff")}</p>
               <button
                 style={styles.openSettingsButton}
                 onClick={() => openCameraSettings()}
               >
-                Open Settings
+                {t("screenrecSetup.openSettings")}
               </button>
             </div>
           )}
@@ -754,7 +741,7 @@ const SetupWindow: React.FC = () => {
             <div style={styles.micSelectWrapper}>
               <select
                 style={styles.select}
-                aria-label="Camera device"
+                aria-label={t("screenrecSetup.cameraDeviceAriaLabel")}
                 value={effectiveCameraUid}
                 onChange={(e) => setCameraUid(e.target.value)}
               >
@@ -777,7 +764,7 @@ const SetupWindow: React.FC = () => {
       {/* Footer buttons */}
       <div style={styles.footer}>
         <button style={styles.cancelButton} onClick={handleCancel}>
-          Cancel
+          {t("screenrecSetup.cancel")}
         </button>
         <button
           style={{
@@ -787,7 +774,7 @@ const SetupWindow: React.FC = () => {
           onClick={handleStart}
           disabled={isStartDisabled}
         >
-          {starting ? "Starting…" : "Start Recording"}
+          {starting ? t("screenrecSetup.starting") : t("screenrecSetup.startRecording")}
         </button>
       </div>
     </div>

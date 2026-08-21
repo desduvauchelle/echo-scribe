@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Loader } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { EditorView } from "../views/sections/EditorView";
 import { listRecordings, type RecordingRow } from "../lib/api";
 
@@ -18,6 +19,7 @@ declare global {
  *  injected id and hosts EditorView full-window. Closing = the window itself
  *  (EditorView autosaves project edits, so closing any time is safe). */
 export default function EditorWindow() {
+  const { t } = useTranslation("editor");
   const id =
     window.__EDITOR_RECORDING_ID__ ??
     new URLSearchParams(window.location.search).get("id") ??
@@ -27,7 +29,7 @@ export default function EditorWindow() {
 
   useEffect(() => {
     if (!id) {
-      setError("No recording id was provided to the editor window.");
+      setError(t("window.noRecordingId"));
       return;
     }
     let cancelled = false;
@@ -36,7 +38,7 @@ export default function EditorWindow() {
         if (cancelled) return;
         const row = rows.find((r) => r.id === id);
         if (row) setRecording(row);
-        else setError("Recording not found — it may have been deleted.");
+        else setError(t("window.recordingNotFound"));
       })
       .catch((e) => {
         if (!cancelled) setError(String(e));
@@ -44,7 +46,7 @@ export default function EditorWindow() {
     return () => {
       cancelled = true;
     };
-  }, [id]);
+  }, [id, t]);
 
   if (error) {
     return (
@@ -55,7 +57,7 @@ export default function EditorWindow() {
             onClick={() => void getCurrentWindow().close()}
             className="mt-4 rounded-md border border-line px-3 py-1.5 text-[12.5px] text-muted hover:bg-surface"
           >
-            Close window
+            {t("window.closeWindow")}
           </button>
         </div>
       </div>
@@ -69,7 +71,7 @@ export default function EditorWindow() {
         role="status"
       >
         <Loader size={20} className="animate-spin" aria-hidden="true" />
-        <span className="sr-only">Loading recording…</span>
+        <span className="sr-only">{t("window.loadingRecording")}</span>
       </div>
     );
   }

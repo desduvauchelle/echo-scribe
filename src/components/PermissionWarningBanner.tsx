@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { permissionsStatus } from "../lib/api";
 
 type Props = {
@@ -11,6 +12,7 @@ type Props = {
 /// the way when everything is green. Not a top bar: the top 2rem of the
 /// window is the tauri drag region under the macOS traffic lights.
 export default function PermissionWarningBanner({ onOpenSettings }: Props) {
+  const { t } = useTranslation();
   const [missing, setMissing] = useState<string[]>([]);
   // Track whether the missing permission(s) actually break core functionality
   // (mic + a11y are required) vs. only degrade meetings (screen recording —
@@ -25,9 +27,9 @@ export default function PermissionWarningBanner({ onOpenSettings }: Props) {
         const s = await permissionsStatus();
         if (cancelled) return;
         const m: string[] = [];
-        if (!s.microphone) m.push("Microphone");
-        if (!s.accessibility) m.push("Accessibility");
-        if (!s.screen_recording) m.push("Screen Recording");
+        if (!s.microphone) m.push(t("permissionWarningBanner.microphone"));
+        if (!s.accessibility) m.push(t("permissionWarningBanner.accessibility"));
+        if (!s.screen_recording) m.push(t("permissionWarningBanner.screenRecording"));
         setMissing(m);
         setCoreBroken(!s.microphone || !s.accessibility);
       } catch {
@@ -50,19 +52,19 @@ export default function PermissionWarningBanner({ onOpenSettings }: Props) {
       className="material-status-card rounded-xl border border-warning/40 p-2.5 text-xs text-warning"
     >
       <div className="font-semibold">
-        Permission missing: {missing.join(" + ")}
+        {t("permissionWarningBanner.missing", { list: missing.join(" + ") })}
       </div>
       <div className="mt-0.5 text-[11px] leading-snug text-warning/80">
         {coreBroken
-          ? "Echo Scribe can't dictate or paste until you re-grant."
-          : "Meetings will only record your microphone — the other person's audio won't be captured."}
+          ? t("permissionWarningBanner.coreBroken")
+          : t("permissionWarningBanner.meetingsOnly")}
       </div>
       <button
         type="button"
         onClick={onOpenSettings}
         className="mt-2 w-full cursor-pointer rounded-md border border-warning/40 bg-warning/15 px-2 py-1 font-semibold text-warning transition-colors hover:bg-warning/25"
       >
-        Fix in Settings
+        {t("permissionWarningBanner.fixInSettings")}
       </button>
     </div>
   );

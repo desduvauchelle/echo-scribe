@@ -38,7 +38,8 @@ describe("recording export UX", () => {
     expect(dialogCall).toBeGreaterThan(-1);
     expect(renderStart).toBeGreaterThan(dialogCall);
     expect(editorSource).toContain("await saveRecordingExportCopy(");
-    expect(editorSource).toContain('label: "Show in Finder"');
+    // "Show in Finder" is localized (src/locales/en/editor.json → toolbar.showInFinder).
+    expect(editorSource).toContain('label: t("toolbar.showInFinder")');
     expect(editorSource).toContain("revealRecordingExport(recording.id, exportQuality)");
   });
 
@@ -46,6 +47,7 @@ describe("recording export UX", () => {
     expect(editorSource).toContain(
       'defaultRevealExport ? `export:${defaultRevealExport.quality}` : "original"',
     );
-    expect(editorSource).toContain('{ label: "Original recording", value: "original" }');
+    // "Original recording" is localized (src/locales/en/editor.json → toolbar.originalRecording).
+    expect(editorSource).toContain('{ label: t("toolbar.originalRecording"), value: "original" }');
   });
 });

@@ -1,0 +1,53 @@
+{
+  "welcome": {
+    "title": "Welcome to Echo Scribe",
+    "subtitle": "Grant the permissions below, pick a speech model, then start dictating anywhere. Screen Recording is optional — only needed if you want meetings to capture the other person's audio."
+  },
+  "permissions": {
+    "microphone": {
+      "title": "Microphone",
+      "subtitle": "Echo Scribe needs your microphone to capture what you say."
+    },
+    "accessibility": {
+      "title": "Accessibility",
+      "subtitle": "Required to paste transcribed text at the cursor in any app."
+    },
+    "screenRecording": {
+      "title": "Screen Recording",
+      "subtitle": "Lets Echo Scribe capture the other participant's audio during Zoom, Google Meet, and other meetings. Without it, only your microphone is recorded."
+    }
+  },
+  "llmModel": {
+    "title": "Local AI model",
+    "optional": "(optional)",
+    "ready": "Ready",
+    "description": "Powers the log-capture flow (auto-classifying notes, tasks, tags). Voice-at-cursor works without it — skip to come back later.",
+    "skipButton": "Skip for now",
+    "skippedNote": "Skipped. Log-capture will show a friendly notice until you pick a model in Settings."
+  },
+  "dictationShortcut": {
+    "title": "Dictation shortcut",
+    "description": "Press and hold to record. Default is Right Control — change it here if that conflicts with another app."
+  },
+  "logCaptureShortcut": {
+    "title": "Log capture shortcut",
+    "description": "Press and hold to capture a thought or task. Default is Right Option — Echo Scribe will classify it locally and pop a review overlay."
+  },
+  "startButton": {
+    "starting": "Starting…",
+    "label": "Start Echo Scribe"
+  },
+  "skipButton": {
+    "skipping": "Skipping…",
+    "label": "Skip setup for now",
+    "note": "You can browse Echo Scribe now and finish setup later in Settings."
+  },
+  "resetTcc": {
+    "linkLabel": "Permission stuck? Reset & quit",
+    "confirmBody": "This wipes Microphone + Accessibility + Screen Recording grants and quits Echo Scribe. You'll need to relaunch and re-grant access. Continue?",
+    "resetting": "Resetting…",
+    "confirmButton": "Yes, reset & quit",
+    "cancelButton": "Cancel",
+    "timeoutError": "Reset returned but the app didn't quit. Try restarting manually."
+  }
+}

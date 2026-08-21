@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { useTranslation } from "react-i18next";
 import {
   attachGuide,
   detachGuide,
@@ -53,14 +54,15 @@ function statusMarker(s: string, kind?: string): string {
   return kind === "tracker" ? "•" : "○";
 }
 
-function relativeAge(t: number, now: number): string {
+function relativeAge(tt: (key: string, opts?: Record<string, unknown>) => string, t: number, now: number): string {
   const sec = Math.max(0, Math.floor((now - t) / 1000));
-  if (sec < 5) return "just now";
-  if (sec < 60) return `${sec}s ago`;
-  return `${Math.floor(sec / 60)}m ago`;
+  if (sec < 5) return tt("meetingHud.justNow");
+  if (sec < 60) return tt("meetingHud.secondsAgo", { sec });
+  return tt("meetingHud.minutesAgo", { min: Math.floor(sec / 60) });
 }
 
 export default function MeetingHud() {
+  const { t } = useTranslation("windows");
   const [sessions, setSessions] = useState<Record<string, GuideSession>>({});
   const [cards, setCards] = useState<Card[]>([]);
   const [segments, setSegments] = useState<TranscriptSegment[]>([]);
@@ -72,8 +74,13 @@ export default function MeetingHud() {
   const [summaryTemplates, setSummaryTemplates] = useState<SummaryTemplate[]>([]);
   const [summaryTemplateId, setSummaryTemplateId] = useState<string | null>(null);
   const [transparencyAck, setTransparencyAck] = useState(false);
-  const [consentMessage, setConsentMessage] = useState("I’m using EchoScribe to take private notes and create a local summary of this conversation. Is that okay?");
-  const [speakerLabels, setSpeakerLabels] = useState({ you: "You", them: "Them" });
+  const [consentMessage, setConsentMessage] = useState(() =>
+    t("meetingHud.defaultConsentMessage"),
+  );
+  const [speakerLabels, setSpeakerLabels] = useState(() => ({
+    you: t("meetingHud.defaultYouLabel"),
+    them: t("meetingHud.defaultThemLabel"),
+  }));
   const [pickerOpen, setPickerOpen] = useState(false);
   const [templates, setTemplates] = useState<GuideTemplate[]>([]);
   const [toast, setToast] = useState<string | null>(null);
@@ -127,8 +134,13 @@ export default function MeetingHud() {
         setSavedNotes(workspace.notes);
         setSummaryTemplateId(workspace.preferences?.summary_template_id ?? "builtin-general");
         setTransparencyAck(workspace.preferences?.transparency_ack ?? false);
-        setConsentMessage(workspace.preferences?.consent_message ?? "I’m using EchoScribe to take private notes and create a local summary of this conversation. Is that okay?");
-        const nextLabels = { you: "You", them: "Them" };
+        setConsentMessage(
+          workspace.preferences?.consent_message ?? t("meetingHud.defaultConsentMessage"),
+        );
+        const nextLabels = {
+          you: t("meetingHud.defaultYouLabel"),
+          them: t("meetingHud.defaultThemLabel"),
+        };
         for (const participant of workspace.participants) {
           if (participant.speaker_key === "you" || participant.speaker_key === "them") {
             nextLabels[participant.speaker_key] = participant.display_name;
@@ -138,23 +150,24 @@ export default function MeetingHud() {
         notesReady.current = true;
       })
       .catch(() => {/* no active meeting */});
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [t]);
 
   useEffect(() => {
     if (!meetingId || !notesReady.current || notes === savedNotes) return;
     const timer = setTimeout(() => {
       updateMeetingNotes(meetingId, notes)
         .then(() => setSavedNotes(notes))
-        .catch(() => showToast("Couldn't save meeting notes."));
+        .catch(() => showToast(t("meetingHud.couldntSaveNotes")));
     }, 500);
     return () => clearTimeout(timer);
-  }, [meetingId, notes, savedNotes, showToast]);
+  }, [meetingId, notes, savedNotes, showToast, t]);
 
   const savePreferences = useCallback((nextTemplate: string | null, nextAck: boolean, nextMessage: string) => {
     if (!meetingId) return;
     setMeetingPreferences(meetingId, nextTemplate, nextAck, nextMessage)
-      .catch(() => showToast("Couldn't save meeting preferences."));
-  }, [meetingId, showToast]);
+      .catch(() => showToast(t("meetingHud.couldntSavePreferences")));
+  }, [meetingId, showToast, t]);
 
   // Event wiring.
   useEffect(() => {
@@ -317,11 +330,11 @@ export default function MeetingHud() {
         const friendly =
           msg.includes("Two guides") || msg.includes("No meeting")
             ? msg
-            : "Couldn't add guide. See Settings → Diagnostics → logs.";
+            : t("meetingHud.couldntAddGuide");
         showToast(friendly);
       }
     },
-    [showToast],
+    [showToast, t],
   );
 
   const onDetach = useCallback(async (sessionId: string) => {
@@ -353,7 +366,7 @@ export default function MeetingHud() {
   return (
     <div className="hud">
       <header data-tauri-drag-region>
-        <span className="label" data-tauri-drag-region>MEETING HUD</span>
+        <span className="label" data-tauri-drag-region>{t("meetingHud.label")}</span>
         <span className="controls">
           <button
             className={showNotes ? "active" : ""}
@@ -361,8 +374,8 @@ export default function MeetingHud() {
               setShowNotes((v) => !v);
               if (!showNotes) backfillWorkspace();
             }}
-            title="Toggle live notes"
-            aria-label="Toggle live notes"
+            title={t("meetingHud.toggleNotes")}
+            aria-label={t("meetingHud.toggleNotes")}
             aria-pressed={showNotes}
           >
             <span aria-hidden="true">✎</span>
@@ -373,16 +386,16 @@ export default function MeetingHud() {
               setShowTranscript((v) => !v);
               if (!showTranscript) backfillTranscript();
             }}
-            title="Toggle live transcript"
-            aria-label="Toggle live transcript"
+            title={t("meetingHud.toggleTranscript")}
+            aria-label={t("meetingHud.toggleTranscript")}
             aria-pressed={showTranscript}
           >
             <span aria-hidden="true">☰</span>
           </button>
           <button
             onClick={() => getCurrentWindow().hide()}
-            title="Hide (meeting keeps recording)"
-            aria-label="Hide window (meeting keeps recording)"
+            title={t("meetingHud.hideWindow")}
+            aria-label={t("meetingHud.hideWindowAriaLabel")}
           >
             <span aria-hidden="true">─</span>
           </button>
@@ -408,26 +421,26 @@ export default function MeetingHud() {
                       [s.sessionId]: { ...s, collapsed: !s.collapsed },
                     }))
                   }
-                  title={s.collapsed ? "Expand" : "Collapse"}
+                  title={s.collapsed ? t("meetingHud.expand") : t("meetingHud.collapse")}
                 >
                   {s.templateName}
                 </button>
                 <span className="guide-controls">
                   {s.mode === "auto" ? (
-                    <button className="mode" onClick={() => onToggleMode(s)}>Auto</button>
+                    <button className="mode" onClick={() => onToggleMode(s)}>{t("meetingHud.auto")}</button>
                   ) : (
                     <>
                       <button className="mode" onClick={() => guideTriggerNow(s.sessionId).catch(() => {})}>
-                        Guide me now
+                        {t("meetingHud.guideMeNow")}
                       </button>
-                      <button className="mode" onClick={() => onToggleMode(s)}>On-demand</button>
+                      <button className="mode" onClick={() => onToggleMode(s)}>{t("meetingHud.onDemand")}</button>
                     </>
                   )}
                   <button
                     className="end"
                     onClick={() => onDetach(s.sessionId)}
-                    title="End this guide"
-                    aria-label="End this guide"
+                    title={t("meetingHud.endGuide")}
+                    aria-label={t("meetingHud.endGuide")}
                   >
                     <span aria-hidden="true">×</span>
                   </button>
@@ -441,8 +454,8 @@ export default function MeetingHud() {
                       <span className="spinner" aria-hidden="true" />
                       <span>
                         {s.kind === "tracker"
-                          ? "Listening… notes appear after ~20–30s of speech."
-                          : "Listening… first guidance arrives after ~20–30s of speech."}
+                          ? t("meetingHud.waitingTracker")
+                          : t("meetingHud.waitingGuide")}
                       </span>
                     </div>
                   ) : (
@@ -460,16 +473,18 @@ export default function MeetingHud() {
 
           <div className="add-guide">
             <button className="add" onClick={onOpenPicker} disabled={atCap}>
-              + Add guide
+              {t("meetingHud.addGuide")}
             </button>
-            {atCap && <span className="cap-note">two guides max — close one to add another</span>}
+            {atCap && <span className="cap-note">{t("meetingHud.capNote")}</span>}
             {pickerOpen && !atCap && (
               <div className="picker">
-                {templates.length === 0 && <div className="empty">No templates yet.</div>}
-                {templates.map((t) => (
-                  <button key={t.id} className="picker-item" onClick={() => onAttach(t.id)}>
-                    <span className="picker-name">{t.name}</span>
-                    {t.description && <span className="picker-desc">{t.description}</span>}
+                {templates.length === 0 && <div className="empty">{t("meetingHud.noTemplates")}</div>}
+                {templates.map((template) => (
+                  <button key={template.id} className="picker-item" onClick={() => onAttach(template.id)}>
+                    <span className="picker-name">{template.name}</span>
+                    {template.description && (
+                      <span className="picker-desc">{template.description}</span>
+                    )}
                   </button>
                 ))}
               </div>
@@ -479,13 +494,13 @@ export default function MeetingHud() {
 
         <section className="feed" aria-live="polite">
           {cards.length === 0 ? (
-            <div className="empty">Guidance cards appear here — newest on top.</div>
+            <div className="empty">{t("meetingHud.noCards")}</div>
           ) : (
             cards.map((c) => (
               <div key={c.key} className={`card slot${c.slot}`}>
                 <div className="card-head">
                   <span className="chip">{c.templateName}</span>
-                  <span className="age">{relativeAge(c.at, now)}</span>
+                  <span className="age">{relativeAge(t, c.at, now)}</span>
                 </div>
                 {c.suggestions.map((s, i) => (
                   <div key={i} className="suggest">{s}</div>
@@ -500,22 +515,24 @@ export default function MeetingHud() {
             <div className="speaker-labels">
               {(["you", "them"] as const).map((speaker) => (
                 <label key={speaker}>
-                  <span>{speaker === "you" ? "Mic" : "Call"}</span>
+                  <span>{speaker === "you" ? t("meetingHud.micLabel") : t("meetingHud.callLabel")}</span>
                   <input
                     value={speakerLabels[speaker]}
                     onChange={(e) => setSpeakerLabels((current) => ({ ...current, [speaker]: e.target.value }))}
                     onBlur={() => {
                       if (meetingId && speakerLabels[speaker].trim()) {
-                        setMeetingSpeakerLabel(meetingId, speaker, speakerLabels[speaker].trim()).catch(() => showToast("Couldn't save speaker label."));
+                        setMeetingSpeakerLabel(meetingId, speaker, speakerLabels[speaker].trim()).catch(() =>
+                          showToast(t("meetingHud.couldntSaveSpeakerLabel")),
+                        );
                       }
                     }}
-                    aria-label={`${speaker} speaker label`}
+                    aria-label={t("meetingHud.speakerAriaLabel", { speaker })}
                   />
                 </label>
               ))}
             </div>
             {segments.length === 0 ? (
-              <div className="empty">Transcript appears here as speech is transcribed.</div>
+              <div className="empty">{t("meetingHud.noTranscript")}</div>
             ) : (
               segments.map((seg, i) => (
                 <div key={i} className={`line ${seg.speaker}`}>
@@ -531,7 +548,7 @@ export default function MeetingHud() {
           <section className="live-notes">
             <div className="notes-toolbar">
               <label>
-                <span>Summary format</span>
+                <span>{t("meetingHud.summaryFormat")}</span>
                 <select
                   value={summaryTemplateId ?? ""}
                   onChange={(e) => {
@@ -543,13 +560,15 @@ export default function MeetingHud() {
                   {summaryTemplates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
                 </select>
               </label>
-              <span className="save-state">{notes === savedNotes ? "Saved" : "Saving…"}</span>
+              <span className="save-state">
+                {notes === savedNotes ? t("meetingHud.saved") : t("meetingHud.saving")}
+              </span>
             </div>
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder={'Type notes that should guide the summary…\n\n- Key point\n- [ ] Follow up'}
-              aria-label="Live meeting notes"
+              placeholder={t("meetingHud.notesPlaceholder")}
+              aria-label={t("meetingHud.liveNotesAriaLabel")}
             />
             <div className="transparency">
               <label className="ack">
@@ -561,9 +580,17 @@ export default function MeetingHud() {
                     savePreferences(summaryTemplateId, e.target.checked, consentMessage);
                   }}
                 />
-                Participant informed
+                {t("meetingHud.participantInformed")}
               </label>
-              <button onClick={() => navigator.clipboard.writeText(consentMessage).then(() => showToast("Consent message copied."))}>Copy notice</button>
+              <button
+                onClick={() =>
+                  navigator.clipboard
+                    .writeText(consentMessage)
+                    .then(() => showToast(t("meetingHud.consentMessageCopied")))
+                }
+              >
+                {t("meetingHud.copyNotice")}
+              </button>
             </div>
           </section>
         )}

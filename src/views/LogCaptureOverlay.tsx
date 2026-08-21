@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { useTranslation } from "react-i18next";
 import {
   cancelLogCapture,
   confirmLogCapture,
@@ -41,6 +42,7 @@ function defaultEditState(
 }
 
 export default function LogCaptureOverlay() {
+  const { t } = useTranslation("settings");
   const [stage, setStage] = useState<Stage>({ kind: "hidden" });
   const [edit, setEdit] = useState<EditState | null>(null);
   const [busy, setBusy] = useState(false);
@@ -155,10 +157,10 @@ export default function LogCaptureOverlay() {
               id="log-capture-title"
               className="text-lg font-semibold tracking-tight"
             >
-              Log capture
+              {t("logCaptureOverlay.recording.title")}
             </h2>
             <p className="mt-2 text-sm text-muted" role="status">
-              Recording — release the shortcut to stop.
+              {t("logCaptureOverlay.recording.status")}
             </p>
             <div
               className="mt-4 flex items-center gap-2 text-xs text-muted"
@@ -168,7 +170,7 @@ export default function LogCaptureOverlay() {
                 aria-hidden="true"
                 className="inline-block h-2 w-2 animate-pulse rounded-full bg-danger motion-reduce:animate-none"
               />
-              Listening…
+              {t("logCaptureOverlay.recording.listening")}
             </div>
           </div>
         ) : edit ? (
@@ -178,30 +180,31 @@ export default function LogCaptureOverlay() {
                 id="log-capture-title"
                 className="text-lg font-semibold tracking-tight"
               >
-                Review capture
+                {t("logCaptureOverlay.review.title")}
               </h2>
               {stage.error ? (
                 <p className="mt-1 text-xs text-warning">
-                  Classifier hint unavailable: {stage.error}
+                  {t("logCaptureOverlay.review.classifierUnavailable", { error: stage.error })}
                 </p>
               ) : stage.classification && stage.classification.confidence < 0.75 ? (
                 <p className="mt-1 text-xs text-warning">
-                  Low confidence ({Math.round(stage.classification.confidence * 100)}%) —
-                  please double-check the project and kind below.
+                  {t("logCaptureOverlay.review.lowConfidence", {
+                    percent: Math.round(stage.classification.confidence * 100),
+                  })}
                 </p>
               ) : stage.classification && stage.classification.new_project_name ? (
                 <p className="mt-1 text-xs text-warning">
-                  Suggesting a new project — confirm the name below before saving.
+                  {t("logCaptureOverlay.review.newProjectSuggested")}
                 </p>
               ) : (
                 <p className="mt-1 text-xs text-muted">
-                  Classifier suggested fields below — adjust as needed.
+                  {t("logCaptureOverlay.review.suggestedFields")}
                 </p>
               )}
             </div>
 
             <label className="flex flex-col gap-1 text-sm">
-              <span className="text-muted">Transcript</span>
+              <span className="text-muted">{t("logCaptureOverlay.review.transcriptLabel")}</span>
               <textarea
                 rows={4}
                 autoFocus
@@ -215,7 +218,7 @@ export default function LogCaptureOverlay() {
 
             <div className="grid grid-cols-2 gap-4">
               <label className="flex flex-col gap-1 text-sm">
-                <span className="text-muted">Kind</span>
+                <span className="text-muted">{t("logCaptureOverlay.review.kindLabel")}</span>
                 <select
                   value={edit.itemKind}
                   onChange={(e) =>
@@ -226,18 +229,19 @@ export default function LogCaptureOverlay() {
                   }
                   className="rounded-md border border-line bg-canvas px-3 py-2 text-sm focus:border-accent focus:outline-none"
                 >
-                  <option value="note">Note</option>
-                  <option value="task">Task</option>
+                  <option value="note">{t("logCaptureOverlay.review.kindNote")}</option>
+                  <option value="task">{t("logCaptureOverlay.review.kindTask")}</option>
                 </select>
               </label>
 
               <label className="flex flex-col gap-1 text-sm">
                 <span className="text-muted">
-                  Deadline {edit.itemKind === "note" ? "(tasks only)" : ""}
+                  {t("logCaptureOverlay.review.deadlineLabel")}{" "}
+                  {edit.itemKind === "note" ? t("logCaptureOverlay.review.deadlineTasksOnly") : ""}
                 </span>
                 <input
                   type="text"
-                  placeholder="2026-05-10T17:00:00Z"
+                  placeholder={t("logCaptureOverlay.review.deadlinePlaceholder")}
                   disabled={edit.itemKind === "note"}
                   value={edit.deadlineIso}
                   onChange={(e) =>
@@ -250,11 +254,11 @@ export default function LogCaptureOverlay() {
 
             <label className="flex flex-col gap-1 text-sm">
               <span className="text-muted">
-                New project (overrides existing)
+                {t("logCaptureOverlay.review.newProjectLabel")}
               </span>
               <input
                 type="text"
-                placeholder="Leave empty to keep existing project"
+                placeholder={t("logCaptureOverlay.review.newProjectPlaceholder")}
                 value={edit.newProjectName}
                 onChange={(e) =>
                   setEdit({ ...edit, newProjectName: e.target.value })
@@ -263,13 +267,13 @@ export default function LogCaptureOverlay() {
               />
               {edit.projectId && !edit.newProjectName ? (
                 <span className="mt-1 text-xs text-muted">
-                  Existing project id: {edit.projectId}
+                  {t("logCaptureOverlay.review.existingProjectId", { id: edit.projectId })}
                 </span>
               ) : null}
             </label>
 
             <label className="flex flex-col gap-1 text-sm">
-              <span className="text-muted">Tags (comma separated)</span>
+              <span className="text-muted">{t("logCaptureOverlay.review.tagsLabel")}</span>
               <input
                 type="text"
                 value={edit.tagsInput}
@@ -291,7 +295,7 @@ export default function LogCaptureOverlay() {
                 onClick={() => void onDiscard()}
                 className="rounded border border-line px-3 py-1 text-xs hover:bg-elevated disabled:opacity-50"
               >
-                Discard
+                {t("logCaptureOverlay.review.discardButton")}
               </button>
               <button
                 type="button"
@@ -299,7 +303,7 @@ export default function LogCaptureOverlay() {
                 onClick={() => void onSave()}
                 className="rounded-md bg-accent px-3 py-1 text-xs font-semibold text-canvas hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {busy ? "Saving…" : "Save"}
+                {busy ? t("logCaptureOverlay.review.savingEllipsis") : t("logCaptureOverlay.review.saveButton")}
               </button>
             </div>
           </div>

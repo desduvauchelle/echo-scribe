@@ -1,0 +1,804 @@
+{
+  "activityPanel": {
+    "panelBody": {
+      "itemNotFound": "Item not found.",
+      "loading": "Loading…",
+      "titleFallback": "Activity",
+      "export": "Export…",
+      "closePanel": "Close panel",
+      "deleteConfirmMessage": "Delete this item? You can restore it from the trash.",
+      "deleteConfirmTitle": "Delete item",
+      "deleteFailed": "Delete failed: {{error}}"
+    },
+    "exportDialog": {
+      "closeAriaLabel": "Close export dialog",
+      "title": "Export meeting",
+      "description": "Choose what to include. You’ll select the Markdown file location next.",
+      "summaryLabel": "Summary",
+      "summaryDescription": "Summary points, action items, and your meeting notes.",
+      "transcriptLabel": "Transcript",
+      "transcriptDescription": "The complete speaker-labelled meeting transcript.",
+      "noSelection": "Choose at least one section to export.",
+      "exportFailed": "Export failed: {{error}}",
+      "cancel": "Cancel",
+      "exporting": "Exporting…",
+      "chooseLocation": "Choose location…",
+      "exportedToast": "Meeting exported to {{path}}."
+    },
+    "title": {
+      "task": "Task",
+      "meeting": "Meeting",
+      "transcription": "Transcription",
+      "note": "Note"
+    },
+    "editToggle": {
+      "done": "Done",
+      "edit": "Edit"
+    },
+    "header": {
+      "meetingBadge": "Meeting",
+      "transcriptionBadge": "Transcription",
+      "logCaptureBadge": "Log capture",
+      "taskBadge": "Task",
+      "deletedBadge": "Deleted"
+    },
+    "content": {
+      "label": "Content",
+      "saving": "Saving…",
+      "unsaved": "Unsaved",
+      "saved": "Saved",
+      "empty": "No content."
+    },
+    "kind": {
+      "label": "Kind",
+      "unset": "Unset",
+      "task": "Task",
+      "transcription": "Transcription",
+      "note": "Note"
+    },
+    "project": {
+      "label": "Project",
+      "unassigned": "— Unassigned —",
+      "newProject": "+ New project…",
+      "namePlaceholder": "Project name",
+      "create": "Create",
+      "cancel": "Cancel"
+    },
+    "tags": {
+      "label": "Tags",
+      "removeAriaLabel": "Remove {{tag}}",
+      "addPlaceholder": "add tag…"
+    },
+    "metadata": {
+      "label": "Metadata",
+      "empty": "No metadata captured.",
+      "source": "Source",
+      "app": "App",
+      "window": "Window",
+      "content": "Content",
+      "contentUrl": "Content URL",
+      "contentSource": "Content source",
+      "browserTab": "Browser tab",
+      "url": "URL",
+      "bundleId": "Bundle ID",
+      "confidence": "Confidence",
+      "classifiedBy": "Classified by"
+    },
+    "source": {
+      "voiceAtCursor": "Voice (hotkey paste)",
+      "logCapture": "Log capture",
+      "meeting": "Meeting"
+    },
+    "task": {
+      "label": "Task",
+      "completed": "Completed",
+      "markComplete": "Mark complete",
+      "deadline": "Deadline",
+      "clear": "Clear"
+    },
+    "meetingView": {
+      "peopleToggle": "People",
+      "tagsToggle": "Tags",
+      "detailsToggle": "Details",
+      "transcriptToggle": "Transcript",
+      "detailsGroupAriaLabel": "Meeting details",
+      "durationSuffix": "· {{count}} min",
+      "detectedAppSuffix": "· {{app}}",
+      "meetingMetadataLabel": "Meeting metadata",
+      "statusLabel": "Status",
+      "statusFallback": "Complete",
+      "startedLabel": "Started",
+      "endedLabel": "Ended",
+      "detectedAppLabel": "Detected app",
+      "durationLabel": "Duration",
+      "durationValue": "{{count}} min",
+      "audioSourceLabel": "Audio source",
+      "micOnly": "Mic only",
+      "micAndSystem": "Mic + system",
+      "failedChunksLabel": "Failed chunks"
+    },
+    "peoplePanel": {
+      "label": "People",
+      "you": "You",
+      "them": "Them",
+      "mic": "Mic",
+      "call": "Call",
+      "linkCaller": "Link caller",
+      "notLinked": "Not linked to a person",
+      "description": "Speaker names are confirmed labels for the mic and call channels. Automatic multi-speaker diarization is not inferred.",
+      "confirmedCount_one": " {{count}} label confirmed.",
+      "confirmedCount_other": " {{count}} labels confirmed."
+    },
+    "summary": {
+      "label": "Summary",
+      "saving": "Saving…",
+      "unsaved": "Unsaved",
+      "saved": "Saved",
+      "templateAriaLabel": "Summary template",
+      "newTemplate": "+ New template…",
+      "regenerateTitle": "Regenerate the summary with the selected template",
+      "regenerate": "Regenerate",
+      "templateNamePlaceholder": "Template name",
+      "templateInstructionsPlaceholder": "What should this summary emphasize and how should it be organized?",
+      "cancel": "Cancel",
+      "saveTemplate": "Save template",
+      "rewriting": "Rewriting the summary locally…",
+      "editPlaceholder": "Write the summary as markdown…",
+      "empty": "No summary yet."
+    },
+    "chat": {
+      "toggle": "Ask this meeting",
+      "empty": "Answers stay scoped to this meeting’s transcript, notes, and summary.",
+      "groundedIn_one": "Grounded in {{count}} meeting source.",
+      "groundedIn_other": "Grounded in {{count}} meeting sources.",
+      "inputPlaceholder": "Ask about this meeting…",
+      "sendAriaLabel": "Send",
+      "errorPrefix": "Error: {{error}}"
+    },
+    "workflows": {
+      "toggle": "Recipes and follow-up",
+      "runRecipe": "Run Recipe",
+      "recipeNamePlaceholder": "Recipe name",
+      "recipePromptPlaceholder": "What should EchoScribe extract or create?",
+      "cancel": "Cancel",
+      "saveRecipe": "Save Recipe",
+      "newRecipe": "+ New Recipe",
+      "draftFollowUp": "Draft follow-up",
+      "createPrepBrief": "Create Prep brief",
+      "runningLocally": "Running locally…",
+      "copyAriaLabel": "Copy"
+    },
+    "transcriptEditor": {
+      "header": "Transcript ({{count}} segments)",
+      "backupNote": "Edits automatically preserve a recoverable transcript backup.",
+      "cancel": "Cancel",
+      "saving": "Saving…",
+      "saveTranscript": "Save transcript",
+      "restorePrevious": "Restore previous",
+      "editTranscript": "Edit transcript",
+      "deleteSegmentAriaLabel": "Delete segment {{count}}"
+    },
+    "meetingTitle": {
+      "label": "Meeting title",
+      "saving": "Saving…",
+      "placeholder": "Untitled meeting",
+      "editAriaLabel": "Edit title"
+    },
+    "notes": {
+      "label": "Notes",
+      "saving": "Saving…",
+      "unsaved": "Unsaved",
+      "saved": "Saved",
+      "emptyPrompt": "Add personal notes…"
+    },
+    "guideReview": {
+      "generating": "Generating review…",
+      "viewTrend": "View trend",
+      "staleMessage": "The transcript changed, so this evidence needs to be refreshed. ",
+      "failedMessage": "Guide review couldn't be generated. See Settings → Diagnostics → logs. ",
+      "regenerateFailedToast": "Couldn't regenerate the guide review. See Settings → Diagnostics → logs.",
+      "analyzing": "Analyzing…",
+      "reanalyze": "Reanalyze",
+      "retry": "Retry",
+      "whatStoodOut": "What also stood out",
+      "tryLabel": "Try:",
+      "timelineHeader": "Live coaching timeline · {{count}}"
+    },
+    "actions": {
+      "copyContent": "Copy content",
+      "restore": "Restore",
+      "delete": "Delete"
+    }
+  },
+  "activityPanelContext": {},
+  "app": {
+    "checking": "Checking…",
+    "toasts": {
+      "localAiNotConfigured": "Local AI not configured — set one in Settings to auto-classify captures."
+    },
+    "logCapture": {
+      "kindTask": "Task",
+      "kindNote": "Note",
+      "filedToast": "{{kind}} filed to {{project}}\n{{preview}}",
+      "undo": "Undo",
+      "undoFailed": "Undo failed: {{error}}"
+    },
+    "meetingsRecovered_one": "{{count}} unfinished meeting recovered. View them in Meetings.",
+    "meetingsRecovered_other": "{{count}} unfinished meetings recovered. View them in Meetings.",
+    "onboarding": {
+      "missingMicrophone": "microphone",
+      "missingAccessibility": "accessibility",
+      "missingSpeechModel": "speech model",
+      "continueSetup": "Continue setup — missing: {{missing}}.",
+      "pipelineStartFailed": "Couldn't start pipeline: {{error}}"
+    },
+    "meetingPrompt": {
+      "consentFailed": "Couldn't record consent: {{error}}",
+      "detected": "{{appName}} meeting detected",
+      "body": "Record this meeting locally? Audio stays on your machine.",
+      "justOnce": "Just once",
+      "alwaysFor": "Always for {{appName}}",
+      "never": "Never"
+    }
+  },
+  "guideTemplateManager": {
+    "kind": {
+      "checklist": {
+        "label": "Checklist",
+        "hint": "Tracks which agenda points from the notes have been covered (sales, discovery).",
+        "notesPlaceholder": "Notes — questions to ask, talking points to cover (one per line)"
+      },
+      "coach": {
+        "label": "Coach",
+        "hint": "Notes are principles, not rules — occasional nudges tied to what was just said.",
+        "notesPlaceholder": "Notes — principles to embody, one per line"
+      },
+      "tracker": {
+        "label": "Note-taker",
+        "hint": "Keeps a live bullet list of the main points and posts updates as things change.",
+        "notesPlaceholder": "Notes — what to capture, e.g. decisions, numbers, action items (optional)"
+      }
+    },
+    "nameRequired": "Template name is required.",
+    "namePlaceholder": "Name (e.g. Customer discovery)",
+    "nameAriaLabel": "Template name",
+    "descriptionPlaceholder": "Short description",
+    "descriptionAriaLabel": "Description",
+    "guideStyleLabel": "Guide style",
+    "goalPlaceholder": "Goal — what should this conversation achieve?",
+    "goalAriaLabel": "Goal",
+    "notesAriaLabel": "Notes",
+    "saveButton": "Save",
+    "cancelButton": "Cancel",
+    "description": "Optionally run a rubric or conversation-signal check after each meeting. These checks use meeting transcripts only, stay separate from the main recap, and require exact quoted evidence for positive conclusions.",
+    "emptyState": "No guide templates yet.",
+    "editButton": "Edit",
+    "deleteButton": "Delete",
+    "trackAfterMeetings": "Track after meetings",
+    "measureLabel": "Measure",
+    "rubricPerformance": "Rubric performance",
+    "conversationSignals": "Conversation signals",
+    "analyzeLabel": "Analyze",
+    "mySpeech": "My speech",
+    "otherSide": "Other side",
+    "theInteraction": "The interaction",
+    "showResultsInDailyRecap": "Show results in Daily recap",
+    "newTemplateButton": "+ New template"
+  },
+  "guideTrendView": {
+    "heading": "{{templateName}} — across your calls",
+    "close": "Close",
+    "noData": "No completed guide reviews for this template yet.",
+    "recurringGap": "Recurring gap",
+    "strength": "Strength",
+    "hitColumn": "hit",
+    "cellLabel": {
+      "met": "Met",
+      "partial": "Partially met",
+      "missed": "Missed",
+      "unknown": "No data"
+    },
+    "cellAriaLabel": "{{crit}}, {{date}}: {{label}}"
+  },
+  "hotkeyRebinder": {
+    "currentLabel": "Current:",
+    "capturedLabel": "Captured:",
+    "loading": "Loading…",
+    "unknownValue": "—",
+    "recordNewShortcut": "Record new shortcut…",
+    "listening": "Listening…",
+    "capturePrompt": "Press a key combination, then release. Press Esc to cancel.",
+    "saving": "Saving…",
+    "save": "Save",
+    "cancel": "Cancel",
+    "unsupportedKey": "Unsupported key — try a different one. ({{msg}})",
+    "loadErrorPrefix": "Couldn’t load current shortcut: {{error}}"
+  },
+  "itemCard": {
+    "kindTranscription": "Transcription",
+    "kindTask": "Task",
+    "kindNote": "Note",
+    "openTaskWord": "task",
+    "openNoteWord": "note",
+    "openAriaLabel": "Open {{kind}}: {{content}}",
+    "copied": "Copied",
+    "copyTranscription": "Copy transcription"
+  },
+  "itemDetailPanel": {
+    "loading": "Loading...",
+    "tabs": {
+      "activity": "Activity",
+      "sessions": "Sessions"
+    },
+    "eventLabels": {
+      "created": "Created",
+      "deleted": "Deleted",
+      "restored": "Restored",
+      "content_edited": "Content edited",
+      "kind_changed": "Kind changed",
+      "project_changed": "Project changed",
+      "tags_changed": "Tags updated",
+      "classified": "Auto-classified"
+    },
+    "activityTab": {
+      "noActivity": "No activity recorded."
+    },
+    "sessionsTab": {
+      "noLinkedSessions": "No linked sessions found.",
+      "echoScribeChatHeading": "Echo Scribe Chat",
+      "claudeCodeSessionsHeading": "Claude Code Sessions",
+      "youLabel": "You:",
+      "aiLabel": "AI:",
+      "claudeLabel": "Claude:",
+      "truncationSuffix": "...",
+      "noMessages": "No messages.",
+      "msgCount": "{{count}} msgs"
+    }
+  },
+  "llmModelPicker": {
+    "loadError": "Couldn't load LLM models: {{error}}",
+    "downloadedModelsHeading": "Downloaded models",
+    "totalOnDisk": "{{size}} on disk",
+    "availableToDownloadHeading": "Available to download",
+    "modelCard": {
+      "notYetSupported": "Not yet supported",
+      "displayNamePrefix": " — {{name}}",
+      "specs": "{{family}} · {{size}} · {{ctx}} ctx",
+      "incompleteDownload": "Incomplete download · {{size}} on disk",
+      "downloadProgress": "Download progress",
+      "downloadedOfTotal": "{{downloaded}} / {{total}}",
+      "downloadFailed": "Download failed: {{error}}",
+      "unavailable": "Unavailable",
+      "downloading": "Downloading…",
+      "active": "Active",
+      "delete": "Delete",
+      "useThisModel": "Use this model",
+      "remove": "Remove",
+      "download": "Download"
+    }
+  },
+  "meetingCard": {
+    "ledgerKindLabel": "Meeting",
+    "actionItemsCount_one": "{{count}} action item",
+    "actionItemsCount_other": "{{count}} action items",
+    "loadingActionItems": "Loading…",
+    "actionsLoadError": "Couldn’t load the linked tasks — showing the summary’s action items instead.",
+    "manualMeeting": "Manual meeting",
+    "appMeetingTitle": "{{app}} meeting",
+    "durationMinutes": "{{mins}}m",
+    "durationHoursMinutes": "{{hours}}h {{mins}}m",
+    "status": {
+      "recording": {
+        "label": "Recording…",
+        "description": "This meeting is still recording."
+      },
+      "transcribing": {
+        "label": "Transcribing…",
+        "description": "Transcribing the audio — this can take a moment for long meetings."
+      },
+      "summarizing": {
+        "label": "Summarizing…",
+        "description": "Summarizing the transcript — almost done."
+      },
+      "failed": {
+        "label": "Failed",
+        "description": "This meeting didn't finish processing, so its summary may be missing."
+      },
+      "recovered": {
+        "label": "Recovered",
+        "description": "This meeting was recovered after an interruption; some content may be partial."
+      }
+    }
+  },
+  "permissionRow": {
+    "granted": "Granted",
+    "notGranted": "Not granted",
+    "grantAccess": "Grant access",
+    "recheck": "Re-check"
+  },
+  "permissionWarningBanner": {
+    "microphone": "Microphone",
+    "accessibility": "Accessibility",
+    "screenRecording": "Screen Recording",
+    "missing": "Permission missing: {{list}}",
+    "coreBroken": "Echo Scribe can't dictate or paste until you re-grant.",
+    "meetingsOnly": "Meetings will only record your microphone — the other person's audio won't be captured.",
+    "fixInSettings": "Fix in Settings"
+  },
+  "permissionsSection": {
+    "microphoneTitle": "Microphone",
+    "microphoneSubtitle": "Echo Scribe needs your microphone to capture what you say.",
+    "accessibilityTitle": "Accessibility",
+    "accessibilitySubtitle": "Required to paste transcribed text at the cursor in any app.",
+    "screenRecordingTitle": "Screen Recording",
+    "screenRecordingSubtitle": "Lets Echo Scribe capture the other participant's audio during Zoom, Google Meet, and similar meetings. Without it, only your microphone is recorded.",
+    "cameraTitle": "Camera (optional)",
+    "cameraSubtitle": "Only used when you turn on the webcam overlay for a screen recording. Grant it here so it's ready — and so a blocked camera is fixable from this screen instead of failing silently mid-recording.",
+    "resetHeading": "Reset permissions",
+    "resetDescription": "Wipes Microphone + Accessibility + Screen Recording + Camera grants and quits the app. Use if a permission feels broken — relaunch will re-prompt from scratch.",
+    "resetting": "Resetting…",
+    "confirmReset": "Yes, reset & quit",
+    "cancel": "Cancel",
+    "resetAndQuit": "Reset & quit",
+    "resetTimeoutToast": "Reset returned but the app didn't quit. Try restarting Echo Scribe manually.",
+    "resetErrorToast": "Couldn't reset permissions: {{error}}"
+  },
+  "projectEditor": {
+    "colorNames": {
+      "red": "Red",
+      "orange": "Orange",
+      "yellow": "Yellow",
+      "green": "Green",
+      "cyan": "Cyan",
+      "blue": "Blue",
+      "violet": "Violet",
+      "pink": "Pink"
+    },
+    "nameRequired": "Project name is required.",
+    "saveFailed": "Save failed: {{error}}",
+    "folderPickerFailed": "Folder picker failed: {{error}}",
+    "pickFolderFirst": "Pick an export folder first.",
+    "backfillSuccess_one": "Exported {{count}} file to {{folder}}.",
+    "backfillSuccess_other": "Exported {{count}} files to {{folder}}.",
+    "backfillFailed": "Backfill failed: {{error}}",
+    "editHeading": "Edit project",
+    "newHeading": "New project",
+    "close": "Close",
+    "nameLabel": "Name",
+    "emojiAriaLabel": "Emoji",
+    "namePlaceholder": "e.g. Acme Sales",
+    "descriptionLabel": "Description",
+    "descriptionPlaceholder": "What this project is about. Helps the classifier route captures here.",
+    "descriptionHint": "Used by the classifier to decide whether new captures belong here.",
+    "keywordsLabel": "Keywords",
+    "removeItemAriaLabel": "Remove {{item}}",
+    "keywordsPlaceholder": "Type and press Enter",
+    "keywordsHint": "Topical hints (names, acronyms, codenames). Lowercase, deduped.",
+    "routingHeading": "Routing",
+    "aliasesLabel": "Aliases",
+    "aliasesPlaceholder": "livecase, hbsp, case simulation",
+    "appHintsLabel": "App hints",
+    "appHintsPlaceholder": "Code, Google Chrome",
+    "urlHintsLabel": "URL hints",
+    "urlHintsPlaceholder": "hbsp.harvard.edu, github.com/desduvauchelle/echo-scribe",
+    "windowHintsLabel": "Window hints",
+    "windowHintsPlaceholder": "echo-scribe, livecaseplus",
+    "positiveExamplesLabel": "Positive examples",
+    "positiveExamplesPlaceholder": "One capture example per line",
+    "negativeExamplesLabel": "Negative examples",
+    "negativeExamplesPlaceholder": "Phrases that should not route here",
+    "colorLabel": "Color",
+    "customColorAriaLabel": "Custom color hex",
+    "clearButton": "Clear",
+    "exportFolderLabel": "Export folder",
+    "changeFolderButton": "Change…",
+    "chooseFolderButton": "Choose folder…",
+    "exportFolderHint": "High-confidence items routed to this project are exported as markdown here. Notes / tasks / transcriptions go into subfolders by kind.",
+    "exporting": "Exporting…",
+    "reexportButton": "Re-export all existing items",
+    "deleteButton": "Delete project",
+    "cancelButton": "Cancel",
+    "saving": "Saving…",
+    "saveButton": "Save",
+    "createButton": "Create",
+    "unassigned": "Unassigned"
+  },
+  "projectManager": {
+    "loadFailed": "Couldn't load projects: {{error}}",
+    "checkLinkedContentFailed": "Couldn't check linked content: {{error}}",
+    "archiveFailed": "Archive failed: {{error}}",
+    "unarchiveFailed": "Unarchive failed: {{error}}",
+    "deleteSuccessWithContent": "Deleted “{{name}}” and its related content.",
+    "deleteSuccessUnassigned": "Deleted “{{name}}”. Linked content is now unassigned.",
+    "deleteFailed": "Delete failed: {{error}}",
+    "newProjectButton": "New project",
+    "loading": "Loading projects…",
+    "emptyState": "No projects yet. Capture a thought referencing a new project, or create one above.",
+    "editButton": "Edit",
+    "unarchiveButton": "Unarchive",
+    "archiveButton": "Archive",
+    "deleteAriaLabel": "Delete {{name}}",
+    "deleteButton": "Delete",
+    "deleteDialogTitle": "Delete “{{name}}”?",
+    "deleteDialogDescription": "Choose what happens to content currently assigned to this project.",
+    "checkingLinkedContent": "Checking linked content…",
+    "deleteOnlyTitle": "Delete project only",
+    "deleteOnlyDescription": "Keep every note, task, transcription, meeting, recording, and chat. The project tag is removed and the content becomes unassigned.",
+    "deleteWithContentTitle": "Delete project and related content",
+    "deleteWithContentDescription": "Permanently delete linked captures, meeting transcripts and summaries, recordings, chats, and generated artifacts. This can’t be undone.",
+    "exportedFilesNote": "Files previously exported outside Echo Scribe are not removed.",
+    "deleting": "Deleting…",
+    "cancelButton": "Cancel",
+    "noLinkedContent": "No linked content was found.",
+    "linkedContentPrefix": "Linked content:",
+    "linkedItems": {
+      "meetings_one": "{{count}} meeting",
+      "meetings_other": "{{count}} meetings",
+      "notes_one": "{{count}} note",
+      "notes_other": "{{count}} notes",
+      "tasks_one": "{{count}} task",
+      "tasks_other": "{{count}} tasks",
+      "transcriptions_one": "{{count}} transcription",
+      "transcriptions_other": "{{count}} transcriptions",
+      "recordings_one": "{{count}} recording",
+      "recordings_other": "{{count}} recordings",
+      "chats_one": "{{count}} chat",
+      "chats_other": "{{count}} chats",
+      "artifacts_one": "{{count}} generated artifact",
+      "artifacts_other": "{{count}} generated artifacts",
+      "otherCaptures_one": "{{count}} other capture",
+      "otherCaptures_other": "{{count}} other captures"
+    }
+  },
+  "recordingActionButtons": {
+    "titleOptions": "{{title}} options",
+    "uploadToDrive": "Upload to Drive",
+    "uploadOptions": "Upload options",
+    "uploadTooltipEdited": "Upload to Drive (edited version)",
+    "uploadTooltip1080": "Upload to Drive (1080p)",
+    "sharing": "Sharing",
+    "anyone": "Anyone",
+    "onlyMe": "Only me",
+    "quality": "Quality",
+    "qualityEdited": "Edited",
+    "qualityOriginal": "Original",
+    "quality1080p": "1080p",
+    "quality720p": "720p",
+    "quality480p": "480p"
+  },
+  "recordingActionsMenu": {
+    "driveReconnectModal": {
+      "dialogLabel": "Reconnect Google Drive",
+      "title": "Google Drive needs reconnecting",
+      "body1": "Google isn't accepting this app's authorization for uploads. That happens after a password change or revoking access — and also when the Drive permission wasn't granted on the consent screen. Reconnect to continue; this upload will resume automatically.",
+      "body2Before": "On Google's page, make sure the checkbox for",
+      "checkboxLabel": "adding and editing files in your Google Drive",
+      "body2After": "is ticked. Signing in without it leaves uploads blocked.",
+      "cancel": "Cancel",
+      "waitingForGoogle": "Waiting for Google…",
+      "reconnectButton": "Reconnect Google Drive"
+    },
+    "menuTrigger": "Recording actions",
+    "menu": {
+      "editRecording": "Edit recording",
+      "uploadToDrive": "Upload to Drive",
+      "uploadToDriveEditedSuffix": " (edited)",
+      "revealInFinder": "Reveal in Finder",
+      "regenerateTranscript": "Regenerate transcript",
+      "getTranscript": "Get transcript",
+      "export1080p": "Export 1080p",
+      "delete": "Delete"
+    },
+    "toasts": {
+      "uploadedWithLinkCopied": "Uploaded to Drive — link copied",
+      "uploaded": "Uploaded to Drive",
+      "transcriptReady": "Transcript ready",
+      "exported1080p": "Exported 1080p MP4"
+    },
+    "confirmDelete": {
+      "title": "Delete recording",
+      "message": "Delete “{{name}}”? This cannot be undone."
+    }
+  },
+  "recordingCard": {
+    "openRecording": "Open recording: {{name}}",
+    "recordingKind": "Recording",
+    "uploading": "Uploading",
+    "onDrive": "On Drive",
+    "uploadFailed": "Upload failed"
+  },
+  "recordingDetailPanel": {
+    "copyButton": "Copy",
+    "header": {
+      "fallbackTitle": "Recording",
+      "renameRecording": "Rename recording",
+      "closePanel": "Close panel"
+    },
+    "body": {
+      "recordingNotFound": "Recording not found.",
+      "loading": "Loading…",
+      "editVideo": "Edit video",
+      "revealInFinder": "Reveal in Finder",
+      "export1080p": "Export 1080p",
+      "exportOptions": {
+        "480": "480p",
+        "720": "720p",
+        "1080": "1080p"
+      },
+      "regenerateTranscript": "Regenerate transcript",
+      "getTranscript": "Get transcript",
+      "delete": "Delete",
+      "exportedPrefix": "Exported:",
+      "exportedEntry": "{{quality}} ({{size}})",
+      "exportedQualityRendered": "Rendered",
+      "exportedSeparator": " · ",
+      "exportedToast": "Exported {{quality}}p MP4",
+      "transcribingProgress": "Transcribing… {{progress}}%",
+      "uploadingToDrive": "Uploading to Drive…",
+      "uploadFailed": "Upload failed",
+      "uploadFailedWithError": "Upload failed: {{error}}",
+      "transcriptHeading": "Transcript",
+      "noSpeechDetected": "No speech detected. Use the transcript button above to retry.",
+      "noTranscriptYet": "No transcript yet — use the transcript button above to generate one."
+    },
+    "confirmDelete": {
+      "title": "Delete recording",
+      "message": "Delete “{{name}}”? This cannot be undone."
+    }
+  },
+  "screenRecordButton": {
+    "stopLabel": "Stop screen recording",
+    "recordLabel": "Record screen",
+    "recordTitle": "Record your screen",
+    "stop": "Stop",
+    "screen": "Screen"
+  },
+  "sectionErrorBoundary": {
+    "message": "Something went wrong showing this page. See Settings → Diagnostics → logs for details.",
+    "backToDashboard": "Back to dashboard"
+  },
+  "sidebarRecordButton": {
+    "stopRecordingTitle": "Stop recording",
+    "captureMeetingTitle": "Capture a meeting",
+    "stopCapture": "Stop capture",
+    "capture": "Capture",
+    "recordMeetingTitle": "Record system audio + mic as a meeting",
+    "stop": "Stop",
+    "record": "Record"
+  },
+  "speechModelPicker": {
+    "title": "Transcription Models",
+    "description": "Choose a model to transcribe what you say. Run on-device, no network.",
+    "downloadedHeading": "Downloaded models",
+    "availableHeading": "Available to download",
+    "loadError": "Couldn’t load speech models: {{error}}",
+    "segmentBar": {
+      "ariaLabel": "{{value}} of {{max}}"
+    },
+    "modelCard": {
+      "notSupported": "Not yet supported",
+      "active": "Active",
+      "accuracy": "accuracy",
+      "speed": "speed",
+      "downloadProgressAria": "Download progress",
+      "downloadFailed": "Download failed: {{error}}",
+      "englishOnly": "English Only",
+      "multiLanguage": "Multi-language",
+      "unavailable": "Unavailable",
+      "downloading": "Downloading…",
+      "delete": "Delete",
+      "useThisModel": "Use this model",
+      "download": "Download"
+    }
+  },
+  "startAtLoginToggle": {
+    "title": "Start at login",
+    "subtitle": "Launch Echo Scribe automatically when you log in to your Mac.",
+    "updateError": "Couldn't update start-at-login: {{error}}"
+  },
+  "statsCategoryTabs": {
+    "activityType": "Activity type"
+  },
+  "themeToggle": {
+    "label": {
+      "auto": "Auto (match system)",
+      "light": "Light",
+      "dark": "Dark"
+    },
+    "title": "Theme: {{current}} — click for {{next}}",
+    "ariaLabel": "Theme: {{current}}"
+  },
+  "toastProvider": {
+    "dismiss": "Dismiss"
+  },
+  "transcriptionSettings": {
+    "spokenEditing": {
+      "title": "Spoken editing",
+      "detail": "Apply deterministic voice commands before transcript cleanup.",
+      "saveFailed": "Couldn't save spoken editing: {{error}}",
+      "corrections": {
+        "label": "Natural corrections",
+        "detail": "“actually”, “change X to Y”, “scratch that”"
+      },
+      "punctuation": {
+        "label": "Punctuation and paragraphs",
+        "detail": "“comma”, “new line”, “new paragraph”"
+      },
+      "lists": {
+        "label": "List commands",
+        "detail": "“start a list”, “next item”, “end list”"
+      },
+      "pressEnter": {
+        "label": "Allow “press enter”",
+        "detail": "Opt in: can submit a message after a successful paste"
+      },
+      "cancelHint": "Say “cancel that” as the entire utterance to discard it. Press Escape while recording to discard immediately."
+    },
+    "language": {
+      "title": "Language",
+      "description": "Speech is detected automatically. Choose the language used for cleanup and spoken commands.",
+      "saveFailed": "Couldn't save language: {{error}}",
+      "options": {
+        "auto": "Automatic",
+        "en": "English",
+        "es": "Spanish",
+        "fr": "French",
+        "de": "German",
+        "pt": "Portuguese"
+      },
+      "footnote": "Automatic detection supports 25 European languages. Spoken editing commands are currently English."
+    },
+    "dictionary": {
+      "title": "Dictionary",
+      "description": "Map a spoken word or phrase to exact spelling, casing, or punctuation.",
+      "exportJson": "Export JSON",
+      "importJson": "Import JSON",
+      "invalidFile": "Invalid dictionary file",
+      "saveFailed": "Couldn't save dictionary: {{error}}",
+      "spokenPlaceholder": "What Echo hears",
+      "replacementPlaceholder": "Replace with",
+      "searchPlaceholder": "Search dictionary",
+      "add": "Add",
+      "remove": "Remove"
+    },
+    "snippets": {
+      "title": "Snippets",
+      "description": "Expand a whole spoken phrase into reusable text. Everything stays local.",
+      "exportJson": "Export JSON",
+      "importJson": "Import JSON",
+      "invalidFile": "Invalid snippets file",
+      "saveFailed": "Couldn't save snippets: {{error}}",
+      "triggerPlaceholder": "Spoken trigger",
+      "expansionPlaceholder": "Exact expansion",
+      "add": "Add",
+      "conflict": "That trigger already exists.",
+      "remove": "Remove"
+    },
+    "fillerWords": {
+      "title": "Remove filler words",
+      "description": "Strip \"uh\", \"um\", \"you know\", and similar from every transcript.",
+      "updateFailed": "Couldn't update filler removal: {{error}}",
+      "saveFailed": "Couldn't save filler words: {{error}}",
+      "restoreFailed": "Couldn't restore defaults: {{error}}",
+      "chipList": {
+        "title": "Filler list",
+        "subtitle": "Edit the list. Multi-word phrases like 'you know' work.",
+        "placeholder": "Add a filler",
+        "restoreDefaults": "Restore defaults"
+      }
+    },
+    "chipList": {
+      "add": "Add",
+      "loading": "Loading…",
+      "empty": "No entries yet.",
+      "removeAria": "Remove {{word}}"
+    }
+  },
+  "updateBanner": {
+    "dismissAriaLabel": "Dismiss update",
+    "updateReady": "Update ready",
+    "versionLabel": "Echo Scribe {{version}}",
+    "restartNow": "Restart Now",
+    "versionReady": "Echo Scribe {{version}} is ready"
+  }
+}

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   ArrowLeft,
   Clock3,
@@ -51,6 +52,7 @@ function longDay(date: string): string {
 }
 
 export default function StatsView({ initialCategory, onBack }: Props) {
+  const { t } = useTranslation("main");
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [category, setCategory] = useState<StatsCategoryKey>(
     initialCategory ?? "transcriptions",
@@ -78,16 +80,16 @@ export default function StatsView({ initialCategory, onBack }: Props) {
   if (error) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 text-sm text-danger">
-        <p>Stats could not be loaded. See Settings → Diagnostics → logs for details.</p>
+        <p>{t("stats.error.message")}</p>
         <button type="button" onClick={onBack} className="text-muted hover:text-fg">
-          Back to dashboard
+          {t("stats.error.backToDashboard")}
         </button>
       </div>
     );
   }
 
   if (!stats) {
-    return <div className="h-full animate-pulse bg-canvas" aria-label="Loading stats" />;
+    return <div className="h-full animate-pulse bg-canvas" aria-label={t("stats.loading.ariaLabel")} />;
   }
 
   const selected = stats.categories[category];
@@ -111,14 +113,14 @@ export default function StatsView({ initialCategory, onBack }: Props) {
             <button
               type="button"
               onClick={onBack}
-              aria-label="Back to dashboard"
+              aria-label={t("stats.error.backToDashboard")}
               className="rounded-md border border-line bg-surface p-1.5 text-muted hover:bg-elevated hover:text-fg"
             >
               <ArrowLeft size={15} />
             </button>
             <div>
-              <h1 className="text-lg font-semibold tracking-tight">Stats</h1>
-              <p className="mt-0.5 text-xs text-muted">Your activity, at a glance and over time.</p>
+              <h1 className="text-lg font-semibold tracking-tight">{t("stats.header.title")}</h1>
+              <p className="mt-0.5 text-xs text-muted">{t("stats.header.subtitle")}</p>
             </div>
           </div>
         </div>
@@ -127,26 +129,26 @@ export default function StatsView({ initialCategory, onBack }: Props) {
           <StatsCategoryTabs value={category} onChange={setCategory} />
         </div>
 
-        <section className="grid grid-cols-2 gap-2 lg:grid-cols-4" aria-label={`${meta.label} overview`}>
+        <section className="grid grid-cols-2 gap-2 lg:grid-cols-4" aria-label={t("stats.overview.ariaLabel", { label: meta.label })}>
           <OverviewStat
-            label="Today"
+            label={t("stats.overview.today")}
             value={compactNumber(selected.today.count)}
-            sub={timed ? formatDuration(selected.today.duration_ms) : `${compactNumber(selected.today.words)} words`}
+            sub={timed ? formatDuration(selected.today.duration_ms) : t("stats.common.wordsCount", { count: compactNumber(selected.today.words) })}
           />
           <OverviewStat
-            label="This week"
+            label={t("stats.overview.thisWeek")}
             value={compactNumber(selected.week.count)}
-            sub={timed ? formatDuration(selected.week.duration_ms) : `${compactNumber(selected.week.words)} words`}
+            sub={timed ? formatDuration(selected.week.duration_ms) : t("stats.common.wordsCount", { count: compactNumber(selected.week.words) })}
           />
           <OverviewStat
-            label="Past 30 days"
+            label={t("stats.overview.past30Days")}
             value={compactNumber(selected.month.count)}
-            sub={timed ? formatDuration(selected.month.duration_ms) : `${compactNumber(selected.month.words)} words`}
+            sub={timed ? formatDuration(selected.month.duration_ms) : t("stats.common.wordsCount", { count: compactNumber(selected.month.words) })}
           />
           <OverviewStat
-            label="All time"
+            label={t("stats.overview.allTime")}
             value={timed ? formatDuration(selected.all_time.duration_ms) : compactNumber(selected.all_time.count)}
-            sub={timed ? `${selected.all_time.count.toLocaleString()} total` : `${compactNumber(selected.all_time.words)} words`}
+            sub={timed ? t("stats.common.totalCount", { count: selected.all_time.count.toLocaleString() }) : t("stats.common.wordsCount", { count: compactNumber(selected.all_time.words) })}
             accent
           />
         </section>
@@ -155,14 +157,14 @@ export default function StatsView({ initialCategory, onBack }: Props) {
           <section className="rounded-xl border border-line bg-surface p-5">
             <div className="mb-5 flex items-start justify-between gap-3">
               <div>
-                <h2 className="text-sm font-semibold">Last 7 days</h2>
-                <p className="mt-0.5 text-xs text-muted">A day-by-day pulse for {meta.label.toLowerCase()}.</p>
+                <h2 className="text-sm font-semibold">{t("stats.week.heading")}</h2>
+                <p className="mt-0.5 text-xs text-muted">{t("stats.week.subtitle", { label: meta.label.toLowerCase() })}</p>
               </div>
               <span className="rounded-full bg-accent-soft px-2 py-1 text-[11px] font-medium text-accent">
-                {selected.week.count} total
+                {t("stats.common.totalCount", { count: selected.week.count })}
               </span>
             </div>
-            <div className="flex h-44 items-end gap-2" role="img" aria-label={`Bar chart of ${meta.label.toLowerCase()} over the last seven days`}>
+            <div className="flex h-44 items-end gap-2" role="img" aria-label={t("stats.week.chartAriaLabel", { label: meta.label.toLowerCase() })}>
               {week.map((day) => {
                 const value = activityValue(day, category);
                 return (
@@ -172,7 +174,7 @@ export default function StatsView({ initialCategory, onBack }: Props) {
                       <div
                         className={`w-full rounded-sm ${value === 0 ? "bg-line" : "bg-accent"}`}
                         style={{ height: value === 0 ? 3 : `${Math.max(10, (value / weekMax) * 100)}%` }}
-                        title={`${longDay(day.date)}: ${value}`}
+                        title={t("stats.week.barTitle", { day: longDay(day.date), value })}
                       />
                     </div>
                     <span className="truncate text-[10px] text-faint">{shortDay(day.date)}</span>
@@ -183,8 +185,8 @@ export default function StatsView({ initialCategory, onBack }: Props) {
           </section>
 
           <section className="rounded-xl border border-line bg-surface p-5">
-            <h2 className="text-sm font-semibold">All-time mix</h2>
-            <p className="mt-0.5 text-xs text-muted">How your capture types compare.</p>
+            <h2 className="text-sm font-semibold">{t("stats.mix.heading")}</h2>
+            <p className="mt-0.5 text-xs text-muted">{t("stats.mix.subtitle")}</p>
             <div className="mt-5 flex flex-col gap-3.5">
               {STATS_CATEGORIES.map(({ key, label, icon: Icon }) => {
                 const value = stats.categories[key].all_time.count;
@@ -218,16 +220,16 @@ export default function StatsView({ initialCategory, onBack }: Props) {
         <section className="mt-4 rounded-xl border border-line bg-surface p-5">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <h2 className="text-sm font-semibold">90-day rhythm</h2>
-              <p className="mt-0.5 text-xs text-muted">A GitHub-style view of your consistency.</p>
+              <h2 className="text-sm font-semibold">{t("stats.heatmap.heading")}</h2>
+              <p className="mt-0.5 text-xs text-muted">{t("stats.heatmap.subtitle")}</p>
             </div>
-            <span className="text-[11px] text-muted">Less&nbsp;&nbsp;·&nbsp;&nbsp;More</span>
+            <span className="text-[11px] text-muted">{t("stats.heatmap.less")}&nbsp;&nbsp;·&nbsp;&nbsp;{t("stats.heatmap.more")}</span>
           </div>
           <div className="mt-5 overflow-x-auto pb-1">
             <div
               className="grid w-max grid-flow-col grid-rows-7 gap-1"
               role="img"
-              aria-label={`Ninety day activity heatmap for ${meta.label.toLowerCase()}`}
+              aria-label={t("stats.heatmap.ariaLabel", { label: meta.label.toLowerCase() })}
             >
               {stats.daily_activity.map((day) => {
                 const value = activityValue(day, category);
@@ -244,7 +246,11 @@ export default function StatsView({ initialCategory, onBack }: Props) {
                   <span
                     key={day.date}
                     className={`h-3 w-3 rounded-[3px] ${tone}`}
-                    title={`${longDay(day.date)}: ${value} ${value === 1 ? meta.singular : meta.label.toLowerCase()}`}
+                    title={t("stats.heatmap.cellTitle", {
+                      day: longDay(day.date),
+                      value,
+                      unit: value === 1 ? meta.singular : meta.label.toLowerCase(),
+                    })}
                   />
                 );
               })}
@@ -252,11 +258,11 @@ export default function StatsView({ initialCategory, onBack }: Props) {
           </div>
         </section>
 
-        <section className="mt-4 grid grid-cols-2 gap-2 lg:grid-cols-4" aria-label="Overall patterns">
-          <Insight icon={Flame} label="Current streak" value={`${stats.current_streak} days`} />
-          <Insight icon={Sparkles} label="Best streak" value={`${stats.longest_streak} days`} />
-          <Insight icon={Clock3} label="Busiest time" value={hourLabel(stats.busiest_hour)} />
-          <Insight icon={Hash} label="Average capture" value={`${Math.round(stats.avg_words_per_capture)} words`} />
+        <section className="mt-4 grid grid-cols-2 gap-2 lg:grid-cols-4" aria-label={t("stats.insights.ariaLabel")}>
+          <Insight icon={Flame} label={t("stats.insights.currentStreak")} value={t("stats.insights.daysValue", { count: stats.current_streak })} />
+          <Insight icon={Sparkles} label={t("stats.insights.bestStreak")} value={t("stats.insights.daysValue", { count: stats.longest_streak })} />
+          <Insight icon={Clock3} label={t("stats.insights.busiestTime")} value={hourLabel(stats.busiest_hour)} />
+          <Insight icon={Hash} label={t("stats.insights.averageCapture")} value={t("stats.common.wordsCount", { count: Math.round(stats.avg_words_per_capture) })} />
         </section>
       </div>
     </div>

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
+import { useTranslation } from "react-i18next";
 import {
   getOnboardingCompleted,
   listSpeechModels,
@@ -42,6 +43,7 @@ export default function App() {
 }
 
 function AppShell() {
+  const { t } = useTranslation();
   const [view, setView] = useState<View>("checking");
   const [initialStatus, setInitialStatus] = useState<PermissionsStatus>({
     microphone: false,
@@ -115,8 +117,7 @@ function AppShell() {
           if (err && err.toLowerCase().includes("no llm model")) {
             toasts.push({
               tone: "info",
-              message:
-                "Local AI not configured — set one in Settings to auto-classify captures.",
+              message: t("app.toasts.localAiNotConfigured"),
             });
           }
         },
@@ -140,18 +141,27 @@ function AppShell() {
         "log_capture:auto_filed",
         (event) => {
           const { item_id, project_name, kind, preview } = event.payload;
-          const kindLabel = kind === "task" ? "Task" : "Note";
+          const kindLabel =
+            kind === "task"
+              ? t("app.logCapture.kindTask")
+              : t("app.logCapture.kindNote");
           toasts.push({
             tone: "success",
-            message: `${kindLabel} filed to ${project_name}\n${preview}`,
+            message: t("app.logCapture.filedToast", {
+              kind: kindLabel,
+              project: project_name,
+              preview,
+            }),
             durationMs: 6000,
             action: {
-              label: "Undo",
+              label: t("app.logCapture.undo"),
               onClick: () => {
                 void undoLogCapture(item_id).catch((e) => {
                   toasts.push({
                     tone: "error",
-                    message: `Undo failed: ${e instanceof Error ? e.message : String(e)}`,
+                    message: t("app.logCapture.undoFailed", {
+                      error: e instanceof Error ? e.message : String(e),
+                    }),
                   });
                 });
               },
@@ -180,7 +190,7 @@ function AppShell() {
           if (n > 0) {
             toasts.push({
               tone: "info",
-              message: `${n} unfinished meeting${n > 1 ? "s" : ""} recovered. View them in Meetings.`,
+              message: t("app.meetingsRecovered", { count: n }),
             });
           }
         },
@@ -302,11 +312,11 @@ function AppShell() {
 
         if (!status.microphone || !status.accessibility || !speechReady) {
           const missing: string[] = [];
-          if (!status.microphone) missing.push("microphone");
-          if (!status.accessibility) missing.push("accessibility");
-          if (!speechReady) missing.push("speech model");
+          if (!status.microphone) missing.push(t("app.onboarding.missingMicrophone"));
+          if (!status.accessibility) missing.push(t("app.onboarding.missingAccessibility"));
+          if (!speechReady) missing.push(t("app.onboarding.missingSpeechModel"));
           setResumeNotice(
-            `Continue setup — missing: ${missing.join(", ")}.`,
+            t("app.onboarding.continueSetup", { missing: missing.join(", ") }),
           );
           setView("onboarding");
           return;
@@ -323,7 +333,7 @@ function AppShell() {
         } catch (e) {
           if (cancelled) return;
           const msg = e instanceof Error ? e.message : String(e);
-          setResumeNotice(`Couldn't start pipeline: ${msg}`);
+          setResumeNotice(t("app.onboarding.pipelineStartFailed", { error: msg }));
           setView("onboarding");
         }
       } catch {
@@ -358,7 +368,7 @@ function AppShell() {
               });
             } catch (e) {
               const msg = e instanceof Error ? e.message : String(e);
-              toasts.push({ tone: "error", message: `Couldn't record consent: ${msg}` });
+              toasts.push({ tone: "error", message: t("app.meetingPrompt.consentFailed", { error: msg }) });
             }
             setMeetingPrompt(null);
           }}
@@ -373,7 +383,7 @@ function AppShell() {
       <>
         {dragBar}
         <div className="flex h-full items-center justify-center bg-canvas text-sm text-muted">
-          Checking…
+          {t("app.checking")}
         </div>
         {overlay}
       </>
@@ -436,6 +446,7 @@ function MeetingDetectedPrompt({
   onDecision: (d: "always" | "once" | "never") => void;
   onDismiss: () => void;
 }) {
+  const { t } = useTranslation();
   const firstButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
@@ -453,12 +464,12 @@ function MeetingDetectedPrompt({
   return (
     <div
       role="alertdialog"
-      aria-label={`${appName} meeting detected`}
+      aria-label={t("app.meetingPrompt.detected", { appName })}
       className="meeting-detected-prompt fixed bottom-6 right-6 z-50 max-w-sm rounded-lg bg-surface p-4 shadow-lg ring-1 ring-border"
     >
-      <div className="text-sm font-medium">{appName} meeting detected</div>
+      <div className="text-sm font-medium">{t("app.meetingPrompt.detected", { appName })}</div>
       <div className="mt-1 text-xs text-muted">
-        Record this meeting locally? Audio stays on your machine.
+        {t("app.meetingPrompt.body")}
       </div>
       <div className="mt-3 flex gap-2">
         <button
@@ -466,19 +477,19 @@ function MeetingDetectedPrompt({
           className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white"
           onClick={() => onDecision("once")}
         >
-          Just once
+          {t("app.meetingPrompt.justOnce")}
         </button>
         <button
           className="rounded-md bg-surface-2 px-3 py-1.5 text-xs"
           onClick={() => onDecision("always")}
         >
-          Always for {appName}
+          {t("app.meetingPrompt.alwaysFor", { appName })}
         </button>
         <button
           className="rounded-md bg-surface-2 px-3 py-1.5 text-xs text-muted"
           onClick={() => onDecision("never")}
         >
-          Never
+          {t("app.meetingPrompt.never")}
         </button>
       </div>
     </div>

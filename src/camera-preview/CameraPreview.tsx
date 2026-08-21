@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { useTranslation } from "react-i18next";
 import { logCameraPreviewError } from "../lib/api";
 
 type StartPayload = { camera_name?: string };
@@ -19,6 +20,7 @@ type StartPayload = { camera_name?: string };
  * default video input rather than showing nothing.
  */
 const CameraPreview: React.FC = () => {
+  const { t } = useTranslation("windows");
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   // Monotonic token so a late-arriving getUserMedia from a previous start can't
@@ -123,7 +125,7 @@ const CameraPreview: React.FC = () => {
       }
     } catch (e) {
       if (token === startTokenRef.current) {
-        setError("Camera preview unavailable");
+        setError(t("cameraPreview.unavailable"));
         // Log the raw reason for diagnostics; the UI stays a short friendly
         // message. The backend bridge lands the error name (NotAllowedError
         // vs NotReadableError etc.) in the daily log, where the webview
@@ -165,7 +167,7 @@ const CameraPreview: React.FC = () => {
         autoPlay
         muted
         playsInline
-        aria-label="Camera preview"
+        aria-label={t("cameraPreview.ariaLabel")}
         data-tauri-drag-region
       />
       {error && <div style={styles.error}>{error}</div>}

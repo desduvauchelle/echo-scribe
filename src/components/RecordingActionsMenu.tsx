@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { ask } from "@tauri-apps/plugin-dialog";
 import {
   CloudUpload,
@@ -50,6 +51,7 @@ export function DriveReconnectModal({
   onReconnected: () => void;
   onClose: () => void;
 }) {
+  const { t } = useTranslation();
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -70,26 +72,23 @@ export function DriveReconnectModal({
   return (
     <Dialog
       onClose={onClose}
-      label="Reconnect Google Drive"
+      label={t("recordingActionsMenu.driveReconnectModal.dialogLabel")}
       dismissible={!connecting}
       className="fixed inset-0 z-[80] grid place-items-center bg-black/50"
       panelClassName="w-[400px] rounded-lg border border-line bg-canvas p-5 shadow-xl"
     >
         <h2 className="text-[14px] font-semibold tracking-tight">
-          Google Drive needs reconnecting
+          {t("recordingActionsMenu.driveReconnectModal.title")}
         </h2>
         <p className="mt-2 text-[12.5px] leading-relaxed text-muted">
-          Google isn&apos;t accepting this app&apos;s authorization for uploads.
-          That happens after a password change or revoking access — and also
-          when the Drive permission wasn&apos;t granted on the consent screen.
-          Reconnect to continue; this upload will resume automatically.
+          {t("recordingActionsMenu.driveReconnectModal.body1")}
         </p>
         <p className="mt-2 text-[12.5px] leading-relaxed text-muted">
-          On Google&apos;s page, make sure the checkbox for{" "}
+          {t("recordingActionsMenu.driveReconnectModal.body2Before")}{" "}
           <span className="text-fg">
-            adding and editing files in your Google Drive
+            {t("recordingActionsMenu.driveReconnectModal.checkboxLabel")}
           </span>{" "}
-          is ticked. Signing in without it leaves uploads blocked.
+          {t("recordingActionsMenu.driveReconnectModal.body2After")}
         </p>
         {error ? <p className="mt-2 text-[12px] text-danger">{error}</p> : null}
         <div className="mt-4 flex justify-end gap-2">
@@ -98,7 +97,7 @@ export function DriveReconnectModal({
             disabled={connecting}
             className="rounded-md border border-line px-3 py-1.5 text-[12.5px] text-muted hover:bg-surface disabled:opacity-50"
           >
-            Cancel
+            {t("recordingActionsMenu.driveReconnectModal.cancel")}
           </button>
           <button
             onClick={() => void connect()}
@@ -107,11 +106,13 @@ export function DriveReconnectModal({
           >
             {connecting ? (
               <>
-                <Loader size={13} className="animate-spin" /> Waiting for Google…
+                <Loader size={13} className="animate-spin" />{" "}
+                {t("recordingActionsMenu.driveReconnectModal.waitingForGoogle")}
               </>
             ) : (
               <>
-                <CloudUpload size={13} /> Reconnect Google Drive
+                <CloudUpload size={13} />{" "}
+                {t("recordingActionsMenu.driveReconnectModal.reconnectButton")}
               </>
             )}
           </button>
@@ -126,6 +127,7 @@ type Busy = "upload" | "transcribe" | "export" | "delete" | null;
  *  upload, reveal, transcribe, export, delete) without leaving the dashboard.
  *  Mutations bump the activity panel's refresh tick so every feed reloads. */
 export default function RecordingActionsMenu({ rec }: { rec: RecordingRow }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<Busy>(null);
   // Held upload args so the reconnect modal can resume after OAuth succeeds.
@@ -148,9 +150,15 @@ export default function RecordingActionsMenu({ rec }: { rec: RecordingRow }) {
         // activation, which the long upload await can outlive.
         try {
           await navigator.clipboard.writeText(updated.drive_link);
-          toasts.push({ tone: "success", message: "Uploaded to Drive — link copied" });
+          toasts.push({
+            tone: "success",
+            message: t("recordingActionsMenu.toasts.uploadedWithLinkCopied"),
+          });
         } catch {
-          toasts.push({ tone: "success", message: "Uploaded to Drive" });
+          toasts.push({
+            tone: "success",
+            message: t("recordingActionsMenu.toasts.uploaded"),
+          });
         }
       }
       bumpRefresh();
@@ -184,7 +192,10 @@ export default function RecordingActionsMenu({ rec }: { rec: RecordingRow }) {
     setBusy("transcribe");
     try {
       await transcribeRecording(rec.id);
-      toasts.push({ tone: "success", message: "Transcript ready" });
+      toasts.push({
+        tone: "success",
+        message: t("recordingActionsMenu.toasts.transcriptReady"),
+      });
       bumpRefresh();
     } catch (e) {
       fail(e);
@@ -198,7 +209,10 @@ export default function RecordingActionsMenu({ rec }: { rec: RecordingRow }) {
     setBusy("export");
     try {
       await exportRecording(rec.id, "1080");
-      toasts.push({ tone: "success", message: "Exported 1080p MP4" });
+      toasts.push({
+        tone: "success",
+        message: t("recordingActionsMenu.toasts.exported1080p"),
+      });
       bumpRefresh();
     } catch (e) {
       fail(e);
@@ -210,8 +224,13 @@ export default function RecordingActionsMenu({ rec }: { rec: RecordingRow }) {
   const onDelete = async () => {
     setOpen(false);
     const confirmed = await ask(
-      `Delete “${recordingDisplayName(rec)}”? This cannot be undone.`,
-      { title: "Delete recording", kind: "warning" },
+      t("recordingActionsMenu.confirmDelete.message", {
+        name: recordingDisplayName(rec),
+      }),
+      {
+        title: t("recordingActionsMenu.confirmDelete.title"),
+        kind: "warning",
+      },
     );
     if (!confirmed) return;
     setBusy("delete");
@@ -252,7 +271,7 @@ export default function RecordingActionsMenu({ rec }: { rec: RecordingRow }) {
           <button
             {...props}
             type="button"
-            aria-label="Recording actions"
+            aria-label={t("recordingActionsMenu.menuTrigger")}
             className="grid h-7 w-7 place-items-center rounded-md text-muted hover:bg-elevated hover:text-fg"
           >
             {busy ? <Loader size={14} className="animate-spin" /> : <MoreHorizontal size={15} />}
@@ -268,11 +287,14 @@ export default function RecordingActionsMenu({ rec }: { rec: RecordingRow }) {
                 void openRecordingEditor(rec.id, recordingDisplayName(rec)).catch(fail);
               }}
             >
-              <Wand2 size={14} /> Edit recording
+              <Wand2 size={14} /> {t("recordingActionsMenu.menu.editRecording")}
             </button>
             <button type="button" className={entry} onClick={() => void startUpload()}>
               <CloudUpload size={14} />
-              Upload to Drive{hasRenderedExport(rec) ? " (edited)" : ""}
+              {t("recordingActionsMenu.menu.uploadToDrive")}
+              {hasRenderedExport(rec)
+                ? t("recordingActionsMenu.menu.uploadToDriveEditedSuffix")
+                : ""}
             </button>
             <button
               type="button"
@@ -282,14 +304,16 @@ export default function RecordingActionsMenu({ rec }: { rec: RecordingRow }) {
                 void revealRecording(rec.id).catch(fail);
               }}
             >
-              <FolderOpen size={14} /> Reveal in Finder
+              <FolderOpen size={14} /> {t("recordingActionsMenu.menu.revealInFinder")}
             </button>
             <button type="button" className={entry} onClick={() => void onTranscribe()}>
               <FileText size={14} />
-              {rec.transcript?.trim() ? "Regenerate transcript" : "Get transcript"}
+              {rec.transcript?.trim()
+                ? t("recordingActionsMenu.menu.regenerateTranscript")
+                : t("recordingActionsMenu.menu.getTranscript")}
             </button>
             <button type="button" className={entry} onClick={() => void onExport()}>
-              <Download size={14} /> Export 1080p
+              <Download size={14} /> {t("recordingActionsMenu.menu.export1080p")}
             </button>
             <div className="my-1 border-t border-line" />
             <button
@@ -297,7 +321,7 @@ export default function RecordingActionsMenu({ rec }: { rec: RecordingRow }) {
               className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12.5px] text-danger hover:bg-danger/10"
               onClick={() => void onDelete()}
             >
-              <Trash2 size={14} /> Delete
+              <Trash2 size={14} /> {t("recordingActionsMenu.menu.delete")}
             </button>
           </div>
       </Menu>

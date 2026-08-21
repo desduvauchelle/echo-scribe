@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { guideRunsForTemplate, type GuideRun } from "../lib/api";
 import { aggregateTrend, type TrendData } from "../lib/guideReview";
 import Dialog from "./a11y/Dialog";
@@ -10,13 +11,6 @@ const CELL: Record<string, string> = {
   unknown: "bg-elevated",
 };
 
-const CELL_LABEL: Record<string, string> = {
-  met: "Met",
-  partial: "Partially met",
-  missed: "Missed",
-  unknown: "No data",
-};
-
 export default function GuideTrendView({
   templateId,
   templateName,
@@ -26,6 +20,7 @@ export default function GuideTrendView({
   templateName: string;
   onClose: () => void;
 }) {
+  const { t } = useTranslation();
   const [data, setData] = useState<TrendData | null>(null);
 
   const load = useCallback(async () => {
@@ -46,25 +41,25 @@ export default function GuideTrendView({
     >
         <div className="mb-4 flex items-center justify-between">
           <h2 id="guide-trend-title" className="text-[15px] font-semibold text-fg">
-            {templateName} — across your calls
+            {t("guideTrendView.heading", { templateName })}
           </h2>
-          <button aria-label="Close" className="text-muted hover:text-fg" onClick={onClose}>✕</button>
+          <button aria-label={t("guideTrendView.close")} className="text-muted hover:text-fg" onClick={onClose}>✕</button>
         </div>
 
         {!data || data.columns.length === 0 ? (
-          <p className="text-[13px] text-muted">No completed guide reviews for this template yet.</p>
+          <p className="text-[13px] text-muted">{t("guideTrendView.noData")}</p>
         ) : (
           <>
             <div className="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
               {data.gap ? (
                 <div className="rounded-lg border border-line border-l-2 border-l-red-500 p-3">
-                  <div className="text-[10px] font-bold uppercase text-faint">Recurring gap</div>
+                  <div className="text-[10px] font-bold uppercase text-faint">{t("guideTrendView.recurringGap")}</div>
                   <div className="mt-1 text-[13px] font-medium text-fg">{data.gap}</div>
                 </div>
               ) : null}
               {data.strength ? (
                 <div className="rounded-lg border border-line border-l-2 border-l-emerald-500 p-3">
-                  <div className="text-[10px] font-bold uppercase text-faint">Strength</div>
+                  <div className="text-[10px] font-bold uppercase text-faint">{t("guideTrendView.strength")}</div>
                   <div className="mt-1 text-[13px] font-medium text-fg">{data.strength}</div>
                 </div>
               ) : null}
@@ -80,7 +75,7 @@ export default function GuideTrendView({
                         {c.startedAt.slice(5, 10)}
                       </th>
                     ))}
-                    <th className="px-1 font-normal text-faint">hit</th>
+                    <th className="px-1 font-normal text-faint">{t("guideTrendView.hitColumn")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -89,7 +84,11 @@ export default function GuideTrendView({
                       <td className="whitespace-nowrap pr-2 font-medium text-fg">{crit}</td>
                       {data.columns.map((c) => {
                         const state = c.cells[i] in CELL ? c.cells[i] : "unknown";
-                        const label = `${crit}, ${c.startedAt.slice(5, 10)}: ${CELL_LABEL[state]}`;
+                        const label = t("guideTrendView.cellAriaLabel", {
+                          crit,
+                          date: c.startedAt.slice(5, 10),
+                          label: t(`guideTrendView.cellLabel.${state}`),
+                        });
                         return (
                           <td key={c.runId} className="p-0">
                             <div

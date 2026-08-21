@@ -1,5 +1,6 @@
 import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   CheckSquare,
   ChevronRight,
@@ -103,13 +104,15 @@ function dayLabel(iso: string): string {
 
 type ExportRangeKey = "day" | "today" | "week" | "month" | "all";
 
-const EXPORT_RANGES: { key: ExportRangeKey; label: string }[] = [
-  { key: "day", label: "Past 24 hours" },
-  { key: "today", label: "Today" },
-  { key: "week", label: "Past 7 days" },
-  { key: "month", label: "Past 30 days" },
-  { key: "all", label: "All time" },
-];
+function exportRanges(t: (key: string) => string): { key: ExportRangeKey; label: string }[] {
+  return [
+    { key: "day", label: t("dashboard.export.ranges.day") },
+    { key: "today", label: t("dashboard.export.ranges.today") },
+    { key: "week", label: t("dashboard.export.ranges.week") },
+    { key: "month", label: t("dashboard.export.ranges.month") },
+    { key: "all", label: t("dashboard.export.ranges.all") },
+  ];
+}
 
 /** ISO-8601 UTC lower bound for an export range; null = no bound. Seconds
  *  precision to match the backend's captured_at format. */
@@ -135,19 +138,21 @@ function exportSince(key: ExportRangeKey): string | null {
   return start.toISOString().replace(/\.\d{3}Z$/, "Z");
 }
 
-const EMPTY_LABELS: Record<Exclude<KindFilter, "all" | "task">, string> = {
-  transcription: "No transcriptions yet.",
-  note: "No notes yet.",
-  meeting: "No meetings yet.",
-  recording: "No recordings yet.",
+const EMPTY_LABEL_KEYS: Record<Exclude<KindFilter, "all" | "task">, string> = {
+  transcription: "dashboard.empty.transcriptions",
+  note: "dashboard.empty.notes",
+  meeting: "dashboard.empty.meetings",
+  recording: "dashboard.empty.recordings",
 };
 
-function emptyLabel(kind: KindFilter): string {
-  if (kind === "all" || kind === "task") return "Nothing here yet.";
-  return EMPTY_LABELS[kind];
+function emptyLabel(t: (key: string) => string, kind: KindFilter): string {
+  if (kind === "all" || kind === "task") return t("dashboard.empty.nothing");
+  return t(EMPTY_LABEL_KEYS[kind]);
 }
 
 export default function DashboardView({ projects, onOpenStats, searchRequest = 0 }: Props) {
+  const { t } = useTranslation("main");
+  const EXPORT_RANGES = exportRanges(t);
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [summary, setSummary] = useState<DailySummary | null>(null);
   const [items, setItems] = useState<Item[]>([]);
@@ -395,7 +400,7 @@ export default function DashboardView({ projects, onOpenStats, searchRequest = 0
       });
       pushToast({
         tone: "success",
-        message: `Exported ${res.count} item${res.count === 1 ? "" : "s"} to Downloads.`,
+        message: t("dashboard.export.successToast", { count: res.count }),
       });
       setExportOpen(false);
     } catch (e) {
@@ -426,27 +431,32 @@ export default function DashboardView({ projects, onOpenStats, searchRequest = 0
       if (s.scanned === 0) {
         pushToast({
           tone: "success",
-          message: "Tagging ran — everything already has a project.",
+          message: t("dashboard.tagging.toastNothingToTag"),
         });
       } else if (s.sample_error && s.assigned === 0) {
         pushToast({
           tone: "error",
           durationMs: 20_000,
-          message: `Tagging checked ${s.scanned} captures but couldn't assign any. AI error: ${s.sample_error}`,
+          message: t("dashboard.tagging.toastAllFailed", {
+            scanned: s.scanned,
+            error: s.sample_error,
+          }),
         });
       } else {
         const notes = [
           undecided > 0
-            ? `${undecided} had no clear project and will be retried later.`
+            ? t("dashboard.tagging.toastUndecided", { count: undecided })
             : null,
-          s.sample_error ? `Some hit an AI error: ${s.sample_error}` : null,
+          s.sample_error
+            ? t("dashboard.tagging.toastAiErrorNote", { error: s.sample_error })
+            : null,
         ]
           .filter(Boolean)
           .join(" ");
         pushToast({
           tone: "success",
           durationMs: 15_000,
-          message: `Tagging finished: ${s.assigned} of ${s.scanned} captures assigned to a project.${notes ? ` ${notes}` : ""}`,
+          message: `${t("dashboard.tagging.toastFinished", { assigned: s.assigned, scanned: s.scanned })}${notes ? ` ${notes}` : ""}`,
         });
       }
       if (s.assigned > 0) {
@@ -457,7 +467,9 @@ export default function DashboardView({ projects, onOpenStats, searchRequest = 0
       pushToast({
         tone: "error",
         durationMs: 20_000,
-        message: `Tagging failed: ${e instanceof Error ? e.message : String(e)}`,
+        message: t("dashboard.tagging.toastFailed", {
+          error: e instanceof Error ? e.message : String(e),
+        }),
       });
     } finally {
       unlisten?.();
@@ -487,12 +499,12 @@ export default function DashboardView({ projects, onOpenStats, searchRequest = 0
           <div className="flex min-w-0 flex-wrap items-center gap-0.5">
           {(
             [
-              ["all", "All", LayoutGrid],
-              ["transcription", "Transcriptions", Mic],
-              ["note", "Notes", StickyNote],
-              ["task", "Tasks", CheckSquare],
-              ["meeting", "Meetings", Phone],
-              ["recording", "Recordings", Video],
+              ["all", t("dashboard.filters.all"), LayoutGrid],
+              ["transcription", t("dashboard.filters.transcriptions"), Mic],
+              ["note", t("dashboard.filters.notes"), StickyNote],
+              ["task", t("dashboard.filters.tasks"), CheckSquare],
+              ["meeting", t("dashboard.filters.meetings"), Phone],
+              ["recording", t("dashboard.filters.recordings"), Video],
             ] as [KindFilter, string, LucideIcon][]
           ).map(([value, label, Icon]) => {
             const active = value === kindFilter;
@@ -519,8 +531,8 @@ export default function DashboardView({ projects, onOpenStats, searchRequest = 0
             type="button"
             onClick={() => void runTagging()}
             disabled={tagging}
-            aria-label="Tag all captures"
-            title="Tag all untagged captures with a project"
+            aria-label={t("dashboard.tagging.button")}
+            title={t("dashboard.tagging.buttonTooltip")}
             className="native-toolbar-button flex h-7 items-center gap-1.5 rounded-md px-2 text-muted hover:text-fg disabled:opacity-70"
           >
             {tagging ? (
@@ -528,8 +540,13 @@ export default function DashboardView({ projects, onOpenStats, searchRequest = 0
                 <Loader2 size={14} className="animate-spin" />
                 {tagProgress ? (
                   <span className="text-[11px] tabular-nums">
-                    {tagProgress.processed}/{tagProgress.total}
-                    {tagProgress.assigned > 0 ? ` · ${tagProgress.assigned} tagged` : ""}
+                    {t("dashboard.tagging.progress", {
+                      processed: tagProgress.processed,
+                      total: tagProgress.total,
+                    })}
+                    {tagProgress.assigned > 0
+                      ? ` · ${t("dashboard.tagging.taggedSuffix", { count: tagProgress.assigned })}`
+                      : ""}
                   </span>
                 ) : null}
               </span>
@@ -544,8 +561,8 @@ export default function DashboardView({ projects, onOpenStats, searchRequest = 0
               <button
                 {...props}
                 type="button"
-                aria-label="Export activity"
-                title="Export activity"
+                aria-label={t("dashboard.export.title")}
+                title={t("dashboard.export.title")}
                 className="native-toolbar-button grid h-7 w-7 place-items-center rounded-md text-muted hover:text-fg"
               >
                 <Download size={14} />
@@ -554,7 +571,7 @@ export default function DashboardView({ projects, onOpenStats, searchRequest = 0
           >
                 <div className="absolute right-0 top-full z-20 mt-1.5 w-56 rounded-lg border border-line bg-canvas p-3 shadow-xl">
                   <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.08em] text-muted">
-                    Export activity
+                    {t("dashboard.export.title")}
                   </div>
                   <div className="flex flex-col gap-1">
                     {EXPORT_RANGES.map((r) => (
@@ -579,7 +596,7 @@ export default function DashboardView({ projects, onOpenStats, searchRequest = 0
                       onClick={() => void runExport("markdown")}
                       className="flex-1 rounded border border-line bg-surface px-2 py-1 text-xs hover:bg-elevated disabled:opacity-50"
                     >
-                      {exporting ? "Exporting…" : "Markdown"}
+                      {exporting ? t("dashboard.export.exporting") : t("dashboard.export.formats.markdown")}
                     </button>
                     <button
                       type="button"
@@ -587,7 +604,7 @@ export default function DashboardView({ projects, onOpenStats, searchRequest = 0
                       onClick={() => void runExport("csv")}
                       className="flex-1 rounded border border-line bg-surface px-2 py-1 text-xs hover:bg-elevated disabled:opacity-50"
                     >
-                      {exporting ? "Exporting…" : "CSV"}
+                      {exporting ? t("dashboard.export.exporting") : t("dashboard.export.formats.csv")}
                     </button>
                   </div>
                 </div>
@@ -603,8 +620,8 @@ export default function DashboardView({ projects, onOpenStats, searchRequest = 0
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search captures…"
-            aria-label="Search captures"
+            placeholder={t("dashboard.search.placeholder")}
+            aria-label={t("dashboard.search.ariaLabel")}
             className="flex-1 bg-transparent text-[13px] text-fg outline-none placeholder:text-faint"
             onKeyDown={(e) => {
               if (e.key === "Escape") closeSearch();
@@ -613,7 +630,7 @@ export default function DashboardView({ projects, onOpenStats, searchRequest = 0
           <button
             type="button"
             onClick={closeSearch}
-            aria-label="Close search"
+            aria-label={t("dashboard.search.closeLabel")}
             className="rounded p-0.5 text-faint hover:bg-elevated hover:text-fg"
           >
             <X size={14} />
@@ -646,13 +663,15 @@ export default function DashboardView({ projects, onOpenStats, searchRequest = 0
           <div className="flex items-center justify-between border-b border-line py-2.5">
             <div>
               <p className="text-[10px] font-semibold uppercase tracking-[0.13em] text-accent">
-                {isSearching ? "Search results" : "Today"}
+                {isSearching ? t("dashboard.activity.searchResultsLabel") : t("dashboard.activity.todayLabel")}
               </p>
               <h2 id="activity-heading" className="mt-0.5 text-[14px] font-semibold text-fg">
-                {isSearching ? `Matches for “${query.trim()}”` : "Recent activity"}
+                {isSearching
+                  ? t("dashboard.activity.matchesFor", { query: query.trim() })
+                  : t("dashboard.activity.recentActivity")}
               </h2>
             </div>
-            <span className="text-[10px] text-faint">Most recent</span>
+            <span className="text-[10px] text-faint">{t("dashboard.activity.mostRecent")}</span>
           </div>
 
         {isTasks ? (
@@ -665,7 +684,7 @@ export default function DashboardView({ projects, onOpenStats, searchRequest = 0
             <SkeletonList />
           ) : searchEntries.length === 0 ? (
             <p className="px-4 py-8 text-center text-xs text-muted">
-              No results for &ldquo;{query.trim()}&rdquo;.
+              {t("dashboard.search.noResults", { query: query.trim() })}
             </p>
           ) : (
             searchEntries.map(renderEntry)
@@ -681,7 +700,7 @@ export default function DashboardView({ projects, onOpenStats, searchRequest = 0
             <SkeletonList />
           ) : browseEntries.length === 0 ? (
             <p className="px-4 py-8 text-center text-xs text-muted">
-              {emptyLabel(kindFilter)}
+              {emptyLabel(t, kindFilter)}
             </p>
           ) : (
             <>
@@ -694,7 +713,7 @@ export default function DashboardView({ projects, onOpenStats, searchRequest = 0
                     disabled={loadingMore}
                     className="rounded border border-line px-4 py-1 text-xs hover:bg-elevated disabled:opacity-50"
                   >
-                    {loadingMore ? "Loading…" : "Load more"}
+                    {loadingMore ? t("dashboard.activity.loading") : t("dashboard.activity.loadMore")}
                   </button>
                 </div>
               ) : null}
@@ -725,6 +744,7 @@ function StatStrip({
   category: StatsCategoryKey | null;
   onOpen: () => void;
 }) {
+  const { t } = useTranslation("main");
   const selected = category ? stats.categories[category] : null;
   const meta = category ? categoryMeta(category) : null;
   const timed = category === "meetings" || category === "recordings";
@@ -732,20 +752,20 @@ function StatStrip({
   return (
     <div
       role="region"
-      aria-label="Activity statistics"
+      aria-label={t("dashboard.stats.regionLabel")}
       className="echo-stat-strip border-y border-line"
     >
       <div className="flex h-8 items-center justify-between border-b border-line px-4">
         <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted">
-          {meta ? meta.label : "Activity overview"}
+          {meta ? meta.label : t("dashboard.stats.overviewLabel")}
         </span>
         <button
           type="button"
           onClick={onOpen}
           className="native-toolbar-button flex h-6 items-center gap-1 rounded px-2 text-[10px] font-medium text-muted hover:text-fg"
-          aria-label="View stats"
+          aria-label={t("dashboard.stats.viewStats")}
         >
-          View stats
+          {t("dashboard.stats.viewStats")}
           <ChevronRight size={11} aria-hidden="true" />
         </button>
       </div>
@@ -753,24 +773,24 @@ function StatStrip({
       {selected && meta ? (
         <div className="grid grid-cols-2 sm:grid-cols-4">
           <StatCell
-            label="Today"
+            label={t("dashboard.stats.today")}
             value={compactNumber(selected.today.count)}
             sub={selected.today.count === 1 ? meta.singular : meta.label.toLowerCase()}
           />
           <StatCell
-            label="This week"
+            label={t("dashboard.stats.thisWeek")}
             value={compactNumber(selected.week.count)}
-            sub={timed ? formatDuration(selected.week.duration_ms) : `${compactNumber(selected.week.words)} words`}
+            sub={timed ? formatDuration(selected.week.duration_ms) : t("dashboard.stats.wordsCount", { count: compactNumber(selected.week.words) })}
           />
           <StatCell
-            label={timed ? "Time this week" : "Words this week"}
+            label={timed ? t("dashboard.stats.timeThisWeek") : t("dashboard.stats.wordsThisWeek")}
             value={timed ? formatDuration(selected.week.duration_ms) : compactNumber(selected.week.words)}
-            sub={timed ? `${selected.week.count} ${selected.week.count === 1 ? meta.singular : meta.label.toLowerCase()}` : `${selected.week.words.toLocaleString()} exact`}
+            sub={timed ? `${selected.week.count} ${selected.week.count === 1 ? meta.singular : meta.label.toLowerCase()}` : t("dashboard.stats.exactCount", { count: selected.week.words.toLocaleString() })}
           />
           <StatCell
-            label={timed ? "Time all time" : "All time"}
+            label={timed ? t("dashboard.stats.timeAllTime") : t("dashboard.stats.allTime")}
             value={timed ? formatDuration(selected.all_time.duration_ms) : compactNumber(selected.all_time.count)}
-            sub={timed ? `${selected.all_time.count.toLocaleString()} total` : `${compactNumber(selected.all_time.words)} words`}
+            sub={timed ? t("dashboard.stats.totalCount", { count: selected.all_time.count.toLocaleString() }) : t("dashboard.stats.wordsCount", { count: compactNumber(selected.all_time.words) })}
           />
         </div>
       ) : (
@@ -782,8 +802,11 @@ function StatStrip({
                 key={key}
                 label={label}
                 value={compactNumber(categoryStats.today.count)}
-                sub={`${compactNumber(categoryStats.week.count)} this week`}
-                srText={`${categoryStats.today.count} ${categoryStats.today.count === 1 ? singular : label.toLowerCase()} today`}
+                sub={t("dashboard.stats.thisWeekCount", { count: compactNumber(categoryStats.week.count) })}
+                srText={t("dashboard.stats.todayCount", {
+                  count: categoryStats.today.count,
+                  label: categoryStats.today.count === 1 ? singular : label.toLowerCase(),
+                })}
               />
             );
           })}
@@ -823,19 +846,20 @@ function RecapCard({
   dateLabel: string;
   onOpen: () => void;
 }) {
+  const { t } = useTranslation("main");
   const generated = summary?.status === "generated";
   const preview = generated
     ? summary.narrative.slice(0, 140) +
       (summary.narrative.length > 140 ? "…" : "")
     : summary?.status === "skipped_empty"
-      ? "Quiet day — nothing recorded."
-      : "No recap was generated for yesterday.";
+      ? t("dashboard.recap.quietDay")
+      : t("dashboard.recap.notGenerated");
 
   const body = (
     <div className="flex items-center gap-3">
       <div className="min-w-0 flex-1">
         <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted">
-          Yesterday · {dateLabel}
+          {t("dashboard.recap.yesterdayLabel", { date: dateLabel })}
         </div>
         <p className="mt-0.5 line-clamp-1 text-[13px] text-fg">{preview}</p>
       </div>
@@ -873,6 +897,7 @@ function RecapModal({
   dateLabel: string;
   onClose: () => void;
 }) {
+  const { t } = useTranslation("main");
   return (
     <Dialog
       onClose={onClose}
@@ -890,7 +915,7 @@ function RecapModal({
           <button
             type="button"
             onClick={onClose}
-            aria-label="Close"
+            aria-label={t("dashboard.recap.close")}
             className="rounded-md p-1 text-muted hover:bg-elevated hover:text-fg"
           >
             <X size={16} />
@@ -900,14 +925,14 @@ function RecapModal({
           <p className="text-sm leading-relaxed text-fg">
             {summary.narrative}
           </p>
-          <RecapSection title="Meetings" items={summary.sections.meetings ?? []} />
+          <RecapSection title={t("dashboard.recap.sections.meetings")} items={summary.sections.meetings ?? []} />
           <RecapSection
-            title="Focus work"
+            title={t("dashboard.recap.sections.focusWork")}
             items={summary.sections.focus_work ?? []}
           />
-          <RecapSection title="Notes" items={summary.sections.notes ?? []} />
+          <RecapSection title={t("dashboard.recap.sections.notes")} items={summary.sections.notes ?? []} />
           <RecapSection
-            title="Things that came up"
+            title={t("dashboard.recap.sections.thingsThatCameUp")}
             items={summary.sections.things_that_came_up ?? []}
           />
         </div>

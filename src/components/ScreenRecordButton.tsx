@@ -1,4 +1,5 @@
 import { Loader, Video } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { useCapabilities } from "../lib/capabilitiesContext";
 import { uiGates } from "../lib/capabilities";
 import { useScreenRecorder } from "../lib/useScreenRecorder";
@@ -17,13 +18,16 @@ export default function ScreenRecordButton({
 }: {
   variant?: Variant;
 }) {
+  const { t } = useTranslation();
   const caps = useCapabilities();
   const { active, busy, toggle } = useScreenRecorder();
 
   // Screen recording (and its Drive upload) share this capability gate.
   if (!uiGates(caps).showRecordingsNav) return null;
 
-  const label = active ? "Stop screen recording" : "Record screen";
+  const label = active
+    ? t("screenRecordButton.stopLabel")
+    : t("screenRecordButton.recordLabel");
 
   if (variant === "header") {
     return (
@@ -33,7 +37,7 @@ export default function ScreenRecordButton({
         disabled={busy}
         aria-pressed={active}
         aria-label={label}
-        title={active ? "Stop screen recording" : "Record your screen"}
+        title={active ? t("screenRecordButton.stopLabel") : t("screenRecordButton.recordTitle")}
         className={`native-toolbar-button grid h-8 w-8 place-items-center rounded-md transition-colors disabled:opacity-70 ${
           active
             ? "border-danger/30 bg-danger/15 text-danger hover:bg-danger/20"
@@ -59,7 +63,7 @@ export default function ScreenRecordButton({
       onClick={() => void toggle()}
       disabled={busy}
       aria-pressed={active}
-      title={active ? "Stop screen recording" : "Record your screen"}
+      title={active ? t("screenRecordButton.stopLabel") : t("screenRecordButton.recordTitle")}
       className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-medium transition-colors ${
         active
           ? "border-danger/30 bg-danger/15 text-danger hover:bg-danger/20"
@@ -75,7 +79,7 @@ export default function ScreenRecordButton({
       ) : (
         <Video size={11} strokeWidth={2} aria-hidden="true" />
       )}
-      <span>{active ? "Stop" : "Screen"}</span>
+      <span>{active ? t("screenRecordButton.stop") : t("screenRecordButton.screen")}</span>
     </button>
   );
 }

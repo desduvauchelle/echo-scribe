@@ -1,5 +1,6 @@
 import { listen } from "@tauri-apps/api/event";
 import React, { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import "./RecordingOverlay.css";
 
 type OverlayState =
@@ -54,10 +55,13 @@ const CancelIcon: React.FC = () => (
 );
 
 const RecordingOverlay: React.FC = () => {
+  const { t } = useTranslation("windows");
   const [isVisible, setIsVisible] = useState(false);
   const [state, setState] = useState<OverlayState>("recording");
   const [meetingAppName, setMeetingAppName] = useState<string | null>(null);
-  const [processingLabel, setProcessingLabel] = useState<string>("Processing…");
+  const [processingLabel, setProcessingLabel] = useState<string>(() =>
+    t("overlay.processingDefault"),
+  );
   const [levels, setLevels] = useState<number[]>(Array(16).fill(0));
   const smoothedLevelsRef = useRef<number[]>(Array(16).fill(0));
 
@@ -73,7 +77,7 @@ const RecordingOverlay: React.FC = () => {
           if (obj.mode === "processing") {
             const proc = obj as ProcessingOverlayPayload;
             setState("processing");
-            setProcessingLabel(proc.label || "Processing…");
+            setProcessingLabel(proc.label || t("overlay.processingDefault"));
           } else {
             const meeting = obj as MeetingOverlayPayload;
             setState(meeting.mode);
@@ -118,11 +122,13 @@ const RecordingOverlay: React.FC = () => {
     // are always the same. Mode-discrimination (log/action) is conveyed via
     // the CSS pill gradient (`log-mode`, `action-mode` classes), not the icon.
     if (state === "processing")
-      return <TrayIcon src="/icons/tray_thinking.png" alt="Thinking" />;
+      return <TrayIcon src="/icons/tray_thinking.png" alt={t("overlay.iconThinkingAlt")} />;
     if (state === "transcribing")
-      return <TrayIcon src="/icons/tray_transcribing.png" alt="Transcribing" />;
+      return (
+        <TrayIcon src="/icons/tray_transcribing.png" alt={t("overlay.iconTranscribingAlt")} />
+      );
     // Recording (any mode) and meeting → listening icon.
-    return <TrayIcon src="/icons/tray_recording.png" alt="Recording" />;
+    return <TrayIcon src="/icons/tray_recording.png" alt={t("overlay.iconRecordingAlt")} />;
   };
 
   return (
@@ -147,7 +153,7 @@ const RecordingOverlay: React.FC = () => {
         )}
         {state === "transcribing" && (
           <div className="status-text" role="status" aria-live="polite">
-            Transcribing…
+            {t("overlay.transcribing")}
           </div>
         )}
         {isProcessing && (
@@ -157,7 +163,9 @@ const RecordingOverlay: React.FC = () => {
         )}
         {isMeeting && (
           <div className="status-text" role="status" aria-live="polite">
-            {meetingAppName ? `Recording · ${meetingAppName}` : "Recording meeting"}
+            {meetingAppName
+              ? t("overlay.recordingMeetingWithApp", { appName: meetingAppName })
+              : t("overlay.recordingMeeting")}
           </div>
         )}
       </div>
@@ -166,7 +174,7 @@ const RecordingOverlay: React.FC = () => {
         {isRecording && (
           <button
             className="cancel-button"
-            aria-label="Cancel recording"
+            aria-label={t("overlay.cancelRecording")}
             onClick={() => {
               import("@tauri-apps/api/event").then(({ emit }) =>
                 emit("overlay-cancel"),
@@ -185,7 +193,7 @@ const RecordingOverlay: React.FC = () => {
                   invoke("show_meeting_hud", { focus: "transcript" }).catch(() => {}),
                 );
               }}
-              title="Live transcript"
+              title={t("overlay.liveTranscript")}
             >
               <TranscriptIcon />
             </button>
@@ -196,7 +204,7 @@ const RecordingOverlay: React.FC = () => {
                   invoke("show_meeting_hud", { focus: "guides" }).catch(() => {}),
                 );
               }}
-              title="Guided templates"
+              title={t("overlay.guidedTemplates")}
             >
               <GuideIcon />
             </button>
@@ -207,7 +215,7 @@ const RecordingOverlay: React.FC = () => {
                   invoke("stop_meeting").catch(() => {}),
                 );
               }}
-              title="Stop meeting"
+              title={t("overlay.stopMeeting")}
             >
               <CancelIcon />
             </button>

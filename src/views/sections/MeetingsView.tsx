@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Folder, Loader } from "lucide-react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
@@ -32,7 +33,47 @@ const STATUS_RANK: Record<string, number> = {
   recovered: 3,
 };
 
+// meetingStatusDisplay() (src/lib/meetingStatus.ts) is a pure-logic module
+// that bun tests import, so it can't pull in i18n. Its label/description
+// strings are display copy for this view only — re-derive the translated
+// text here at the callsite, keyed by the same status, and keep using the
+// lib function only for the non-text bits (tone/spinner/pill).
+function statusLabel(t: (key: string) => string, status: MeetingStatus): string {
+  switch (status) {
+    case "recording":
+      return t("meetings.status.recording.label");
+    case "transcribing":
+      return t("meetings.status.transcribing.label");
+    case "summarizing":
+      return t("meetings.status.summarizing.label");
+    case "failed":
+      return t("meetings.status.failed.label");
+    case "recovered":
+      return t("meetings.status.recovered.label");
+    case "complete":
+      return "";
+  }
+}
+
+function statusDescription(t: (key: string) => string, status: MeetingStatus): string {
+  switch (status) {
+    case "recording":
+      return t("meetings.status.recording.description");
+    case "transcribing":
+      return t("meetings.status.transcribing.description");
+    case "summarizing":
+      return t("meetings.status.summarizing.description");
+    case "failed":
+      return t("meetings.status.failed.description");
+    case "recovered":
+      return t("meetings.status.recovered.description");
+    case "complete":
+      return "";
+  }
+}
+
 export function MeetingsView() {
+  const { t } = useTranslation("main");
   const [rows, setRows] = useState<MeetingRow[]>([]);
   const [filter, setFilter] = useState<Filter>("all");
   const [active, setActive] = useState(false);
@@ -192,14 +233,14 @@ export function MeetingsView() {
           <span className="relative inline-flex h-2 w-2 rounded-full bg-white" />
         )}
       </span>
-      {active ? "Stop meeting" : "Start meeting"}
+      {active ? t("meetings.actions.stopMeeting") : t("meetings.actions.startMeeting")}
     </button>
   );
 
   return (
     <div className="meetings-view flex h-full flex-col overflow-y-auto gap-4 p-6">
       <header className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold">Meetings</h2>
+        <h2 className="text-lg font-semibold">{t("meetings.header.title")}</h2>
         <div className="flex items-center gap-2">
           {!active && templates.length > 0 && (
             <Menu
@@ -211,7 +252,7 @@ export function MeetingsView() {
                   className="rounded-md border border-line px-3 py-1 text-sm text-muted hover:text-fg disabled:opacity-50"
                   disabled={busy}
                 >
-                  Start guided session
+                  {t("meetings.actions.startGuidedSession")}
                 </button>
               )}
             >
@@ -234,10 +275,10 @@ export function MeetingsView() {
 
       {!rows.length ? (
         <div className="meetings-empty rounded-md bg-surface-2 p-8 text-center text-sm text-muted">
-          <p className="mb-1 font-medium text-fg">No meetings yet</p>
+          <p className="mb-1 font-medium text-fg">{t("meetings.emptyState.title")}</p>
           <p>
-            Click <em>Start meeting</em> above, or open Zoom/Teams/FaceTime and
-            we'll detect it automatically.
+            {t("meetings.emptyState.clickPrefix")} <em>{t("meetings.actions.startMeeting")}</em>{" "}
+            {t("meetings.emptyState.bodySuffix")}
           </p>
         </div>
       ) : (
@@ -246,17 +287,17 @@ export function MeetingsView() {
             <FilterChip
               active={filter === "all"}
               onClick={() => setFilter("all")}
-              label="All"
+              label={t("meetings.filters.all")}
             />
             <FilterChip
               active={filter === "week"}
               onClick={() => setFilter("week")}
-              label="This week"
+              label={t("meetings.filters.thisWeek")}
             />
             <FilterChip
               active={filter === "month"}
               onClick={() => setFilter("month")}
-              label="This month"
+              label={t("meetings.filters.thisMonth")}
             />
             {apps.map(([id, name]) => (
               <FilterChip
@@ -280,7 +321,7 @@ export function MeetingsView() {
                   >
                   <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0 truncate text-sm font-medium">
-                      {r.detected_app_name ?? "Manual"} ·{" "}
+                      {r.detected_app_name ?? t("meetings.card.manualFallback")} ·{" "}
                       {new Date(r.started_at).toLocaleDateString()}{" "}
                       {new Date(r.started_at).toLocaleTimeString([], {
                         hour: "numeric",
@@ -295,15 +336,15 @@ export function MeetingsView() {
                               ? "bg-danger/15 text-danger"
                               : "bg-accent-soft text-accent"
                           }`}
-                          title={sd.description}
+                          title={statusDescription(t, r.status)}
                         >
                           {sd.spinner && (
                             <Loader size={11} strokeWidth={2} className="animate-spin" />
                           )}
-                          {sd.label}
+                          {statusLabel(t, r.status)}
                         </span>
                       ) : (
-                        <span title="Duration">
+                        <span title={t("meetings.card.durationTitle")}>
                           {Math.round((r.duration_ms ?? 0) / 60000)}m
                         </span>
                       )}
@@ -313,7 +354,7 @@ export function MeetingsView() {
                     <div className="mt-1.5">
                       <span
                         className="inline-flex items-center gap-1 rounded-full bg-accent-soft px-2 py-0.5 text-[11px] font-medium text-accent"
-                        title={`Project: ${r.project_name}`}
+                        title={t("meetings.card.projectTitle", { name: r.project_name })}
                       >
                         <Folder size={11} strokeWidth={2} />
                         {r.project_name}

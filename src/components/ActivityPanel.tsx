@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { AlignLeft, Copy, Download, Eye, Info, Loader, MessageSquare, Pencil, Quote, RotateCcw, Send, Sparkles, Tag, Trash2, Users, X } from "lucide-react";
 import Markdown from "./Markdown";
 import Dialog, { useFocusTrap } from "./a11y/Dialog";
@@ -128,6 +130,7 @@ function PanelBody({
   onClose: () => void;
   onNestedDialogChange: (open: boolean) => void;
 }) {
+  const { t } = useTranslation();
   const { bumpRefresh } = useActivityPanel();
   const toasts = useToasts();
   const [item, setItem] = useState<Item | null>(null);
@@ -148,7 +151,7 @@ function PanelBody({
   const reload = useCallback(async () => {
     const it = await getItem(itemId);
     if (!it) {
-      setError("Item not found.");
+      setError(t("activityPanel.panelBody.itemNotFound"));
       return;
     }
     setItem(it);
@@ -170,7 +173,7 @@ function PanelBody({
       setDeadline(null);
       setCompletedAt(null);
     }
-  }, [itemId]);
+  }, [itemId, t]);
 
   useEffect(() => {
     let cancelled = false;
@@ -210,8 +213,8 @@ function PanelBody({
   const onDelete = async () => {
     if (!item) return;
     const confirmed = await ask(
-      "Delete this item? You can restore it from the trash.",
-      { title: "Delete item", kind: "warning" },
+      t("activityPanel.panelBody.deleteConfirmMessage"),
+      { title: t("activityPanel.panelBody.deleteConfirmTitle"), kind: "warning" },
     );
     if (!confirmed) return;
     try {
@@ -225,7 +228,9 @@ function PanelBody({
     } catch (e) {
       toasts.push({
         tone: "error",
-        message: `Delete failed: ${e instanceof Error ? e.message : String(e)}`,
+        message: t("activityPanel.panelBody.deleteFailed", {
+          error: e instanceof Error ? e.message : String(e),
+        }),
       });
     }
   };
@@ -241,7 +246,7 @@ function PanelBody({
     <>
       <header className="flex items-center justify-between border-b border-line px-4 py-3">
         <div id="activity-panel-title" className="min-w-0 text-sm font-medium text-fg">
-          {loading ? "Loading…" : item ? activityTitle(item, meeting) : "Activity"}
+          {loading ? t("activityPanel.panelBody.loading") : item ? activityTitle(item, meeting, t) : t("activityPanel.panelBody.titleFallback")}
         </div>
         <div className="flex items-center gap-1.5">
           {meeting && ["complete", "recovered"].includes(meeting.status) ? (
@@ -251,13 +256,13 @@ function PanelBody({
               className="inline-flex items-center gap-1.5 rounded-md border border-line px-2.5 py-1 text-[11px] font-medium text-muted transition-colors hover:bg-elevated hover:text-fg"
             >
               <Download size={13} strokeWidth={2} aria-hidden="true" />
-              Export…
+              {t("activityPanel.panelBody.export")}
             </button>
           ) : null}
           <button
             type="button"
             onClick={onClose}
-            aria-label="Close panel"
+            aria-label={t("activityPanel.panelBody.closePanel")}
             className="rounded p-1 text-muted hover:bg-elevated hover:text-fg"
           >
             <X size={16} strokeWidth={2.25} />
@@ -266,7 +271,7 @@ function PanelBody({
       </header>
       <div className="flex-1 overflow-y-auto px-4 py-3 text-sm text-fg">
         {loading ? (
-          <div className="text-xs text-muted">Loading…</div>
+          <div className="text-xs text-muted">{t("activityPanel.panelBody.loading")}</div>
         ) : error ? (
           <div className="text-xs text-red-400">{error}</div>
         ) : item ? (
@@ -345,6 +350,7 @@ function MeetingExportDialog({
   meeting: MeetingRow;
   onClose: () => void;
 }) {
+  const { t } = useTranslation();
   const toasts = useToasts();
   const [includeSummary, setIncludeSummary] = useState(true);
   const [includeTranscript, setIncludeTranscript] = useState(true);
@@ -368,7 +374,7 @@ function MeetingExportDialog({
       onClose();
       toasts.push({
         tone: "success",
-        message: `Meeting exported to ${result.path}.`,
+        message: t("activityPanel.exportDialog.exportedToast", { path: result.path }),
       });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
@@ -388,17 +394,17 @@ function MeetingExportDialog({
       <div className="flex items-start justify-between gap-4">
         <div>
           <h2 id="meeting-export-title" className="text-base font-semibold text-fg">
-            Export meeting
+            {t("activityPanel.exportDialog.title")}
           </h2>
           <p className="mt-1 text-xs leading-relaxed text-muted">
-            Choose what to include. You&rsquo;ll select the Markdown file location next.
+            {t("activityPanel.exportDialog.description")}
           </p>
         </div>
         <button
           type="button"
           onClick={onClose}
           disabled={exporting}
-          aria-label="Close export dialog"
+          aria-label={t("activityPanel.exportDialog.closeAriaLabel")}
           className="rounded p-1 text-muted hover:bg-elevated hover:text-fg disabled:opacity-50"
         >
           <X size={16} strokeWidth={2.25} />
@@ -415,9 +421,9 @@ function MeetingExportDialog({
             className="mt-0.5"
           />
           <span>
-            <span className="block text-sm font-medium text-fg">Summary</span>
+            <span className="block text-sm font-medium text-fg">{t("activityPanel.exportDialog.summaryLabel")}</span>
             <span className="mt-0.5 block text-[11px] leading-relaxed text-muted">
-              Summary points, action items, and your meeting notes.
+              {t("activityPanel.exportDialog.summaryDescription")}
             </span>
           </span>
         </label>
@@ -431,9 +437,9 @@ function MeetingExportDialog({
             className="mt-0.5"
           />
           <span>
-            <span className="block text-sm font-medium text-fg">Transcript</span>
+            <span className="block text-sm font-medium text-fg">{t("activityPanel.exportDialog.transcriptLabel")}</span>
             <span className="mt-0.5 block text-[11px] leading-relaxed text-muted">
-              The complete speaker-labelled meeting transcript.
+              {t("activityPanel.exportDialog.transcriptDescription")}
             </span>
           </span>
         </label>
@@ -441,12 +447,12 @@ function MeetingExportDialog({
 
       {!hasSelection ? (
         <p className="mt-3 text-xs text-danger" role="alert">
-          Choose at least one section to export.
+          {t("activityPanel.exportDialog.noSelection")}
         </p>
       ) : null}
       {error ? (
         <p className="mt-3 text-xs text-danger" role="alert">
-          Export failed: {error}
+          {t("activityPanel.exportDialog.exportFailed", { error })}
         </p>
       ) : null}
 
@@ -457,7 +463,7 @@ function MeetingExportDialog({
           disabled={exporting}
           className="rounded-md px-3 py-2 text-xs font-medium text-muted hover:bg-elevated hover:text-fg disabled:opacity-50"
         >
-          Cancel
+          {t("activityPanel.exportDialog.cancel")}
         </button>
         <button
           type="button"
@@ -466,7 +472,7 @@ function MeetingExportDialog({
           className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-2 text-xs font-semibold text-canvas hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
         >
           {exporting ? <Loader size={13} className="animate-spin" aria-hidden="true" /> : <Download size={13} aria-hidden="true" />}
-          {exporting ? "Exporting…" : "Choose location…"}
+          {exporting ? t("activityPanel.exportDialog.exporting") : t("activityPanel.exportDialog.chooseLocation")}
         </button>
       </div>
     </Dialog>,
@@ -474,18 +480,18 @@ function MeetingExportDialog({
   );
 }
 
-function activityTitle(item: Item, meeting: MeetingRow | null): string {
+function activityTitle(item: Item, meeting: MeetingRow | null, t: TFunction): string {
   if (meeting) {
     const summary = meeting.summary_json ? safeParseSummary(meeting.summary_json) : null;
     if (summary?.suggested_title) return truncate(summary.suggested_title, 60);
   }
   const firstLine = item.content.split("\n")[0]?.trim() ?? "";
   if (!firstLine) {
-    if (item.kind === "task") return "Task";
-    if (meeting) return "Meeting";
+    if (item.kind === "task") return t("activityPanel.title.task");
+    if (meeting) return t("activityPanel.title.meeting");
     if (item.source === "voice_at_cursor" || item.kind === "transcription")
-      return "Transcription";
-    return "Note";
+      return t("activityPanel.title.transcription");
+    return t("activityPanel.title.note");
   }
   return truncate(firstLine, 60);
 }
@@ -513,13 +519,14 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 }
 
 function HeaderSection({ item, meeting }: { item: Item; meeting: MeetingRow | null }) {
+  const { t } = useTranslation();
   const badges: string[] = [];
-  if (meeting) badges.push("Meeting");
+  if (meeting) badges.push(t("activityPanel.header.meetingBadge"));
   else if (item.source === "voice_at_cursor" || item.kind === "transcription")
-    badges.push("Transcription");
-  else if (item.source === "log_capture") badges.push("Log capture");
-  if (item.kind === "task") badges.push("Task");
-  if (item.deleted_at) badges.push("Deleted");
+    badges.push(t("activityPanel.header.transcriptionBadge"));
+  else if (item.source === "log_capture") badges.push(t("activityPanel.header.logCaptureBadge"));
+  if (item.kind === "task") badges.push(t("activityPanel.header.taskBadge"));
+  if (item.deleted_at) badges.push(t("activityPanel.header.deletedBadge"));
 
   return (
     <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted">
@@ -537,6 +544,7 @@ function HeaderSection({ item, meeting }: { item: Item; meeting: MeetingRow | nu
 }
 
 function EditToggle({ editing, onClick }: { editing: boolean; onClick: () => void }) {
+  const { t } = useTranslation();
   return (
     <button
       type="button"
@@ -545,11 +553,11 @@ function EditToggle({ editing, onClick }: { editing: boolean; onClick: () => voi
     >
       {editing ? (
         <>
-          <Eye size={11} strokeWidth={2.25} /> Done
+          <Eye size={11} strokeWidth={2.25} /> {t("activityPanel.editToggle.done")}
         </>
       ) : (
         <>
-          <Pencil size={11} strokeWidth={2.25} /> Edit
+          <Pencil size={11} strokeWidth={2.25} /> {t("activityPanel.editToggle.edit")}
         </>
       )}
     </button>
@@ -557,6 +565,7 @@ function EditToggle({ editing, onClick }: { editing: boolean; onClick: () => voi
 }
 
 function ContentSection({ item, onChange }: { item: Item; onChange: (i: Item) => void }) {
+  const { t } = useTranslation();
   const [draft, setDraft] = useState(item.content);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -587,11 +596,11 @@ function ContentSection({ item, onChange }: { item: Item; onChange: (i: Item) =>
   return (
     <div>
       <div className="mb-1.5 flex items-center justify-between">
-        <SectionLabel>Content</SectionLabel>
+        <SectionLabel>{t("activityPanel.content.label")}</SectionLabel>
         <div className="flex items-center gap-2">
           {editing ? (
             <span role="status" className="text-[10px] text-faint">
-              {saving ? "Saving…" : draft !== item.content ? "Unsaved" : "Saved"}
+              {saving ? t("activityPanel.content.saving") : draft !== item.content ? t("activityPanel.content.unsaved") : t("activityPanel.content.saved")}
             </span>
           ) : null}
           <EditToggle editing={editing} onClick={() => setEditing((e) => !e)} />
@@ -608,20 +617,21 @@ function ContentSection({ item, onChange }: { item: Item; onChange: (i: Item) =>
       ) : draft.trim() ? (
         <Markdown>{draft}</Markdown>
       ) : (
-        <div className="text-[12px] italic text-faint">No content.</div>
+        <div className="text-[12px] italic text-faint">{t("activityPanel.content.empty")}</div>
       )}
     </div>
   );
 }
 
 function KindSection({ item, onChange }: { item: Item; onChange: (i: Item) => void }) {
+  const { t } = useTranslation();
   const set = async (k: "" | ItemKind) => {
     const updated = await updateItem({ id: item.id, kind: k });
     onChange(updated);
   };
   return (
     <div>
-      <SectionLabel>Kind</SectionLabel>
+      <SectionLabel>{t("activityPanel.kind.label")}</SectionLabel>
       <div className="flex gap-1">
         {(["transcription", "note", "task", ""] as const).map((k) => (
           <button
@@ -635,12 +645,12 @@ function KindSection({ item, onChange }: { item: Item; onChange: (i: Item) => vo
             }`}
           >
             {k === ""
-              ? "Unset"
+              ? t("activityPanel.kind.unset")
               : k === "task"
-                ? "Task"
+                ? t("activityPanel.kind.task")
                 : k === "transcription"
-                  ? "Transcription"
-                  : "Note"}
+                  ? t("activityPanel.kind.transcription")
+                  : t("activityPanel.kind.note")}
           </button>
         ))}
       </div>
@@ -659,6 +669,7 @@ function ProjectSection({
   onProjectsChange: (next: Project[]) => void;
   onChange: (i: Item) => void;
 }) {
+  const { t } = useTranslation();
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
   const value = item.project_id ?? "";
@@ -688,20 +699,20 @@ function ProjectSection({
 
   return (
     <div>
-      <SectionLabel>Project</SectionLabel>
+      <SectionLabel>{t("activityPanel.project.label")}</SectionLabel>
       {!creating ? (
         <select
           value={value}
           onChange={(e) => void onSelect(e.target.value)}
           className="w-full rounded-md border border-line bg-surface px-2 py-1.5 text-xs text-fg focus:border-accent focus:outline-none"
         >
-          <option value="">— Unassigned —</option>
+          <option value="">{t("activityPanel.project.unassigned")}</option>
           {projects.map((p) => (
             <option key={p.id} value={p.id}>
               {p.name}
             </option>
           ))}
-          <option value="__new__">+ New project…</option>
+          <option value="__new__">{t("activityPanel.project.newProject")}</option>
         </select>
       ) : (
         <div className="flex gap-2">
@@ -713,7 +724,7 @@ function ProjectSection({
               if (e.key === "Enter") void onCreate();
               if (e.key === "Escape") setCreating(false);
             }}
-            placeholder="Project name"
+            placeholder={t("activityPanel.project.namePlaceholder")}
             className="flex-1 rounded-md border border-line bg-surface px-2 py-1.5 text-xs text-fg focus:border-accent focus:outline-none"
           />
           <button
@@ -721,14 +732,14 @@ function ProjectSection({
             onClick={() => void onCreate()}
             className="rounded-md bg-accent px-2.5 py-1 text-xs font-semibold text-canvas hover:bg-accent-hover"
           >
-            Create
+            {t("activityPanel.project.create")}
           </button>
           <button
             type="button"
             onClick={() => setCreating(false)}
             className="rounded-md border border-line px-2.5 py-1 text-xs text-muted hover:bg-elevated"
           >
-            Cancel
+            {t("activityPanel.project.cancel")}
           </button>
         </div>
       )}
@@ -747,6 +758,7 @@ function TagsSection({
   onTagsChange: (next: string[]) => void;
   onSaved: () => void;
 }) {
+  const { t } = useTranslation();
   const [draft, setDraft] = useState("");
 
   const commit = async (next: string[]) => {
@@ -756,34 +768,34 @@ function TagsSection({
   };
 
   const addTag = async () => {
-    const t = draft.trim().replace(/^#/, "");
-    if (!t || tags.includes(t)) {
+    const trimmedTag = draft.trim().replace(/^#/, "");
+    if (!trimmedTag || tags.includes(trimmedTag)) {
       setDraft("");
       return;
     }
-    await commit([...tags, t]);
+    await commit([...tags, trimmedTag]);
     setDraft("");
   };
 
-  const removeTag = async (t: string) => {
-    await commit(tags.filter((x) => x !== t));
+  const removeTag = async (tag: string) => {
+    await commit(tags.filter((x) => x !== tag));
   };
 
   return (
     <div>
-      <SectionLabel>Tags</SectionLabel>
+      <SectionLabel>{t("activityPanel.tags.label")}</SectionLabel>
       <div className="flex flex-wrap items-center gap-1.5">
-        {tags.map((t) => (
+        {tags.map((tag) => (
           <span
-            key={t}
+            key={tag}
             className="inline-flex items-center gap-1 rounded-full border border-line bg-surface px-2 py-0.5 text-[11px] text-muted"
           >
-            #{t}
+            #{tag}
             <button
               type="button"
-              onClick={() => void removeTag(t)}
+              onClick={() => void removeTag(tag)}
               className="text-faint hover:text-danger"
-              aria-label={`Remove ${t}`}
+              aria-label={t("activityPanel.tags.removeAriaLabel", { tag })}
             >
               <X size={10} strokeWidth={2.5} />
             </button>
@@ -798,7 +810,7 @@ function TagsSection({
               void addTag();
             }
           }}
-          placeholder="add tag…"
+          placeholder={t("activityPanel.tags.addPlaceholder")}
           className="min-w-[80px] rounded-md border border-line bg-surface px-2 py-0.5 text-[11px] text-fg focus:border-accent focus:outline-none"
         />
       </div>
@@ -807,35 +819,36 @@ function TagsSection({
 }
 
 function MetadataSection({ item }: { item: Item }) {
+  const { t } = useTranslation();
   const ctx = useMemo(
     () => parseCaptureContext(item.capture_context),
     [item.capture_context],
   );
   const rows: { label: string; value: string | null | undefined }[] = [
-    { label: "Source", value: humanSource(item.source) },
-    { label: "App", value: ctx?.app_name },
-    { label: "Window", value: ctx?.window_title },
-    { label: "Content", value: ctx?.content_title },
-    { label: "Content URL", value: ctx?.content_url },
-    { label: "Content source", value: ctx?.content_source },
-    { label: "Browser tab", value: ctx?.browser_tab_title },
-    { label: "URL", value: ctx?.browser_url },
-    { label: "Bundle ID", value: ctx?.bundle_id },
-    { label: "Confidence", value: item.confidence != null ? `${Math.round(item.confidence * 100)}%` : null },
-    { label: "Classified by", value: item.classified_by },
+    { label: t("activityPanel.metadata.source"), value: humanSource(item.source, t) },
+    { label: t("activityPanel.metadata.app"), value: ctx?.app_name },
+    { label: t("activityPanel.metadata.window"), value: ctx?.window_title },
+    { label: t("activityPanel.metadata.content"), value: ctx?.content_title },
+    { label: t("activityPanel.metadata.contentUrl"), value: ctx?.content_url },
+    { label: t("activityPanel.metadata.contentSource"), value: ctx?.content_source },
+    { label: t("activityPanel.metadata.browserTab"), value: ctx?.browser_tab_title },
+    { label: t("activityPanel.metadata.url"), value: ctx?.browser_url },
+    { label: t("activityPanel.metadata.bundleId"), value: ctx?.bundle_id },
+    { label: t("activityPanel.metadata.confidence"), value: item.confidence != null ? `${Math.round(item.confidence * 100)}%` : null },
+    { label: t("activityPanel.metadata.classifiedBy"), value: item.classified_by },
   ];
   const visible = rows.filter((r) => r.value);
   if (visible.length === 0) {
     return (
       <div>
-        <SectionLabel>Metadata</SectionLabel>
-        <div className="text-[11px] text-muted">No metadata captured.</div>
+        <SectionLabel>{t("activityPanel.metadata.label")}</SectionLabel>
+        <div className="text-[11px] text-muted">{t("activityPanel.metadata.empty")}</div>
       </div>
     );
   }
   return (
     <div>
-      <SectionLabel>Metadata</SectionLabel>
+      <SectionLabel>{t("activityPanel.metadata.label")}</SectionLabel>
       <dl className="space-y-1 text-[11px]">
         {visible.map((r) => (
           <div key={r.label} className="flex gap-2">
@@ -848,11 +861,11 @@ function MetadataSection({ item }: { item: Item }) {
   );
 }
 
-function humanSource(s: Item["source"]): string {
+function humanSource(s: Item["source"], t: TFunction): string {
   switch (s) {
-    case "voice_at_cursor": return "Voice (hotkey paste)";
-    case "log_capture": return "Log capture";
-    case "meeting": return "Meeting";
+    case "voice_at_cursor": return t("activityPanel.source.voiceAtCursor");
+    case "log_capture": return t("activityPanel.source.logCapture");
+    case "meeting": return t("activityPanel.source.meeting");
   }
 }
 
@@ -867,6 +880,7 @@ function TaskSection({
   completedAt: string | null;
   onChange: (deadline: string | null, completedAt: string | null) => void;
 }) {
+  const { t } = useTranslation();
   // deadline stored as ISO string. Use a date-only <input type="date"> bound to
   // the YYYY-MM-DD prefix so timezones don't shift the displayed day.
   const dateValue = deadline ? deadline.slice(0, 10) : "";
@@ -889,7 +903,7 @@ function TaskSection({
 
   return (
     <div>
-      <SectionLabel>Task</SectionLabel>
+      <SectionLabel>{t("activityPanel.task.label")}</SectionLabel>
       <div className="space-y-2 text-xs">
         <label className="flex items-center gap-2">
           <input
@@ -897,10 +911,10 @@ function TaskSection({
             checked={!!completedAt}
             onChange={() => void onCheck()}
           />
-          <span className="text-muted">{completedAt ? "Completed" : "Mark complete"}</span>
+          <span className="text-muted">{completedAt ? t("activityPanel.task.completed") : t("activityPanel.task.markComplete")}</span>
         </label>
         <label className="flex items-center gap-2">
-          <span className="w-20 text-faint">Deadline</span>
+          <span className="w-20 text-faint">{t("activityPanel.task.deadline")}</span>
           <input
             type="date"
             value={dateValue}
@@ -913,7 +927,7 @@ function TaskSection({
               onClick={() => void onDateChange("")}
               className="text-faint hover:text-danger"
             >
-              Clear
+              {t("activityPanel.task.clear")}
             </button>
           ) : null}
         </label>
@@ -945,6 +959,7 @@ function MeetingView({
   onSaved: () => void;
   onMeetingChange: (m: MeetingRow) => void;
 }) {
+  const { t } = useTranslation();
   const summary = meeting.summary_json ? safeParseSummary(meeting.summary_json) : null;
   const transcript = meeting.transcript_json ? safeParseTranscript(meeting.transcript_json) : null;
   const durationMin = meeting.duration_ms
@@ -1000,8 +1015,8 @@ function MeetingView({
             minute: "2-digit",
           })}
         </span>
-        {durationMin != null ? <span>· {durationMin} min</span> : null}
-        {meeting.detected_app_name ? <span>· {meeting.detected_app_name}</span> : null}
+        {durationMin != null ? <span>{t("activityPanel.meetingView.durationSuffix", { count: durationMin })}</span> : null}
+        {meeting.detected_app_name ? <span>{t("activityPanel.meetingView.detectedAppSuffix", { app: meeting.detected_app_name })}</span> : null}
         {projectName ? (
           <span className="rounded-full bg-accent-soft px-2 py-0.5 font-medium text-accent">
             {projectName}
@@ -1009,29 +1024,29 @@ function MeetingView({
         ) : null}
       </div>
 
-      <div className="flex flex-wrap gap-1.5" role="group" aria-label="Meeting details">
+      <div className="flex flex-wrap gap-1.5" role="group" aria-label={t("activityPanel.meetingView.detailsGroupAriaLabel")}>
         <PanelToggle
           icon={<Users size={12} strokeWidth={2.25} aria-hidden="true" />}
-          label="People"
+          label={t("activityPanel.meetingView.peopleToggle")}
           active={panel === "people"}
           onClick={() => setPanel((p) => (p === "people" ? null : "people"))}
         />
         <PanelToggle
           icon={<Tag size={12} strokeWidth={2.25} aria-hidden="true" />}
-          label="Tags"
+          label={t("activityPanel.meetingView.tagsToggle")}
           active={panel === "tags"}
           onClick={() => setPanel((p) => (p === "tags" ? null : "tags"))}
         />
         <PanelToggle
           icon={<Info size={12} strokeWidth={2.25} aria-hidden="true" />}
-          label="Details"
+          label={t("activityPanel.meetingView.detailsToggle")}
           active={panel === "details"}
           onClick={() => setPanel((p) => (p === "details" ? null : "details"))}
         />
         {hasTranscript ? (
           <PanelToggle
             icon={<AlignLeft size={12} strokeWidth={2.25} aria-hidden="true" />}
-            label="Transcript"
+            label={t("activityPanel.meetingView.transcriptToggle")}
             active={panel === "transcript"}
             onClick={() => setPanel((p) => (p === "transcript" ? null : "transcript"))}
           />
@@ -1058,41 +1073,41 @@ function MeetingView({
             onChange={onItemChange}
           />
           <div>
-            <SectionLabel>Meeting metadata</SectionLabel>
+            <SectionLabel>{t("activityPanel.meetingView.meetingMetadataLabel")}</SectionLabel>
             <dl className="space-y-1 text-[11px]">
               <div className="flex gap-2">
-                <dt className="w-24 shrink-0 text-faint">Status</dt>
-                <dd className="text-muted">{statusDisplay.label || "Complete"}</dd>
+                <dt className="w-24 shrink-0 text-faint">{t("activityPanel.meetingView.statusLabel")}</dt>
+                <dd className="text-muted">{statusDisplay.label || t("activityPanel.meetingView.statusFallback")}</dd>
               </div>
               <div className="flex gap-2">
-                <dt className="w-24 shrink-0 text-faint">Started</dt>
+                <dt className="w-24 shrink-0 text-faint">{t("activityPanel.meetingView.startedLabel")}</dt>
                 <dd className="text-muted">{new Date(meeting.started_at).toLocaleString()}</dd>
               </div>
               {meeting.ended_at ? (
                 <div className="flex gap-2">
-                  <dt className="w-24 shrink-0 text-faint">Ended</dt>
+                  <dt className="w-24 shrink-0 text-faint">{t("activityPanel.meetingView.endedLabel")}</dt>
                   <dd className="text-muted">{new Date(meeting.ended_at).toLocaleString()}</dd>
                 </div>
               ) : null}
               {meeting.detected_app_name ? (
                 <div className="flex gap-2">
-                  <dt className="w-24 shrink-0 text-faint">Detected app</dt>
+                  <dt className="w-24 shrink-0 text-faint">{t("activityPanel.meetingView.detectedAppLabel")}</dt>
                   <dd className="text-muted">{meeting.detected_app_name}</dd>
                 </div>
               ) : null}
               {durationMin != null ? (
                 <div className="flex gap-2">
-                  <dt className="w-24 shrink-0 text-faint">Duration</dt>
-                  <dd className="text-muted">{durationMin} min</dd>
+                  <dt className="w-24 shrink-0 text-faint">{t("activityPanel.meetingView.durationLabel")}</dt>
+                  <dd className="text-muted">{t("activityPanel.meetingView.durationValue", { count: durationMin })}</dd>
                 </div>
               ) : null}
               <div className="flex gap-2">
-                <dt className="w-24 shrink-0 text-faint">Audio source</dt>
-                <dd className="text-muted">{meeting.mic_only ? "Mic only" : "Mic + system"}</dd>
+                <dt className="w-24 shrink-0 text-faint">{t("activityPanel.meetingView.audioSourceLabel")}</dt>
+                <dd className="text-muted">{meeting.mic_only ? t("activityPanel.meetingView.micOnly") : t("activityPanel.meetingView.micAndSystem")}</dd>
               </div>
               {meeting.failed_chunk_count > 0 ? (
                 <div className="flex gap-2">
-                  <dt className="w-24 shrink-0 text-faint">Failed chunks</dt>
+                  <dt className="w-24 shrink-0 text-faint">{t("activityPanel.meetingView.failedChunksLabel")}</dt>
                   <dd className="text-warning">{meeting.failed_chunk_count}</dd>
                 </div>
               ) : null}
@@ -1158,9 +1173,10 @@ function PanelToggle({
 /** "People" panel: confirmed speaker labels for the mic/call channels and the
  *  optional link from the call channel to a known person. */
 function MeetingPeoplePanel({ meeting }: { meeting: MeetingRow }) {
+  const { t } = useTranslation();
   const [participants, setParticipants] = useState<MeetingParticipant[]>([]);
   const [people, setPeople] = useState<Person[]>([]);
-  const [labels, setLabels] = useState({ you: "You", them: "Them" });
+  const [labels, setLabels] = useState({ you: t("activityPanel.peoplePanel.you"), them: t("activityPanel.peoplePanel.them") });
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -1168,7 +1184,7 @@ function MeetingPeoplePanel({ meeting }: { meeting: MeetingRow }) {
       .then(([meetingParticipants, knownPeople]) => {
         setParticipants(meetingParticipants);
         setPeople(knownPeople);
-        const next = { you: "You", them: "Them" };
+        const next = { you: t("activityPanel.peoplePanel.you"), them: t("activityPanel.peoplePanel.them") };
         for (const participant of meetingParticipants) {
           next[participant.speaker_key] = participant.display_name;
         }
@@ -1190,18 +1206,18 @@ function MeetingPeoplePanel({ meeting }: { meeting: MeetingRow }) {
 
   return (
     <div>
-      <SectionLabel>People</SectionLabel>
+      <SectionLabel>{t("activityPanel.peoplePanel.label")}</SectionLabel>
       <div className="space-y-2.5 text-[12px]">
         <div className="grid grid-cols-2 gap-2">
           {(["you", "them"] as const).map((speaker) => (
             <label key={speaker} className="flex items-center gap-2">
-              <span className="w-9 text-faint">{speaker === "you" ? "Mic" : "Call"}</span>
+              <span className="w-9 text-faint">{speaker === "you" ? t("activityPanel.peoplePanel.mic") : t("activityPanel.peoplePanel.call")}</span>
               <input value={labels[speaker]} onChange={(e) => setLabels((current) => ({ ...current, [speaker]: e.target.value }))} onBlur={() => void saveLabel(speaker)} className="min-w-0 flex-1 rounded-md border border-line bg-canvas px-2 py-1.5 text-fg" />
             </label>
           ))}
         </div>
         <label className="flex items-center gap-2">
-          <span className="w-24 shrink-0 text-faint">Link caller</span>
+          <span className="w-24 shrink-0 text-faint">{t("activityPanel.peoplePanel.linkCaller")}</span>
           <select
             value={participants.find((participant) => participant.speaker_key === "them")?.person_id ?? ""}
             onChange={(e) => {
@@ -1214,13 +1230,13 @@ function MeetingPeoplePanel({ meeting }: { meeting: MeetingRow }) {
             }}
             className="min-w-0 flex-1 rounded-md border border-line bg-canvas px-2 py-1.5 text-fg"
           >
-            <option value="">Not linked to a person</option>
+            <option value="">{t("activityPanel.peoplePanel.notLinked")}</option>
             {people.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
           </select>
         </label>
         <p className="text-[10px] leading-relaxed text-faint">
-          Speaker names are confirmed labels for the mic and call channels. Automatic multi-speaker diarization is not inferred.
-          {participants.length > 0 ? ` ${participants.length} label${participants.length === 1 ? "" : "s"} confirmed.` : ""}
+          {t("activityPanel.peoplePanel.description")}
+          {participants.length > 0 ? t("activityPanel.peoplePanel.confirmedCount", { count: participants.length }) : ""}
         </p>
         {error ? <p role="alert" className="text-[11px] text-danger">{error}</p> : null}
       </div>
@@ -1241,6 +1257,7 @@ function MeetingSummarySection({
   summary: StoredSummary | null;
   onMeetingChange: (m: MeetingRow) => void;
 }) {
+  const { t } = useTranslation();
   const markdown = summaryMarkdown(summary) ?? "";
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(markdown);
@@ -1317,34 +1334,34 @@ function MeetingSummarySection({
   return (
     <div>
       <div className="mb-1.5 flex items-center justify-between gap-2">
-        <SectionLabel>Summary</SectionLabel>
+        <SectionLabel>{t("activityPanel.summary.label")}</SectionLabel>
         <div className="flex items-center gap-1.5">
           {editing ? (
             <span role="status" className="text-[10px] text-faint">
-              {saving ? "Saving…" : draft !== markdown ? "Unsaved" : "Saved"}
+              {saving ? t("activityPanel.summary.saving") : draft !== markdown ? t("activityPanel.summary.unsaved") : t("activityPanel.summary.saved")}
             </span>
           ) : (
             <>
               <select
                 value={templateId}
                 onChange={(e) => onTemplateSelect(e.target.value)}
-                aria-label="Summary template"
+                aria-label={t("activityPanel.summary.templateAriaLabel")}
                 className="max-w-[130px] rounded-md border border-line bg-canvas px-1.5 py-1 text-[11px] text-muted focus:border-accent focus:outline-none"
               >
                 {templates.map((template) => (
                   <option key={template.id} value={template.id}>{template.name}</option>
                 ))}
-                <option value="__new__">+ New template…</option>
+                <option value="__new__">{t("activityPanel.summary.newTemplate")}</option>
               </select>
               <button
                 type="button"
                 onClick={() => void regenerate()}
                 disabled={regenerating}
-                title="Regenerate the summary with the selected template"
+                title={t("activityPanel.summary.regenerateTitle")}
                 className="inline-flex items-center gap-1 rounded-md border border-line px-2 py-1 text-[11px] text-accent hover:bg-elevated disabled:opacity-50"
               >
                 {regenerating ? <Loader size={11} className="animate-spin" /> : <Sparkles size={11} />}
-                Regenerate
+                {t("activityPanel.summary.regenerate")}
               </button>
             </>
           )}
@@ -1353,10 +1370,10 @@ function MeetingSummarySection({
       </div>
       {creatingTemplate ? (
         <div className="mb-2 space-y-2 rounded-md border border-line bg-canvas p-2 text-[12px]">
-          <input value={templateName} onChange={(e) => setTemplateName(e.target.value)} placeholder="Template name" className="w-full rounded border border-line bg-surface px-2 py-1.5 text-fg" />
-          <textarea value={templateInstructions} onChange={(e) => setTemplateInstructions(e.target.value)} placeholder="What should this summary emphasize and how should it be organized?" rows={3} className="w-full resize-y rounded border border-line bg-surface px-2 py-1.5 text-fg" />
+          <input value={templateName} onChange={(e) => setTemplateName(e.target.value)} placeholder={t("activityPanel.summary.templateNamePlaceholder")} className="w-full rounded border border-line bg-surface px-2 py-1.5 text-fg" />
+          <textarea value={templateInstructions} onChange={(e) => setTemplateInstructions(e.target.value)} placeholder={t("activityPanel.summary.templateInstructionsPlaceholder")} rows={3} className="w-full resize-y rounded border border-line bg-surface px-2 py-1.5 text-fg" />
           <div className="flex justify-end gap-1">
-            <button onClick={() => setCreatingTemplate(false)} className="px-2 py-1 text-faint">Cancel</button>
+            <button onClick={() => setCreatingTemplate(false)} className="px-2 py-1 text-faint">{t("activityPanel.summary.cancel")}</button>
             <button
               onClick={() => {
                 saveSummaryTemplate({ name: templateName, description: "Custom meeting summary", instructions: templateInstructions, sections: [] })
@@ -1372,14 +1389,14 @@ function MeetingSummarySection({
               disabled={!templateName.trim() || !templateInstructions.trim()}
               className="rounded bg-accent px-2 py-1 text-white disabled:opacity-50"
             >
-              Save template
+              {t("activityPanel.summary.saveTemplate")}
             </button>
           </div>
         </div>
       ) : null}
       {regenerating ? (
         <div className="mb-2 flex items-center gap-2 text-[11px] text-muted">
-          <Loader size={12} className="animate-spin" /> Rewriting the summary locally…
+          <Loader size={12} className="animate-spin" /> {t("activityPanel.summary.rewriting")}
         </div>
       ) : null}
       {editing ? (
@@ -1388,13 +1405,13 @@ function MeetingSummarySection({
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           rows={14}
-          placeholder="Write the summary as markdown…"
+          placeholder={t("activityPanel.summary.editPlaceholder")}
           className="w-full rounded-md border border-line bg-surface px-2.5 py-2 font-mono text-[12.5px] text-fg transition-colors focus:border-accent focus:outline-none"
         />
       ) : markdown.trim() ? (
         <Markdown>{markdown}</Markdown>
       ) : (
-        <div className="text-[12px] italic text-faint">No summary yet.</div>
+        <div className="text-[12px] italic text-faint">{t("activityPanel.summary.empty")}</div>
       )}
       {error ? <p role="alert" className="mt-1.5 text-[11px] text-danger">{error}</p> : null}
     </div>
@@ -1402,6 +1419,7 @@ function MeetingSummarySection({
 }
 
 function MeetingChatSection({ meetingId }: { meetingId: string }) {
+  const { t } = useTranslation();
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<{ role: "user" | "assistant"; content: string }[]>([]);
   const [input, setInput] = useState("");
@@ -1425,7 +1443,7 @@ function MeetingChatSection({ meetingId }: { meetingId: string }) {
       setMessages((current) => [...current, { role: "assistant", content: response.reply }]);
       setSources(response.sources.map((source) => ({ source_id: source.source_id, content: source.content })));
     } catch (e) {
-      setMessages((current) => [...current, { role: "assistant", content: `Error: ${String(e)}` }]);
+      setMessages((current) => [...current, { role: "assistant", content: t("activityPanel.chat.errorPrefix", { error: String(e) }) }]);
     } finally {
       setLoading(false);
     }
@@ -1434,19 +1452,19 @@ function MeetingChatSection({ meetingId }: { meetingId: string }) {
   return (
     <details>
       <summary className="flex cursor-pointer items-center gap-1.5 text-[11px] text-faint hover:text-muted">
-        <MessageSquare size={12} /> Ask this meeting
+        <MessageSquare size={12} /> {t("activityPanel.chat.toggle")}
       </summary>
       <div className="mt-2 space-y-2 rounded-lg border border-line bg-surface p-2.5">
-        {messages.length === 0 ? <p className="text-[11px] text-faint">Answers stay scoped to this meeting’s transcript, notes, and summary.</p> : null}
+        {messages.length === 0 ? <p className="text-[11px] text-faint">{t("activityPanel.chat.empty")}</p> : null}
         {messages.map((message, index) => (
           <div key={index} className={`rounded-md px-2 py-1.5 text-[11px] ${message.role === "user" ? "ml-6 bg-accent-soft text-fg" : "mr-6 bg-elevated text-fg"}`}>
             {message.role === "assistant" ? <Markdown>{message.content}</Markdown> : message.content}
           </div>
         ))}
-        {sources.length > 0 ? <div className="text-[10px] text-faint">Grounded in {sources.length} meeting source{sources.length === 1 ? "" : "s"}.</div> : null}
+        {sources.length > 0 ? <div className="text-[10px] text-faint">{t("activityPanel.chat.groundedIn", { count: sources.length })}</div> : null}
         <div className="flex gap-2">
-          <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } }} rows={2} placeholder="Ask about this meeting…" className="min-w-0 flex-1 resize-none rounded-md border border-line bg-canvas px-2 py-1.5 text-[11px] text-fg focus:border-accent focus:outline-none" />
-          <button type="button" onClick={() => void send()} disabled={loading || !input.trim()} aria-label="Send" className="self-end rounded-md bg-accent p-2 text-white disabled:opacity-50">
+          <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } }} rows={2} placeholder={t("activityPanel.chat.inputPlaceholder")} className="min-w-0 flex-1 resize-none rounded-md border border-line bg-canvas px-2 py-1.5 text-[11px] text-fg focus:border-accent focus:outline-none" />
+          <button type="button" onClick={() => void send()} disabled={loading || !input.trim()} aria-label={t("activityPanel.chat.sendAriaLabel")} className="self-end rounded-md bg-accent p-2 text-white disabled:opacity-50">
             {loading ? <Loader size={13} className="animate-spin" /> : <Send size={13} />}
           </button>
         </div>
@@ -1460,6 +1478,7 @@ function MeetingWorkflowsSection({
 }: {
   meeting: MeetingRow;
 }) {
+  const { t } = useTranslation();
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [recipeId, setRecipeId] = useState("");
   const [artifact, setArtifact] = useState<MeetingArtifact | null>(null);
@@ -1494,32 +1513,32 @@ function MeetingWorkflowsSection({
   return (
     <details>
       <summary className="flex cursor-pointer items-center gap-1.5 text-[11px] text-faint hover:text-muted">
-        <Sparkles size={12} /> Recipes and follow-up
+        <Sparkles size={12} /> {t("activityPanel.workflows.toggle")}
       </summary>
       <div className="mt-2 space-y-3 rounded-lg border border-line bg-surface p-2.5">
         <div className="flex gap-2">
           <select value={recipeId} onChange={(e) => setRecipeId(e.target.value)} className="min-w-0 flex-1 rounded-md border border-line bg-canvas px-2 py-1.5 text-[11px] text-fg">
             {recipes.map((recipe) => <option key={recipe.id} value={recipe.id}>{recipe.name}</option>)}
           </select>
-          <button type="button" onClick={() => void run("recipe")} disabled={loading || !recipeId} className="rounded-md border border-line px-2 py-1.5 text-[11px] text-accent hover:bg-elevated disabled:opacity-50">Run Recipe</button>
+          <button type="button" onClick={() => void run("recipe")} disabled={loading || !recipeId} className="rounded-md border border-line px-2 py-1.5 text-[11px] text-accent hover:bg-elevated disabled:opacity-50">{t("activityPanel.workflows.runRecipe")}</button>
         </div>
         {creatingRecipe ? (
           <div className="space-y-2 rounded-md border border-line bg-canvas p-2">
-            <input value={recipeName} onChange={(e) => setRecipeName(e.target.value)} placeholder="Recipe name" className="w-full rounded border border-line bg-surface px-2 py-1.5 text-[11px] text-fg" />
-            <textarea value={recipePrompt} onChange={(e) => setRecipePrompt(e.target.value)} placeholder="What should EchoScribe extract or create?" rows={3} className="w-full resize-y rounded border border-line bg-surface px-2 py-1.5 text-[11px] text-fg" />
-            <div className="flex justify-end gap-1"><button onClick={() => setCreatingRecipe(false)} className="px-2 py-1 text-[10px] text-faint">Cancel</button><button onClick={() => { saveRecipe({ name: recipeName, description: "Custom meeting workflow", prompt: recipePrompt, defaultScope: "meeting" }).then((created) => { setRecipes((current) => [...current, created]); setRecipeId(created.id); setCreatingRecipe(false); setRecipeName(""); setRecipePrompt(""); }).catch((reason) => setError(String(reason))); }} disabled={!recipeName.trim() || !recipePrompt.trim()} className="rounded bg-accent px-2 py-1 text-[10px] text-white disabled:opacity-50">Save Recipe</button></div>
+            <input value={recipeName} onChange={(e) => setRecipeName(e.target.value)} placeholder={t("activityPanel.workflows.recipeNamePlaceholder")} className="w-full rounded border border-line bg-surface px-2 py-1.5 text-[11px] text-fg" />
+            <textarea value={recipePrompt} onChange={(e) => setRecipePrompt(e.target.value)} placeholder={t("activityPanel.workflows.recipePromptPlaceholder")} rows={3} className="w-full resize-y rounded border border-line bg-surface px-2 py-1.5 text-[11px] text-fg" />
+            <div className="flex justify-end gap-1"><button onClick={() => setCreatingRecipe(false)} className="px-2 py-1 text-[10px] text-faint">{t("activityPanel.workflows.cancel")}</button><button onClick={() => { saveRecipe({ name: recipeName, description: "Custom meeting workflow", prompt: recipePrompt, defaultScope: "meeting" }).then((created) => { setRecipes((current) => [...current, created]); setRecipeId(created.id); setCreatingRecipe(false); setRecipeName(""); setRecipePrompt(""); }).catch((reason) => setError(String(reason))); }} disabled={!recipeName.trim() || !recipePrompt.trim()} className="rounded bg-accent px-2 py-1 text-[10px] text-white disabled:opacity-50">{t("activityPanel.workflows.saveRecipe")}</button></div>
           </div>
-        ) : <button type="button" onClick={() => setCreatingRecipe(true)} className="text-left text-[10px] text-accent hover:underline">+ New Recipe</button>}
+        ) : <button type="button" onClick={() => setCreatingRecipe(true)} className="text-left text-[10px] text-accent hover:underline">{t("activityPanel.workflows.newRecipe")}</button>}
         <div className="flex gap-2">
-          <button type="button" onClick={() => void run("follow_up")} disabled={loading} className="rounded-md border border-line px-2 py-1.5 text-[11px] text-muted hover:bg-elevated">Draft follow-up</button>
-          <button type="button" onClick={() => void run("prep_brief")} disabled={loading} className="rounded-md border border-line px-2 py-1.5 text-[11px] text-muted hover:bg-elevated">Create Prep brief</button>
+          <button type="button" onClick={() => void run("follow_up")} disabled={loading} className="rounded-md border border-line px-2 py-1.5 text-[11px] text-muted hover:bg-elevated">{t("activityPanel.workflows.draftFollowUp")}</button>
+          <button type="button" onClick={() => void run("prep_brief")} disabled={loading} className="rounded-md border border-line px-2 py-1.5 text-[11px] text-muted hover:bg-elevated">{t("activityPanel.workflows.createPrepBrief")}</button>
         </div>
-        {loading ? <div className="flex items-center gap-2 text-[11px] text-muted"><Loader size={12} className="animate-spin" /> Running locally…</div> : null}
+        {loading ? <div className="flex items-center gap-2 text-[11px] text-muted"><Loader size={12} className="animate-spin" /> {t("activityPanel.workflows.runningLocally")}</div> : null}
         {artifact ? (
           <div className="rounded-md border border-line bg-canvas p-2 text-[11px] text-fg">
             <div className="mb-1 flex items-center justify-between">
               <span className="font-medium">{artifact.title}</span>
-              <button type="button" onClick={() => navigator.clipboard.writeText(artifact.content)} className="rounded p-1 text-faint hover:text-accent" aria-label="Copy"><Copy size={12} /></button>
+              <button type="button" onClick={() => navigator.clipboard.writeText(artifact.content)} className="rounded p-1 text-faint hover:text-accent" aria-label={t("activityPanel.workflows.copyAriaLabel")}><Copy size={12} /></button>
             </div>
             <Markdown>{artifact.content}</Markdown>
           </div>
@@ -1541,6 +1560,7 @@ function TranscriptEditor({
   onMeetingChange: (meeting: MeetingRow) => void;
   evidenceTarget: { segmentIndex: number; nonce: number } | null;
 }) {
+  const { t } = useTranslation();
   const [editing, setEditing] = useState(false);
   const [segments, setSegments] = useState<Segment[]>(transcript.segments);
   const [saving, setSaving] = useState(false);
@@ -1576,16 +1596,16 @@ function TranscriptEditor({
 
   return (
     <div>
-      <SectionLabel>Transcript ({segments.length} segments)</SectionLabel>
+      <SectionLabel>{t("activityPanel.transcriptEditor.header", { count: segments.length })}</SectionLabel>
       <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <span className="text-[10px] text-faint">Edits automatically preserve a recoverable transcript backup.</span>
+          <span className="text-[10px] text-faint">{t("activityPanel.transcriptEditor.backupNote")}</span>
           {editing ? (
             <div className="flex gap-1">
-              <button type="button" onClick={() => { setSegments(transcript.segments); setEditing(false); }} className="rounded px-2 py-1 text-[10px] text-muted hover:bg-elevated">Cancel</button>
-              <button type="button" onClick={() => void save()} disabled={saving || segments.length === 0} className="rounded bg-accent px-2 py-1 text-[10px] text-white disabled:opacity-50">{saving ? "Saving…" : "Save transcript"}</button>
+              <button type="button" onClick={() => { setSegments(transcript.segments); setEditing(false); }} className="rounded px-2 py-1 text-[10px] text-muted hover:bg-elevated">{t("activityPanel.transcriptEditor.cancel")}</button>
+              <button type="button" onClick={() => void save()} disabled={saving || segments.length === 0} className="rounded bg-accent px-2 py-1 text-[10px] text-white disabled:opacity-50">{saving ? t("activityPanel.transcriptEditor.saving") : t("activityPanel.transcriptEditor.saveTranscript")}</button>
             </div>
-          ) : <div className="flex gap-1">{backups[0] ? <button type="button" onClick={() => { restoreTranscriptBackup(backups[0].id).then(() => getMeeting(meeting.item_id)).then((refreshed) => { if (refreshed) onMeetingChange(refreshed); }).catch((reason) => setError(String(reason))); }} className="rounded px-2 py-1 text-[10px] text-muted hover:bg-elevated">Restore previous</button> : null}<button type="button" onClick={() => setEditing(true)} className="rounded px-2 py-1 text-[10px] text-accent hover:bg-elevated">Edit transcript</button></div>}
+          ) : <div className="flex gap-1">{backups[0] ? <button type="button" onClick={() => { restoreTranscriptBackup(backups[0].id).then(() => getMeeting(meeting.item_id)).then((refreshed) => { if (refreshed) onMeetingChange(refreshed); }).catch((reason) => setError(String(reason))); }} className="rounded px-2 py-1 text-[10px] text-muted hover:bg-elevated">{t("activityPanel.transcriptEditor.restorePrevious")}</button> : null}<button type="button" onClick={() => setEditing(true)} className="rounded px-2 py-1 text-[10px] text-accent hover:bg-elevated">{t("activityPanel.transcriptEditor.editTranscript")}</button></div>}
         </div>
         <div className="max-h-72 space-y-1 overflow-y-auto rounded border border-line bg-surface p-2 text-[11px]">
           {segments.map((segment, index) => (
@@ -1600,7 +1620,7 @@ function TranscriptEditor({
               {editing ? (
                 <>
                   <textarea value={segment.text} onChange={(e) => setSegments((current) => current.map((value, i) => i === index ? { ...value, text: e.target.value } : value))} rows={2} className="min-w-0 flex-1 resize-y rounded border border-line bg-canvas px-1.5 py-1 text-fg" />
-                  <button type="button" onClick={() => setSegments((current) => current.filter((_, i) => i !== index))} className="rounded p-1 text-faint hover:bg-danger/10 hover:text-danger" aria-label={`Delete segment ${index + 1}`}><Trash2 size={11} /></button>
+                  <button type="button" onClick={() => setSegments((current) => current.filter((_, i) => i !== index))} className="rounded p-1 text-faint hover:bg-danger/10 hover:text-danger" aria-label={t("activityPanel.transcriptEditor.deleteSegmentAriaLabel", { count: index + 1 })}><Trash2 size={11} /></button>
                 </>
               ) : <span className="pt-1 text-fg/90">{segment.text}</span>}
             </div>
@@ -1621,6 +1641,7 @@ function MeetingTitle({
   summary: StoredSummary | null;
   onMeetingChange: (m: MeetingRow) => void;
 }) {
+  const { t } = useTranslation();
   const current = summary?.suggested_title ?? "";
   const [titleDraft, setTitleDraft] = useState(current);
   const [editing, setEditing] = useState(false);
@@ -1656,9 +1677,9 @@ function MeetingTitle({
       {editing ? (
         <>
           <div className="mb-1.5 flex items-center justify-between">
-            <SectionLabel>Meeting title</SectionLabel>
+            <SectionLabel>{t("activityPanel.meetingTitle.label")}</SectionLabel>
             <div className="flex items-center gap-2">
-              {savingTitle ? <span role="status" className="text-[10px] text-faint">Saving…</span> : null}
+              {savingTitle ? <span role="status" className="text-[10px] text-faint">{t("activityPanel.meetingTitle.saving")}</span> : null}
               <EditToggle editing onClick={() => setEditing(false)} />
             </div>
           </div>
@@ -1666,19 +1687,19 @@ function MeetingTitle({
             autoFocus
             value={titleDraft}
             onChange={(e) => setTitleDraft(e.target.value)}
-            placeholder="Untitled meeting"
+            placeholder={t("activityPanel.meetingTitle.placeholder")}
             className="w-full rounded-md border border-line bg-surface px-2.5 py-2 text-base font-semibold text-fg focus:border-accent focus:outline-none"
           />
         </>
       ) : (
         <div className="group flex items-start justify-between gap-2">
           <h2 className="text-lg font-semibold leading-snug text-fg">
-            {titleDraft.trim() || "Untitled meeting"}
+            {titleDraft.trim() || t("activityPanel.meetingTitle.placeholder")}
           </h2>
           <button
             type="button"
             onClick={() => setEditing(true)}
-            aria-label="Edit title"
+            aria-label={t("activityPanel.meetingTitle.editAriaLabel")}
             className="mt-1 shrink-0 rounded p-1 text-faint opacity-0 transition hover:bg-elevated hover:text-fg group-hover:opacity-100 focus-visible:opacity-100"
           >
             <Pencil size={13} strokeWidth={2.25} />
@@ -1696,6 +1717,7 @@ function NotesSection({
   meeting: MeetingRow;
   onMeetingChange: (m: MeetingRow) => void;
 }) {
+  const { t } = useTranslation();
   const current = meeting.user_notes ?? "";
   const [editing, setEditing] = useState(false);
   const [notesDraft, setNotesDraft] = useState(current);
@@ -1726,11 +1748,11 @@ function NotesSection({
   return (
     <div>
       <div className="mb-1.5 flex items-center justify-between">
-        <SectionLabel>Notes</SectionLabel>
+        <SectionLabel>{t("activityPanel.notes.label")}</SectionLabel>
         <div className="flex items-center gap-2">
           {editing ? (
             <span role="status" className="text-[10px] text-faint">
-              {saving ? "Saving…" : notesDraft !== current ? "Unsaved" : "Saved"}
+              {saving ? t("activityPanel.notes.saving") : notesDraft !== current ? t("activityPanel.notes.unsaved") : t("activityPanel.notes.saved")}
             </span>
           ) : null}
           <EditToggle editing={editing} onClick={() => setEditing((e) => !e)} />
@@ -1742,7 +1764,7 @@ function NotesSection({
           value={notesDraft}
           onChange={(e) => setNotesDraft(e.target.value)}
           rows={4}
-          placeholder="Add personal notes…"
+          placeholder={t("activityPanel.notes.emptyPrompt")}
           className="w-full rounded-md border border-line bg-surface px-2.5 py-2 text-[12.5px] text-fg focus:border-accent focus:outline-none"
         />
       ) : notesDraft.trim() ? (
@@ -1753,7 +1775,7 @@ function NotesSection({
           onClick={() => setEditing(true)}
           className="text-[12px] italic text-faint hover:text-muted"
         >
-          Add personal notes…
+          {t("activityPanel.notes.emptyPrompt")}
         </button>
       )}
     </div>
@@ -1783,6 +1805,7 @@ function GuideReviewSection({
   meetingId: string;
   onEvidenceClick: (segmentIndex: number) => void;
 }) {
+  const { t } = useTranslation();
   const toasts = useToasts();
   const [runs, setRuns] = useState<GuideRun[]>([]);
   const [openCrit, setOpenCrit] = useState<Record<string, boolean>>({});
@@ -1828,14 +1851,14 @@ function GuideReviewSection({
                   </span>
                 ) : null}
                 {run.status === "pending" ? (
-                  <span className="text-[11px] text-muted">Generating review…</span>
+                  <span className="text-[11px] text-muted">{t("activityPanel.guideReview.generating")}</span>
                 ) : null}
                 {run.insight_kind !== "signals" ? (
                   <button
                     className="ml-auto text-[11px] text-accent hover:underline"
                     onClick={() => setTrendFor({ id: run.template_id, name: run.template_name })}
                   >
-                    View trend
+                    {t("activityPanel.guideReview.viewTrend")}
                   </button>
                 ) : null}
               </div>
@@ -1843,8 +1866,8 @@ function GuideReviewSection({
               {run.status === "failed" || run.status === "stale" ? (
                 <div className="px-3 py-3 text-[12px] text-muted">
                   {run.status === "stale"
-                    ? "The transcript changed, so this evidence needs to be refreshed. "
-                    : "Guide review couldn't be generated. See Settings → Diagnostics → logs. "}
+                    ? t("activityPanel.guideReview.staleMessage")
+                    : t("activityPanel.guideReview.failedMessage")}
                   <button
                     className="text-accent hover:underline disabled:cursor-not-allowed disabled:opacity-60"
                     disabled={!!retrying[run.id]}
@@ -1855,7 +1878,7 @@ function GuideReviewSection({
                       } catch {
                         toasts.push({
                           tone: "error",
-                          message: "Couldn't regenerate the guide review. See Settings → Diagnostics → logs.",
+                          message: t("activityPanel.guideReview.regenerateFailedToast"),
                         });
                       } finally {
                         setRetrying((s) => ({ ...s, [run.id]: false }));
@@ -1863,7 +1886,7 @@ function GuideReviewSection({
                       }
                     }}
                   >
-                    {retrying[run.id] ? "Analyzing…" : run.status === "stale" ? "Reanalyze" : "Retry"}
+                    {retrying[run.id] ? t("activityPanel.guideReview.analyzing") : run.status === "stale" ? t("activityPanel.guideReview.reanalyze") : t("activityPanel.guideReview.retry")}
                   </button>
                 </div>
               ) : null}
@@ -1922,7 +1945,7 @@ function GuideReviewSection({
                                 {c.why ? <p className="text-fg">{c.why}</p> : null}
                                 {c.tip ? (
                                   <p className="text-muted">
-                                    <span className="font-semibold text-amber-400">Try:</span> {c.tip}
+                                    <span className="font-semibold text-amber-400">{t("activityPanel.guideReview.tryLabel")}</span> {c.tip}
                                   </p>
                                 ) : null}
                               </div>
@@ -1935,7 +1958,7 @@ function GuideReviewSection({
 
                   {review.emergent.length > 0 ? (
                     <div>
-                      <SectionLabel>What also stood out</SectionLabel>
+                      <SectionLabel>{t("activityPanel.guideReview.whatStoodOut")}</SectionLabel>
                       <ul className="space-y-1 text-[12px] text-fg">
                         {review.emergent.map((e, i) => (
                           <li key={i} className="leading-relaxed">{e.observation}</li>
@@ -1951,7 +1974,7 @@ function GuideReviewSection({
                         className="text-[12px] text-muted hover:text-fg"
                         onClick={() => setShowTimeline((s) => ({ ...s, [run.id]: !s[run.id] }))}
                       >
-                        {showTimeline[run.id] ? "▾" : "▸"} Live coaching timeline · {timeline.length}
+                        {showTimeline[run.id] ? "▾" : "▸"} {t("activityPanel.guideReview.timelineHeader", { count: timeline.length })}
                       </button>
                       {showTimeline[run.id] ? (
                         <div className="mt-1.5 space-y-1">
@@ -1991,6 +2014,7 @@ function ActionsSection({
   onDelete: () => void;
   onRestore: () => void;
 }) {
+  const { t } = useTranslation();
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(item.content);
@@ -2006,7 +2030,7 @@ function ActionsSection({
         className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-line px-2.5 py-1 text-xs text-muted hover:bg-elevated hover:text-fg"
       >
         <Copy size={12} strokeWidth={2} />
-        Copy content
+        {t("activityPanel.actions.copyContent")}
       </button>
       {item.deleted_at ? (
         <button
@@ -2015,7 +2039,7 @@ function ActionsSection({
           className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-line px-2.5 py-1 text-xs text-muted hover:bg-elevated hover:text-fg"
         >
           <RotateCcw size={12} strokeWidth={2} />
-          Restore
+          {t("activityPanel.actions.restore")}
         </button>
       ) : (
         <button
@@ -2024,7 +2048,7 @@ function ActionsSection({
           className="ml-auto inline-flex cursor-pointer items-center gap-1 rounded-md border border-line px-2.5 py-1 text-xs text-muted hover:border-danger/40 hover:bg-danger/10 hover:text-danger"
         >
           <Trash2 size={12} strokeWidth={2} />
-          Delete
+          {t("activityPanel.actions.delete")}
         </button>
       )}
     </div>

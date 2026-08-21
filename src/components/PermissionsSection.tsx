@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   openAccessibilitySettings,
   openCameraSettings,
@@ -21,6 +22,7 @@ import { useToasts } from "./ToastProvider";
 /// "Reset permissions" button that runs `tccutil reset` for both services
 /// and quits the app — equivalent to the manual workflow in CLAUDE.md.
 export default function PermissionsSection() {
+  const { t } = useTranslation();
   const [status, setStatus] = useState<PermissionsStatus>({
     microphone: false,
     accessibility: false,
@@ -156,7 +158,7 @@ export default function PermissionsSection() {
       setTimeout(() => {
         toasts.push({
           tone: "error",
-          message: "Reset returned but the app didn't quit. Try restarting Echo Scribe manually.",
+          message: t("permissionsSection.resetTimeoutToast"),
         });
         setResetting(false);
         setConfirmReset(false);
@@ -164,7 +166,9 @@ export default function PermissionsSection() {
     } catch (e) {
       toasts.push({
         tone: "error",
-        message: `Couldn't reset permissions: ${e instanceof Error ? e.message : String(e)}`,
+        message: t("permissionsSection.resetErrorToast", {
+          error: e instanceof Error ? e.message : String(e),
+        }),
       });
       setResetting(false);
       setConfirmReset(false);
@@ -174,8 +178,8 @@ export default function PermissionsSection() {
   return (
     <div className="flex flex-col gap-6">
       <PermissionRow
-        title="Microphone"
-        subtitle="Echo Scribe needs your microphone to capture what you say."
+        title={t("permissionsSection.microphoneTitle")}
+        subtitle={t("permissionsSection.microphoneSubtitle")}
         granted={status.microphone}
         onGrant={() => void handleGrantMicrophone()}
         onRecheck={() => void refresh()}
@@ -185,8 +189,8 @@ export default function PermissionsSection() {
       <div className="h-px bg-elevated" />
 
       <PermissionRow
-        title="Accessibility"
-        subtitle="Required to paste transcribed text at the cursor in any app."
+        title={t("permissionsSection.accessibilityTitle")}
+        subtitle={t("permissionsSection.accessibilitySubtitle")}
         granted={status.accessibility}
         onGrant={() => void handleGrantAccessibility()}
         onRecheck={() => void refresh()}
@@ -196,8 +200,8 @@ export default function PermissionsSection() {
       <div className="h-px bg-elevated" />
 
       <PermissionRow
-        title="Screen Recording"
-        subtitle="Lets Echo Scribe capture the other participant's audio during Zoom, Google Meet, and similar meetings. Without it, only your microphone is recorded."
+        title={t("permissionsSection.screenRecordingTitle")}
+        subtitle={t("permissionsSection.screenRecordingSubtitle")}
         granted={status.screen_recording}
         onGrant={() => void handleGrantScreenRecording()}
         onRecheck={() => void refresh()}
@@ -207,8 +211,8 @@ export default function PermissionsSection() {
       <div className="h-px bg-elevated" />
 
       <PermissionRow
-        title="Camera (optional)"
-        subtitle="Only used when you turn on the webcam overlay for a screen recording. Grant it here so it's ready — and so a blocked camera is fixable from this screen instead of failing silently mid-recording."
+        title={t("permissionsSection.cameraTitle")}
+        subtitle={t("permissionsSection.cameraSubtitle")}
         granted={status.camera}
         onGrant={() => void handleGrantCamera()}
         onRecheck={() => void refresh()}
@@ -220,12 +224,10 @@ export default function PermissionsSection() {
       <div className="flex items-start justify-between gap-6">
         <div className="min-w-0 flex-1">
           <div className="font-semibold tracking-tight text-warning">
-            Reset permissions
+            {t("permissionsSection.resetHeading")}
           </div>
           <p className="mt-1 text-sm text-muted">
-            Wipes Microphone + Accessibility + Screen Recording + Camera grants
-            and quits the app. Use if a permission feels broken — relaunch will
-            re-prompt from scratch.
+            {t("permissionsSection.resetDescription")}
           </p>
         </div>
         {confirmReset ? (
@@ -236,7 +238,7 @@ export default function PermissionsSection() {
               disabled={resetting}
               className="rounded-md border border-warning/40 bg-warning/15 px-3 py-1.5 text-xs font-semibold text-warning hover:bg-warning/15 disabled:opacity-50"
             >
-              {resetting ? "Resetting…" : "Yes, reset & quit"}
+              {resetting ? t("permissionsSection.resetting") : t("permissionsSection.confirmReset")}
             </button>
             <button
               type="button"
@@ -244,7 +246,7 @@ export default function PermissionsSection() {
               disabled={resetting}
               className="rounded-md border border-line px-3 py-1.5 text-xs text-muted hover:bg-elevated"
             >
-              Cancel
+              {t("permissionsSection.cancel")}
             </button>
           </div>
         ) : (
@@ -253,7 +255,7 @@ export default function PermissionsSection() {
             onClick={() => setConfirmReset(true)}
             className="shrink-0 rounded-md border border-warning/40 bg-warning/15 px-3 py-1.5 text-xs font-semibold text-warning hover:bg-warning/15"
           >
-            Reset & quit
+            {t("permissionsSection.resetAndQuit")}
           </button>
         )}
       </div>

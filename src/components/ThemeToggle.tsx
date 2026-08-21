@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Monitor, Moon, Sun } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import {
   getThemePref,
   setThemePref,
@@ -9,12 +10,6 @@ import {
 
 const ORDER: ThemePref[] = ["auto", "light", "dark"];
 
-const LABEL: Record<ThemePref, string> = {
-  auto: "Auto (match system)",
-  light: "Light",
-  dark: "Dark",
-};
-
 const ICON: Record<ThemePref, typeof Monitor> = {
   auto: Monitor,
   light: Sun,
@@ -23,6 +18,7 @@ const ICON: Record<ThemePref, typeof Monitor> = {
 
 /** Icon button cycling the theme preference: auto → light → dark. */
 export default function ThemeToggle() {
+  const { t } = useTranslation();
   const [pref, setPref] = useState<ThemePref>(getThemePref);
 
   useEffect(() => {
@@ -35,6 +31,8 @@ export default function ThemeToggle() {
 
   const next = ORDER[(ORDER.indexOf(pref) + 1) % ORDER.length];
   const Icon = ICON[pref];
+  const currentLabel = t(`themeToggle.label.${pref}`);
+  const nextLabel = t(`themeToggle.label.${next}`).toLowerCase();
 
   return (
     <button
@@ -44,8 +42,8 @@ export default function ThemeToggle() {
         setPref(next);
       }}
       className="theme-toggle-control flex shrink-0 cursor-pointer items-center justify-center text-muted hover:text-fg"
-      title={`Theme: ${LABEL[pref]} — click for ${LABEL[next].toLowerCase()}`}
-      aria-label={`Theme: ${LABEL[pref]}`}
+      title={t("themeToggle.title", { current: currentLabel, next: nextLabel })}
+      aria-label={t("themeToggle.ariaLabel", { current: currentLabel })}
     >
       <Icon size={14} strokeWidth={1.75} />
     </button>

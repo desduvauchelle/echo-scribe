@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useToasts } from "../../components/ToastProvider";
@@ -40,8 +41,8 @@ import {
   type RecordingRow,
 } from "../../lib/api";
 
-function displayName(r: RecordingRow): string {
-  return r.title?.trim() || r.source_label || "Recording";
+function displayName(r: RecordingRow, t: (key: string) => string): string {
+  return r.title?.trim() || r.source_label || t("recordings.fallbackTitle");
 }
 
 function fmtDuration(ms: number | null): string {
@@ -94,6 +95,7 @@ function Tooltip({ label, children }: { label: string; children: ReactNode }) {
 
 /** Copy-to-clipboard icon button; flips to a green check for ~1.2s on click. */
 function CopyButton({ value }: { value: string }) {
+  const { t } = useTranslation("main");
   const [copied, setCopied] = useState(false);
   return (
     <button
@@ -102,7 +104,7 @@ function CopyButton({ value }: { value: string }) {
         setCopied(true);
         window.setTimeout(() => setCopied(false), 1200);
       }}
-      aria-label={copied ? "Copied" : "Copy"}
+      aria-label={copied ? t("recordings.copyButton.copied") : t("recordings.copyButton.copy")}
       className={`grid h-7 w-7 shrink-0 place-items-center rounded-md border hover:bg-surface ${
         copied ? "border-green-500/40 text-green-500" : "border-line text-fg"
       }`}
@@ -159,6 +161,7 @@ function SplitButton({
   busy?: boolean;
   disabled?: boolean;
 }) {
+  const { t } = useTranslation("main");
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const caretRef = useRef<HTMLButtonElement>(null);
@@ -180,7 +183,7 @@ function SplitButton({
       </button>
       <button
         ref={caretRef}
-        aria-label="Choose resolution"
+        aria-label={t("recordings.actions.chooseResolution")}
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
@@ -237,6 +240,7 @@ function UploadButton({
   disabled?: boolean;
   onUpload: (quality: UploadQuality, makePublic: boolean) => void;
 }) {
+  const { t } = useTranslation("main");
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const caretRef = useRef<HTMLButtonElement>(null);
@@ -252,8 +256,8 @@ function UploadButton({
 
   const primary: UploadQuality = hasEdited ? "rendered" : "1080";
   const qualities: { label: string; value: UploadQuality }[] = [
-    ...(hasEdited ? [{ label: "Edited", value: "rendered" as UploadQuality }] : []),
-    { label: "Original", value: "original" },
+    ...(hasEdited ? [{ label: t("recordings.upload.qualities.edited"), value: "rendered" as UploadQuality }] : []),
+    { label: t("recordings.upload.qualities.original"), value: "original" },
     { label: "1080p", value: "1080" },
     { label: "720p", value: "720" },
     { label: "480p", value: "480" },
@@ -266,7 +270,7 @@ function UploadButton({
   return (
     <div ref={containerRef} className="group/tt relative flex shrink-0">
       <button
-        aria-label="Upload to Drive"
+        aria-label={t("recordings.upload.button")}
         onClick={() => onUpload(primary, isPublic)}
         disabled={disabled}
         className="grid h-8 w-8 place-items-center rounded-l-md border border-line text-fg hover:bg-surface disabled:opacity-50"
@@ -275,7 +279,7 @@ function UploadButton({
       </button>
       <button
         ref={caretRef}
-        aria-label="Upload options"
+        aria-label={t("recordings.upload.optionsLabel")}
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
@@ -286,25 +290,27 @@ function UploadButton({
       </button>
       {open ? null : (
         <span className="pointer-events-none absolute left-1/2 top-full z-[60] mt-1.5 -translate-x-1/2 whitespace-nowrap rounded border border-line bg-elevated px-2 py-1 text-[11px] text-fg opacity-0 shadow-lg transition-opacity duration-100 group-hover/tt:opacity-100 group-focus-within/tt:opacity-100">
-          Upload to Drive ({hasEdited ? "edited version" : "1080p"})
+          {t("recordings.upload.tooltip", {
+            quality: hasEdited ? t("recordings.upload.editedVersion") : "1080p",
+          })}
         </span>
       )}
       {open ? (
         <>
           <div className="absolute right-0 top-full z-50 mt-1 min-w-[170px] overflow-hidden rounded-md border border-line bg-canvas py-1 shadow-lg">
             <div className="px-3 pb-1 pt-1 text-[10px] font-medium uppercase tracking-wide text-muted">
-              Sharing
+              {t("recordings.upload.sharingLabel")}
             </div>
             <div className="flex gap-1 px-2 pb-2">
               <button type="button" onClick={() => setIsPublic(true)} className={seg(isPublic)}>
-                <Globe size={12} /> Anyone
+                <Globe size={12} /> {t("recordings.upload.visibility.anyone")}
               </button>
               <button type="button" onClick={() => setIsPublic(false)} className={seg(!isPublic)}>
-                <Lock size={12} /> Only me
+                <Lock size={12} /> {t("recordings.upload.visibility.onlyMe")}
               </button>
             </div>
             <div className="border-t border-line px-3 pb-1 pt-1.5 text-[10px] font-medium uppercase tracking-wide text-muted">
-              Quality
+              {t("recordings.upload.qualityLabel")}
             </div>
             {qualities.map((o) => (
               <button
@@ -326,6 +332,7 @@ function UploadButton({
 }
 
 export function RecordingsView() {
+  const { t } = useTranslation("main");
   const [rows, setRows] = useState<RecordingRow[]>([]);
   const [recording, setRecording] = useState(false);
   const [paused, setPaused] = useState(false);
@@ -481,14 +488,14 @@ export function RecordingsView() {
 
   const startRename = useCallback(() => {
     if (!selected) return;
-    setNameInput(displayName(selected));
+    setNameInput(displayName(selected, t));
     setRenaming(true);
-  }, [selected]);
+  }, [selected, t]);
 
   const saveRename = useCallback(async () => {
     if (!selected) return;
     const next = nameInput.trim();
-    if (!next || next === displayName(selected)) {
+    if (!next || next === displayName(selected, t)) {
       setRenaming(false);
       return;
     }
@@ -499,7 +506,7 @@ export function RecordingsView() {
     } catch (e) {
       setError(String(e));
     }
-  }, [selected, nameInput, refresh]);
+  }, [selected, nameInput, refresh, t]);
 
   const onTranscribe = useCallback(async () => {
     if (!selected) return;
@@ -602,7 +609,7 @@ export function RecordingsView() {
       ) : null}
       <div className="flex items-center justify-between border-b border-line px-6 py-4">
         <div className="flex items-center gap-2">
-          <h1 className="text-[15px] font-semibold tracking-tight">Recordings</h1>
+          <h1 className="text-[15px] font-semibold tracking-tight">{t("recordings.header.title")}</h1>
           {/* Recording indicator: reflects live + paused state. Match the pill
               idiom — a small dot + label. Amber "Paused" when paused, else a
               pulsing red "Recording" dot. Hidden when idle. */}
@@ -619,7 +626,7 @@ export function RecordingsView() {
                   paused ? "bg-amber-400" : "animate-pulse bg-red-500"
                 }`}
               />
-              {paused ? "Paused" : "Recording"}
+              {paused ? t("recordings.status.paused") : t("recordings.status.recording")}
             </span>
           ) : null}
         </div>
@@ -630,7 +637,7 @@ export function RecordingsView() {
               disabled={busy}
               className="rounded-md border border-line px-3 py-1.5 text-[13px] font-medium text-fg disabled:opacity-50"
             >
-              {paused ? "Resume" : "Pause"}
+              {paused ? t("recordings.controls.resume") : t("recordings.controls.pause")}
             </button>
           ) : null}
           <button
@@ -640,7 +647,7 @@ export function RecordingsView() {
               recording ? "bg-red-600 text-white" : "bg-accent text-white"
             } disabled:opacity-50`}
           >
-            {recording ? "Stop recording" : "Record screen"}
+            {recording ? t("recordings.controls.stopRecording") : t("recordings.controls.recordScreen")}
           </button>
         </div>
       </div>
@@ -657,7 +664,7 @@ export function RecordingsView() {
       <div className="flex flex-1 overflow-hidden">
         <div className="w-[320px] shrink-0 overflow-y-auto border-r border-line">
           {rows.length === 0 ? (
-            <div className="p-6 text-[13px] text-muted">No recordings yet.</div>
+            <div className="p-6 text-[13px] text-muted">{t("recordings.list.empty")}</div>
           ) : (
             rows.map((r) => (
               <button
@@ -683,7 +690,7 @@ export function RecordingsView() {
                 )}
                 <div className="min-w-0">
                   <div className="truncate text-[13px] font-medium">
-                    {displayName(r)}
+                    {displayName(r, t)}
                   </div>
                   <div className="text-[11px] text-muted">
                     {new Date(r.created_at).toLocaleString()} ·{" "}
@@ -702,7 +709,7 @@ export function RecordingsView() {
                 <div className="mb-3 flex items-center gap-2">
                   <input
                     autoFocus
-                    aria-label="Recording name"
+                    aria-label={t("recordings.rename.inputLabel")}
                     value={nameInput}
                     onChange={(e) => setNameInput(e.target.value)}
                     onKeyDown={(e) => {
@@ -715,21 +722,21 @@ export function RecordingsView() {
                     onClick={() => void saveRename()}
                     className="rounded-md bg-accent px-3 py-1.5 text-[13px] font-medium text-white"
                   >
-                    Save
+                    {t("recordings.rename.save")}
                   </button>
                   <button
                     onClick={() => setRenaming(false)}
                     className="rounded-md border border-line px-3 py-1.5 text-[13px] hover:bg-surface"
                   >
-                    Cancel
+                    {t("recordings.rename.cancel")}
                   </button>
                 </div>
               ) : (
                 <div className="mb-3 flex items-center gap-2">
                   <h2 className="min-w-0 flex-1 truncate text-[15px] font-semibold">
-                    {displayName(selected)}
+                    {displayName(selected, t)}
                   </h2>
-                  <IconButton title="Rename" onClick={startRename}>
+                  <IconButton title={t("recordings.actions.rename")} onClick={startRename}>
                     <Pencil size={16} />
                   </IconButton>
                 </div>
@@ -747,7 +754,7 @@ export function RecordingsView() {
                 {selected.transcript?.trim() ? (
                   <track
                     kind="captions"
-                    label="Transcript"
+                    label={t("recordings.player.transcriptTrackLabel")}
                     srcLang="en"
                     src={transcriptVttUrl(
                       selected.transcript,
@@ -758,13 +765,13 @@ export function RecordingsView() {
               </video>
               <div className="mt-4 flex items-center gap-2">
                 <IconButton
-                  title="Reveal in Finder"
+                  title={t("recordings.actions.revealInFinder")}
                   onClick={() => void revealRecording(selected.id)}
                 >
                   <FolderOpen size={16} />
                 </IconButton>
                 <SplitButton
-                  title="Export 1080p"
+                  title={t("recordings.actions.export1080")}
                   icon={<Download size={16} />}
                   busy={exporting !== null}
                   disabled={exporting !== null || uploading}
@@ -792,8 +799,8 @@ export function RecordingsView() {
                 <IconButton
                   title={
                     selected.transcript?.trim()
-                      ? "Regenerate transcript"
-                      : "Get transcript"
+                      ? t("recordings.actions.regenerateTranscript")
+                      : t("recordings.actions.getTranscript")
                   }
                   onClick={() => void onTranscribe()}
                   disabled={transcribing}
@@ -805,9 +812,9 @@ export function RecordingsView() {
                   )}
                 </IconButton>
                 <IconButton
-                  title="Edit recording"
+                  title={t("recordings.actions.editRecording")}
                   onClick={() =>
-                    void openRecordingEditor(selected.id, displayName(selected)).catch(
+                    void openRecordingEditor(selected.id, displayName(selected, t)).catch(
                       (e) => setError(String(e)),
                     )
                   }
@@ -816,7 +823,7 @@ export function RecordingsView() {
                 </IconButton>
                 <div className="flex-1" />
                 <IconButton
-                  title="Delete"
+                  title={t("recordings.actions.delete")}
                   onClick={() => void onDelete(selected.id)}
                   danger
                 >
@@ -826,31 +833,31 @@ export function RecordingsView() {
 
               {parseExports(selected.exports).length > 0 ? (
                 <div className="mt-2 text-[12px] text-muted">
-                  Exported:{" "}
+                  {t("recordings.exports.prefix")}{" "}
                   {parseExports(selected.exports)
                     // "rendered" is the editor's export entry, not a resolution.
-                    .map((e) => `${e.quality === "rendered" ? "Rendered" : `${e.quality}p`} (${fmtSize(e.size)})`)
+                    .map((e) => `${e.quality === "rendered" ? t("recordings.exports.rendered") : `${e.quality}p`} (${fmtSize(e.size)})`)
                     .join(" · ")}
                 </div>
               ) : null}
               {transcribing ? (
                 <div className="mt-2 text-[12px] text-muted">
-                  Transcribing… {progress}%
+                  {t("recordings.status.transcribing", { progress })}
                 </div>
               ) : null}
               {denoising ? (
                 <div className="mt-2 text-[12px] text-muted">
-                  Cleaning audio… {denoiseProgress}%
+                  {t("recordings.status.cleaningAudio", { progress: denoiseProgress })}
                 </div>
               ) : null}
               {uploading ? (
                 <div className="mt-2 text-[12px] text-muted">
-                  Uploading to Drive…
+                  {t("recordings.status.uploadingToDrive")}
                 </div>
               ) : null}
               {selected.upload_status === "error" ? (
                 <div className="mt-2 text-[12px] text-red-400">
-                  Upload failed
+                  {t("recordings.status.uploadFailed")}
                   {selected.upload_error ? `: ${selected.upload_error}` : ""}
                 </div>
               ) : null}
@@ -871,7 +878,7 @@ export function RecordingsView() {
 
               <div className="mt-6 border-t border-line pt-4">
                 <div className="mb-2 flex items-center justify-between">
-                  <h3 className="text-[13px] font-semibold">Transcript</h3>
+                  <h3 className="text-[13px] font-semibold">{t("recordings.transcript.heading")}</h3>
                   {selected.transcript?.trim() ? (
                     <CopyButton value={selected.transcript} />
                   ) : null}
@@ -883,20 +890,19 @@ export function RecordingsView() {
                     </p>
                   ) : (
                     <span className="text-[13px] text-muted">
-                      No speech detected. Use the transcript button above to retry.
+                      {t("recordings.transcript.noSpeechDetected")}
                     </span>
                   )
                 ) : (
                   <span className="text-[13px] text-muted">
-                    No transcript yet — use the transcript button above to generate
-                    one.
+                    {t("recordings.transcript.noTranscriptYet")}
                   </span>
                 )}
               </div>
             </>
           ) : (
             <div className="grid flex-1 place-items-center text-[13px] text-muted">
-              Select a recording to play it.
+              {t("recordings.player.selectPrompt")}
             </div>
           )}
         </div>

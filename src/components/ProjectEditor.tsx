@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   createProject,
   exportProjectBackfill,
@@ -16,15 +17,15 @@ type Props = {
   onCancel: () => void;
 };
 
-const COLOR_PALETTE: Array<{ value: string; name: string }> = [
-  { value: "#ef4444", name: "Red" },
-  { value: "#f97316", name: "Orange" },
-  { value: "#eab308", name: "Yellow" },
-  { value: "#22c55e", name: "Green" },
-  { value: "#06b6d4", name: "Cyan" },
-  { value: "#3b82f6", name: "Blue" },
-  { value: "#8b5cf6", name: "Violet" },
-  { value: "#ec4899", name: "Pink" },
+const COLOR_PALETTE: Array<{ value: string; nameKey: string }> = [
+  { value: "#ef4444", nameKey: "red" },
+  { value: "#f97316", nameKey: "orange" },
+  { value: "#eab308", nameKey: "yellow" },
+  { value: "#22c55e", nameKey: "green" },
+  { value: "#06b6d4", nameKey: "cyan" },
+  { value: "#3b82f6", nameKey: "blue" },
+  { value: "#8b5cf6", nameKey: "violet" },
+  { value: "#ec4899", nameKey: "pink" },
 ];
 
 export default function ProjectEditor({
@@ -33,6 +34,7 @@ export default function ProjectEditor({
   onDeleteRequest,
   onCancel,
 }: Props) {
+  const { t } = useTranslation();
   const toasts = useToasts();
   const isEdit = project !== null;
 
@@ -92,7 +94,7 @@ export default function ProjectEditor({
   const handleSave = async () => {
     const trimmedName = name.trim();
     if (!trimmedName) {
-      toasts.push({ tone: "error", message: "Project name is required." });
+      toasts.push({ tone: "error", message: t("projectEditor.nameRequired") });
       return;
     }
     // Flush any unsubmitted keyword in the input.
@@ -148,7 +150,9 @@ export default function ProjectEditor({
     } catch (e) {
       toasts.push({
         tone: "error",
-        message: `Save failed: ${e instanceof Error ? e.message : String(e)}`,
+        message: t("projectEditor.saveFailed", {
+          error: e instanceof Error ? e.message : String(e),
+        }),
       });
     } finally {
       setSaving(false);
@@ -162,7 +166,9 @@ export default function ProjectEditor({
     } catch (e) {
       toasts.push({
         tone: "error",
-        message: `Folder picker failed: ${e instanceof Error ? e.message : String(e)}`,
+        message: t("projectEditor.folderPickerFailed", {
+          error: e instanceof Error ? e.message : String(e),
+        }),
       });
     }
   };
@@ -172,7 +178,7 @@ export default function ProjectEditor({
     if (!exportFolder) {
       toasts.push({
         tone: "error",
-        message: "Pick an export folder first.",
+        message: t("projectEditor.pickFolderFirst"),
       });
       return;
     }
@@ -181,12 +187,14 @@ export default function ProjectEditor({
       const n = await exportProjectBackfill(project.id);
       toasts.push({
         tone: "success",
-        message: `Exported ${n} file${n === 1 ? "" : "s"} to ${exportFolder}.`,
+        message: t("projectEditor.backfillSuccess", { count: n, folder: exportFolder }),
       });
     } catch (e) {
       toasts.push({
         tone: "error",
-        message: `Backfill failed: ${e instanceof Error ? e.message : String(e)}`,
+        message: t("projectEditor.backfillFailed", {
+          error: e instanceof Error ? e.message : String(e),
+        }),
       });
     } finally {
       setBackfilling(false);
@@ -197,19 +205,19 @@ export default function ProjectEditor({
     <div className="flex flex-col gap-4 rounded-lg border border-line bg-surface p-4">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold text-fg">
-          {isEdit ? "Edit project" : "New project"}
+          {isEdit ? t("projectEditor.editHeading") : t("projectEditor.newHeading")}
         </h3>
         <button
           type="button"
           onClick={onCancel}
           className="rounded border border-line px-2 py-0.5 text-xs hover:bg-elevated"
         >
-          Close
+          {t("projectEditor.close")}
         </button>
       </div>
 
       <label className="flex flex-col gap-1 text-xs text-muted">
-        Name
+        {t("projectEditor.nameLabel")}
         <div className="flex gap-2">
           <input
             type="text"
@@ -218,34 +226,34 @@ export default function ProjectEditor({
             placeholder="📁"
             maxLength={4}
             className="w-12 rounded-md border border-line bg-canvas px-2 py-1 text-center text-sm focus:border-accent focus:outline-none"
-            aria-label="Emoji"
+            aria-label={t("projectEditor.emojiAriaLabel")}
           />
           <input
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="e.g. Acme Sales"
+            placeholder={t("projectEditor.namePlaceholder")}
             className="flex-1 rounded-md border border-line bg-canvas px-3 py-1 text-sm focus:border-accent focus:outline-none"
           />
         </div>
       </label>
 
       <label className="flex flex-col gap-1 text-xs text-muted">
-        Description
+        {t("projectEditor.descriptionLabel")}
         <textarea
           value={description}
           onChange={(e) => setDescription(e.target.value)}
-          placeholder="What this project is about. Helps the classifier route captures here."
+          placeholder={t("projectEditor.descriptionPlaceholder")}
           rows={3}
           className="rounded-md border border-line bg-canvas px-3 py-2 text-sm focus:border-accent focus:outline-none"
         />
         <span className="text-[10px] text-faint">
-          Used by the classifier to decide whether new captures belong here.
+          {t("projectEditor.descriptionHint")}
         </span>
       </label>
 
       <div className="flex flex-col gap-1 text-xs text-muted">
-        Keywords
+        {t("projectEditor.keywordsLabel")}
         <div className="flex flex-wrap gap-1 rounded-md border border-line bg-canvas px-2 py-1.5">
           {keywords.map((kw) => (
             <span
@@ -257,7 +265,7 @@ export default function ProjectEditor({
                 type="button"
                 onClick={() => removeKeyword(kw)}
                 className="text-faint hover:text-danger"
-                aria-label={`Remove ${kw}`}
+                aria-label={t("projectEditor.removeItemAriaLabel", { item: kw })}
               >
                 ×
               </button>
@@ -269,71 +277,71 @@ export default function ProjectEditor({
             onChange={(e) => setKeywordsInput(e.target.value)}
             onKeyDown={handleKeywordsKey}
             onBlur={() => keywordsInput.trim() && addKeyword(keywordsInput)}
-            placeholder={keywords.length === 0 ? "Type and press Enter" : ""}
-            aria-label="Keywords"
+            placeholder={keywords.length === 0 ? t("projectEditor.keywordsPlaceholder") : ""}
+            aria-label={t("projectEditor.keywordsLabel")}
             className="flex-1 min-w-24 bg-transparent text-sm focus:outline-none"
           />
         </div>
         <span className="text-[10px] text-faint">
-          Topical hints (names, acronyms, codenames). Lowercase, deduped.
+          {t("projectEditor.keywordsHint")}
         </span>
       </div>
 
       <div className="flex flex-col gap-3 border-t border-line pt-3">
         <div>
-          <h4 className="text-xs font-semibold text-fg">Routing</h4>
+          <h4 className="text-xs font-semibold text-fg">{t("projectEditor.routingHeading")}</h4>
         </div>
         <RoutingChipEditor
-          label="Aliases"
+          label={t("projectEditor.aliasesLabel")}
           values={aliases}
           onChange={setAliases}
-          placeholder="livecase, hbsp, case simulation"
+          placeholder={t("projectEditor.aliasesPlaceholder")}
           lowercase
         />
         <RoutingChipEditor
-          label="App hints"
+          label={t("projectEditor.appHintsLabel")}
           values={appHints}
           onChange={setAppHints}
-          placeholder="Code, Google Chrome"
+          placeholder={t("projectEditor.appHintsPlaceholder")}
         />
         <RoutingChipEditor
-          label="URL hints"
+          label={t("projectEditor.urlHintsLabel")}
           values={urlHints}
           onChange={setUrlHints}
-          placeholder="hbsp.harvard.edu, github.com/desduvauchelle/echo-scribe"
+          placeholder={t("projectEditor.urlHintsPlaceholder")}
           lowercase
         />
         <RoutingChipEditor
-          label="Window hints"
+          label={t("projectEditor.windowHintsLabel")}
           values={windowHints}
           onChange={setWindowHints}
-          placeholder="echo-scribe, livecaseplus"
+          placeholder={t("projectEditor.windowHintsPlaceholder")}
           lowercase
         />
         <label className="flex flex-col gap-1 text-xs text-muted">
-          Positive examples
+          {t("projectEditor.positiveExamplesLabel")}
           <textarea
             value={positiveExamplesText}
             onChange={(e) => setPositiveExamplesText(e.target.value)}
             rows={3}
-            placeholder="One capture example per line"
+            placeholder={t("projectEditor.positiveExamplesPlaceholder")}
             className="rounded-md border border-line bg-canvas px-3 py-2 text-sm focus:border-accent focus:outline-none"
           />
         </label>
         <label className="flex flex-col gap-1 text-xs text-muted">
-          Negative examples
+          {t("projectEditor.negativeExamplesLabel")}
           <textarea
             value={negativeExamplesText}
             onChange={(e) => setNegativeExamplesText(e.target.value)}
             rows={2}
-            placeholder="Phrases that should not route here"
+            placeholder={t("projectEditor.negativeExamplesPlaceholder")}
             className="rounded-md border border-line bg-canvas px-3 py-2 text-sm focus:border-accent focus:outline-none"
           />
         </label>
       </div>
 
       <div className="flex flex-col gap-1 text-xs text-muted">
-        Color
+        {t("projectEditor.colorLabel")}
         <div className="flex items-center gap-2">
           {COLOR_PALETTE.map((c) => (
             <button
@@ -343,7 +351,7 @@ export default function ProjectEditor({
               className={`h-6 w-6 rounded-full border-2 ${c.value === color ? "border-fg" : "border-transparent"}`}
               style={{ backgroundColor: c.value }}
               aria-pressed={c.value === color}
-              aria-label={c.name}
+              aria-label={t(`projectEditor.colorNames.${c.nameKey}`)}
             />
           ))}
           <input
@@ -351,7 +359,7 @@ export default function ProjectEditor({
             value={color ?? ""}
             onChange={(e) => setColor(e.target.value || null)}
             placeholder="#hex"
-            aria-label="Custom color hex"
+            aria-label={t("projectEditor.customColorAriaLabel")}
             className="w-20 rounded-md border border-line bg-canvas px-2 py-1 text-xs focus:border-accent focus:outline-none"
           />
           {color && (
@@ -360,14 +368,14 @@ export default function ProjectEditor({
               onClick={() => setColor(null)}
               className="text-xs text-faint hover:text-danger"
             >
-              Clear
+              {t("projectEditor.clearButton")}
             </button>
           )}
         </div>
       </div>
 
       <div className="flex flex-col gap-1 text-xs text-muted">
-        Export folder
+        {t("projectEditor.exportFolderLabel")}
         <div className="flex items-center gap-2">
           {exportFolder ? (
             <>
@@ -382,14 +390,14 @@ export default function ProjectEditor({
                 onClick={() => void handlePickFolder()}
                 className="rounded-md border border-line px-2 py-1 text-xs hover:bg-elevated"
               >
-                Change…
+                {t("projectEditor.changeFolderButton")}
               </button>
               <button
                 type="button"
                 onClick={() => setExportFolder(null)}
                 className="text-xs text-faint hover:text-danger"
               >
-                Clear
+                {t("projectEditor.clearButton")}
               </button>
             </>
           ) : (
@@ -398,13 +406,12 @@ export default function ProjectEditor({
               onClick={() => void handlePickFolder()}
               className="rounded-md border border-line px-3 py-1 text-xs hover:bg-elevated"
             >
-              Choose folder…
+              {t("projectEditor.chooseFolderButton")}
             </button>
           )}
         </div>
         <span className="text-[10px] text-faint">
-          High-confidence items routed to this project are exported as markdown
-          here. Notes / tasks / transcriptions go into subfolders by kind.
+          {t("projectEditor.exportFolderHint")}
         </span>
         {isEdit && exportFolder && (
           <button
@@ -413,7 +420,7 @@ export default function ProjectEditor({
             disabled={backfilling || saving}
             className="self-start mt-1 rounded-md border border-line px-2 py-1 text-[11px] hover:bg-elevated disabled:opacity-50"
           >
-            {backfilling ? "Exporting…" : "Re-export all existing items"}
+            {backfilling ? t("projectEditor.exporting") : t("projectEditor.reexportButton")}
           </button>
         )}
       </div>
@@ -427,7 +434,7 @@ export default function ProjectEditor({
               disabled={saving}
               className="rounded-md border border-danger/40 px-3 py-1 text-xs font-semibold text-danger hover:bg-danger/10 disabled:opacity-50"
             >
-              Delete project
+              {t("projectEditor.deleteButton")}
             </button>
           )}
         </div>
@@ -437,7 +444,7 @@ export default function ProjectEditor({
             onClick={onCancel}
             className="rounded-md border border-line px-3 py-1 text-xs hover:bg-elevated"
           >
-            Cancel
+            {t("projectEditor.cancelButton")}
           </button>
           <button
             type="button"
@@ -445,7 +452,11 @@ export default function ProjectEditor({
             disabled={saving || !name.trim()}
             className="rounded-md bg-accent px-3 py-1 text-xs font-semibold text-canvas hover:bg-accent-hover disabled:opacity-50"
           >
-            {saving ? "Saving…" : isEdit ? "Save" : "Create"}
+            {saving
+              ? t("projectEditor.saving")
+              : isEdit
+                ? t("projectEditor.saveButton")
+                : t("projectEditor.createButton")}
           </button>
         </div>
       </div>
@@ -466,6 +477,7 @@ function RoutingChipEditor({
   placeholder: string;
   lowercase?: boolean;
 }) {
+  const { t } = useTranslation();
   const [input, setInput] = useState("");
 
   const normalize = (raw: string) => {
@@ -494,7 +506,7 @@ function RoutingChipEditor({
               type="button"
               onClick={() => remove(value)}
               className="text-faint hover:text-danger"
-              aria-label={`Remove ${value}`}
+              aria-label={t("projectEditor.removeItemAriaLabel", { item: value })}
             >
               ×
             </button>
@@ -531,9 +543,10 @@ export function ProjectBadge({
   project: Pick<Project, "name" | "color" | "emoji"> | null;
   className?: string;
 }) {
+  const { t } = useTranslation();
   if (!project) {
     return (
-      <span className={`text-xs text-faint ${className}`}>Unassigned</span>
+      <span className={`text-xs text-faint ${className}`}>{t("projectEditor.unassigned")}</span>
     );
   }
   return (

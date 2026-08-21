@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { ChevronLeft, ChevronRight, Loader, Quote, RefreshCw, X } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
 import {
@@ -59,6 +60,7 @@ function dayLabel(iso: string): string {
 }
 
 export default function DailyView({ initialDate }: Props) {
+  const { t } = useTranslation("main");
   const [date, setDate] = useState<string>(initialDate ?? yesterdayLocalIso());
   const [summary, setSummary] = useState<DailySummary | null>(null);
   const [recent, setRecent] = useState<DailySummary[]>([]);
@@ -166,10 +168,10 @@ export default function DailyView({ initialDate }: Props) {
       {/* History strip */}
       <aside className="flex w-[200px] shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-line bg-surface px-2 pt-10">
         <div className="px-2 pb-2 text-[11px] font-medium uppercase tracking-[0.08em] text-muted">
-          Recent days
+          {t("daily.history.heading")}
         </div>
         {recent.length === 0 ? (
-          <p className="px-2 text-xs text-muted">No recaps yet.</p>
+          <p className="px-2 text-xs text-muted">{t("daily.history.empty")}</p>
         ) : (
           recent.map((r) => {
             const isEmpty = r.status === "skipped_empty";
@@ -190,8 +192,8 @@ export default function DailyView({ initialDate }: Props) {
                 </span>
                 <span className="line-clamp-1 text-[10px] text-muted">
                   {isEmpty
-                    ? "Quiet day"
-                    : r.narrative.slice(0, 60) || "(no narrative)"}
+                    ? t("daily.history.quietDay")
+                    : r.narrative.slice(0, 60) || t("daily.history.noNarrative")}
                 </span>
               </button>
             );
@@ -204,12 +206,11 @@ export default function DailyView({ initialDate }: Props) {
         {showFirstRun && (
           <div className="mb-4 flex items-start justify-between gap-3 rounded-md border border-line bg-elevated p-3 text-xs text-muted">
             <p className="leading-relaxed">
-              This recap looks at your meetings, notes, and dictations — all
-              stored locally on this Mac.
+              {t("daily.firstRun.body")}
             </p>
             <button
               onClick={dismissFirstRun}
-              aria-label="Dismiss"
+              aria-label={t("daily.firstRun.dismissAria")}
               className="shrink-0 rounded p-0.5 hover:bg-canvas"
             >
               <X size={14} aria-hidden="true" />
@@ -220,10 +221,9 @@ export default function DailyView({ initialDate }: Props) {
         {permissionGranted === false && (
           <div className="mb-4 rounded-md border border-warning/40 bg-warning/15 p-3 text-xs text-fg">
             <p className="leading-relaxed">
-              Notifications are disabled — your daily recap won't surface until
-              you enable them in{" "}
+              {t("daily.notifications.disabledPrefix")}{" "}
               <span className="font-semibold">
-                System Settings → Notifications → Echo Scribe
+                {t("daily.notifications.settingsPath")}
               </span>
               .
             </p>
@@ -233,7 +233,7 @@ export default function DailyView({ initialDate }: Props) {
         <header className="mb-6 flex items-center gap-3">
           <button
             onClick={() => setDate((d) => shiftDate(d, -1))}
-            aria-label="Previous day"
+            aria-label={t("daily.nav.previousDay")}
             className="rounded-md p-1 hover:bg-elevated"
           >
             <ChevronLeft size={18} aria-hidden="true" />
@@ -246,21 +246,21 @@ export default function DailyView({ initialDate }: Props) {
           </h2>
           <button
             onClick={() => setDate((d) => shiftDate(d, +1))}
-            aria-label="Next day"
+            aria-label={t("daily.nav.nextDay")}
             className="rounded-md p-1 hover:bg-elevated"
           >
             <ChevronRight size={18} aria-hidden="true" />
           </button>
         </header>
 
-        {loading && <p className="text-sm text-muted">Loading…</p>}
+        {loading && <p className="text-sm text-muted">{t("daily.loading")}</p>}
 
         {!loading && !summary && (
           <div className="rounded-lg border border-line bg-canvas p-6">
             <p className="text-sm text-muted">
               {isToday
-                ? "Today's recap will generate tomorrow morning."
-                : "No recap was generated for this day."}
+                ? t("daily.noSummary.todayMessage")
+                : t("daily.noSummary.pastMessage")}
             </p>
             <button
               onClick={() => void onRegenerate()}
@@ -268,27 +268,27 @@ export default function DailyView({ initialDate }: Props) {
               className="mt-3 inline-flex items-center gap-1.5 rounded-md border border-line bg-elevated px-3 py-1 text-xs text-fg hover:bg-elevated/70 disabled:opacity-50"
             >
               <RefreshCw size={14} aria-hidden="true" />
-              {regenerating ? "Generating…" : "Generate now"}
+              {regenerating ? t("daily.noSummary.generating") : t("daily.noSummary.generateNow")}
             </button>
           </div>
         )}
 
         {!loading && summary?.status === "skipped_empty" && (
           <p className="rounded-lg border border-line bg-canvas p-6 text-sm text-muted">
-            Nothing recorded on this day.
+            {t("daily.skippedEmpty")}
           </p>
         )}
 
         {!loading && summary?.status === "failed" && (
           <div className="rounded-lg border border-danger/40 bg-canvas p-6">
-            <p className="text-sm text-danger">Couldn't generate this recap.</p>
+            <p className="text-sm text-danger">{t("daily.failed.message")}</p>
             <button
               onClick={() => void onRegenerate()}
               disabled={regenerating}
               className="mt-3 inline-flex items-center gap-1.5 rounded-md border border-line bg-elevated px-3 py-1 text-xs text-fg hover:bg-elevated/70 disabled:opacity-50"
             >
               <RefreshCw size={14} aria-hidden="true" />
-              {regenerating ? "Retrying…" : "Retry"}
+              {regenerating ? t("daily.failed.retrying") : t("daily.failed.retry")}
             </button>
           </div>
         )}
@@ -299,26 +299,26 @@ export default function DailyView({ initialDate }: Props) {
               {summary.narrative}
             </p>
 
-            <Section title="Meetings" items={summary.sections.meetings ?? []} />
+            <Section title={t("daily.sections.meetings")} items={summary.sections.meetings ?? []} />
             <Section
-              title="Focus work"
+              title={t("daily.sections.focusWork")}
               items={summary.sections.focus_work ?? []}
             />
-            <Section title="Notes" items={summary.sections.notes ?? []} />
+            <Section title={t("daily.sections.notes")} items={summary.sections.notes ?? []} />
             <Section
-              title="Things that came up"
+              title={t("daily.sections.thingsThatCameUp")}
               items={summary.sections.things_that_came_up ?? []}
             />
 
             <footer className="mt-2 flex items-center justify-between border-t border-line pt-3 text-xs text-muted">
-              <span>Generated {summary.generated_at}</span>
+              <span>{t("daily.footer.generatedAt", { time: summary.generated_at })}</span>
               <button
                 onClick={() => void onRegenerate()}
                 disabled={regenerating}
                 className="inline-flex items-center gap-1.5 rounded-md border border-line bg-elevated px-2 py-1 text-xs text-fg hover:bg-elevated/70 disabled:opacity-50"
               >
                 <RefreshCw size={12} />
-                {regenerating ? "Regenerating…" : "Regenerate"}
+                {regenerating ? t("daily.footer.regenerating") : t("daily.footer.regenerate")}
               </button>
             </footer>
           </article>
@@ -337,6 +337,7 @@ function MeetingInsightsSection({
   runs: GuideRun[];
   onRefresh: () => Promise<void>;
 }) {
+  const { t } = useTranslation("main");
   const { openEvidence } = useActivityPanel();
   const [retrying, setRetrying] = useState<Record<string, boolean>>({});
   if (runs.length === 0) return null;
@@ -344,9 +345,9 @@ function MeetingInsightsSection({
   return (
     <section className="mt-6 border-t border-line pt-5">
       <div className="mb-3">
-        <h3 className="text-[13px] font-semibold tracking-tight text-fg">Meeting insights</h3>
+        <h3 className="text-[13px] font-semibold tracking-tight text-fg">{t("daily.insights.heading")}</h3>
         <p className="mt-0.5 text-[11px] text-muted">
-          Separate transcript-only checks. Quotes link to the exact meeting segment used as proof.
+          {t("daily.insights.subtitle")}
         </p>
       </div>
       <div className="space-y-3">
@@ -360,7 +361,7 @@ function MeetingInsightsSection({
               <div className="flex items-center gap-2">
                 <span className="text-sm font-medium text-fg">{run.template_name}</span>
                 <span className="rounded-full bg-elevated px-2 py-0.5 text-[10px] text-muted">
-                  {run.insight_kind === "signals" ? "Signals" : "Rubric"}
+                  {run.insight_kind === "signals" ? t("daily.insights.badgeSignals") : t("daily.insights.badgeRubric")}
                 </span>
                 <span className="ml-auto text-[10px] text-faint">
                   {new Date(run.started_at).toLocaleTimeString([], {
@@ -372,7 +373,7 @@ function MeetingInsightsSection({
 
               {run.status === "pending" ? (
                 <p className="mt-2 flex items-center gap-1.5 text-xs text-muted">
-                  <Loader size={12} className="animate-spin" /> Analyzing meeting transcript…
+                  <Loader size={12} className="animate-spin" /> {t("daily.insights.analyzing")}
                 </p>
               ) : null}
 
@@ -380,8 +381,8 @@ function MeetingInsightsSection({
                 <div className="mt-2 text-xs text-muted">
                   <span>
                     {run.status === "stale"
-                      ? "Transcript changed; the previous evidence is hidden."
-                      : "This insight could not be generated."}
+                      ? t("daily.insights.staleMessage")
+                      : t("daily.insights.failedMessage")}
                   </span>{" "}
                   <button
                     type="button"
@@ -397,7 +398,7 @@ function MeetingInsightsSection({
                       }
                     }}
                   >
-                    {retrying[run.id] ? "Analyzing…" : "Reanalyze"}
+                    {retrying[run.id] ? t("daily.insights.reanalyzing") : t("daily.insights.reanalyze")}
                   </button>
                 </div>
               ) : null}
@@ -408,7 +409,7 @@ function MeetingInsightsSection({
                     <p className="text-xs leading-relaxed text-muted">{review.synthesis}</p>
                   ) : null}
                   {items.length === 0 && run.insight_kind === "signals" ? (
-                    <p className="text-xs text-muted">No configured signals were observed.</p>
+                    <p className="text-xs text-muted">{t("daily.insights.noSignalsObserved")}</p>
                   ) : (
                     <ul className="space-y-2">
                       {items.map((item, index) => (

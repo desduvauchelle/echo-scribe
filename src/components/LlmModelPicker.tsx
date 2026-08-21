@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
   deleteLlmModel,
@@ -32,11 +33,12 @@ function ModelCard({
   onActivate,
   onDelete,
 }: CardProps) {
+  const { t } = useTranslation();
   const isDownloading = downloading !== null && !model.downloaded;
   const disabled = !model.supported;
   return (
     <div
-      title={disabled ? "Not yet supported" : undefined}
+      title={disabled ? t("llmModelPicker.modelCard.notYetSupported") : undefined}
       className={`flex items-center justify-between gap-4 rounded-lg border border-line bg-surface p-4 ${
         disabled ? "cursor-not-allowed opacity-50" : ""
       }`}
@@ -44,21 +46,31 @@ function ModelCard({
       <div className="min-w-0 flex-1">
         <div className="text-sm">
           <span className="font-semibold">{model.size_label}</span>
-          <span className="text-muted"> — {model.display_name}</span>
+          <span className="text-muted">
+            {t("llmModelPicker.modelCard.displayNamePrefix", {
+              name: model.display_name,
+            })}
+          </span>
         </div>
         <div className="mt-0.5 text-xs text-muted">
-          {model.family} · {formatBytes(model.size_bytes)} · {model.context_length} ctx
+          {t("llmModelPicker.modelCard.specs", {
+            family: model.family,
+            size: formatBytes(model.size_bytes),
+            ctx: model.context_length,
+          })}
         </div>
         {model.incomplete && !isDownloading ? (
           <div className="mt-1 text-[11px] text-warning">
-            Incomplete download · {formatBytes(model.disk_bytes)} on disk
+            {t("llmModelPicker.modelCard.incompleteDownload", {
+              size: formatBytes(model.disk_bytes),
+            })}
           </div>
         ) : null}
         {isDownloading && downloading ? (
           <div className="mt-2">
             <div
               role="progressbar"
-              aria-label="Download progress"
+              aria-label={t("llmModelPicker.modelCard.downloadProgress")}
               aria-valuemin={0}
               aria-valuemax={100}
               aria-valuenow={
@@ -94,27 +106,31 @@ function ModelCard({
               />
             </div>
             <div className="mt-1 text-[11px] text-muted">
-              {formatBytes(downloading.bytes_downloaded)} /{" "}
-              {formatBytes(downloading.bytes_total)}
+              {t("llmModelPicker.modelCard.downloadedOfTotal", {
+                downloaded: formatBytes(downloading.bytes_downloaded),
+                total: formatBytes(downloading.bytes_total),
+              })}
             </div>
           </div>
         ) : null}
         {downloadError && !isDownloading ? (
           <p className="mt-2 text-xs text-danger">
-            Download failed: {downloadError}
+            {t("llmModelPicker.modelCard.downloadFailed", { error: downloadError })}
           </p>
         ) : null}
       </div>
       <div className="flex shrink-0 items-center gap-2">
         {!model.supported ? (
           <span className="inline-flex items-center rounded-full bg-elevated px-2 py-0.5 text-xs text-muted">
-            Unavailable
+            {t("llmModelPicker.modelCard.unavailable")}
           </span>
         ) : isDownloading ? (
-          <span className="text-xs text-muted">Downloading…</span>
+          <span className="text-xs text-muted">
+            {t("llmModelPicker.modelCard.downloading")}
+          </span>
         ) : model.downloaded && model.active ? (
           <span className="inline-flex items-center rounded-full bg-success/15 px-2 py-0.5 text-xs text-success">
-            Active
+            {t("llmModelPicker.modelCard.active")}
           </span>
         ) : model.downloaded ? (
           <>
@@ -125,7 +141,7 @@ function ModelCard({
               className="inline-flex items-center gap-1 text-xs text-muted transition-colors hover:text-danger disabled:cursor-not-allowed disabled:opacity-50"
             >
               <TrashIcon />
-              Delete
+              {t("llmModelPicker.modelCard.delete")}
             </button>
             <button
               type="button"
@@ -133,7 +149,7 @@ function ModelCard({
               onClick={onActivate}
               className="rounded border border-line px-3 py-1 text-xs hover:bg-elevated disabled:cursor-not-allowed disabled:opacity-50"
             >
-              Use this model
+              {t("llmModelPicker.modelCard.useThisModel")}
             </button>
           </>
         ) : model.incomplete ? (
@@ -145,7 +161,7 @@ function ModelCard({
               className="inline-flex items-center gap-1 text-xs text-muted transition-colors hover:text-danger disabled:cursor-not-allowed disabled:opacity-50"
             >
               <TrashIcon />
-              Remove
+              {t("llmModelPicker.modelCard.remove")}
             </button>
             <button
               type="button"
@@ -153,7 +169,7 @@ function ModelCard({
               onClick={onDownload}
               className="rounded-md bg-accent px-3 py-1 text-xs font-semibold text-canvas hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
             >
-              Download
+              {t("llmModelPicker.modelCard.download")}
             </button>
           </>
         ) : (
@@ -163,7 +179,7 @@ function ModelCard({
             onClick={onDownload}
             className="rounded-md bg-accent px-3 py-1 text-xs font-semibold text-canvas hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
           >
-            Download
+            {t("llmModelPicker.modelCard.download")}
           </button>
         )}
       </div>
@@ -172,6 +188,7 @@ function ModelCard({
 }
 
 export default function LlmModelPicker() {
+  const { t } = useTranslation();
   const [models, setModels] = useState<LlmModelStatus[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [downloads, setDownloads] = useState<Record<string, DownloadState>>({});
@@ -312,7 +329,7 @@ export default function LlmModelPicker() {
   if (loadError && models.length === 0) {
     return (
       <p className="text-xs text-warning">
-        Couldn't load LLM models: {loadError}
+        {t("llmModelPicker.loadError", { error: loadError })}
       </p>
     );
   }
@@ -327,11 +344,11 @@ export default function LlmModelPicker() {
         <section className="space-y-2">
           <div className="flex items-center justify-between">
             <h4 className="text-xs font-medium uppercase tracking-[0.08em] text-muted">
-              Downloaded models
+              {t("llmModelPicker.downloadedModelsHeading")}
             </h4>
             {totalBytes > 0 ? (
               <span className="text-[11px] text-muted">
-                {formatBytes(totalBytes)} on disk
+                {t("llmModelPicker.totalOnDisk", { size: formatBytes(totalBytes) })}
               </span>
             ) : null}
           </div>
@@ -355,7 +372,7 @@ export default function LlmModelPicker() {
       {available.length > 0 ? (
         <section className="space-y-2">
           <h4 className="text-xs font-medium uppercase tracking-[0.08em] text-muted">
-            Available to download
+            {t("llmModelPicker.availableToDownloadHeading")}
           </h4>
           <div className="flex flex-col gap-3">
             {available.map((model) => (

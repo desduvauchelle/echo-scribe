@@ -1,5 +1,6 @@
 import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Inbox, Mic } from "lucide-react";
 import {
   archiveProject,
@@ -38,6 +39,7 @@ export default function ActivityFeed({
   onProjectsChanged,
   onProjectArchived,
 }: Props) {
+  const { t } = useTranslation("main");
   const [items, setItems] = useState<Item[]>([]);
   const [recordings, setRecordings] = useState<RecordingRow[]>([]);
   const [offset, setOffset] = useState(0);
@@ -196,7 +198,9 @@ export default function ActivityFeed({
     } catch (e) {
       toasts.push({
         tone: "error",
-        message: `Rename failed: ${e instanceof Error ? e.message : String(e)}`,
+        message: t("activityFeed.toast.renameFailed", {
+          error: e instanceof Error ? e.message : String(e),
+        }),
       });
     }
   };
@@ -205,13 +209,18 @@ export default function ActivityFeed({
     if (!project) return;
     try {
       await archiveProject(project.id);
-      toasts.push({ tone: "success", message: `Archived "${project.name}"` });
+      toasts.push({
+        tone: "success",
+        message: t("activityFeed.toast.archived", { name: project.name }),
+      });
       onProjectsChanged?.();
       onProjectArchived?.();
     } catch (e) {
       toasts.push({
         tone: "error",
-        message: `Archive failed: ${e instanceof Error ? e.message : String(e)}`,
+        message: t("activityFeed.toast.archiveFailed", {
+          error: e instanceof Error ? e.message : String(e),
+        }),
       });
     }
   };
@@ -240,7 +249,7 @@ export default function ActivityFeed({
                 onClick={() => void handleRename()}
                 className="rounded-md bg-accent px-3 py-1 text-xs font-semibold text-canvas hover:bg-accent-hover"
               >
-                Save
+                {t("activityFeed.rename.save")}
               </button>
             </div>
           ) : (
@@ -252,7 +261,7 @@ export default function ActivityFeed({
                 <p className="text-xs text-muted">
                   {projectCount === null
                     ? ""
-                    : `${projectCount} capture${projectCount === 1 ? "" : "s"}`}
+                    : t("activityFeed.header.captureCount", { count: projectCount })}
                 </p>
               </div>
               <div className="flex shrink-0 gap-2">
@@ -261,14 +270,14 @@ export default function ActivityFeed({
                   onClick={() => setRenaming(true)}
                   className="rounded border border-line px-2 py-1 text-xs hover:bg-elevated"
                 >
-                  Rename
+                  {t("activityFeed.actions.rename")}
                 </button>
                 <button
                   type="button"
                   onClick={() => void handleArchive()}
                   className="rounded border border-line px-2 py-1 text-xs hover:bg-danger/15 hover:text-danger"
                 >
-                  Archive
+                  {t("activityFeed.actions.archive")}
                 </button>
               </div>
             </div>
@@ -276,22 +285,22 @@ export default function ActivityFeed({
         </div>
       ) : (
         <div className="border-b border-line bg-canvas/40 px-6 py-4">
-          <h1 className="text-lg font-semibold tracking-tight">Activity</h1>
-          <p className="text-xs text-muted">All your captures</p>
+          <h1 className="text-lg font-semibold tracking-tight">{t("activityFeed.header.allActivityTitle")}</h1>
+          <p className="text-xs text-muted">{t("activityFeed.header.allActivitySubtitle")}</p>
         </div>
       )}
 
       <div className="flex flex-wrap items-center gap-3 border-b border-line bg-canvas/40 px-6 py-3 text-xs text-muted">
         <FilterGroup<KindFilter>
-          label="Kind"
+          label={t("activityFeed.filter.kindLabel")}
           value={kindFilter}
           options={[
-            { value: "all", label: "All" },
-            { value: "transcription", label: "Transcription" },
-            { value: "note", label: "Note" },
-            { value: "task", label: "Task" },
-            { value: "meeting", label: "Meeting" },
-            { value: "recording", label: "Recording" },
+            { value: "all", label: t("activityFeed.filter.options.all") },
+            { value: "transcription", label: t("activityFeed.filter.options.transcription") },
+            { value: "note", label: t("activityFeed.filter.options.note") },
+            { value: "task", label: t("activityFeed.filter.options.task") },
+            { value: "meeting", label: t("activityFeed.filter.options.meeting") },
+            { value: "recording", label: t("activityFeed.filter.options.recording") },
           ]}
           onChange={setKindFilter}
         />
@@ -306,7 +315,7 @@ export default function ActivityFeed({
               onClick={() => void fetchPage("reset")}
               className="ml-2 underline"
             >
-              Retry
+              {t("activityFeed.error.retry")}
             </button>
           </div>
         ) : null}
@@ -324,17 +333,17 @@ export default function ActivityFeed({
             }
             title={
               kindFilter === "recording"
-                ? "No recordings yet."
+                ? t("activityFeed.emptyState.noRecordings")
                 : project
-                  ? `Nothing in “${project.name}” yet.`
-                  : "No captures yet."
+                  ? t("activityFeed.emptyState.nothingInProject", { name: project.name })
+                  : t("activityFeed.emptyState.noCaptures")
             }
             subtitle={
               kindFilter === "recording"
-                ? "Start a screen recording from the tray to capture one."
+                ? t("activityFeed.emptyState.recordingsSubtitle")
                 : project
-                  ? "Use the log capture hotkey to add to this project."
-                  : "Hold the dictation hotkey to record your first thought."
+                  ? t("activityFeed.emptyState.projectSubtitle")
+                  : t("activityFeed.emptyState.defaultSubtitle")
             }
           />
         ) : (
@@ -354,7 +363,7 @@ export default function ActivityFeed({
                   disabled={loading}
                   className="rounded border border-line px-4 py-1 text-xs hover:bg-elevated disabled:opacity-50"
                 >
-                  {loading ? "Loading…" : "Load more"}
+                  {loading ? t("activityFeed.loadMore.loading") : t("activityFeed.loadMore.label")}
                 </button>
               </div>
             ) : null}

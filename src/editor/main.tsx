@@ -1,6 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import EditorWindow from "./EditorWindow";
+import "../i18n";
 import { ToastProvider } from "../components/ToastProvider";
 import { initTheme } from "../lib/theme";
 import "../styles/globals.css";

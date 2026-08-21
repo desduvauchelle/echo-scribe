@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import {
   ChevronDown,
   ChevronRight,
@@ -6,18 +8,73 @@ import {
   Loader,
   Users,
 } from "lucide-react";
-import type { Item, MeetingRow, Project } from "../lib/api";
+import type { Item, MeetingRow, MeetingStatus, Project, StoredSummary } from "../lib/api";
 import { listMeetingActionItems } from "../lib/api";
 import { relativeTime } from "../lib/format";
-import {
-  meetingDuration,
-  meetingTitle,
-  parseSummary,
-  summaryPreview,
-} from "../lib/meetingDisplay";
+import { parseSummary, summaryPreview } from "../lib/meetingDisplay";
 import { meetingStatusDisplay } from "../lib/meetingStatus";
 import { useActivityPanel } from "./ActivityPanelContext";
 import ItemCard from "./ItemCard";
+
+// meetingTitle()/meetingDuration() from ../lib/meetingDisplay and the
+// label/description text from ../lib/meetingStatus return hardcoded English
+// copy. Those are plain (non-hook) lib helpers outside this extraction's
+// file scope, so their translated equivalents are reimplemented here at the
+// render callsite instead of touching the shared lib files.
+function localizedMeetingTitle(
+  t: TFunction,
+  mtg: MeetingRow,
+  summary: StoredSummary | null,
+): string {
+  const suggested = summary?.suggested_title?.trim();
+  if (suggested) return suggested;
+  const app = mtg.detected_app_name?.trim();
+  return app
+    ? t("meetingCard.appMeetingTitle", { app })
+    : t("meetingCard.manualMeeting");
+}
+
+function localizedMeetingDuration(t: TFunction, ms: number | null | undefined): string {
+  const mins = Math.round((ms ?? 0) / 60000);
+  if (mins < 60) return t("meetingCard.durationMinutes", { mins });
+  const h = Math.floor(mins / 60);
+  return t("meetingCard.durationHoursMinutes", { hours: h, mins: mins % 60 });
+}
+
+function localizedMeetingStatusText(
+  t: TFunction,
+  status: MeetingStatus,
+): { label: string; description: string } {
+  switch (status) {
+    case "recording":
+      return {
+        label: t("meetingCard.status.recording.label"),
+        description: t("meetingCard.status.recording.description"),
+      };
+    case "transcribing":
+      return {
+        label: t("meetingCard.status.transcribing.label"),
+        description: t("meetingCard.status.transcribing.description"),
+      };
+    case "summarizing":
+      return {
+        label: t("meetingCard.status.summarizing.label"),
+        description: t("meetingCard.status.summarizing.description"),
+      };
+    case "failed":
+      return {
+        label: t("meetingCard.status.failed.label"),
+        description: t("meetingCard.status.failed.description"),
+      };
+    case "recovered":
+      return {
+        label: t("meetingCard.status.recovered.label"),
+        description: t("meetingCard.status.recovered.description"),
+      };
+    case "complete":
+      return { label: "", description: "" };
+  }
+}
 
 type Props = {
   mtg: MeetingRow;
@@ -32,6 +89,7 @@ type Props = {
  *  the tasks it produced underneath it rather than scattering them through the
  *  feed as standalone cards. */
 export default function MeetingCard({ mtg, projects, variant = "card" }: Props) {
+  const { t } = useTranslation();
   const { openItem } = useActivityPanel();
   const [expanded, setExpanded] = useState(false);
   const [actions, setActions] = useState<Item[] | null>(null);
@@ -39,7 +97,13 @@ export default function MeetingCard({ mtg, projects, variant = "card" }: Props) 
   const [actionsError, setActionsError] = useState<string | null>(null);
 
   const summary = parseSummary(mtg.summary_json);
-  const status = meetingStatusDisplay(mtg.status);
+  // spinner/tone/pill are structural and stay lib-owned; label/description
+  // are the translated English copy, reimplemented locally (see
+  // localizedMeetingStatusText above).
+  const status = {
+    ...meetingStatusDisplay(mtg.status),
+    ...localizedMeetingStatusText(t, mtg.status),
+  };
   // Legacy meetings only: action items promoted to tasks before the markdown
   // rework. New meetings keep next steps inside the summary markdown.
   const summaryActions = summary?.action_items ?? [];
@@ -86,12 +150,12 @@ export default function MeetingCard({ mtg, projects, variant = "card" }: Props) 
         <div className="min-w-0 flex-1">
           {ledger ? (
             <div className="activity-kind mb-0.5 text-[9px] font-semibold uppercase tracking-[0.1em] text-accent">
-              Meeting
+              {t("meetingCard.ledgerKindLabel")}
             </div>
           ) : null}
           <div className="flex items-start justify-between gap-3">
             <span className={`${ledger ? "text-[14px]" : "text-[13px]"} truncate font-medium text-fg`}>
-              {meetingTitle(mtg, summary)}
+              {localizedMeetingTitle(t, mtg, summary)}
             </span>
             {status.pill ? (
               <span
@@ -129,7 +193,7 @@ export default function MeetingCard({ mtg, projects, variant = "card" }: Props) 
             {!status.pill ? (
               <>
                 <span>·</span>
-                <span>{meetingDuration(mtg.duration_ms)}</span>
+                <span>{localizedMeetingDuration(t, mtg.duration_ms)}</span>
               </>
             ) : null}
             {mtg.detected_app_name ? (
@@ -161,14 +225,14 @@ export default function MeetingCard({ mtg, projects, variant = "card" }: Props) 
               <ChevronRight size={12} strokeWidth={2} aria-hidden="true" />
             )}
             <ListChecks size={12} strokeWidth={2} aria-hidden="true" />
-            {actionCount} action item{actionCount === 1 ? "" : "s"}
+            {t("meetingCard.actionItemsCount", { count: actionCount })}
           </button>
 
           {expanded ? (
             <div className="flex flex-col gap-1.5 px-3.5 pb-3">
               {loadingActions ? (
                 <span className="inline-flex items-center gap-1.5 py-1 text-[11px] text-muted">
-                  <Loader size={11} className="animate-spin" aria-hidden="true" /> Loading…
+                  <Loader size={11} className="animate-spin" aria-hidden="true" /> {t("meetingCard.loadingActionItems")}
                 </span>
               ) : actions && actions.length > 0 ? (
                 actions.map((it) => (
@@ -184,8 +248,7 @@ export default function MeetingCard({ mtg, projects, variant = "card" }: Props) 
                 <>
                   {actionsError ? (
                     <span className="text-[11px] text-danger">
-                      Couldn&rsquo;t load the linked tasks — showing the
-                      summary&rsquo;s action items instead.
+                      {t("meetingCard.actionsLoadError")}
                     </span>
                   ) : null}
                   {/* Meetings whose actions were never promoted to items still
