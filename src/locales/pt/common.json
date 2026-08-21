@@ -1,1 +1,804 @@
-{}
+{
+  "activityPanel": {
+    "panelBody": {
+      "itemNotFound": "Item não encontrado.",
+      "loading": "Carregando…",
+      "titleFallback": "Atividade",
+      "export": "Exportar…",
+      "closePanel": "Fechar painel",
+      "deleteConfirmMessage": "Excluir este item? Você pode restaurá-lo da lixeira.",
+      "deleteConfirmTitle": "Excluir item",
+      "deleteFailed": "Falha ao excluir: {{error}}"
+    },
+    "exportDialog": {
+      "closeAriaLabel": "Fechar diálogo de exportação",
+      "title": "Exportar reunião",
+      "description": "Escolha o que incluir. Em seguida, você selecionará o local do arquivo Markdown.",
+      "summaryLabel": "Resumo",
+      "summaryDescription": "Pontos do resumo, itens de ação e suas notas da reunião.",
+      "transcriptLabel": "Transcrição",
+      "transcriptDescription": "A transcrição completa da reunião, com identificação de interlocutores.",
+      "noSelection": "Escolha ao menos uma seção para exportar.",
+      "exportFailed": "Falha na exportação: {{error}}",
+      "cancel": "Cancelar",
+      "exporting": "Exportando…",
+      "chooseLocation": "Escolher local…",
+      "exportedToast": "Reunião exportada para {{path}}."
+    },
+    "title": {
+      "task": "Tarefa",
+      "meeting": "Reunião",
+      "transcription": "Transcrição",
+      "note": "Nota"
+    },
+    "editToggle": {
+      "done": "Concluído",
+      "edit": "Editar"
+    },
+    "header": {
+      "meetingBadge": "Reunião",
+      "transcriptionBadge": "Transcrição",
+      "logCaptureBadge": "Captura de registro",
+      "taskBadge": "Tarefa",
+      "deletedBadge": "Excluído"
+    },
+    "content": {
+      "label": "Conteúdo",
+      "saving": "Salvando…",
+      "unsaved": "Não salvo",
+      "saved": "Salvo",
+      "empty": "Sem conteúdo."
+    },
+    "kind": {
+      "label": "Tipo",
+      "unset": "Não definido",
+      "task": "Tarefa",
+      "transcription": "Transcrição",
+      "note": "Nota"
+    },
+    "project": {
+      "label": "Projeto",
+      "unassigned": "— Não atribuído —",
+      "newProject": "+ Novo projeto…",
+      "namePlaceholder": "Nome do projeto",
+      "create": "Criar",
+      "cancel": "Cancelar"
+    },
+    "tags": {
+      "label": "Tags",
+      "removeAriaLabel": "Remover {{tag}}",
+      "addPlaceholder": "adicionar tag…"
+    },
+    "metadata": {
+      "label": "Metadados",
+      "empty": "Nenhum metadado capturado.",
+      "source": "Origem",
+      "app": "App",
+      "window": "Janela",
+      "content": "Conteúdo",
+      "contentUrl": "URL do conteúdo",
+      "contentSource": "Origem do conteúdo",
+      "browserTab": "Aba do navegador",
+      "url": "URL",
+      "bundleId": "ID do pacote",
+      "confidence": "Confiança",
+      "classifiedBy": "Classificado por"
+    },
+    "source": {
+      "voiceAtCursor": "Voz (colar por atalho)",
+      "logCapture": "Captura de registro",
+      "meeting": "Reunião"
+    },
+    "task": {
+      "label": "Tarefa",
+      "completed": "Concluída",
+      "markComplete": "Marcar como concluída",
+      "deadline": "Prazo",
+      "clear": "Limpar"
+    },
+    "meetingView": {
+      "peopleToggle": "Pessoas",
+      "tagsToggle": "Tags",
+      "detailsToggle": "Detalhes",
+      "transcriptToggle": "Transcrição",
+      "detailsGroupAriaLabel": "Detalhes da reunião",
+      "durationSuffix": "· {{count}} min",
+      "detectedAppSuffix": "· {{app}}",
+      "meetingMetadataLabel": "Metadados da reunião",
+      "statusLabel": "Status",
+      "statusFallback": "Concluída",
+      "startedLabel": "Início",
+      "endedLabel": "Término",
+      "detectedAppLabel": "App detectado",
+      "durationLabel": "Duração",
+      "durationValue": "{{count}} min",
+      "audioSourceLabel": "Origem do áudio",
+      "micOnly": "Somente microfone",
+      "micAndSystem": "Microfone + sistema",
+      "failedChunksLabel": "Trechos com falha"
+    },
+    "peoplePanel": {
+      "label": "Pessoas",
+      "you": "Você",
+      "them": "Eles",
+      "mic": "Mic",
+      "call": "Chamada",
+      "linkCaller": "Vincular interlocutor",
+      "notLinked": "Não vinculado a uma pessoa",
+      "description": "Os nomes dos interlocutores são rótulos confirmados para os canais de microfone e chamada. A diarização automática de múltiplos interlocutores não é inferida.",
+      "confirmedCount_one": " {{count}} rótulo confirmado.",
+      "confirmedCount_other": " {{count}} rótulos confirmados."
+    },
+    "summary": {
+      "label": "Resumo",
+      "saving": "Salvando…",
+      "unsaved": "Não salvo",
+      "saved": "Salvo",
+      "templateAriaLabel": "Modelo de resumo",
+      "newTemplate": "+ Novo modelo…",
+      "regenerateTitle": "Gerar novamente o resumo com o modelo selecionado",
+      "regenerate": "Gerar novamente",
+      "templateNamePlaceholder": "Nome do modelo",
+      "templateInstructionsPlaceholder": "O que este resumo deve enfatizar e como deve ser organizado?",
+      "cancel": "Cancelar",
+      "saveTemplate": "Salvar modelo",
+      "rewriting": "Reescrevendo o resumo localmente…",
+      "editPlaceholder": "Escreva o resumo em markdown…",
+      "empty": "Ainda não há resumo."
+    },
+    "chat": {
+      "toggle": "Perguntar a esta reunião",
+      "empty": "As respostas ficam restritas à transcrição, às notas e ao resumo desta reunião.",
+      "groundedIn_one": "Baseado em {{count}} fonte da reunião.",
+      "groundedIn_other": "Baseado em {{count}} fontes da reunião.",
+      "inputPlaceholder": "Pergunte sobre esta reunião…",
+      "sendAriaLabel": "Enviar",
+      "errorPrefix": "Erro: {{error}}"
+    },
+    "workflows": {
+      "toggle": "Receitas e acompanhamento",
+      "runRecipe": "Executar receita",
+      "recipeNamePlaceholder": "Nome da receita",
+      "recipePromptPlaceholder": "O que o EchoScribe deve extrair ou criar?",
+      "cancel": "Cancelar",
+      "saveRecipe": "Salvar receita",
+      "newRecipe": "+ Nova receita",
+      "draftFollowUp": "Rascunhar acompanhamento",
+      "createPrepBrief": "Criar briefing de preparação",
+      "runningLocally": "Executando localmente…",
+      "copyAriaLabel": "Copiar"
+    },
+    "transcriptEditor": {
+      "header": "Transcrição ({{count}} trechos)",
+      "backupNote": "As edições preservam automaticamente um backup recuperável da transcrição.",
+      "cancel": "Cancelar",
+      "saving": "Salvando…",
+      "saveTranscript": "Salvar transcrição",
+      "restorePrevious": "Restaurar anterior",
+      "editTranscript": "Editar transcrição",
+      "deleteSegmentAriaLabel": "Excluir trecho {{count}}"
+    },
+    "meetingTitle": {
+      "label": "Título da reunião",
+      "saving": "Salvando…",
+      "placeholder": "Reunião sem título",
+      "editAriaLabel": "Editar título"
+    },
+    "notes": {
+      "label": "Notas",
+      "saving": "Salvando…",
+      "unsaved": "Não salvo",
+      "saved": "Salvo",
+      "emptyPrompt": "Adicionar notas pessoais…"
+    },
+    "guideReview": {
+      "generating": "Gerando revisão…",
+      "viewTrend": "Ver tendência",
+      "staleMessage": "A transcrição mudou, então esta evidência precisa ser atualizada. ",
+      "failedMessage": "Não foi possível gerar a revisão do guia. Veja Configurações → Diagnóstico → registros. ",
+      "regenerateFailedToast": "Não foi possível gerar novamente a revisão do guia. Veja Configurações → Diagnóstico → registros.",
+      "analyzing": "Analisando…",
+      "reanalyze": "Reanalisar",
+      "retry": "Tentar novamente",
+      "whatStoodOut": "O que também se destacou",
+      "tryLabel": "Tente:",
+      "timelineHeader": "Linha do tempo de coaching ao vivo · {{count}}"
+    },
+    "actions": {
+      "copyContent": "Copiar conteúdo",
+      "restore": "Restaurar",
+      "delete": "Excluir"
+    }
+  },
+  "activityPanelContext": {},
+  "app": {
+    "checking": "Verificando…",
+    "toasts": {
+      "localAiNotConfigured": "IA local não configurada — defina uma em Configurações para classificar automaticamente as capturas."
+    },
+    "logCapture": {
+      "kindTask": "Tarefa",
+      "kindNote": "Nota",
+      "filedToast": "{{kind}} arquivada em {{project}}\n{{preview}}",
+      "undo": "Desfazer",
+      "undoFailed": "Falha ao desfazer: {{error}}"
+    },
+    "meetingsRecovered_one": "{{count}} reunião inacabada recuperada. Veja em Reuniões.",
+    "meetingsRecovered_other": "{{count}} reuniões inacabadas recuperadas. Veja em Reuniões.",
+    "onboarding": {
+      "missingMicrophone": "microfone",
+      "missingAccessibility": "acessibilidade",
+      "missingSpeechModel": "modelo de fala",
+      "continueSetup": "Continuar configuração — faltando: {{missing}}.",
+      "pipelineStartFailed": "Não foi possível iniciar o pipeline: {{error}}"
+    },
+    "meetingPrompt": {
+      "consentFailed": "Não foi possível registrar o consentimento: {{error}}",
+      "detected": "Reunião do {{appName}} detectada",
+      "body": "Gravar esta reunião localmente? O áudio permanece no seu computador.",
+      "justOnce": "Só desta vez",
+      "alwaysFor": "Sempre para {{appName}}",
+      "never": "Nunca"
+    }
+  },
+  "guideTemplateManager": {
+    "kind": {
+      "checklist": {
+        "label": "Checklist",
+        "hint": "Acompanha quais pontos da pauta nas notas já foram cobertos (vendas, descoberta).",
+        "notesPlaceholder": "Notas — perguntas a fazer, pontos a cobrir (um por linha)"
+      },
+      "coach": {
+        "label": "Coach",
+        "hint": "As notas são princípios, não regras — sugestões ocasionais ligadas ao que acabou de ser dito.",
+        "notesPlaceholder": "Notas — princípios a seguir, um por linha"
+      },
+      "tracker": {
+        "label": "Anotador",
+        "hint": "Mantém uma lista de tópicos ao vivo com os pontos principais e publica atualizações conforme as coisas mudam.",
+        "notesPlaceholder": "Notas — o que capturar, por exemplo decisões, números, itens de ação (opcional)"
+      }
+    },
+    "nameRequired": "O nome do modelo é obrigatório.",
+    "namePlaceholder": "Nome (ex.: Descoberta de cliente)",
+    "nameAriaLabel": "Nome do modelo",
+    "descriptionPlaceholder": "Descrição breve",
+    "descriptionAriaLabel": "Descrição",
+    "guideStyleLabel": "Estilo do guia",
+    "goalPlaceholder": "Objetivo — o que esta conversa deve alcançar?",
+    "goalAriaLabel": "Objetivo",
+    "notesAriaLabel": "Notas",
+    "saveButton": "Salvar",
+    "cancelButton": "Cancelar",
+    "description": "Opcionalmente, execute uma verificação de rubrica ou de sinais da conversa após cada reunião. Essas verificações usam apenas as transcrições da reunião, ficam separadas do resumo principal e exigem evidência textual exata para conclusões positivas.",
+    "emptyState": "Ainda não há modelos de guia.",
+    "editButton": "Editar",
+    "deleteButton": "Excluir",
+    "trackAfterMeetings": "Acompanhar após as reuniões",
+    "measureLabel": "Medir",
+    "rubricPerformance": "Desempenho na rubrica",
+    "conversationSignals": "Sinais da conversa",
+    "analyzeLabel": "Analisar",
+    "mySpeech": "Minha fala",
+    "otherSide": "O outro lado",
+    "theInteraction": "A interação",
+    "showResultsInDailyRecap": "Mostrar resultados no resumo diário",
+    "newTemplateButton": "+ Novo modelo"
+  },
+  "guideTrendView": {
+    "heading": "{{templateName}} — em todas as suas chamadas",
+    "close": "Fechar",
+    "noData": "Ainda não há revisões de guia concluídas para este modelo.",
+    "recurringGap": "Lacuna recorrente",
+    "strength": "Ponto forte",
+    "hitColumn": "atingido",
+    "cellLabel": {
+      "met": "Atingido",
+      "partial": "Parcialmente atingido",
+      "missed": "Não atingido",
+      "unknown": "Sem dados"
+    },
+    "cellAriaLabel": "{{crit}}, {{date}}: {{label}}"
+  },
+  "hotkeyRebinder": {
+    "currentLabel": "Atual:",
+    "capturedLabel": "Capturado:",
+    "loading": "Carregando…",
+    "unknownValue": "—",
+    "recordNewShortcut": "Gravar novo atalho…",
+    "listening": "Ouvindo…",
+    "capturePrompt": "Pressione uma combinação de teclas e solte. Pressione Esc para cancelar.",
+    "saving": "Salvando…",
+    "save": "Salvar",
+    "cancel": "Cancelar",
+    "unsupportedKey": "Tecla não suportada — tente outra. ({{msg}})",
+    "loadErrorPrefix": "Não foi possível carregar o atalho atual: {{error}}"
+  },
+  "itemCard": {
+    "kindTranscription": "Transcrição",
+    "kindTask": "Tarefa",
+    "kindNote": "Nota",
+    "openTaskWord": "tarefa",
+    "openNoteWord": "nota",
+    "openAriaLabel": "Abrir {{kind}}: {{content}}",
+    "copied": "Copiado",
+    "copyTranscription": "Copiar transcrição"
+  },
+  "itemDetailPanel": {
+    "loading": "Carregando...",
+    "tabs": {
+      "activity": "Atividade",
+      "sessions": "Sessões"
+    },
+    "eventLabels": {
+      "created": "Criado",
+      "deleted": "Excluído",
+      "restored": "Restaurado",
+      "content_edited": "Conteúdo editado",
+      "kind_changed": "Tipo alterado",
+      "project_changed": "Projeto alterado",
+      "tags_changed": "Tags atualizadas",
+      "classified": "Classificado automaticamente"
+    },
+    "activityTab": {
+      "noActivity": "Nenhuma atividade registrada."
+    },
+    "sessionsTab": {
+      "noLinkedSessions": "Nenhuma sessão vinculada encontrada.",
+      "echoScribeChatHeading": "Chat do Echo Scribe",
+      "claudeCodeSessionsHeading": "Sessões do Claude Code",
+      "youLabel": "Você:",
+      "aiLabel": "IA:",
+      "claudeLabel": "Claude:",
+      "truncationSuffix": "...",
+      "noMessages": "Nenhuma mensagem.",
+      "msgCount": "{{count}} msgs"
+    }
+  },
+  "llmModelPicker": {
+    "loadError": "Não foi possível carregar os modelos de LLM: {{error}}",
+    "downloadedModelsHeading": "Modelos baixados",
+    "totalOnDisk": "{{size}} em disco",
+    "availableToDownloadHeading": "Disponíveis para download",
+    "modelCard": {
+      "notYetSupported": "Ainda não suportado",
+      "displayNamePrefix": " — {{name}}",
+      "specs": "{{family}} · {{size}} · {{ctx}} ctx",
+      "incompleteDownload": "Download incompleto · {{size}} em disco",
+      "downloadProgress": "Progresso do download",
+      "downloadedOfTotal": "{{downloaded}} / {{total}}",
+      "downloadFailed": "Falha no download: {{error}}",
+      "unavailable": "Indisponível",
+      "downloading": "Baixando…",
+      "active": "Ativo",
+      "delete": "Excluir",
+      "useThisModel": "Usar este modelo",
+      "remove": "Remover",
+      "download": "Baixar"
+    }
+  },
+  "meetingCard": {
+    "ledgerKindLabel": "Reunião",
+    "actionItemsCount_one": "{{count}} item de ação",
+    "actionItemsCount_other": "{{count}} itens de ação",
+    "loadingActionItems": "Carregando…",
+    "actionsLoadError": "Não foi possível carregar as tarefas vinculadas — mostrando os itens de ação do resumo.",
+    "manualMeeting": "Reunião manual",
+    "appMeetingTitle": "Reunião do {{app}}",
+    "durationMinutes": "{{mins}}min",
+    "durationHoursMinutes": "{{hours}}h {{mins}}min",
+    "status": {
+      "recording": {
+        "label": "Gravando…",
+        "description": "Esta reunião ainda está sendo gravada."
+      },
+      "transcribing": {
+        "label": "Transcrevendo…",
+        "description": "Transcrevendo o áudio — isso pode levar um momento para reuniões longas."
+      },
+      "summarizing": {
+        "label": "Resumindo…",
+        "description": "Resumindo a transcrição — quase pronto."
+      },
+      "failed": {
+        "label": "Falhou",
+        "description": "Esta reunião não terminou de ser processada, então o resumo pode estar ausente."
+      },
+      "recovered": {
+        "label": "Recuperada",
+        "description": "Esta reunião foi recuperada após uma interrupção; parte do conteúdo pode estar incompleta."
+      }
+    }
+  },
+  "permissionRow": {
+    "granted": "Concedida",
+    "notGranted": "Não concedida",
+    "grantAccess": "Conceder acesso",
+    "recheck": "Verificar novamente"
+  },
+  "permissionWarningBanner": {
+    "microphone": "Microfone",
+    "accessibility": "Acessibilidade",
+    "screenRecording": "Gravação de Tela",
+    "missing": "Permissão ausente: {{list}}",
+    "coreBroken": "O Echo Scribe não pode ditar ou colar até que você conceda a permissão novamente.",
+    "meetingsOnly": "As reuniões gravarão apenas o seu microfone — o áudio da outra pessoa não será capturado.",
+    "fixInSettings": "Corrigir em Configurações"
+  },
+  "permissionsSection": {
+    "microphoneTitle": "Microfone",
+    "microphoneSubtitle": "O Echo Scribe precisa do seu microfone para capturar o que você diz.",
+    "accessibilityTitle": "Acessibilidade",
+    "accessibilitySubtitle": "Necessária para colar o texto transcrito no cursor em qualquer app.",
+    "screenRecordingTitle": "Gravação de Tela",
+    "screenRecordingSubtitle": "Permite que o Echo Scribe capture o áudio da outra pessoa durante chamadas no Zoom, Google Meet e reuniões semelhantes. Sem ela, apenas o seu microfone é gravado.",
+    "cameraTitle": "Câmera (opcional)",
+    "cameraSubtitle": "Usada apenas quando você ativa a sobreposição de webcam em uma gravação de tela. Conceda aqui para que fique pronta — e para que uma câmera bloqueada possa ser corrigida nesta tela, em vez de falhar silenciosamente no meio da gravação.",
+    "resetHeading": "Redefinir permissões",
+    "resetDescription": "Apaga as permissões de Microfone + Acessibilidade + Gravação de Tela + Câmera e encerra o app. Use se alguma permissão parecer estar com problema — a reabertura solicitará tudo novamente.",
+    "resetting": "Redefinindo…",
+    "confirmReset": "Sim, redefinir e sair",
+    "cancel": "Cancelar",
+    "resetAndQuit": "Redefinir e sair",
+    "resetTimeoutToast": "A redefinição foi concluída, mas o app não fechou. Tente reiniciar o Echo Scribe manualmente.",
+    "resetErrorToast": "Não foi possível redefinir as permissões: {{error}}"
+  },
+  "projectEditor": {
+    "colorNames": {
+      "red": "Vermelho",
+      "orange": "Laranja",
+      "yellow": "Amarelo",
+      "green": "Verde",
+      "cyan": "Ciano",
+      "blue": "Azul",
+      "violet": "Violeta",
+      "pink": "Rosa"
+    },
+    "nameRequired": "O nome do projeto é obrigatório.",
+    "saveFailed": "Falha ao salvar: {{error}}",
+    "folderPickerFailed": "Falha no seletor de pastas: {{error}}",
+    "pickFolderFirst": "Escolha primeiro uma pasta de exportação.",
+    "backfillSuccess_one": "{{count}} arquivo exportado para {{folder}}.",
+    "backfillSuccess_other": "{{count}} arquivos exportados para {{folder}}.",
+    "backfillFailed": "Falha na exportação retroativa: {{error}}",
+    "editHeading": "Editar projeto",
+    "newHeading": "Novo projeto",
+    "close": "Fechar",
+    "nameLabel": "Nome",
+    "emojiAriaLabel": "Emoji",
+    "namePlaceholder": "ex.: Vendas Acme",
+    "descriptionLabel": "Descrição",
+    "descriptionPlaceholder": "Do que se trata este projeto. Ajuda o classificador a direcionar as capturas para cá.",
+    "descriptionHint": "Usada pelo classificador para decidir se novas capturas pertencem aqui.",
+    "keywordsLabel": "Palavras-chave",
+    "removeItemAriaLabel": "Remover {{item}}",
+    "keywordsPlaceholder": "Digite e pressione Enter",
+    "keywordsHint": "Dicas temáticas (nomes, siglas, codinomes). Minúsculas, sem duplicatas.",
+    "routingHeading": "Roteamento",
+    "aliasesLabel": "Apelidos",
+    "aliasesPlaceholder": "livecase, hbsp, case simulation",
+    "appHintsLabel": "Dicas de app",
+    "appHintsPlaceholder": "Code, Google Chrome",
+    "urlHintsLabel": "Dicas de URL",
+    "urlHintsPlaceholder": "hbsp.harvard.edu, github.com/desduvauchelle/echo-scribe",
+    "windowHintsLabel": "Dicas de janela",
+    "windowHintsPlaceholder": "echo-scribe, livecaseplus",
+    "positiveExamplesLabel": "Exemplos positivos",
+    "positiveExamplesPlaceholder": "Um exemplo de captura por linha",
+    "negativeExamplesLabel": "Exemplos negativos",
+    "negativeExamplesPlaceholder": "Frases que não devem ser roteadas para cá",
+    "colorLabel": "Cor",
+    "customColorAriaLabel": "Cor personalizada em hexadecimal",
+    "clearButton": "Limpar",
+    "exportFolderLabel": "Pasta de exportação",
+    "changeFolderButton": "Alterar…",
+    "chooseFolderButton": "Escolher pasta…",
+    "exportFolderHint": "Itens com alta confiança roteados para este projeto são exportados como markdown aqui. Notas, tarefas e transcrições vão para subpastas por tipo.",
+    "exporting": "Exportando…",
+    "reexportButton": "Reexportar todos os itens existentes",
+    "deleteButton": "Excluir projeto",
+    "cancelButton": "Cancelar",
+    "saving": "Salvando…",
+    "saveButton": "Salvar",
+    "createButton": "Criar",
+    "unassigned": "Não atribuído"
+  },
+  "projectManager": {
+    "loadFailed": "Não foi possível carregar os projetos: {{error}}",
+    "checkLinkedContentFailed": "Não foi possível verificar o conteúdo vinculado: {{error}}",
+    "archiveFailed": "Falha ao arquivar: {{error}}",
+    "unarchiveFailed": "Falha ao desarquivar: {{error}}",
+    "deleteSuccessWithContent": "“{{name}}” e seu conteúdo relacionado foram excluídos.",
+    "deleteSuccessUnassigned": "“{{name}}” foi excluído. O conteúdo vinculado agora está sem projeto.",
+    "deleteFailed": "Falha ao excluir: {{error}}",
+    "newProjectButton": "Novo projeto",
+    "loading": "Carregando projetos…",
+    "emptyState": "Ainda não há projetos. Capture uma ideia referenciando um novo projeto ou crie um acima.",
+    "editButton": "Editar",
+    "unarchiveButton": "Desarquivar",
+    "archiveButton": "Arquivar",
+    "deleteAriaLabel": "Excluir {{name}}",
+    "deleteButton": "Excluir",
+    "deleteDialogTitle": "Excluir “{{name}}”?",
+    "deleteDialogDescription": "Escolha o que acontece com o conteúdo atualmente atribuído a este projeto.",
+    "checkingLinkedContent": "Verificando conteúdo vinculado…",
+    "deleteOnlyTitle": "Excluir apenas o projeto",
+    "deleteOnlyDescription": "Mantém todas as notas, tarefas, transcrições, reuniões, gravações e chats. A tag do projeto é removida e o conteúdo fica sem atribuição.",
+    "deleteWithContentTitle": "Excluir projeto e conteúdo relacionado",
+    "deleteWithContentDescription": "Exclui permanentemente as capturas vinculadas, transcrições e resumos de reuniões, gravações, chats e artefatos gerados. Isso não pode ser desfeito.",
+    "exportedFilesNote": "Arquivos exportados anteriormente fora do Echo Scribe não são removidos.",
+    "deleting": "Excluindo…",
+    "cancelButton": "Cancelar",
+    "noLinkedContent": "Nenhum conteúdo vinculado foi encontrado.",
+    "linkedContentPrefix": "Conteúdo vinculado:",
+    "linkedItems": {
+      "meetings_one": "{{count}} reunião",
+      "meetings_other": "{{count}} reuniões",
+      "notes_one": "{{count}} nota",
+      "notes_other": "{{count}} notas",
+      "tasks_one": "{{count}} tarefa",
+      "tasks_other": "{{count}} tarefas",
+      "transcriptions_one": "{{count}} transcrição",
+      "transcriptions_other": "{{count}} transcrições",
+      "recordings_one": "{{count}} gravação",
+      "recordings_other": "{{count}} gravações",
+      "chats_one": "{{count}} chat",
+      "chats_other": "{{count}} chats",
+      "artifacts_one": "{{count}} artefato gerado",
+      "artifacts_other": "{{count}} artefatos gerados",
+      "otherCaptures_one": "{{count}} outra captura",
+      "otherCaptures_other": "{{count}} outras capturas"
+    }
+  },
+  "recordingActionButtons": {
+    "titleOptions": "Opções de {{title}}",
+    "uploadToDrive": "Enviar para o Drive",
+    "uploadOptions": "Opções de envio",
+    "uploadTooltipEdited": "Enviar para o Drive (versão editada)",
+    "uploadTooltip1080": "Enviar para o Drive (1080p)",
+    "sharing": "Compartilhamento",
+    "anyone": "Qualquer pessoa",
+    "onlyMe": "Somente eu",
+    "quality": "Qualidade",
+    "qualityEdited": "Editado",
+    "qualityOriginal": "Original",
+    "quality1080p": "1080p",
+    "quality720p": "720p",
+    "quality480p": "480p"
+  },
+  "recordingActionsMenu": {
+    "driveReconnectModal": {
+      "dialogLabel": "Reconectar Google Drive",
+      "title": "O Google Drive precisa ser reconectado",
+      "body1": "O Google não está aceitando a autorização deste app para envios. Isso acontece após uma troca de senha ou revogação de acesso — e também quando a permissão do Drive não foi concedida na tela de consentimento. Reconecte para continuar; este envio será retomado automaticamente.",
+      "body2Before": "Na página do Google, verifique se a caixa de seleção para",
+      "checkboxLabel": "adicionar e editar arquivos no seu Google Drive",
+      "body2After": "está marcada. Entrar sem isso deixa os envios bloqueados.",
+      "cancel": "Cancelar",
+      "waitingForGoogle": "Aguardando o Google…",
+      "reconnectButton": "Reconectar Google Drive"
+    },
+    "menuTrigger": "Ações da gravação",
+    "menu": {
+      "editRecording": "Editar gravação",
+      "uploadToDrive": "Enviar para o Drive",
+      "uploadToDriveEditedSuffix": " (editado)",
+      "revealInFinder": "Mostrar no Finder",
+      "regenerateTranscript": "Gerar transcrição novamente",
+      "getTranscript": "Obter transcrição",
+      "export1080p": "Exportar em 1080p",
+      "delete": "Excluir"
+    },
+    "toasts": {
+      "uploadedWithLinkCopied": "Enviado para o Drive — link copiado",
+      "uploaded": "Enviado para o Drive",
+      "transcriptReady": "Transcrição pronta",
+      "exported1080p": "MP4 em 1080p exportado"
+    },
+    "confirmDelete": {
+      "title": "Excluir gravação",
+      "message": "Excluir “{{name}}”? Esta ação não pode ser desfeita."
+    }
+  },
+  "recordingCard": {
+    "openRecording": "Abrir gravação: {{name}}",
+    "recordingKind": "Gravação",
+    "uploading": "Enviando",
+    "onDrive": "No Drive",
+    "uploadFailed": "Falha no envio"
+  },
+  "recordingDetailPanel": {
+    "copyButton": "Copiar",
+    "header": {
+      "fallbackTitle": "Gravação",
+      "renameRecording": "Renomear gravação",
+      "closePanel": "Fechar painel"
+    },
+    "body": {
+      "recordingNotFound": "Gravação não encontrada.",
+      "loading": "Carregando…",
+      "editVideo": "Editar vídeo",
+      "revealInFinder": "Mostrar no Finder",
+      "export1080p": "Exportar em 1080p",
+      "exportOptions": {
+        "480": "480p",
+        "720": "720p",
+        "1080": "1080p"
+      },
+      "regenerateTranscript": "Gerar transcrição novamente",
+      "getTranscript": "Obter transcrição",
+      "delete": "Excluir",
+      "exportedPrefix": "Exportado:",
+      "exportedEntry": "{{quality}} ({{size}})",
+      "exportedQualityRendered": "Renderizado",
+      "exportedSeparator": " · ",
+      "exportedToast": "{{quality}}p MP4 exportado",
+      "transcribingProgress": "Transcrevendo… {{progress}}%",
+      "uploadingToDrive": "Enviando para o Drive…",
+      "uploadFailed": "Falha no envio",
+      "uploadFailedWithError": "Falha no envio: {{error}}",
+      "transcriptHeading": "Transcrição",
+      "noSpeechDetected": "Nenhuma fala detectada. Use o botão de transcrição acima para tentar novamente.",
+      "noTranscriptYet": "Ainda não há transcrição — use o botão de transcrição acima para gerar uma."
+    },
+    "confirmDelete": {
+      "title": "Excluir gravação",
+      "message": "Excluir “{{name}}”? Esta ação não pode ser desfeita."
+    }
+  },
+  "screenRecordButton": {
+    "stopLabel": "Parar gravação de tela",
+    "recordLabel": "Gravar tela",
+    "recordTitle": "Grave sua tela",
+    "stop": "Parar",
+    "screen": "Tela"
+  },
+  "sectionErrorBoundary": {
+    "message": "Algo deu errado ao mostrar esta página. Veja Configurações → Diagnóstico → registros para mais detalhes.",
+    "backToDashboard": "Voltar ao painel"
+  },
+  "sidebarRecordButton": {
+    "stopRecordingTitle": "Parar gravação",
+    "captureMeetingTitle": "Capturar uma reunião",
+    "stopCapture": "Parar captura",
+    "capture": "Capturar",
+    "recordMeetingTitle": "Gravar áudio do sistema + microfone como uma reunião",
+    "stop": "Parar",
+    "record": "Gravar"
+  },
+  "speechModelPicker": {
+    "title": "Modelos de transcrição",
+    "description": "Escolha um modelo para transcrever o que você diz. Executa no dispositivo, sem rede.",
+    "downloadedHeading": "Modelos baixados",
+    "availableHeading": "Disponíveis para download",
+    "loadError": "Não foi possível carregar os modelos de fala: {{error}}",
+    "segmentBar": {
+      "ariaLabel": "{{value}} de {{max}}"
+    },
+    "modelCard": {
+      "notSupported": "Ainda não suportado",
+      "active": "Ativo",
+      "accuracy": "precisão",
+      "speed": "velocidade",
+      "downloadProgressAria": "Progresso do download",
+      "downloadFailed": "Falha no download: {{error}}",
+      "englishOnly": "Somente inglês",
+      "multiLanguage": "Multilíngue",
+      "unavailable": "Indisponível",
+      "downloading": "Baixando…",
+      "delete": "Excluir",
+      "useThisModel": "Usar este modelo",
+      "download": "Baixar"
+    }
+  },
+  "startAtLoginToggle": {
+    "title": "Iniciar no login",
+    "subtitle": "Abre o Echo Scribe automaticamente quando você entra no seu Mac.",
+    "updateError": "Não foi possível atualizar o início automático: {{error}}"
+  },
+  "statsCategoryTabs": {
+    "activityType": "Tipo de atividade"
+  },
+  "themeToggle": {
+    "label": {
+      "auto": "Automático (seguir sistema)",
+      "light": "Claro",
+      "dark": "Escuro"
+    },
+    "title": "Tema: {{current}} — clique para {{next}}",
+    "ariaLabel": "Tema: {{current}}"
+  },
+  "toastProvider": {
+    "dismiss": "Dispensar"
+  },
+  "transcriptionSettings": {
+    "spokenEditing": {
+      "title": "Edição por voz",
+      "detail": "Aplica comandos de voz determinísticos antes da limpeza da transcrição.",
+      "saveFailed": "Não foi possível salvar a edição por voz: {{error}}",
+      "corrections": {
+        "label": "Correções naturais",
+        "detail": "“actually”, “change X to Y”, “scratch that”"
+      },
+      "punctuation": {
+        "label": "Pontuação e parágrafos",
+        "detail": "“comma”, “new line”, “new paragraph”"
+      },
+      "lists": {
+        "label": "Comandos de lista",
+        "detail": "“start a list”, “next item”, “end list”"
+      },
+      "pressEnter": {
+        "label": "Permitir “press enter”",
+        "detail": "Opcional: pode enviar uma mensagem após colar com sucesso"
+      },
+      "cancelHint": "Diga “cancel that” como a frase inteira para descartá-la. Pressione Esc durante a gravação para descartar imediatamente."
+    },
+    "language": {
+      "title": "Idioma",
+      "description": "A fala é detectada automaticamente. Escolha o idioma usado para a limpeza e os comandos de voz.",
+      "saveFailed": "Não foi possível salvar o idioma: {{error}}",
+      "options": {
+        "auto": "Automático",
+        "en": "Inglês",
+        "es": "Espanhol",
+        "fr": "Francês",
+        "de": "Alemão",
+        "pt": "Português"
+      },
+      "footnote": "A detecção automática é compatível com 25 idiomas europeus. Os comandos de edição por voz atualmente são em inglês."
+    },
+    "dictionary": {
+      "title": "Dicionário",
+      "description": "Associe uma palavra ou frase falada à grafia, capitalização ou pontuação exatas.",
+      "exportJson": "Exportar JSON",
+      "importJson": "Importar JSON",
+      "invalidFile": "Arquivo de dicionário inválido",
+      "saveFailed": "Não foi possível salvar o dicionário: {{error}}",
+      "spokenPlaceholder": "O que o Echo ouve",
+      "replacementPlaceholder": "Substituir por",
+      "searchPlaceholder": "Buscar no dicionário",
+      "add": "Adicionar",
+      "remove": "Remover"
+    },
+    "snippets": {
+      "title": "Trechos rápidos",
+      "description": "Expanda uma frase falada inteira em texto reutilizável. Tudo permanece local.",
+      "exportJson": "Exportar JSON",
+      "importJson": "Importar JSON",
+      "invalidFile": "Arquivo de trechos inválido",
+      "saveFailed": "Não foi possível salvar os trechos: {{error}}",
+      "triggerPlaceholder": "Gatilho falado",
+      "expansionPlaceholder": "Expansão exata",
+      "add": "Adicionar",
+      "conflict": "Esse gatilho já existe.",
+      "remove": "Remover"
+    },
+    "fillerWords": {
+      "title": "Remover palavras de preenchimento",
+      "description": "Remove \"uh\", \"um\", \"sabe\" e termos semelhantes de toda transcrição.",
+      "updateFailed": "Não foi possível atualizar a remoção de preenchimento: {{error}}",
+      "saveFailed": "Não foi possível salvar as palavras de preenchimento: {{error}}",
+      "restoreFailed": "Não foi possível restaurar os padrões: {{error}}",
+      "chipList": {
+        "title": "Lista de preenchimento",
+        "subtitle": "Edite a lista. Frases com várias palavras, como 'sabe', funcionam.",
+        "placeholder": "Adicionar um preenchimento",
+        "restoreDefaults": "Restaurar padrões"
+      }
+    },
+    "chipList": {
+      "add": "Adicionar",
+      "loading": "Carregando…",
+      "empty": "Ainda não há entradas.",
+      "removeAria": "Remover {{word}}"
+    }
+  },
+  "updateBanner": {
+    "dismissAriaLabel": "Dispensar atualização",
+    "updateReady": "Atualização pronta",
+    "versionLabel": "Echo Scribe {{version}}",
+    "restartNow": "Reiniciar agora",
+    "versionReady": "O Echo Scribe {{version}} está pronto"
+  }
+}

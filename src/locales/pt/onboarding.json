@@ -1,1 +1,53 @@
-{}
+{
+  "welcome": {
+    "title": "Bem-vindo ao Echo Scribe",
+    "subtitle": "Conceda as permissões abaixo, escolha um modelo de fala e comece a ditar em qualquer lugar. A Gravação de Tela é opcional — só é necessária se você quiser que as reuniões capturem o áudio da outra pessoa."
+  },
+  "permissions": {
+    "microphone": {
+      "title": "Microfone",
+      "subtitle": "O Echo Scribe precisa do seu microfone para capturar o que você diz."
+    },
+    "accessibility": {
+      "title": "Acessibilidade",
+      "subtitle": "Necessária para colar o texto transcrito no cursor em qualquer app."
+    },
+    "screenRecording": {
+      "title": "Gravação de Tela",
+      "subtitle": "Permite que o Echo Scribe capture o áudio da outra pessoa durante chamadas no Zoom, Google Meet e outras reuniões. Sem ela, apenas o seu microfone é gravado."
+    }
+  },
+  "llmModel": {
+    "title": "Modelo de IA local",
+    "optional": "(opcional)",
+    "ready": "Pronto",
+    "description": "Alimenta o fluxo de captura de registros (classificação automática de notas, tarefas e tags). O ditado no cursor funciona sem ele — pule e volte depois.",
+    "skipButton": "Pular por agora",
+    "skippedNote": "Pulado. A captura de registros mostrará um aviso amigável até você escolher um modelo em Configurações."
+  },
+  "dictationShortcut": {
+    "title": "Atalho de ditado",
+    "description": "Pressione e segure para gravar. O padrão é Control direito — altere aqui se houver conflito com outro app."
+  },
+  "logCaptureShortcut": {
+    "title": "Atalho de captura de registro",
+    "description": "Pressione e segure para capturar uma ideia ou tarefa. O padrão é Option direito — o Echo Scribe vai classificá-la localmente e exibir uma tela de revisão."
+  },
+  "startButton": {
+    "starting": "Iniciando…",
+    "label": "Iniciar Echo Scribe"
+  },
+  "skipButton": {
+    "skipping": "Pulando…",
+    "label": "Pular configuração por agora",
+    "note": "Você já pode explorar o Echo Scribe e concluir a configuração depois em Configurações."
+  },
+  "resetTcc": {
+    "linkLabel": "Permissão travada? Redefinir e sair",
+    "confirmBody": "Isso apaga as permissões de Microfone + Acessibilidade + Gravação de Tela e encerra o Echo Scribe. Você precisará reabrir o app e conceder o acesso novamente. Continuar?",
+    "resetting": "Redefinindo…",
+    "confirmButton": "Sim, redefinir e sair",
+    "cancelButton": "Cancelar",
+    "timeoutError": "A redefinição foi concluída, mas o app não fechou. Tente reiniciá-lo manualmente."
+  }
+}

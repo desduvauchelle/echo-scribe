@@ -1,1 +1,804 @@
-{}
+{
+  "activityPanel": {
+    "panelBody": {
+      "itemNotFound": "Item niet gevonden.",
+      "loading": "Laden…",
+      "titleFallback": "Activiteit",
+      "export": "Exporteren…",
+      "closePanel": "Paneel sluiten",
+      "deleteConfirmMessage": "Dit item verwijderen? Je kunt het herstellen vanuit de prullenbak.",
+      "deleteConfirmTitle": "Item verwijderen",
+      "deleteFailed": "Verwijderen mislukt: {{error}}"
+    },
+    "exportDialog": {
+      "closeAriaLabel": "Exportvenster sluiten",
+      "title": "Meeting exporteren",
+      "description": "Kies wat je wilt opnemen. Hierna kies je de locatie voor het Markdown-bestand.",
+      "summaryLabel": "Samenvatting",
+      "summaryDescription": "Samenvattingspunten, actiepunten en je meetingnotities.",
+      "transcriptLabel": "Transcript",
+      "transcriptDescription": "Het volledige transcript van de meeting, met sprekerlabels.",
+      "noSelection": "Kies minstens één sectie om te exporteren.",
+      "exportFailed": "Exporteren mislukt: {{error}}",
+      "cancel": "Annuleren",
+      "exporting": "Bezig met exporteren…",
+      "chooseLocation": "Locatie kiezen…",
+      "exportedToast": "Meeting geëxporteerd naar {{path}}."
+    },
+    "title": {
+      "task": "Taak",
+      "meeting": "Meeting",
+      "transcription": "Transcriptie",
+      "note": "Notitie"
+    },
+    "editToggle": {
+      "done": "Klaar",
+      "edit": "Bewerken"
+    },
+    "header": {
+      "meetingBadge": "Meeting",
+      "transcriptionBadge": "Transcriptie",
+      "logCaptureBadge": "Log capture",
+      "taskBadge": "Taak",
+      "deletedBadge": "Verwijderd"
+    },
+    "content": {
+      "label": "Inhoud",
+      "saving": "Bezig met opslaan…",
+      "unsaved": "Niet opgeslagen",
+      "saved": "Opgeslagen",
+      "empty": "Geen inhoud."
+    },
+    "kind": {
+      "label": "Soort",
+      "unset": "Niet ingesteld",
+      "task": "Taak",
+      "transcription": "Transcriptie",
+      "note": "Notitie"
+    },
+    "project": {
+      "label": "Project",
+      "unassigned": "— Niet toegewezen —",
+      "newProject": "+ Nieuw project…",
+      "namePlaceholder": "Projectnaam",
+      "create": "Aanmaken",
+      "cancel": "Annuleren"
+    },
+    "tags": {
+      "label": "Tags",
+      "removeAriaLabel": "{{tag}} verwijderen",
+      "addPlaceholder": "tag toevoegen…"
+    },
+    "metadata": {
+      "label": "Metadata",
+      "empty": "Geen metadata vastgelegd.",
+      "source": "Bron",
+      "app": "App",
+      "window": "Venster",
+      "content": "Inhoud",
+      "contentUrl": "Inhouds-URL",
+      "contentSource": "Inhoudsbron",
+      "browserTab": "Browsertab",
+      "url": "URL",
+      "bundleId": "Bundle-ID",
+      "confidence": "Betrouwbaarheid",
+      "classifiedBy": "Geclassificeerd door"
+    },
+    "source": {
+      "voiceAtCursor": "Stem (hotkey-plakken)",
+      "logCapture": "Log capture",
+      "meeting": "Meeting"
+    },
+    "task": {
+      "label": "Taak",
+      "completed": "Voltooid",
+      "markComplete": "Markeer als voltooid",
+      "deadline": "Deadline",
+      "clear": "Wissen"
+    },
+    "meetingView": {
+      "peopleToggle": "Personen",
+      "tagsToggle": "Tags",
+      "detailsToggle": "Details",
+      "transcriptToggle": "Transcript",
+      "detailsGroupAriaLabel": "Meetingdetails",
+      "durationSuffix": "· {{count}} min",
+      "detectedAppSuffix": "· {{app}}",
+      "meetingMetadataLabel": "Meetingmetadata",
+      "statusLabel": "Status",
+      "statusFallback": "Voltooid",
+      "startedLabel": "Gestart",
+      "endedLabel": "Beëindigd",
+      "detectedAppLabel": "Gedetecteerde app",
+      "durationLabel": "Duur",
+      "durationValue": "{{count}} min",
+      "audioSourceLabel": "Audiobron",
+      "micOnly": "Alleen microfoon",
+      "micAndSystem": "Microfoon + systeem",
+      "failedChunksLabel": "Mislukte fragmenten"
+    },
+    "peoplePanel": {
+      "label": "Personen",
+      "you": "Jij",
+      "them": "Zij",
+      "mic": "Microfoon",
+      "call": "Gesprek",
+      "linkCaller": "Beller koppelen",
+      "notLinked": "Niet gekoppeld aan een persoon",
+      "description": "Sprekersnamen zijn bevestigde labels voor het microfoon- en gesprekskanaal. Automatische herkenning van meerdere sprekers wordt niet toegepast.",
+      "confirmedCount_one": " {{count}} label bevestigd.",
+      "confirmedCount_other": " {{count}} labels bevestigd."
+    },
+    "summary": {
+      "label": "Samenvatting",
+      "saving": "Bezig met opslaan…",
+      "unsaved": "Niet opgeslagen",
+      "saved": "Opgeslagen",
+      "templateAriaLabel": "Samenvattingssjabloon",
+      "newTemplate": "+ Nieuw sjabloon…",
+      "regenerateTitle": "Genereer de samenvatting opnieuw met het geselecteerde sjabloon",
+      "regenerate": "Opnieuw genereren",
+      "templateNamePlaceholder": "Sjabloonnaam",
+      "templateInstructionsPlaceholder": "Waar moet deze samenvatting de nadruk op leggen en hoe moet die worden opgebouwd?",
+      "cancel": "Annuleren",
+      "saveTemplate": "Sjabloon opslaan",
+      "rewriting": "Samenvatting wordt lokaal herschreven…",
+      "editPlaceholder": "Schrijf de samenvatting in markdown…",
+      "empty": "Nog geen samenvatting."
+    },
+    "chat": {
+      "toggle": "Vraag het deze meeting",
+      "empty": "Antwoorden blijven beperkt tot het transcript, de notities en de samenvatting van deze meeting.",
+      "groundedIn_one": "Gebaseerd op {{count}} meetingbron.",
+      "groundedIn_other": "Gebaseerd op {{count}} meetingbronnen.",
+      "inputPlaceholder": "Stel een vraag over deze meeting…",
+      "sendAriaLabel": "Verzenden",
+      "errorPrefix": "Fout: {{error}}"
+    },
+    "workflows": {
+      "toggle": "Recepten en follow-up",
+      "runRecipe": "Recept uitvoeren",
+      "recipeNamePlaceholder": "Receptnaam",
+      "recipePromptPlaceholder": "Wat moet EchoScribe extraheren of aanmaken?",
+      "cancel": "Annuleren",
+      "saveRecipe": "Recept opslaan",
+      "newRecipe": "+ Nieuw recept",
+      "draftFollowUp": "Follow-up opstellen",
+      "createPrepBrief": "Prep-brief aanmaken",
+      "runningLocally": "Wordt lokaal uitgevoerd…",
+      "copyAriaLabel": "Kopiëren"
+    },
+    "transcriptEditor": {
+      "header": "Transcript ({{count}} segmenten)",
+      "backupNote": "Bewerkingen bewaren automatisch een herstelbare back-up van het transcript.",
+      "cancel": "Annuleren",
+      "saving": "Bezig met opslaan…",
+      "saveTranscript": "Transcript opslaan",
+      "restorePrevious": "Vorige herstellen",
+      "editTranscript": "Transcript bewerken",
+      "deleteSegmentAriaLabel": "Segment {{count}} verwijderen"
+    },
+    "meetingTitle": {
+      "label": "Meetingtitel",
+      "saving": "Bezig met opslaan…",
+      "placeholder": "Naamloze meeting",
+      "editAriaLabel": "Titel bewerken"
+    },
+    "notes": {
+      "label": "Notities",
+      "saving": "Bezig met opslaan…",
+      "unsaved": "Niet opgeslagen",
+      "saved": "Opgeslagen",
+      "emptyPrompt": "Voeg persoonlijke notities toe…"
+    },
+    "guideReview": {
+      "generating": "Beoordeling wordt gegenereerd…",
+      "viewTrend": "Trend bekijken",
+      "staleMessage": "Het transcript is gewijzigd, dus dit bewijs moet worden vernieuwd. ",
+      "failedMessage": "Gidsbeoordeling kon niet worden gegenereerd. Zie Instellingen → Diagnostiek → logs. ",
+      "regenerateFailedToast": "Kon de gidsbeoordeling niet opnieuw genereren. Zie Instellingen → Diagnostiek → logs.",
+      "analyzing": "Analyseren…",
+      "reanalyze": "Opnieuw analyseren",
+      "retry": "Opnieuw proberen",
+      "whatStoodOut": "Wat ook opviel",
+      "tryLabel": "Probeer:",
+      "timelineHeader": "Live coaching-tijdlijn · {{count}}"
+    },
+    "actions": {
+      "copyContent": "Inhoud kopiëren",
+      "restore": "Herstellen",
+      "delete": "Verwijderen"
+    }
+  },
+  "activityPanelContext": {},
+  "app": {
+    "checking": "Controleren…",
+    "toasts": {
+      "localAiNotConfigured": "Lokale AI niet geconfigureerd — stel er een in bij Instellingen om captures automatisch te classificeren."
+    },
+    "logCapture": {
+      "kindTask": "Taak",
+      "kindNote": "Notitie",
+      "filedToast": "{{kind}} opgeslagen bij {{project}}\n{{preview}}",
+      "undo": "Ongedaan maken",
+      "undoFailed": "Ongedaan maken mislukt: {{error}}"
+    },
+    "meetingsRecovered_one": "{{count}} onvoltooide meeting hersteld. Bekijk ze bij Meetings.",
+    "meetingsRecovered_other": "{{count}} onvoltooide meetings hersteld. Bekijk ze bij Meetings.",
+    "onboarding": {
+      "missingMicrophone": "microfoon",
+      "missingAccessibility": "toegankelijkheid",
+      "missingSpeechModel": "spraakmodel",
+      "continueSetup": "Setup voortzetten — ontbreekt: {{missing}}.",
+      "pipelineStartFailed": "Kon pipeline niet starten: {{error}}"
+    },
+    "meetingPrompt": {
+      "consentFailed": "Kon toestemming niet vastleggen: {{error}}",
+      "detected": "{{appName}}-meeting gedetecteerd",
+      "body": "Deze meeting lokaal opnemen? Audio blijft op je computer.",
+      "justOnce": "Alleen deze keer",
+      "alwaysFor": "Altijd voor {{appName}}",
+      "never": "Nooit"
+    }
+  },
+  "guideTemplateManager": {
+    "kind": {
+      "checklist": {
+        "label": "Checklist",
+        "hint": "Houdt bij welke agendapunten uit de notities zijn behandeld (sales, discovery).",
+        "notesPlaceholder": "Notities — te stellen vragen, te bespreken punten (één per regel)"
+      },
+      "coach": {
+        "label": "Coach",
+        "hint": "Notities zijn richtlijnen, geen regels — af en toe een duwtje in de rug op basis van wat er net gezegd is.",
+        "notesPlaceholder": "Notities — principes om te hanteren, één per regel"
+      },
+      "tracker": {
+        "label": "Notulist",
+        "hint": "Houdt een live opsomming bij van de hoofdpunten en plaatst updates zodra er iets verandert.",
+        "notesPlaceholder": "Notities — wat vast te leggen, bijv. beslissingen, cijfers, actiepunten (optioneel)"
+      }
+    },
+    "nameRequired": "Sjabloonnaam is verplicht.",
+    "namePlaceholder": "Naam (bijv. Klantonderzoek)",
+    "nameAriaLabel": "Sjabloonnaam",
+    "descriptionPlaceholder": "Korte beschrijving",
+    "descriptionAriaLabel": "Beschrijving",
+    "guideStyleLabel": "Gidsstijl",
+    "goalPlaceholder": "Doel — wat moet dit gesprek opleveren?",
+    "goalAriaLabel": "Doel",
+    "notesAriaLabel": "Notities",
+    "saveButton": "Opslaan",
+    "cancelButton": "Annuleren",
+    "description": "Voer optioneel na elke meeting een rubric- of gesprekssignaalcheck uit. Deze checks gebruiken alleen meetingtranscripten, staan los van het hoofdoverzicht en vereisen een letterlijk citaat als bewijs voor positieve conclusies.",
+    "emptyState": "Nog geen gidssjablonen.",
+    "editButton": "Bewerken",
+    "deleteButton": "Verwijderen",
+    "trackAfterMeetings": "Bijhouden na meetings",
+    "measureLabel": "Meten",
+    "rubricPerformance": "Rubric-prestaties",
+    "conversationSignals": "Gesprekssignalen",
+    "analyzeLabel": "Analyseren",
+    "mySpeech": "Mijn inbreng",
+    "otherSide": "De andere partij",
+    "theInteraction": "De interactie",
+    "showResultsInDailyRecap": "Resultaten tonen in dagoverzicht",
+    "newTemplateButton": "+ Nieuw sjabloon"
+  },
+  "guideTrendView": {
+    "heading": "{{templateName}} — over al je gesprekken",
+    "close": "Sluiten",
+    "noData": "Nog geen afgeronde gidsbeoordelingen voor dit sjabloon.",
+    "recurringGap": "Terugkerend hiaat",
+    "strength": "Sterk punt",
+    "hitColumn": "raak",
+    "cellLabel": {
+      "met": "Behaald",
+      "partial": "Deels behaald",
+      "missed": "Gemist",
+      "unknown": "Geen gegevens"
+    },
+    "cellAriaLabel": "{{crit}}, {{date}}: {{label}}"
+  },
+  "hotkeyRebinder": {
+    "currentLabel": "Huidig:",
+    "capturedLabel": "Vastgelegd:",
+    "loading": "Laden…",
+    "unknownValue": "—",
+    "recordNewShortcut": "Nieuwe sneltoets opnemen…",
+    "listening": "Luisteren…",
+    "capturePrompt": "Druk een toetscombinatie in en laat weer los. Druk op Esc om te annuleren.",
+    "saving": "Bezig met opslaan…",
+    "save": "Opslaan",
+    "cancel": "Annuleren",
+    "unsupportedKey": "Niet-ondersteunde toets — probeer een andere. ({{msg}})",
+    "loadErrorPrefix": "Kon huidige sneltoets niet laden: {{error}}"
+  },
+  "itemCard": {
+    "kindTranscription": "Transcriptie",
+    "kindTask": "Taak",
+    "kindNote": "Notitie",
+    "openTaskWord": "taak",
+    "openNoteWord": "notitie",
+    "openAriaLabel": "Open {{kind}}: {{content}}",
+    "copied": "Gekopieerd",
+    "copyTranscription": "Transcriptie kopiëren"
+  },
+  "itemDetailPanel": {
+    "loading": "Laden...",
+    "tabs": {
+      "activity": "Activiteit",
+      "sessions": "Sessies"
+    },
+    "eventLabels": {
+      "created": "Aangemaakt",
+      "deleted": "Verwijderd",
+      "restored": "Hersteld",
+      "content_edited": "Inhoud bewerkt",
+      "kind_changed": "Soort gewijzigd",
+      "project_changed": "Project gewijzigd",
+      "tags_changed": "Tags bijgewerkt",
+      "classified": "Automatisch geclassificeerd"
+    },
+    "activityTab": {
+      "noActivity": "Geen activiteit vastgelegd."
+    },
+    "sessionsTab": {
+      "noLinkedSessions": "Geen gekoppelde sessies gevonden.",
+      "echoScribeChatHeading": "Echo Scribe Chat",
+      "claudeCodeSessionsHeading": "Claude Code-sessies",
+      "youLabel": "Jij:",
+      "aiLabel": "AI:",
+      "claudeLabel": "Claude:",
+      "truncationSuffix": "...",
+      "noMessages": "Geen berichten.",
+      "msgCount": "{{count}} berichten"
+    }
+  },
+  "llmModelPicker": {
+    "loadError": "Kon LLM-modellen niet laden: {{error}}",
+    "downloadedModelsHeading": "Gedownloade modellen",
+    "totalOnDisk": "{{size}} op schijf",
+    "availableToDownloadHeading": "Beschikbaar om te downloaden",
+    "modelCard": {
+      "notYetSupported": "Nog niet ondersteund",
+      "displayNamePrefix": " — {{name}}",
+      "specs": "{{family}} · {{size}} · {{ctx}} ctx",
+      "incompleteDownload": "Onvolledige download · {{size}} op schijf",
+      "downloadProgress": "Downloadvoortgang",
+      "downloadedOfTotal": "{{downloaded}} / {{total}}",
+      "downloadFailed": "Download mislukt: {{error}}",
+      "unavailable": "Niet beschikbaar",
+      "downloading": "Bezig met downloaden…",
+      "active": "Actief",
+      "delete": "Verwijderen",
+      "useThisModel": "Dit model gebruiken",
+      "remove": "Verwijderen",
+      "download": "Downloaden"
+    }
+  },
+  "meetingCard": {
+    "ledgerKindLabel": "Meeting",
+    "actionItemsCount_one": "{{count}} actiepunt",
+    "actionItemsCount_other": "{{count}} actiepunten",
+    "loadingActionItems": "Laden…",
+    "actionsLoadError": "Kon de gekoppelde taken niet laden — de actiepunten uit de samenvatting worden getoond.",
+    "manualMeeting": "Handmatige meeting",
+    "appMeetingTitle": "{{app}}-meeting",
+    "durationMinutes": "{{mins}}m",
+    "durationHoursMinutes": "{{hours}}u {{mins}}m",
+    "status": {
+      "recording": {
+        "label": "Opnemen…",
+        "description": "Deze meeting wordt nog opgenomen."
+      },
+      "transcribing": {
+        "label": "Transcriberen…",
+        "description": "Audio wordt getranscribeerd — dit kan even duren bij lange meetings."
+      },
+      "summarizing": {
+        "label": "Samenvatten…",
+        "description": "Transcript wordt samengevat — bijna klaar."
+      },
+      "failed": {
+        "label": "Mislukt",
+        "description": "Deze meeting is niet volledig verwerkt, dus de samenvatting kan ontbreken."
+      },
+      "recovered": {
+        "label": "Hersteld",
+        "description": "Deze meeting is hersteld na een onderbreking; sommige inhoud kan onvolledig zijn."
+      }
+    }
+  },
+  "permissionRow": {
+    "granted": "Verleend",
+    "notGranted": "Niet verleend",
+    "grantAccess": "Toegang verlenen",
+    "recheck": "Opnieuw controleren"
+  },
+  "permissionWarningBanner": {
+    "microphone": "Microfoon",
+    "accessibility": "Toegankelijkheid",
+    "screenRecording": "Schermopname",
+    "missing": "Toestemming ontbreekt: {{list}}",
+    "coreBroken": "Echo Scribe kan niet dicteren of plakken totdat je opnieuw toestemming geeft.",
+    "meetingsOnly": "Meetings nemen alleen je microfoon op — de audio van de ander wordt niet vastgelegd.",
+    "fixInSettings": "Oplossen in Instellingen"
+  },
+  "permissionsSection": {
+    "microphoneTitle": "Microfoon",
+    "microphoneSubtitle": "Echo Scribe heeft je microfoon nodig om vast te leggen wat je zegt.",
+    "accessibilityTitle": "Toegankelijkheid",
+    "accessibilitySubtitle": "Vereist om getranscribeerde tekst bij de cursor te plakken in elke app.",
+    "screenRecordingTitle": "Schermopname",
+    "screenRecordingSubtitle": "Hiermee kan Echo Scribe de audio van de andere deelnemer vastleggen tijdens Zoom, Google Meet en vergelijkbare meetings. Zonder deze toestemming wordt alleen je microfoon opgenomen.",
+    "cameraTitle": "Camera (optioneel)",
+    "cameraSubtitle": "Wordt alleen gebruikt wanneer je de webcam-overlay inschakelt voor een schermopname. Verleen hier toestemming zodat alles klaarstaat — en zodat een geblokkeerde camera hier op te lossen is, in plaats van stilletjes te mislukken tijdens het opnemen.",
+    "resetHeading": "Toestemmingen resetten",
+    "resetDescription": "Wist de toestemmingen voor Microfoon + Toegankelijkheid + Schermopname + Camera en sluit de app af. Gebruik dit als een toestemming niet goed werkt — bij de volgende start wordt opnieuw om toestemming gevraagd.",
+    "resetting": "Bezig met resetten…",
+    "confirmReset": "Ja, reset & sluit af",
+    "cancel": "Annuleren",
+    "resetAndQuit": "Reset & sluit af",
+    "resetTimeoutToast": "Reset is voltooid, maar de app is niet afgesloten. Probeer Echo Scribe handmatig opnieuw te starten.",
+    "resetErrorToast": "Kon toestemmingen niet resetten: {{error}}"
+  },
+  "projectEditor": {
+    "colorNames": {
+      "red": "Rood",
+      "orange": "Oranje",
+      "yellow": "Geel",
+      "green": "Groen",
+      "cyan": "Cyaan",
+      "blue": "Blauw",
+      "violet": "Violet",
+      "pink": "Roze"
+    },
+    "nameRequired": "Projectnaam is verplicht.",
+    "saveFailed": "Opslaan mislukt: {{error}}",
+    "folderPickerFailed": "Mapkiezer mislukt: {{error}}",
+    "pickFolderFirst": "Kies eerst een exportmap.",
+    "backfillSuccess_one": "{{count}} bestand geëxporteerd naar {{folder}}.",
+    "backfillSuccess_other": "{{count}} bestanden geëxporteerd naar {{folder}}.",
+    "backfillFailed": "Backfill mislukt: {{error}}",
+    "editHeading": "Project bewerken",
+    "newHeading": "Nieuw project",
+    "close": "Sluiten",
+    "nameLabel": "Naam",
+    "emojiAriaLabel": "Emoji",
+    "namePlaceholder": "bijv. Acme Sales",
+    "descriptionLabel": "Beschrijving",
+    "descriptionPlaceholder": "Waar dit project over gaat. Helpt de classifier captures hierheen te routeren.",
+    "descriptionHint": "Wordt door de classifier gebruikt om te bepalen of nieuwe captures hier thuishoren.",
+    "keywordsLabel": "Trefwoorden",
+    "removeItemAriaLabel": "{{item}} verwijderen",
+    "keywordsPlaceholder": "Typ en druk op Enter",
+    "keywordsHint": "Inhoudelijke hints (namen, afkortingen, codenamen). Kleine letters, zonder duplicaten.",
+    "routingHeading": "Routering",
+    "aliasesLabel": "Aliassen",
+    "aliasesPlaceholder": "livecase, hbsp, case simulation",
+    "appHintsLabel": "App-hints",
+    "appHintsPlaceholder": "Code, Google Chrome",
+    "urlHintsLabel": "URL-hints",
+    "urlHintsPlaceholder": "hbsp.harvard.edu, github.com/desduvauchelle/echo-scribe",
+    "windowHintsLabel": "Vensterhints",
+    "windowHintsPlaceholder": "echo-scribe, livecaseplus",
+    "positiveExamplesLabel": "Positieve voorbeelden",
+    "positiveExamplesPlaceholder": "Eén capture-voorbeeld per regel",
+    "negativeExamplesLabel": "Negatieve voorbeelden",
+    "negativeExamplesPlaceholder": "Zinnen die hier niet naartoe moeten worden gerouteerd",
+    "colorLabel": "Kleur",
+    "customColorAriaLabel": "Aangepaste kleur (hex)",
+    "clearButton": "Wissen",
+    "exportFolderLabel": "Exportmap",
+    "changeFolderButton": "Wijzigen…",
+    "chooseFolderButton": "Map kiezen…",
+    "exportFolderHint": "Items met hoge betrouwbaarheid die naar dit project worden gerouteerd, worden hier als markdown geëxporteerd. Notities/taken/transcripties komen in submappen per soort terecht.",
+    "exporting": "Bezig met exporteren…",
+    "reexportButton": "Alle bestaande items opnieuw exporteren",
+    "deleteButton": "Project verwijderen",
+    "cancelButton": "Annuleren",
+    "saving": "Bezig met opslaan…",
+    "saveButton": "Opslaan",
+    "createButton": "Aanmaken",
+    "unassigned": "Niet toegewezen"
+  },
+  "projectManager": {
+    "loadFailed": "Kon projecten niet laden: {{error}}",
+    "checkLinkedContentFailed": "Kon gekoppelde inhoud niet controleren: {{error}}",
+    "archiveFailed": "Archiveren mislukt: {{error}}",
+    "unarchiveFailed": "Herstellen uit archief mislukt: {{error}}",
+    "deleteSuccessWithContent": "“{{name}}” en de bijbehorende inhoud zijn verwijderd.",
+    "deleteSuccessUnassigned": "“{{name}}” is verwijderd. Gekoppelde inhoud is nu niet toegewezen.",
+    "deleteFailed": "Verwijderen mislukt: {{error}}",
+    "newProjectButton": "Nieuw project",
+    "loading": "Projecten laden…",
+    "emptyState": "Nog geen projecten. Leg een gedachte vast die naar een nieuw project verwijst, of maak er hierboven een aan.",
+    "editButton": "Bewerken",
+    "unarchiveButton": "Uit archief halen",
+    "archiveButton": "Archiveren",
+    "deleteAriaLabel": "{{name}} verwijderen",
+    "deleteButton": "Verwijderen",
+    "deleteDialogTitle": "“{{name}}” verwijderen?",
+    "deleteDialogDescription": "Kies wat er gebeurt met de inhoud die momenteel aan dit project is toegewezen.",
+    "checkingLinkedContent": "Gekoppelde inhoud controleren…",
+    "deleteOnlyTitle": "Alleen project verwijderen",
+    "deleteOnlyDescription": "Behoud alle notities, taken, transcripties, meetings, opnames en chats. Het projectlabel wordt verwijderd en de inhoud wordt niet toegewezen.",
+    "deleteWithContentTitle": "Project en bijbehorende inhoud verwijderen",
+    "deleteWithContentDescription": "Verwijder gekoppelde captures, meetingtranscripten en -samenvattingen, opnames, chats en gegenereerde artefacten permanent. Dit kan niet ongedaan worden gemaakt.",
+    "exportedFilesNote": "Bestanden die eerder buiten Echo Scribe zijn geëxporteerd, worden niet verwijderd.",
+    "deleting": "Bezig met verwijderen…",
+    "cancelButton": "Annuleren",
+    "noLinkedContent": "Geen gekoppelde inhoud gevonden.",
+    "linkedContentPrefix": "Gekoppelde inhoud:",
+    "linkedItems": {
+      "meetings_one": "{{count}} meeting",
+      "meetings_other": "{{count}} meetings",
+      "notes_one": "{{count}} notitie",
+      "notes_other": "{{count}} notities",
+      "tasks_one": "{{count}} taak",
+      "tasks_other": "{{count}} taken",
+      "transcriptions_one": "{{count}} transcriptie",
+      "transcriptions_other": "{{count}} transcripties",
+      "recordings_one": "{{count}} opname",
+      "recordings_other": "{{count}} opnames",
+      "chats_one": "{{count}} chat",
+      "chats_other": "{{count}} chats",
+      "artifacts_one": "{{count}} gegenereerd artefact",
+      "artifacts_other": "{{count}} gegenereerde artefacten",
+      "otherCaptures_one": "{{count}} andere capture",
+      "otherCaptures_other": "{{count}} andere captures"
+    }
+  },
+  "recordingActionButtons": {
+    "titleOptions": "{{title}}-opties",
+    "uploadToDrive": "Uploaden naar Drive",
+    "uploadOptions": "Uploadopties",
+    "uploadTooltipEdited": "Uploaden naar Drive (bewerkte versie)",
+    "uploadTooltip1080": "Uploaden naar Drive (1080p)",
+    "sharing": "Delen",
+    "anyone": "Iedereen",
+    "onlyMe": "Alleen ik",
+    "quality": "Kwaliteit",
+    "qualityEdited": "Bewerkt",
+    "qualityOriginal": "Origineel",
+    "quality1080p": "1080p",
+    "quality720p": "720p",
+    "quality480p": "480p"
+  },
+  "recordingActionsMenu": {
+    "driveReconnectModal": {
+      "dialogLabel": "Google Drive opnieuw verbinden",
+      "title": "Google Drive moet opnieuw worden verbonden",
+      "body1": "Google accepteert de autorisatie van deze app voor uploads niet meer. Dit gebeurt na een wachtwoordwijziging of het intrekken van toegang — en ook wanneer de Drive-toestemming niet is verleend op het toestemmingsscherm. Verbind opnieuw om door te gaan; deze upload wordt daarna automatisch hervat.",
+      "body2Before": "Zorg er op de pagina van Google voor dat het vakje voor",
+      "checkboxLabel": "bestanden toevoegen en bewerken in je Google Drive",
+      "body2After": "is aangevinkt. Zonder dit blijven uploads geblokkeerd.",
+      "cancel": "Annuleren",
+      "waitingForGoogle": "Wachten op Google…",
+      "reconnectButton": "Google Drive opnieuw verbinden"
+    },
+    "menuTrigger": "Opnameacties",
+    "menu": {
+      "editRecording": "Opname bewerken",
+      "uploadToDrive": "Uploaden naar Drive",
+      "uploadToDriveEditedSuffix": " (bewerkt)",
+      "revealInFinder": "Tonen in Finder",
+      "regenerateTranscript": "Transcript opnieuw genereren",
+      "getTranscript": "Transcript ophalen",
+      "export1080p": "Exporteren als 1080p",
+      "delete": "Verwijderen"
+    },
+    "toasts": {
+      "uploadedWithLinkCopied": "Geüpload naar Drive — link gekopieerd",
+      "uploaded": "Geüpload naar Drive",
+      "transcriptReady": "Transcript gereed",
+      "exported1080p": "1080p MP4 geëxporteerd"
+    },
+    "confirmDelete": {
+      "title": "Opname verwijderen",
+      "message": "“{{name}}” verwijderen? Dit kan niet ongedaan worden gemaakt."
+    }
+  },
+  "recordingCard": {
+    "openRecording": "Open opname: {{name}}",
+    "recordingKind": "Opname",
+    "uploading": "Bezig met uploaden",
+    "onDrive": "Op Drive",
+    "uploadFailed": "Uploaden mislukt"
+  },
+  "recordingDetailPanel": {
+    "copyButton": "Kopiëren",
+    "header": {
+      "fallbackTitle": "Opname",
+      "renameRecording": "Opname hernoemen",
+      "closePanel": "Paneel sluiten"
+    },
+    "body": {
+      "recordingNotFound": "Opname niet gevonden.",
+      "loading": "Laden…",
+      "editVideo": "Video bewerken",
+      "revealInFinder": "Tonen in Finder",
+      "export1080p": "Exporteren als 1080p",
+      "exportOptions": {
+        "480": "480p",
+        "720": "720p",
+        "1080": "1080p"
+      },
+      "regenerateTranscript": "Transcript opnieuw genereren",
+      "getTranscript": "Transcript ophalen",
+      "delete": "Verwijderen",
+      "exportedPrefix": "Geëxporteerd:",
+      "exportedEntry": "{{quality}} ({{size}})",
+      "exportedQualityRendered": "Gerenderd",
+      "exportedSeparator": " · ",
+      "exportedToast": "{{quality}}p MP4 geëxporteerd",
+      "transcribingProgress": "Transcriberen… {{progress}}%",
+      "uploadingToDrive": "Uploaden naar Drive…",
+      "uploadFailed": "Uploaden mislukt",
+      "uploadFailedWithError": "Uploaden mislukt: {{error}}",
+      "transcriptHeading": "Transcript",
+      "noSpeechDetected": "Geen spraak gedetecteerd. Gebruik de transcriptknop hierboven om het opnieuw te proberen.",
+      "noTranscriptYet": "Nog geen transcript — gebruik de transcriptknop hierboven om er een te genereren."
+    },
+    "confirmDelete": {
+      "title": "Opname verwijderen",
+      "message": "“{{name}}” verwijderen? Dit kan niet ongedaan worden gemaakt."
+    }
+  },
+  "screenRecordButton": {
+    "stopLabel": "Schermopname stoppen",
+    "recordLabel": "Scherm opnemen",
+    "recordTitle": "Neem je scherm op",
+    "stop": "Stop",
+    "screen": "Scherm"
+  },
+  "sectionErrorBoundary": {
+    "message": "Er ging iets mis bij het weergeven van deze pagina. Zie Instellingen → Diagnostiek → logs voor details.",
+    "backToDashboard": "Terug naar dashboard"
+  },
+  "sidebarRecordButton": {
+    "stopRecordingTitle": "Opname stoppen",
+    "captureMeetingTitle": "Leg een meeting vast",
+    "stopCapture": "Vastleggen stoppen",
+    "capture": "Vastleggen",
+    "recordMeetingTitle": "Neem systeemaudio + microfoon op als meeting",
+    "stop": "Stop",
+    "record": "Opnemen"
+  },
+  "speechModelPicker": {
+    "title": "Transcriptiemodellen",
+    "description": "Kies een model om te transcriberen wat je zegt. Draait op je apparaat, zonder netwerk.",
+    "downloadedHeading": "Gedownloade modellen",
+    "availableHeading": "Beschikbaar om te downloaden",
+    "loadError": "Kon spraakmodellen niet laden: {{error}}",
+    "segmentBar": {
+      "ariaLabel": "{{value}} van {{max}}"
+    },
+    "modelCard": {
+      "notSupported": "Nog niet ondersteund",
+      "active": "Actief",
+      "accuracy": "nauwkeurigheid",
+      "speed": "snelheid",
+      "downloadProgressAria": "Downloadvoortgang",
+      "downloadFailed": "Download mislukt: {{error}}",
+      "englishOnly": "Alleen Engels",
+      "multiLanguage": "Meertalig",
+      "unavailable": "Niet beschikbaar",
+      "downloading": "Bezig met downloaden…",
+      "delete": "Verwijderen",
+      "useThisModel": "Dit model gebruiken",
+      "download": "Downloaden"
+    }
+  },
+  "startAtLoginToggle": {
+    "title": "Starten bij inloggen",
+    "subtitle": "Start Echo Scribe automatisch wanneer je inlogt op je Mac.",
+    "updateError": "Kon 'starten bij inloggen' niet bijwerken: {{error}}"
+  },
+  "statsCategoryTabs": {
+    "activityType": "Activiteitstype"
+  },
+  "themeToggle": {
+    "label": {
+      "auto": "Automatisch (systeem volgen)",
+      "light": "Licht",
+      "dark": "Donker"
+    },
+    "title": "Thema: {{current}} — klik voor {{next}}",
+    "ariaLabel": "Thema: {{current}}"
+  },
+  "toastProvider": {
+    "dismiss": "Sluiten"
+  },
+  "transcriptionSettings": {
+    "spokenEditing": {
+      "title": "Gesproken bewerking",
+      "detail": "Pas deterministische spraakopdrachten toe vóór het opschonen van het transcript.",
+      "saveFailed": "Kon gesproken bewerking niet opslaan: {{error}}",
+      "corrections": {
+        "label": "Natuurlijke correcties",
+        "detail": "“eigenlijk”, “verander X in Y”, “schrap dat”"
+      },
+      "punctuation": {
+        "label": "Interpunctie en alinea's",
+        "detail": "“komma”, “nieuwe regel”, “nieuwe alinea”"
+      },
+      "lists": {
+        "label": "Lijstopdrachten",
+        "detail": "“begin een lijst”, “volgend item”, “einde lijst”"
+      },
+      "pressEnter": {
+        "label": "“druk op enter” toestaan",
+        "detail": "Optioneel: kan een bericht verzenden na een geslaagde plakactie"
+      },
+      "cancelHint": "Zeg “annuleer dat” als volledige uiting om deze te verwerpen. Druk tijdens het opnemen op Escape om direct te verwerpen."
+    },
+    "language": {
+      "title": "Taal",
+      "description": "Spraak wordt automatisch gedetecteerd. Kies de taal die wordt gebruikt voor opschoning en gesproken opdrachten.",
+      "saveFailed": "Kon taal niet opslaan: {{error}}",
+      "options": {
+        "auto": "Automatisch",
+        "en": "English",
+        "es": "Spanish",
+        "fr": "French",
+        "de": "German",
+        "pt": "Portuguese"
+      },
+      "footnote": "Automatische detectie ondersteunt 25 Europese talen. Gesproken bewerkingsopdrachten zijn momenteel Engelstalig."
+    },
+    "dictionary": {
+      "title": "Woordenboek",
+      "description": "Koppel een gesproken woord of zin aan een exacte spelling, hoofdlettergebruik of interpunctie.",
+      "exportJson": "JSON exporteren",
+      "importJson": "JSON importeren",
+      "invalidFile": "Ongeldig woordenboekbestand",
+      "saveFailed": "Kon woordenboek niet opslaan: {{error}}",
+      "spokenPlaceholder": "Wat Echo hoort",
+      "replacementPlaceholder": "Vervangen door",
+      "searchPlaceholder": "Woordenboek doorzoeken",
+      "add": "Toevoegen",
+      "remove": "Verwijderen"
+    },
+    "snippets": {
+      "title": "Snippets",
+      "description": "Breid een volledige gesproken zin uit naar herbruikbare tekst. Alles blijft lokaal.",
+      "exportJson": "JSON exporteren",
+      "importJson": "JSON importeren",
+      "invalidFile": "Ongeldig snippetsbestand",
+      "saveFailed": "Kon snippets niet opslaan: {{error}}",
+      "triggerPlaceholder": "Gesproken trigger",
+      "expansionPlaceholder": "Exacte uitbreiding",
+      "add": "Toevoegen",
+      "conflict": "Die trigger bestaat al.",
+      "remove": "Verwijderen"
+    },
+    "fillerWords": {
+      "title": "Stopwoorden verwijderen",
+      "description": "Verwijder \"uh\", \"um\", \"weet je\" en vergelijkbare stopwoorden uit elk transcript.",
+      "updateFailed": "Kon verwijderen van stopwoorden niet bijwerken: {{error}}",
+      "saveFailed": "Kon stopwoorden niet opslaan: {{error}}",
+      "restoreFailed": "Kon standaardinstellingen niet herstellen: {{error}}",
+      "chipList": {
+        "title": "Stopwoordenlijst",
+        "subtitle": "Bewerk de lijst. Zinnen van meerdere woorden zoals 'weet je' werken ook.",
+        "placeholder": "Voeg een stopwoord toe",
+        "restoreDefaults": "Standaardinstellingen herstellen"
+      }
+    },
+    "chipList": {
+      "add": "Toevoegen",
+      "loading": "Laden…",
+      "empty": "Nog geen items.",
+      "removeAria": "{{word}} verwijderen"
+    }
+  },
+  "updateBanner": {
+    "dismissAriaLabel": "Update sluiten",
+    "updateReady": "Update gereed",
+    "versionLabel": "Echo Scribe {{version}}",
+    "restartNow": "Nu herstarten",
+    "versionReady": "Echo Scribe {{version}} is gereed"
+  }
+}

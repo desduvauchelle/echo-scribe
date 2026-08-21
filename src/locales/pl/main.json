@@ -1,1 +1,554 @@
-{}
+{
+  "app": {
+    "brand": "Echo Scribe",
+    "toolbar": {
+      "search": "Szukaj"
+    },
+    "sidebar": {
+      "dictate": {
+        "activeTooltip": "Dyktowanie — zwolnij {{binding}}, aby zatrzymać",
+        "idleTooltip": "Przytrzymaj {{binding}}, aby dyktować",
+        "activeAriaLabel": "Dyktowanie. Zwolnij {{binding}}, aby zatrzymać.",
+        "idleAriaLabel": "Przytrzymaj {{binding}}, aby dyktować."
+      }
+    },
+    "nav": {
+      "dashboard": "Panel",
+      "chat": "Czat",
+      "dailyRecaps": "Podsumowania dnia",
+      "peopleAndCompanies": "Osoby i firmy",
+      "statistics": "Statystyki"
+    },
+    "projects": {
+      "label": "Projekty",
+      "ariaLabel": "Projekty",
+      "empty": "Brak projektów",
+      "showFewer": "Pokaż mniej",
+      "showAll": "Pokaż wszystkie ({{count}})",
+      "fallbackName": "Projekt"
+    },
+    "settings": {
+      "openTooltip": "Otwórz ustawienia",
+      "label": "Ustawienia"
+    }
+  },
+  "dashboard": {
+    "export": {
+      "ranges": {
+        "day": "Ostatnie 24 godziny",
+        "today": "Dziś",
+        "week": "Ostatnie 7 dni",
+        "month": "Ostatnie 30 dni",
+        "all": "Cały okres"
+      },
+      "successToast_one": "Wyeksportowano {{count}} element do Pobranych.",
+      "successToast_few": "Wyeksportowano {{count}} elementy do Pobranych.",
+      "successToast_many": "Wyeksportowano {{count}} elementów do Pobranych.",
+      "successToast_other": "Wyeksportowano {{count}} elementów do Pobranych.",
+      "title": "Eksportuj aktywność",
+      "exporting": "Eksportowanie…",
+      "formats": {
+        "markdown": "Markdown",
+        "csv": "CSV"
+      }
+    },
+    "empty": {
+      "transcriptions": "Brak transkrypcji.",
+      "notes": "Brak notatek.",
+      "meetings": "Brak spotkań.",
+      "recordings": "Brak nagrań.",
+      "nothing": "Nic tu jeszcze nie ma."
+    },
+    "tagging": {
+      "button": "Otaguj wszystkie wpisy",
+      "buttonTooltip": "Przypisz projekt do wszystkich nieotagowanych wpisów",
+      "progress": "{{processed}}/{{total}}",
+      "taggedSuffix": "{{count}} otagowanych",
+      "toastNothingToTag": "Tagowanie zakończone — wszystko ma już przypisany projekt.",
+      "toastAllFailed": "Tagowanie sprawdziło {{scanned}} wpisów, ale nie udało się niczego przypisać. Błąd AI: {{error}}",
+      "toastUndecided": "{{count}} nie miało jasnego projektu i zostanie ponowione później.",
+      "toastAiErrorNote": "Część napotkała błąd AI: {{error}}",
+      "toastFinished": "Tagowanie zakończone: przypisano projekt do {{assigned}} z {{scanned}} wpisów.",
+      "toastFailed": "Tagowanie nie powiodło się: {{error}}"
+    },
+    "filters": {
+      "all": "Wszystko",
+      "transcriptions": "Transkrypcje",
+      "notes": "Notatki",
+      "tasks": "Zadania",
+      "meetings": "Spotkania",
+      "recordings": "Nagrania"
+    },
+    "search": {
+      "placeholder": "Szukaj wpisów…",
+      "ariaLabel": "Szukaj wpisów",
+      "closeLabel": "Zamknij wyszukiwanie",
+      "noResults": "Brak wyników dla „{{query}}”."
+    },
+    "activity": {
+      "searchResultsLabel": "Wyniki wyszukiwania",
+      "todayLabel": "Dziś",
+      "matchesFor": "Wyniki dla „{{query}}”",
+      "recentActivity": "Ostatnia aktywność",
+      "mostRecent": "Najnowsze",
+      "loading": "Ładowanie…",
+      "loadMore": "Wczytaj więcej"
+    },
+    "stats": {
+      "regionLabel": "Statystyki aktywności",
+      "overviewLabel": "Przegląd aktywności",
+      "viewStats": "Zobacz statystyki",
+      "today": "Dziś",
+      "thisWeek": "Ten tydzień",
+      "wordsCount": "{{count}} słów",
+      "timeThisWeek": "Czas w tym tygodniu",
+      "wordsThisWeek": "Słowa w tym tygodniu",
+      "exactCount": "{{count}} dokładnie",
+      "timeAllTime": "Czas łącznie",
+      "allTime": "Cały okres",
+      "totalCount": "{{count}} łącznie",
+      "thisWeekCount": "{{count}} w tym tygodniu",
+      "todayCount": "{{count}} {{label}} dziś"
+    },
+    "recap": {
+      "quietDay": "Spokojny dzień — nic nie zarejestrowano.",
+      "notGenerated": "Nie wygenerowano podsumowania za wczoraj.",
+      "yesterdayLabel": "Wczoraj · {{date}}",
+      "close": "Zamknij",
+      "sections": {
+        "meetings": "Spotkania",
+        "focusWork": "Praca skupiona",
+        "notes": "Notatki",
+        "thingsThatCameUp": "Sprawy, które się pojawiły"
+      }
+    }
+  },
+  "recordings": {
+    "fallbackTitle": "Nagranie",
+    "copyButton": {
+      "copied": "Skopiowano",
+      "copy": "Kopiuj"
+    },
+    "upload": {
+      "qualities": {
+        "edited": "Zmontowane",
+        "original": "Oryginał"
+      },
+      "button": "Prześlij do Drive",
+      "optionsLabel": "Opcje przesyłania",
+      "tooltip": "Prześlij do Drive ({{quality}})",
+      "editedVersion": "wersja zmontowana",
+      "sharingLabel": "Udostępnianie",
+      "visibility": {
+        "anyone": "Każdy",
+        "onlyMe": "Tylko ja"
+      },
+      "qualityLabel": "Jakość"
+    },
+    "actions": {
+      "chooseResolution": "Wybierz rozdzielczość",
+      "rename": "Zmień nazwę",
+      "revealInFinder": "Pokaż w Finderze",
+      "export1080": "Eksportuj 1080p",
+      "regenerateTranscript": "Wygeneruj transkrypcję ponownie",
+      "getTranscript": "Pobierz transkrypcję",
+      "editRecording": "Edytuj nagranie",
+      "delete": "Usuń"
+    },
+    "header": {
+      "title": "Nagrania"
+    },
+    "status": {
+      "paused": "Wstrzymano",
+      "recording": "Nagrywanie",
+      "transcribing": "Transkrybowanie… {{progress}}%",
+      "cleaningAudio": "Oczyszczanie dźwięku… {{progress}}%",
+      "uploadingToDrive": "Przesyłanie do Drive…",
+      "uploadFailed": "Przesyłanie nie powiodło się"
+    },
+    "controls": {
+      "resume": "Wznów",
+      "pause": "Wstrzymaj",
+      "stopRecording": "Zatrzymaj nagrywanie",
+      "recordScreen": "Nagraj ekran"
+    },
+    "list": {
+      "empty": "Brak nagrań."
+    },
+    "rename": {
+      "inputLabel": "Nazwa nagrania",
+      "save": "Zapisz",
+      "cancel": "Anuluj"
+    },
+    "player": {
+      "transcriptTrackLabel": "Transkrypcja",
+      "selectPrompt": "Wybierz nagranie, aby je odtworzyć."
+    },
+    "exports": {
+      "prefix": "Wyeksportowano:",
+      "rendered": "Zmontowane"
+    },
+    "transcript": {
+      "heading": "Transkrypcja",
+      "noSpeechDetected": "Nie wykryto mowy. Użyj przycisku transkrypcji powyżej, aby spróbować ponownie.",
+      "noTranscriptYet": "Brak transkrypcji — użyj przycisku transkrypcji powyżej, aby ją wygenerować."
+    }
+  },
+  "relationships": {
+    "header": {
+      "title": "Relacje",
+      "subtitle": "Lokalna pamięć osób i firm"
+    },
+    "actions": {
+      "addPerson": "Dodaj osobę",
+      "addCompany": "Dodaj firmę",
+      "createPrepBrief": "Utwórz briefing przygotowawczy",
+      "editContactAria": "Edytuj kontakt",
+      "editCompanyAria": "Edytuj firmę",
+      "editButton": "Edytuj",
+      "deleteContactAria": "Usuń kontakt",
+      "deleteCompanyAria": "Usuń firmę"
+    },
+    "create": {
+      "newLabel": "Nowa {{kind}}",
+      "rolePlaceholder": "Rola (opcjonalnie)",
+      "domainPlaceholder": "Domena (opcjonalnie)",
+      "submit": "Utwórz"
+    },
+    "kind": {
+      "personLower": "osoba",
+      "companyLower": "firma",
+      "personLabel": "Osoba",
+      "companyLabel": "Firma"
+    },
+    "form": {
+      "name": "Imię i nazwisko",
+      "email": "E-mail",
+      "role": "Rola",
+      "domain": "Domena",
+      "company": "Firma",
+      "notes": "Notatki",
+      "saveChanges": "Zapisz zmiany"
+    },
+    "common": {
+      "cancel": "Anuluj",
+      "delete": "Usuń"
+    },
+    "people": {
+      "heading": "Osoby",
+      "noCompany": "Brak firmy",
+      "empty": "Potwierdź mówcę na spotkaniu lub dodaj kogoś tutaj."
+    },
+    "companies": {
+      "heading": "Firmy",
+      "noDomain": "Brak domeny"
+    },
+    "emptyState": {
+      "title": "Wybierz relację",
+      "subtitle": "Zobacz potwierdzoną historię spotkań i utwórz ręcznie uruchamiany briefing przygotowawczy."
+    },
+    "meetings": {
+      "heading": "Historia spotkań",
+      "viaApp": "Spotkanie przez {{app}}",
+      "fallback": "Spotkanie",
+      "empty": "Nie połączono jeszcze żadnych potwierdzonych spotkań."
+    },
+    "artifact": {
+      "copyAria": "Kopiuj briefing"
+    },
+    "deleteDialog": {
+      "title": "Usunąć {{name}}?",
+      "removesPrefix": "To usunie {{name}} z Osób i firm.",
+      "personNote": "Powiązane spotkania pozostają w Twojej historii.",
+      "companyNote": "Osoby z tej firmy nie zostaną usunięte.",
+      "cannotUndo": "Tej operacji nie można cofnąć."
+    }
+  },
+  "daily": {
+    "history": {
+      "heading": "Ostatnie dni",
+      "empty": "Brak podsumowań.",
+      "quietDay": "Spokojny dzień",
+      "noNarrative": "(brak opisu)"
+    },
+    "firstRun": {
+      "body": "To podsumowanie obejmuje Twoje spotkania, notatki i dyktowania — wszystko przechowywane lokalnie na tym Macu.",
+      "dismissAria": "Odrzuć"
+    },
+    "notifications": {
+      "disabledPrefix": "Powiadomienia są wyłączone — Twoje podsumowanie dnia nie pojawi się, dopóki nie włączysz ich w",
+      "settingsPath": "Ustawienia systemowe → Powiadomienia → Echo Scribe"
+    },
+    "nav": {
+      "previousDay": "Poprzedni dzień",
+      "nextDay": "Następny dzień"
+    },
+    "loading": "Ładowanie…",
+    "noSummary": {
+      "todayMessage": "Dzisiejsze podsumowanie zostanie wygenerowane jutro rano.",
+      "pastMessage": "Nie wygenerowano podsumowania na ten dzień.",
+      "generating": "Generowanie…",
+      "generateNow": "Generuj teraz"
+    },
+    "skippedEmpty": "Nic nie zarejestrowano tego dnia.",
+    "failed": {
+      "message": "Nie udało się wygenerować tego podsumowania.",
+      "retrying": "Ponawianie…",
+      "retry": "Ponów"
+    },
+    "sections": {
+      "meetings": "Spotkania",
+      "focusWork": "Praca skupiona",
+      "notes": "Notatki",
+      "thingsThatCameUp": "Sprawy, które się pojawiły"
+    },
+    "footer": {
+      "generatedAt": "Wygenerowano {{time}}",
+      "regenerating": "Generowanie ponowne…",
+      "regenerate": "Generuj ponownie"
+    },
+    "insights": {
+      "heading": "Wnioski ze spotkania",
+      "subtitle": "Osobne kontrole oparte wyłącznie na transkrypcji. Cytaty prowadzą do dokładnego fragmentu spotkania użytego jako dowód.",
+      "badgeSignals": "Sygnały",
+      "badgeRubric": "Kryteria",
+      "analyzing": "Analizowanie transkrypcji spotkania…",
+      "staleMessage": "Transkrypcja się zmieniła; poprzedni dowód jest ukryty.",
+      "failedMessage": "Nie udało się wygenerować tego wniosku.",
+      "reanalyzing": "Analizowanie…",
+      "reanalyze": "Przeanalizuj ponownie",
+      "noSignalsObserved": "Nie zaobserwowano żadnych skonfigurowanych sygnałów."
+    }
+  },
+  "activityFeed": {
+    "rename": {
+      "save": "Zapisz"
+    },
+    "header": {
+      "captureCount_one": "{{count}} wpis",
+      "captureCount_few": "{{count}} wpisy",
+      "captureCount_many": "{{count}} wpisów",
+      "captureCount_other": "{{count}} wpisów",
+      "allActivityTitle": "Aktywność",
+      "allActivitySubtitle": "Wszystkie Twoje wpisy"
+    },
+    "actions": {
+      "rename": "Zmień nazwę",
+      "archive": "Archiwizuj"
+    },
+    "filter": {
+      "kindLabel": "Rodzaj",
+      "options": {
+        "all": "Wszystko",
+        "transcription": "Transkrypcja",
+        "note": "Notatka",
+        "task": "Zadanie",
+        "meeting": "Spotkanie",
+        "recording": "Nagranie"
+      }
+    },
+    "error": {
+      "retry": "Ponów"
+    },
+    "emptyState": {
+      "noRecordings": "Brak nagrań.",
+      "nothingInProject": "Nic jeszcze w „{{name}}”.",
+      "noCaptures": "Brak wpisów.",
+      "recordingsSubtitle": "Rozpocznij nagrywanie ekranu z paska menu, aby je zarejestrować.",
+      "projectSubtitle": "Użyj skrótu notatki głosowej, aby dodać coś do tego projektu.",
+      "defaultSubtitle": "Przytrzymaj skrót dyktowania, aby nagrać swoją pierwszą myśl."
+    },
+    "loadMore": {
+      "loading": "Ładowanie…",
+      "label": "Wczytaj więcej"
+    },
+    "toast": {
+      "renameFailed": "Zmiana nazwy nie powiodła się: {{error}}",
+      "archived": "Zarchiwizowano „{{name}}”",
+      "archiveFailed": "Archiwizacja nie powiodła się: {{error}}"
+    }
+  },
+  "chat": {
+    "sidebar": {
+      "filterAria": "Filtruj według projektu",
+      "allProjectsOption": "Wszystkie projekty",
+      "newChat": "Nowy czat",
+      "empty": "Brak rozmów"
+    },
+    "header": {
+      "fallbackTitle": "Czat",
+      "subtitle": "Zadawaj pytania o swoje notatki i wpisy"
+    },
+    "emptyState": {
+      "chatWithMemory": "Rozmawiaj ze swoją pamięcią",
+      "startOrSelect": "Rozpocznij nowy czat lub wybierz poprzednią rozmowę.",
+      "newConversation": "Nowa rozmowa",
+      "tryAsking": "Zapytaj o swoje wpisy, notatki i zadania. Spróbuj „co dziś zarejestrowałem/am?”"
+    },
+    "input": {
+      "placeholderActive": "Zapytaj o swoje notatki… (Enter, aby wysłać)",
+      "placeholderInactive": "Najpierw rozpocznij nowy czat",
+      "ariaLabel": "Wiadomość",
+      "send": "Wyślij",
+      "hint": "Shift+Enter, aby przejść do nowej linii"
+    },
+    "session": {
+      "deleteAria": "Usuń sesję"
+    },
+    "message": {
+      "aiLabel": "Echo Scribe AI"
+    },
+    "sources": {
+      "used_one": "{{count}} wykorzystane źródło.",
+      "used_few": "{{count}} wykorzystane źródła.",
+      "used_many": "{{count}} wykorzystanych źródeł.",
+      "used_other": "{{count}} wykorzystanych źródeł."
+    },
+    "thinking": "Myślenie…",
+    "errorPrefix": "Błąd: {{error}}"
+  },
+  "tasks": {
+    "header": {
+      "title": "Zadania",
+      "openLabel": "otwarte",
+      "doneLabel": "zrobione"
+    },
+    "error": {
+      "retry": "Ponów"
+    },
+    "sections": {
+      "open": "Otwarte",
+      "done": "Zrobione"
+    },
+    "emptyState": {
+      "noOpenTasks": {
+        "title": "Brak otwartych zadań.",
+        "subtitle": "Gdy zarejestrujesz zadanie skrótem notatki głosowej, pojawi się tutaj."
+      },
+      "noCompletedTasks": {
+        "title": "Brak ukończonych zadań.",
+        "subtitle": "Zadania, które odznaczysz, pojawią się tutaj."
+      }
+    },
+    "toggle": {
+      "hide": "Ukryj",
+      "show": "Pokaż"
+    },
+    "checkbox": {
+      "markNotDoneAria": "Oznacz zadanie jako niewykonane",
+      "completeAria": "Ukończ zadanie",
+      "markOpenTitle": "Oznacz jako otwarte"
+    },
+    "deadline": {
+      "doneLabel": "Ukończono {{date}}",
+      "noDeadline": "Brak terminu",
+      "overdue": "Zaległe · {{date}}",
+      "today": "Dziś · {{date}}",
+      "ok": "OK",
+      "clear": "Wyczyść"
+    },
+    "toast": {
+      "loadDoneFailed": "Nie udało się wczytać ukończonych zadań: {{error}}",
+      "completeFailed": "Ukończenie nie powiodło się: {{error}}",
+      "uncompleteFailed": "Cofnięcie ukończenia nie powiodło się: {{error}}",
+      "updateDeadlineFailed": "Aktualizacja terminu nie powiodła się: {{error}}"
+    }
+  },
+  "meetings": {
+    "status": {
+      "recording": {
+        "label": "Nagrywanie…",
+        "description": "To spotkanie wciąż jest nagrywane."
+      },
+      "transcribing": {
+        "label": "Transkrybowanie…",
+        "description": "Transkrybowanie dźwięku — dla dłuższych spotkań może to chwilę potrwać."
+      },
+      "summarizing": {
+        "label": "Podsumowywanie…",
+        "description": "Podsumowywanie transkrypcji — już prawie gotowe."
+      },
+      "failed": {
+        "label": "Nieudane",
+        "description": "To spotkanie nie zostało w pełni przetworzone, więc jego podsumowanie może być niepełne."
+      },
+      "recovered": {
+        "label": "Odzyskane",
+        "description": "To spotkanie zostało odzyskane po przerwaniu; część treści może być niepełna."
+      }
+    },
+    "actions": {
+      "startGuidedSession": "Rozpocznij sesję z przewodnikiem",
+      "stopMeeting": "Zakończ spotkanie",
+      "startMeeting": "Rozpocznij spotkanie"
+    },
+    "header": {
+      "title": "Spotkania"
+    },
+    "emptyState": {
+      "title": "Brak spotkań",
+      "clickPrefix": "Kliknij",
+      "bodySuffix": "powyżej albo otwórz Zoom/Teams/FaceTime, a wykryjemy je automatycznie."
+    },
+    "filters": {
+      "all": "Wszystkie",
+      "thisWeek": "Ten tydzień",
+      "thisMonth": "Ten miesiąc"
+    },
+    "card": {
+      "manualFallback": "Ręczne",
+      "durationTitle": "Czas trwania",
+      "projectTitle": "Projekt: {{name}}"
+    }
+  },
+  "stats": {
+    "error": {
+      "message": "Nie udało się wczytać statystyk. Zobacz Ustawienia → Diagnostyka → logi, aby uzyskać szczegóły.",
+      "backToDashboard": "Wróć do panelu"
+    },
+    "loading": {
+      "ariaLabel": "Wczytywanie statystyk"
+    },
+    "header": {
+      "title": "Statystyki",
+      "subtitle": "Twoja aktywność, w skrócie i w czasie."
+    },
+    "overview": {
+      "ariaLabel": "Przegląd: {{label}}",
+      "today": "Dziś",
+      "thisWeek": "Ten tydzień",
+      "past30Days": "Ostatnie 30 dni",
+      "allTime": "Cały okres"
+    },
+    "common": {
+      "wordsCount": "{{count}} słów",
+      "totalCount": "{{count}} łącznie"
+    },
+    "week": {
+      "heading": "Ostatnie 7 dni",
+      "subtitle": "Dzienny rytm dla: {{label}}.",
+      "chartAriaLabel": "Wykres słupkowy {{label}} z ostatnich siedmiu dni",
+      "barTitle": "{{day}}: {{value}}"
+    },
+    "mix": {
+      "heading": "Zestawienie za cały okres",
+      "subtitle": "Jak wypadają Twoje typy wpisów na tle siebie."
+    },
+    "heatmap": {
+      "heading": "Rytm z 90 dni",
+      "subtitle": "Widok Twojej regularności w stylu GitHuba.",
+      "less": "Mniej",
+      "more": "Więcej",
+      "ariaLabel": "Mapa cieplna aktywności z 90 dni dla: {{label}}",
+      "cellTitle": "{{day}}: {{value}} {{unit}}"
+    },
+    "insights": {
+      "ariaLabel": "Ogólne wzorce",
+      "currentStreak": "Bieżąca seria",
+      "bestStreak": "Najlepsza seria",
+      "busiestTime": "Najbardziej aktywna pora",
+      "averageCapture": "Średnia liczba wpisów",
+      "daysValue": "{{count}} dni"
+    }
+  }
+}

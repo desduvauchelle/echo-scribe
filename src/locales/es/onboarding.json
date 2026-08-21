@@ -1,1 +1,53 @@
-{}
+{
+  "welcome": {
+    "title": "Bienvenido a Echo Scribe",
+    "subtitle": "Concede los permisos siguientes, elige un modelo de voz y empieza a dictar en cualquier lugar. La grabación de pantalla es opcional — solo hace falta si quieres que las reuniones capturen el audio de la otra persona."
+  },
+  "permissions": {
+    "microphone": {
+      "title": "Micrófono",
+      "subtitle": "Echo Scribe necesita tu micrófono para captar lo que dices."
+    },
+    "accessibility": {
+      "title": "Accesibilidad",
+      "subtitle": "Necesario para pegar el texto transcrito en el cursor en cualquier app."
+    },
+    "screenRecording": {
+      "title": "Grabación de pantalla",
+      "subtitle": "Permite que Echo Scribe capture el audio del otro participante durante reuniones de Zoom, Google Meet y otras. Sin esto, solo se graba tu micrófono."
+    }
+  },
+  "llmModel": {
+    "title": "Modelo de IA local",
+    "optional": "(opcional)",
+    "ready": "Listo",
+    "description": "Impulsa el flujo de captura rápida (clasificación automática de notas, tareas, etiquetas). Voz en el cursor funciona sin él — omite este paso y vuelve más tarde.",
+    "skipButton": "Omitir por ahora",
+    "skippedNote": "Omitido. La captura rápida mostrará un aviso hasta que elijas un modelo en Ajustes."
+  },
+  "dictationShortcut": {
+    "title": "Atajo de dictado",
+    "description": "Mantén pulsado para grabar. El predeterminado es Control derecho — cámbialo aquí si entra en conflicto con otra app."
+  },
+  "logCaptureShortcut": {
+    "title": "Atajo de captura rápida",
+    "description": "Mantén pulsado para capturar una idea o tarea. El predeterminado es Opción derecha — Echo Scribe la clasificará localmente y mostrará una ventana de revisión."
+  },
+  "startButton": {
+    "starting": "Iniciando…",
+    "label": "Iniciar Echo Scribe"
+  },
+  "skipButton": {
+    "skipping": "Omitiendo…",
+    "label": "Omitir configuración por ahora",
+    "note": "Puedes explorar Echo Scribe ahora y terminar la configuración más tarde en Ajustes."
+  },
+  "resetTcc": {
+    "linkLabel": "¿Permiso atascado? Restablecer y salir",
+    "confirmBody": "Esto borra los permisos de Micrófono + Accesibilidad + Grabación de pantalla y cierra Echo Scribe. Tendrás que reabrirlo y volver a conceder el acceso. ¿Continuar?",
+    "resetting": "Restableciendo…",
+    "confirmButton": "Sí, restablecer y salir",
+    "cancelButton": "Cancelar",
+    "timeoutError": "El restablecimiento se completó, pero la app no se cerró. Intenta reiniciarla manualmente."
+  }
+}

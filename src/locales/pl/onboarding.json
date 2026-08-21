@@ -1,1 +1,53 @@
-{}
+{
+  "welcome": {
+    "title": "Witaj w Echo Scribe",
+    "subtitle": "Przyznaj poniższe uprawnienia, wybierz model mowy, a potem zacznij dyktować w dowolnym miejscu. Nagrywanie ekranu jest opcjonalne — potrzebne tylko, jeśli chcesz, aby spotkania rejestrowały też dźwięk rozmówcy."
+  },
+  "permissions": {
+    "microphone": {
+      "title": "Mikrofon",
+      "subtitle": "Echo Scribe potrzebuje dostępu do mikrofonu, aby rejestrować to, co mówisz."
+    },
+    "accessibility": {
+      "title": "Dostępność",
+      "subtitle": "Wymagane, aby wklejać przetranskrybowany tekst w miejscu kursora w dowolnej aplikacji."
+    },
+    "screenRecording": {
+      "title": "Nagrywanie ekranu",
+      "subtitle": "Pozwala Echo Scribe rejestrować dźwięk drugiej strony podczas Zoom, Google Meet i innych spotkań. Bez tego nagrywany jest tylko Twój mikrofon."
+    }
+  },
+  "llmModel": {
+    "title": "Lokalny model AI",
+    "optional": "(opcjonalnie)",
+    "ready": "Gotowy",
+    "description": "Napędza notatkę głosową (automatyczna klasyfikacja notatek, zadań i tagów). Dyktowanie przy kursorze działa bez niego — możesz pominąć ten krok i wrócić do niego później.",
+    "skipButton": "Pomiń na razie",
+    "skippedNote": "Pominięto. Notatka głosowa będzie pokazywać przyjazny komunikat, dopóki nie wybierzesz modelu w Ustawieniach."
+  },
+  "dictationShortcut": {
+    "title": "Skrót dyktowania",
+    "description": "Naciśnij i przytrzymaj, aby nagrywać. Domyślnie to prawy Control — zmień go tutaj, jeśli koliduje z inną aplikacją."
+  },
+  "logCaptureShortcut": {
+    "title": "Skrót notatki głosowej",
+    "description": "Naciśnij i przytrzymaj, aby nagrać myśl lub zadanie. Domyślnie to prawy Option — Echo Scribe sklasyfikuje ją lokalnie i pokaże okno przeglądu."
+  },
+  "startButton": {
+    "starting": "Uruchamianie…",
+    "label": "Uruchom Echo Scribe"
+  },
+  "skipButton": {
+    "skipping": "Pomijanie…",
+    "label": "Pomiń konfigurację na razie",
+    "note": "Możesz teraz przeglądać Echo Scribe i dokończyć konfigurację później w Ustawieniach."
+  },
+  "resetTcc": {
+    "linkLabel": "Uprawnienie się zacięło? Zresetuj i zamknij",
+    "confirmBody": "To usunie uprawnienia do mikrofonu, dostępności i nagrywania ekranu oraz zamknie Echo Scribe. Musisz uruchomić aplikację ponownie i przyznać dostęp od nowa. Kontynuować?",
+    "resetting": "Resetowanie…",
+    "confirmButton": "Tak, zresetuj i zamknij",
+    "cancelButton": "Anuluj",
+    "timeoutError": "Reset się wykonał, ale aplikacja się nie zamknęła. Spróbuj zrestartować ją ręcznie."
+  }
+}

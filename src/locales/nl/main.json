@@ -1,1 +1,548 @@
-{}
+{
+  "app": {
+    "brand": "Echo Scribe",
+    "toolbar": {
+      "search": "Zoeken"
+    },
+    "sidebar": {
+      "dictate": {
+        "activeTooltip": "Dicteren — laat {{binding}} los om te stoppen",
+        "idleTooltip": "Houd {{binding}} ingedrukt om te dicteren",
+        "activeAriaLabel": "Dicteren. Laat {{binding}} los om te stoppen.",
+        "idleAriaLabel": "Houd {{binding}} ingedrukt om te dicteren."
+      }
+    },
+    "nav": {
+      "dashboard": "Dashboard",
+      "chat": "Chat",
+      "dailyRecaps": "Dagoverzichten",
+      "peopleAndCompanies": "Personen & bedrijven",
+      "statistics": "Statistieken"
+    },
+    "projects": {
+      "label": "Projecten",
+      "ariaLabel": "Projecten",
+      "empty": "Nog geen projecten",
+      "showFewer": "Minder tonen",
+      "showAll": "Alles tonen ({{count}})",
+      "fallbackName": "Project"
+    },
+    "settings": {
+      "openTooltip": "Instellingen openen",
+      "label": "Instellingen"
+    }
+  },
+  "dashboard": {
+    "export": {
+      "ranges": {
+        "day": "Afgelopen 24 uur",
+        "today": "Vandaag",
+        "week": "Afgelopen 7 dagen",
+        "month": "Afgelopen 30 dagen",
+        "all": "Alle tijd"
+      },
+      "successToast_one": "{{count}} item geëxporteerd naar Downloads.",
+      "successToast_other": "{{count}} items geëxporteerd naar Downloads.",
+      "title": "Activiteit exporteren",
+      "exporting": "Bezig met exporteren…",
+      "formats": {
+        "markdown": "Markdown",
+        "csv": "CSV"
+      }
+    },
+    "empty": {
+      "transcriptions": "Nog geen transcripties.",
+      "notes": "Nog geen notities.",
+      "meetings": "Nog geen meetings.",
+      "recordings": "Nog geen opnames.",
+      "nothing": "Hier is nog niets."
+    },
+    "tagging": {
+      "button": "Alle captures taggen",
+      "buttonTooltip": "Alle niet-getagde captures voorzien van een project",
+      "progress": "{{processed}}/{{total}}",
+      "taggedSuffix": "{{count}} getagd",
+      "toastNothingToTag": "Taggen uitgevoerd — alles heeft al een project.",
+      "toastAllFailed": "Taggen controleerde {{scanned}} captures maar kon er geen toewijzen. AI-fout: {{error}}",
+      "toastUndecided": "{{count}} had geen duidelijk project en wordt later opnieuw geprobeerd.",
+      "toastAiErrorNote": "Sommige stuitten op een AI-fout: {{error}}",
+      "toastFinished": "Taggen voltooid: {{assigned}} van {{scanned}} captures toegewezen aan een project.",
+      "toastFailed": "Taggen mislukt: {{error}}"
+    },
+    "filters": {
+      "all": "Alles",
+      "transcriptions": "Transcripties",
+      "notes": "Notities",
+      "tasks": "Taken",
+      "meetings": "Meetings",
+      "recordings": "Opnames"
+    },
+    "search": {
+      "placeholder": "Captures zoeken…",
+      "ariaLabel": "Captures zoeken",
+      "closeLabel": "Zoeken sluiten",
+      "noResults": "Geen resultaten voor “{{query}}”."
+    },
+    "activity": {
+      "searchResultsLabel": "Zoekresultaten",
+      "todayLabel": "Vandaag",
+      "matchesFor": "Overeenkomsten voor “{{query}}”",
+      "recentActivity": "Recente activiteit",
+      "mostRecent": "Meest recent",
+      "loading": "Laden…",
+      "loadMore": "Meer laden"
+    },
+    "stats": {
+      "regionLabel": "Activiteitsstatistieken",
+      "overviewLabel": "Activiteitsoverzicht",
+      "viewStats": "Statistieken bekijken",
+      "today": "Vandaag",
+      "thisWeek": "Deze week",
+      "wordsCount": "{{count}} woorden",
+      "timeThisWeek": "Tijd deze week",
+      "wordsThisWeek": "Woorden deze week",
+      "exactCount": "{{count}} exact",
+      "timeAllTime": "Tijd sinds het begin",
+      "allTime": "Sinds het begin",
+      "totalCount": "{{count}} totaal",
+      "thisWeekCount": "{{count}} deze week",
+      "todayCount": "{{count}} {{label}} vandaag"
+    },
+    "recap": {
+      "quietDay": "Rustige dag — niets vastgelegd.",
+      "notGenerated": "Er is geen overzicht gegenereerd voor gisteren.",
+      "yesterdayLabel": "Gisteren · {{date}}",
+      "close": "Sluiten",
+      "sections": {
+        "meetings": "Meetings",
+        "focusWork": "Focuswerk",
+        "notes": "Notities",
+        "thingsThatCameUp": "Dingen die aan bod kwamen"
+      }
+    }
+  },
+  "recordings": {
+    "fallbackTitle": "Opname",
+    "copyButton": {
+      "copied": "Gekopieerd",
+      "copy": "Kopiëren"
+    },
+    "upload": {
+      "qualities": {
+        "edited": "Bewerkt",
+        "original": "Origineel"
+      },
+      "button": "Uploaden naar Drive",
+      "optionsLabel": "Uploadopties",
+      "tooltip": "Uploaden naar Drive ({{quality}})",
+      "editedVersion": "bewerkte versie",
+      "sharingLabel": "Delen",
+      "visibility": {
+        "anyone": "Iedereen",
+        "onlyMe": "Alleen ik"
+      },
+      "qualityLabel": "Kwaliteit"
+    },
+    "actions": {
+      "chooseResolution": "Resolutie kiezen",
+      "rename": "Hernoemen",
+      "revealInFinder": "Tonen in Finder",
+      "export1080": "Exporteren als 1080p",
+      "regenerateTranscript": "Transcript opnieuw genereren",
+      "getTranscript": "Transcript ophalen",
+      "editRecording": "Opname bewerken",
+      "delete": "Verwijderen"
+    },
+    "header": {
+      "title": "Opnames"
+    },
+    "status": {
+      "paused": "Gepauzeerd",
+      "recording": "Bezig met opnemen",
+      "transcribing": "Transcriberen… {{progress}}%",
+      "cleaningAudio": "Audio opschonen… {{progress}}%",
+      "uploadingToDrive": "Uploaden naar Drive…",
+      "uploadFailed": "Uploaden mislukt"
+    },
+    "controls": {
+      "resume": "Hervatten",
+      "pause": "Pauzeren",
+      "stopRecording": "Opname stoppen",
+      "recordScreen": "Scherm opnemen"
+    },
+    "list": {
+      "empty": "Nog geen opnames."
+    },
+    "rename": {
+      "inputLabel": "Naam van de opname",
+      "save": "Opslaan",
+      "cancel": "Annuleren"
+    },
+    "player": {
+      "transcriptTrackLabel": "Transcript",
+      "selectPrompt": "Selecteer een opname om af te spelen."
+    },
+    "exports": {
+      "prefix": "Geëxporteerd:",
+      "rendered": "Gerenderd"
+    },
+    "transcript": {
+      "heading": "Transcript",
+      "noSpeechDetected": "Geen spraak gedetecteerd. Gebruik de transcriptknop hierboven om het opnieuw te proberen.",
+      "noTranscriptYet": "Nog geen transcript — gebruik de transcriptknop hierboven om er een te genereren."
+    }
+  },
+  "relationships": {
+    "header": {
+      "title": "Relaties",
+      "subtitle": "Lokaal geheugen van personen en bedrijven"
+    },
+    "actions": {
+      "addPerson": "Persoon toevoegen",
+      "addCompany": "Bedrijf toevoegen",
+      "createPrepBrief": "Prep-brief aanmaken",
+      "editContactAria": "Contact bewerken",
+      "editCompanyAria": "Bedrijf bewerken",
+      "editButton": "Bewerken",
+      "deleteContactAria": "Contact verwijderen",
+      "deleteCompanyAria": "Bedrijf verwijderen"
+    },
+    "create": {
+      "newLabel": "Nieuw: {{kind}}",
+      "rolePlaceholder": "Functie (optioneel)",
+      "domainPlaceholder": "Domein (optioneel)",
+      "submit": "Aanmaken"
+    },
+    "kind": {
+      "personLower": "persoon",
+      "companyLower": "bedrijf",
+      "personLabel": "Persoon",
+      "companyLabel": "Bedrijf"
+    },
+    "form": {
+      "name": "Naam",
+      "email": "E-mail",
+      "role": "Functie",
+      "domain": "Domein",
+      "company": "Bedrijf",
+      "notes": "Notities",
+      "saveChanges": "Wijzigingen opslaan"
+    },
+    "common": {
+      "cancel": "Annuleren",
+      "delete": "Verwijderen"
+    },
+    "people": {
+      "heading": "Personen",
+      "noCompany": "Geen bedrijf",
+      "empty": "Bevestig een spreker in een meeting of voeg hier iemand toe."
+    },
+    "companies": {
+      "heading": "Bedrijven",
+      "noDomain": "Geen domein"
+    },
+    "emptyState": {
+      "title": "Selecteer een relatie",
+      "subtitle": "Bekijk bevestigde meetinggeschiedenis en maak een handmatig gestarte Prep-brief."
+    },
+    "meetings": {
+      "heading": "Meetinggeschiedenis",
+      "viaApp": "Meeting via {{app}}",
+      "fallback": "Meeting",
+      "empty": "Nog geen bevestigde meetings gekoppeld."
+    },
+    "artifact": {
+      "copyAria": "Brief kopiëren"
+    },
+    "deleteDialog": {
+      "title": "{{name}} verwijderen?",
+      "removesPrefix": "Dit verwijdert {{name}} uit Personen & bedrijven.",
+      "personNote": "Gekoppelde meetings blijven in je geschiedenis staan.",
+      "companyNote": "Personen bij dit bedrijf worden niet verwijderd.",
+      "cannotUndo": "Dit kan niet ongedaan worden gemaakt."
+    }
+  },
+  "daily": {
+    "history": {
+      "heading": "Recente dagen",
+      "empty": "Nog geen overzichten.",
+      "quietDay": "Rustige dag",
+      "noNarrative": "(geen verhaal)"
+    },
+    "firstRun": {
+      "body": "Dit overzicht kijkt naar je meetings, notities en dictaties — allemaal lokaal opgeslagen op deze Mac.",
+      "dismissAria": "Sluiten"
+    },
+    "notifications": {
+      "disabledPrefix": "Meldingen staan uit — je dagoverzicht verschijnt pas als je ze inschakelt bij",
+      "settingsPath": "Systeeminstellingen → Meldingen → Echo Scribe"
+    },
+    "nav": {
+      "previousDay": "Vorige dag",
+      "nextDay": "Volgende dag"
+    },
+    "loading": "Laden…",
+    "noSummary": {
+      "todayMessage": "Het overzicht van vandaag wordt morgenochtend gegenereerd.",
+      "pastMessage": "Er is geen overzicht gegenereerd voor deze dag.",
+      "generating": "Bezig met genereren…",
+      "generateNow": "Nu genereren"
+    },
+    "skippedEmpty": "Niets vastgelegd op deze dag.",
+    "failed": {
+      "message": "Kon dit overzicht niet genereren.",
+      "retrying": "Opnieuw proberen…",
+      "retry": "Opnieuw proberen"
+    },
+    "sections": {
+      "meetings": "Meetings",
+      "focusWork": "Focuswerk",
+      "notes": "Notities",
+      "thingsThatCameUp": "Dingen die aan bod kwamen"
+    },
+    "footer": {
+      "generatedAt": "Gegenereerd {{time}}",
+      "regenerating": "Bezig met opnieuw genereren…",
+      "regenerate": "Opnieuw genereren"
+    },
+    "insights": {
+      "heading": "Meeting-inzichten",
+      "subtitle": "Aparte checks die alleen het transcript gebruiken. Citaten linken naar het exacte meetingfragment dat als bewijs is gebruikt.",
+      "badgeSignals": "Signalen",
+      "badgeRubric": "Rubric",
+      "analyzing": "Meetingtranscript analyseren…",
+      "staleMessage": "Transcript gewijzigd; het vorige bewijs is verborgen.",
+      "failedMessage": "Dit inzicht kon niet worden gegenereerd.",
+      "reanalyzing": "Analyseren…",
+      "reanalyze": "Opnieuw analyseren",
+      "noSignalsObserved": "Geen van de geconfigureerde signalen waargenomen."
+    }
+  },
+  "activityFeed": {
+    "rename": {
+      "save": "Opslaan"
+    },
+    "header": {
+      "captureCount_one": "{{count}} capture",
+      "captureCount_other": "{{count}} captures",
+      "allActivityTitle": "Activiteit",
+      "allActivitySubtitle": "Al je captures"
+    },
+    "actions": {
+      "rename": "Hernoemen",
+      "archive": "Archiveren"
+    },
+    "filter": {
+      "kindLabel": "Soort",
+      "options": {
+        "all": "Alles",
+        "transcription": "Transcriptie",
+        "note": "Notitie",
+        "task": "Taak",
+        "meeting": "Meeting",
+        "recording": "Opname"
+      }
+    },
+    "error": {
+      "retry": "Opnieuw proberen"
+    },
+    "emptyState": {
+      "noRecordings": "Nog geen opnames.",
+      "nothingInProject": "Nog niets in “{{name}}”.",
+      "noCaptures": "Nog geen captures.",
+      "recordingsSubtitle": "Start een schermopname vanuit de menubalk om er een vast te leggen.",
+      "projectSubtitle": "Gebruik de log-capture-hotkey om iets aan dit project toe te voegen.",
+      "defaultSubtitle": "Houd de dictatie-hotkey ingedrukt om je eerste gedachte vast te leggen."
+    },
+    "loadMore": {
+      "loading": "Laden…",
+      "label": "Meer laden"
+    },
+    "toast": {
+      "renameFailed": "Hernoemen mislukt: {{error}}",
+      "archived": "\"{{name}}\" gearchiveerd",
+      "archiveFailed": "Archiveren mislukt: {{error}}"
+    }
+  },
+  "chat": {
+    "sidebar": {
+      "filterAria": "Filteren op project",
+      "allProjectsOption": "Alle projecten",
+      "newChat": "Nieuwe chat",
+      "empty": "Nog geen gesprekken"
+    },
+    "header": {
+      "fallbackTitle": "Chat",
+      "subtitle": "Stel vragen over je notities en captures"
+    },
+    "emptyState": {
+      "chatWithMemory": "Chat met je geheugen",
+      "startOrSelect": "Start een nieuwe chat of selecteer een eerder gesprek.",
+      "newConversation": "Nieuw gesprek",
+      "tryAsking": "Vraag naar je captures, notities en taken. Probeer \"wat heb ik vandaag vastgelegd?\""
+    },
+    "input": {
+      "placeholderActive": "Stel een vraag over je notities… (Enter om te verzenden)",
+      "placeholderInactive": "Start eerst een nieuwe chat",
+      "ariaLabel": "Bericht",
+      "send": "Verzenden",
+      "hint": "Shift+Enter voor een nieuwe regel"
+    },
+    "session": {
+      "deleteAria": "Sessie verwijderen"
+    },
+    "message": {
+      "aiLabel": "Echo Scribe AI"
+    },
+    "sources": {
+      "used_one": "{{count}} bron gebruikt",
+      "used_other": "{{count}} bronnen gebruikt"
+    },
+    "thinking": "Aan het denken…",
+    "errorPrefix": "Fout: {{error}}"
+  },
+  "tasks": {
+    "header": {
+      "title": "Taken",
+      "openLabel": "open",
+      "doneLabel": "klaar"
+    },
+    "error": {
+      "retry": "Opnieuw proberen"
+    },
+    "sections": {
+      "open": "Open",
+      "done": "Klaar"
+    },
+    "emptyState": {
+      "noOpenTasks": {
+        "title": "Geen openstaande taken.",
+        "subtitle": "Als je een taak vastlegt met de log-hotkey, verschijnt die hier."
+      },
+      "noCompletedTasks": {
+        "title": "Geen voltooide taken.",
+        "subtitle": "Taken die je afvinkt, verschijnen hier."
+      }
+    },
+    "toggle": {
+      "hide": "Verbergen",
+      "show": "Tonen"
+    },
+    "checkbox": {
+      "markNotDoneAria": "Taak markeren als niet voltooid",
+      "completeAria": "Taak voltooien",
+      "markOpenTitle": "Markeren als open"
+    },
+    "deadline": {
+      "doneLabel": "Klaar op {{date}}",
+      "noDeadline": "Geen deadline",
+      "overdue": "Te laat · {{date}}",
+      "today": "Vandaag · {{date}}",
+      "ok": "OK",
+      "clear": "Wissen"
+    },
+    "toast": {
+      "loadDoneFailed": "Kon voltooide taken niet laden: {{error}}",
+      "completeFailed": "Voltooien mislukt: {{error}}",
+      "uncompleteFailed": "Ongedaan maken mislukt: {{error}}",
+      "updateDeadlineFailed": "Deadline bijwerken mislukt: {{error}}"
+    }
+  },
+  "meetings": {
+    "status": {
+      "recording": {
+        "label": "Opnemen…",
+        "description": "Deze meeting wordt nog opgenomen."
+      },
+      "transcribing": {
+        "label": "Transcriberen…",
+        "description": "Audio wordt getranscribeerd — dit kan even duren bij lange meetings."
+      },
+      "summarizing": {
+        "label": "Samenvatten…",
+        "description": "Transcript wordt samengevat — bijna klaar."
+      },
+      "failed": {
+        "label": "Mislukt",
+        "description": "Deze meeting is niet volledig verwerkt, dus de samenvatting kan ontbreken."
+      },
+      "recovered": {
+        "label": "Hersteld",
+        "description": "Deze meeting is hersteld na een onderbreking; sommige inhoud kan onvolledig zijn."
+      }
+    },
+    "actions": {
+      "startGuidedSession": "Begeleide sessie starten",
+      "stopMeeting": "Meeting stoppen",
+      "startMeeting": "Meeting starten"
+    },
+    "header": {
+      "title": "Meetings"
+    },
+    "emptyState": {
+      "title": "Nog geen meetings",
+      "clickPrefix": "Klik op",
+      "bodySuffix": "hierboven, of open Zoom/Teams/FaceTime en we detecteren het automatisch."
+    },
+    "filters": {
+      "all": "Alles",
+      "thisWeek": "Deze week",
+      "thisMonth": "Deze maand"
+    },
+    "card": {
+      "manualFallback": "Handmatig",
+      "durationTitle": "Duur",
+      "projectTitle": "Project: {{name}}"
+    }
+  },
+  "stats": {
+    "error": {
+      "message": "Statistieken konden niet worden geladen. Zie Instellingen → Diagnostiek → logs voor details.",
+      "backToDashboard": "Terug naar dashboard"
+    },
+    "loading": {
+      "ariaLabel": "Statistieken laden"
+    },
+    "header": {
+      "title": "Statistieken",
+      "subtitle": "Je activiteit, in één oogopslag en over tijd."
+    },
+    "overview": {
+      "ariaLabel": "Overzicht van {{label}}",
+      "today": "Vandaag",
+      "thisWeek": "Deze week",
+      "past30Days": "Afgelopen 30 dagen",
+      "allTime": "Sinds het begin"
+    },
+    "common": {
+      "wordsCount": "{{count}} woorden",
+      "totalCount": "{{count}} totaal"
+    },
+    "week": {
+      "heading": "Laatste 7 dagen",
+      "subtitle": "Een dagelijkse blik op {{label}}.",
+      "chartAriaLabel": "Staafdiagram van {{label}} over de afgelopen zeven dagen",
+      "barTitle": "{{day}}: {{value}}"
+    },
+    "mix": {
+      "heading": "Mix sinds het begin",
+      "subtitle": "Hoe je capture-soorten zich tot elkaar verhouden."
+    },
+    "heatmap": {
+      "heading": "Ritme van 90 dagen",
+      "subtitle": "Een GitHub-achtig overzicht van je consistentie.",
+      "less": "Minder",
+      "more": "Meer",
+      "ariaLabel": "Activiteitsheatmap van negentig dagen voor {{label}}",
+      "cellTitle": "{{day}}: {{value}} {{unit}}"
+    },
+    "insights": {
+      "ariaLabel": "Algemene patronen",
+      "currentStreak": "Huidige reeks",
+      "bestStreak": "Beste reeks",
+      "busiestTime": "Drukste tijd",
+      "averageCapture": "Gemiddelde capture",
+      "daysValue": "{{count}} dagen"
+    }
+  }
+}

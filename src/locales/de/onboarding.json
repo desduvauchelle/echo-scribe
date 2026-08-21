@@ -1,1 +1,53 @@
-{}
+{
+  "welcome": {
+    "title": "Willkommen bei Echo Scribe",
+    "subtitle": "Erteile die unten stehenden Berechtigungen, wähle ein Sprachmodell und diktiere dann überall los. Bildschirmaufnahme ist optional — nur nötig, wenn Meetings auch das Audio der anderen Person erfassen sollen."
+  },
+  "permissions": {
+    "microphone": {
+      "title": "Mikrofon",
+      "subtitle": "Echo Scribe braucht dein Mikrofon, um aufzuzeichnen, was du sagst."
+    },
+    "accessibility": {
+      "title": "Bedienungshilfen",
+      "subtitle": "Erforderlich, um transkribierten Text an der Cursorposition in jeder App einzufügen."
+    },
+    "screenRecording": {
+      "title": "Bildschirmaufnahme",
+      "subtitle": "Lässt Echo Scribe das Audio der anderen Teilnehmer bei Zoom, Google Meet und anderen Meetings erfassen. Ohne diese Berechtigung wird nur dein Mikrofon aufgezeichnet."
+    }
+  },
+  "llmModel": {
+    "title": "Lokales KI-Modell",
+    "optional": "(optional)",
+    "ready": "Bereit",
+    "description": "Treibt den Sprachnotiz-Ablauf an (automatische Klassifizierung von Notizen, Aufgaben, Tags). Sprache-am-Cursor funktioniert auch ohne — überspringen und später einrichten.",
+    "skipButton": "Vorerst überspringen",
+    "skippedNote": "Übersprungen. Sprachnotiz zeigt einen freundlichen Hinweis, bis du in den Einstellungen ein Modell wählst."
+  },
+  "dictationShortcut": {
+    "title": "Diktier-Tastenkombination",
+    "description": "Gedrückt halten, um aufzunehmen. Standard ist die rechte Strg-Taste — ändere sie hier, falls das mit einer anderen App kollidiert."
+  },
+  "logCaptureShortcut": {
+    "title": "Sprachnotiz-Tastenkombination",
+    "description": "Gedrückt halten, um einen Gedanken oder eine Aufgabe zu erfassen. Standard ist die rechte Wahltaste (Option) — Echo Scribe klassifiziert sie lokal und zeigt ein Überprüfungs-Overlay an."
+  },
+  "startButton": {
+    "starting": "Wird gestartet…",
+    "label": "Echo Scribe starten"
+  },
+  "skipButton": {
+    "skipping": "Wird übersprungen…",
+    "label": "Einrichtung vorerst überspringen",
+    "note": "Du kannst Echo Scribe jetzt nutzen und die Einrichtung später in den Einstellungen abschließen."
+  },
+  "resetTcc": {
+    "linkLabel": "Berechtigung hängt? Zurücksetzen & beenden",
+    "confirmBody": "Dadurch werden die Berechtigungen für Mikrofon, Bedienungshilfen und Bildschirmaufnahme gelöscht und Echo Scribe beendet. Du musst die App neu starten und die Zugriffe erneut erteilen. Fortfahren?",
+    "resetting": "Wird zurückgesetzt…",
+    "confirmButton": "Ja, zurücksetzen & beenden",
+    "cancelButton": "Abbrechen",
+    "timeoutError": "Zurücksetzen abgeschlossen, aber die App wurde nicht beendet. Starte sie manuell neu."
+  }
+}

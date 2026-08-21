@@ -1,1 +1,830 @@
-{}
+{
+  "activityPanel": {
+    "panelBody": {
+      "itemNotFound": "Nie znaleziono elementu.",
+      "loading": "Ładowanie…",
+      "titleFallback": "Aktywność",
+      "export": "Eksportuj…",
+      "closePanel": "Zamknij panel",
+      "deleteConfirmMessage": "Usunąć ten element? Możesz go przywrócić z kosza.",
+      "deleteConfirmTitle": "Usuń element",
+      "deleteFailed": "Usuwanie nie powiodło się: {{error}}"
+    },
+    "exportDialog": {
+      "closeAriaLabel": "Zamknij okno eksportu",
+      "title": "Eksportuj spotkanie",
+      "description": "Wybierz, co chcesz uwzględnić. Lokalizację pliku Markdown wybierzesz w następnym kroku.",
+      "summaryLabel": "Podsumowanie",
+      "summaryDescription": "Punkty podsumowania, zadania i Twoje notatki ze spotkania.",
+      "transcriptLabel": "Transkrypcja",
+      "transcriptDescription": "Pełna transkrypcja spotkania z oznaczonymi mówcami.",
+      "noSelection": "Wybierz co najmniej jedną sekcję do eksportu.",
+      "exportFailed": "Eksport nie powiódł się: {{error}}",
+      "cancel": "Anuluj",
+      "exporting": "Eksportowanie…",
+      "chooseLocation": "Wybierz lokalizację…",
+      "exportedToast": "Spotkanie wyeksportowano do {{path}}."
+    },
+    "title": {
+      "task": "Zadanie",
+      "meeting": "Spotkanie",
+      "transcription": "Transkrypcja",
+      "note": "Notatka"
+    },
+    "editToggle": {
+      "done": "Gotowe",
+      "edit": "Edytuj"
+    },
+    "header": {
+      "meetingBadge": "Spotkanie",
+      "transcriptionBadge": "Transkrypcja",
+      "logCaptureBadge": "Notatka głosowa",
+      "taskBadge": "Zadanie",
+      "deletedBadge": "Usunięte"
+    },
+    "content": {
+      "label": "Treść",
+      "saving": "Zapisywanie…",
+      "unsaved": "Niezapisane",
+      "saved": "Zapisano",
+      "empty": "Brak treści."
+    },
+    "kind": {
+      "label": "Rodzaj",
+      "unset": "Nieustawiony",
+      "task": "Zadanie",
+      "transcription": "Transkrypcja",
+      "note": "Notatka"
+    },
+    "project": {
+      "label": "Projekt",
+      "unassigned": "— Nieprzypisany —",
+      "newProject": "+ Nowy projekt…",
+      "namePlaceholder": "Nazwa projektu",
+      "create": "Utwórz",
+      "cancel": "Anuluj"
+    },
+    "tags": {
+      "label": "Tagi",
+      "removeAriaLabel": "Usuń {{tag}}",
+      "addPlaceholder": "dodaj tag…"
+    },
+    "metadata": {
+      "label": "Metadane",
+      "empty": "Nie zarejestrowano metadanych.",
+      "source": "Źródło",
+      "app": "Aplikacja",
+      "window": "Okno",
+      "content": "Treść",
+      "contentUrl": "URL treści",
+      "contentSource": "Źródło treści",
+      "browserTab": "Karta przeglądarki",
+      "url": "URL",
+      "bundleId": "Identyfikator pakietu",
+      "confidence": "Pewność",
+      "classifiedBy": "Sklasyfikowane przez"
+    },
+    "source": {
+      "voiceAtCursor": "Głos (wklejanie skrótem)",
+      "logCapture": "Notatka głosowa",
+      "meeting": "Spotkanie"
+    },
+    "task": {
+      "label": "Zadanie",
+      "completed": "Ukończone",
+      "markComplete": "Oznacz jako ukończone",
+      "deadline": "Termin",
+      "clear": "Wyczyść"
+    },
+    "meetingView": {
+      "peopleToggle": "Osoby",
+      "tagsToggle": "Tagi",
+      "detailsToggle": "Szczegóły",
+      "transcriptToggle": "Transkrypcja",
+      "detailsGroupAriaLabel": "Szczegóły spotkania",
+      "durationSuffix": "· {{count}} min",
+      "detectedAppSuffix": "· {{app}}",
+      "meetingMetadataLabel": "Metadane spotkania",
+      "statusLabel": "Status",
+      "statusFallback": "Zakończone",
+      "startedLabel": "Rozpoczęto",
+      "endedLabel": "Zakończono",
+      "detectedAppLabel": "Wykryta aplikacja",
+      "durationLabel": "Czas trwania",
+      "durationValue": "{{count}} min",
+      "audioSourceLabel": "Źródło dźwięku",
+      "micOnly": "Tylko mikrofon",
+      "micAndSystem": "Mikrofon + system",
+      "failedChunksLabel": "Nieudane fragmenty"
+    },
+    "peoplePanel": {
+      "label": "Osoby",
+      "you": "Ty",
+      "them": "Oni",
+      "mic": "Mikrofon",
+      "call": "Rozmowa",
+      "linkCaller": "Połącz z osobą",
+      "notLinked": "Niepołączone z żadną osobą",
+      "description": "Etykiety mówców to potwierdzone nazwy dla kanałów mikrofonu i rozmowy. Automatyczna diaryzacja wielu mówców nie jest wykrywana.",
+      "confirmedCount_one": " Potwierdzono {{count}} etykietę.",
+      "confirmedCount_few": " Potwierdzono {{count}} etykiety.",
+      "confirmedCount_many": " Potwierdzono {{count}} etykiet.",
+      "confirmedCount_other": " Potwierdzono {{count}} etykiet."
+    },
+    "summary": {
+      "label": "Podsumowanie",
+      "saving": "Zapisywanie…",
+      "unsaved": "Niezapisane",
+      "saved": "Zapisano",
+      "templateAriaLabel": "Szablon podsumowania",
+      "newTemplate": "+ Nowy szablon…",
+      "regenerateTitle": "Wygeneruj podsumowanie ponownie przy użyciu wybranego szablonu",
+      "regenerate": "Generuj ponownie",
+      "templateNamePlaceholder": "Nazwa szablonu",
+      "templateInstructionsPlaceholder": "Co powinno podkreślać to podsumowanie i jak powinno być zorganizowane?",
+      "cancel": "Anuluj",
+      "saveTemplate": "Zapisz szablon",
+      "rewriting": "Przepisywanie podsumowania lokalnie…",
+      "editPlaceholder": "Napisz podsumowanie w formacie markdown…",
+      "empty": "Brak podsumowania."
+    },
+    "chat": {
+      "toggle": "Zapytaj o to spotkanie",
+      "empty": "Odpowiedzi ograniczają się do transkrypcji, notatek i podsumowania tego spotkania.",
+      "groundedIn_one": "Oparte na {{count}} źródle spotkania.",
+      "groundedIn_few": "Oparte na {{count}} źródłach spotkania.",
+      "groundedIn_many": "Oparte na {{count}} źródłach spotkania.",
+      "groundedIn_other": "Oparte na {{count}} źródłach spotkania.",
+      "inputPlaceholder": "Zapytaj o to spotkanie…",
+      "sendAriaLabel": "Wyślij",
+      "errorPrefix": "Błąd: {{error}}"
+    },
+    "workflows": {
+      "toggle": "Przepisy i kontynuacja",
+      "runRecipe": "Uruchom przepis",
+      "recipeNamePlaceholder": "Nazwa przepisu",
+      "recipePromptPlaceholder": "Co powinien wyodrębnić lub utworzyć EchoScribe?",
+      "cancel": "Anuluj",
+      "saveRecipe": "Zapisz przepis",
+      "newRecipe": "+ Nowy przepis",
+      "draftFollowUp": "Utwórz szkic kontynuacji",
+      "createPrepBrief": "Utwórz briefing przygotowawczy",
+      "runningLocally": "Uruchamianie lokalnie…",
+      "copyAriaLabel": "Kopiuj"
+    },
+    "transcriptEditor": {
+      "header": "Transkrypcja ({{count}} segmentów)",
+      "backupNote": "Edycje automatycznie zachowują kopię zapasową transkrypcji możliwą do przywrócenia.",
+      "cancel": "Anuluj",
+      "saving": "Zapisywanie…",
+      "saveTranscript": "Zapisz transkrypcję",
+      "restorePrevious": "Przywróć poprzednią",
+      "editTranscript": "Edytuj transkrypcję",
+      "deleteSegmentAriaLabel": "Usuń segment {{count}}"
+    },
+    "meetingTitle": {
+      "label": "Tytuł spotkania",
+      "saving": "Zapisywanie…",
+      "placeholder": "Spotkanie bez tytułu",
+      "editAriaLabel": "Edytuj tytuł"
+    },
+    "notes": {
+      "label": "Notatki",
+      "saving": "Zapisywanie…",
+      "unsaved": "Niezapisane",
+      "saved": "Zapisano",
+      "emptyPrompt": "Dodaj osobiste notatki…"
+    },
+    "guideReview": {
+      "generating": "Generowanie przeglądu…",
+      "viewTrend": "Zobacz trend",
+      "staleMessage": "Transkrypcja się zmieniła, więc ten dowód wymaga odświeżenia. ",
+      "failedMessage": "Nie udało się wygenerować przeglądu przewodnika. Zobacz Ustawienia → Diagnostyka → logi. ",
+      "regenerateFailedToast": "Nie udało się wygenerować przeglądu przewodnika ponownie. Zobacz Ustawienia → Diagnostyka → logi.",
+      "analyzing": "Analizowanie…",
+      "reanalyze": "Przeanalizuj ponownie",
+      "retry": "Ponów",
+      "whatStoodOut": "Co jeszcze zwróciło uwagę",
+      "tryLabel": "Spróbuj:",
+      "timelineHeader": "Oś czasu coachingu na żywo · {{count}}"
+    },
+    "actions": {
+      "copyContent": "Kopiuj treść",
+      "restore": "Przywróć",
+      "delete": "Usuń"
+    }
+  },
+  "activityPanelContext": {},
+  "app": {
+    "checking": "Sprawdzanie…",
+    "toasts": {
+      "localAiNotConfigured": "Lokalna AI nie jest skonfigurowana — ustaw ją w Ustawieniach, aby automatycznie klasyfikować wpisy."
+    },
+    "logCapture": {
+      "kindTask": "Zadanie",
+      "kindNote": "Notatka",
+      "filedToast": "{{kind}} zapisano w {{project}}\n{{preview}}",
+      "undo": "Cofnij",
+      "undoFailed": "Cofnięcie nie powiodło się: {{error}}"
+    },
+    "meetingsRecovered_one": "Odzyskano {{count}} niedokończone spotkanie. Zobacz je w Spotkaniach.",
+    "meetingsRecovered_few": "Odzyskano {{count}} niedokończone spotkania. Zobacz je w Spotkaniach.",
+    "meetingsRecovered_many": "Odzyskano {{count}} niedokończonych spotkań. Zobacz je w Spotkaniach.",
+    "meetingsRecovered_other": "Odzyskano {{count}} niedokończonych spotkań. Zobacz je w Spotkaniach.",
+    "onboarding": {
+      "missingMicrophone": "mikrofon",
+      "missingAccessibility": "dostępność",
+      "missingSpeechModel": "model mowy",
+      "continueSetup": "Kontynuuj konfigurację — brakuje: {{missing}}.",
+      "pipelineStartFailed": "Nie udało się uruchomić potoku: {{error}}"
+    },
+    "meetingPrompt": {
+      "consentFailed": "Nie udało się zarejestrować zgody: {{error}}",
+      "detected": "Wykryto spotkanie: {{appName}}",
+      "body": "Nagrać to spotkanie lokalnie? Dźwięk pozostaje na Twoim komputerze.",
+      "justOnce": "Tylko raz",
+      "alwaysFor": "Zawsze dla {{appName}}",
+      "never": "Nigdy"
+    }
+  },
+  "guideTemplateManager": {
+    "kind": {
+      "checklist": {
+        "label": "Lista kontrolna",
+        "hint": "Śledzi, które punkty agendy z notatek zostały omówione (sprzedaż, odkrywanie potrzeb).",
+        "notesPlaceholder": "Notatki — pytania do zadania, punkty do omówienia (jeden na linię)"
+      },
+      "coach": {
+        "label": "Coach",
+        "hint": "Notatki to zasady, nie reguły — okazjonalne wskazówki powiązane z tym, co właśnie powiedziano.",
+        "notesPlaceholder": "Notatki — zasady do stosowania, jedna na linię"
+      },
+      "tracker": {
+        "label": "Notatnik",
+        "hint": "Prowadzi na żywo listę punktową głównych tematów i publikuje aktualizacje w miarę zmian.",
+        "notesPlaceholder": "Notatki — co rejestrować, np. decyzje, liczby, zadania (opcjonalnie)"
+      }
+    },
+    "nameRequired": "Nazwa szablonu jest wymagana.",
+    "namePlaceholder": "Nazwa (np. Odkrywanie potrzeb klienta)",
+    "nameAriaLabel": "Nazwa szablonu",
+    "descriptionPlaceholder": "Krótki opis",
+    "descriptionAriaLabel": "Opis",
+    "guideStyleLabel": "Styl przewodnika",
+    "goalPlaceholder": "Cel — co ta rozmowa ma osiągnąć?",
+    "goalAriaLabel": "Cel",
+    "notesAriaLabel": "Notatki",
+    "saveButton": "Zapisz",
+    "cancelButton": "Anuluj",
+    "description": "Opcjonalnie uruchom kontrolę kryteriów oceny lub sygnałów rozmowy po każdym spotkaniu. Te kontrole korzystają wyłącznie z transkrypcji spotkań, pozostają oddzielne od głównego podsumowania i wymagają dokładnych cytowanych dowodów dla pozytywnych wniosków.",
+    "emptyState": "Brak jeszcze szablonów przewodników.",
+    "editButton": "Edytuj",
+    "deleteButton": "Usuń",
+    "trackAfterMeetings": "Śledź po spotkaniach",
+    "measureLabel": "Mierz",
+    "rubricPerformance": "Wyniki według kryteriów",
+    "conversationSignals": "Sygnały rozmowy",
+    "analyzeLabel": "Analizuj",
+    "mySpeech": "Moja wypowiedź",
+    "otherSide": "Druga strona",
+    "theInteraction": "Interakcja",
+    "showResultsInDailyRecap": "Pokaż wyniki w podsumowaniu dnia",
+    "newTemplateButton": "+ Nowy szablon"
+  },
+  "guideTrendView": {
+    "heading": "{{templateName}} — na przestrzeni Twoich rozmów",
+    "close": "Zamknij",
+    "noData": "Brak ukończonych przeglądów przewodnika dla tego szablonu.",
+    "recurringGap": "Powtarzająca się luka",
+    "strength": "Mocna strona",
+    "hitColumn": "trafienie",
+    "cellLabel": {
+      "met": "Spełnione",
+      "partial": "Częściowo spełnione",
+      "missed": "Niespełnione",
+      "unknown": "Brak danych"
+    },
+    "cellAriaLabel": "{{crit}}, {{date}}: {{label}}"
+  },
+  "hotkeyRebinder": {
+    "currentLabel": "Bieżący:",
+    "capturedLabel": "Zarejestrowany:",
+    "loading": "Ładowanie…",
+    "unknownValue": "—",
+    "recordNewShortcut": "Nagraj nowy skrót…",
+    "listening": "Nasłuchiwanie…",
+    "capturePrompt": "Naciśnij kombinację klawiszy, a potem zwolnij. Naciśnij Esc, aby anulować.",
+    "saving": "Zapisywanie…",
+    "save": "Zapisz",
+    "cancel": "Anuluj",
+    "unsupportedKey": "Nieobsługiwany klawisz — spróbuj inny. ({{msg}})",
+    "loadErrorPrefix": "Nie udało się wczytać bieżącego skrótu: {{error}}"
+  },
+  "itemCard": {
+    "kindTranscription": "Transkrypcja",
+    "kindTask": "Zadanie",
+    "kindNote": "Notatka",
+    "openTaskWord": "zadanie",
+    "openNoteWord": "notatkę",
+    "openAriaLabel": "Otwórz {{kind}}: {{content}}",
+    "copied": "Skopiowano",
+    "copyTranscription": "Kopiuj transkrypcję"
+  },
+  "itemDetailPanel": {
+    "loading": "Ładowanie...",
+    "tabs": {
+      "activity": "Aktywność",
+      "sessions": "Sesje"
+    },
+    "eventLabels": {
+      "created": "Utworzono",
+      "deleted": "Usunięto",
+      "restored": "Przywrócono",
+      "content_edited": "Treść edytowana",
+      "kind_changed": "Rodzaj zmieniony",
+      "project_changed": "Projekt zmieniony",
+      "tags_changed": "Tagi zaktualizowane",
+      "classified": "Automatycznie sklasyfikowano"
+    },
+    "activityTab": {
+      "noActivity": "Nie zarejestrowano żadnej aktywności."
+    },
+    "sessionsTab": {
+      "noLinkedSessions": "Nie znaleziono powiązanych sesji.",
+      "echoScribeChatHeading": "Czat Echo Scribe",
+      "claudeCodeSessionsHeading": "Sesje Claude Code",
+      "youLabel": "Ty:",
+      "aiLabel": "AI:",
+      "claudeLabel": "Claude:",
+      "truncationSuffix": "...",
+      "noMessages": "Brak wiadomości.",
+      "msgCount": "{{count}} wiad."
+    }
+  },
+  "llmModelPicker": {
+    "loadError": "Nie udało się wczytać modeli LLM: {{error}}",
+    "downloadedModelsHeading": "Pobrane modele",
+    "totalOnDisk": "{{size}} na dysku",
+    "availableToDownloadHeading": "Dostępne do pobrania",
+    "modelCard": {
+      "notYetSupported": "Jeszcze nieobsługiwane",
+      "displayNamePrefix": " — {{name}}",
+      "specs": "{{family}} · {{size}} · {{ctx}} ctx",
+      "incompleteDownload": "Niepełne pobieranie · {{size}} na dysku",
+      "downloadProgress": "Postęp pobierania",
+      "downloadedOfTotal": "{{downloaded}} / {{total}}",
+      "downloadFailed": "Pobieranie nie powiodło się: {{error}}",
+      "unavailable": "Niedostępny",
+      "downloading": "Pobieranie…",
+      "active": "Aktywny",
+      "delete": "Usuń",
+      "useThisModel": "Użyj tego modelu",
+      "remove": "Usuń",
+      "download": "Pobierz"
+    }
+  },
+  "meetingCard": {
+    "ledgerKindLabel": "Spotkanie",
+    "actionItemsCount_one": "{{count}} zadanie",
+    "actionItemsCount_few": "{{count}} zadania",
+    "actionItemsCount_many": "{{count}} zadań",
+    "actionItemsCount_other": "{{count}} zadań",
+    "loadingActionItems": "Ładowanie…",
+    "actionsLoadError": "Nie udało się wczytać powiązanych zadań — pokazuję zamiast tego zadania z podsumowania.",
+    "manualMeeting": "Spotkanie ręczne",
+    "appMeetingTitle": "Spotkanie w {{app}}",
+    "durationMinutes": "{{mins}} min",
+    "durationHoursMinutes": "{{hours}} godz. {{mins}} min",
+    "status": {
+      "recording": {
+        "label": "Nagrywanie…",
+        "description": "To spotkanie wciąż jest nagrywane."
+      },
+      "transcribing": {
+        "label": "Transkrybowanie…",
+        "description": "Transkrybowanie dźwięku — dla dłuższych spotkań może to chwilę potrwać."
+      },
+      "summarizing": {
+        "label": "Podsumowywanie…",
+        "description": "Podsumowywanie transkrypcji — już prawie gotowe."
+      },
+      "failed": {
+        "label": "Nieudane",
+        "description": "To spotkanie nie zostało w pełni przetworzone, więc jego podsumowanie może być niepełne."
+      },
+      "recovered": {
+        "label": "Odzyskane",
+        "description": "To spotkanie zostało odzyskane po przerwaniu; część treści może być niepełna."
+      }
+    }
+  },
+  "permissionRow": {
+    "granted": "Przyznano",
+    "notGranted": "Nie przyznano",
+    "grantAccess": "Przyznaj dostęp",
+    "recheck": "Sprawdź ponownie"
+  },
+  "permissionWarningBanner": {
+    "microphone": "Mikrofon",
+    "accessibility": "Dostępność",
+    "screenRecording": "Nagrywanie ekranu",
+    "missing": "Brak uprawnienia: {{list}}",
+    "coreBroken": "Echo Scribe nie może dyktować ani wklejać, dopóki nie przyznasz uprawnienia ponownie.",
+    "meetingsOnly": "Spotkania będą nagrywać tylko Twój mikrofon — dźwięk drugiej osoby nie zostanie zarejestrowany.",
+    "fixInSettings": "Napraw w Ustawieniach"
+  },
+  "permissionsSection": {
+    "microphoneTitle": "Mikrofon",
+    "microphoneSubtitle": "Echo Scribe potrzebuje dostępu do mikrofonu, aby rejestrować to, co mówisz.",
+    "accessibilityTitle": "Dostępność",
+    "accessibilitySubtitle": "Wymagane, aby wklejać przetranskrybowany tekst w miejscu kursora w dowolnej aplikacji.",
+    "screenRecordingTitle": "Nagrywanie ekranu",
+    "screenRecordingSubtitle": "Pozwala Echo Scribe rejestrować dźwięk drugiego uczestnika podczas Zoom, Google Meet i podobnych spotkań. Bez tego nagrywany jest tylko Twój mikrofon.",
+    "cameraTitle": "Kamera (opcjonalnie)",
+    "cameraSubtitle": "Używana tylko, gdy włączysz nakładkę kamery internetowej podczas nagrywania ekranu. Przyznaj dostęp tutaj, aby był gotowy — dzięki temu zablokowaną kamerę można naprawić z tego ekranu, zamiast niespodziewanie zawodzić w trakcie nagrywania.",
+    "resetHeading": "Resetuj uprawnienia",
+    "resetDescription": "Usuwa uprawnienia do mikrofonu, dostępności, nagrywania ekranu i kamery oraz zamyka aplikację. Użyj, gdy jakieś uprawnienie wydaje się nie działać — ponowne uruchomienie poprosi o nie od nowa.",
+    "resetting": "Resetowanie…",
+    "confirmReset": "Tak, zresetuj i zamknij",
+    "cancel": "Anuluj",
+    "resetAndQuit": "Resetuj i zamknij",
+    "resetTimeoutToast": "Reset się wykonał, ale aplikacja się nie zamknęła. Spróbuj zrestartować Echo Scribe ręcznie.",
+    "resetErrorToast": "Nie udało się zresetować uprawnień: {{error}}"
+  },
+  "projectEditor": {
+    "colorNames": {
+      "red": "Czerwony",
+      "orange": "Pomarańczowy",
+      "yellow": "Żółty",
+      "green": "Zielony",
+      "cyan": "Turkusowy",
+      "blue": "Niebieski",
+      "violet": "Fioletowy",
+      "pink": "Różowy"
+    },
+    "nameRequired": "Nazwa projektu jest wymagana.",
+    "saveFailed": "Zapis nie powiódł się: {{error}}",
+    "folderPickerFailed": "Wybór folderu nie powiódł się: {{error}}",
+    "pickFolderFirst": "Najpierw wybierz folder eksportu.",
+    "backfillSuccess_one": "Wyeksportowano {{count}} plik do {{folder}}.",
+    "backfillSuccess_few": "Wyeksportowano {{count}} pliki do {{folder}}.",
+    "backfillSuccess_many": "Wyeksportowano {{count}} plików do {{folder}}.",
+    "backfillSuccess_other": "Wyeksportowano {{count}} plików do {{folder}}.",
+    "backfillFailed": "Uzupełnienie eksportu nie powiodło się: {{error}}",
+    "editHeading": "Edytuj projekt",
+    "newHeading": "Nowy projekt",
+    "close": "Zamknij",
+    "nameLabel": "Nazwa",
+    "emojiAriaLabel": "Emoji",
+    "namePlaceholder": "np. Acme Sprzedaż",
+    "descriptionLabel": "Opis",
+    "descriptionPlaceholder": "Czego dotyczy ten projekt. Pomaga klasyfikatorowi kierować tu wpisy.",
+    "descriptionHint": "Używane przez klasyfikator do decydowania, czy nowe wpisy należą tutaj.",
+    "keywordsLabel": "Słowa kluczowe",
+    "removeItemAriaLabel": "Usuń {{item}}",
+    "keywordsPlaceholder": "Wpisz i naciśnij Enter",
+    "keywordsHint": "Wskazówki tematyczne (nazwy, akronimy, kryptonimy). Małe litery, bez duplikatów.",
+    "routingHeading": "Kierowanie",
+    "aliasesLabel": "Aliasy",
+    "aliasesPlaceholder": "livecase, hbsp, case simulation",
+    "appHintsLabel": "Wskazówki aplikacji",
+    "appHintsPlaceholder": "Code, Google Chrome",
+    "urlHintsLabel": "Wskazówki URL",
+    "urlHintsPlaceholder": "hbsp.harvard.edu, github.com/desduvauchelle/echo-scribe",
+    "windowHintsLabel": "Wskazówki okna",
+    "windowHintsPlaceholder": "echo-scribe, livecaseplus",
+    "positiveExamplesLabel": "Przykłady pozytywne",
+    "positiveExamplesPlaceholder": "Jeden przykładowy wpis na linię",
+    "negativeExamplesLabel": "Przykłady negatywne",
+    "negativeExamplesPlaceholder": "Zwroty, które nie powinny być tu kierowane",
+    "colorLabel": "Kolor",
+    "customColorAriaLabel": "Niestandardowy kolor (hex)",
+    "clearButton": "Wyczyść",
+    "exportFolderLabel": "Folder eksportu",
+    "changeFolderButton": "Zmień…",
+    "chooseFolderButton": "Wybierz folder…",
+    "exportFolderHint": "Wpisy z wysoką pewnością skierowane do tego projektu są eksportowane tutaj jako pliki markdown. Notatki / zadania / transkrypcje trafiają do podfolderów według rodzaju.",
+    "exporting": "Eksportowanie…",
+    "reexportButton": "Wyeksportuj ponownie wszystkie istniejące wpisy",
+    "deleteButton": "Usuń projekt",
+    "cancelButton": "Anuluj",
+    "saving": "Zapisywanie…",
+    "saveButton": "Zapisz",
+    "createButton": "Utwórz",
+    "unassigned": "Nieprzypisany"
+  },
+  "projectManager": {
+    "loadFailed": "Nie udało się wczytać projektów: {{error}}",
+    "checkLinkedContentFailed": "Nie udało się sprawdzić powiązanej treści: {{error}}",
+    "archiveFailed": "Archiwizacja nie powiodła się: {{error}}",
+    "unarchiveFailed": "Cofnięcie archiwizacji nie powiodło się: {{error}}",
+    "deleteSuccessWithContent": "Usunięto „{{name}}” wraz z powiązaną treścią.",
+    "deleteSuccessUnassigned": "Usunięto „{{name}}”. Powiązana treść jest teraz nieprzypisana.",
+    "deleteFailed": "Usuwanie nie powiodło się: {{error}}",
+    "newProjectButton": "Nowy projekt",
+    "loading": "Ładowanie projektów…",
+    "emptyState": "Brak jeszcze projektów. Zarejestruj myśl odnoszącą się do nowego projektu albo utwórz go powyżej.",
+    "editButton": "Edytuj",
+    "unarchiveButton": "Cofnij archiwizację",
+    "archiveButton": "Archiwizuj",
+    "deleteAriaLabel": "Usuń {{name}}",
+    "deleteButton": "Usuń",
+    "deleteDialogTitle": "Usunąć „{{name}}”?",
+    "deleteDialogDescription": "Wybierz, co ma się stać z treścią obecnie przypisaną do tego projektu.",
+    "checkingLinkedContent": "Sprawdzanie powiązanej treści…",
+    "deleteOnlyTitle": "Usuń tylko projekt",
+    "deleteOnlyDescription": "Zachowaj każdą notatkę, zadanie, transkrypcję, spotkanie, nagranie i czat. Tag projektu zostaje usunięty, a treść staje się nieprzypisana.",
+    "deleteWithContentTitle": "Usuń projekt i powiązaną treść",
+    "deleteWithContentDescription": "Trwale usuń powiązane wpisy, transkrypcje i podsumowania spotkań, nagrania, czaty i wygenerowane artefakty. Tej operacji nie można cofnąć.",
+    "exportedFilesNote": "Pliki wcześniej wyeksportowane poza Echo Scribe nie zostaną usunięte.",
+    "deleting": "Usuwanie…",
+    "cancelButton": "Anuluj",
+    "noLinkedContent": "Nie znaleziono powiązanej treści.",
+    "linkedContentPrefix": "Powiązana treść:",
+    "linkedItems": {
+      "meetings_one": "{{count}} spotkanie",
+      "meetings_few": "{{count}} spotkania",
+      "meetings_many": "{{count}} spotkań",
+      "meetings_other": "{{count}} spotkań",
+      "notes_one": "{{count}} notatka",
+      "notes_few": "{{count}} notatki",
+      "notes_many": "{{count}} notatek",
+      "notes_other": "{{count}} notatek",
+      "tasks_one": "{{count}} zadanie",
+      "tasks_few": "{{count}} zadania",
+      "tasks_many": "{{count}} zadań",
+      "tasks_other": "{{count}} zadań",
+      "transcriptions_one": "{{count}} transkrypcja",
+      "transcriptions_few": "{{count}} transkrypcje",
+      "transcriptions_many": "{{count}} transkrypcji",
+      "transcriptions_other": "{{count}} transkrypcji",
+      "recordings_one": "{{count}} nagranie",
+      "recordings_few": "{{count}} nagrania",
+      "recordings_many": "{{count}} nagrań",
+      "recordings_other": "{{count}} nagrań",
+      "chats_one": "{{count}} czat",
+      "chats_few": "{{count}} czaty",
+      "chats_many": "{{count}} czatów",
+      "chats_other": "{{count}} czatów",
+      "artifacts_one": "{{count}} wygenerowany artefakt",
+      "artifacts_few": "{{count}} wygenerowane artefakty",
+      "artifacts_many": "{{count}} wygenerowanych artefaktów",
+      "artifacts_other": "{{count}} wygenerowanych artefaktów",
+      "otherCaptures_one": "{{count}} inny wpis",
+      "otherCaptures_few": "{{count}} inne wpisy",
+      "otherCaptures_many": "{{count}} innych wpisów",
+      "otherCaptures_other": "{{count}} innych wpisów"
+    }
+  },
+  "recordingActionButtons": {
+    "titleOptions": "Opcje: {{title}}",
+    "uploadToDrive": "Prześlij do Drive",
+    "uploadOptions": "Opcje przesyłania",
+    "uploadTooltipEdited": "Prześlij do Drive (wersja zmontowana)",
+    "uploadTooltip1080": "Prześlij do Drive (1080p)",
+    "sharing": "Udostępnianie",
+    "anyone": "Każdy",
+    "onlyMe": "Tylko ja",
+    "quality": "Jakość",
+    "qualityEdited": "Zmontowane",
+    "qualityOriginal": "Oryginał",
+    "quality1080p": "1080p",
+    "quality720p": "720p",
+    "quality480p": "480p"
+  },
+  "recordingActionsMenu": {
+    "driveReconnectModal": {
+      "dialogLabel": "Połącz ponownie z Google Drive",
+      "title": "Google Drive wymaga ponownego połączenia",
+      "body1": "Google nie akceptuje autoryzacji tej aplikacji do przesyłania plików. Zdarza się to po zmianie hasła lub cofnięciu dostępu — a także wtedy, gdy uprawnienie do Drive nie zostało przyznane na ekranie zgody. Połącz ponownie, aby kontynuować; to przesyłanie wznowi się automatycznie.",
+      "body2Before": "Na stronie Google upewnij się, że zaznaczone jest pole",
+      "checkboxLabel": "dodawania i edytowania plików na Twoim Google Drive",
+      "body2After": "Zalogowanie się bez niego blokuje przesyłanie.",
+      "cancel": "Anuluj",
+      "waitingForGoogle": "Oczekiwanie na Google…",
+      "reconnectButton": "Połącz ponownie z Google Drive"
+    },
+    "menuTrigger": "Akcje nagrania",
+    "menu": {
+      "editRecording": "Edytuj nagranie",
+      "uploadToDrive": "Prześlij do Drive",
+      "uploadToDriveEditedSuffix": " (zmontowane)",
+      "revealInFinder": "Pokaż w Finderze",
+      "regenerateTranscript": "Wygeneruj transkrypcję ponownie",
+      "getTranscript": "Pobierz transkrypcję",
+      "export1080p": "Eksportuj 1080p",
+      "delete": "Usuń"
+    },
+    "toasts": {
+      "uploadedWithLinkCopied": "Przesłano do Drive — link skopiowany",
+      "uploaded": "Przesłano do Drive",
+      "transcriptReady": "Transkrypcja gotowa",
+      "exported1080p": "Wyeksportowano MP4 1080p"
+    },
+    "confirmDelete": {
+      "title": "Usuń nagranie",
+      "message": "Usunąć „{{name}}”? Tej operacji nie można cofnąć."
+    }
+  },
+  "recordingCard": {
+    "openRecording": "Otwórz nagranie: {{name}}",
+    "recordingKind": "Nagranie",
+    "uploading": "Przesyłanie",
+    "onDrive": "Na Drive",
+    "uploadFailed": "Przesyłanie nie powiodło się"
+  },
+  "recordingDetailPanel": {
+    "copyButton": "Kopiuj",
+    "header": {
+      "fallbackTitle": "Nagranie",
+      "renameRecording": "Zmień nazwę nagrania",
+      "closePanel": "Zamknij panel"
+    },
+    "body": {
+      "recordingNotFound": "Nie znaleziono nagrania.",
+      "loading": "Ładowanie…",
+      "editVideo": "Edytuj wideo",
+      "revealInFinder": "Pokaż w Finderze",
+      "export1080p": "Eksportuj 1080p",
+      "exportOptions": {
+        "480": "480p",
+        "720": "720p",
+        "1080": "1080p"
+      },
+      "regenerateTranscript": "Wygeneruj transkrypcję ponownie",
+      "getTranscript": "Pobierz transkrypcję",
+      "delete": "Usuń",
+      "exportedPrefix": "Wyeksportowano:",
+      "exportedEntry": "{{quality}} ({{size}})",
+      "exportedQualityRendered": "Zmontowane",
+      "exportedSeparator": " · ",
+      "exportedToast": "Wyeksportowano MP4 {{quality}}p",
+      "transcribingProgress": "Transkrybowanie… {{progress}}%",
+      "uploadingToDrive": "Przesyłanie do Drive…",
+      "uploadFailed": "Przesyłanie nie powiodło się",
+      "uploadFailedWithError": "Przesyłanie nie powiodło się: {{error}}",
+      "transcriptHeading": "Transkrypcja",
+      "noSpeechDetected": "Nie wykryto mowy. Użyj przycisku transkrypcji powyżej, aby spróbować ponownie.",
+      "noTranscriptYet": "Brak transkrypcji — użyj przycisku transkrypcji powyżej, aby ją wygenerować."
+    },
+    "confirmDelete": {
+      "title": "Usuń nagranie",
+      "message": "Usunąć „{{name}}”? Tej operacji nie można cofnąć."
+    }
+  },
+  "screenRecordButton": {
+    "stopLabel": "Zatrzymaj nagrywanie ekranu",
+    "recordLabel": "Nagraj ekran",
+    "recordTitle": "Nagraj swój ekran",
+    "stop": "Zatrzymaj",
+    "screen": "Ekran"
+  },
+  "sectionErrorBoundary": {
+    "message": "Coś poszło nie tak przy wyświetlaniu tej strony. Zobacz Ustawienia → Diagnostyka → logi, aby uzyskać szczegóły.",
+    "backToDashboard": "Wróć do panelu"
+  },
+  "sidebarRecordButton": {
+    "stopRecordingTitle": "Zatrzymaj nagrywanie",
+    "captureMeetingTitle": "Zarejestruj spotkanie",
+    "stopCapture": "Zatrzymaj rejestrowanie",
+    "capture": "Rejestruj",
+    "recordMeetingTitle": "Nagraj dźwięk systemowy i mikrofon jako spotkanie",
+    "stop": "Zatrzymaj",
+    "record": "Nagrywaj"
+  },
+  "speechModelPicker": {
+    "title": "Modele transkrypcji",
+    "description": "Wybierz model do transkrypcji tego, co mówisz. Działa na urządzeniu, bez sieci.",
+    "downloadedHeading": "Pobrane modele",
+    "availableHeading": "Dostępne do pobrania",
+    "loadError": "Nie udało się wczytać modeli mowy: {{error}}",
+    "segmentBar": {
+      "ariaLabel": "{{value}} z {{max}}"
+    },
+    "modelCard": {
+      "notSupported": "Jeszcze nieobsługiwany",
+      "active": "Aktywny",
+      "accuracy": "dokładność",
+      "speed": "szybkość",
+      "downloadProgressAria": "Postęp pobierania",
+      "downloadFailed": "Pobieranie nie powiodło się: {{error}}",
+      "englishOnly": "Tylko angielski",
+      "multiLanguage": "Wielojęzyczny",
+      "unavailable": "Niedostępny",
+      "downloading": "Pobieranie…",
+      "delete": "Usuń",
+      "useThisModel": "Użyj tego modelu",
+      "download": "Pobierz"
+    }
+  },
+  "startAtLoginToggle": {
+    "title": "Uruchamiaj przy logowaniu",
+    "subtitle": "Uruchamiaj Echo Scribe automatycznie po zalogowaniu do Maca.",
+    "updateError": "Nie udało się zaktualizować uruchamiania przy logowaniu: {{error}}"
+  },
+  "statsCategoryTabs": {
+    "activityType": "Typ aktywności"
+  },
+  "themeToggle": {
+    "label": {
+      "auto": "Auto (zgodnie z systemem)",
+      "light": "Jasny",
+      "dark": "Ciemny"
+    },
+    "title": "Motyw: {{current}} — kliknij, aby przełączyć na {{next}}",
+    "ariaLabel": "Motyw: {{current}}"
+  },
+  "toastProvider": {
+    "dismiss": "Odrzuć"
+  },
+  "transcriptionSettings": {
+    "spokenEditing": {
+      "title": "Edycja głosowa",
+      "detail": "Stosuj deterministyczne komendy głosowe przed oczyszczeniem transkrypcji.",
+      "saveFailed": "Nie udało się zapisać edycji głosowej: {{error}}",
+      "corrections": {
+        "label": "Naturalne poprawki",
+        "detail": "\"actually\", \"change X to Y\", \"scratch that\""
+      },
+      "punctuation": {
+        "label": "Interpunkcja i akapity",
+        "detail": "\"comma\", \"new line\", \"new paragraph\""
+      },
+      "lists": {
+        "label": "Komendy list",
+        "detail": "\"start a list\", \"next item\", \"end list\""
+      },
+      "pressEnter": {
+        "label": "Zezwól na „press enter”",
+        "detail": "Opcjonalne: może wysłać wiadomość po udanym wklejeniu"
+      },
+      "cancelHint": "Powiedz „cancel that” jako całą wypowiedź, aby ją odrzucić. Naciśnij Escape podczas nagrywania, aby odrzucić natychmiast."
+    },
+    "language": {
+      "title": "Język",
+      "description": "Mowa jest wykrywana automatycznie. Wybierz język używany do oczyszczania i komend głosowych.",
+      "saveFailed": "Nie udało się zapisać języka: {{error}}",
+      "options": {
+        "auto": "Automatycznie",
+        "en": "Angielski",
+        "es": "Hiszpański",
+        "fr": "Francuski",
+        "de": "Niemiecki",
+        "pt": "Portugalski"
+      },
+      "footnote": "Automatyczne wykrywanie obsługuje 25 języków europejskich. Komendy edycji głosowej są obecnie dostępne tylko w języku angielskim."
+    },
+    "dictionary": {
+      "title": "Słownik",
+      "description": "Przypisz wypowiedziane słowo lub frazę do dokładnej pisowni, wielkości liter lub interpunkcji.",
+      "exportJson": "Eksportuj JSON",
+      "importJson": "Importuj JSON",
+      "invalidFile": "Nieprawidłowy plik słownika",
+      "saveFailed": "Nie udało się zapisać słownika: {{error}}",
+      "spokenPlaceholder": "Co słyszy Echo",
+      "replacementPlaceholder": "Zamień na",
+      "searchPlaceholder": "Szukaj w słowniku",
+      "add": "Dodaj",
+      "remove": "Usuń"
+    },
+    "snippets": {
+      "title": "Fragmenty",
+      "description": "Rozwiń całą wypowiedzianą frazę w gotowy do wielokrotnego użycia tekst. Wszystko pozostaje lokalnie.",
+      "exportJson": "Eksportuj JSON",
+      "importJson": "Importuj JSON",
+      "invalidFile": "Nieprawidłowy plik fragmentów",
+      "saveFailed": "Nie udało się zapisać fragmentów: {{error}}",
+      "triggerPlaceholder": "Fraza wyzwalająca",
+      "expansionPlaceholder": "Dokładne rozwinięcie",
+      "add": "Dodaj",
+      "conflict": "Ta fraza wyzwalająca już istnieje.",
+      "remove": "Usuń"
+    },
+    "fillerWords": {
+      "title": "Usuwaj słowa wypełniacze",
+      "description": "Usuwa „yyy”, „eee”, „no wiesz” i podobne z każdej transkrypcji.",
+      "updateFailed": "Nie udało się zaktualizować usuwania wypełniaczy: {{error}}",
+      "saveFailed": "Nie udało się zapisać słów wypełniaczy: {{error}}",
+      "restoreFailed": "Nie udało się przywrócić domyślnych: {{error}}",
+      "chipList": {
+        "title": "Lista wypełniaczy",
+        "subtitle": "Edytuj listę. Wielowyrazowe frazy takie jak „no wiesz” też działają.",
+        "placeholder": "Dodaj wypełniacz",
+        "restoreDefaults": "Przywróć domyślne"
+      }
+    },
+    "chipList": {
+      "add": "Dodaj",
+      "loading": "Ładowanie…",
+      "empty": "Brak wpisów.",
+      "removeAria": "Usuń {{word}}"
+    }
+  },
+  "updateBanner": {
+    "dismissAriaLabel": "Odrzuć aktualizację",
+    "updateReady": "Aktualizacja gotowa",
+    "versionLabel": "Echo Scribe {{version}}",
+    "restartNow": "Uruchom ponownie teraz",
+    "versionReady": "Echo Scribe {{version}} jest gotowa"
+  }
+}

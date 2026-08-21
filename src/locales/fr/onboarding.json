@@ -1,1 +1,53 @@
-{}
+{
+  "welcome": {
+    "title": "Bienvenue dans Echo Scribe",
+    "subtitle": "Accordez les autorisations ci-dessous, choisissez un modèle vocal, puis commencez à dicter n’importe où. L’enregistrement d’écran est facultatif — nécessaire seulement si vous voulez que les réunions capturent l’audio de l’autre personne."
+  },
+  "permissions": {
+    "microphone": {
+      "title": "Microphone",
+      "subtitle": "Echo Scribe a besoin de votre microphone pour capturer ce que vous dites."
+    },
+    "accessibility": {
+      "title": "Accessibilité",
+      "subtitle": "Requis pour coller le texte transcrit à l’emplacement du curseur, dans n’importe quelle application."
+    },
+    "screenRecording": {
+      "title": "Enregistrement d’écran",
+      "subtitle": "Permet à Echo Scribe de capturer l’audio de l’autre participant pendant les réunions Zoom, Google Meet et autres. Sans cette autorisation, seul votre microphone est enregistré."
+    }
+  },
+  "llmModel": {
+    "title": "Modèle d’IA locale",
+    "optional": "(facultatif)",
+    "ready": "Prêt",
+    "description": "Alimente le flux de capture rapide (classification automatique des notes, tâches, étiquettes). La voix au curseur fonctionne sans lui — vous pouvez l’ignorer pour y revenir plus tard.",
+    "skipButton": "Ignorer pour l’instant",
+    "skippedNote": "Ignoré. La capture rapide affichera un message d’information tant que vous n’avez pas choisi de modèle dans Réglages."
+  },
+  "dictationShortcut": {
+    "title": "Raccourci de dictée",
+    "description": "Appuyez et maintenez pour enregistrer. Par défaut : Control droit — modifiez-le ici en cas de conflit avec une autre application."
+  },
+  "logCaptureShortcut": {
+    "title": "Raccourci de capture rapide",
+    "description": "Appuyez et maintenez pour capturer une pensée ou une tâche. Par défaut : Option droite — Echo Scribe la classera en local et affichera un écran de vérification."
+  },
+  "startButton": {
+    "starting": "Démarrage…",
+    "label": "Démarrer Echo Scribe"
+  },
+  "skipButton": {
+    "skipping": "Ignoré…",
+    "label": "Ignorer la configuration pour l’instant",
+    "note": "Vous pouvez utiliser Echo Scribe dès maintenant et terminer la configuration plus tard dans Réglages."
+  },
+  "resetTcc": {
+    "linkLabel": "Autorisation bloquée ? Réinitialiser et quitter",
+    "confirmBody": "Ceci efface les autorisations Microphone + Accessibilité + Enregistrement d’écran et quitte Echo Scribe. Vous devrez la relancer et réaccorder l’accès. Continuer ?",
+    "resetting": "Réinitialisation…",
+    "confirmButton": "Oui, réinitialiser et quitter",
+    "cancelButton": "Annuler",
+    "timeoutError": "La réinitialisation s’est terminée mais l’application ne s’est pas fermée. Essayez de la redémarrer manuellement."
+  }
+}

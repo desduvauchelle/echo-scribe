@@ -1,1 +1,514 @@
-{}
+{
+  "language": {
+    "title": "Język",
+    "subtitle": "Wybierz język interfejsu Echo Scribe.",
+    "selectLabel": "Język interfejsu",
+    "system": "Domyślny systemowy",
+    "note": "Zastosowane natychmiast."
+  },
+  "header": {
+    "back": "Wstecz",
+    "title": "Ustawienia",
+    "preferences": "Preferencje"
+  },
+  "nav": {
+    "ariaLabel": "Ustawienia",
+    "groups": {
+      "capture": "Rejestrowanie",
+      "automation": "Automatyzacja",
+      "system": "System"
+    },
+    "items": {
+      "dictation": "Dyktowanie",
+      "logcapture": "Notatka głosowa",
+      "meetings": "Spotkania",
+      "daily-recap": "Podsumowanie dnia",
+      "actions": "Akcje",
+      "templates": "Szablony",
+      "language-model": "Model językowy",
+      "general": "Ogólne",
+      "drive": "Google Drive",
+      "projects": "Projekty",
+      "coding-agents": "Agenci kodujący",
+      "permissions": "Uprawnienia",
+      "diagnostics": "Diagnostyka",
+      "uninstall": "Odinstaluj"
+    }
+  },
+  "pageDesc": {
+    "dictation": "Zamiana mowy na tekst przy kursorze — model, mikrofon, zachowanie dźwięku, skrót i oczyszczanie.",
+    "logcapture": "Nagraj myśl, pomysł lub zadanie głosem, a potem zarchiwizuj i wyeksportuj je.",
+    "meetings": "Wykrywaj połączenia i podsumowuj transkrypcje z obsługiwanych aplikacji do spotkań.",
+    "daily-recap": "Wybierz, kiedy Echo Scribe podsumowuje wczorajsze spotkania, notatki i dyktowania.",
+    "actions": "Uruchamiaj aplikacje, linki, e-maile i liczniki bezpośrednio głosem.",
+    "templates": "Przekształć dyktowanie w e-maile, listy lub dowolny styl, zanim zostanie wklejone.",
+    "language-model": "Lokalny model Gemma, który obsługuje klasyfikację, podsumowania i akcje.",
+    "general": "Uruchamiaj przy logowaniu i aktualizuj Echo Scribe na bieżąco.",
+    "drive": "Prześlij nagrania ekranu do Google Drive i udostępniaj je linkiem.",
+    "projects": "Twórz, zmieniaj nazwy, archiwizuj lub usuwaj projekty.",
+    "coding-agents": "Połącz Claude Code, Codex lub dowolnego klienta MCP, aby przeszukiwać Twoje wpisy — a jeśli chcesz, także nagrywać ekran.",
+    "permissions": "Dostęp do mikrofonu, dostępności i nagrywania ekranu.",
+    "diagnostics": "Sprawdzaj logi i resetuj aplikację, gdy coś nie działa.",
+    "uninstall": "Usuń aplikację, decydując, czy zachować lokalne dane."
+  },
+  "common": {
+    "cancel": "Anuluj",
+    "save": "Zapisz",
+    "saveChanges": "Zapisz zmiany",
+    "savingEllipsis": "Zapisywanie…",
+    "delete": "Usuń",
+    "retry": "Ponów",
+    "close": "Zamknij",
+    "open": "Otwórz",
+    "change": "Zmień…",
+    "clear": "Wyczyść",
+    "copy": "Kopiuj",
+    "copied": "Skopiowano",
+    "edit": "Edytuj",
+    "reset": "Resetuj",
+    "refresh": "Odśwież",
+    "loading": "Ładowanie…",
+    "duration": {
+      "thirtySeconds": "30 sekund",
+      "oneMinute": "1 minuta",
+      "twoMinutes": "2 minuty",
+      "fiveMinutes": "5 minut",
+      "fifteenMinutes": "15 minut",
+      "keepLoaded": "Zawsze załadowany"
+    }
+  },
+  "dictation": {
+    "microphone": {
+      "title": "Mikrofon",
+      "subtitle": "Wybierz urządzenie wejściowe, z którego Echo Scribe nagrywa. Domyślne używa tego, co jest ustawione w macOS."
+    },
+    "audioFeedback": {
+      "title": "Dźwięk potwierdzenia",
+      "subtitle": "Subtelne dźwięki przy rozpoczęciu i zakończeniu nagrywania oraz gdy notatka głosowa jest gotowa do przejrzenia.",
+      "label": "Odtwarzaj dźwięki nagrywania",
+      "description": "Trzy krótkie dźwięki związane z rozpoczęciem, zakończeniem i gotowością klasyfikacji.",
+      "toastFailed": "Nie udało się zaktualizować ustawień dźwięku: {{error}}"
+    },
+    "muteWhileRecording": {
+      "title": "Wycisz podczas nagrywania",
+      "subtitle": "Wstrzymuje muzykę i dźwięk systemowy, gdy skrót jest przytrzymany, a przywraca go po zwolnieniu.",
+      "label": "Wycisz dźwięk systemowy podczas nagrywania",
+      "description": "Wycisza odtwarzanie muzyki i wideo na czas nagrywania.",
+      "toastFailed": "Nie udało się zaktualizować ustawienia wyciszenia: {{error}}"
+    },
+    "hotkey": {
+      "title": "Skrót głosu przy kursorze",
+      "subtitle": "Przytrzymaj tę kombinację klawiszy w dowolnym miejscu macOS, aby dyktować przy kursorze."
+    },
+    "transcription": {
+      "title": "Transkrypcja",
+      "subtitle": "Oczyść wynik zamiany mowy na tekst, zanim zostanie wklejony lub zapisany."
+    },
+    "keepModelInMemory": {
+      "title": "Trzymaj model mowy w pamięci",
+      "subtitle": "Jak długo model zamiany mowy na tekst pozostaje załadowany po ostatnim użyciu. Dłużej = szybsza kolejna transkrypcja, ale więcej zużytej pamięci RAM."
+    },
+    "microphonePicker": {
+      "loading": "Ładowanie mikrofonów…",
+      "loadError": "Nie udało się załadować mikrofonów: {{error}}",
+      "savedMicMissing": "Zapisany mikrofon <mono>{{name}}</mono> nie jest podłączony. Wybierz inny poniżej lub wróć do domyślnego systemowego.",
+      "inputDeviceLabel": "Urządzenie wejściowe",
+      "systemDefaultOption": "Domyślny systemowy",
+      "sortByLabel": "Sortuj według",
+      "sortLastUsed": "Ostatnio używane",
+      "sortAlphabetical": "Alfabetycznie",
+      "footerNote": "Gdy zapisany mikrofon zostanie odłączony, Echo Scribe odmówi nagrywania i Cię powiadomi — nie przełączy się po cichu na inne urządzenie."
+    },
+    "asrUnloadTimeout": {
+      "title": "Zwolnij po bezczynności",
+      "description": "Zwalnia pamięć RAM, gdy przez jakiś czas nie było dyktowania. Model ładuje się ponownie automatycznie przy następnym użyciu.",
+      "toastFailed": "Nie udało się zaktualizować ustawienia pamięci modelu mowy: {{error}}"
+    }
+  },
+  "logCapture": {
+    "hotkey": {
+      "title": "Skrót notatki głosowej",
+      "subtitle": "Przytrzymaj tę kombinację klawiszy, aby nagrać myśl, pomysł lub zadanie — sklasyfikowane lokalnie i zapisane w Twoim dzienniku."
+    },
+    "export": {
+      "title": "Eksport do Markdown",
+      "subtitle": "Gdy projekt ma skonfigurowany folder eksportu, kierowane do niego wpisy są automatycznie zapisywane jako pliki Markdown do użycia z zewnętrznymi narzędziami AI. Skonfiguruj folder dla każdego projektu w Ustawienia → Projekty.",
+      "confidenceNote": "Wpisy są eksportowane, gdy pewność klasyfikatora osiąga <mono>{{percent}}%</mono> lub więcej. Spotkania są eksportowane zawsze, gdy projekt ma ustawiony folder.",
+      "confidenceThresholdLabel": "Próg pewności: {{percent}}%"
+    },
+    "autoTagging": {
+      "title": "Automatyczne tagowanie projektów",
+      "subtitle": "Porządkuj bezpośrednie dyktowania później, partiami, aby lokalny model AI nie ładował się po każdym wklejeniu.",
+      "enableLabel": "Włącz odroczone tagowanie projektów",
+      "status": {
+        "pending": "Oczekujące:",
+        "deferred": "Odroczone:",
+        "done": "Gotowe:",
+        "failed": "Nieudane:"
+      },
+      "buttons": {
+        "queueing": "Dodawanie do kolejki…",
+        "queueUnassigned": "Dodaj do kolejki nieprzypisane dyktowania",
+        "running": "Uruchomiono…",
+        "runRouter": "Uruchom router słów kluczowych",
+        "runLlmBatch": "Uruchom wsad lokalnej AI"
+      },
+      "toasts": {
+        "queued_one": "Dodano do kolejki {{count}} transkrypcję do tagowania.",
+        "queued_few": "Dodano do kolejki {{count}} transkrypcje do tagowania.",
+        "queued_many": "Dodano do kolejki {{count}} transkrypcji do tagowania.",
+        "queued_other": "Dodano do kolejki {{count}} transkrypcji do tagowania.",
+        "routerAssigned_one": "Router przypisał {{assigned}} z {{count}} wpisu w kolejce.",
+        "routerAssigned_few": "Router przypisał {{assigned}} z {{count}} wpisów w kolejce.",
+        "routerAssigned_many": "Router przypisał {{assigned}} z {{count}} wpisów w kolejce.",
+        "routerAssigned_other": "Router przypisał {{assigned}} z {{count}} wpisów w kolejce.",
+        "llmAssigned_one": "Lokalna AI przypisała {{assigned}} z {{count}} wpisu w kolejce.",
+        "llmAssigned_few": "Lokalna AI przypisała {{assigned}} z {{count}} wpisów w kolejce.",
+        "llmAssigned_many": "Lokalna AI przypisała {{assigned}} z {{count}} wpisów w kolejce.",
+        "llmAssigned_other": "Lokalna AI przypisała {{assigned}} z {{count}} wpisów w kolejce.",
+        "failed": "Tagowanie projektu nie powiodło się: {{error}}"
+      }
+    },
+    "autoFile": {
+      "title": "Automatyczne zapisywanie pewnych wpisów",
+      "subtitle": "Zapisuj po cichu wpisy o wysokiej pewności. Propozycje nowego projektu zawsze pokazują nakładkę przeglądu.",
+      "confidenceNote": "Gdy lokalna AI jest pewna projektu i rodzaju w co najmniej <mono>{{percent}}%</mono>, zapisz wpis po cichu z powiadomieniem (lub powiadomieniem systemowym, gdy okno jest zamknięte).",
+      "enableLabel": "Włącz automatyczne zapisywanie",
+      "thresholdLabel": "Próg: {{percent}}%"
+    }
+  },
+  "meetings": {
+    "summaryTemplates": {
+      "standard": { "name": "Standardowy notatnik", "description": "Ogólne podsumowanie i konkretne kolejne kroki" },
+      "action-item": { "name": "Skupiony na zadaniach", "description": "Priorytetyzuje zadania, osoby odpowiedzialne i terminy" },
+      "executive": { "name": "Podsumowanie zarządcze", "description": "Strategiczne plany, wyniki i wpływ na biznes" },
+      "technical": { "name": "Synchronizacja techniczna", "description": "Dogłębne synchronizacje deweloperskie, API i blokery" }
+    },
+    "promptModal": {
+      "title": "Wytyczne podsumowania spotkania",
+      "subtitle": "Dostosuj instrukcje, których lokalna AI używa do podsumowywania i wyodrębniania zadań z transkrypcji.",
+      "loadTemplatesLabel": "Wczytaj z predefiniowanych szablonów",
+      "templateLoaded": "Szablon wczytany",
+      "customGuidelinesLabel": "Niestandardowe wytyczne",
+      "textareaPlaceholder": "Opisz, jak AI powinna podsumować transkrypcję spotkania…",
+      "placeholdersTitle": "Dynamiczne symbole zastępcze",
+      "placeholdersBody": "Możesz wstawić <code>{duration_minutes}</code> i <code>{app}</code> w swoich wytycznych. Zostaną one zastąpione w czasie działania czasem trwania spotkania i nazwą aplikacji (np. Zoom, Teams).",
+      "formatSafetyTitle": "Bezpieczeństwo formatu obsługiwane automatycznie",
+      "formatSafetyBody": "Nie musisz instruować AI, aby zwracała JSON lub konkretny format list. Backend automatycznie dołącza schematy formatowania, aby zapewnić poprawne przetworzenie i wyświetlenie podsumowania spotkania w układzie aplikacji.",
+      "saving": "Zapisywanie…",
+      "saveGuidelines": "Zapisz wytyczne"
+    },
+    "autoDetect": {
+      "title": "Automatyczne wykrywanie spotkań",
+      "subtitle": "Echo Scribe obserwuje obsługiwane aplikacje do spotkań i połączenia w przeglądarce, a potem proponuje nagranie.",
+      "checkboxLabel": "Wykrywaj automatycznie obsługiwane aplikacje do spotkań",
+      "platformsAriaLabel": "Obsługiwane aplikacje do spotkań"
+    },
+    "perAppPrefs": {
+      "title": "Preferencje dla poszczególnych aplikacji",
+      "subtitle": "Zastąp domyślne pytanie dla danej aplikacji: zawsze nagrywaj, zawsze pytaj lub nigdy nie nagrywaj.",
+      "always": "Zawsze",
+      "ask": "Pytaj",
+      "never": "Nigdy",
+      "clearButton": "Wyczyść",
+      "clearTitle": "Usuń preferencję dla tej aplikacji (wróć do pytania przy następnym wykryciu)"
+    },
+    "summaryGuidelines": {
+      "title": "Wytyczne podsumowania spotkania",
+      "subtitle": "Skonfiguruj niestandardowe wytyczne promptu używane przez lokalną AI do podsumowywania Twoich spotkań.",
+      "activeLabel": "Aktywne wytyczne",
+      "noneSet": "Nie ustawiono niestandardowych wytycznych.",
+      "editButton": "Edytuj wytyczne…"
+    },
+    "notesFolder": {
+      "title": "Folder notatek ze spotkań",
+      "subtitle": "Automatycznie zapisuj każde zakończone spotkanie jako plik Markdown, który mogą odczytać inne narzędzia.",
+      "chooseFolder": "Wybierz folder…",
+      "note": "Każdy plik zawiera podsumowanie, zadania, Twoje notatki i transkrypcję z oznaczonymi mówcami. Echo Scribe zapisuje tylko lokalny plik; inna aplikacja lub agent AI potrzebuje własnego dostępu do tego folderu."
+    },
+    "guideTemplates": {
+      "title": "Szablony przewodników",
+      "subtitle": "Wielokrotnego użytku przewodniki spotkań oraz opcjonalne metryki podsumowania poparte dowodami."
+    },
+    "toasts": {
+      "guidelinesUpdated": "Wytyczne podsumowania spotkania zaktualizowane pomyślnie.",
+      "guidelinesSaveFailed": "Nie udało się zapisać wytycznych: {{error}}",
+      "exportFolderUpdated": "Folder eksportu spotkań zaktualizowany.",
+      "exportDisabled": "Automatyczny eksport spotkań wyłączony.",
+      "exportFolderUpdateFailed": "Nie udało się zaktualizować folderu eksportu spotkań: {{error}}",
+      "folderPickerFailed": "Wybór folderu nie powiódł się: {{error}}",
+      "openFolderFailed": "Nie udało się otworzyć folderu notatek ze spotkań: {{error}}"
+    }
+  },
+  "dailyRecap": {
+    "enable": {
+      "label": "Generuj podsumowanie dnia każdego ranka",
+      "description": "Jedno powiadomienie systemowe macOS o wybranej godzinie, podsumowujące wczorajszy dzień."
+    },
+    "deliverAt": {
+      "label": "Dostarcz o",
+      "description": "Czas lokalny. Domyślnie 08:00."
+    },
+    "includeWeekends": {
+      "label": "Uwzględnij weekendy",
+      "description": "Domyślnie wyłączone — brak niedzielnego porannego podsumowania, chyba że tego chcesz."
+    },
+    "toasts": {
+      "loadFailed": "Nie udało się załadować ustawień podsumowania dnia: {{error}}",
+      "saveFailed": "Nie udało się zapisać ustawień podsumowania dnia: {{error}}"
+    }
+  },
+  "actions": {
+    "section": {
+      "title": "Komendy głosowe i uruchamianie aplikacji",
+      "subtitle": "Wykrywaj komendy w Twoich dyktowaniach głosowych, aby uruchamiać aplikacje, otwierać linki, tworzyć e-maile i zarządzać licznikami."
+    },
+    "launcher": {
+      "label": "Uruchamianie aplikacji komendami głosowymi",
+      "badge": "Sonoma+",
+      "description": "Przechwytuj dyktowanie głosowe, aby uruchamiać aplikacje, otwierać linki, tworzyć e-maile, zarządzać licznikami, uruchamiać/zatrzymywać spotkania i nagrania ekranu oraz nie dopuszczać do uśpienia Maca (np. „echo, nie usypiaj Maca przez 2 godziny”)."
+    },
+    "prefixRouting": {
+      "title": "Wyzwalanie na podstawie prefiksu",
+      "description": "Kieruj zwykłe dyktowania głosowe do AI tylko wtedy, gdy zaczynają się od słowa wyzwalającego (np. „echo”). Zapobiega to opóźnieniom dyktowania!",
+      "toastEnabled": "Wyzwalanie prefiksem włączone",
+      "toastDisabled": "Wyzwalanie prefiksem wyłączone",
+      "toastUpdateFailed": "Nie udało się zaktualizować ustawień wyzwalania prefiksem",
+      "triggerWordLabel": "Słowo wyzwalające (prefiks)",
+      "toastWordUpdated": "Słowo wyzwalające zmieniono na „{{word}}”",
+      "toastWordSaveFailed": "Nie udało się zapisać słowa wyzwalającego",
+      "toastWordReset": "Słowo wyzwalające zresetowano do „echo”",
+      "phoneticNote": "* Uwaga: „echo” automatycznie wyzwala też podobne fonetycznie słowa (echo, eco, ekko, hecho)!"
+    },
+    "actionHotkey": {
+      "title": "Dedykowany skrót akcji",
+      "description": "Naciśnij niestandardową kombinację klawiszy, aby bezpośrednio uruchomić tryb komend akcji. Zawsze uruchamia AI i pomija reguły prefiksu."
+    },
+    "editSelection": {
+      "title": "Skrót edycji zaznaczenia",
+      "description": "Zaznacz tekst w dowolnej aplikacji, przytrzymaj ten skrót i wypowiedz instrukcję (np. „zrób to bardziej zwięzłe”, „przetłumacz na francuski”). Lokalny model przepisuje zaznaczenie w tym samym miejscu."
+    },
+    "counter": {
+      "title": "Liczba automatycznych akcji",
+      "description": "Liczba pomyślnie wykonanych akcji głosowych"
+    },
+    "cheatsheet": {
+      "title": "Ściągawka komend głosowych"
+    },
+    "toasts": {
+      "launcherEnabled": "Uruchamianie aplikacji komendami głosowymi włączone",
+      "launcherDisabled": "Uruchamianie aplikacji komendami głosowymi wyłączone",
+      "launcherUpdateFailed": "Nie udało się zaktualizować ustawienia uruchamiania: {{error}}",
+      "counterReset": "Licznik akcji zresetowany do 0",
+      "counterResetFailed": "Nie udało się zresetować licznika: {{error}}"
+    }
+  },
+  "templates": {
+    "section": {
+      "title": "Głosowe szablony formatowania",
+      "subtitle": "Powiedz „echo, sformatuj jako e-mail…” (lub użyj skrótu Akcji), aby przepisać dyktowanie za pomocą niestandardowego promptu systemowego, zanim zostanie wklejone."
+    },
+    "loading": "Ładowanie szablonów…",
+    "explainer": "Gdy Twoje dyktowanie zaczyna się od jednej z fraz wyzwalających szablonu (np. <mono>„echo, sformatuj jako e-mail…”</mono>), reszta zdania jest przepisywana przez prompt systemowy szablonu, zanim zostanie wklejona przy kursorze. Działa zarówno z prefiksem „echo”, jak i z dedykowanym skrótem Akcji.",
+    "empty": "Brak szablonów. Dodaj jeden, aby włączyć formatowanie głosowe.",
+    "fields": {
+      "namePlaceholder": "Nazwa szablonu",
+      "idLabel": "id: {{id}}",
+      "triggerPhrasesLabel": "Frazy wyzwalające (oddzielone przecinkami)",
+      "triggerPhrasesPlaceholder": "sformatuj jako e-mail, zrób z tego e-mail",
+      "systemPromptLabel": "Prompt systemowy",
+      "systemPromptPlaceholder": "Opisz, jak model powinien przepisać dyktowanie. Bądź konkretny co do tonu, długości i tego, co pominąć."
+    },
+    "addButton": "+ Dodaj szablon",
+    "newTemplateName": "Nowy szablon",
+    "confirmDelete": {
+      "message": "Usunąć ten szablon formatowania? Tej operacji nie można cofnąć.",
+      "title": "Usuń szablon"
+    },
+    "toasts": {
+      "saved": "Szablony formatowania zapisane",
+      "saveFailed": "Nie udało się zapisać szablonów: {{error}}"
+    }
+  },
+  "languageModel": {
+    "model": {
+      "title": "Model językowy",
+      "subtitle": "Lokalny model Gemma używany do klasyfikacji notatek głosowych, podsumowań spotkań, akcji głosowych i formatowania."
+    },
+    "keepInMemory": {
+      "title": "Trzymaj model w pamięci",
+      "subtitle": "Jak długo model AI pozostaje załadowany po ostatnim użyciu. Dłużej = szybsze kolejne użycie, ale więcej pamięci RAM."
+    },
+    "testInference": {
+      "title": "Test wnioskowania",
+      "defaultPrompt": "Przywitaj się w pięciu słowach.",
+      "running": "Uruchamianie…",
+      "runButton": "Uruchom"
+    },
+    "unloadTimeout": {
+      "title": "Zwolnij po bezczynności",
+      "description": "Zwalnia pamięć RAM, gdy przez jakiś czas nie było notatek głosowych.",
+      "toastFailed": "Nie udało się zaktualizować ustawienia pamięci AI: {{error}}"
+    }
+  },
+  "general": {
+    "startup": {
+      "title": "Uruchamianie",
+      "subtitle": "Uruchamiaj Echo Scribe automatycznie po zalogowaniu."
+    },
+    "updates": {
+      "title": "Aktualizacje",
+      "subtitle": "Echo Scribe sprawdza aktualizacje automatycznie każdego dnia. Możesz też sprawdzić teraz.",
+      "currentVersion": "Bieżąca wersja",
+      "currentVersionWithNumber": "Bieżąca wersja {{version}}",
+      "checking": "Sprawdzanie…",
+      "checkButton": "Sprawdź aktualizacje"
+    }
+  },
+  "drive": {
+    "section": {
+      "title": "Google Drive",
+      "subtitle": "Prześlij nagrania ekranu na Drive i uzyskaj link „każdy z linkiem może wyświetlić”. Aplikacja widzi tylko pliki, które sama utworzyła (zakres drive.file)."
+    },
+    "connected": "Połączono.",
+    "connectedAsEmail": "Połączono jako {{email}}.",
+    "disconnectButton": "Rozłącz",
+    "connecting": "Łączenie…",
+    "connectButton": "Połącz z Drive",
+    "folderLabel": "Folder Drive na przesyłane pliki",
+    "defaultSharingLabel": "Domyślne udostępnianie: każdy z linkiem może wyświetlić",
+    "sharingNote": "Dotyczy każdego pliku (nie folderu). Możesz to zmienić dla poszczególnych filmów podczas przesyłania.",
+    "byoClientLabel": "Użyj własnego klienta Google OAuth (usuwa ostrzeżenie o niezweryfikowanej aplikacji)",
+    "clientConfigured": "Klient skonfigurowany (…{{suffix}})",
+    "noClientConfigured": "Brak skonfigurowanego klienta.",
+    "setUpButton": "Skonfiguruj",
+    "howToCreateClientId": "Jak utworzyć identyfikator klienta",
+    "setupModal": {
+      "title": "Skonfiguruj własnego klienta Google OAuth",
+      "step1": "Otwórz <link>Google Cloud Console</link> i utwórz projekt (lub wybierz istniejący).",
+      "step2": "APIs & Services → Library → wyszukaj <b>Google Drive API</b> → <b>Enable</b>.",
+      "step3": "APIs & Services → OAuth consent screen → <b>External</b> → wpisz nazwę aplikacji i swój e-mail → dodaj zakres <code>.../auth/drive.file</code> → dodaj swoje konto Google w <b>Test users</b> → Save. Zostaw w trybie <b>Testing</b>.",
+      "step4": "APIs & Services → Credentials → Create credentials → <b>OAuth client ID</b> → Application type: <b>Desktop app</b> → Create.",
+      "step5": "Skopiuj <b>Client ID</b> i <b>Client secret</b> do pól poniżej. Nie jest potrzebny redirect URI — aplikacje typu Desktop automatycznie zezwalają na loopback.",
+      "clientIdPlaceholder": "Client ID (…apps.googleusercontent.com)",
+      "clientSecretPlaceholder": "Client secret",
+      "secretNote": "Przechowywane bezpiecznie na tym Macu. Zostaw sekret pusty podczas edycji, aby zachować zapisany."
+    }
+  },
+  "projects": {
+    "section": {
+      "title": "Projekty",
+      "subtitle": "Twórz, zmieniaj nazwy, archiwizuj lub usuwaj projekty."
+    }
+  },
+  "codingAgents": {
+    "toolPermissions": {
+      "title": "Uprawnienia narzędzi",
+      "subtitle": "Echo Scribe ma wbudowany serwer MCP, z którym mogą się łączyć agenci tacy jak Claude Code czy Codex. Zaznacz, do czego mają dostęp — zmiany obowiązują natychmiast, nawet dla już połączonych agentów. Wszystko pozostaje na tym Macu.",
+      "loadFailed": "Nie udało się załadować uprawnień — zobacz Ustawienia → Diagnostyka → logi, aby uzyskać szczegóły.",
+      "updateFailed": "Nie udało się zaktualizować uprawnienia {{label}}: {{error}}"
+    },
+    "connect": {
+      "title": "Połącz swojego agenta kodującego",
+      "subtitle": "Serwer MCP to sama aplikacja Echo Scribe — nie trzeba nic dodatkowo pobierać. Kliknij Zainstaluj, a Echo Scribe zarejestruje się we własnym CLI agenta, albo skopiuj fragment kodu, aby zrobić to ręcznie."
+    },
+    "snippets": {
+      "claudeCode": { "title": "Claude Code", "hint": "Instalacja uruchamia: claude mcp add (zakres użytkownika)." },
+      "codex": { "title": "Codex CLI", "hint": "Instalacja uruchamia: codex mcp add (zapisuje ~/.codex/config.toml)." },
+      "other": { "title": "Inni klienci MCP", "hint": "Cursor, Windsurf, Gemini CLI — standardowy JSON mcpServers." },
+      "installing": "Instalowanie…",
+      "installButton": "Zainstaluj",
+      "copyAriaLabel": "Kopiuj konfigurację {{title}}"
+    },
+    "howToUse": {
+      "title": "Jak z tego korzystać",
+      "subtitle": "Nie ma komendy do zapamiętania — po prostu rozmawiaj ze swoim agentem normalnie. Widzi on narzędzia Echo Scribe i wywołuje je, gdy Twoje polecenie tego wymaga; wzmianka o „Echo Scribe” zachęca go, aby tam zajrzał. Wypróbuj jedną z tych propozycji:",
+      "recordingNote": "Aby nagrywać na polecenie, Echo Scribe musi działać, a uprawnienie do nagrywania ekranu musi być zaznaczone powyżej. Agent wylistuje Twoje okna, sam uruchomi i zatrzyma nagrywanie, otrzyma z powrotem ścieżkę do pliku wideo, a następnie może obejrzeć lub przeanalizować plik — nagranie trafia też do Twojej biblioteki, tak jak każde inne."
+    },
+    "examplePrompts": {
+      "listWindows": "Wylistuj moje okna za pomocą echo-scribe i nagraj okno Chrome z dźwiękiem systemowym. Zatrzymaj, gdy Ci powiem, i podsumuj, co się wydarzyło na nagraniu.",
+      "recordBug": "Nagraj mój ekran z włączonym mikrofonem, gdy odtwarzam ten błąd, a potem zatrzymaj i przeanalizuj nagranie, żeby sprawdzić, co poszło nie tak.",
+      "searchMeetings": "Przeszukaj moje spotkania w Echo Scribe pod kątem rozmowy o cenach i podsumuj podjęte decyzje.",
+      "lastWeekDictation": "Co podyktowałem/-łam w zeszłym tygodniu na temat procesu wdrażania?",
+      "copyAriaLabel": "Kopiuj przykładowy prompt"
+    }
+  },
+  "permissions": {
+    "section": {
+      "title": "Uprawnienia",
+      "subtitle": "Przyznaj ponownie dostęp do mikrofonu lub dostępności, jeśli coś nie działa poprawnie. Resetuj i zamknij czyści uprawnienia TCC macOS dla obu usług, dzięki czemu następne uruchomienie poprosi o nie od nowa."
+    }
+  },
+  "diagnostics": {
+    "section": {
+      "title": "Diagnostyka",
+      "subtitle": "Sprawdź bieżący log awarii, który Echo Scribe zapisuje w Twoim folderze domowym."
+    },
+    "logFolder": {
+      "title": "Folder logów",
+      "openFailed": "Nie udało się otworzyć folderu: {{error}}"
+    },
+    "recentLog": {
+      "title": "Ostatni log (200 ostatnich linii)",
+      "refreshing": "…",
+      "empty": "(brak zawartości logu)"
+    },
+    "resetSection": {
+      "showButton": "Pokaż opcje resetowania",
+      "hideButton": "Ukryj opcje resetowania",
+      "warning": "Czyści magazyn ustawień (skróty, aktywne modele, zapisane preferencje) i zamyka aplikację. Twoje zarejestrowane wpisy są zachowane — znajdują się w bazie SQLite, nie w magazynie ustawień.",
+      "resetting": "Resetowanie…",
+      "resetButton": "Zresetuj wprowadzenie",
+      "confirmMessage": "Zresetować wprowadzenie? To wyczyści magazyn ustawień i zamknie aplikację. Trzeba będzie uruchomić ją ponownie.",
+      "confirmTitle": "Zresetuj wprowadzenie",
+      "toastFailed": "Reset nie powiódł się: {{error}}"
+    }
+  },
+  "uninstall": {
+    "confirmDeleteMessage": "Odinstalować Echo Scribe i usunąć wszystkie lokalne dane? Obejmuje to zarejestrowane wpisy, nagrania, pobrane modele, ustawienia, logi, lokalne archiwum zdarzeń oraz połączenie z Google Drive. Pliki zostaną przeniesione do Kosza, ale dane uwierzytelniające Drive i uprawnienia macOS zostaną usunięte.",
+    "confirmKeepMessage": "Odinstalować Echo Scribe, zachowując wszystkie lokalne dane? Aplikacja zostanie zamknięta i przeniesiona do Kosza. Ponowna instalacja przywróci Twoje wpisy, nagrania, modele, ustawienia i preferencje.",
+    "confirmDeleteTitle": "Odinstaluj Echo Scribe i dane",
+    "confirmTitle": "Odinstaluj Echo Scribe",
+    "toastFailed": "Odinstalowanie nie powiodło się: {{error}}",
+    "appOnly": {
+      "title": "Odinstaluj aplikację",
+      "body": "Usuwa tylko Echo Scribe. Twoje zarejestrowane wpisy, nagrania, pobrane modele, ustawienia i preferencje pozostają na tym Macu i będą dostępne po ponownej instalacji.",
+      "button": "Odinstaluj aplikację"
+    },
+    "appAndData": {
+      "title": "Odinstaluj aplikację i dane",
+      "body": "Usuwa Echo Scribe oraz wszystkie jego lokalne dane, w tym wpisy, nagrania, modele, ustawienia, logi i lokalne archiwum zdarzeń. Użyj tego tylko wtedy, gdy chcesz, aby następna instalacja zaczęła się od nowa.",
+      "button": "Odinstaluj aplikację i dane"
+    },
+    "uninstalling": "Odinstalowywanie…",
+    "trashNote": "Aplikacja i dane w systemie plików zostają przeniesione do Kosza macOS."
+  },
+  "logCaptureOverlay": {
+    "recording": {
+      "title": "Notatka głosowa",
+      "status": "Nagrywanie — zwolnij skrót, aby zatrzymać.",
+      "listening": "Nasłuchiwanie…"
+    },
+    "review": {
+      "title": "Przejrzyj wpis",
+      "classifierUnavailable": "Podpowiedź klasyfikatora niedostępna: {{error}}",
+      "lowConfidence": "Niska pewność ({{percent}}%) — sprawdź poniżej projekt i rodzaj.",
+      "newProjectSuggested": "Proponowany jest nowy projekt — potwierdź nazwę poniżej przed zapisaniem.",
+      "suggestedFields": "Klasyfikator zaproponował poniższe pola — dostosuj w razie potrzeby.",
+      "transcriptLabel": "Transkrypcja",
+      "kindLabel": "Rodzaj",
+      "kindNote": "Notatka",
+      "kindTask": "Zadanie",
+      "deadlineLabel": "Termin",
+      "deadlineTasksOnly": "(tylko zadania)",
+      "deadlinePlaceholder": "2026-05-10T17:00:00Z",
+      "newProjectLabel": "Nowy projekt (zastępuje istniejący)",
+      "newProjectPlaceholder": "Zostaw puste, aby zachować istniejący projekt",
+      "existingProjectId": "Identyfikator istniejącego projektu: {{id}}",
+      "tagsLabel": "Tagi (oddzielone przecinkami)",
+      "discardButton": "Odrzuć",
+      "saveButton": "Zapisz",
+      "savingEllipsis": "Zapisywanie…"
+    }
+  }
+}

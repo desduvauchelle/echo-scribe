@@ -1,1 +1,53 @@
-{}
+{
+  "welcome": {
+    "title": "Welkom bij Echo Scribe",
+    "subtitle": "Geef de onderstaande toestemmingen, kies een spraakmodel en begin dan overal met dicteren. Schermopname is optioneel — alleen nodig als je wilt dat meetings de audio van de ander vastleggen."
+  },
+  "permissions": {
+    "microphone": {
+      "title": "Microfoon",
+      "subtitle": "Echo Scribe heeft je microfoon nodig om vast te leggen wat je zegt."
+    },
+    "accessibility": {
+      "title": "Toegankelijkheid",
+      "subtitle": "Vereist om getranscribeerde tekst bij de cursor te plakken in elke app."
+    },
+    "screenRecording": {
+      "title": "Schermopname",
+      "subtitle": "Hiermee kan Echo Scribe de audio van de andere deelnemer vastleggen tijdens Zoom, Google Meet en andere meetings. Zonder deze toestemming wordt alleen je microfoon opgenomen."
+    }
+  },
+  "llmModel": {
+    "title": "Lokaal AI-model",
+    "optional": "(optioneel)",
+    "ready": "Gereed",
+    "description": "Drijft de log-capture-flow aan (notities, taken en tags automatisch classificeren). Stem-bij-cursor werkt ook zonder — sla over en kom later terug.",
+    "skipButton": "Voorlopig overslaan",
+    "skippedNote": "Overgeslagen. Log capture toont een vriendelijke melding totdat je een model kiest in Instellingen."
+  },
+  "dictationShortcut": {
+    "title": "Dictatiesneltoets",
+    "description": "Houd ingedrukt om op te nemen. Standaard is Rechter Control — wijzig dit hier als het conflicteert met een andere app."
+  },
+  "logCaptureShortcut": {
+    "title": "Sneltoets voor log capture",
+    "description": "Houd ingedrukt om een gedachte of taak vast te leggen. Standaard is Rechter Option — Echo Scribe classificeert dit lokaal en toont een beoordelingsoverlay."
+  },
+  "startButton": {
+    "starting": "Bezig met starten…",
+    "label": "Echo Scribe starten"
+  },
+  "skipButton": {
+    "skipping": "Bezig met overslaan…",
+    "label": "Setup voorlopig overslaan",
+    "note": "Je kunt Echo Scribe nu al verkennen en de setup later afronden in Instellingen."
+  },
+  "resetTcc": {
+    "linkLabel": "Toestemming vastgelopen? Reset & sluit af",
+    "confirmBody": "Dit wist de toestemmingen voor Microfoon + Toegankelijkheid + Schermopname en sluit Echo Scribe af. Je moet opnieuw opstarten en opnieuw toestemming geven. Doorgaan?",
+    "resetting": "Bezig met resetten…",
+    "confirmButton": "Ja, reset & sluit af",
+    "cancelButton": "Annuleren",
+    "timeoutError": "Reset is voltooid, maar de app is niet afgesloten. Probeer handmatig opnieuw te starten."
+  }
+}

@@ -1,1 +1,508 @@
-{}
+{
+  "language": {
+    "title": "Taal",
+    "subtitle": "Kies de taal die de interface van Echo Scribe gebruikt.",
+    "selectLabel": "Interfacetaal",
+    "system": "Systeemstandaard",
+    "note": "Wordt direct toegepast."
+  },
+  "header": {
+    "back": "Terug",
+    "title": "Instellingen",
+    "preferences": "Voorkeuren"
+  },
+  "nav": {
+    "ariaLabel": "Instellingen",
+    "groups": {
+      "capture": "Vastleggen",
+      "automation": "Automatisering",
+      "system": "Systeem"
+    },
+    "items": {
+      "dictation": "Dictatie",
+      "logcapture": "Log Capture",
+      "meetings": "Meetings",
+      "daily-recap": "Dagoverzicht",
+      "actions": "Acties",
+      "templates": "Sjablonen",
+      "language-model": "Taalmodel",
+      "general": "Algemeen",
+      "drive": "Google Drive",
+      "projects": "Projecten",
+      "coding-agents": "Coding agents",
+      "permissions": "Toestemmingen",
+      "diagnostics": "Diagnostiek",
+      "uninstall": "Verwijderen"
+    }
+  },
+  "pageDesc": {
+    "dictation": "Spraak-naar-tekst bij je cursor — model, microfoon, audiogedrag, hotkey en opschoning.",
+    "logcapture": "Leg een gedachte, idee of taak vast met je stem, en archiveer en exporteer die daarna.",
+    "meetings": "Detecteer gesprekken en vat transcripten samen uit ondersteunde meeting-apps.",
+    "daily-recap": "Kies wanneer Echo Scribe een samenvatting maakt van de meetings, notities en dictaties van gisteren.",
+    "actions": "Voer app-starts, links, e-mails en tellers direct vanuit je stem uit.",
+    "templates": "Herschrijf een dictatie naar e-mails, lijsten of een andere stijl voordat die wordt geplakt.",
+    "language-model": "Het lokale Gemma-model dat classificatie, samenvattingen en acties aandrijft.",
+    "general": "Start bij inloggen en houd Echo Scribe up-to-date.",
+    "drive": "Upload schermopnames naar Google Drive en deel ze met een link.",
+    "projects": "Maak, hernoem, archiveer of verwijder je projecten.",
+    "coding-agents": "Verbind Claude Code, Codex of elke MCP-client om je captures te doorzoeken — en, als je dat toestaat, je scherm op te nemen.",
+    "permissions": "Toegang tot microfoon, toegankelijkheid en schermopname.",
+    "diagnostics": "Bekijk logs en reset de app als er iets misgaat.",
+    "uninstall": "Verwijder de app en kies of je je lokale gegevens wilt bewaren."
+  },
+  "common": {
+    "cancel": "Annuleren",
+    "save": "Opslaan",
+    "saveChanges": "Wijzigingen opslaan",
+    "savingEllipsis": "Bezig met opslaan…",
+    "delete": "Verwijderen",
+    "retry": "Opnieuw proberen",
+    "close": "Sluiten",
+    "open": "Openen",
+    "change": "Wijzigen…",
+    "clear": "Wissen",
+    "copy": "Kopiëren",
+    "copied": "Gekopieerd",
+    "edit": "Bewerken",
+    "reset": "Resetten",
+    "refresh": "Vernieuwen",
+    "loading": "Laden…",
+    "duration": {
+      "thirtySeconds": "30 seconden",
+      "oneMinute": "1 minuut",
+      "twoMinutes": "2 minuten",
+      "fiveMinutes": "5 minuten",
+      "fifteenMinutes": "15 minuten",
+      "keepLoaded": "Geladen houden"
+    }
+  },
+  "dictation": {
+    "microphone": {
+      "title": "Microfoon",
+      "subtitle": "Kies van welk invoerapparaat Echo Scribe opneemt. Standaard gebruikt wat macOS heeft geselecteerd."
+    },
+    "audioFeedback": {
+      "title": "Audiofeedback",
+      "subtitle": "Subtiele geluidjes wanneer een opname start, stopt en een log capture klaar is om te bekijken.",
+      "label": "Opnamegeluiden afspelen",
+      "description": "Drie korte tonen bij start, stop en klaar met classificeren.",
+      "toastFailed": "Kon audiofeedback niet bijwerken: {{error}}"
+    },
+    "muteWhileRecording": {
+      "title": "Dempen tijdens opname",
+      "subtitle": "Pauzeert muziek en systeemaudio zolang de hotkey ingedrukt wordt gehouden, en herstelt die na loslaten.",
+      "label": "Systeemaudio dempen tijdens opname",
+      "description": "Zet muziek en video-afspelen op stil voor de duur van de opname.",
+      "toastFailed": "Kon dempinstelling niet bijwerken: {{error}}"
+    },
+    "hotkey": {
+      "title": "Hotkey voor stem-bij-cursor",
+      "subtitle": "Houd deze toetscombinatie overal in macOS ingedrukt om te dicteren bij de cursor."
+    },
+    "transcription": {
+      "title": "Transcriptie",
+      "subtitle": "Schoon de spraak-naar-tekst-uitvoer op voordat die wordt geplakt of opgeslagen."
+    },
+    "keepModelInMemory": {
+      "title": "Spraakmodel in geheugen houden",
+      "subtitle": "Hoe lang het spraak-naar-tekst-model geladen blijft na het laatste gebruik. Langer = snellere volgende transcriptie, maar meer RAM-gebruik."
+    },
+    "microphonePicker": {
+      "loading": "Microfoons laden…",
+      "loadError": "Kon microfoons niet laden: {{error}}",
+      "savedMicMissing": "Opgeslagen microfoon <mono>{{name}}</mono> is niet aangesloten. Kies hieronder een andere of ga terug naar de systeemstandaard.",
+      "inputDeviceLabel": "Invoerapparaat",
+      "systemDefaultOption": "Systeemstandaard",
+      "sortByLabel": "Sorteren op",
+      "sortLastUsed": "Laatst gebruikt",
+      "sortAlphabetical": "Alfabetisch",
+      "footerNote": "Als een opgeslagen microfoon wordt losgekoppeld, weigert Echo Scribe op te nemen en stuurt het een melding — het valt niet stilletjes terug op een ander apparaat."
+    },
+    "asrUnloadTimeout": {
+      "title": "Uitladen na inactiviteit",
+      "description": "Maakt RAM vrij wanneer je een tijdje niet hebt gedicteerd. Het model wordt automatisch opnieuw geladen bij het volgende gebruik.",
+      "toastFailed": "Kon geheugeninstelling voor spraakmodel niet bijwerken: {{error}}"
+    }
+  },
+  "logCapture": {
+    "hotkey": {
+      "title": "Hotkey voor log capture",
+      "subtitle": "Houd deze toetscombinatie ingedrukt om een gedachte, idee of taak vast te leggen — lokaal geclassificeerd en opgeslagen in je log."
+    },
+    "export": {
+      "title": "Markdown-export",
+      "subtitle": "Als voor een project een exportmap is ingesteld, worden items die ernaartoe worden gerouteerd automatisch opgeslagen als markdown-bestanden voor gebruik met externe AI-tools. Configureer de map per project bij Instellingen → Projecten.",
+      "confidenceNote": "Items worden geëxporteerd wanneer de betrouwbaarheid van de classifier <mono>{{percent}}%</mono> of hoger is. Meetings worden altijd geëxporteerd zodra een project een map heeft ingesteld.",
+      "confidenceThresholdLabel": "Betrouwbaarheidsdrempel: {{percent}}%"
+    },
+    "autoTagging": {
+      "title": "Automatisch taggen van projecten",
+      "subtitle": "Organiseer directe dictaties later in batches, zodat het lokale AI-model niet na elke plakactie hoeft te laden.",
+      "enableLabel": "Uitgesteld taggen van projecten inschakelen",
+      "status": {
+        "pending": "In behandeling:",
+        "deferred": "Uitgesteld:",
+        "done": "Klaar:",
+        "failed": "Mislukt:"
+      },
+      "buttons": {
+        "queueing": "In wachtrij plaatsen...",
+        "queueUnassigned": "Niet-toegewezen dictaties in wachtrij plaatsen",
+        "running": "Bezig...",
+        "runRouter": "Trefwoordrouter uitvoeren",
+        "runLlmBatch": "Lokale AI-batch uitvoeren"
+      },
+      "toasts": {
+        "queued_one": "{{count}} transcriptie in wachtrij geplaatst voor taggen.",
+        "queued_other": "{{count}} transcripties in wachtrij geplaatst voor taggen.",
+        "routerAssigned_one": "Router heeft {{assigned}} van {{count}} item in de wachtrij toegewezen.",
+        "routerAssigned_other": "Router heeft {{assigned}} van {{count}} items in de wachtrij toegewezen.",
+        "llmAssigned_one": "Lokale AI heeft {{assigned}} van {{count}} item in de wachtrij toegewezen.",
+        "llmAssigned_other": "Lokale AI heeft {{assigned}} van {{count}} items in de wachtrij toegewezen.",
+        "failed": "Projecttaggen mislukt: {{error}}"
+      }
+    },
+    "autoFile": {
+      "title": "Betrouwbare captures automatisch archiveren",
+      "subtitle": "Archiveert captures met hoge betrouwbaarheid stilletjes. Voorstellen voor nieuwe projecten tonen altijd de beoordelingsoverlay.",
+      "confidenceNote": "Wanneer de lokale AI minstens <mono>{{percent}}%</mono> zeker is over het project en de soort, wordt de capture stilletjes gearchiveerd met een toast (of een systeemmelding wanneer het venster gesloten is).",
+      "enableLabel": "Automatisch archiveren inschakelen",
+      "thresholdLabel": "Drempel: {{percent}}%"
+    }
+  },
+  "meetings": {
+    "summaryTemplates": {
+      "standard": { "name": "Standaard notulist", "description": "Algemene samenvatting en concrete vervolgstappen" },
+      "action-item": { "name": "Gericht op actiepunten", "description": "Geeft voorrang aan taken, eigenaren en deadlines" },
+      "executive": { "name": "Directiesamenvatting", "description": "Strategische roadmaps, resultaten en impact op de business" },
+      "technical": { "name": "Technische sync", "description": "Diepgaande dev-syncs, API's en blokkades" }
+    },
+    "promptModal": {
+      "title": "Richtlijnen voor meetingsamenvattingen",
+      "subtitle": "Pas de instructies aan die de lokale AI gebruikt om transcripten samen te vatten en actiepunten uit te halen.",
+      "loadTemplatesLabel": "Laden vanuit vooraf gedefinieerde sjablonen",
+      "templateLoaded": "Sjabloon geladen",
+      "customGuidelinesLabel": "Aangepaste richtlijnen",
+      "textareaPlaceholder": "Beschrijf hoe de AI het meetingtranscript moet samenvatten...",
+      "placeholdersTitle": "Dynamische placeholders",
+      "placeholdersBody": "Je kunt <code>{duration_minutes}</code> en <code>{app}</code> in je richtlijnen invoegen. Deze worden tijdens uitvoering vervangen door de duur van de meeting en de naam van de app (bijv. Zoom, Teams).",
+      "formatSafetyTitle": "Formaatveiligheid automatisch geregeld",
+      "formatSafetyBody": "Je hoeft de AI niet te instrueren om JSON of een specifiek lijstformaat uit te voeren. De backend voegt automatisch opmaakschema's toe zodat de meetingsamenvatting correct wordt geparsed en weergegeven in de app.",
+      "saving": "Bezig met opslaan...",
+      "saveGuidelines": "Richtlijnen opslaan"
+    },
+    "autoDetect": {
+      "title": "Meetings automatisch detecteren",
+      "subtitle": "Echo Scribe houdt ondersteunde meeting-apps en gesprekken in de browser in de gaten en biedt aan om op te nemen.",
+      "checkboxLabel": "Ondersteunde meeting-apps automatisch detecteren",
+      "platformsAriaLabel": "Ondersteunde meeting-apps"
+    },
+    "perAppPrefs": {
+      "title": "Voorkeuren per app",
+      "subtitle": "Overschrijf de prompt per app: altijd opnemen, altijd vragen of nooit opnemen.",
+      "always": "Altijd",
+      "ask": "Vragen",
+      "never": "Nooit",
+      "clearButton": "Wissen",
+      "clearTitle": "Verwijder de voorkeur voor deze app (terug naar Vragen bij de volgende detectie)"
+    },
+    "summaryGuidelines": {
+      "title": "Richtlijnen voor meetingsamenvattingen",
+      "subtitle": "Configureer aangepaste promptrichtlijnen die de lokale AI gebruikt om je meetings samen te vatten.",
+      "activeLabel": "Actieve richtlijnen",
+      "noneSet": "Geen aangepaste richtlijnen ingesteld.",
+      "editButton": "Richtlijnen bewerken..."
+    },
+    "notesFolder": {
+      "title": "Map voor meetingnotities",
+      "subtitle": "Sla elke voltooide meeting automatisch op als een Markdown-bestand dat andere tools kunnen lezen.",
+      "chooseFolder": "Map kiezen…",
+      "note": "Elk bestand bevat de samenvatting, actiepunten, je notities en het transcript met sprekerlabels. Echo Scribe schrijft alleen het lokale bestand; een andere app of AI-agent heeft eigen toegang tot deze map nodig."
+    },
+    "guideTemplates": {
+      "title": "Gidssjablonen",
+      "subtitle": "Herbruikbare meetinggidsen en optionele, bewijsgebaseerde overzichtsstatistieken."
+    },
+    "toasts": {
+      "guidelinesUpdated": "Richtlijnen voor meetingsamenvattingen succesvol bijgewerkt.",
+      "guidelinesSaveFailed": "Kon richtlijnen niet opslaan: {{error}}",
+      "exportFolderUpdated": "Exportmap voor meetings bijgewerkt.",
+      "exportDisabled": "Automatische meeting-export uitgeschakeld.",
+      "exportFolderUpdateFailed": "Kon exportmap voor meetings niet bijwerken: {{error}}",
+      "folderPickerFailed": "Mapkiezer mislukt: {{error}}",
+      "openFolderFailed": "Kon map voor meetingnotities niet openen: {{error}}"
+    }
+  },
+  "dailyRecap": {
+    "enable": {
+      "label": "Elke ochtend een dagoverzicht genereren",
+      "description": "Eén macOS-melding op het door jou gekozen tijdstip, met een samenvatting van gisteren."
+    },
+    "deliverAt": {
+      "label": "Bezorgen om",
+      "description": "Lokale tijd. Standaard 08:00."
+    },
+    "includeWeekends": {
+      "label": "Weekenden meenemen",
+      "description": "Standaard uit — geen zondagochtendsamenvatting, tenzij je dat wilt."
+    },
+    "toasts": {
+      "loadFailed": "Kon instellingen voor dagoverzicht niet laden: {{error}}",
+      "saveFailed": "Kon instellingen voor dagoverzicht niet opslaan: {{error}}"
+    }
+  },
+  "actions": {
+    "section": {
+      "title": "Spraakopdrachten & app-starter",
+      "subtitle": "Detecteer opdrachtacties in je gesproken dictaties om apps te starten, links te openen, e-mails op te stellen en tellers te beheren."
+    },
+    "launcher": {
+      "label": "App-starter voor spraakopdrachten",
+      "badge": "Sonoma+",
+      "description": "Onderschept gesproken dictatie om apps te starten, links te openen, e-mails op te stellen, tellers te beheren, meetings en schermopnames te starten/stoppen, en je Mac wakker te houden (bijv. \"echo blijf 2 uur wakker\")."
+    },
+    "prefixRouting": {
+      "title": "Op prefix gebaseerde triggerroutering",
+      "description": "Route normale gesproken dictaties alleen naar AI als ze beginnen met een triggerwoord (bijv. \"echo\"). Voorkomt vertraging bij dicteren!",
+      "toastEnabled": "Prefix-triggerroutering ingeschakeld",
+      "toastDisabled": "Prefix-triggerroutering uitgeschakeld",
+      "toastUpdateFailed": "Kon instellingen voor prefixroutering niet bijwerken",
+      "triggerWordLabel": "Trigger-prefixwoord",
+      "toastWordUpdated": "Triggerwoord bijgewerkt naar \"{{word}}\"",
+      "toastWordSaveFailed": "Kon triggerwoord niet opslaan",
+      "toastWordReset": "Triggerwoord teruggezet naar \"echo\"",
+      "phoneticNote": "* Let op: \"echo\" reageert automatisch op losjes klinkende varianten (echo, eco, ekko, hecho)!"
+    },
+    "actionHotkey": {
+      "title": "Speciale actiehotkey",
+      "description": "Druk een aangepaste toetscombinatie in om direct de actieopdrachtmodus te activeren. Voert altijd AI uit en negeert prefixregels."
+    },
+    "editSelection": {
+      "title": "Hotkey voor selectie bewerken",
+      "description": "Markeer tekst in een willekeurige app, houd deze hotkey ingedrukt en spreek een instructie uit (bijv. \"maak dit beknopter\", \"vertaal naar het Frans\"). Het lokale model herschrijft de selectie ter plekke."
+    },
+    "counter": {
+      "title": "Aantal geautomatiseerde acties",
+      "description": "Aantal succesvol uitgevoerde spraakacties"
+    },
+    "cheatsheet": {
+      "title": "Spiekbriefje voor spraakacties"
+    },
+    "toasts": {
+      "launcherEnabled": "App-starter voor spraakopdrachten ingeschakeld",
+      "launcherDisabled": "App-starter voor spraakopdrachten uitgeschakeld",
+      "launcherUpdateFailed": "Kon starterinstelling niet bijwerken: {{error}}",
+      "counterReset": "Actieteller teruggezet naar 0",
+      "counterResetFailed": "Kon teller niet resetten: {{error}}"
+    }
+  },
+  "templates": {
+    "section": {
+      "title": "Spraaksjablonen voor opmaak",
+      "subtitle": "Zeg \"echo, format as email …\" (of gebruik de actiehotkey) om je dictatie te herschrijven met een aangepaste systeemprompt voordat die wordt geplakt."
+    },
+    "loading": "Sjablonen laden…",
+    "explainer": "Wanneer je dictatie begint met een van de triggerzinnen van een sjabloon (bijv. <mono>\"echo, format as email …\"</mono>), wordt de rest van de zin herschreven via de systeemprompt van het sjabloon voordat die bij je cursor wordt geplakt. Werkt zowel met het \"echo\"-prefix als met de speciale actiehotkey.",
+    "empty": "Nog geen sjablonen. Voeg er een toe om spraakopmaak in te schakelen.",
+    "fields": {
+      "namePlaceholder": "Sjabloonnaam",
+      "idLabel": "id: {{id}}",
+      "triggerPhrasesLabel": "Triggerzinnen (kommagescheiden)",
+      "triggerPhrasesPlaceholder": "format as email, make this an email",
+      "systemPromptLabel": "Systeemprompt",
+      "systemPromptPlaceholder": "Beschrijf hoe het model de dictatie moet herschrijven. Wees specifiek over toon, lengte en wat weggelaten moet worden."
+    },
+    "addButton": "+ Sjabloon toevoegen",
+    "newTemplateName": "Nieuw sjabloon",
+    "confirmDelete": {
+      "message": "Dit opmaaksjabloon verwijderen? Dit kan niet ongedaan worden gemaakt.",
+      "title": "Sjabloon verwijderen"
+    },
+    "toasts": {
+      "saved": "Opmaaksjablonen opgeslagen",
+      "saveFailed": "Kon sjablonen niet opslaan: {{error}}"
+    }
+  },
+  "languageModel": {
+    "model": {
+      "title": "Taalmodel",
+      "subtitle": "Lokaal Gemma-model dat wordt gebruikt voor het classificeren van log captures, meetingsamenvattingen, spraakacties en opmaak."
+    },
+    "keepInMemory": {
+      "title": "Model in geheugen houden",
+      "subtitle": "Hoe lang het AI-model geladen blijft na het laatste gebruik. Langer = sneller bij volgend gebruik, maar meer RAM."
+    },
+    "testInference": {
+      "title": "Test-inferentie",
+      "defaultPrompt": "Zeg hallo in vijf woorden.",
+      "running": "Bezig…",
+      "runButton": "Uitvoeren"
+    },
+    "unloadTimeout": {
+      "title": "Uitladen na inactiviteit",
+      "description": "Maakt RAM vrij wanneer je een tijdje geen log capture hebt gebruikt.",
+      "toastFailed": "Kon AI-geheugeninstelling niet bijwerken: {{error}}"
+    }
+  },
+  "general": {
+    "startup": {
+      "title": "Opstarten",
+      "subtitle": "Start Echo Scribe automatisch wanneer je inlogt."
+    },
+    "updates": {
+      "title": "Updates",
+      "subtitle": "Echo Scribe controleert elke dag automatisch op updates. Je kunt ook nu controleren.",
+      "currentVersion": "Huidige versie",
+      "currentVersionWithNumber": "Huidige versie {{version}}",
+      "checking": "Controleren…",
+      "checkButton": "Controleren op updates"
+    }
+  },
+  "drive": {
+    "section": {
+      "title": "Google Drive",
+      "subtitle": "Upload schermopnames naar Drive en krijg een deelbare link voor iedereen. De app ziet alleen bestanden die het zelf aanmaakt (scope drive.file)."
+    },
+    "connected": "Verbonden.",
+    "connectedAsEmail": "Verbonden als {{email}}.",
+    "disconnectButton": "Verbinding verbreken",
+    "connecting": "Bezig met verbinden…",
+    "connectButton": "Drive verbinden",
+    "folderLabel": "Drive-map voor uploads",
+    "defaultSharingLabel": "Standaard delen: iedereen met de link kan bekijken",
+    "sharingNote": "Wordt toegepast op elk bestand (niet de map). Overschrijf dit per video bij het uploaden.",
+    "byoClientLabel": "Mijn eigen Google OAuth-client gebruiken (verwijdert de waarschuwing over niet-geverifieerde apps)",
+    "clientConfigured": "Client geconfigureerd (…{{suffix}})",
+    "noClientConfigured": "Geen client geconfigureerd.",
+    "setUpButton": "Instellen",
+    "howToCreateClientId": "Een client-ID aanmaken",
+    "setupModal": {
+      "title": "Je eigen Google OAuth-client instellen",
+      "step1": "Open de <link>Google Cloud Console</link> en maak een project aan (of kies een bestaand project).",
+      "step2": "APIs & Services → Library → zoek naar <b>Google Drive API</b> → <b>Enable</b>.",
+      "step3": "APIs & Services → OAuth consent screen → <b>External</b> → vul de app-naam en je e-mailadres in → voeg de scope <code>.../auth/drive.file</code> toe → voeg je Google-account toe onder <b>Test users</b> → Save. Laat het op <b>Testing</b> staan.",
+      "step4": "APIs & Services → Credentials → Create credentials → <b>OAuth client ID</b> → Application type: <b>Desktop app</b> → Create.",
+      "step5": "Kopieer de <b>Client ID</b> en het <b>Client secret</b> naar de velden hieronder. Er is geen redirect-URI nodig — Desktop apps staan loopback automatisch toe.",
+      "clientIdPlaceholder": "Client ID (…apps.googleusercontent.com)",
+      "clientSecretPlaceholder": "Client secret",
+      "secretNote": "Veilig opgeslagen op deze Mac. Laat het secret leeg bij het bewerken om het opgeslagen secret te behouden."
+    }
+  },
+  "projects": {
+    "section": {
+      "title": "Projecten",
+      "subtitle": "Maak, hernoem, archiveer of verwijder projecten."
+    }
+  },
+  "codingAgents": {
+    "toolPermissions": {
+      "title": "Toolrechten",
+      "subtitle": "Echo Scribe heeft een ingebouwde MCP-server waarmee agents zoals Claude Code of Codex verbinding kunnen maken. Vink aan waartoe ze toegang mogen hebben — wijzigingen gelden direct, ook voor agents die al verbonden zijn. Alles blijft op deze Mac.",
+      "loadFailed": "Kon rechten niet laden — zie Instellingen → Diagnostiek → logs voor details.",
+      "updateFailed": "Kon het recht voor {{label}} niet bijwerken: {{error}}"
+    },
+    "connect": {
+      "title": "Verbind je coding agent",
+      "subtitle": "De MCP-server is de Echo Scribe-app zelf — niets extra's om te downloaden. Klik op Installeren en Echo Scribe registreert zichzelf bij de eigen CLI van de agent, of kopieer het fragment om het handmatig te doen."
+    },
+    "snippets": {
+      "claudeCode": { "title": "Claude Code", "hint": "Installeren voert uit: claude mcp add (user scope)." },
+      "codex": { "title": "Codex CLI", "hint": "Installeren voert uit: codex mcp add (schrijft naar ~/.codex/config.toml)." },
+      "other": { "title": "Overige MCP-clients", "hint": "Cursor, Windsurf, Gemini CLI — standaard mcpServers-JSON." },
+      "installing": "Bezig met installeren…",
+      "installButton": "Installeren",
+      "copyAriaLabel": "{{title}}-setup kopiëren"
+    },
+    "howToUse": {
+      "title": "Hoe je het gebruikt",
+      "subtitle": "Er is geen opdracht om te onthouden — praat gewoon normaal tegen je agent. Die ziet de Echo Scribe-tools en roept ze aan wanneer je verzoek erom vraagt; het noemen van “Echo Scribe” zet hem ertoe aan daar te kijken. Probeer bijvoorbeeld:",
+      "recordingNote": "Voor opnameprompts moet Echo Scribe actief zijn en moet de toestemming voor Schermopname hierboven aangevinkt zijn. De agent geeft je vensters weer, start en stopt de opname zelf, krijgt het bestandspad van de video terug, en kan het bestand vervolgens bekijken of analyseren — de opname belandt ook gewoon in je bibliotheek, net als elke andere."
+    },
+    "examplePrompts": {
+      "listWindows": "Geef mijn vensters weer met echo-scribe en neem het Chrome-venster op met systeemaudio. Stop wanneer ik het zeg en vat samen wat er in de video gebeurde.",
+      "recordBug": "Neem mijn scherm op met microfoon terwijl ik deze bug reproduceer, stop dan en analyseer de video op wat er misging.",
+      "searchMeetings": "Doorzoek mijn Echo Scribe-meetings op de prijsdiscussie en vat de beslissingen samen.",
+      "lastWeekDictation": "Wat heb ik vorige week gedicteerd over de onboardingflow?",
+      "copyAriaLabel": "Voorbeeldprompt kopiëren"
+    }
+  },
+  "permissions": {
+    "section": {
+      "title": "Toestemmingen",
+      "subtitle": "Geef opnieuw toegang tot microfoon of toegankelijkheid als iets niet goed werkt. Reset & sluit af wist de TCC-toestemmingen van macOS voor beide diensten, zodat bij de volgende start opnieuw netjes om toestemming wordt gevraagd."
+    }
+  },
+  "diagnostics": {
+    "section": {
+      "title": "Diagnostiek",
+      "subtitle": "Bekijk het doorlopende crashlog dat Echo Scribe naar je persoonlijke map schrijft."
+    },
+    "logFolder": {
+      "title": "Logmap",
+      "openFailed": "Kon map niet openen: {{error}}"
+    },
+    "recentLog": {
+      "title": "Recent log (laatste 200 regels)",
+      "refreshing": "…",
+      "empty": "(nog geen loginhoud)"
+    },
+    "resetSection": {
+      "showButton": "Reset-opties tonen",
+      "hideButton": "Reset-opties verbergen",
+      "warning": "Wist de instellingenopslag (hotkeys, actieve modellen, opgeslagen voorkeuren) en sluit de app af. Je vastgelegde items blijven bewaard — die staan in de SQLite-database, niet in de instellingenopslag.",
+      "resetting": "Bezig met resetten…",
+      "resetButton": "Onboarding resetten",
+      "confirmMessage": "Onboarding resetten? Dit wist de instellingenopslag en sluit de app af. Je moet opnieuw opstarten.",
+      "confirmTitle": "Onboarding resetten",
+      "toastFailed": "Reset mislukt: {{error}}"
+    }
+  },
+  "uninstall": {
+    "confirmDeleteMessage": "Echo Scribe verwijderen en alle lokale gegevens wissen? Dit omvat vastgelegde items, opnames, gedownloade modellen, instellingen, logs, het lokale gebeurtenisarchief en de Google Drive-koppeling. Bestanden gaan naar de Prullenbak, maar de Drive-inloggegevens en macOS-toestemmingen worden verwijderd.",
+    "confirmKeepMessage": "Echo Scribe verwijderen maar lokale gegevens bewaren? De app sluit af en gaat naar de Prullenbak. Bij herinstallatie worden je items, opnames, modellen, instellingen en voorkeuren hersteld.",
+    "confirmDeleteTitle": "Echo Scribe en gegevens verwijderen",
+    "confirmTitle": "Echo Scribe verwijderen",
+    "toastFailed": "Verwijderen mislukt: {{error}}",
+    "appOnly": {
+      "title": "Applicatie verwijderen",
+      "body": "Verwijdert alleen Echo Scribe. Je vastgelegde items, opnames, gedownloade modellen, instellingen en voorkeuren blijven op deze Mac en zijn beschikbaar na herinstallatie.",
+      "button": "App verwijderen"
+    },
+    "appAndData": {
+      "title": "Applicatie en gegevens verwijderen",
+      "body": "Verwijdert Echo Scribe en alle bijbehorende lokale gegevens, inclusief items, opnames, modellen, instellingen, logs en het lokale gebeurtenisarchief. Gebruik dit alleen als je de volgende installatie helemaal opnieuw wilt beginnen.",
+      "button": "App & gegevens verwijderen"
+    },
+    "uninstalling": "Bezig met verwijderen…",
+    "trashNote": "De applicatie en bestandsgegevens gaan naar de macOS Prullenbak."
+  },
+  "logCaptureOverlay": {
+    "recording": {
+      "title": "Log capture",
+      "status": "Opnemen — laat de sneltoets los om te stoppen.",
+      "listening": "Luisteren…"
+    },
+    "review": {
+      "title": "Capture beoordelen",
+      "classifierUnavailable": "Classifier-hint niet beschikbaar: {{error}}",
+      "lowConfidence": "Lage betrouwbaarheid ({{percent}}%) — controleer hieronder het project en de soort.",
+      "newProjectSuggested": "Er wordt een nieuw project voorgesteld — bevestig de naam hieronder voordat je opslaat.",
+      "suggestedFields": "De classifier stelt de onderstaande velden voor — pas aan waar nodig.",
+      "transcriptLabel": "Transcript",
+      "kindLabel": "Soort",
+      "kindNote": "Notitie",
+      "kindTask": "Taak",
+      "deadlineLabel": "Deadline",
+      "deadlineTasksOnly": "(alleen taken)",
+      "deadlinePlaceholder": "2026-05-10T17:00:00Z",
+      "newProjectLabel": "Nieuw project (overschrijft bestaand)",
+      "newProjectPlaceholder": "Leeg laten om bestaand project te behouden",
+      "existingProjectId": "Bestaand project-id: {{id}}",
+      "tagsLabel": "Tags (kommagescheiden)",
+      "discardButton": "Verwerpen",
+      "saveButton": "Opslaan",
+      "savingEllipsis": "Bezig met opslaan…"
+    }
+  }
+}

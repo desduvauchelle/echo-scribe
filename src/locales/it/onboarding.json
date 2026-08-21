@@ -1,1 +1,53 @@
-{}
+{
+  "welcome": {
+    "title": "Benvenuto in Echo Scribe",
+    "subtitle": "Concedi i permessi qui sotto, scegli un modello vocale, poi inizia a dettare ovunque. La registrazione dello schermo è facoltativa — serve solo se vuoi che le riunioni acquisiscano anche l'audio dell'altra persona."
+  },
+  "permissions": {
+    "microphone": {
+      "title": "Microfono",
+      "subtitle": "Echo Scribe ha bisogno del microfono per acquisire ciò che dici."
+    },
+    "accessibility": {
+      "title": "Accessibilità",
+      "subtitle": "Necessario per incollare il testo trascritto al cursore in qualsiasi app."
+    },
+    "screenRecording": {
+      "title": "Registrazione schermo",
+      "subtitle": "Consente a Echo Scribe di acquisire l'audio dell'altro partecipante durante riunioni su Zoom, Google Meet e altre piattaforme. Senza questo permesso, viene registrato solo il tuo microfono."
+    }
+  },
+  "llmModel": {
+    "title": "Modello AI locale",
+    "optional": "(facoltativo)",
+    "ready": "Pronto",
+    "description": "Alimenta il flusso di acquisizione rapida (classificazione automatica di note, attività, tag). La dettatura al cursore funziona anche senza — salta e torna più tardi.",
+    "skipButton": "Salta per ora",
+    "skippedNote": "Saltato. L'acquisizione rapida mostrerà un avviso finché non scegli un modello nelle Impostazioni."
+  },
+  "dictationShortcut": {
+    "title": "Scorciatoia di dettatura",
+    "description": "Tieni premuto per registrare. Il valore predefinito è Control destro — cambialo qui se è in conflitto con un'altra app."
+  },
+  "logCaptureShortcut": {
+    "title": "Scorciatoia di acquisizione rapida",
+    "description": "Tieni premuto per acquisire un pensiero o un'attività. Il valore predefinito è Option destro — Echo Scribe la classificherà in locale e mostrerà una finestra di revisione."
+  },
+  "startButton": {
+    "starting": "Avvio…",
+    "label": "Avvia Echo Scribe"
+  },
+  "skipButton": {
+    "skipping": "Salto…",
+    "label": "Salta la configurazione per ora",
+    "note": "Puoi esplorare Echo Scribe ora e completare la configurazione più tardi nelle Impostazioni."
+  },
+  "resetTcc": {
+    "linkLabel": "Permesso bloccato? Reimposta ed esci",
+    "confirmBody": "Questo cancella i permessi di Microfono + Accessibilità + Registrazione schermo ed esce da Echo Scribe. Dovrai rilanciare l'app e concedere di nuovo l'accesso. Continuare?",
+    "resetting": "Reimpostazione…",
+    "confirmButton": "Sì, reimposta ed esci",
+    "cancelButton": "Annulla",
+    "timeoutError": "La reimpostazione è tornata ma l'app non si è chiusa. Prova a riavviarla manualmente."
+  }
+}

@@ -1,1 +1,508 @@
-{}
+{
+  "language": {
+    "title": "Idioma",
+    "subtitle": "Escolha o idioma usado na interface do Echo Scribe.",
+    "selectLabel": "Idioma da interface",
+    "system": "Padrão do sistema",
+    "note": "Aplicado imediatamente."
+  },
+  "header": {
+    "back": "Voltar",
+    "title": "Configurações",
+    "preferences": "Preferências"
+  },
+  "nav": {
+    "ariaLabel": "Configurações",
+    "groups": {
+      "capture": "Captura",
+      "automation": "Automação",
+      "system": "Sistema"
+    },
+    "items": {
+      "dictation": "Ditado",
+      "logcapture": "Captura de registro",
+      "meetings": "Reuniões",
+      "daily-recap": "Resumo diário",
+      "actions": "Ações",
+      "templates": "Modelos",
+      "language-model": "Modelo de linguagem",
+      "general": "Geral",
+      "drive": "Google Drive",
+      "projects": "Projetos",
+      "coding-agents": "Agentes de código",
+      "permissions": "Permissões",
+      "diagnostics": "Diagnóstico",
+      "uninstall": "Desinstalar"
+    }
+  },
+  "pageDesc": {
+    "dictation": "Fala para texto no cursor — modelo, microfone, comportamento de áudio, atalho e limpeza.",
+    "logcapture": "Capture um pensamento, ideia ou tarefa por voz e depois arquive e exporte.",
+    "meetings": "Detecte chamadas e resuma transcrições de apps de reunião compatíveis.",
+    "daily-recap": "Escolha quando o Echo Scribe resume as reuniões, notas e ditados de ontem.",
+    "actions": "Execute aberturas de apps, links, e-mails e contadores diretamente pela sua voz.",
+    "templates": "Reescreva o ditado como e-mails, listas ou qualquer estilo antes de ser colado.",
+    "language-model": "O modelo Gemma local que alimenta a classificação, os resumos e as ações.",
+    "general": "Inicie no login e mantenha o Echo Scribe atualizado.",
+    "drive": "Envie gravações de tela para o Google Drive e compartilhe-as com um link.",
+    "projects": "Crie, renomeie, arquive ou exclua seus projetos.",
+    "coding-agents": "Conecte o Claude Code, o Codex ou qualquer cliente MCP para pesquisar suas capturas — e, se você optar, gravar sua tela.",
+    "permissions": "Acesso a microfone, acessibilidade e gravação de tela.",
+    "diagnostics": "Inspecione os registros e redefina o app se algo quebrar.",
+    "uninstall": "Remova o app escolhendo se deseja manter seus dados locais."
+  },
+  "common": {
+    "cancel": "Cancelar",
+    "save": "Salvar",
+    "saveChanges": "Salvar alterações",
+    "savingEllipsis": "Salvando…",
+    "delete": "Excluir",
+    "retry": "Tentar novamente",
+    "close": "Fechar",
+    "open": "Abrir",
+    "change": "Alterar…",
+    "clear": "Limpar",
+    "copy": "Copiar",
+    "copied": "Copiado",
+    "edit": "Editar",
+    "reset": "Redefinir",
+    "refresh": "Atualizar",
+    "loading": "Carregando…",
+    "duration": {
+      "thirtySeconds": "30 segundos",
+      "oneMinute": "1 minuto",
+      "twoMinutes": "2 minutos",
+      "fiveMinutes": "5 minutos",
+      "fifteenMinutes": "15 minutos",
+      "keepLoaded": "Manter carregado"
+    }
+  },
+  "dictation": {
+    "microphone": {
+      "title": "Microfone",
+      "subtitle": "Escolha de qual dispositivo de entrada o Echo Scribe grava. O padrão usa o que o macOS tiver selecionado."
+    },
+    "audioFeedback": {
+      "title": "Feedback sonoro",
+      "subtitle": "Bipes sutis quando a gravação começa, termina e uma captura de registro está pronta para revisão.",
+      "label": "Reproduzir sons de gravação",
+      "description": "Três tons curtos associados a início, fim e classificação pronta.",
+      "toastFailed": "Não foi possível atualizar o feedback sonoro: {{error}}"
+    },
+    "muteWhileRecording": {
+      "title": "Silenciar durante a gravação",
+      "subtitle": "Pausa a música e o áudio do sistema enquanto o atalho está pressionado e os restaura quando você solta.",
+      "label": "Silenciar áudio do sistema durante a gravação",
+      "description": "Silencia a reprodução de música e vídeo durante toda a gravação.",
+      "toastFailed": "Não foi possível atualizar a configuração de silenciamento: {{error}}"
+    },
+    "hotkey": {
+      "title": "Atalho de voz no cursor",
+      "subtitle": "Segure esta combinação de teclas em qualquer lugar do macOS para ditar no cursor."
+    },
+    "transcription": {
+      "title": "Transcrição",
+      "subtitle": "Limpe o resultado da conversão de fala em texto antes de ser colado ou salvo."
+    },
+    "keepModelInMemory": {
+      "title": "Manter o modelo de fala na memória",
+      "subtitle": "Por quanto tempo o modelo de fala em texto permanece carregado após o último uso. Mais tempo = próxima transcrição mais rápida, mas usa mais RAM."
+    },
+    "microphonePicker": {
+      "loading": "Carregando microfones…",
+      "loadError": "Não foi possível carregar os microfones: {{error}}",
+      "savedMicMissing": "O microfone salvo <mono>{{name}}</mono> não está conectado. Escolha outro abaixo ou volte ao padrão do sistema.",
+      "inputDeviceLabel": "Dispositivo de entrada",
+      "systemDefaultOption": "Padrão do sistema",
+      "sortByLabel": "Ordenar por",
+      "sortLastUsed": "Usado por último",
+      "sortAlphabetical": "Alfabética",
+      "footerNote": "Quando um microfone salvo é desconectado, o Echo Scribe recusa gravar e avisa você — ele não muda silenciosamente para outro dispositivo."
+    },
+    "asrUnloadTimeout": {
+      "title": "Descarregar após inatividade",
+      "description": "Libera RAM quando você não dita há um tempo. O modelo recarrega automaticamente no próximo uso.",
+      "toastFailed": "Não foi possível atualizar a configuração de memória do modelo de fala: {{error}}"
+    }
+  },
+  "logCapture": {
+    "hotkey": {
+      "title": "Atalho de captura de registro",
+      "subtitle": "Segure esta combinação de teclas para capturar um pensamento, ideia ou tarefa — classificado localmente e salvo no seu registro."
+    },
+    "export": {
+      "title": "Exportação em Markdown",
+      "subtitle": "Quando um projeto tem uma pasta de exportação configurada, os itens roteados para ele são salvos automaticamente como arquivos markdown para uso com ferramentas de IA externas. Configure a pasta por projeto em Configurações → Projetos.",
+      "confidenceNote": "Os itens são exportados quando a confiança do classificador atinge <mono>{{percent}}%</mono> ou mais. As reuniões sempre são exportadas quando um projeto tem uma pasta definida.",
+      "confidenceThresholdLabel": "Limite de confiança: {{percent}}%"
+    },
+    "autoTagging": {
+      "title": "Marcação automática de projeto",
+      "subtitle": "Organize os ditados diretos depois, em lotes, para que o modelo de IA local não seja carregado a cada colagem.",
+      "enableLabel": "Ativar marcação de projeto adiada",
+      "status": {
+        "pending": "Pendente:",
+        "deferred": "Adiado:",
+        "done": "Concluído:",
+        "failed": "Falhou:"
+      },
+      "buttons": {
+        "queueing": "Enfileirando...",
+        "queueUnassigned": "Enfileirar ditados sem projeto",
+        "running": "Executando...",
+        "runRouter": "Executar roteador de palavras-chave",
+        "runLlmBatch": "Executar lote de IA local"
+      },
+      "toasts": {
+        "queued_one": "{{count}} transcrição enfileirada para marcação.",
+        "queued_other": "{{count}} transcrições enfileiradas para marcação.",
+        "routerAssigned_one": "O roteador atribuiu {{assigned}} de {{count}} item na fila.",
+        "routerAssigned_other": "O roteador atribuiu {{assigned}} de {{count}} itens na fila.",
+        "llmAssigned_one": "A IA local atribuiu {{assigned}} de {{count}} item na fila.",
+        "llmAssigned_other": "A IA local atribuiu {{assigned}} de {{count}} itens na fila.",
+        "failed": "Falha na marcação de projeto: {{error}}"
+      }
+    },
+    "autoFile": {
+      "title": "Arquivar automaticamente capturas confiáveis",
+      "subtitle": "Arquiva silenciosamente as capturas de alta confiança. Propostas de novo projeto sempre mostram a tela de revisão.",
+      "confidenceNote": "Quando a IA local tem pelo menos <mono>{{percent}}%</mono> de certeza sobre o projeto e o tipo, a captura é arquivada silenciosamente com um aviso (ou notificação do sistema quando a janela está fechada).",
+      "enableLabel": "Ativar arquivamento automático",
+      "thresholdLabel": "Limite: {{percent}}%"
+    }
+  },
+  "meetings": {
+    "summaryTemplates": {
+      "standard": { "name": "Anotador padrão", "description": "Resumo geral e próximos passos acionáveis" },
+      "action-item": { "name": "Focado em itens de ação", "description": "Prioriza tarefas, responsáveis e prazos" },
+      "executive": { "name": "Resumo executivo", "description": "Roteiros estratégicos, resultados e impacto nos negócios" },
+      "technical": { "name": "Sincronização técnica", "description": "Sincronizações técnicas aprofundadas, APIs e bloqueios" }
+    },
+    "promptModal": {
+      "title": "Diretrizes de resumo de reunião",
+      "subtitle": "Personalize as instruções que a IA local usa para resumir e extrair itens de ação das transcrições.",
+      "loadTemplatesLabel": "Carregar de modelos predefinidos",
+      "templateLoaded": "Modelo carregado",
+      "customGuidelinesLabel": "Diretrizes personalizadas",
+      "textareaPlaceholder": "Descreva como a IA deve resumir a transcrição da reunião...",
+      "placeholdersTitle": "Marcadores dinâmicos",
+      "placeholdersBody": "Você pode inserir <code>{duration_minutes}</code> e <code>{app}</code> nas suas diretrizes. Eles serão substituídos em tempo real pela duração da reunião e pelo nome do app (por exemplo, Zoom, Teams).",
+      "formatSafetyTitle": "Segurança de formato tratada automaticamente",
+      "formatSafetyBody": "Não se preocupe em instruir a IA a gerar JSON ou um formato específico de listas. O backend anexa automaticamente esquemas de formatação para garantir que o resumo da reunião seja interpretado corretamente e exibido no layout do aplicativo.",
+      "saving": "Salvando...",
+      "saveGuidelines": "Salvar diretrizes"
+    },
+    "autoDetect": {
+      "title": "Detectar reuniões automaticamente",
+      "subtitle": "O Echo Scribe monitora apps de reunião compatíveis e chamadas no navegador, e então oferece para gravar.",
+      "checkboxLabel": "Detectar automaticamente apps de reunião compatíveis",
+      "platformsAriaLabel": "Apps de reunião compatíveis"
+    },
+    "perAppPrefs": {
+      "title": "Preferências por app",
+      "subtitle": "Substitua o aviso por app: sempre gravar, sempre perguntar ou nunca gravar.",
+      "always": "Sempre",
+      "ask": "Perguntar",
+      "never": "Nunca",
+      "clearButton": "Limpar",
+      "clearTitle": "Remover a preferência deste app (voltar a Perguntar na próxima detecção)"
+    },
+    "summaryGuidelines": {
+      "title": "Diretrizes de resumo de reunião",
+      "subtitle": "Configure diretrizes de prompt personalizadas usadas pela IA local para resumir suas reuniões.",
+      "activeLabel": "Diretrizes ativas",
+      "noneSet": "Nenhuma diretriz personalizada definida.",
+      "editButton": "Editar diretrizes..."
+    },
+    "notesFolder": {
+      "title": "Pasta de notas de reunião",
+      "subtitle": "Salve automaticamente cada reunião concluída como um arquivo Markdown que outras ferramentas podem ler.",
+      "chooseFolder": "Escolher pasta…",
+      "note": "Cada arquivo inclui o resumo, os itens de ação, suas notas e a transcrição com identificação de interlocutores. O Echo Scribe apenas grava o arquivo local; outro app ou agente de IA precisa do seu próprio acesso a esta pasta."
+    },
+    "guideTemplates": {
+      "title": "Modelos de guia",
+      "subtitle": "Guias de reunião reutilizáveis e métricas de resumo opcionais, baseadas em evidências."
+    },
+    "toasts": {
+      "guidelinesUpdated": "Diretrizes de resumo de reunião atualizadas com sucesso.",
+      "guidelinesSaveFailed": "Falha ao salvar as diretrizes: {{error}}",
+      "exportFolderUpdated": "Pasta de exportação de reuniões atualizada.",
+      "exportDisabled": "Exportação automática de reuniões desativada.",
+      "exportFolderUpdateFailed": "Falha ao atualizar a pasta de exportação de reuniões: {{error}}",
+      "folderPickerFailed": "Falha no seletor de pastas: {{error}}",
+      "openFolderFailed": "Não foi possível abrir a pasta de notas de reunião: {{error}}"
+    }
+  },
+  "dailyRecap": {
+    "enable": {
+      "label": "Gerar um resumo diário toda manhã",
+      "description": "Uma notificação do macOS no horário escolhido, resumindo o dia anterior."
+    },
+    "deliverAt": {
+      "label": "Entregar às",
+      "description": "Horário local. Padrão 08:00."
+    },
+    "includeWeekends": {
+      "label": "Incluir fins de semana",
+      "description": "Desativado por padrão — sem resumo de domingo de manhã, a menos que você queira um."
+    },
+    "toasts": {
+      "loadFailed": "Não foi possível carregar as configurações de resumo diário: {{error}}",
+      "saveFailed": "Não foi possível salvar as configurações de resumo diário: {{error}}"
+    }
+  },
+  "actions": {
+    "section": {
+      "title": "Comandos de voz e abertura de apps",
+      "subtitle": "Detecte ações de comando dentro dos seus ditados de voz para abrir aplicativos, abrir links, redigir e-mails e gerenciar contadores."
+    },
+    "launcher": {
+      "label": "Abertura de apps por comando de voz",
+      "badge": "Sonoma+",
+      "description": "Intercepta o ditado de voz para abrir apps, abrir links, redigir e-mails, gerenciar contadores, iniciar/parar reuniões e gravações de tela, e manter o seu Mac ativo (ex.: \"echo stay awake for 2 hours\")."
+    },
+    "prefixRouting": {
+      "title": "Roteamento por palavra-gatilho",
+      "description": "Roteia ditados de voz normais para a IA somente se começarem com uma palavra-gatilho (ex.: \"echo\"). Evita latência no ditado!",
+      "toastEnabled": "Roteamento por palavra-gatilho ativado",
+      "toastDisabled": "Roteamento por palavra-gatilho desativado",
+      "toastUpdateFailed": "Falha ao atualizar as configurações de roteamento por prefixo",
+      "triggerWordLabel": "Palavra-gatilho de prefixo",
+      "toastWordUpdated": "Palavra-gatilho atualizada para \"{{word}}\"",
+      "toastWordSaveFailed": "Falha ao salvar a palavra-gatilho",
+      "toastWordReset": "Palavra-gatilho redefinida para \"echo\"",
+      "phoneticNote": "* Observação: \"echo\" aciona correspondências fonéticas aproximadas automaticamente (echo, eco, ekko, hecho)!"
+    },
+    "actionHotkey": {
+      "title": "Atalho dedicado de ação",
+      "description": "Pressione uma combinação de teclas personalizada para acionar diretamente o modo de comando de ação. Sempre executa a IA e ignora as regras de prefixo."
+    },
+    "editSelection": {
+      "title": "Atalho de editar seleção",
+      "description": "Selecione um texto em qualquer app, segure este atalho e fale uma instrução (ex.: \"make this more concise\", \"translate to French\"). O modelo local reescreve a seleção no local."
+    },
+    "counter": {
+      "title": "Contagem de ações automatizadas",
+      "description": "Número de ações de voz executadas com sucesso"
+    },
+    "cheatsheet": {
+      "title": "Guia rápido de ações de voz"
+    },
+    "toasts": {
+      "launcherEnabled": "Abertura de apps por comando de voz ativada",
+      "launcherDisabled": "Abertura de apps por comando de voz desativada",
+      "launcherUpdateFailed": "Não foi possível atualizar a configuração de abertura de apps: {{error}}",
+      "counterReset": "Contador de ações redefinido para 0",
+      "counterResetFailed": "Não foi possível redefinir o contador: {{error}}"
+    }
+  },
+  "templates": {
+    "section": {
+      "title": "Modelos de formatação por voz",
+      "subtitle": "Diga \"echo, format as email …\" (ou use o atalho de ação) para reescrever seu ditado com um prompt de sistema personalizado antes de ser colado."
+    },
+    "loading": "Carregando modelos…",
+    "explainer": "Quando seu ditado começa com uma das frases-gatilho de um modelo (ex.: <mono>\"echo, format as email …\"</mono>), o restante da frase é reescrito pelo prompt de sistema do modelo antes de ser colado no cursor. Funciona tanto com o prefixo \"echo\" quanto com o atalho dedicado de ação.",
+    "empty": "Ainda não há modelos. Adicione um para ativar a formatação por voz.",
+    "fields": {
+      "namePlaceholder": "Nome do modelo",
+      "idLabel": "id: {{id}}",
+      "triggerPhrasesLabel": "Frases-gatilho (separadas por vírgula)",
+      "triggerPhrasesPlaceholder": "format as email, make this an email",
+      "systemPromptLabel": "Prompt de sistema",
+      "systemPromptPlaceholder": "Descreva como o modelo deve reescrever o ditado. Seja específico sobre tom, tamanho e o que omitir."
+    },
+    "addButton": "+ Adicionar modelo",
+    "newTemplateName": "Novo modelo",
+    "confirmDelete": {
+      "message": "Excluir este modelo de formatação? Esta ação não pode ser desfeita.",
+      "title": "Excluir modelo"
+    },
+    "toasts": {
+      "saved": "Modelos de formatação salvos",
+      "saveFailed": "Não foi possível salvar os modelos: {{error}}"
+    }
+  },
+  "languageModel": {
+    "model": {
+      "title": "Modelo de linguagem",
+      "subtitle": "Modelo Gemma local usado para classificação de captura de registro, resumos de reunião, ações de voz e formatação."
+    },
+    "keepInMemory": {
+      "title": "Manter modelo na memória",
+      "subtitle": "Por quanto tempo o modelo de IA permanece carregado após o último uso. Mais tempo = próximo uso mais rápido, mas mais RAM."
+    },
+    "testInference": {
+      "title": "Testar inferência",
+      "defaultPrompt": "Diga olá em cinco palavras.",
+      "running": "Executando…",
+      "runButton": "Executar"
+    },
+    "unloadTimeout": {
+      "title": "Descarregar após inatividade",
+      "description": "Libera RAM quando você não usa a captura de registro há um tempo.",
+      "toastFailed": "Não foi possível atualizar a configuração de memória da IA: {{error}}"
+    }
+  },
+  "general": {
+    "startup": {
+      "title": "Inicialização",
+      "subtitle": "Abra o Echo Scribe automaticamente quando você entrar no sistema."
+    },
+    "updates": {
+      "title": "Atualizações",
+      "subtitle": "O Echo Scribe verifica atualizações automaticamente todos os dias. Você também pode verificar agora.",
+      "currentVersion": "Versão atual",
+      "currentVersionWithNumber": "Versão atual {{version}}",
+      "checking": "Verificando…",
+      "checkButton": "Verificar atualizações"
+    }
+  },
+  "drive": {
+    "section": {
+      "title": "Google Drive",
+      "subtitle": "Envie gravações de tela para o Drive e obtenha um link compartilhável para qualquer pessoa. O app só enxerga os arquivos que ele mesmo cria (escopo drive.file)."
+    },
+    "connected": "Conectado.",
+    "connectedAsEmail": "Conectado como {{email}}.",
+    "disconnectButton": "Desconectar",
+    "connecting": "Conectando…",
+    "connectButton": "Conectar Drive",
+    "folderLabel": "Pasta do Drive para envios",
+    "defaultSharingLabel": "Compartilhamento padrão: qualquer pessoa com o link pode visualizar",
+    "sharingNote": "Aplicado a cada arquivo (não à pasta). Pode ser substituído por vídeo no momento do envio.",
+    "byoClientLabel": "Usar meu próprio cliente OAuth do Google (remove o aviso de app não verificado)",
+    "clientConfigured": "Cliente configurado (…{{suffix}})",
+    "noClientConfigured": "Nenhum cliente configurado.",
+    "setUpButton": "Configurar",
+    "howToCreateClientId": "Como criar um ID de cliente",
+    "setupModal": {
+      "title": "Configure seu próprio cliente OAuth do Google",
+      "step1": "Abra o <link>Google Cloud Console</link> e crie um projeto (ou escolha um existente).",
+      "step2": "APIs e Serviços → Biblioteca → pesquise <b>Google Drive API</b> → <b>Ativar</b>.",
+      "step3": "APIs e Serviços → Tela de consentimento OAuth → <b>Externo</b> → preencha o nome do app e seu e-mail → adicione o escopo <code>.../auth/drive.file</code> → adicione sua conta do Google em <b>Usuários de teste</b> → Salvar. Deixe em <b>Teste</b>.",
+      "step4": "APIs e Serviços → Credenciais → Criar credenciais → <b>ID do cliente OAuth</b> → Tipo de aplicativo: <b>App para computador</b> → Criar.",
+      "step5": "Copie o <b>ID do cliente</b> e a <b>Chave secreta do cliente</b> nos campos abaixo. Nenhum URI de redirecionamento é necessário — apps para computador permitem loopback automaticamente.",
+      "clientIdPlaceholder": "ID do cliente (…apps.googleusercontent.com)",
+      "clientSecretPlaceholder": "Chave secreta do cliente",
+      "secretNote": "Armazenada com segurança neste Mac. Deixe a chave secreta em branco ao editar para manter a salva."
+    }
+  },
+  "projects": {
+    "section": {
+      "title": "Projetos",
+      "subtitle": "Crie, renomeie, arquive ou exclua projetos."
+    }
+  },
+  "codingAgents": {
+    "toolPermissions": {
+      "title": "Permissões de ferramentas",
+      "subtitle": "O Echo Scribe tem um servidor MCP integrado ao qual agentes como Claude Code ou Codex podem se conectar. Marque o que eles têm permissão para acessar — as mudanças se aplicam imediatamente, mesmo para agentes já conectados. Tudo permanece neste Mac.",
+      "loadFailed": "Não foi possível carregar as permissões — veja Configurações → Diagnóstico → registros para mais detalhes.",
+      "updateFailed": "Não foi possível atualizar a permissão de {{label}}: {{error}}"
+    },
+    "connect": {
+      "title": "Conecte seu agente de código",
+      "subtitle": "O servidor MCP é o próprio app Echo Scribe — nada extra para baixar. Clique em Instalar e o Echo Scribe se registra na própria CLI do agente, ou copie o trecho para fazer manualmente."
+    },
+    "snippets": {
+      "claudeCode": { "title": "Claude Code", "hint": "A instalação executa: claude mcp add (escopo de usuário)." },
+      "codex": { "title": "Codex CLI", "hint": "A instalação executa: codex mcp add (grava em ~/.codex/config.toml)." },
+      "other": { "title": "Outros clientes MCP", "hint": "Cursor, Windsurf, Gemini CLI — JSON padrão de mcpServers." },
+      "installing": "Instalando…",
+      "installButton": "Instalar",
+      "copyAriaLabel": "Copiar configuração de {{title}}"
+    },
+    "howToUse": {
+      "title": "Como usar",
+      "subtitle": "Não há comando para memorizar — converse com seu agente normalmente. Ele enxerga as ferramentas do Echo Scribe e as chama sempre que seu pedido precisar delas; mencionar “Echo Scribe” o incentiva a procurar ali. Experimente um destes:",
+      "recordingNote": "Para prompts de gravação, o Echo Scribe precisa estar em execução e a permissão de Gravação de Tela marcada acima. O agente lista suas janelas, inicia e para a gravação sozinho, recebe o caminho do arquivo de vídeo de volta e pode então assistir ou analisar o arquivo — a gravação também é adicionada à sua biblioteca como qualquer outra."
+    },
+    "examplePrompts": {
+      "listWindows": "Liste minhas janelas com o echo-scribe e grave a janela do Chrome com o áudio do sistema. Pare quando eu mandar e resuma o que aconteceu no vídeo.",
+      "recordBug": "Grave minha tela com o microfone ativado enquanto eu reproduzo este bug, depois pare e analise o vídeo para descobrir o que deu errado.",
+      "searchMeetings": "Pesquise nas minhas reuniões do Echo Scribe a discussão sobre preços e resuma as decisões.",
+      "lastWeekDictation": "O que eu ditei na semana passada sobre o fluxo de integração?",
+      "copyAriaLabel": "Copiar prompt de exemplo"
+    }
+  },
+  "permissions": {
+    "section": {
+      "title": "Permissões",
+      "subtitle": "Conceda novamente o acesso a microfone ou acessibilidade se algo parecer quebrado. Redefinir e sair limpa as permissões TCC do macOS para ambos os serviços, para que a próxima abertura solicite tudo do zero."
+    }
+  },
+  "diagnostics": {
+    "section": {
+      "title": "Diagnóstico",
+      "subtitle": "Inspecione o registro contínuo de falhas que o Echo Scribe grava na sua pasta pessoal."
+    },
+    "logFolder": {
+      "title": "Pasta de registros",
+      "openFailed": "Não foi possível abrir a pasta: {{error}}"
+    },
+    "recentLog": {
+      "title": "Registro recente (últimas 200 linhas)",
+      "refreshing": "…",
+      "empty": "(ainda sem conteúdo de registro)"
+    },
+    "resetSection": {
+      "showButton": "Mostrar opções de redefinição",
+      "hideButton": "Ocultar opções de redefinição",
+      "warning": "Apaga o armazenamento de configurações (atalhos, modelos ativos, preferências persistentes) e encerra o app. Seus itens capturados são preservados — eles ficam no banco de dados SQLite, não no armazenamento de configurações.",
+      "resetting": "Redefinindo…",
+      "resetButton": "Redefinir integração",
+      "confirmMessage": "Redefinir a integração? Isso apaga o armazenamento de configurações e encerra o app. Você precisará reabri-lo.",
+      "confirmTitle": "Redefinir integração",
+      "toastFailed": "Falha na redefinição: {{error}}"
+    }
+  },
+  "uninstall": {
+    "confirmDeleteMessage": "Desinstalar o Echo Scribe e remover todos os dados locais? Isso inclui itens capturados, gravações, modelos baixados, configurações, registros, o arquivo local de eventos e a conexão com o Google Drive. Os arquivos serão movidos para a Lixeira, mas a credencial do Drive e as permissões do macOS serão removidas.",
+    "confirmKeepMessage": "Desinstalar o Echo Scribe mas manter todos os dados locais? O app será encerrado e movido para a Lixeira. Reinstalar depois restaurará seus itens, gravações, modelos, configurações e preferências.",
+    "confirmDeleteTitle": "Desinstalar o Echo Scribe e os dados",
+    "confirmTitle": "Desinstalar o Echo Scribe",
+    "toastFailed": "Falha na desinstalação: {{error}}",
+    "appOnly": {
+      "title": "Desinstalar aplicativo",
+      "body": "Remove apenas o Echo Scribe. Seus itens capturados, gravações, modelos baixados, configurações e preferências permanecem neste Mac e ficam disponíveis após reinstalar.",
+      "button": "Desinstalar app"
+    },
+    "appAndData": {
+      "title": "Desinstalar aplicativo e dados",
+      "body": "Remove o Echo Scribe e todos os seus dados locais, incluindo itens, gravações, modelos, configurações, registros e o arquivo local de eventos. Use isso apenas quando quiser que a próxima instalação comece do zero.",
+      "button": "Desinstalar app e dados"
+    },
+    "uninstalling": "Desinstalando…",
+    "trashNote": "O aplicativo e os dados do sistema de arquivos são movidos para a Lixeira do macOS."
+  },
+  "logCaptureOverlay": {
+    "recording": {
+      "title": "Captura de registro",
+      "status": "Gravando — solte o atalho para parar.",
+      "listening": "Ouvindo…"
+    },
+    "review": {
+      "title": "Revisar captura",
+      "classifierUnavailable": "Dica do classificador indisponível: {{error}}",
+      "lowConfidence": "Baixa confiança ({{percent}}%) — verifique o projeto e o tipo abaixo.",
+      "newProjectSuggested": "Sugerindo um novo projeto — confirme o nome abaixo antes de salvar.",
+      "suggestedFields": "Campos sugeridos pelo classificador abaixo — ajuste conforme necessário.",
+      "transcriptLabel": "Transcrição",
+      "kindLabel": "Tipo",
+      "kindNote": "Nota",
+      "kindTask": "Tarefa",
+      "deadlineLabel": "Prazo",
+      "deadlineTasksOnly": "(apenas tarefas)",
+      "deadlinePlaceholder": "2026-05-10T17:00:00Z",
+      "newProjectLabel": "Novo projeto (substitui o existente)",
+      "newProjectPlaceholder": "Deixe vazio para manter o projeto existente",
+      "existingProjectId": "ID do projeto existente: {{id}}",
+      "tagsLabel": "Tags (separadas por vírgula)",
+      "discardButton": "Descartar",
+      "saveButton": "Salvar",
+      "savingEllipsis": "Salvando…"
+    }
+  }
+}
