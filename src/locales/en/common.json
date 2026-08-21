@@ -144,7 +144,8 @@
       "saveTemplate": "Save template",
       "rewriting": "Rewriting the summary locally…",
       "editPlaceholder": "Write the summary as markdown…",
-      "empty": "No summary yet."
+      "empty": "No summary yet.",
+      "actionItemsHeading": "Action items"
     },
     "chat": {
       "toggle": "Ask this meeting",
@@ -355,6 +356,26 @@
       "msgCount": "{{count}} msgs"
     }
   },
+  "keyNames": {
+    "control": "Control",
+    "shift": "Shift",
+    "option": "Option",
+    "command": "⌘",
+    "space": "Space",
+    "enter": "Return",
+    "tab": "Tab",
+    "escape": "Esc",
+    "backspace": "Backspace",
+    "delete": "Delete",
+    "capsLock": "Caps Lock",
+    "home": "Home",
+    "end": "End",
+    "pageUp": "Page Up",
+    "pageDown": "Page Down",
+    "numpad": "Num {{digit}}",
+    "leftSide": "Left {{key}}",
+    "rightSide": "Right {{key}}"
+  },
   "llmModelPicker": {
     "loadError": "Couldn't load LLM models: {{error}}",
     "downloadedModelsHeading": "Downloaded models",
@@ -386,29 +407,44 @@
     "manualMeeting": "Manual meeting",
     "appMeetingTitle": "{{app}} meeting",
     "durationMinutes": "{{mins}}m",
-    "durationHoursMinutes": "{{hours}}h {{mins}}m",
-    "status": {
-      "recording": {
-        "label": "Recording…",
-        "description": "This meeting is still recording."
-      },
-      "transcribing": {
-        "label": "Transcribing…",
-        "description": "Transcribing the audio — this can take a moment for long meetings."
-      },
-      "summarizing": {
-        "label": "Summarizing…",
-        "description": "Summarizing the transcript — almost done."
-      },
-      "failed": {
-        "label": "Failed",
-        "description": "This meeting didn't finish processing, so its summary may be missing."
-      },
-      "recovered": {
-        "label": "Recovered",
-        "description": "This meeting was recovered after an interruption; some content may be partial."
-      }
+    "durationHoursMinutes": "{{hours}}h {{mins}}m"
+  },
+  "meetingStatus": {
+    "recording": {
+      "label": "Recording…",
+      "description": "This meeting is still recording."
+    },
+    "transcribing": {
+      "label": "Transcribing…",
+      "description": "Transcribing the audio — this can take a moment for long meetings."
+    },
+    "summarizing": {
+      "label": "Summarizing…",
+      "description": "Summarizing the transcript — almost done."
+    },
+    "failed": {
+      "label": "Failed",
+      "description": "This meeting didn't finish processing, so its summary may be missing."
+    },
+    "recovered": {
+      "label": "Recovered",
+      "description": "This meeting was recovered after an interruption; some content may be partial."
     }
+  },
+  "relativeTime": {
+    "justNow": "Just now",
+    "seconds_one": "{{count}}s ago",
+    "seconds_other": "{{count}}s ago",
+    "minutes_one": "{{count}} min ago",
+    "minutes_other": "{{count}} min ago",
+    "hours_one": "{{count}} hr ago",
+    "hours_other": "{{count}} hr ago",
+    "days_one": "{{count}} day ago",
+    "days_other": "{{count}} days ago",
+    "months_one": "{{count}} mo ago",
+    "months_other": "{{count}} mo ago",
+    "years_one": "{{count}} yr ago",
+    "years_other": "{{count}} yr ago"
   },
   "permissionRow": {
     "granted": "Granted",
@@ -651,7 +687,9 @@
     "recordLabel": "Record screen",
     "recordTitle": "Record your screen",
     "stop": "Stop",
-    "screen": "Screen"
+    "screen": "Screen",
+    "stopFailed": "Couldn't stop the screen recording. See Settings → Diagnostics → logs for details.",
+    "startFailed": "Couldn't start screen recording. Check Screen Recording permission in Settings → Diagnostics."
   },
   "sectionErrorBoundary": {
     "message": "Something went wrong showing this page. See Settings → Diagnostics → logs for details.",

@@ -144,7 +144,8 @@
       "saveTemplate": "Enregistrer le modèle",
       "rewriting": "Réécriture du résumé en local…",
       "editPlaceholder": "Rédigez le résumé en Markdown…",
-      "empty": "Pas encore de résumé."
+      "empty": "Pas encore de résumé.",
+      "actionItemsHeading": "Actions à mener"
     },
     "chat": {
       "toggle": "Interroger cette réunion",
@@ -355,6 +356,26 @@
       "msgCount": "{{count}} messages"
     }
   },
+  "keyNames": {
+    "control": "Contrôle",
+    "shift": "Maj",
+    "option": "Option",
+    "command": "⌘",
+    "space": "Espace",
+    "enter": "Retour",
+    "tab": "Tabulation",
+    "escape": "Échap",
+    "backspace": "Retour arrière",
+    "delete": "Suppr",
+    "capsLock": "Verr. maj",
+    "home": "Début",
+    "end": "Fin",
+    "pageUp": "Page préc.",
+    "pageDown": "Page suiv.",
+    "numpad": "Num {{digit}}",
+    "leftSide": "{{key}} (gauche)",
+    "rightSide": "{{key}} (droite)"
+  },
   "llmModelPicker": {
     "loadError": "Impossible de charger les modèles LLM : {{error}}",
     "downloadedModelsHeading": "Modèles téléchargés",
@@ -386,29 +407,44 @@
     "manualMeeting": "Réunion manuelle",
     "appMeetingTitle": "Réunion {{app}}",
     "durationMinutes": "{{mins}} min",
-    "durationHoursMinutes": "{{hours}} h {{mins}} min",
-    "status": {
-      "recording": {
-        "label": "Enregistrement…",
-        "description": "Cette réunion est encore en cours d’enregistrement."
-      },
-      "transcribing": {
-        "label": "Transcription…",
-        "description": "Transcription de l’audio en cours — cela peut prendre un moment pour les réunions longues."
-      },
-      "summarizing": {
-        "label": "Résumé en cours…",
-        "description": "Résumé de la transcription en cours — presque terminé."
-      },
-      "failed": {
-        "label": "Échec",
-        "description": "Cette réunion n’a pas terminé son traitement ; son résumé peut donc être manquant."
-      },
-      "recovered": {
-        "label": "Récupérée",
-        "description": "Cette réunion a été récupérée après une interruption ; certains contenus peuvent être partiels."
-      }
+    "durationHoursMinutes": "{{hours}} h {{mins}} min"
+  },
+  "meetingStatus": {
+    "recording": {
+      "label": "Enregistrement…",
+      "description": "Cette réunion est encore en cours d’enregistrement."
+    },
+    "transcribing": {
+      "label": "Transcription…",
+      "description": "Transcription de l’audio en cours — cela peut prendre un moment pour les réunions longues."
+    },
+    "summarizing": {
+      "label": "Résumé en cours…",
+      "description": "Résumé de la transcription en cours — presque terminé."
+    },
+    "failed": {
+      "label": "Échec",
+      "description": "Cette réunion n’a pas terminé son traitement ; son résumé peut donc être manquant."
+    },
+    "recovered": {
+      "label": "Récupérée",
+      "description": "Cette réunion a été récupérée après une interruption ; certains contenus peuvent être partiels."
     }
+  },
+  "relativeTime": {
+    "justNow": "À l’instant",
+    "seconds_one": "il y a {{count}} s",
+    "seconds_other": "il y a {{count}} s",
+    "minutes_one": "il y a {{count}} min",
+    "minutes_other": "il y a {{count}} min",
+    "hours_one": "il y a {{count}} h",
+    "hours_other": "il y a {{count}} h",
+    "days_one": "il y a {{count}} jour",
+    "days_other": "il y a {{count}} jours",
+    "months_one": "il y a {{count}} mois",
+    "months_other": "il y a {{count}} mois",
+    "years_one": "il y a {{count}} an",
+    "years_other": "il y a {{count}} ans"
   },
   "permissionRow": {
     "granted": "Accordée",
@@ -651,7 +687,9 @@
     "recordLabel": "Enregistrer l’écran",
     "recordTitle": "Enregistrer votre écran",
     "stop": "Arrêter",
-    "screen": "Écran"
+    "screen": "Écran",
+    "stopFailed": "Impossible d’arrêter l’enregistrement d’écran. Voir Réglages → Diagnostic → journaux pour plus de détails.",
+    "startFailed": "Impossible de démarrer l’enregistrement d’écran. Vérifiez l’autorisation Enregistrement d’écran dans Réglages → Diagnostic."
   },
   "sectionErrorBoundary": {
     "message": "Une erreur est survenue lors de l’affichage de cette page. Voir Réglages → Diagnostic → journaux pour plus de détails.",
@@ -740,11 +778,11 @@
       "saveFailed": "Impossible d’enregistrer la langue : {{error}}",
       "options": {
         "auto": "Automatique",
-        "en": "Anglais",
-        "es": "Espagnol",
+        "en": "English",
+        "es": "Español",
         "fr": "Français",
-        "de": "Allemand",
-        "pt": "Portugais"
+        "de": "Deutsch",
+        "pt": "Português"
       },
       "footnote": "La détection automatique prend en charge 25 langues européennes. Les commandes vocales sont actuellement en anglais."
     },

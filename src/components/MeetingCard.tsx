@@ -8,19 +8,23 @@ import {
   Loader,
   Users,
 } from "lucide-react";
-import type { Item, MeetingRow, MeetingStatus, Project, StoredSummary } from "../lib/api";
+import type { Item, MeetingRow, Project, StoredSummary } from "../lib/api";
 import { listMeetingActionItems } from "../lib/api";
-import { relativeTime } from "../lib/format";
+import {
+  meetingStatusDescription,
+  meetingStatusLabel,
+  relativeTimeLabel,
+} from "../lib/displayText";
 import { parseSummary, summaryPreview } from "../lib/meetingDisplay";
 import { meetingStatusDisplay } from "../lib/meetingStatus";
 import { useActivityPanel } from "./ActivityPanelContext";
 import ItemCard from "./ItemCard";
 
-// meetingTitle()/meetingDuration() from ../lib/meetingDisplay and the
-// label/description text from ../lib/meetingStatus return hardcoded English
-// copy. Those are plain (non-hook) lib helpers outside this extraction's
-// file scope, so their translated equivalents are reimplemented here at the
-// render callsite instead of touching the shared lib files.
+// meetingTitle()/meetingDuration() from ../lib/meetingDisplay return hardcoded
+// English copy. Those are plain (non-hook) lib helpers imported by `tests/`,
+// so their translated equivalents are reimplemented here at the render
+// callsite instead of making the shared lib files depend on i18n. The
+// meeting-status copy is shared with ActivityPanel via ../lib/displayText.
 function localizedMeetingTitle(
   t: TFunction,
   mtg: MeetingRow,
@@ -39,41 +43,6 @@ function localizedMeetingDuration(t: TFunction, ms: number | null | undefined): 
   if (mins < 60) return t("meetingCard.durationMinutes", { mins });
   const h = Math.floor(mins / 60);
   return t("meetingCard.durationHoursMinutes", { hours: h, mins: mins % 60 });
-}
-
-function localizedMeetingStatusText(
-  t: TFunction,
-  status: MeetingStatus,
-): { label: string; description: string } {
-  switch (status) {
-    case "recording":
-      return {
-        label: t("meetingCard.status.recording.label"),
-        description: t("meetingCard.status.recording.description"),
-      };
-    case "transcribing":
-      return {
-        label: t("meetingCard.status.transcribing.label"),
-        description: t("meetingCard.status.transcribing.description"),
-      };
-    case "summarizing":
-      return {
-        label: t("meetingCard.status.summarizing.label"),
-        description: t("meetingCard.status.summarizing.description"),
-      };
-    case "failed":
-      return {
-        label: t("meetingCard.status.failed.label"),
-        description: t("meetingCard.status.failed.description"),
-      };
-    case "recovered":
-      return {
-        label: t("meetingCard.status.recovered.label"),
-        description: t("meetingCard.status.recovered.description"),
-      };
-    case "complete":
-      return { label: "", description: "" };
-  }
 }
 
 type Props = {
@@ -102,7 +71,8 @@ export default function MeetingCard({ mtg, projects, variant = "card" }: Props) 
   // localizedMeetingStatusText above).
   const status = {
     ...meetingStatusDisplay(mtg.status),
-    ...localizedMeetingStatusText(t, mtg.status),
+    label: meetingStatusLabel(t, mtg.status),
+    description: meetingStatusDescription(t, mtg.status),
   };
   // Legacy meetings only: action items promoted to tasks before the markdown
   // rework. New meetings keep next steps inside the summary markdown.
@@ -189,7 +159,7 @@ export default function MeetingCard({ mtg, projects, variant = "card" }: Props) 
           ) : null}
 
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-muted">
-            <span>{relativeTime(mtg.started_at)}</span>
+            <span>{relativeTimeLabel(t, mtg.started_at)}</span>
             {!status.pill ? (
               <>
                 <span>·</span>

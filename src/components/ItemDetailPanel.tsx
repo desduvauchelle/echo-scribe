@@ -13,7 +13,7 @@ import {
   type ClaudeSessionSummary,
   type ClaudeSessionMessage,
 } from "../lib/api";
-import { relativeTime } from "../lib/format";
+import { relativeTimeLabel } from "../lib/displayText";
 
 type Tab = "activity" | "sessions";
 
@@ -120,7 +120,7 @@ function ActivityTab({ itemId }: { itemId: string }) {
               <span className="ml-1 text-faint">{ev.detail}</span>
             ) : null}
             <span className="ml-2 text-faint">
-              {relativeTime(ev.created_at)}
+              {relativeTimeLabel(t, ev.created_at)}
             </span>
           </div>
         </div>
@@ -226,7 +226,7 @@ function SessionsTab({ itemId }: { itemId: string }) {
                   {s.name}
                 </span>
                 <span className="ml-auto shrink-0 text-faint">
-                  {relativeTime(s.updated_at)}
+                  {relativeTimeLabel(t, s.updated_at)}
                 </span>
               </button>
               {expandedChat === s.id && (

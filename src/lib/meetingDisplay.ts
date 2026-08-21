@@ -38,8 +38,16 @@ export function meetingDuration(ms: number | null | undefined): string {
 /** The summary body as markdown. New meetings store markdown directly; legacy
  *  meetings get their bullets + action items assembled into equivalent
  *  markdown so one rendering path serves both eras. Null when there is no
- *  summary content at all. */
-export function summaryMarkdown(summary: StoredSummary | null): string | null {
+ *  summary content at all.
+ *
+ *  `actionItemsHeading` is the only user-facing string this module emits (the
+ *  legacy-assembly path only). It is a parameter rather than a `t()` call so
+ *  this module stays i18n-free for `tests/`; UI callers pass the translated
+ *  heading, and the English default keeps the pure-logic tests meaningful. */
+export function summaryMarkdown(
+  summary: StoredSummary | null,
+  actionItemsHeading = "Action items",
+): string | null {
   if (!summary) return null;
   const md = summary.markdown?.trim();
   if (md) return md;
@@ -51,7 +59,7 @@ export function summaryMarkdown(summary: StoredSummary | null): string | null {
   const actions = summary.action_items ?? [];
   if (actions.length > 0) {
     parts.push(
-      "## Action items\n" +
+      `## ${actionItemsHeading}\n` +
         actions
           .map((a) => {
             const owner = a.owner && a.owner !== "unspecified" ? ` *(${a.owner})*` : "";

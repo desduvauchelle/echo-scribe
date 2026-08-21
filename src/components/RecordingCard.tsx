@@ -2,7 +2,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { Film, Globe, Loader } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { Project, RecordingRow } from "../lib/api";
-import { relativeTime } from "../lib/format";
+import { relativeTimeLabel } from "../lib/displayText";
 import { useActivityPanel } from "./ActivityPanelContext";
 import RecordingActionsMenu, {
   recordingDisplayName,
@@ -98,7 +98,7 @@ export default function RecordingCard({
           </span>
         </div>
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-muted">
-          <span>{relativeTime(new Date(rec.created_at).toISOString())}</span>
+          <span>{relativeTimeLabel(t, new Date(rec.created_at).toISOString())}</span>
           <span>·</span>
           <span>{fmtSize(rec.size_bytes)}</span>
           {project ? (

@@ -144,7 +144,8 @@
       "saveTemplate": "Vorlage speichern",
       "rewriting": "Zusammenfassung wird lokal neu geschrieben…",
       "editPlaceholder": "Zusammenfassung als Markdown schreiben…",
-      "empty": "Noch keine Zusammenfassung."
+      "empty": "Noch keine Zusammenfassung.",
+      "actionItemsHeading": "Aufgaben"
     },
     "chat": {
       "toggle": "Dieses Meeting fragen",
@@ -355,6 +356,26 @@
       "msgCount": "{{count}} Nachr."
     }
   },
+  "keyNames": {
+    "control": "Control",
+    "shift": "Umschalt",
+    "option": "Wahl",
+    "command": "⌘",
+    "space": "Leertaste",
+    "enter": "Return",
+    "tab": "Tabulator",
+    "escape": "Esc",
+    "backspace": "Rückschritt",
+    "delete": "Entf",
+    "capsLock": "Feststelltaste",
+    "home": "Pos 1",
+    "end": "Ende",
+    "pageUp": "Bild auf",
+    "pageDown": "Bild ab",
+    "numpad": "Num {{digit}}",
+    "leftSide": "{{key}} links",
+    "rightSide": "{{key}} rechts"
+  },
   "llmModelPicker": {
     "loadError": "LLM-Modelle konnten nicht geladen werden: {{error}}",
     "downloadedModelsHeading": "Heruntergeladene Modelle",
@@ -386,29 +407,44 @@
     "manualMeeting": "Manuelles Meeting",
     "appMeetingTitle": "{{app}}-Meeting",
     "durationMinutes": "{{mins}}m",
-    "durationHoursMinutes": "{{hours}}h {{mins}}m",
-    "status": {
-      "recording": {
-        "label": "Wird aufgenommen…",
-        "description": "Dieses Meeting wird noch aufgenommen."
-      },
-      "transcribing": {
-        "label": "Wird transkribiert…",
-        "description": "Audio wird transkribiert — bei langen Meetings kann das etwas dauern."
-      },
-      "summarizing": {
-        "label": "Wird zusammengefasst…",
-        "description": "Transkript wird zusammengefasst — fast fertig."
-      },
-      "failed": {
-        "label": "Fehlgeschlagen",
-        "description": "Dieses Meeting wurde nicht vollständig verarbeitet, die Zusammenfassung fehlt daher möglicherweise."
-      },
-      "recovered": {
-        "label": "Wiederhergestellt",
-        "description": "Dieses Meeting wurde nach einer Unterbrechung wiederhergestellt; manche Inhalte können unvollständig sein."
-      }
+    "durationHoursMinutes": "{{hours}}h {{mins}}m"
+  },
+  "meetingStatus": {
+    "recording": {
+      "label": "Wird aufgenommen…",
+      "description": "Dieses Meeting wird noch aufgenommen."
+    },
+    "transcribing": {
+      "label": "Wird transkribiert…",
+      "description": "Audio wird transkribiert — bei langen Meetings kann das etwas dauern."
+    },
+    "summarizing": {
+      "label": "Wird zusammengefasst…",
+      "description": "Transkript wird zusammengefasst — fast fertig."
+    },
+    "failed": {
+      "label": "Fehlgeschlagen",
+      "description": "Dieses Meeting wurde nicht vollständig verarbeitet, die Zusammenfassung fehlt daher möglicherweise."
+    },
+    "recovered": {
+      "label": "Wiederhergestellt",
+      "description": "Dieses Meeting wurde nach einer Unterbrechung wiederhergestellt; manche Inhalte können unvollständig sein."
     }
+  },
+  "relativeTime": {
+    "justNow": "Gerade eben",
+    "seconds_one": "vor {{count}} s",
+    "seconds_other": "vor {{count}} s",
+    "minutes_one": "vor {{count}} Min.",
+    "minutes_other": "vor {{count}} Min.",
+    "hours_one": "vor {{count}} Std.",
+    "hours_other": "vor {{count}} Std.",
+    "days_one": "vor {{count}} Tag",
+    "days_other": "vor {{count}} Tagen",
+    "months_one": "vor {{count}} Monat",
+    "months_other": "vor {{count}} Monaten",
+    "years_one": "vor {{count}} Jahr",
+    "years_other": "vor {{count}} Jahren"
   },
   "permissionRow": {
     "granted": "Erteilt",
@@ -651,7 +687,9 @@
     "recordLabel": "Bildschirm aufnehmen",
     "recordTitle": "Nimm deinen Bildschirm auf",
     "stop": "Stopp",
-    "screen": "Bildschirm"
+    "screen": "Bildschirm",
+    "stopFailed": "Bildschirmaufnahme konnte nicht gestoppt werden. Details unter Einstellungen → Diagnose → Protokolle.",
+    "startFailed": "Bildschirmaufnahme konnte nicht gestartet werden. Prüfe die Berechtigung für Bildschirmaufnahme unter Einstellungen → Diagnose."
   },
   "sectionErrorBoundary": {
     "message": "Beim Anzeigen dieser Seite ist ein Fehler aufgetreten. Details unter Einstellungen → Diagnose → Protokolle.",
@@ -740,11 +778,11 @@
       "saveFailed": "Sprache konnte nicht gespeichert werden: {{error}}",
       "options": {
         "auto": "Automatisch",
-        "en": "Englisch",
-        "es": "Spanisch",
-        "fr": "Französisch",
+        "en": "English",
+        "es": "Español",
+        "fr": "Français",
         "de": "Deutsch",
-        "pt": "Portugiesisch"
+        "pt": "Português"
       },
       "footnote": "Automatische Erkennung unterstützt 25 europäische Sprachen. Sprachbefehle für die Bearbeitung sind derzeit auf Englisch."
     },

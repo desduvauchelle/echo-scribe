@@ -144,7 +144,8 @@
       "saveTemplate": "Sjabloon opslaan",
       "rewriting": "Samenvatting wordt lokaal herschreven…",
       "editPlaceholder": "Schrijf de samenvatting in markdown…",
-      "empty": "Nog geen samenvatting."
+      "empty": "Nog geen samenvatting.",
+      "actionItemsHeading": "Actiepunten"
     },
     "chat": {
       "toggle": "Vraag het deze meeting",
@@ -355,6 +356,26 @@
       "msgCount": "{{count}} berichten"
     }
   },
+  "keyNames": {
+    "control": "Control",
+    "shift": "Shift",
+    "option": "Option",
+    "command": "⌘",
+    "space": "Spatiebalk",
+    "enter": "Return",
+    "tab": "Tab",
+    "escape": "Esc",
+    "backspace": "Backspace",
+    "delete": "Delete",
+    "capsLock": "Caps Lock",
+    "home": "Home",
+    "end": "End",
+    "pageUp": "Page Up",
+    "pageDown": "Page Down",
+    "numpad": "Num {{digit}}",
+    "leftSide": "{{key}} links",
+    "rightSide": "{{key}} rechts"
+  },
   "llmModelPicker": {
     "loadError": "Kon LLM-modellen niet laden: {{error}}",
     "downloadedModelsHeading": "Gedownloade modellen",
@@ -386,29 +407,44 @@
     "manualMeeting": "Handmatige meeting",
     "appMeetingTitle": "{{app}}-meeting",
     "durationMinutes": "{{mins}}m",
-    "durationHoursMinutes": "{{hours}}u {{mins}}m",
-    "status": {
-      "recording": {
-        "label": "Opnemen…",
-        "description": "Deze meeting wordt nog opgenomen."
-      },
-      "transcribing": {
-        "label": "Transcriberen…",
-        "description": "Audio wordt getranscribeerd — dit kan even duren bij lange meetings."
-      },
-      "summarizing": {
-        "label": "Samenvatten…",
-        "description": "Transcript wordt samengevat — bijna klaar."
-      },
-      "failed": {
-        "label": "Mislukt",
-        "description": "Deze meeting is niet volledig verwerkt, dus de samenvatting kan ontbreken."
-      },
-      "recovered": {
-        "label": "Hersteld",
-        "description": "Deze meeting is hersteld na een onderbreking; sommige inhoud kan onvolledig zijn."
-      }
+    "durationHoursMinutes": "{{hours}}u {{mins}}m"
+  },
+  "meetingStatus": {
+    "recording": {
+      "label": "Opnemen…",
+      "description": "Deze meeting wordt nog opgenomen."
+    },
+    "transcribing": {
+      "label": "Transcriberen…",
+      "description": "Audio wordt getranscribeerd — dit kan even duren bij lange meetings."
+    },
+    "summarizing": {
+      "label": "Samenvatten…",
+      "description": "Transcript wordt samengevat — bijna klaar."
+    },
+    "failed": {
+      "label": "Mislukt",
+      "description": "Deze meeting is niet volledig verwerkt, dus de samenvatting kan ontbreken."
+    },
+    "recovered": {
+      "label": "Hersteld",
+      "description": "Deze meeting is hersteld na een onderbreking; sommige inhoud kan onvolledig zijn."
     }
+  },
+  "relativeTime": {
+    "justNow": "Zojuist",
+    "seconds_one": "{{count}} s geleden",
+    "seconds_other": "{{count}} s geleden",
+    "minutes_one": "{{count}} min geleden",
+    "minutes_other": "{{count}} min geleden",
+    "hours_one": "{{count}} u geleden",
+    "hours_other": "{{count}} u geleden",
+    "days_one": "{{count}} dag geleden",
+    "days_other": "{{count}} dagen geleden",
+    "months_one": "{{count}} maand geleden",
+    "months_other": "{{count}} maanden geleden",
+    "years_one": "{{count}} jaar geleden",
+    "years_other": "{{count}} jaar geleden"
   },
   "permissionRow": {
     "granted": "Verleend",
@@ -651,7 +687,9 @@
     "recordLabel": "Scherm opnemen",
     "recordTitle": "Neem je scherm op",
     "stop": "Stop",
-    "screen": "Scherm"
+    "screen": "Scherm",
+    "stopFailed": "Kon de schermopname niet stoppen. Zie Instellingen → Diagnostiek → logs voor details.",
+    "startFailed": "Kon de schermopname niet starten. Controleer de toestemming voor Schermopname in Instellingen → Diagnostiek."
   },
   "sectionErrorBoundary": {
     "message": "Er ging iets mis bij het weergeven van deze pagina. Zie Instellingen → Diagnostiek → logs voor details.",
@@ -741,10 +779,10 @@
       "options": {
         "auto": "Automatisch",
         "en": "English",
-        "es": "Spanish",
-        "fr": "French",
-        "de": "German",
-        "pt": "Portuguese"
+        "es": "Español",
+        "fr": "Français",
+        "de": "Deutsch",
+        "pt": "Português"
       },
       "footnote": "Automatische detectie ondersteunt 25 Europese talen. Gesproken bewerkingsopdrachten zijn momenteel Engelstalig."
     },

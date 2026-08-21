@@ -146,7 +146,8 @@
       "saveTemplate": "Zapisz szablon",
       "rewriting": "Przepisywanie podsumowania lokalnie…",
       "editPlaceholder": "Napisz podsumowanie w formacie markdown…",
-      "empty": "Brak podsumowania."
+      "empty": "Brak podsumowania.",
+      "actionItemsHeading": "Zadania"
     },
     "chat": {
       "toggle": "Zapytaj o to spotkanie",
@@ -361,6 +362,26 @@
       "msgCount": "{{count}} wiad."
     }
   },
+  "keyNames": {
+    "control": "Control",
+    "shift": "Shift",
+    "option": "Option",
+    "command": "⌘",
+    "space": "Spacja",
+    "enter": "Enter",
+    "tab": "Tab",
+    "escape": "Esc",
+    "backspace": "Backspace",
+    "delete": "Delete",
+    "capsLock": "Caps Lock",
+    "home": "Home",
+    "end": "End",
+    "pageUp": "Page Up",
+    "pageDown": "Page Down",
+    "numpad": "Num {{digit}}",
+    "leftSide": "lewy {{key}}",
+    "rightSide": "prawy {{key}}"
+  },
   "llmModelPicker": {
     "loadError": "Nie udało się wczytać modeli LLM: {{error}}",
     "downloadedModelsHeading": "Pobrane modele",
@@ -394,29 +415,56 @@
     "manualMeeting": "Spotkanie ręczne",
     "appMeetingTitle": "Spotkanie w {{app}}",
     "durationMinutes": "{{mins}} min",
-    "durationHoursMinutes": "{{hours}} godz. {{mins}} min",
-    "status": {
-      "recording": {
-        "label": "Nagrywanie…",
-        "description": "To spotkanie wciąż jest nagrywane."
-      },
-      "transcribing": {
-        "label": "Transkrybowanie…",
-        "description": "Transkrybowanie dźwięku — dla dłuższych spotkań może to chwilę potrwać."
-      },
-      "summarizing": {
-        "label": "Podsumowywanie…",
-        "description": "Podsumowywanie transkrypcji — już prawie gotowe."
-      },
-      "failed": {
-        "label": "Nieudane",
-        "description": "To spotkanie nie zostało w pełni przetworzone, więc jego podsumowanie może być niepełne."
-      },
-      "recovered": {
-        "label": "Odzyskane",
-        "description": "To spotkanie zostało odzyskane po przerwaniu; część treści może być niepełna."
-      }
+    "durationHoursMinutes": "{{hours}} godz. {{mins}} min"
+  },
+  "meetingStatus": {
+    "recording": {
+      "label": "Nagrywanie…",
+      "description": "To spotkanie wciąż jest nagrywane."
+    },
+    "transcribing": {
+      "label": "Transkrybowanie…",
+      "description": "Transkrybowanie dźwięku — dla dłuższych spotkań może to chwilę potrwać."
+    },
+    "summarizing": {
+      "label": "Podsumowywanie…",
+      "description": "Podsumowywanie transkrypcji — już prawie gotowe."
+    },
+    "failed": {
+      "label": "Nieudane",
+      "description": "To spotkanie nie zostało w pełni przetworzone, więc jego podsumowanie może być niepełne."
+    },
+    "recovered": {
+      "label": "Odzyskane",
+      "description": "To spotkanie zostało odzyskane po przerwaniu; część treści może być niepełna."
     }
+  },
+  "relativeTime": {
+    "justNow": "Przed chwilą",
+    "seconds_one": "{{count}} s temu",
+    "seconds_few": "{{count}} s temu",
+    "seconds_many": "{{count}} s temu",
+    "seconds_other": "{{count}} s temu",
+    "minutes_one": "{{count}} min temu",
+    "minutes_few": "{{count}} min temu",
+    "minutes_many": "{{count}} min temu",
+    "minutes_other": "{{count}} min temu",
+    "hours_one": "{{count}} godz. temu",
+    "hours_few": "{{count}} godz. temu",
+    "hours_many": "{{count}} godz. temu",
+    "hours_other": "{{count}} godz. temu",
+    "days_one": "{{count}} dzień temu",
+    "days_few": "{{count}} dni temu",
+    "days_many": "{{count}} dni temu",
+    "days_other": "{{count}} dni temu",
+    "months_one": "{{count}} miesiąc temu",
+    "months_few": "{{count}} miesiące temu",
+    "months_many": "{{count}} miesięcy temu",
+    "months_other": "{{count}} miesiąca temu",
+    "years_one": "{{count}} rok temu",
+    "years_few": "{{count}} lata temu",
+    "years_many": "{{count}} lat temu",
+    "years_other": "{{count}} lat temu"
   },
   "permissionRow": {
     "granted": "Przyznano",
@@ -677,7 +725,9 @@
     "recordLabel": "Nagraj ekran",
     "recordTitle": "Nagraj swój ekran",
     "stop": "Zatrzymaj",
-    "screen": "Ekran"
+    "screen": "Ekran",
+    "stopFailed": "Nie udało się zatrzymać nagrywania ekranu. Zobacz Ustawienia → Diagnostyka → logi, aby uzyskać szczegóły.",
+    "startFailed": "Nie udało się rozpocząć nagrywania ekranu. Sprawdź uprawnienie Nagrywanie ekranu w Ustawieniach → Diagnostyka."
   },
   "sectionErrorBoundary": {
     "message": "Coś poszło nie tak przy wyświetlaniu tej strony. Zobacz Ustawienia → Diagnostyka → logi, aby uzyskać szczegóły.",
@@ -766,11 +816,11 @@
       "saveFailed": "Nie udało się zapisać języka: {{error}}",
       "options": {
         "auto": "Automatycznie",
-        "en": "Angielski",
-        "es": "Hiszpański",
-        "fr": "Francuski",
-        "de": "Niemiecki",
-        "pt": "Portugalski"
+        "en": "English",
+        "es": "Español",
+        "fr": "Français",
+        "de": "Deutsch",
+        "pt": "Português"
       },
       "footnote": "Automatyczne wykrywanie obsługuje 25 języków europejskich. Komendy edycji głosowej są obecnie dostępne tylko w języku angielskim."
     },

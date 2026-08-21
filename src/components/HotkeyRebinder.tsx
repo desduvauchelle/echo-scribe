@@ -9,11 +9,11 @@ import {
   type ModSide,
 } from "../lib/api";
 import {
-  formatBinding,
   isModifierCode,
   modifierKindFromCode,
   modifierSideFromCode,
 } from "../lib/binding";
+import { formatBindingLabel } from "../lib/displayText";
 
 type CaptureState =
   | { kind: "idle" }
@@ -171,7 +171,7 @@ export default function HotkeyRebinder({ onChange, load, save }: Props) {
               {t("hotkeyRebinder.currentLabel")}{" "}
               <span className="font-semibold">
                 {current
-                  ? formatBinding(current)
+                  ? formatBindingLabel(t, current)
                   : loadError
                     ? t("hotkeyRebinder.unknownValue")
                     : t("hotkeyRebinder.loading")}
@@ -201,7 +201,7 @@ export default function HotkeyRebinder({ onChange, load, save }: Props) {
             <div className="text-sm">
               {t("hotkeyRebinder.capturedLabel")}{" "}
               <span className="font-semibold">
-                {formatBinding(capture.binding)}
+                {formatBindingLabel(t, capture.binding)}
               </span>
             </div>
             <div className="flex gap-2">

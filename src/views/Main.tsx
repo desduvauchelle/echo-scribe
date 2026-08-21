@@ -21,7 +21,7 @@ import {
   type Project,
   type StatsCategoryKey,
 } from "../lib/api";
-import { formatBinding } from "../lib/binding";
+import { formatBindingLabel } from "../lib/displayText";
 import logoUrl from "../../src-tauri/icons/32x32.png";
 import ActivityFeed from "./sections/ActivityFeed";
 import ChatView from "./sections/ChatView";
@@ -226,13 +226,13 @@ export default function Main({ onOpenSettings }: Props) {
               <div
                 title={
                   voiceRecordingActive
-                    ? t("app.sidebar.dictate.activeTooltip", { binding: formatBinding(binding) })
-                    : t("app.sidebar.dictate.idleTooltip", { binding: formatBinding(binding) })
+                    ? t("app.sidebar.dictate.activeTooltip", { binding: formatBindingLabel(t, binding) })
+                    : t("app.sidebar.dictate.idleTooltip", { binding: formatBindingLabel(t, binding) })
                 }
                 aria-label={
                   voiceRecordingActive
-                    ? t("app.sidebar.dictate.activeAriaLabel", { binding: formatBinding(binding) })
-                    : t("app.sidebar.dictate.idleAriaLabel", { binding: formatBinding(binding) })
+                    ? t("app.sidebar.dictate.activeAriaLabel", { binding: formatBindingLabel(t, binding) })
+                    : t("app.sidebar.dictate.idleAriaLabel", { binding: formatBindingLabel(t, binding) })
                 }
                 className="inline-flex items-center gap-1.5 rounded-full border border-line bg-elevated px-2 py-0.5 text-[10px] text-muted"
               >

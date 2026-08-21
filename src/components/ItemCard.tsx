@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Check, CheckSquare, Copy, Mic, StickyNote } from "lucide-react";
 import type { Item, Project } from "../lib/api";
 import { listTagsForItem } from "../lib/api";
-import { relativeTime } from "../lib/format";
+import { relativeTimeLabel } from "../lib/displayText";
 import { useActivityPanel } from "./ActivityPanelContext";
 
 type Props = {
@@ -147,7 +147,7 @@ export default function ItemCard({
           {highlightContent(item.content, highlight)}
         </div>
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-muted">
-          <span>{relativeTime(item.captured_at)}</span>
+          <span>{relativeTimeLabel(t, item.captured_at)}</span>
           {project ? (
             <span className="rounded-full bg-elevated px-2 py-0.5 text-fg">
               {project.name}

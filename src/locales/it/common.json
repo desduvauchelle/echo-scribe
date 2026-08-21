@@ -144,7 +144,8 @@
       "saveTemplate": "Salva modello",
       "rewriting": "Riscrittura del riepilogo in locale…",
       "editPlaceholder": "Scrivi il riepilogo in markdown…",
-      "empty": "Nessun riepilogo ancora."
+      "empty": "Nessun riepilogo ancora.",
+      "actionItemsHeading": "Azioni da svolgere"
     },
     "chat": {
       "toggle": "Chiedi a questa riunione",
@@ -355,6 +356,26 @@
       "msgCount": "{{count}} messaggi"
     }
   },
+  "keyNames": {
+    "control": "Control",
+    "shift": "Maiusc",
+    "option": "Opzione",
+    "command": "⌘",
+    "space": "Spazio",
+    "enter": "Invio",
+    "tab": "Tab",
+    "escape": "Esc",
+    "backspace": "Backspace",
+    "delete": "Canc",
+    "capsLock": "Blocco maiuscole",
+    "home": "Inizio",
+    "end": "Fine",
+    "pageUp": "Pag su",
+    "pageDown": "Pag giù",
+    "numpad": "Num {{digit}}",
+    "leftSide": "{{key}} (sinistra)",
+    "rightSide": "{{key}} (destra)"
+  },
   "llmModelPicker": {
     "loadError": "Impossibile caricare i modelli LLM: {{error}}",
     "downloadedModelsHeading": "Modelli scaricati",
@@ -386,29 +407,44 @@
     "manualMeeting": "Riunione manuale",
     "appMeetingTitle": "Riunione {{app}}",
     "durationMinutes": "{{mins}}m",
-    "durationHoursMinutes": "{{hours}}h {{mins}}m",
-    "status": {
-      "recording": {
-        "label": "Registrazione…",
-        "description": "Questa riunione è ancora in registrazione."
-      },
-      "transcribing": {
-        "label": "Trascrizione…",
-        "description": "Trascrizione dell'audio in corso — può richiedere qualche istante per le riunioni lunghe."
-      },
-      "summarizing": {
-        "label": "Riepilogo…",
-        "description": "Riepilogo della trascrizione in corso — quasi fatto."
-      },
-      "failed": {
-        "label": "Non riuscita",
-        "description": "L'elaborazione di questa riunione non è terminata, quindi il riepilogo potrebbe mancare."
-      },
-      "recovered": {
-        "label": "Recuperata",
-        "description": "Questa riunione è stata recuperata dopo un'interruzione; alcuni contenuti potrebbero essere parziali."
-      }
+    "durationHoursMinutes": "{{hours}}h {{mins}}m"
+  },
+  "meetingStatus": {
+    "recording": {
+      "label": "Registrazione…",
+      "description": "Questa riunione è ancora in registrazione."
+    },
+    "transcribing": {
+      "label": "Trascrizione…",
+      "description": "Trascrizione dell'audio in corso — può richiedere qualche istante per le riunioni lunghe."
+    },
+    "summarizing": {
+      "label": "Riepilogo…",
+      "description": "Riepilogo della trascrizione in corso — quasi fatto."
+    },
+    "failed": {
+      "label": "Non riuscita",
+      "description": "L'elaborazione di questa riunione non è terminata, quindi il riepilogo potrebbe mancare."
+    },
+    "recovered": {
+      "label": "Recuperata",
+      "description": "Questa riunione è stata recuperata dopo un'interruzione; alcuni contenuti potrebbero essere parziali."
     }
+  },
+  "relativeTime": {
+    "justNow": "Adesso",
+    "seconds_one": "{{count}} s fa",
+    "seconds_other": "{{count}} s fa",
+    "minutes_one": "{{count}} min fa",
+    "minutes_other": "{{count}} min fa",
+    "hours_one": "{{count}} h fa",
+    "hours_other": "{{count}} h fa",
+    "days_one": "{{count}} giorno fa",
+    "days_other": "{{count}} giorni fa",
+    "months_one": "{{count}} mese fa",
+    "months_other": "{{count}} mesi fa",
+    "years_one": "{{count}} anno fa",
+    "years_other": "{{count}} anni fa"
   },
   "permissionRow": {
     "granted": "Concesso",
@@ -651,7 +687,9 @@
     "recordLabel": "Registra schermo",
     "recordTitle": "Registra il tuo schermo",
     "stop": "Interrompi",
-    "screen": "Schermo"
+    "screen": "Schermo",
+    "stopFailed": "Impossibile interrompere la registrazione schermo. Vedi Impostazioni → Diagnostica → log per i dettagli.",
+    "startFailed": "Impossibile avviare la registrazione schermo. Controlla il permesso Registrazione schermo in Impostazioni → Diagnostica."
   },
   "sectionErrorBoundary": {
     "message": "Si è verificato un problema nel mostrare questa pagina. Vedi Impostazioni → Diagnostica → log per i dettagli.",

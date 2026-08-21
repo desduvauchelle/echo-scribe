@@ -60,7 +60,11 @@ import { ask } from "@tauri-apps/plugin-dialog";
 import { listen } from "@tauri-apps/api/event";
 import { parseGuideReview, parseTimeline, verdictClass } from "../lib/guideReview";
 import GuideTrendView from "./GuideTrendView";
-import { relativeTime } from "../lib/format";
+import {
+  meetingStatusDescription,
+  meetingStatusLabel,
+  relativeTimeLabel,
+} from "../lib/displayText";
 import { summaryMarkdown } from "../lib/meetingDisplay";
 import { useActivityPanel } from "./ActivityPanelContext";
 import { useToasts } from "./ToastProvider";
@@ -538,7 +542,7 @@ function HeaderSection({ item, meeting }: { item: Item; meeting: MeetingRow | nu
           {b}
         </span>
       ))}
-      <span>{relativeTime(item.captured_at)}</span>
+      <span>{relativeTimeLabel(t, item.captured_at)}</span>
     </div>
   );
 }
@@ -1001,8 +1005,10 @@ function MeetingView({
             <Loader size={14} className="mt-0.5 shrink-0 animate-spin" />
           ) : null}
           <div className="min-w-0">
-            <div className="font-medium">{statusDisplay.label}</div>
-            <div className="text-[11px] opacity-80">{statusDisplay.description}</div>
+            <div className="font-medium">{meetingStatusLabel(t, meeting.status)}</div>
+            <div className="text-[11px] opacity-80">
+              {meetingStatusDescription(t, meeting.status)}
+            </div>
           </div>
         </div>
       ) : null}
@@ -1258,7 +1264,7 @@ function MeetingSummarySection({
   onMeetingChange: (m: MeetingRow) => void;
 }) {
   const { t } = useTranslation();
-  const markdown = summaryMarkdown(summary) ?? "";
+  const markdown = summaryMarkdown(summary, t("activityPanel.summary.actionItemsHeading")) ?? "";
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(markdown);
   const [saving, setSaving] = useState(false);

@@ -144,7 +144,8 @@
       "saveTemplate": "Guardar plantilla",
       "rewriting": "Reescribiendo el resumen localmente…",
       "editPlaceholder": "Escribe el resumen en markdown…",
-      "empty": "Aún no hay resumen."
+      "empty": "Aún no hay resumen.",
+      "actionItemsHeading": "Tareas"
     },
     "chat": {
       "toggle": "Preguntar a esta reunión",
@@ -355,6 +356,26 @@
       "msgCount": "{{count}} mensajes"
     }
   },
+  "keyNames": {
+    "control": "Control",
+    "shift": "Mayús",
+    "option": "Opción",
+    "command": "⌘",
+    "space": "Espacio",
+    "enter": "Retorno",
+    "tab": "Tabulador",
+    "escape": "Esc",
+    "backspace": "Retroceso",
+    "delete": "Suprimir",
+    "capsLock": "Bloq Mayús",
+    "home": "Inicio",
+    "end": "Fin",
+    "pageUp": "Re Pág",
+    "pageDown": "Av Pág",
+    "numpad": "Num {{digit}}",
+    "leftSide": "{{key}} (izquierda)",
+    "rightSide": "{{key}} (derecha)"
+  },
   "llmModelPicker": {
     "loadError": "No se pudieron cargar los modelos de IA: {{error}}",
     "downloadedModelsHeading": "Modelos descargados",
@@ -386,29 +407,44 @@
     "manualMeeting": "Reunión manual",
     "appMeetingTitle": "Reunión de {{app}}",
     "durationMinutes": "{{mins}} min",
-    "durationHoursMinutes": "{{hours}} h {{mins}} min",
-    "status": {
-      "recording": {
-        "label": "Grabando…",
-        "description": "Esta reunión se sigue grabando."
-      },
-      "transcribing": {
-        "label": "Transcribiendo…",
-        "description": "Transcribiendo el audio — puede tardar un momento en reuniones largas."
-      },
-      "summarizing": {
-        "label": "Resumiendo…",
-        "description": "Resumiendo la transcripción — casi listo."
-      },
-      "failed": {
-        "label": "Fallida",
-        "description": "Esta reunión no terminó de procesarse, así que puede faltar su resumen."
-      },
-      "recovered": {
-        "label": "Recuperada",
-        "description": "Esta reunión se recuperó tras una interrupción; parte del contenido puede ser parcial."
-      }
+    "durationHoursMinutes": "{{hours}} h {{mins}} min"
+  },
+  "meetingStatus": {
+    "recording": {
+      "label": "Grabando…",
+      "description": "Esta reunión se sigue grabando."
+    },
+    "transcribing": {
+      "label": "Transcribiendo…",
+      "description": "Transcribiendo el audio — puede tardar un momento en reuniones largas."
+    },
+    "summarizing": {
+      "label": "Resumiendo…",
+      "description": "Resumiendo la transcripción — casi listo."
+    },
+    "failed": {
+      "label": "Fallida",
+      "description": "Esta reunión no terminó de procesarse, así que puede faltar su resumen."
+    },
+    "recovered": {
+      "label": "Recuperada",
+      "description": "Esta reunión se recuperó tras una interrupción; parte del contenido puede ser parcial."
     }
+  },
+  "relativeTime": {
+    "justNow": "Ahora mismo",
+    "seconds_one": "hace {{count}} s",
+    "seconds_other": "hace {{count}} s",
+    "minutes_one": "hace {{count}} min",
+    "minutes_other": "hace {{count}} min",
+    "hours_one": "hace {{count}} h",
+    "hours_other": "hace {{count}} h",
+    "days_one": "hace {{count}} día",
+    "days_other": "hace {{count}} días",
+    "months_one": "hace {{count}} mes",
+    "months_other": "hace {{count}} meses",
+    "years_one": "hace {{count}} año",
+    "years_other": "hace {{count}} años"
   },
   "permissionRow": {
     "granted": "Concedido",
@@ -651,7 +687,9 @@
     "recordLabel": "Grabar pantalla",
     "recordTitle": "Graba tu pantalla",
     "stop": "Detener",
-    "screen": "Pantalla"
+    "screen": "Pantalla",
+    "stopFailed": "No se pudo detener la grabación de pantalla. Consulta Ajustes → Diagnóstico → registros para más detalles.",
+    "startFailed": "No se pudo iniciar la grabación de pantalla. Comprueba el permiso de Grabación de pantalla en Ajustes → Diagnóstico."
   },
   "sectionErrorBoundary": {
     "message": "Algo salió mal al mostrar esta página. Consulta Ajustes → Diagnóstico → registros para más detalles.",
@@ -740,11 +778,11 @@
       "saveFailed": "No se pudo guardar el idioma: {{error}}",
       "options": {
         "auto": "Automático",
-        "en": "Inglés",
+        "en": "English",
         "es": "Español",
-        "fr": "Francés",
-        "de": "Alemán",
-        "pt": "Portugués"
+        "fr": "Français",
+        "de": "Deutsch",
+        "pt": "Português"
       },
       "footnote": "La detección automática admite 25 idiomas europeos. Los comandos de edición hablada son actualmente en inglés."
     },

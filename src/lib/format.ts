@@ -6,23 +6,48 @@ export function parseIso(ts: string | null | undefined): number | null {
   return Number.isFinite(t) ? t : null;
 }
 
-/** "5 min ago", "2 hr ago", "3 days ago", or "Just now" */
-export function relativeTime(iso: string, nowMs = Date.now()): string {
+/** Which `relativeTime.*` catalog entry a timestamp falls into. */
+export type RelativeTimeUnit =
+  | "justNow"
+  | "seconds"
+  | "minutes"
+  | "hours"
+  | "days"
+  | "months"
+  | "years";
+
+/** A relative timestamp reduced to a catalog key + the number to interpolate.
+ *  Deliberately free of any user-facing English so this module stays
+ *  i18n-free and importable from `tests/`; render it with
+ *  `relativeTimeLabel()` in ./displayText. */
+export interface RelativeTimeParts {
+  unit: RelativeTimeUnit;
+  /** Always 0 for `justNow`, which takes no count. */
+  count: number;
+}
+
+/** Bucket an ISO timestamp into a relative-time unit + count ("5 min ago" is
+ *  `{ unit: "minutes", count: 5 }`). Returns null when the timestamp can't be
+ *  parsed, so callers can fall back to showing the raw value. */
+export function relativeTimeParts(
+  iso: string,
+  nowMs = Date.now(),
+): RelativeTimeParts | null {
   const t = parseIso(iso);
-  if (t === null) return iso;
+  if (t === null) return null;
   const diffSec = Math.max(0, Math.round((nowMs - t) / 1000));
-  if (diffSec < 30) return "Just now";
-  if (diffSec < 60) return `${diffSec}s ago`;
+  if (diffSec < 30) return { unit: "justNow", count: 0 };
+  if (diffSec < 60) return { unit: "seconds", count: diffSec };
   const min = Math.round(diffSec / 60);
-  if (min < 60) return `${min} min ago`;
+  if (min < 60) return { unit: "minutes", count: min };
   const hr = Math.round(min / 60);
-  if (hr < 24) return `${hr} hr ago`;
+  if (hr < 24) return { unit: "hours", count: hr };
   const days = Math.round(hr / 24);
-  if (days < 30) return `${days} day${days === 1 ? "" : "s"} ago`;
+  if (days < 30) return { unit: "days", count: days };
   const months = Math.round(days / 30);
-  if (months < 12) return `${months} mo ago`;
+  if (months < 12) return { unit: "months", count: months };
   const years = Math.round(days / 365);
-  return `${years} yr ago`;
+  return { unit: "years", count: years };
 }
 
 /** Same-day check using the local timezone. */

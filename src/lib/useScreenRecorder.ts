@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
   isScreenRecording,
@@ -25,6 +26,7 @@ export type ScreenRecorder = {
  * begins from there — `screenrec-changed` then flips this to active.
  */
 export function useScreenRecorder(): ScreenRecorder {
+  const { t } = useTranslation();
   const [active, setActive] = useState(false);
   const [busy, setBusy] = useState(false);
   const toasts = useToasts();
@@ -66,19 +68,21 @@ export function useScreenRecorder(): ScreenRecorder {
       // only a short, human message here. The zero-frame stop path returns a
       // purpose-built friendly message (stop_screen_recording_inner in
       // commands.rs) — show that one verbatim instead of the generic fallback.
+      // That one arrives already-composed from Rust, so it stays English until
+      // the backend learns the app language (see the i18n notes in CLAUDE.md).
       const msg = String(e);
       toasts.push({
         tone: "error",
         message: msg.startsWith("Nothing was captured")
           ? msg
           : active
-            ? "Couldn't stop the screen recording. See Settings → Diagnostics → logs for details."
-            : "Couldn't start screen recording. Check Screen Recording permission in Settings → Diagnostics.",
+            ? t("screenRecordButton.stopFailed")
+            : t("screenRecordButton.startFailed"),
       });
     } finally {
       setBusy(false);
     }
-  }, [active, busy, refreshActive, toasts]);
+  }, [active, busy, refreshActive, toasts, t]);
 
   return { active, busy, toggle };
 }

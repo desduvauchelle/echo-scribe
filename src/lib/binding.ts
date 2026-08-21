@@ -1,62 +1,126 @@
 import type { JsBinding, ModKind, ModSide } from "./api";
 
-const MODIFIER_SYMBOL: Record<ModKind, string> = {
-  Control: "Control",
-  Shift: "Shift",
-  Alt: "Option",
-  Meta: "⌘",
+/**
+ * The user-facing names of the named keys, injected by the caller.
+ *
+ * This module is pure logic — it must not import i18n (see the notes in
+ * ./displayText). Rather than returning English and having every caller
+ * re-derive it, the copy is a parameter: UI callers pass a translated set
+ * built by `keyLabels()` in ./displayText, and `DEFAULT_KEY_LABELS` keeps the
+ * original English for non-UI callers.
+ */
+export interface KeyLabels {
+  control: string;
+  shift: string;
+  option: string;
+  /** The Command key; rendered as the ⌘ glyph in every locale. */
+  command: string;
+  space: string;
+  enter: string;
+  tab: string;
+  escape: string;
+  backspace: string;
+  del: string;
+  capsLock: string;
+  home: string;
+  end: string;
+  pageUp: string;
+  pageDown: string;
+  /** Numpad digit, e.g. `"0"` -> "Num 0". */
+  numpad: (digit: string) => string;
+  /** Qualify a key name with the side of the keyboard it sits on.
+   *  A function, not a prefix string, because the word order differs by
+   *  language ("Left Control" vs "Control links" vs "lewy Control"). */
+  side: (side: "Left" | "Right", key: string) => string;
+}
+
+export const DEFAULT_KEY_LABELS: KeyLabels = {
+  control: "Control",
+  shift: "Shift",
+  option: "Option",
+  command: "⌘",
+  space: "Space",
+  enter: "Return",
+  tab: "Tab",
+  escape: "Esc",
+  backspace: "Backspace",
+  del: "Delete",
+  capsLock: "Caps Lock",
+  home: "Home",
+  end: "End",
+  pageUp: "Page Up",
+  pageDown: "Page Down",
+  numpad: (digit) => `Num ${digit}`,
+  side: (side, key) => `${side === "Left" ? "Left" : "Right"} ${key}`,
 };
 
-function sidePrefix(side: ModSide): string {
-  if (side === "Either") return "";
-  return side === "Left" ? "Left " : "Right ";
+function modifierSymbol(labels: KeyLabels, kind: ModKind): string {
+  switch (kind) {
+    case "Control":
+      return labels.control;
+    case "Shift":
+      return labels.shift;
+    case "Alt":
+      return labels.option;
+    case "Meta":
+      return labels.command;
+  }
+}
+
+/** Apply the side qualifier, or leave the name bare for `Either`. */
+function withSide(labels: KeyLabels, side: ModSide, key: string): string {
+  if (side === "Either") return key;
+  return labels.side(side, key);
 }
 
 /**
  * Map a DOM KeyboardEvent.code to a human-readable name.
  * Falls back to the raw code for anything unmapped.
  */
-export function codeToReadable(code: string): string {
+export function codeToReadable(
+  code: string,
+  labels: KeyLabels = DEFAULT_KEY_LABELS,
+): string {
   // Letters: KeyA -> A
   if (/^Key[A-Z]$/.test(code)) return code.slice(3);
   // Top-row digits: Digit0 -> 0
   if (/^Digit[0-9]$/.test(code)) return code.slice(5);
   // Numpad digits: Numpad0 -> Num 0
-  if (/^Numpad[0-9]$/.test(code)) return `Num ${code.slice(6)}`;
+  if (/^Numpad[0-9]$/.test(code)) return labels.numpad(code.slice(6));
   // Function keys
   if (/^F[0-9]{1,2}$/.test(code)) return code;
 
   switch (code) {
     case "ControlLeft":
-      return "Left Control";
+      return labels.side("Left", labels.control);
     case "ControlRight":
-      return "Right Control";
+      return labels.side("Right", labels.control);
     case "ShiftLeft":
-      return "Left Shift";
+      return labels.side("Left", labels.shift);
     case "ShiftRight":
-      return "Right Shift";
+      return labels.side("Right", labels.shift);
     case "AltLeft":
-      return "Left Option";
+      return labels.side("Left", labels.option);
     case "AltRight":
-      return "Right Option";
+      return labels.side("Right", labels.option);
     case "MetaLeft":
-      return "Left ⌘";
+      return labels.side("Left", labels.command);
     case "MetaRight":
-      return "Right ⌘";
+      return labels.side("Right", labels.command);
     case "Space":
-      return "Space";
+      return labels.space;
     case "Enter":
-      return "Return";
+      return labels.enter;
     case "Tab":
-      return "Tab";
+      return labels.tab;
     case "Escape":
-      return "Esc";
+      return labels.escape;
     case "Backspace":
-      return "Backspace";
+      return labels.backspace;
     case "Delete":
-      return "Delete";
+      return labels.del;
     case "CapsLock":
-      return "Caps Lock";
+      return labels.capsLock;
     case "ArrowUp":
       return "↑";
     case "ArrowDown":
@@ -66,13 +130,13 @@ export function codeToReadable(code: string): string {
     case "ArrowRight":
       return "→";
     case "Home":
-      return "Home";
+      return labels.home;
     case "End":
-      return "End";
+      return labels.end;
     case "PageUp":
-      return "Page Up";
+      return labels.pageUp;
     case "PageDown":
-      return "Page Down";
+      return labels.pageDown;
     case "Minus":
       return "-";
     case "Equal":
@@ -139,8 +203,11 @@ export { isModifierCode };
  *   { primary: "KeyL", modifiers: [{ kind: "Meta", side: "Right" }] } => "Right ⌘ + L"
  *   { primary: "Period", modifiers: [{ kind: "Shift", side: "Either" }] } => "Shift + ."
  */
-export function formatBinding(b: JsBinding): string {
-  const primaryReadable = codeToReadable(b.primary);
+export function formatBinding(
+  b: JsBinding,
+  labels: KeyLabels = DEFAULT_KEY_LABELS,
+): string {
+  const primaryReadable = codeToReadable(b.primary, labels);
   const primaryKind = modifierKindFromCode(b.primary);
 
   // Modifier-only binding (e.g. Right Control alone, no other mods)
@@ -164,7 +231,7 @@ export function formatBinding(b: JsBinding): string {
   for (const kind of MOD_ORDER) {
     const side = byKind.get(kind);
     if (!side) continue;
-    parts.push(`${sidePrefix(side)}${MODIFIER_SYMBOL[kind]}`.trim());
+    parts.push(withSide(labels, side, modifierSymbol(labels, kind)));
   }
   parts.push(primaryReadable);
   return parts.join(" + ");
