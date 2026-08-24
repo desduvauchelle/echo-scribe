@@ -782,9 +782,12 @@
         "es": "Español",
         "fr": "Français",
         "de": "Deutsch",
-        "pt": "Português"
+        "pt": "Português",
+        "it": "Italiano",
+        "nl": "Nederlands",
+        "pl": "Polski"
       },
-      "footnote": "Il rilevamento automatico supporta 25 lingue europee. I comandi di modifica vocale sono attualmente in inglese."
+      "footnote": "Il rilevamento automatico supporta 25 lingue europee. I comandi di modifica vocale seguono la lingua scelta qui; con Automatico valgono i comandi in inglese."
     },
     "dictionary": {
       "title": "Dizionario",

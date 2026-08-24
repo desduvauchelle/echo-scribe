@@ -782,9 +782,12 @@
         "es": "Spanish",
         "fr": "French",
         "de": "German",
-        "pt": "Portuguese"
+        "pt": "Portuguese",
+        "it": "Italian",
+        "nl": "Dutch",
+        "pl": "Polish"
       },
-      "footnote": "Automatic detection supports 25 European languages. Spoken editing commands are currently English."
+      "footnote": "Automatic detection supports 25 European languages. Spoken editing commands follow the language selected here; Automatic uses the English commands."
     },
     "dictionary": {
       "title": "Dictionary",

@@ -782,9 +782,12 @@
         "es": "Español",
         "fr": "Français",
         "de": "Deutsch",
-        "pt": "Português"
+        "pt": "Português",
+        "it": "Italiano",
+        "nl": "Nederlands",
+        "pl": "Polski"
       },
-      "footnote": "Automatische detectie ondersteunt 25 Europese talen. Gesproken bewerkingsopdrachten zijn momenteel Engelstalig."
+      "footnote": "Automatische detectie ondersteunt 25 Europese talen. Gesproken bewerkingsopdrachten volgen de taal die je hier kiest; bij Automatisch gelden de Engelse opdrachten."
     },
     "dictionary": {
       "title": "Woordenboek",

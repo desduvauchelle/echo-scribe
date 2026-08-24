@@ -26,16 +26,26 @@ pub const SPANISH_FILLERS: &[&str] = &["eh", "em", "este", "pues", "o sea", "bue
 pub const FRENCH_FILLERS: &[&str] = &["euh", "ben", "bah", "en fait", "du coup", "genre"];
 pub const GERMAN_FILLERS: &[&str] = &["äh", "ähm", "also", "sozusagen", "halt"];
 pub const PORTUGUESE_FILLERS: &[&str] = &["é", "eh", "hum", "tipo", "quer dizer", "então"];
+pub const ITALIAN_FILLERS: &[&str] = &["ehm", "eh", "mah", "cioè", "diciamo", "insomma", "tipo"];
+pub const DUTCH_FILLERS: &[&str] = &["eh", "ehm", "uhm", "hè", "nou ja", "zeg maar", "weet je"];
+pub const POLISH_FILLERS: &[&str] = &[
+    "yyy", "eee", "mmm", "hmm", "no wiesz", "znaczy", "w sensie", "jakby",
+];
 
-/// Built-in filler lexicon for a selected cleanup language. Automatic keeps
-/// the historical English list; callers should avoid applying an English
-/// user-customized list when a non-English cleanup language is selected.
+/// Built-in filler lexicon for a selected cleanup language. The catch-all
+/// covers "auto"/"en" (and any unknown code) with the historical English
+/// list; every language selectable in Settings must have its own arm here.
+/// Callers should avoid applying an English user-customized list when a
+/// non-English cleanup language is selected.
 pub fn default_fillers_for(language: &str) -> &'static [&'static str] {
     match language {
         "es" => SPANISH_FILLERS,
         "fr" => FRENCH_FILLERS,
         "de" => GERMAN_FILLERS,
         "pt" => PORTUGUESE_FILLERS,
+        "it" => ITALIAN_FILLERS,
+        "nl" => DUTCH_FILLERS,
+        "pl" => POLISH_FILLERS,
         _ => DEFAULT_FILLERS,
     }
 }
@@ -54,58 +64,51 @@ pub fn strip_fillers(text: &str, fillers: &[String]) -> String {
     let mut sorted: Vec<&str> = fillers.iter().map(|s| s.as_str()).collect();
     sorted.sort_by_key(|s| std::cmp::Reverse(s.len()));
 
-    let lower = text.to_lowercase();
-    let bytes = text.as_bytes();
-    let lower_bytes = lower.as_bytes();
-    let mut keep = vec![true; bytes.len()];
+    // Match on chars, not bytes: a byte-level scan treats UTF-8 lead bytes as
+    // word boundaries, so an accented filler like "é" would be carved out of
+    // the middle of "café".
+    let chars: Vec<char> = text.chars().collect();
+    let lower: Vec<char> = chars
+        .iter()
+        .map(|c| c.to_lowercase().next().unwrap_or(*c))
+        .collect();
+    let mut keep = vec![true; chars.len()];
 
     for filler in &sorted {
-        let f = filler.trim().to_lowercase();
+        let f: Vec<char> = filler.trim().to_lowercase().chars().collect();
         if f.is_empty() {
             continue;
         }
-        let fb = f.as_bytes();
         let mut i = 0;
-        while i + fb.len() <= lower_bytes.len() {
+        while i + f.len() <= lower.len() {
             if !keep[i] {
                 i += 1;
                 continue;
             }
-            if &lower_bytes[i..i + fb.len()] == fb
-                && is_word_boundary(lower_bytes, i)
-                && is_word_boundary(lower_bytes, i + fb.len())
+            if lower[i..i + f.len()] == f[..]
+                && (i == 0 || !is_word_char(lower[i - 1]))
+                && (i + f.len() == lower.len() || !is_word_char(lower[i + f.len()]))
             {
-                for k in i..i + fb.len() {
+                for k in i..i + f.len() {
                     keep[k] = false;
                 }
-                i += fb.len();
+                i += f.len();
             } else {
                 i += 1;
             }
         }
     }
 
-    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
-    for (i, &b) in bytes.iter().enumerate() {
-        if keep[i] {
-            out.push(b);
-        }
-    }
-    let s = String::from_utf8(out).unwrap_or_else(|_| text.to_string());
+    let s: String = chars
+        .iter()
+        .zip(keep.iter())
+        .filter_map(|(c, k)| k.then_some(*c))
+        .collect();
     cleanup_whitespace_and_punct(&s)
 }
 
-fn is_word_boundary(bytes: &[u8], idx: usize) -> bool {
-    if idx == 0 || idx == bytes.len() {
-        return true;
-    }
-    let prev = bytes[idx - 1];
-    let curr = bytes[idx];
-    !is_word_char(prev) || !is_word_char(curr)
-}
-
-fn is_word_char(b: u8) -> bool {
-    b.is_ascii_alphanumeric() || b == b'\''
+fn is_word_char(c: char) -> bool {
+    c.is_alphanumeric() || c == '\''
 }
 
 fn cleanup_whitespace_and_punct(s: &str) -> String {
@@ -143,8 +146,9 @@ fn cleanup_whitespace_and_punct(s: &str) -> String {
 
 /// Collapse adjacent duplicate words that are highly likely to be ASR artifacts.
 /// Only repeats separated by whitespace are touched, so punctuation-separated
-/// emphasis such as "no, no" stays intact.
-pub fn collapse_repeated_tokens(text: &str) -> String {
+/// emphasis such as "no, no" stays intact. `language` is the cleanup language
+/// code ("auto"/"en"/"es"/…) and gates the function-word allowlist.
+pub fn collapse_repeated_tokens(text: &str, language: &str) -> String {
     if text.is_empty() {
         return text.to_string();
     }
@@ -163,7 +167,7 @@ pub fn collapse_repeated_tokens(text: &str) -> String {
             .map(|(_, prev_end, prev_norm)| {
                 prev_norm == &norm
                     && text[*prev_end..start].chars().all(char::is_whitespace)
-                    && should_collapse_duplicate(&norm)
+                    && should_collapse_duplicate(&norm, language)
             })
             .unwrap_or(false);
 
@@ -206,72 +210,79 @@ fn token_spans(text: &str) -> Vec<(usize, usize, String)> {
     tokens
 }
 
-fn should_collapse_duplicate(token: &str) -> bool {
-    if token.len() <= 2 && token != "no" {
+/// Particles whose doubling is deliberate emphasis in some supported language
+/// ("no no", "sì sì", "ja ja", "tak tak") — never collapsed, regardless of the
+/// selected language, since under "auto" we don't know which one was spoken.
+const EMPHASIS_TOKENS: &[&str] = &["no", "sì", "sí", "si", "ja", "oui", "tak"];
+
+/// English function words (the historical allowlist, also used for "auto").
+const ENGLISH_FUNCTION_WORDS: &[&str] = &[
+    "a", "an", "and", "are", "as", "be", "been", "but", "can", "could", "did", "do", "does", "for",
+    "from", "had", "has", "have", "he", "her", "here", "him", "his", "i", "if", "in", "is", "it",
+    "it's", "my", "of", "on", "or", "our", "she", "so", "some", "that", "the", "their", "them",
+    "then", "there", "they", "this", "to", "was", "we", "were", "what", "when", "where", "which",
+    "who", "why", "will", "with", "would", "you", "your",
+];
+
+const SPANISH_FUNCTION_WORDS: &[&str] = &[
+    "que", "los", "las", "una", "uno", "del", "por", "para", "con", "este", "esta", "pero", "como",
+    "más", "sus", "son", "era", "hay", "muy", "nos", "les", "está", "estaba", "fue", "han",
+];
+
+const FRENCH_FUNCTION_WORDS: &[&str] = &[
+    "les", "des", "une", "est", "que", "qui", "dans", "pour", "avec", "sur", "pas", "par", "mais",
+    "son", "ses", "aux", "cette", "ces", "était", "sont", "nous", "vous", "elle", "ils", "elles",
+];
+
+const GERMAN_FUNCTION_WORDS: &[&str] = &[
+    "der", "die", "das", "und", "ist", "ein", "eine", "einen", "dem", "den", "des", "mit", "für",
+    "auf", "aus", "bei", "nach", "von", "zum", "zur", "sich", "auch", "aber", "oder", "wenn",
+    "dass", "sind", "war", "hat", "haben", "wird", "werden",
+];
+
+const PORTUGUESE_FUNCTION_WORDS: &[&str] = &[
+    "que", "dos", "das", "uma", "com", "por", "para", "mas", "como", "seu", "sua", "são", "era",
+    "foi", "tem", "está", "este", "esta", "isso", "ele", "ela", "nós", "eles",
+];
+
+const ITALIAN_FUNCTION_WORDS: &[&str] = &[
+    "che", "del", "della", "delle", "dei", "degli", "con", "per", "una", "uno", "gli", "era",
+    "sono", "hanno", "questo", "questa", "come", "anche", "più", "dove", "quando", "nel", "alla",
+];
+
+const DUTCH_FUNCTION_WORDS: &[&str] = &[
+    "het", "een", "van", "dat", "die", "deze", "dit", "met", "voor", "naar", "ook", "maar", "als",
+    "dan", "toch", "zijn", "was", "heeft", "hebben", "wordt", "worden", "der", "aan", "bij",
+];
+
+const POLISH_FUNCTION_WORDS: &[&str] = &[
+    "się", "jest", "był", "była", "było", "ale", "czy", "dla", "oraz", "przez", "tego", "tym",
+    "jak", "już", "tylko", "może", "będzie", "jego", "jej", "ich", "aby", "żeby",
+];
+
+fn function_words_for(language: &str) -> &'static [&'static str] {
+    match language {
+        "es" => SPANISH_FUNCTION_WORDS,
+        "fr" => FRENCH_FUNCTION_WORDS,
+        "de" => GERMAN_FUNCTION_WORDS,
+        "pt" => PORTUGUESE_FUNCTION_WORDS,
+        "it" => ITALIAN_FUNCTION_WORDS,
+        "nl" => DUTCH_FUNCTION_WORDS,
+        "pl" => POLISH_FUNCTION_WORDS,
+        // "auto"/"en"/unknown: the historical English list.
+        _ => ENGLISH_FUNCTION_WORDS,
+    }
+}
+
+fn should_collapse_duplicate(token: &str, language: &str) -> bool {
+    if EMPHASIS_TOKENS.contains(&token) {
+        return false;
+    }
+    // Two chars, not bytes — "sì"/"się" are multi-byte.
+    if token.chars().count() <= 2 {
         return true;
     }
-    matches!(
-        token,
-        "a" | "an"
-            | "and"
-            | "are"
-            | "as"
-            | "be"
-            | "been"
-            | "but"
-            | "can"
-            | "could"
-            | "did"
-            | "do"
-            | "does"
-            | "for"
-            | "from"
-            | "had"
-            | "has"
-            | "have"
-            | "he"
-            | "her"
-            | "here"
-            | "him"
-            | "his"
-            | "i"
-            | "if"
-            | "in"
-            | "is"
-            | "it"
-            | "it's"
-            | "my"
-            | "of"
-            | "on"
-            | "or"
-            | "our"
-            | "she"
-            | "so"
-            | "some"
-            | "that"
-            | "the"
-            | "their"
-            | "them"
-            | "then"
-            | "there"
-            | "they"
-            | "this"
-            | "to"
-            | "was"
-            | "we"
-            | "were"
-            | "what"
-            | "when"
-            | "where"
-            | "which"
-            | "who"
-            | "why"
-            | "will"
-            | "with"
-            | "would"
-            | "you"
-            | "your"
-    )
+    function_words_for(language).contains(&token)
 }
 
 /// Replace tokens in `text` with their canonical form when they're a near-
@@ -340,10 +351,17 @@ fn best_match_or_keep(token: &str, canonicals: &[&str]) -> String {
     }
 }
 
-/// Convenience: run both passes in the canonical order.
-pub fn postprocess(text: &str, fillers: &[String], custom_words: &[String]) -> String {
+/// Convenience: run both passes in the canonical order. `language` is the
+/// cleanup language code ("auto"/"en"/"es"/…) used to gate language-specific
+/// heuristics in the duplicate-collapse pass.
+pub fn postprocess(
+    text: &str,
+    fillers: &[String],
+    custom_words: &[String],
+    language: &str,
+) -> String {
     let stripped = strip_fillers(text, fillers);
-    let deduped = collapse_repeated_tokens(&stripped);
+    let deduped = collapse_repeated_tokens(&stripped, language);
     apply_custom_words(&deduped, custom_words)
 }
 
@@ -499,7 +517,7 @@ mod tests {
     fn postprocess_runs_both_passes() {
         let fillers = defaults();
         let custom = vec!["Antoine".to_string()];
-        let out = postprocess("uh antoine, you know, said hello", &fillers, &custom);
+        let out = postprocess("uh antoine, you know, said hello", &fillers, &custom, "en");
         assert_eq!(out, "Antoine, said hello");
     }
 
@@ -509,6 +527,7 @@ mod tests {
             "We are reviewing the budget and and the timeline.",
             &[],
             &[],
+            "en",
         );
         assert_eq!(out, "We are reviewing the budget and the timeline.");
     }
@@ -519,13 +538,14 @@ mod tests {
             "I selected the d the the the the the latest model.",
             &[],
             &[],
+            "en",
         );
         assert_eq!(out, "I selected the d the latest model.");
     }
 
     #[test]
     fn postprocess_collapses_short_stutters() {
-        let out = postprocess("It should never sh sh sh show that.", &[], &[]);
+        let out = postprocess("It should never sh sh sh show that.", &[], &[], "en");
         assert_eq!(out, "It should never sh show that.");
     }
 
@@ -561,8 +581,49 @@ mod tests {
 
     #[test]
     fn postprocess_keeps_emphatic_repetition() {
-        let out = postprocess("This is very very important.", &[], &[]);
+        let out = postprocess("This is very very important.", &[], &[], "en");
         assert_eq!(out, "This is very very important.");
+    }
+
+    #[test]
+    fn accented_filler_does_not_corrupt_words() {
+        // Byte-level matching used to carve the "é" filler out of "café".
+        let fillers: Vec<String> = PORTUGUESE_FILLERS.iter().map(|s| s.to_string()).collect();
+        let out = strip_fillers("O café é bom", &fillers);
+        assert_eq!(out, "O café bom");
+    }
+
+    #[test]
+    fn strips_italian_fillers() {
+        let fillers: Vec<String> = ITALIAN_FILLERS.iter().map(|s| s.to_string()).collect();
+        let out = strip_fillers("ehm cioè andiamo domani", &fillers);
+        assert_eq!(out, "andiamo domani");
+    }
+
+    #[test]
+    fn duplicate_collapse_uses_selected_language() {
+        assert_eq!(
+            collapse_repeated_tokens("Het het huis is groot.", "nl"),
+            "Het huis is groot."
+        );
+        assert_eq!(
+            collapse_repeated_tokens("Ona się się śmieje.", "pl"),
+            "Ona się śmieje."
+        );
+        // The Polish allowlist is not applied under English, and vice versa.
+        assert_eq!(
+            collapse_repeated_tokens("Ona się się śmieje.", "en"),
+            "Ona się się śmieje."
+        );
+    }
+
+    #[test]
+    fn emphasis_particles_survive_duplicate_collapse() {
+        assert_eq!(collapse_repeated_tokens("Sì sì va bene.", "it"), "Sì sì va bene.");
+        assert_eq!(
+            collapse_repeated_tokens("Tak tak rozumiem.", "pl"),
+            "Tak tak rozumiem."
+        );
     }
 
     #[test]

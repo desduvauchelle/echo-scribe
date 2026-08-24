@@ -1023,7 +1023,12 @@ fn process_with_settings(
         .map(|entry| entry.replacement.clone())
         .collect();
     if !fillers.is_empty() || !custom.is_empty() {
-        processed.text = crate::asr::postprocess::postprocess(&processed.text, &fillers, &custom);
+        processed.text = crate::asr::postprocess::postprocess(
+            &processed.text,
+            &fillers,
+            &custom,
+            &cleanup_language,
+        );
     }
     processed.text = crate::asr::postprocess::apply_dictionary_entries(
         &processed.text,

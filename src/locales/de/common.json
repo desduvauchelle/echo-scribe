@@ -782,9 +782,12 @@
         "es": "Español",
         "fr": "Français",
         "de": "Deutsch",
-        "pt": "Português"
+        "pt": "Português",
+        "it": "Italiano",
+        "nl": "Nederlands",
+        "pl": "Polski"
       },
-      "footnote": "Automatische Erkennung unterstützt 25 europäische Sprachen. Sprachbefehle für die Bearbeitung sind derzeit auf Englisch."
+      "footnote": "Automatische Erkennung unterstützt 25 europäische Sprachen. Sprachbefehle folgen der hier gewählten Sprache; bei Automatisch gelten die englischen Befehle."
     },
     "dictionary": {
       "title": "Wörterbuch",

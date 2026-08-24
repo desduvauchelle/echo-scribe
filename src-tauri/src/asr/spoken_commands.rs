@@ -4,6 +4,14 @@
 //! Destructive commands are recognized only as complete utterances or at the
 //! end of an utterance, while punctuation/structure phrases require clean word
 //! boundaries. No model call is involved.
+//!
+//! Language policy: localized command tables apply only when the user has
+//! explicitly selected that cleanup language in Settings. `Auto` (the default)
+//! keeps the English commands and nothing else — applying every language's
+//! table at once would fire on ordinary words across languages (Spanish
+//! "coma" is the English word "coma", Italian/Spanish "punto" is everyday
+//! vocabulary, German "eigentlich" is a filler), and the ASR layer gives us
+//! no per-utterance language signal to gate on.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PostAction {
@@ -18,6 +26,9 @@ pub enum CommandLanguage {
     French,
     German,
     Portuguese,
+    Italian,
+    Dutch,
+    Polish,
 }
 
 impl CommandLanguage {
@@ -28,6 +39,9 @@ impl CommandLanguage {
             "fr" => Self::French,
             "de" => Self::German,
             "pt" => Self::Portuguese,
+            "it" => Self::Italian,
+            "nl" => Self::Dutch,
+            "pl" => Self::Polish,
             _ => Self::Auto,
         }
     }
@@ -97,12 +111,13 @@ pub fn process(text: &str, options: SpokenCommandOptions) -> ProcessedTranscript
             applied.push("delete_last_word".into());
         }
 
-        if apply_explicit_replacement(&mut value, "change", "to")
-            || apply_explicit_replacement(&mut value, "replace", "with")
+        if replacement_pairs(options.language)
+            .iter()
+            .any(|(verb, joiner)| apply_explicit_replacement(&mut value, verb, joiner))
         {
             applied.push("explicit_replacement".into());
         }
-        if apply_bounded_suffix_correction(&mut value) {
+        if apply_bounded_suffix_correction(&mut value, options.language) {
             applied.push("suffix_correction".into());
         }
         if remove_scratched_sentence(&mut value) {
@@ -166,6 +181,7 @@ fn canonicalize_localized_commands(value: &mut String, language: CommandLanguage
             ("dos puntos", "colon"),
             ("presiona enter", "press enter"),
             ("cancela eso", "cancel that"),
+            ("tacha eso", "scratch that"),
             ("quiero decir", "i mean"),
             ("en realidad", "actually"),
             ("coma", "comma"),
@@ -184,6 +200,7 @@ fn canonicalize_localized_commands(value: &mut String, language: CommandLanguage
             ("deux-points", "colon"),
             ("appuie sur entrée", "press enter"),
             ("annule ça", "cancel that"),
+            ("efface ça", "scratch that"),
             ("je veux dire", "i mean"),
             ("en fait", "actually"),
             ("virgule", "comma"),
@@ -202,6 +219,7 @@ fn canonicalize_localized_commands(value: &mut String, language: CommandLanguage
             ("semikolon", "semicolon"),
             ("enter drücken", "press enter"),
             ("abbrechen", "cancel that"),
+            ("streich das", "scratch that"),
             ("ich meine", "i mean"),
             ("eigentlich", "actually"),
             ("komma", "comma"),
@@ -220,15 +238,132 @@ fn canonicalize_localized_commands(value: &mut String, language: CommandLanguage
             ("dois pontos", "colon"),
             ("pressionar enter", "press enter"),
             ("cancela isso", "cancel that"),
+            ("risca isso", "scratch that"),
             ("quero dizer", "i mean"),
             ("na verdade", "actually"),
             ("vírgula", "comma"),
             ("ponto", "period"),
         ],
+        CommandLanguage::Italian => &[
+            ("punto interrogativo", "question mark"),
+            ("cancella l'ultima frase", "delete last sentence"),
+            ("cancella l'ultima parola", "delete last word"),
+            ("inizia un elenco", "start a list"),
+            ("elemento successivo", "next item"),
+            ("termina l'elenco", "end list"),
+            ("nuovo paragrafo", "new paragraph"),
+            ("nuova riga", "new line"),
+            ("a capo", "new line"),
+            ("punto e virgola", "semicolon"),
+            ("due punti", "colon"),
+            ("premi invio", "press enter"),
+            ("annulla questo", "cancel that"),
+            ("cancella questo", "scratch that"),
+            ("voglio dire", "i mean"),
+            ("in realtà", "actually"),
+            ("virgola", "comma"),
+            ("punto", "period"),
+        ],
+        CommandLanguage::Dutch => &[
+            ("vraagteken", "question mark"),
+            ("verwijder de laatste zin", "delete last sentence"),
+            ("verwijder het laatste woord", "delete last word"),
+            ("begin een lijst", "start a list"),
+            ("volgend item", "next item"),
+            ("einde lijst", "end list"),
+            ("nieuwe alinea", "new paragraph"),
+            ("nieuwe regel", "new line"),
+            ("puntkomma", "semicolon"),
+            ("dubbele punt", "colon"),
+            ("druk op enter", "press enter"),
+            ("annuleer dat", "cancel that"),
+            ("schrap dat", "scratch that"),
+            ("ik bedoel", "i mean"),
+            ("eigenlijk", "actually"),
+            ("komma", "comma"),
+            ("punt", "period"),
+        ],
+        CommandLanguage::Polish => &[
+            ("znak zapytania", "question mark"),
+            ("usuń ostatnie zdanie", "delete last sentence"),
+            ("usuń ostatnie słowo", "delete last word"),
+            ("rozpocznij listę", "start a list"),
+            ("następny element", "next item"),
+            ("zakończ listę", "end list"),
+            ("nowy akapit", "new paragraph"),
+            ("nowa linia", "new line"),
+            ("średnik", "semicolon"),
+            ("dwukropek", "colon"),
+            ("naciśnij enter", "press enter"),
+            ("anuluj to", "cancel that"),
+            ("skreśl to", "scratch that"),
+            ("to znaczy", "i mean"),
+            ("właściwie", "actually"),
+            ("przecinek", "comma"),
+            ("kropka", "period"),
+        ],
+        // Auto deliberately gets no localized table — see the module docs.
         CommandLanguage::Auto | CommandLanguage::English => &[],
     };
     for (localized, canonical) in replacements {
         replace_phrase(value, localized, canonical);
+    }
+}
+
+/// "change X to Y" / "replace X with Y" verb+joiner pairs. Unlike the fixed
+/// phrases above these carry free-form arguments, so they cannot be
+/// canonicalized up front and are matched per-language instead. English pairs
+/// stay active everywhere so mixed-language dictation keeps working.
+fn replacement_pairs(language: CommandLanguage) -> &'static [(&'static str, &'static str)] {
+    const ENGLISH: [(&str, &str); 2] = [("change", "to"), ("replace", "with")];
+    match language {
+        CommandLanguage::Auto | CommandLanguage::English => &ENGLISH,
+        CommandLanguage::Spanish => &[
+            ENGLISH[0],
+            ENGLISH[1],
+            ("cambia", "por"),
+            ("cambia", "a"),
+            ("reemplaza", "por"),
+            ("reemplaza", "con"),
+        ],
+        CommandLanguage::French => &[
+            ENGLISH[0],
+            ENGLISH[1],
+            ("change", "en"),
+            ("remplace", "par"),
+        ],
+        CommandLanguage::German => &[
+            ENGLISH[0],
+            ENGLISH[1],
+            ("ändere", "zu"),
+            ("ersetze", "durch"),
+        ],
+        CommandLanguage::Portuguese => &[
+            ENGLISH[0],
+            ENGLISH[1],
+            ("mude", "para"),
+            ("troque", "por"),
+            ("substitua", "por"),
+        ],
+        CommandLanguage::Italian => &[
+            ENGLISH[0],
+            ENGLISH[1],
+            ("cambia", "in"),
+            ("cambia", "con"),
+            ("sostituisci", "con"),
+        ],
+        CommandLanguage::Dutch => &[
+            ENGLISH[0],
+            ENGLISH[1],
+            ("verander", "in"),
+            ("vervang", "door"),
+        ],
+        CommandLanguage::Polish => &[
+            ENGLISH[0],
+            ENGLISH[1],
+            ("zmień", "na"),
+            ("zamień", "na"),
+        ],
     }
 }
 
@@ -267,19 +402,36 @@ fn strip_suffix_command(value: &mut String, command: &str) -> bool {
     false
 }
 
+/// Replace whole-word occurrences of `phrase` (lowercase) in `value`,
+/// case-insensitively. Folding is per-character Unicode lowercase so accented
+/// command words match however ASR capitalized them ("Średnik", "Élément") —
+/// ASCII-only lowercasing would miss a leading non-ASCII capital.
 fn replace_phrase(value: &mut String, phrase: &str, replacement: &str) -> bool {
-    let lower = value.to_ascii_lowercase();
+    let phrase: Vec<char> = phrase.chars().collect();
+    if phrase.is_empty() {
+        return false;
+    }
+    let chars: Vec<(usize, char)> = value.char_indices().collect();
     let mut ranges = Vec::new();
-    let mut from = 0;
-    while let Some(rel) = lower[from..].find(phrase) {
-        let start = from + rel;
-        let end = start + phrase.len();
-        let left_ok = start == 0 || !is_word_char(lower[..start].chars().next_back().unwrap());
-        let right_ok = end == lower.len() || !is_word_char(lower[end..].chars().next().unwrap());
-        if left_ok && right_ok {
-            ranges.push((start, end));
+    let mut i = 0;
+    while i + phrase.len() <= chars.len() {
+        let matched = phrase.iter().enumerate().all(|(k, pc)| {
+            let vc = chars[i + k].1;
+            vc == *pc || vc.to_lowercase().next() == Some(*pc)
+        });
+        if matched {
+            let after = i + phrase.len();
+            let left_ok = i == 0 || !is_word_char(chars[i - 1].1);
+            let right_ok = after == chars.len() || !is_word_char(chars[after].1);
+            if left_ok && right_ok {
+                let start = chars[i].0;
+                let end = chars.get(after).map(|(idx, _)| *idx).unwrap_or(value.len());
+                ranges.push((start, end));
+                i = after;
+                continue;
+            }
         }
-        from = end;
+        i += 1;
     }
     if ranges.is_empty() {
         return false;
@@ -330,10 +482,21 @@ fn apply_explicit_replacement(value: &mut String, verb: &str, joiner: &str) -> b
     true
 }
 
-fn apply_bounded_suffix_correction(value: &mut String) -> bool {
+fn apply_bounded_suffix_correction(value: &mut String, language: CommandLanguage) -> bool {
     let lower = value.to_ascii_lowercase();
-    let marker = [" actually ", " i mean ", " no "]
-        .into_iter()
+    // " actually " and " i mean " are canonical literals (the localized tables
+    // rewrite into them). Bare " no " is a correction marker only for explicit
+    // English: it is the negation word in Spanish/Portuguese/Italian (and a
+    // particle in Polish), so under Auto or a non-English language it would
+    // silently delete the word before an ordinary "no".
+    let markers: &[&str] = if language == CommandLanguage::English {
+        &[" actually ", " i mean ", " no "]
+    } else {
+        &[" actually ", " i mean "]
+    };
+    let marker = markers
+        .iter()
+        .copied()
         .filter_map(|m| lower.rfind(m).map(|at| (at, m)))
         .max_by_key(|(at, _)| *at);
     let Some((at, marker)) = marker else {
@@ -532,5 +695,102 @@ mod tests {
             },
         );
         assert_eq!(out.text, "Bonjour, Chloé\nà demain.");
+    }
+
+    fn options_for(language: CommandLanguage) -> SpokenCommandOptions {
+        SpokenCommandOptions {
+            language,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn supports_italian_commands() {
+        let out = process(
+            "Ciao Marco virgola a capo ci vediamo domani punto",
+            options_for(CommandLanguage::Italian),
+        );
+        assert_eq!(out.text, "Ciao Marco,\nci vediamo domani.");
+    }
+
+    #[test]
+    fn supports_dutch_commands() {
+        let out = process(
+            "Hallo Anna komma nieuwe regel tot morgen punt",
+            options_for(CommandLanguage::Dutch),
+        );
+        assert_eq!(out.text, "Hallo Anna,\ntot morgen.");
+    }
+
+    #[test]
+    fn supports_polish_commands() {
+        let out = process(
+            "Cześć Marku przecinek nowa linia do jutra kropka",
+            options_for(CommandLanguage::Polish),
+        );
+        assert_eq!(out.text, "Cześć Marku,\ndo jutra.");
+    }
+
+    #[test]
+    fn matches_commands_with_non_ascii_capitalization() {
+        // ASCII lowercasing would leave a leading "Ś" untouched and miss this.
+        let out = process(
+            "Średnik",
+            options_for(CommandLanguage::Polish),
+        );
+        assert_eq!(out.text, ";");
+    }
+
+    #[test]
+    fn auto_keeps_localized_words_literal() {
+        let out = process(
+            "arriviamo al punto e virgola decisiva",
+            options_for(CommandLanguage::Auto),
+        );
+        assert_eq!(out.text, "arriviamo al punto e virgola decisiva");
+    }
+
+    #[test]
+    fn bare_no_correction_is_english_only() {
+        let en = process(
+            "Send it Tuesday no Wednesday",
+            options_for(CommandLanguage::English),
+        );
+        assert_eq!(en.text, "Send it Wednesday");
+        // Spanish negation must survive: " no " is not a correction marker.
+        let es = process(
+            "Creo que no vamos hoy",
+            options_for(CommandLanguage::Spanish),
+        );
+        assert_eq!(es.text, "Creo que no vamos hoy");
+        // Auto (default) is multilingual-unknown, so it is excluded too.
+        let auto = process(
+            "Send it Tuesday no Wednesday",
+            options_for(CommandLanguage::Auto),
+        );
+        assert_eq!(auto.text, "Send it Tuesday no Wednesday");
+    }
+
+    #[test]
+    fn supports_localized_explicit_replacement() {
+        let it = process(
+            "Vediamo Alice domani cambia Alice con Marta",
+            options_for(CommandLanguage::Italian),
+        );
+        assert_eq!(it.text, "Vediamo Marta domani");
+        let pl = process(
+            "Spotkanie we wtorek zmień wtorek na środę",
+            options_for(CommandLanguage::Polish),
+        );
+        assert_eq!(pl.text, "Spotkanie we środę");
+    }
+
+    #[test]
+    fn supports_localized_scratch_that() {
+        let out = process(
+            "Dit blijft. Dit moet weg schrap dat Dit ook",
+            options_for(CommandLanguage::Dutch),
+        );
+        assert_eq!(out.text, "Dit blijft. Dit ook");
     }
 }

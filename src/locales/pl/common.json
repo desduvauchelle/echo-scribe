@@ -820,9 +820,12 @@
         "es": "Español",
         "fr": "Français",
         "de": "Deutsch",
-        "pt": "Português"
+        "pt": "Português",
+        "it": "Italiano",
+        "nl": "Nederlands",
+        "pl": "Polski"
       },
-      "footnote": "Automatyczne wykrywanie obsługuje 25 języków europejskich. Komendy edycji głosowej są obecnie dostępne tylko w języku angielskim."
+      "footnote": "Automatyczne wykrywanie obsługuje 25 języków europejskich. Komendy edycji głosowej działają w języku wybranym tutaj; w trybie automatycznym obowiązują komendy angielskie."
     },
     "dictionary": {
       "title": "Słownik",

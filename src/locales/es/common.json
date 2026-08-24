@@ -782,9 +782,12 @@
         "es": "Español",
         "fr": "Français",
         "de": "Deutsch",
-        "pt": "Português"
+        "pt": "Português",
+        "it": "Italiano",
+        "nl": "Nederlands",
+        "pl": "Polski"
       },
-      "footnote": "La detección automática admite 25 idiomas europeos. Los comandos de edición hablada son actualmente en inglés."
+      "footnote": "La detección automática admite 25 idiomas europeos. Los comandos de edición hablada siguen el idioma elegido aquí; en modo automático se usan los comandos en inglés."
     },
     "dictionary": {
       "title": "Diccionario",

@@ -2515,8 +2515,12 @@ pub fn set_transcription_cleanup_language(
     state: State<'_, AppState>,
     language: String,
 ) -> Result<(), String> {
-    const ALLOWED: &[&str] = &["auto", "en", "es", "fr", "de", "pt"];
+    const ALLOWED: &[&str] = &["auto", "en", "es", "fr", "de", "pt", "it", "nl", "pl"];
     if !ALLOWED.contains(&language.as_str()) {
+        tracing::warn!(
+            target: "settings",
+            "rejected cleanup language {language:?}; allowed: {ALLOWED:?}"
+        );
         return Err(format!("Unsupported cleanup language: {language}"));
     }
     state
