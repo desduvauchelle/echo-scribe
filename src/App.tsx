@@ -4,6 +4,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
 import {
   getOnboardingCompleted,
+  installWarnings,
+  isPipelineRunning,
   listSpeechModels,
   permissionsStatus,
   smokeCheckpoint,
@@ -84,6 +86,64 @@ function AppShell() {
     if (view !== "checking") {
       void smokeCheckpoint(view).catch(() => {});
     }
+  }, [view]);
+
+  // Surface install-health problems once at boot (e.g. App Translocation,
+  // where TCC grants attach to a throwaway identity and never stick).
+  const installWarningsShown = useRef(false);
+  useEffect(() => {
+    if (installWarningsShown.current) return;
+    installWarningsShown.current = true;
+    let cancelled = false;
+    (async () => {
+      try {
+        const warnings = await installWarnings();
+        if (cancelled) return;
+        for (const message of warnings) {
+          toasts.push({ tone: "error", message });
+        }
+      } catch {
+        /* command unavailable (older backend) — nothing to show */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [toasts]);
+
+  // Self-heal the capture pipeline. "Skip setup for now" (and a permission
+  // granted after launch) could leave every precondition satisfied while the
+  // pipeline stayed stopped — the dictation hotkey then did nothing, with no
+  // error, until the next app launch. While the main view is up, start the
+  // pipeline as soon as mic + accessibility + an active speech model exist.
+  useEffect(() => {
+    if (view !== "main") return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        if (await isPipelineRunning()) return;
+        const [perms, models] = await Promise.all([
+          permissionsStatus(),
+          listSpeechModels(),
+        ]);
+        if (cancelled) return;
+        if (
+          perms.microphone &&
+          perms.accessibility &&
+          models.some((m) => m.active && m.downloaded)
+        ) {
+          await startPipeline();
+        }
+      } catch {
+        /* transient — retry on the next tick */
+      }
+    };
+    void tick();
+    const id = window.setInterval(() => void tick(), 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
   }, [view]);
 
   // Surface backend ASR errors as toasts.

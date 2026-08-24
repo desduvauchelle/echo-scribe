@@ -2729,6 +2729,35 @@ pub fn app_version(app: AppHandle) -> String {
     app.package_info().version.to_string()
 }
 
+/// Install-health problems worth telling the user about at boot. Currently
+/// one check: macOS App Translocation. A quarantined bundle launched outside
+/// `install.sh` runs from a randomized read-only path, so TCC grants attach
+/// to a throwaway identity — permissions "don't stick" and the app never
+/// appears (or keeps reappearing) in the Privacy lists. The frontend toasts
+/// each returned message once at boot.
+#[tauri::command]
+pub fn install_warnings() -> Vec<String> {
+    let mut warnings = Vec::new();
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(exe) = std::env::current_exe() {
+            if exe.to_string_lossy().contains("/AppTranslocation/") {
+                error!(
+                    exe = %exe.display(),
+                    "running translocated — TCC grants will not stick"
+                );
+                warnings.push(
+                    "macOS is running Echo Scribe from a temporary location, so permission \
+                     grants won't stick. Quit the app, move it into the Applications folder \
+                     with Finder (or reinstall with the install command), then reopen it."
+                        .to_string(),
+                );
+            }
+        }
+    }
+    warnings
+}
+
 /// User-triggered "Check for Updates" — forces an immediate check (ignoring the
 /// background throttle) and reports the outcome so the UI can show feedback.
 #[tauri::command]

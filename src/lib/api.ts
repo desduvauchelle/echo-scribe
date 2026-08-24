@@ -30,6 +30,10 @@ export const platformCapabilities = (): Promise<PlatformCapabilities> =>
 export const permissionsStatus = (): Promise<PermissionsStatus> =>
   invoke("permissions_status");
 
+/** Install-health problems (e.g. macOS App Translocation) to surface at boot. */
+export const installWarnings = (): Promise<string[]> =>
+  invoke("install_warnings");
+
 export const openMicrophoneSettings = (): Promise<void> =>
   invoke("open_microphone_settings");
 

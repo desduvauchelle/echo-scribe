@@ -126,6 +126,16 @@ export async function installTauriMock(page: Page, scenario: Scenario = {}) {
     let nextEventId = 1;
     const handlers: Record<string, (args: any) => unknown> = {
       permissions_status: () => ({ ...state.permissions }),
+      install_warnings: () => [],
+      // Grant-flow commands: the prompting calls report the (mock) TCC state
+      // — false on a fresh install, like the real APIs — and the pane-openers
+      // are no-ops recorded for ordering assertions.
+      prompt_accessibility_access: () => state.permissions.accessibility,
+      request_screen_recording_access: () => state.permissions.screen_recording,
+      request_microphone_access: () => state.permissions.microphone,
+      open_accessibility_settings: () => undefined,
+      open_screen_recording_settings: () => undefined,
+      open_microphone_settings: () => undefined,
       platform_capabilities: () => ({
         direct_voice_capture: true,
         local_database: true,

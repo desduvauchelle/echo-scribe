@@ -235,10 +235,17 @@ mod imp {
             }
         }
 
-        match rx.await {
-            Ok(true) => MicAccessOutcome::Granted,
-            Ok(false) => MicAccessOutcome::Denied,
-            Err(_) => MicAccessOutcome::Undetermined,
+        // Bound the wait: if AVFoundation retains the block but never invokes
+        // it, the frontend promise would otherwise hang forever with no
+        // feedback. Two minutes comfortably covers a user reading the dialog.
+        match tokio::time::timeout(std::time::Duration::from_secs(120), rx).await {
+            Ok(Ok(true)) => MicAccessOutcome::Granted,
+            Ok(Ok(false)) => MicAccessOutcome::Denied,
+            Ok(Err(_)) => MicAccessOutcome::Undetermined,
+            Err(_) => {
+                tracing::warn!(target: "perm", "microphone permission prompt timed out after 120s");
+                MicAccessOutcome::Undetermined
+            }
         }
     }
 

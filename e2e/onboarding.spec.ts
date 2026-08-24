@@ -83,3 +83,36 @@ test("completed onboarding with preconditions intact boots straight to the dashb
   await expect(page.getByRole("button", { name: "Dashboard" })).toBeVisible();
   await expect(page.getByText(welcome)).not.toBeVisible();
 });
+
+test("first Grant click fires the macOS prompt WITHOUT opening System Settings; second click opens the pane", async ({ page }) => {
+  // Regression guard for the fresh-install bug where the Settings pane was
+  // opened in the same tick as the async TCC prompt — it rendered a stale
+  // Accessibility list without the app in it and buried the system dialog.
+  await installTauriMock(page); // everything ungranted
+  await page.goto("/");
+  await expect(page.getByText(welcome)).toBeVisible();
+
+  // Row order: microphone, accessibility, screen recording.
+  const grantButtons = page.getByRole("button", { name: "Grant access" });
+  await grantButtons.nth(1).click();
+
+  await expect(page.getByText(/Approve the macOS dialog/)).toBeVisible();
+  const calls = await recordedCalls(page);
+  expect(calls.some((c) => c.cmd === "prompt_accessibility_access")).toBe(true);
+  expect(calls.some((c) => c.cmd === "open_accessibility_settings")).toBe(false);
+
+  // By the second click the app is registered with tccd — now the pane opens.
+  await grantButtons.nth(1).click();
+  await expect
+    .poll(async () =>
+      (await recordedCalls(page)).some(
+        (c) => c.cmd === "open_accessibility_settings",
+      ),
+    )
+    .toBe(true);
+  expect(
+    (await recordedCalls(page)).filter(
+      (c) => c.cmd === "prompt_accessibility_access",
+    ),
+  ).toHaveLength(1);
+});

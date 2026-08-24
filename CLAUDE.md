@@ -83,6 +83,14 @@ cd src-tauri && cargo test --lib && cd ..
 # Onboarding e2e (Playwright + mocked Tauri IPC in e2e/; CI runs this on every PR)
 bun run test:e2e
 
+# Fresh-install simulator: builds + installs "Echo Scribe Fresh" (identifier
+# com.echoscribe.freshsim, data in ~/Library/Application Support/EchoScribeFreshSim)
+# — a fully isolated variant with its own TCC identity for testing first-run
+# onboarding/permissions without touching the real install or its data. The
+# reset script returns it to never-launched state (wipes sim data + sim TCC only).
+bash scripts/build-fresh-sim.sh
+bash scripts/reset-fresh-sim.sh
+
 # Install + first-launch smoke test: real install.sh + real bundle launch with
 # ECHO_SCRIBE_SMOKE=1 in a throwaway HOME. Release CI runs this per arch and
 # blocks publishing on failure. Locally (after a build):

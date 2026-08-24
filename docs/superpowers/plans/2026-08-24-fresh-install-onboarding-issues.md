@@ -31,8 +31,14 @@ both now use a detached relauncher that waits for the pid to exit and logs to
 `<log-dir>/relaunch-helper.log` / `update-helper.log` (verified live: reset → auto
 reopen in ~1s).
 
-Still open: issue 5 (translocation self-check), issue 7 (Intel release build), and
-the P2 list.
+**Third pass, same day:** issue 5 fixed (`install_warnings` command + boot toast
+detects App Translocation), plus from the P2 list: the pipeline now self-heals after
+"Skip setup for now" / late permission grants (App.tsx polls and starts it once
+preconditions exist), the mic permission prompt gets a 120s timeout, and the
+prompt-before-Settings ordering has an e2e regression spec. Issue 7 reclassified as
+by-design (aarch64-only is intentional). Remaining P2: embedding model has no
+download UI (blocked on chat-memory M3/M4), sync prompt commands stay main-thread
+by design.
 
 ---
 
@@ -116,11 +122,10 @@ Developer ID + notarization.
 - A partial Parakeet is invisible: no `incomplete` flag on `SpeechModelStatus`
   (unlike LLM), and no Delete button until `downloaded == true`.
 
-### 7. v1.0.11 release ships no Intel macOS build
-Latest GitHub release assets: `EchoScribe-aarch64.tar.gz` + Windows exe only.
-`install.sh` explicitly rejects x86_64. If the target Mac is Intel, install fails
-outright. Either restore the Intel build in `release.yml` or make install.sh say
-"Apple Silicon only" clearly.
+### 7. ~~v1.0.11 release ships no Intel macOS build~~ — BY DESIGN, not a bug
+`release.yml` states "Echo Scribe ships aarch64-only" and `install.sh` already fails
+with a clear "Apple Silicon only — Intel Macs are not supported" message. (The
+affected first-install machine was an M2, so this was never the cause anyway.)
 
 ### 8. Error copy points to a Settings page that doesn't exist
 Several "no model" messages say **"Settings → AI Model"**; the nav item is labelled
