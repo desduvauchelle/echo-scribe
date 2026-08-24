@@ -1051,7 +1051,7 @@ pub fn export(in_path: &Path, out_path: &Path, quality: &str) -> Result<ExportDo
 
 /// Resolve the bundled `echo-scribe-screenrec` sidecar, falling back to the
 /// dev build. Mirrors `meeting/syscap.rs::resolve_binary`.
-fn resolve_binary() -> std::io::Result<PathBuf> {
+pub(crate) fn resolve_binary() -> std::io::Result<PathBuf> {
     let triple = if cfg!(target_arch = "aarch64") {
         "aarch64-apple-darwin"
     } else {

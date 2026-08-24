@@ -437,20 +437,36 @@ mod macos {
         }));
 
         unsafe {
-            let tap = CGEventTapCreate(
-                CG_HID_EVENT_TAP,
-                KCG_HEAD_INSERT_EVENT_TAP,
-                KCG_EVENT_TAP_OPTION_DEFAULT,
-                EVENT_MASK,
-                tap_callback,
-                state as *mut c_void,
-            );
-
-            if tap.is_null() {
-                error!("failed to create CGEventTap — Accessibility permission probably missing.");
-                drop(Box::from_raw(state));
-                return;
-            }
+            // CGEventTapCreate fails (NULL) while Accessibility is not granted.
+            // A fresh install grants it *after* the pipeline starts, so retry
+            // until it succeeds — the hotkey then comes alive the moment the
+            // user flips the toggle, no relaunch needed. Previously we gave up
+            // on the first failure and the hotkey stayed dead, silently, for
+            // the rest of the session.
+            let mut reported = false;
+            let tap = loop {
+                let tap = CGEventTapCreate(
+                    CG_HID_EVENT_TAP,
+                    KCG_HEAD_INSERT_EVENT_TAP,
+                    KCG_EVENT_TAP_OPTION_DEFAULT,
+                    EVENT_MASK,
+                    tap_callback,
+                    state as *mut c_void,
+                );
+                if !tap.is_null() {
+                    if reported {
+                        info!("CGEventTap created after retry — Accessibility was granted");
+                    }
+                    break tap;
+                }
+                if !reported {
+                    error!(
+                        "failed to create CGEventTap — Accessibility permission probably missing; retrying every 3s"
+                    );
+                    reported = true;
+                }
+                std::thread::sleep(std::time::Duration::from_secs(3));
+            };
 
             let source = CFMachPortCreateRunLoopSource(ptr::null(), tap, 0);
             if source.is_null() {

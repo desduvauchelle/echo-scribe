@@ -10,6 +10,15 @@ identical to v1.0.11 — only i18n string extraction touched it since).
 
 Reproduce with the fresh-install simulator: `scripts/build-fresh-sim.sh` (see §Simulator).
 
+**Status 2026-08-24 (same day):** P0 issues 1–4 and the P1 copy fix (issue 8) are FIXED
+and verified live in the simulator on a real fresh TCC identity: prompt-first flow shows
+the app in the Accessibility list; Screen Recording flips to Granted in-session via a
+fresh child-process preflight (log: "fresh child preflight reports Screen Recording
+granted (in-process cache still says false)"); the hotkey tap now retries until
+Accessibility is granted; missing-LLM states surface via toast + OS notification + a
+sidebar card. Still open: issue 5 (translocation self-check), issue 6 (download
+robustness), issue 7 (Intel release build), and the P2 list.
+
 ---
 
 ## P0 — directly explains the reported install

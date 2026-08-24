@@ -15,7 +15,8 @@
     "screenRecording": {
       "title": "Grabación de pantalla",
       "subtitle": "Permite que Echo Scribe capture el audio del otro participante durante reuniones de Zoom, Google Meet y otras. Sin esto, solo se graba tu micrófono."
-    }
+    },
+    "promptHint": "Aprueba el diálogo de macOS que acaba de aparecer. Si no apareció, vuelve a pulsar «Conceder acceso» para abrir Ajustes del Sistema."
   },
   "llmModel": {
     "title": "Modelo de IA local",

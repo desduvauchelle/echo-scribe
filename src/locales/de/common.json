@@ -459,7 +459,9 @@
     "missing": "Fehlende Berechtigung: {{list}}",
     "coreBroken": "Echo Scribe kann erst wieder diktieren oder einfügen, wenn du die Berechtigung erneut erteilst.",
     "meetingsOnly": "Meetings zeichnen dann nur dein Mikrofon auf — das Audio der anderen Person wird nicht erfasst.",
-    "fixInSettings": "In den Einstellungen beheben"
+    "fixInSettings": "In den Einstellungen beheben",
+    "llmMissingTitle": "KI-Funktionen sind deaktiviert",
+    "llmMissingBody": "Es ist kein Sprachmodell installiert. Sprachbefehle, das Taggen von Captures und Meeting-Zusammenfassungen bleiben deaktiviert, bis du eines unter Einstellungen → Sprachmodell herunterlädst."
   },
   "permissionsSection": {
     "microphoneTitle": "Mikrofon",
@@ -477,7 +479,8 @@
     "cancel": "Abbrechen",
     "resetAndQuit": "Zurücksetzen & beenden",
     "resetTimeoutToast": "Zurücksetzen abgeschlossen, aber die App wurde nicht beendet. Starte Echo Scribe manuell neu.",
-    "resetErrorToast": "Berechtigungen konnten nicht zurückgesetzt werden: {{error}}"
+    "resetErrorToast": "Berechtigungen konnten nicht zurückgesetzt werden: {{error}}",
+    "promptHint": "Bestätige den macOS-Dialog, der gerade erschienen ist. Falls keiner erschienen ist, klicke erneut auf „Zugriff erlauben“, um die Systemeinstellungen zu öffnen."
   },
   "projectEditor": {
     "colorNames": {

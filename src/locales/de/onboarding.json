@@ -15,7 +15,8 @@
     "screenRecording": {
       "title": "Bildschirmaufnahme",
       "subtitle": "Lässt Echo Scribe das Audio der anderen Teilnehmer bei Zoom, Google Meet und anderen Meetings erfassen. Ohne diese Berechtigung wird nur dein Mikrofon aufgezeichnet."
-    }
+    },
+    "promptHint": "Bestätige den macOS-Dialog, der gerade erschienen ist. Falls keiner erschienen ist, klicke erneut auf „Zugriff erlauben“, um die Systemeinstellungen zu öffnen."
   },
   "llmModel": {
     "title": "Lokales KI-Modell",

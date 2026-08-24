@@ -113,6 +113,12 @@ export default function Onboarding({ initialStatus, onStarted, resumeNotice }: P
   // do something". The flag is local to this onboarding session.
   const [llmSkipped, setLlmSkipped] = useState(false);
   const intervalRef = useRef<number | null>(null);
+  // First "Grant access" click fires the registering macOS prompt; only later
+  // clicks open System Settings (by then tccd lists the app). The hint under
+  // the row points at the system dialog in between.
+  const prompted = useRef({ accessibility: false, screenRecording: false });
+  const [accessibilityHint, setAccessibilityHint] = useState(false);
+  const [screenRecordingHint, setScreenRecordingHint] = useState(false);
 
   const refetchStartGate = useCallback(async () => {
     try {
@@ -185,18 +191,26 @@ export default function Onboarding({ initialStatus, onStarted, resumeNotice }: P
   };
 
   const handleGrantScreenRecording = async () => {
-    // CGRequestScreenCaptureAccess() registers the app in the macOS Screen
-    // Recording list and shows the system prompt. Returns false the first
-    // time; the user has to flip the toggle in System Settings. We open
-    // the pane as a fallback so they don't have to hunt for it.
-    try {
-      const granted = await requestScreenRecordingAccess();
-      if (granted) {
-        await refresh();
-        return;
+    // CGRequestScreenCaptureAccess() registers the app with tccd
+    // *asynchronously* and returns false on a fresh install — so on the first
+    // click we must NOT open System Settings in the same tick: the pane
+    // renders a stale Screen Recording list that doesn't show the app yet,
+    // and it buries the system prompt behind it. First click: prompt + hint.
+    // Later clicks: the app is registered by then, jump straight to the pane.
+    if (!prompted.current.screenRecording) {
+      prompted.current.screenRecording = true;
+      try {
+        const granted = await requestScreenRecordingAccess();
+        if (granted) {
+          await refresh();
+          return;
+        }
+      } catch {
+        /* registered or not — show the hint either way */
       }
-    } catch {
-      /* fall through */
+      setScreenRecordingHint(true);
+      await refresh().catch(() => {});
+      return;
     }
     try {
       await openScreenRecordingSettings();
@@ -207,22 +221,28 @@ export default function Onboarding({ initialStatus, onStarted, resumeNotice }: P
   };
 
   const handleGrantAccessibility = async () => {
-    // First call promptAccessibilityAccess() — this is the call that registers
-    // Echo Scribe in the macOS Accessibility list. Without it, the list shows
-    // up empty and the user has nothing to toggle. The system raises its own
-    // "Open System Settings" button as part of that prompt, so we don't need
-    // to open Settings ourselves (avoids the double-modal we had before).
-    try {
-      const trusted = await promptAccessibilityAccess();
-      if (trusted) {
-        await refresh();
-        return;
+    // promptAccessibilityAccess() (AXIsProcessTrustedWithOptions) registers
+    // Echo Scribe in the macOS Accessibility list *asynchronously* and always
+    // returns false on a fresh install. The system raises its own "Open
+    // System Settings" button as part of that prompt — opening Settings
+    // ourselves in the same tick shows a stale list WITHOUT the app in it and
+    // hides the system dialog. First click: prompt + hint only. Later clicks:
+    // open the pane (the app is in the list by then, e.g. toggled off).
+    if (!prompted.current.accessibility) {
+      prompted.current.accessibility = true;
+      try {
+        const trusted = await promptAccessibilityAccess();
+        if (trusted) {
+          await refresh();
+          return;
+        }
+      } catch {
+        /* registered or not — show the hint either way */
       }
-    } catch {
-      /* fall through to the manual Settings open */
+      setAccessibilityHint(true);
+      await refresh().catch(() => {});
+      return;
     }
-    // Fallback: if the prompt didn't fire (e.g. the app is already in the
-    // list but toggled off), open the Settings pane directly.
     try {
       await openAccessibilitySettings();
     } catch {
@@ -307,6 +327,7 @@ export default function Onboarding({ initialStatus, onStarted, resumeNotice }: P
           <PermissionRow
             title={t("permissions.accessibility.title")}
             subtitle={t("permissions.accessibility.subtitle")}
+            hint={accessibilityHint ? t("permissions.promptHint") : undefined}
             granted={status.accessibility}
             onGrant={() => {
               void handleGrantAccessibility();
@@ -322,6 +343,7 @@ export default function Onboarding({ initialStatus, onStarted, resumeNotice }: P
           <PermissionRow
             title={t("permissions.screenRecording.title")}
             subtitle={t("permissions.screenRecording.subtitle")}
+            hint={screenRecordingHint ? t("permissions.promptHint") : undefined}
             granted={status.screen_recording}
             onGrant={() => {
               void handleGrantScreenRecording();

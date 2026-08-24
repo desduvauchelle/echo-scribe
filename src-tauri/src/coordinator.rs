@@ -600,6 +600,15 @@ pub fn spawn(
                                                 // Auto-file: the user never wants a confirm popup. If the
                                                 // classifier errored (no model / parse failure), fall back to
                                                 // a plain note with no project so the capture is never lost.
+                                                // A missing model still deserves a visible nudge — otherwise
+                                                // every capture silently files untagged and the user never
+                                                // learns why.
+                                                if let Err(crate::classifier::ClassifierError::Llm(
+                                                    crate::llm::LlmError::NoActiveModel,
+                                                )) = &cls
+                                                {
+                                                    let _ = app.emit("llm:not_configured", "log_capture");
+                                                }
                                                 let c = cls.unwrap_or_else(|e| {
                                                 warn!(?e, "classify failed; filing capture as a plain note");
                                                 Classification {
@@ -682,6 +691,10 @@ pub fn spawn(
                                                     serde_json::json!({
                                                         "transcript": text,
                                                         "classification": cls.as_ref().ok(),
+                                                        // App.tsx matches this to toast "Local AI not
+                                                        // configured" — without it that toast can never
+                                                        // fire and a missing model stays invisible.
+                                                        "error": cls.as_ref().err().map(|e| e.to_string()),
                                                     }),
                                                 );
                                                 force_state(
@@ -1322,6 +1335,15 @@ async fn try_intercept_action(
             }
         }
         Err(e) => {
+            // Without a model, "echo open Slack" pastes the literal words —
+            // after a "Processing…" spinner that implied it would work. Tell
+            // the user once per session instead of failing silently.
+            if matches!(
+                e,
+                crate::llm::action_launcher::ActionError::Llm(crate::llm::LlmError::NoActiveModel)
+            ) {
+                notify_action_llm_missing(app);
+            }
             warn!(error = %e, "Action classification failed; continuing standard pipeline");
         }
     }
@@ -1456,6 +1478,29 @@ fn bump_tray(app: &tauri::AppHandle, state: TrayPipelineState) {
             tray.set_state(state);
         }
     }
+}
+
+/// One notification per session: spoken trigger words are inert without a
+/// language model, and the raw text gets pasted instead. Fires both an OS
+/// notification (the user is mid-dictation in another app) and the
+/// `llm:not_configured` event for an in-app toast.
+fn notify_action_llm_missing(app: &tauri::AppHandle) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static NOTIFIED: AtomicBool = AtomicBool::new(false);
+    if NOTIFIED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let _ = app.emit("llm:not_configured", "action");
+    use tauri_plugin_notification::NotificationExt;
+    let _ = app
+        .notification()
+        .builder()
+        .title("Echo Scribe")
+        .body(
+            "No local AI model is installed, so spoken commands are pasted as plain text. \
+             Download a model in Settings → Language Model.",
+        )
+        .show();
 }
 
 /// Best-effort UI surface for a format-text failure: emits a Tauri event the

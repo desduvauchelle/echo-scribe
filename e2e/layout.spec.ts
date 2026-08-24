@@ -7,6 +7,9 @@ test("dashboard scroll never moves the app shell", async ({ page }) => {
     onboardingCompleted: true,
     permissions: { microphone: true, accessibility: true },
     speechModelReady: true,
+    // Healthy install: no "AI features are off" sidebar card, so the shell
+    // fits without scrolling — this spec guards shell geometry, not banners.
+    llmReady: true,
     projectCount: 8,
   });
   await page.goto("/");

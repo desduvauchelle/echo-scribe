@@ -15,7 +15,8 @@
     "screenRecording": {
       "title": "Schermopname",
       "subtitle": "Hiermee kan Echo Scribe de audio van de andere deelnemer vastleggen tijdens Zoom, Google Meet en andere meetings. Zonder deze toestemming wordt alleen je microfoon opgenomen."
-    }
+    },
+    "promptHint": "Keur het macOS-venster goed dat zojuist verscheen. Verscheen er niets? Klik dan opnieuw op “Toegang verlenen” om Systeeminstellingen te openen."
   },
   "llmModel": {
     "title": "Lokaal AI-model",

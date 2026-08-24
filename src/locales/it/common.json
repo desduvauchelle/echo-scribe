@@ -459,7 +459,9 @@
     "missing": "Permesso mancante: {{list}}",
     "coreBroken": "Echo Scribe non può dettare o incollare finché non concedi di nuovo l'accesso.",
     "meetingsOnly": "Le riunioni registreranno solo il tuo microfono — l'audio dell'altra persona non verrà acquisito.",
-    "fixInSettings": "Correggi nelle Impostazioni"
+    "fixInSettings": "Correggi nelle Impostazioni",
+    "llmMissingTitle": "Le funzioni IA sono disattivate",
+    "llmMissingBody": "Nessun modello linguistico è installato. I comandi vocali, l’etichettatura delle catture e i riepiloghi delle riunioni restano disattivati finché non ne scarichi uno in Impostazioni → Modello linguistico."
   },
   "permissionsSection": {
     "microphoneTitle": "Microfono",
@@ -477,7 +479,8 @@
     "cancel": "Annulla",
     "resetAndQuit": "Reimposta ed esci",
     "resetTimeoutToast": "La reimpostazione è tornata ma l'app non si è chiusa. Prova a riavviare Echo Scribe manualmente.",
-    "resetErrorToast": "Impossibile reimpostare i permessi: {{error}}"
+    "resetErrorToast": "Impossibile reimpostare i permessi: {{error}}",
+    "promptHint": "Approva la finestra di dialogo di macOS appena apparsa. Se non è apparsa, fai di nuovo clic su “Concedi accesso” per aprire Impostazioni di Sistema."
   },
   "projectEditor": {
     "colorNames": {

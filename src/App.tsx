@@ -131,6 +131,28 @@ function AppShell() {
     };
   }, [toasts]);
 
+  // Backend signal that an LLM-dependent feature ran without any model
+  // (auto-filed capture, spoken trigger word). Same friendly pointer to
+  // Settings as the review-mode toast above.
+  useEffect(() => {
+    let unlisten: UnlistenFn | null = null;
+    let cancelled = false;
+    (async () => {
+      const fn = await listen<string>("llm:not_configured", () => {
+        toasts.push({
+          tone: "info",
+          message: t("app.toasts.localAiNotConfigured"),
+        });
+      });
+      if (cancelled) fn();
+      else unlisten = fn;
+    })();
+    return () => {
+      cancelled = true;
+      if (unlisten) unlisten();
+    };
+  }, [toasts]);
+
   // Toast-with-undo for high-confidence auto-filed captures. Backend also
   // fires an OS notification when this window isn't visible.
   useEffect(() => {

@@ -459,7 +459,9 @@
     "missing": "Autorisation manquante : {{list}}",
     "coreBroken": "Echo Scribe ne peut ni dicter ni coller tant que vous n’avez pas réaccordé l’accès.",
     "meetingsOnly": "Les réunions n’enregistreront que votre microphone — l’audio de l’autre personne ne sera pas capturé.",
-    "fixInSettings": "Corriger dans Réglages"
+    "fixInSettings": "Corriger dans Réglages",
+    "llmMissingTitle": "Les fonctions d’IA sont désactivées",
+    "llmMissingBody": "Aucun modèle de langage n’est installé. Les commandes vocales, le classement des captures et les résumés de réunion restent désactivés tant que vous n’en téléchargez pas un dans Réglages → Modèle de langage."
   },
   "permissionsSection": {
     "microphoneTitle": "Microphone",
@@ -477,7 +479,8 @@
     "cancel": "Annuler",
     "resetAndQuit": "Réinitialiser et quitter",
     "resetTimeoutToast": "La réinitialisation s’est terminée mais l’application ne s’est pas fermée. Essayez de redémarrer Echo Scribe manuellement.",
-    "resetErrorToast": "Impossible de réinitialiser les autorisations : {{error}}"
+    "resetErrorToast": "Impossible de réinitialiser les autorisations : {{error}}",
+    "promptHint": "Validez la boîte de dialogue macOS qui vient d’apparaître. Si elle ne s’est pas affichée, cliquez à nouveau sur « Autoriser l’accès » pour ouvrir Réglages Système."
   },
   "projectEditor": {
     "colorNames": {

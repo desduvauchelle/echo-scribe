@@ -459,7 +459,9 @@
     "missing": "Permission missing: {{list}}",
     "coreBroken": "Echo Scribe can't dictate or paste until you re-grant.",
     "meetingsOnly": "Meetings will only record your microphone — the other person's audio won't be captured.",
-    "fixInSettings": "Fix in Settings"
+    "fixInSettings": "Fix in Settings",
+    "llmMissingTitle": "AI features are off",
+    "llmMissingBody": "No language model is installed. Spoken commands, capture tagging, and meeting summaries stay off until you download one in Settings → Language Model."
   },
   "permissionsSection": {
     "microphoneTitle": "Microphone",
@@ -477,7 +479,8 @@
     "cancel": "Cancel",
     "resetAndQuit": "Reset & quit",
     "resetTimeoutToast": "Reset returned but the app didn't quit. Try restarting Echo Scribe manually.",
-    "resetErrorToast": "Couldn't reset permissions: {{error}}"
+    "resetErrorToast": "Couldn't reset permissions: {{error}}",
+    "promptHint": "Approve the macOS dialog that just appeared. If it didn’t show up, click “Grant access” again to open System Settings."
   },
   "projectEditor": {
     "colorNames": {

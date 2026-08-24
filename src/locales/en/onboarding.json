@@ -15,7 +15,8 @@
     "screenRecording": {
       "title": "Screen Recording",
       "subtitle": "Lets Echo Scribe capture the other participant's audio during Zoom, Google Meet, and other meetings. Without it, only your microphone is recorded."
-    }
+    },
+    "promptHint": "Approve the macOS dialog that just appeared. If it didn’t show up, click “Grant access” again to open System Settings."
   },
   "llmModel": {
     "title": "Local AI model",

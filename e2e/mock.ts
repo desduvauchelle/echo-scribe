@@ -12,6 +12,8 @@ export type Scenario = {
   onboardingCompleted?: boolean;
   /** Speech model already downloaded + active (the Start gate). */
   speechModelReady?: boolean;
+  /** LLM already downloaded + active (suppresses the "AI features are off" card). */
+  llmReady?: boolean;
   /** When set, start_pipeline rejects with this message. */
   startPipelineError?: string | null;
   /** Number of projects shown in Main's sidebar. */
@@ -64,6 +66,7 @@ export async function installTauriMock(page: Page, scenario: Scenario = {}) {
       },
       onboardingCompleted: sc.onboardingCompleted ?? false,
       speechModelReady: sc.speechModelReady ?? false,
+      llmReady: sc.llmReady ?? false,
       startPipelineError: sc.startPipelineError ?? null,
       projectCount: sc.projectCount ?? 0,
       meetingExportFolder: sc.meetingExportFolder ?? null,
@@ -111,8 +114,8 @@ export async function installTauriMock(page: Page, scenario: Scenario = {}) {
       size_label: "2 GB",
       size_bytes: 2_000_000_000,
       context_length: 8192,
-      downloaded: false,
-      active: false,
+      downloaded: state.llmReady,
+      active: state.llmReady,
       supported: true,
       disk_bytes: 0,
       incomplete: false,

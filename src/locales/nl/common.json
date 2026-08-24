@@ -459,7 +459,9 @@
     "missing": "Toestemming ontbreekt: {{list}}",
     "coreBroken": "Echo Scribe kan niet dicteren of plakken totdat je opnieuw toestemming geeft.",
     "meetingsOnly": "Meetings nemen alleen je microfoon op — de audio van de ander wordt niet vastgelegd.",
-    "fixInSettings": "Oplossen in Instellingen"
+    "fixInSettings": "Oplossen in Instellingen",
+    "llmMissingTitle": "AI-functies staan uit",
+    "llmMissingBody": "Er is geen taalmodel geïnstalleerd. Gesproken opdrachten, het taggen van captures en vergadersamenvattingen blijven uit totdat je er een downloadt in Instellingen → Taalmodel."
   },
   "permissionsSection": {
     "microphoneTitle": "Microfoon",
@@ -477,7 +479,8 @@
     "cancel": "Annuleren",
     "resetAndQuit": "Reset & sluit af",
     "resetTimeoutToast": "Reset is voltooid, maar de app is niet afgesloten. Probeer Echo Scribe handmatig opnieuw te starten.",
-    "resetErrorToast": "Kon toestemmingen niet resetten: {{error}}"
+    "resetErrorToast": "Kon toestemmingen niet resetten: {{error}}",
+    "promptHint": "Keur het macOS-venster goed dat zojuist verscheen. Verscheen er niets? Klik dan opnieuw op “Toegang verlenen” om Systeeminstellingen te openen."
   },
   "projectEditor": {
     "colorNames": {

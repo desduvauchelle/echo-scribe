@@ -8,6 +8,10 @@ type Props = {
   onGrant: () => void;
   onRecheck: () => void;
   recheckBusy: boolean;
+  /// Shown under the subtitle after the macOS prompt has been fired, to point
+  /// the user at the system dialog instead of a Settings pane that may not
+  /// list the app yet.
+  hint?: string;
 };
 
 export function StatusPill({ granted }: { granted: boolean }) {
@@ -39,6 +43,11 @@ export default function PermissionRow(props: Props) {
         <p className="mt-1 text-[12px] leading-relaxed text-muted">
           {props.subtitle}
         </p>
+        {props.hint && !props.granted ? (
+          <p className="mt-1.5 text-[12px] leading-relaxed text-accent">
+            {props.hint}
+          </p>
+        ) : null}
       </div>
       <div className="flex shrink-0 flex-col items-end gap-2">
         <StatusPill granted={props.granted} />

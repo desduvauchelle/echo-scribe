@@ -479,7 +479,9 @@
     "missing": "Brak uprawnienia: {{list}}",
     "coreBroken": "Echo Scribe nie może dyktować ani wklejać, dopóki nie przyznasz uprawnienia ponownie.",
     "meetingsOnly": "Spotkania będą nagrywać tylko Twój mikrofon — dźwięk drugiej osoby nie zostanie zarejestrowany.",
-    "fixInSettings": "Napraw w Ustawieniach"
+    "fixInSettings": "Napraw w Ustawieniach",
+    "llmMissingTitle": "Funkcje AI są wyłączone",
+    "llmMissingBody": "Nie zainstalowano modelu językowego. Polecenia głosowe, tagowanie notatek i podsumowania spotkań pozostaną wyłączone, dopóki nie pobierzesz modelu w Ustawienia → Model językowy."
   },
   "permissionsSection": {
     "microphoneTitle": "Mikrofon",
@@ -497,7 +499,8 @@
     "cancel": "Anuluj",
     "resetAndQuit": "Resetuj i zamknij",
     "resetTimeoutToast": "Reset się wykonał, ale aplikacja się nie zamknęła. Spróbuj zrestartować Echo Scribe ręcznie.",
-    "resetErrorToast": "Nie udało się zresetować uprawnień: {{error}}"
+    "resetErrorToast": "Nie udało się zresetować uprawnień: {{error}}",
+    "promptHint": "Zatwierdź okno dialogowe macOS, które właśnie się pojawiło. Jeśli się nie pojawiło, kliknij ponownie „Przyznaj dostęp”, aby otworzyć Ustawienia systemowe."
   },
   "projectEditor": {
     "colorNames": {

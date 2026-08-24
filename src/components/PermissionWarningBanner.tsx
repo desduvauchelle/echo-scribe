@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { permissionsStatus } from "../lib/api";
+import { listLlmModels, permissionsStatus } from "../lib/api";
 
 type Props = {
   onOpenSettings: () => void;
@@ -19,6 +19,29 @@ export default function PermissionWarningBanner({ onOpenSettings }: Props) {
   // mic-only meetings still work). The banner wording adapts so we don't tell
   // the user dictation is broken when only Screen Recording is missing.
   const [coreBroken, setCoreBroken] = useState(false);
+  // A missing language model used to be completely invisible: no banner, no
+  // toast, while trigger words pasted literal text and captures filed
+  // untagged. Surface it here, at a slower cadence than the TCC poll.
+  const [llmMissing, setLlmMissing] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const models = await listLlmModels();
+        if (cancelled) return;
+        setLlmMissing(!models.some((m) => m.active && m.downloaded));
+      } catch {
+        /* ignore — transient */
+      }
+    };
+    void tick();
+    const id = window.setInterval(tick, 10000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -44,28 +67,52 @@ export default function PermissionWarningBanner({ onOpenSettings }: Props) {
     };
   }, []);
 
-  if (missing.length === 0) return null;
+  if (missing.length === 0 && !llmMissing) return null;
 
   return (
-    <div
-      role="alert"
-      className="material-status-card rounded-xl border border-warning/40 p-2.5 text-xs text-warning"
-    >
-      <div className="font-semibold">
-        {t("permissionWarningBanner.missing", { list: missing.join(" + ") })}
-      </div>
-      <div className="mt-0.5 text-[11px] leading-snug text-warning/80">
-        {coreBroken
-          ? t("permissionWarningBanner.coreBroken")
-          : t("permissionWarningBanner.meetingsOnly")}
-      </div>
-      <button
-        type="button"
-        onClick={onOpenSettings}
-        className="mt-2 w-full cursor-pointer rounded-md border border-warning/40 bg-warning/15 px-2 py-1 font-semibold text-warning transition-colors hover:bg-warning/25"
-      >
-        {t("permissionWarningBanner.fixInSettings")}
-      </button>
+    <div className="flex flex-col gap-2">
+      {missing.length > 0 ? (
+        <div
+          role="alert"
+          className="material-status-card rounded-xl border border-warning/40 p-2.5 text-xs text-warning"
+        >
+          <div className="font-semibold">
+            {t("permissionWarningBanner.missing", { list: missing.join(" + ") })}
+          </div>
+          <div className="mt-0.5 text-[11px] leading-snug text-warning/80">
+            {coreBroken
+              ? t("permissionWarningBanner.coreBroken")
+              : t("permissionWarningBanner.meetingsOnly")}
+          </div>
+          <button
+            type="button"
+            onClick={onOpenSettings}
+            className="mt-2 w-full cursor-pointer rounded-md border border-warning/40 bg-warning/15 px-2 py-1 font-semibold text-warning transition-colors hover:bg-warning/25"
+          >
+            {t("permissionWarningBanner.fixInSettings")}
+          </button>
+        </div>
+      ) : null}
+      {llmMissing ? (
+        <div
+          role="alert"
+          className="material-status-card rounded-xl border border-line p-2.5 text-xs text-muted"
+        >
+          <div className="font-semibold text-fg">
+            {t("permissionWarningBanner.llmMissingTitle")}
+          </div>
+          <div className="mt-0.5 text-[11px] leading-snug">
+            {t("permissionWarningBanner.llmMissingBody")}
+          </div>
+          <button
+            type="button"
+            onClick={onOpenSettings}
+            className="mt-2 w-full cursor-pointer rounded-md border border-line bg-elevated px-2 py-1 font-semibold text-fg transition-colors hover:bg-elevated/70"
+          >
+            {t("permissionWarningBanner.fixInSettings")}
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }

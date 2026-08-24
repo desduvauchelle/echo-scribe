@@ -33,6 +33,12 @@ export default function PermissionsSection() {
   const [resetting, setResetting] = useState(false);
   const intervalRef = useRef<number | null>(null);
   const toasts = useToasts();
+  // First "Grant access" click fires the registering macOS prompt; only later
+  // clicks open System Settings (by then tccd lists the app). See the
+  // onboarding handlers for the full rationale.
+  const prompted = useRef({ accessibility: false, screenRecording: false });
+  const [accessibilityHint, setAccessibilityHint] = useState(false);
+  const [screenRecordingHint, setScreenRecordingHint] = useState(false);
 
   const refresh = async () => {
     setChecking(true);
@@ -83,18 +89,24 @@ export default function PermissionsSection() {
   };
 
   const handleGrantScreenRecording = async () => {
-    // CGRequestScreenCaptureAccess registers Echo Scribe in the macOS Screen
-    // Recording list and shows the system prompt. First call typically
-    // returns false — user has to flip the toggle in System Settings. We
-    // open the pane as a fallback in that case.
-    try {
-      const granted = await requestScreenRecordingAccess();
-      if (granted) {
-        await refresh();
-        return;
+    // CGRequestScreenCaptureAccess registers the app with tccd asynchronously
+    // and returns false when ungranted — opening System Settings in the same
+    // tick shows a stale list without the app and buries the system prompt.
+    // First click: prompt + hint. Later clicks: open the pane directly.
+    if (!prompted.current.screenRecording) {
+      prompted.current.screenRecording = true;
+      try {
+        const granted = await requestScreenRecordingAccess();
+        if (granted) {
+          await refresh();
+          return;
+        }
+      } catch {
+        /* registered or not — show the hint either way */
       }
-    } catch {
-      /* fall through */
+      setScreenRecordingHint(true);
+      await refresh().catch(() => {});
+      return;
     }
     try {
       await openScreenRecordingSettings();
@@ -128,18 +140,26 @@ export default function PermissionsSection() {
   };
 
   const handleGrantAccessibility = async () => {
-    // promptAccessibilityAccess() is what registers the app in macOS's
-    // Accessibility list. Without it the list is empty so there's nothing
-    // for the user to toggle. The system shows its own "Open System Settings"
-    // button as part of the prompt.
-    try {
-      const trusted = await promptAccessibilityAccess();
-      if (trusted) {
-        await refresh();
-        return;
+    // promptAccessibilityAccess() (AXIsProcessTrustedWithOptions) registers
+    // the app in macOS's Accessibility list *asynchronously* and returns
+    // false when ungranted. The system shows its own "Open System Settings"
+    // button as part of the prompt — opening the pane ourselves in the same
+    // tick shows a stale list without the app in it. First click: prompt +
+    // hint. Later clicks: open the pane directly.
+    if (!prompted.current.accessibility) {
+      prompted.current.accessibility = true;
+      try {
+        const trusted = await promptAccessibilityAccess();
+        if (trusted) {
+          await refresh();
+          return;
+        }
+      } catch {
+        /* registered or not — show the hint either way */
       }
-    } catch {
-      /* fall through */
+      setAccessibilityHint(true);
+      await refresh().catch(() => {});
+      return;
     }
     try {
       await openAccessibilitySettings();
@@ -191,6 +211,7 @@ export default function PermissionsSection() {
       <PermissionRow
         title={t("permissionsSection.accessibilityTitle")}
         subtitle={t("permissionsSection.accessibilitySubtitle")}
+        hint={accessibilityHint ? t("permissionsSection.promptHint") : undefined}
         granted={status.accessibility}
         onGrant={() => void handleGrantAccessibility()}
         onRecheck={() => void refresh()}
@@ -202,6 +223,7 @@ export default function PermissionsSection() {
       <PermissionRow
         title={t("permissionsSection.screenRecordingTitle")}
         subtitle={t("permissionsSection.screenRecordingSubtitle")}
+        hint={screenRecordingHint ? t("permissionsSection.promptHint") : undefined}
         granted={status.screen_recording}
         onGrant={() => void handleGrantScreenRecording()}
         onRecheck={() => void refresh()}

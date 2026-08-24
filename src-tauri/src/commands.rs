@@ -240,8 +240,11 @@ impl From<Binding> for JsBinding {
 
 // ----- Tauri commands -----
 
+// Async so it runs off the main thread: the status probes are TCC/XPC
+// round-trips (and, while Screen Recording is ungranted, a short-lived child
+// process), and three components poll this every 1.5–3s.
 #[tauri::command]
-pub fn permissions_status() -> PermissionsStatus {
+pub async fn permissions_status() -> PermissionsStatus {
     permissions::status()
 }
 
@@ -2894,7 +2897,7 @@ pub async fn chat_with_memory(
 ) -> Result<ChatReply, String> {
     if !state.llm.ready() {
         return Ok(ChatReply {
-            reply: "No local AI model is loaded. Please download one in Settings → AI Model."
+            reply: "No local AI model is loaded. Please download one in Settings → Language Model."
                 .to_string(),
             sources: Vec::new(),
         });
@@ -3701,7 +3704,7 @@ async fn generate_scoped_artifact(
     scope_id: &str,
 ) -> Result<crate::db::meeting_intelligence::MeetingArtifact, String> {
     if !state.llm.ready() {
-        return Err("No local AI model is loaded. Download one in Settings → AI Model.".into());
+        return Err("No local AI model is loaded. Download one in Settings → Language Model.".into());
     }
     let db = state.db.as_ref().ok_or("db unavailable")?;
     let (context, source_ids) = scoped_intelligence_context(db, scope_kind, scope_id)?;

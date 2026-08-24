@@ -84,8 +84,57 @@ mod imp {
     /// Backs ScreenCaptureKit. `CGPreflightScreenCaptureAccess` returns the
     /// cached decision without ever showing a dialog — safe to call from any
     /// thread on app startup, in tray menus, etc.
+    ///
+    /// The catch: the *negative* answer is cached for the life of the process,
+    /// so an app launched before the grant can never see it flip to true —
+    /// onboarding's poll stayed on "Not granted" until relaunch, and the
+    /// meeting gate wrongly fell back to mic-only. When the in-process answer
+    /// is false we double-check from a short-lived child process (the
+    /// screenrec sidecar's `--preflight-screen`), which gets a fresh TCC
+    /// evaluation attributed to the same responsible app.
     pub fn screen_recording_authorized() -> bool {
-        core_graphics::access::ScreenCaptureAccess.preflight()
+        if core_graphics::access::ScreenCaptureAccess.preflight() {
+            return true;
+        }
+        screen_recording_fresh_probe()
+    }
+
+    /// Memoized child-process preflight. A positive answer is sticky (grants
+    /// are effectively never revoked mid-session without killing the app);
+    /// a negative one is re-probed at most ~every 1.2s so the 1.5s UI polls
+    /// spawn one child each, not several.
+    fn screen_recording_fresh_probe() -> bool {
+        static CACHE: Mutex<Option<(std::time::Instant, bool)>> = Mutex::new(None);
+        let mut guard = CACHE.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some((at, granted)) = *guard {
+            if granted || at.elapsed() < std::time::Duration::from_millis(1200) {
+                return granted;
+            }
+        }
+        let granted = match crate::screenrec::resolve_binary() {
+            Ok(bin) => match std::process::Command::new(&bin)
+                .arg("--preflight-screen")
+                .output()
+            {
+                Ok(out) => String::from_utf8_lossy(&out.stdout).trim() == "true",
+                Err(e) => {
+                    tracing::warn!(target: "perm", error = %e, "screen preflight child failed to run");
+                    false
+                }
+            },
+            Err(e) => {
+                tracing::warn!(target: "perm", error = %e, "screen preflight child unavailable");
+                false
+            }
+        };
+        if granted {
+            tracing::info!(
+                target: "perm",
+                "fresh child preflight reports Screen Recording granted (in-process cache still says false)"
+            );
+        }
+        *guard = Some((std::time::Instant::now(), granted));
+        granted
     }
 
     /// Trigger the macOS Screen Recording prompt.

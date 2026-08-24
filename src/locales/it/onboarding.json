@@ -15,7 +15,8 @@
     "screenRecording": {
       "title": "Registrazione schermo",
       "subtitle": "Consente a Echo Scribe di acquisire l'audio dell'altro partecipante durante riunioni su Zoom, Google Meet e altre piattaforme. Senza questo permesso, viene registrato solo il tuo microfono."
-    }
+    },
+    "promptHint": "Approva la finestra di dialogo di macOS appena apparsa. Se non è apparsa, fai di nuovo clic su “Concedi accesso” per aprire Impostazioni di Sistema."
   },
   "llmModel": {
     "title": "Modello AI locale",

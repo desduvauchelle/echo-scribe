@@ -459,7 +459,9 @@
     "missing": "Permissão ausente: {{list}}",
     "coreBroken": "O Echo Scribe não pode ditar ou colar até que você conceda a permissão novamente.",
     "meetingsOnly": "As reuniões gravarão apenas o seu microfone — o áudio da outra pessoa não será capturado.",
-    "fixInSettings": "Corrigir em Configurações"
+    "fixInSettings": "Corrigir em Configurações",
+    "llmMissingTitle": "Os recursos de IA estão desativados",
+    "llmMissingBody": "Nenhum modelo de linguagem está instalado. Comandos de voz, marcação de capturas e resumos de reuniões ficam desativados até você baixar um em Ajustes → Modelo de linguagem."
   },
   "permissionsSection": {
     "microphoneTitle": "Microfone",
@@ -477,7 +479,8 @@
     "cancel": "Cancelar",
     "resetAndQuit": "Redefinir e sair",
     "resetTimeoutToast": "A redefinição foi concluída, mas o app não fechou. Tente reiniciar o Echo Scribe manualmente.",
-    "resetErrorToast": "Não foi possível redefinir as permissões: {{error}}"
+    "resetErrorToast": "Não foi possível redefinir as permissões: {{error}}",
+    "promptHint": "Aprove o diálogo do macOS que acabou de aparecer. Se ele não apareceu, clique novamente em “Conceder acesso” para abrir os Ajustes do Sistema."
   },
   "projectEditor": {
     "colorNames": {

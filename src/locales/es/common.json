@@ -459,7 +459,9 @@
     "missing": "Falta permiso: {{list}}",
     "coreBroken": "Echo Scribe no puede dictar ni pegar hasta que vuelvas a concederlo.",
     "meetingsOnly": "Las reuniones solo grabarán tu micrófono — no se capturará el audio de la otra persona.",
-    "fixInSettings": "Solucionar en Ajustes"
+    "fixInSettings": "Solucionar en Ajustes",
+    "llmMissingTitle": "Las funciones de IA están desactivadas",
+    "llmMissingBody": "No hay ningún modelo de lenguaje instalado. Los comandos de voz, el etiquetado de capturas y los resúmenes de reuniones seguirán desactivados hasta que descargues uno en Ajustes → Modelo de lenguaje."
   },
   "permissionsSection": {
     "microphoneTitle": "Micrófono",
@@ -477,7 +479,8 @@
     "cancel": "Cancelar",
     "resetAndQuit": "Restablecer y salir",
     "resetTimeoutToast": "El restablecimiento se completó, pero la app no se cerró. Intenta reiniciar Echo Scribe manualmente.",
-    "resetErrorToast": "No se pudieron restablecer los permisos: {{error}}"
+    "resetErrorToast": "No se pudieron restablecer los permisos: {{error}}",
+    "promptHint": "Aprueba el diálogo de macOS que acaba de aparecer. Si no apareció, vuelve a pulsar «Conceder acceso» para abrir Ajustes del Sistema."
   },
   "projectEditor": {
     "colorNames": {

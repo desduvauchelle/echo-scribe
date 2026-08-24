@@ -2,7 +2,19 @@ import Foundation
 import ScreenCaptureKit
 import AVFoundation
 import CoreMedia
+import CoreGraphics
 import AppKit
+
+// --- mode: `--preflight-screen` (before any NSApplication setup) ---
+// The host app's own CGPreflightScreenCaptureAccess caches a negative verdict
+// for the life of its process, so it can never observe a grant made after
+// launch. This short-lived child gets a fresh TCC evaluation (attributed to
+// the same responsible app) and prints "true"/"false" on stdout. Must never
+// prompt — CGPreflight doesn't.
+if CommandLine.arguments.contains("--preflight-screen") {
+    print(CGPreflightScreenCaptureAccess() ? "true" : "false")
+    exit(0)
+}
 
 func emit(_ event: [String: Any]) {
     guard let data = try? JSONSerialization.data(withJSONObject: event),
