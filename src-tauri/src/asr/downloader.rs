@@ -1,22 +1,14 @@
-//! Streaming HTTPS downloader for [`super::registry::ModelEntry`] files.
-//!
-//! Each model has one or more files; each file is downloaded into
-//! `<data-dir>/EchoScribe/models/<model-id>/<file-name>.partial` and then
-//! atomically renamed to `<file-name>` once the SHA-256 matches. If a model
-//! file's `sha256` is the literal string `"PLACEHOLDER"` we log a warning and
-//! skip hash verification — this lets us ship a working downloader before all
-//! upstream hashes are pinned.
+//! Speech-model downloads, built on the shared resilient engine in
+//! [`crate::download`] (resume, retries, stall watchdog, disk preflight,
+//! size + SHA-256 verification). This module only owns the storage layout
+//! and the [`DownloadProgress`] shape the frontend subscribes to.
 
 use std::path::{Path, PathBuf};
-use std::time::Instant;
 
-use futures_util::StreamExt;
 use serde::Serialize;
-use sha2::{Digest, Sha256};
-use thiserror::Error;
-use tokio::fs;
-use tokio::io::AsyncWriteExt;
 use tracing::{info, warn};
+
+use crate::download::{self, FetchError, FileSpec};
 
 use super::registry::{ModelEntry, ModelFile};
 
@@ -25,29 +17,12 @@ pub struct DownloadProgress {
     pub id: String,
     pub bytes_downloaded: u64,
     pub bytes_total: u64,
+    /// True while the engine waits out a transient failure before resuming —
+    /// lets the UI say "connection lost, retrying" instead of freezing.
+    pub retrying: bool,
 }
 
-#[derive(Debug, Error)]
-pub enum DownloadError {
-    #[error("network error: {0}")]
-    Network(String),
-    #[error("io error: {0}")]
-    Io(#[from] std::io::Error),
-    #[error("sha256 mismatch for {file}: expected {expected}, got {actual}")]
-    HashMismatch {
-        file: String,
-        expected: String,
-        actual: String,
-    },
-    #[error("model {0} has no downloadable files (placeholder)")]
-    Unsupported(String),
-}
-
-impl From<reqwest::Error> for DownloadError {
-    fn from(e: reqwest::Error) -> Self {
-        DownloadError::Network(e.to_string())
-    }
-}
+pub type DownloadError = FetchError;
 
 /// Where downloaded models live on disk. `~/Library/Application Support/EchoScribe/models/`
 /// on macOS.
@@ -103,148 +78,102 @@ pub fn migrate_legacy_model_dirs() {
     }
 }
 
-/// True if every file listed in `entry` is already present on disk. Does not
-/// verify hashes (intentionally cheap — we hash on download, not on every
-/// startup poll).
+/// True if every file listed in `entry` is present AND plausibly complete
+/// (non-empty; within 10% of the manifest size, tolerating pre-revision-pin
+/// files — see [`download::is_complete_file`]). A truncated or 0-byte file no
+/// longer counts as downloaded, so the UI offers a re-download instead of the
+/// engine failing to load it with a cryptic error.
 pub fn is_downloaded(entry: &ModelEntry) -> bool {
     if !super::registry::is_supported(entry) {
         return false;
     }
     let dir = model_dir(entry);
-    entry.files.iter().all(|f| dir.join(&f.name).is_file())
+    entry
+        .files
+        .iter()
+        .all(|f| download::is_complete_file(&dir.join(&f.name), f.size_bytes))
+}
+
+/// Bytes currently on disk in this model's directory — includes completed
+/// files AND any leftover `.partial` from an interrupted download.
+pub fn disk_bytes(entry: &ModelEntry) -> u64 {
+    download::dir_bytes(&model_dir(entry))
+}
+
+/// True when the model's directory holds bytes but the model is NOT fully
+/// downloaded — an interrupted/orphaned download the user can resume or
+/// reclaim from the UI.
+pub fn has_incomplete_download(entry: &ModelEntry) -> bool {
+    !is_downloaded(entry) && disk_bytes(entry) > 0
+}
+
+fn spec(file: &ModelFile) -> FileSpec<'_> {
+    FileSpec {
+        name: &file.name,
+        url: &file.url,
+        sha256: &file.sha256,
+        size_bytes: file.size_bytes,
+    }
 }
 
 /// Download every file in `entry` into [`model_dir`]`(entry)`. Streams progress
 /// across the whole model — `bytes_total` is the sum of all expected file
-/// sizes, `bytes_downloaded` is cumulative across files.
+/// sizes, `bytes_downloaded` is cumulative across files. Resumable: partial
+/// files survive failures and continue where they left off.
 pub async fn download_model<F>(
     entry: &ModelEntry,
     target_dir: &Path,
     on_progress: F,
 ) -> Result<PathBuf, DownloadError>
 where
-    F: Fn(DownloadProgress) + Send + 'static,
+    F: Fn(DownloadProgress) + Send + Sync + 'static,
 {
     if !super::registry::is_supported(entry) {
-        return Err(DownloadError::Unsupported(entry.id.clone()));
+        return Err(FetchError::Unsupported(entry.id.clone()));
     }
 
-    fs::create_dir_all(target_dir).await?;
+    tokio::fs::create_dir_all(target_dir).await?;
 
     let total: u64 = entry.files.iter().map(|f| f.size_bytes).sum();
-    let mut cumulative: u64 = 0;
+    // Bytes still to fetch ≈ total minus whatever (complete or partial) is
+    // already on disk — so resuming a 90%-done download doesn't demand 100%
+    // of the space again.
+    let needed = total.saturating_sub(download::dir_bytes(target_dir));
+    download::ensure_disk_space(target_dir, needed)?;
 
-    let client = reqwest::Client::builder()
-        .user_agent(concat!("EchoScribe/", env!("CARGO_PKG_VERSION")))
-        .build()
-        .map_err(|e| DownloadError::Network(e.to_string()))?;
+    let client = download::build_client()?;
+    let mut cumulative_base: u64 = 0;
 
     for file in &entry.files {
         let final_path = target_dir.join(&file.name);
-        if final_path.is_file() {
-            // Already on disk — count it toward progress and skip.
-            cumulative = cumulative.saturating_add(file.size_bytes);
+        if download::is_complete_file(&final_path, file.size_bytes) {
+            cumulative_base = cumulative_base.saturating_add(file.size_bytes);
             on_progress(DownloadProgress {
                 id: entry.id.clone(),
-                bytes_downloaded: cumulative,
+                bytes_downloaded: cumulative_base,
                 bytes_total: total,
+                retrying: false,
             });
             continue;
         }
 
-        cumulative = download_one(
-            &client,
-            file,
-            target_dir,
-            &entry.id,
-            total,
-            cumulative,
-            &on_progress,
-        )
+        info!(model = %entry.id, file = %file.name, url = %file.url, "downloading");
+        let base = cumulative_base;
+        let id = entry.id.clone();
+        download::fetch_file(&client, &spec(file), target_dir, |file_bytes, retrying| {
+            on_progress(DownloadProgress {
+                id: id.clone(),
+                bytes_downloaded: base.saturating_add(file_bytes),
+                bytes_total: total,
+                retrying,
+            });
+        })
         .await?;
+        cumulative_base = cumulative_base.saturating_add(file.size_bytes);
     }
 
     info!(model = %entry.id, "model fully downloaded");
     Ok(target_dir.to_path_buf())
-}
-
-async fn download_one<F>(
-    client: &reqwest::Client,
-    file: &ModelFile,
-    target_dir: &Path,
-    model_id: &str,
-    total: u64,
-    mut cumulative: u64,
-    on_progress: &F,
-) -> Result<u64, DownloadError>
-where
-    F: Fn(DownloadProgress) + Send + 'static,
-{
-    let final_path = target_dir.join(&file.name);
-    let partial_path = target_dir.join(format!("{}.partial", file.name));
-
-    info!(model = %model_id, file = %file.name, url = %file.url, "downloading");
-
-    let resp = client.get(&file.url).send().await?.error_for_status()?;
-
-    let mut stream = resp.bytes_stream();
-    let mut out = fs::File::create(&partial_path).await?;
-    let mut hasher = Sha256::new();
-
-    let mut last_emit = Instant::now();
-    let mut bytes_since_emit: u64 = 0;
-    let cumulative_at_start = cumulative;
-
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk?;
-        hasher.update(&chunk);
-        out.write_all(&chunk).await?;
-        cumulative = cumulative.saturating_add(chunk.len() as u64);
-        bytes_since_emit = bytes_since_emit.saturating_add(chunk.len() as u64);
-
-        // Emit at most every 64 KiB or every 100 ms.
-        if bytes_since_emit >= 64 * 1024 || last_emit.elapsed().as_millis() >= 100 {
-            on_progress(DownloadProgress {
-                id: model_id.to_string(),
-                bytes_downloaded: cumulative,
-                bytes_total: total,
-            });
-            last_emit = Instant::now();
-            bytes_since_emit = 0;
-        }
-    }
-
-    out.flush().await?;
-    drop(out);
-
-    // Hash check.
-    if file.sha256 == "PLACEHOLDER" {
-        warn!(file = %file.name, "skipping SHA-256 verification (placeholder)");
-    } else {
-        let actual = hex_lower(hasher.finalize().as_slice());
-        if !actual.eq_ignore_ascii_case(&file.sha256) {
-            // Don't leave a corrupted .partial around.
-            let _ = fs::remove_file(&partial_path).await;
-            return Err(DownloadError::HashMismatch {
-                file: file.name.clone(),
-                expected: file.sha256.clone(),
-                actual,
-            });
-        }
-    }
-
-    fs::rename(&partial_path, &final_path).await?;
-    let elapsed = (cumulative - cumulative_at_start) as f64 / 1024.0 / 1024.0;
-    info!(file = %file.name, mib = elapsed, "downloaded");
-    Ok(cumulative)
-}
-
-fn hex_lower(bytes: &[u8]) -> String {
-    let mut s = String::with_capacity(bytes.len() * 2);
-    for b in bytes {
-        s.push_str(&format!("{:02x}", b));
-    }
-    s
 }
 
 #[cfg(test)]

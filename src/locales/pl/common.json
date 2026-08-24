@@ -401,7 +401,8 @@
       "delete": "Usuń",
       "useThisModel": "Użyj tego modelu",
       "remove": "Usuń",
-      "download": "Pobierz"
+      "download": "Pobierz",
+      "retrying": "Połączenie przerwane — ponawianie…"
     }
   },
   "meetingCard": {
@@ -493,11 +494,11 @@
     "cameraTitle": "Kamera (opcjonalnie)",
     "cameraSubtitle": "Używana tylko, gdy włączysz nakładkę kamery internetowej podczas nagrywania ekranu. Przyznaj dostęp tutaj, aby był gotowy — dzięki temu zablokowaną kamerę można naprawić z tego ekranu, zamiast niespodziewanie zawodzić w trakcie nagrywania.",
     "resetHeading": "Resetuj uprawnienia",
-    "resetDescription": "Usuwa uprawnienia do mikrofonu, dostępności, nagrywania ekranu i kamery oraz zamyka aplikację. Użyj, gdy jakieś uprawnienie wydaje się nie działać — ponowne uruchomienie poprosi o nie od nowa.",
+    "resetDescription": "Usuwa uprawnienia Mikrofon + Dostępność + Nagrywanie ekranu + Kamera, a następnie zamyka i ponownie otwiera aplikację — poprosi o wszystko od nowa. Użyj, gdy uprawnienie wydaje się zepsute.",
     "resetting": "Resetowanie…",
-    "confirmReset": "Tak, zresetuj i zamknij",
+    "confirmReset": "Tak, zresetuj i uruchom ponownie",
     "cancel": "Anuluj",
-    "resetAndQuit": "Resetuj i zamknij",
+    "resetAndQuit": "Zresetuj i uruchom ponownie",
     "resetTimeoutToast": "Reset się wykonał, ale aplikacja się nie zamknęła. Spróbuj zrestartować Echo Scribe ręcznie.",
     "resetErrorToast": "Nie udało się zresetować uprawnień: {{error}}",
     "promptHint": "Zatwierdź okno dialogowe macOS, które właśnie się pojawiło. Jeśli się nie pojawiło, kliknij ponownie „Przyznaj dostęp”, aby otworzyć Ustawienia systemowe."
@@ -767,7 +768,10 @@
       "downloading": "Pobieranie…",
       "delete": "Usuń",
       "useThisModel": "Użyj tego modelu",
-      "download": "Pobierz"
+      "download": "Pobierz",
+      "incompleteDownload": "Niepełne pobieranie · {{size}} na dysku",
+      "remove": "Usuń",
+      "retrying": "Połączenie przerwane — ponawianie…"
     }
   },
   "startAtLoginToggle": {

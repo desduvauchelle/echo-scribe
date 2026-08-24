@@ -44,10 +44,10 @@
     "note": "Możesz teraz przeglądać Echo Scribe i dokończyć konfigurację później w Ustawieniach."
   },
   "resetTcc": {
-    "linkLabel": "Uprawnienie się zacięło? Zresetuj i zamknij",
-    "confirmBody": "To usunie uprawnienia do mikrofonu, dostępności i nagrywania ekranu oraz zamknie Echo Scribe. Musisz uruchomić aplikację ponownie i przyznać dostęp od nowa. Kontynuować?",
+    "linkLabel": "Uprawnienie się zacięło? Zresetuj i uruchom ponownie",
+    "confirmBody": "To usuwa uprawnienia Mikrofon + Dostępność + Nagrywanie ekranu, zamyka Echo Scribe i automatycznie otwiera go ponownie, aby można było ponownie przyznać dostęp. Kontynuować?",
     "resetting": "Resetowanie…",
-    "confirmButton": "Tak, zresetuj i zamknij",
+    "confirmButton": "Tak, zresetuj i uruchom ponownie",
     "cancelButton": "Anuluj",
     "timeoutError": "Reset się wykonał, ale aplikacja się nie zamknęła. Spróbuj zrestartować ją ręcznie."
   }

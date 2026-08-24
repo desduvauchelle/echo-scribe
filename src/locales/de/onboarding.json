@@ -44,10 +44,10 @@
     "note": "Du kannst Echo Scribe jetzt nutzen und die Einrichtung später in den Einstellungen abschließen."
   },
   "resetTcc": {
-    "linkLabel": "Berechtigung hängt? Zurücksetzen & beenden",
-    "confirmBody": "Dadurch werden die Berechtigungen für Mikrofon, Bedienungshilfen und Bildschirmaufnahme gelöscht und Echo Scribe beendet. Du musst die App neu starten und die Zugriffe erneut erteilen. Fortfahren?",
+    "linkLabel": "Berechtigung hängt? Zurücksetzen & neu starten",
+    "confirmBody": "Das löscht die Berechtigungen für Mikrofon + Bedienungshilfen + Bildschirmaufnahme, beendet Echo Scribe und öffnet es automatisch neu, damit du den Zugriff neu erteilen kannst. Fortfahren?",
     "resetting": "Wird zurückgesetzt…",
-    "confirmButton": "Ja, zurücksetzen & beenden",
+    "confirmButton": "Ja, zurücksetzen & neu starten",
     "cancelButton": "Abbrechen",
     "timeoutError": "Zurücksetzen abgeschlossen, aber die App wurde nicht beendet. Starte sie manuell neu."
   }

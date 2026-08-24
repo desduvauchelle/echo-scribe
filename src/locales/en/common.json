@@ -395,7 +395,8 @@
       "delete": "Delete",
       "useThisModel": "Use this model",
       "remove": "Remove",
-      "download": "Download"
+      "download": "Download",
+      "retrying": "Connection interrupted — retrying…"
     }
   },
   "meetingCard": {
@@ -473,11 +474,11 @@
     "cameraTitle": "Camera (optional)",
     "cameraSubtitle": "Only used when you turn on the webcam overlay for a screen recording. Grant it here so it's ready — and so a blocked camera is fixable from this screen instead of failing silently mid-recording.",
     "resetHeading": "Reset permissions",
-    "resetDescription": "Wipes Microphone + Accessibility + Screen Recording + Camera grants and quits the app. Use if a permission feels broken — relaunch will re-prompt from scratch.",
+    "resetDescription": "Wipes Microphone + Accessibility + Screen Recording + Camera grants, then quits and reopens the app — it will re-prompt from scratch. Use if a permission feels broken.",
     "resetting": "Resetting…",
-    "confirmReset": "Yes, reset & quit",
+    "confirmReset": "Yes, reset & restart",
     "cancel": "Cancel",
-    "resetAndQuit": "Reset & quit",
+    "resetAndQuit": "Reset & restart",
     "resetTimeoutToast": "Reset returned but the app didn't quit. Try restarting Echo Scribe manually.",
     "resetErrorToast": "Couldn't reset permissions: {{error}}",
     "promptHint": "Approve the macOS dialog that just appeared. If it didn’t show up, click “Grant access” again to open System Settings."
@@ -729,7 +730,10 @@
       "downloading": "Downloading…",
       "delete": "Delete",
       "useThisModel": "Use this model",
-      "download": "Download"
+      "download": "Download",
+      "incompleteDownload": "Incomplete download · {{size}} on disk",
+      "remove": "Remove",
+      "retrying": "Connection interrupted — retrying…"
     }
   },
   "startAtLoginToggle": {

@@ -44,10 +44,10 @@
     "note": "Je kunt Echo Scribe nu al verkennen en de setup later afronden in Instellingen."
   },
   "resetTcc": {
-    "linkLabel": "Toestemming vastgelopen? Reset & sluit af",
-    "confirmBody": "Dit wist de toestemmingen voor Microfoon + Toegankelijkheid + Schermopname en sluit Echo Scribe af. Je moet opnieuw opstarten en opnieuw toestemming geven. Doorgaan?",
+    "linkLabel": "Toestemming vast? Resetten & herstarten",
+    "confirmBody": "Dit wist de toestemmingen voor Microfoon + Toegankelijkheid + Schermopname, sluit Echo Scribe af en opent het automatisch opnieuw zodat je opnieuw toegang kunt verlenen. Doorgaan?",
     "resetting": "Bezig met resetten…",
-    "confirmButton": "Ja, reset & sluit af",
+    "confirmButton": "Ja, resetten & herstarten",
     "cancelButton": "Annuleren",
     "timeoutError": "Reset is voltooid, maar de app is niet afgesloten. Probeer handmatig opnieuw te starten."
   }

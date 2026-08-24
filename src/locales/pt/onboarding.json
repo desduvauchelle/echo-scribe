@@ -44,10 +44,10 @@
     "note": "Você já pode explorar o Echo Scribe e concluir a configuração depois em Configurações."
   },
   "resetTcc": {
-    "linkLabel": "Permissão travada? Redefinir e sair",
-    "confirmBody": "Isso apaga as permissões de Microfone + Acessibilidade + Gravação de Tela e encerra o Echo Scribe. Você precisará reabrir o app e conceder o acesso novamente. Continuar?",
+    "linkLabel": "Permissão travada? Redefinir e reiniciar",
+    "confirmBody": "Isso apaga as permissões de Microfone + Acessibilidade + Gravação de tela, encerra o Echo Scribe e o reabre automaticamente para você conceder o acesso de novo. Continuar?",
     "resetting": "Redefinindo…",
-    "confirmButton": "Sim, redefinir e sair",
+    "confirmButton": "Sim, redefinir e reiniciar",
     "cancelButton": "Cancelar",
     "timeoutError": "A redefinição foi concluída, mas o app não fechou. Tente reiniciá-lo manualmente."
   }

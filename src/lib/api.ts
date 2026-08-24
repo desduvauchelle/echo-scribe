@@ -167,12 +167,16 @@ export type SpeechModelStatus = {
   downloaded: boolean;
   active: boolean;
   supported: boolean;
+  disk_bytes: number;
+  incomplete: boolean;
 };
 
 export type DownloadProgress = {
   id: string;
   bytes_downloaded: number;
   bytes_total: number;
+  /** True while the backend waits out a transient failure before resuming. */
+  retrying?: boolean;
 };
 
 export const listSpeechModels = (): Promise<SpeechModelStatus[]> =>

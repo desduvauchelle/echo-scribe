@@ -395,7 +395,8 @@
       "delete": "Excluir",
       "useThisModel": "Usar este modelo",
       "remove": "Remover",
-      "download": "Baixar"
+      "download": "Baixar",
+      "retrying": "Conexão interrompida — tentando novamente…"
     }
   },
   "meetingCard": {
@@ -473,11 +474,11 @@
     "cameraTitle": "Câmera (opcional)",
     "cameraSubtitle": "Usada apenas quando você ativa a sobreposição de webcam em uma gravação de tela. Conceda aqui para que fique pronta — e para que uma câmera bloqueada possa ser corrigida nesta tela, em vez de falhar silenciosamente no meio da gravação.",
     "resetHeading": "Redefinir permissões",
-    "resetDescription": "Apaga as permissões de Microfone + Acessibilidade + Gravação de Tela + Câmera e encerra o app. Use se alguma permissão parecer estar com problema — a reabertura solicitará tudo novamente.",
+    "resetDescription": "Apaga as permissões de Microfone + Acessibilidade + Gravação de tela + Câmera e então encerra e reabre o app — ele pedirá tudo de novo. Use se uma permissão parecer quebrada.",
     "resetting": "Redefinindo…",
-    "confirmReset": "Sim, redefinir e sair",
+    "confirmReset": "Sim, redefinir e reiniciar",
     "cancel": "Cancelar",
-    "resetAndQuit": "Redefinir e sair",
+    "resetAndQuit": "Redefinir e reiniciar",
     "resetTimeoutToast": "A redefinição foi concluída, mas o app não fechou. Tente reiniciar o Echo Scribe manualmente.",
     "resetErrorToast": "Não foi possível redefinir as permissões: {{error}}",
     "promptHint": "Aprove o diálogo do macOS que acabou de aparecer. Se ele não apareceu, clique novamente em “Conceder acesso” para abrir os Ajustes do Sistema."
@@ -729,7 +730,10 @@
       "downloading": "Baixando…",
       "delete": "Excluir",
       "useThisModel": "Usar este modelo",
-      "download": "Baixar"
+      "download": "Baixar",
+      "incompleteDownload": "Download incompleto · {{size}} em disco",
+      "remove": "Remover",
+      "retrying": "Conexão interrompida — tentando novamente…"
     }
   },
   "startAtLoginToggle": {

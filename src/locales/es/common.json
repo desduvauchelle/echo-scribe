@@ -395,7 +395,8 @@
       "delete": "Eliminar",
       "useThisModel": "Usar este modelo",
       "remove": "Quitar",
-      "download": "Descargar"
+      "download": "Descargar",
+      "retrying": "Conexión interrumpida — reintentando…"
     }
   },
   "meetingCard": {
@@ -473,11 +474,11 @@
     "cameraTitle": "Cámara (opcional)",
     "cameraSubtitle": "Solo se usa cuando activas la superposición de webcam para una grabación de pantalla. Concédelo aquí para que esté listo — y para que una cámara bloqueada se pueda solucionar desde esta pantalla en lugar de fallar silenciosamente a mitad de la grabación.",
     "resetHeading": "Restablecer permisos",
-    "resetDescription": "Borra los permisos de Micrófono + Accesibilidad + Grabación de pantalla + Cámara y cierra la app. Úsalo si un permiso parece estar fallando — al volver a abrir se solicitarán de nuevo desde cero.",
+    "resetDescription": "Borra los permisos de Micrófono + Accesibilidad + Grabación de pantalla + Cámara y luego cierra y vuelve a abrir la app — volverá a pedirlos desde cero. Úsalo si un permiso parece roto.",
     "resetting": "Restableciendo…",
-    "confirmReset": "Sí, restablecer y salir",
+    "confirmReset": "Sí, restablecer y reiniciar",
     "cancel": "Cancelar",
-    "resetAndQuit": "Restablecer y salir",
+    "resetAndQuit": "Restablecer y reiniciar",
     "resetTimeoutToast": "El restablecimiento se completó, pero la app no se cerró. Intenta reiniciar Echo Scribe manualmente.",
     "resetErrorToast": "No se pudieron restablecer los permisos: {{error}}",
     "promptHint": "Aprueba el diálogo de macOS que acaba de aparecer. Si no apareció, vuelve a pulsar «Conceder acceso» para abrir Ajustes del Sistema."
@@ -729,7 +730,10 @@
       "downloading": "Descargando…",
       "delete": "Eliminar",
       "useThisModel": "Usar este modelo",
-      "download": "Descargar"
+      "download": "Descargar",
+      "incompleteDownload": "Descarga incompleta · {{size}} en disco",
+      "remove": "Quitar",
+      "retrying": "Conexión interrumpida — reintentando…"
     }
   },
   "startAtLoginToggle": {

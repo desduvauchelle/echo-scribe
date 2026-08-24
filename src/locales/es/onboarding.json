@@ -44,10 +44,10 @@
     "note": "Puedes explorar Echo Scribe ahora y terminar la configuración más tarde en Ajustes."
   },
   "resetTcc": {
-    "linkLabel": "¿Permiso atascado? Restablecer y salir",
-    "confirmBody": "Esto borra los permisos de Micrófono + Accesibilidad + Grabación de pantalla y cierra Echo Scribe. Tendrás que reabrirlo y volver a conceder el acceso. ¿Continuar?",
+    "linkLabel": "¿Permiso bloqueado? Restablecer y reiniciar",
+    "confirmBody": "Esto borra los permisos de Micrófono + Accesibilidad + Grabación de pantalla, cierra Echo Scribe y lo vuelve a abrir automáticamente para que vuelvas a conceder el acceso. ¿Continuar?",
     "resetting": "Restableciendo…",
-    "confirmButton": "Sí, restablecer y salir",
+    "confirmButton": "Sí, restablecer y reiniciar",
     "cancelButton": "Cancelar",
     "timeoutError": "El restablecimiento se completó, pero la app no se cerró. Intenta reiniciarla manualmente."
   }

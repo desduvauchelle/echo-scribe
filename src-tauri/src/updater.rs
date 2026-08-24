@@ -173,6 +173,78 @@ async fn download_and_stage(version: &str) -> bool {
     true
 }
 
+/// Path of the `.app` bundle containing the running executable, if any.
+fn current_bundle_path() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    exe.ancestors()
+        .find(|p| p.extension().is_some_and(|e| e == "app"))
+        .map(std::path::Path::to_path_buf)
+}
+
+/// Spawn and detach a tiny shell script, ignoring its stdio (the scripts log
+/// to a file themselves). Returns true when the helper was spawned.
+#[cfg(target_os = "macos")]
+fn spawn_detached_script(script_path: &std::path::Path, script: &str, what: &str) -> bool {
+    if let Err(e) = std::fs::write(script_path, script) {
+        error!(error = %e, what, "failed to write helper script");
+        return false;
+    }
+    use std::os::unix::fs::PermissionsExt;
+    let _ = std::fs::set_permissions(script_path, std::fs::Permissions::from_mode(0o755));
+    match std::process::Command::new("nohup")
+        .args(["bash", script_path.to_str().unwrap_or("")])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+    {
+        Ok(_) => {
+            info!(what, "helper launched");
+            true
+        }
+        Err(e) => {
+            error!(error = %e, what, "failed to spawn helper");
+            false
+        }
+    }
+}
+
+/// Arrange for the app to reopen after this process exits: a detached helper
+/// waits for our pid to disappear, then `open`s the bundle. Used by every
+/// quit-for-effect flow (TCC reset, update install) — without it the app
+/// "quits to restart" and simply never comes back, which reads as broken.
+/// Helper output goes to `<log-dir>/relaunch-helper.log` so a failed relaunch
+/// is diagnosable without a rebuild. Returns false when not running from an
+/// `.app` bundle (dev builds) or the helper couldn't start.
+#[cfg(target_os = "macos")]
+pub fn spawn_relauncher() -> bool {
+    let Some(bundle) = current_bundle_path() else {
+        warn!("not running from an .app bundle; skipping self-relaunch");
+        return false;
+    };
+    let pid = std::process::id();
+    let log = crate::log_dir().join("relaunch-helper.log");
+    let script_path = std::env::temp_dir().join(format!("echo-scribe-relaunch-{pid}.sh"));
+    let script = format!(
+        "#!/bin/bash\n\
+         exec >>\"{log}\" 2>&1\n\
+         echo \"[$(date)] relaunch helper: waiting for pid {pid} to exit\"\n\
+         for _ in $(seq 1 120); do kill -0 {pid} 2>/dev/null || break; sleep 0.5; done\n\
+         if kill -0 {pid} 2>/dev/null; then echo \"pid {pid} never exited; giving up\"; rm -- \"$0\"; exit 1; fi\n\
+         echo \"[$(date)] reopening {bundle}\"\n\
+         open \"{bundle}\"\n\
+         rm -- \"$0\"\n",
+        log = log.display(),
+        bundle = bundle.display(),
+    );
+    spawn_detached_script(&script_path, &script, "relaunch")
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn spawn_relauncher() -> bool {
+    false
+}
+
 /// Write a helper shell script, launch it detached, then exit the process.
 /// The script waits for the app to exit, replaces the bundle, strips quarantine,
 /// relaunches, and self-deletes.
@@ -201,35 +273,40 @@ pub fn launch_update_helper() {
         }
     };
 
+    // Replace the bundle we're actually running from; /Applications/Echo
+    // Scribe.app is only the conventional install location.
+    let target = current_bundle_path()
+        .unwrap_or_else(|| PathBuf::from("/Applications/Echo Scribe.app"));
     let pid = std::process::id();
+    let log = crate::log_dir().join("update-helper.log");
     let script_path = std::env::temp_dir().join(format!("echo-scribe-update-{pid}.sh"));
 
+    // The old script slept a fixed 2s and then called `open`. If the app took
+    // longer than that to exit, `open` merely activated the dying instance —
+    // and once it finished quitting, nothing relaunched ("update → the app
+    // never came back"). Wait for the pid instead, and log every step.
     let script = format!(
-        "#!/bin/bash\nsleep 2\nrm -rf \"/Applications/Echo Scribe.app\"\ncp -R \"{staged}\" \"/Applications/Echo Scribe.app\"\nxattr -dr com.apple.quarantine \"/Applications/Echo Scribe.app\" 2>/dev/null || true\nrm -rf \"{staging_dir}\"\nopen \"/Applications/Echo Scribe.app\"\nrm -- \"$0\"\n",
+        "#!/bin/bash\n\
+         exec >>\"{log}\" 2>&1\n\
+         echo \"[$(date)] update helper: waiting for pid {pid} to exit\"\n\
+         for _ in $(seq 1 240); do kill -0 {pid} 2>/dev/null || break; sleep 0.5; done\n\
+         if kill -0 {pid} 2>/dev/null; then echo \"pid {pid} never exited; aborting update\"; rm -- \"$0\"; exit 1; fi\n\
+         echo \"[$(date)] swapping {target}\"\n\
+         rm -rf \"{target}\"\n\
+         cp -R \"{staged}\" \"{target}\"\n\
+         xattr -dr com.apple.quarantine \"{target}\" 2>/dev/null || true\n\
+         rm -rf \"{staging_dir}\"\n\
+         echo \"[$(date)] relaunching {target}\"\n\
+         open \"{target}\"\n\
+         rm -- \"$0\"\n",
+        log = log.display(),
+        target = target.display(),
         staged = staging.display(),
         staging_dir = staging_dir,
     );
 
-    if let Err(e) = std::fs::write(&script_path, &script) {
-        error!(error = %e, "failed to write update helper script");
+    if !spawn_detached_script(&script_path, &script, "update") {
         return;
-    }
-
-    use std::os::unix::fs::PermissionsExt;
-    let _ = std::fs::set_permissions(&script_path, std::fs::Permissions::from_mode(0o755));
-
-    match std::process::Command::new("nohup")
-        .args(["bash", script_path.to_str().unwrap_or("")])
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-    {
-        Ok(_) => info!("update helper launched"),
-        Err(e) => {
-            error!(error = %e, "failed to spawn update helper");
-            return;
-        }
     }
 
     std::process::exit(0);

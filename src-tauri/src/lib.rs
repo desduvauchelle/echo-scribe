@@ -7,6 +7,7 @@ pub mod coordinator;
 pub mod daily_summary;
 pub mod db;
 pub mod denoise;
+pub mod download;
 pub mod embed;
 pub mod event_log;
 pub mod export;

@@ -19,6 +19,7 @@ type Props = {
 type DownloadState = {
   bytes_downloaded: number;
   bytes_total: number;
+  retrying?: boolean;
 };
 
 const ACCENT_FILL = "bg-accent";
@@ -184,6 +185,19 @@ function ModelCard({
               : 0}
             %)
           </div>
+          {downloading.retrying ? (
+            <div className="mt-1 text-[11px] text-warning">
+              {t("speechModelPicker.modelCard.retrying")}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {model.incomplete && !isDownloading ? (
+        <div className="mt-2 text-[11px] text-warning">
+          {t("speechModelPicker.modelCard.incompleteDownload", {
+            size: formatBytes(model.disk_bytes),
+          })}
         </div>
       ) : null}
 
@@ -238,6 +252,17 @@ function ModelCard({
             </>
           ) : (
             <>
+              {model.incomplete ? (
+                <button
+                  type="button"
+                  onClick={onDelete}
+                  disabled={busy}
+                  className="inline-flex items-center gap-1 text-xs text-muted transition-colors hover:text-danger disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <TrashIcon />
+                  {t("speechModelPicker.modelCard.remove")}
+                </button>
+              ) : null}
               {model.size_bytes > 0 ? (
                 <span className="text-[11px] text-muted">
                   {formatBytes(model.size_bytes)}
@@ -299,6 +324,7 @@ export default function SpeechModelPicker({ onChange }: Props) {
             pendingProgressRef.current[p.id] = {
               bytes_downloaded: p.bytes_downloaded,
               bytes_total: p.bytes_total,
+              retrying: p.retrying ?? false,
             };
             if (flushTimerRef.current === null) {
               flushTimerRef.current = window.setTimeout(() => {

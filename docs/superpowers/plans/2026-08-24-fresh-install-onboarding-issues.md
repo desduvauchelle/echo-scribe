@@ -16,8 +16,23 @@ the app in the Accessibility list; Screen Recording flips to Granted in-session 
 fresh child-process preflight (log: "fresh child preflight reports Screen Recording
 granted (in-process cache still says false)"); the hotkey tap now retries until
 Accessibility is granted; missing-LLM states surface via toast + OS notification + a
-sidebar card. Still open: issue 5 (translocation self-check), issue 6 (download
-robustness), issue 7 (Intel release build), and the P2 list.
+sidebar card.
+
+**Also fixed same day:** issue 6 (download robustness) — shared engine in
+`src-tauri/src/download.rs`: resume via Range (verified live: kill at 459 MB →
+"resuming download resume_from=459273550"), retries with backoff that reset on
+progress, 60s stall watchdog, disk-space preflight, size + real SHA-256 verification
+against revision-pinned HF URLs (resolve/main proved mutable — the E2B GGUF changed
+upstream between May and Aug), friendly error copy, and incomplete-download
+visibility + Remove for the speech model. And a new issue found by the user:
+**quit-to-restart flows never relaunched** — the TCC reset had no relaunch at all and
+the updater's helper slept a fixed 2s then `open`ed the still-dying old instance;
+both now use a detached relauncher that waits for the pid to exit and logs to
+`<log-dir>/relaunch-helper.log` / `update-helper.log` (verified live: reset → auto
+reopen in ~1s).
+
+Still open: issue 5 (translocation self-check), issue 7 (Intel release build), and
+the P2 list.
 
 ---
 

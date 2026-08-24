@@ -395,7 +395,8 @@
       "delete": "Löschen",
       "useThisModel": "Dieses Modell verwenden",
       "remove": "Entfernen",
-      "download": "Herunterladen"
+      "download": "Herunterladen",
+      "retrying": "Verbindung unterbrochen — neuer Versuch…"
     }
   },
   "meetingCard": {
@@ -473,11 +474,11 @@
     "cameraTitle": "Kamera (optional)",
     "cameraSubtitle": "Wird nur verwendet, wenn du die Webcam-Overlay-Funktion für eine Bildschirmaufnahme aktivierst. Erteile die Berechtigung hier, damit sie bereit ist — und eine blockierte Kamera von diesem Bildschirm aus behoben werden kann, statt mitten in der Aufnahme lautlos zu scheitern.",
     "resetHeading": "Berechtigungen zurücksetzen",
-    "resetDescription": "Löscht die Berechtigungen für Mikrofon, Bedienungshilfen, Bildschirmaufnahme und Kamera und beendet die App. Nutze das, wenn eine Berechtigung nicht richtig funktioniert — beim nächsten Start wird alles neu abgefragt.",
+    "resetDescription": "Löscht die Berechtigungen für Mikrofon + Bedienungshilfen + Bildschirmaufnahme + Kamera, beendet die App und öffnet sie neu — sie fragt dann von vorn. Nutze das, wenn eine Berechtigung defekt wirkt.",
     "resetting": "Wird zurückgesetzt…",
-    "confirmReset": "Ja, zurücksetzen & beenden",
+    "confirmReset": "Ja, zurücksetzen & neu starten",
     "cancel": "Abbrechen",
-    "resetAndQuit": "Zurücksetzen & beenden",
+    "resetAndQuit": "Zurücksetzen & neu starten",
     "resetTimeoutToast": "Zurücksetzen abgeschlossen, aber die App wurde nicht beendet. Starte Echo Scribe manuell neu.",
     "resetErrorToast": "Berechtigungen konnten nicht zurückgesetzt werden: {{error}}",
     "promptHint": "Bestätige den macOS-Dialog, der gerade erschienen ist. Falls keiner erschienen ist, klicke erneut auf „Zugriff erlauben“, um die Systemeinstellungen zu öffnen."
@@ -729,7 +730,10 @@
       "downloading": "Wird heruntergeladen…",
       "delete": "Löschen",
       "useThisModel": "Dieses Modell verwenden",
-      "download": "Herunterladen"
+      "download": "Herunterladen",
+      "incompleteDownload": "Unvollständiger Download · {{size}} auf der Festplatte",
+      "remove": "Entfernen",
+      "retrying": "Verbindung unterbrochen — neuer Versuch…"
     }
   },
   "startAtLoginToggle": {

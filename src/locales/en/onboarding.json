@@ -44,10 +44,10 @@
     "note": "You can browse Echo Scribe now and finish setup later in Settings."
   },
   "resetTcc": {
-    "linkLabel": "Permission stuck? Reset & quit",
-    "confirmBody": "This wipes Microphone + Accessibility + Screen Recording grants and quits Echo Scribe. You'll need to relaunch and re-grant access. Continue?",
+    "linkLabel": "Permission stuck? Reset & restart",
+    "confirmBody": "This wipes Microphone + Accessibility + Screen Recording grants, quits Echo Scribe, and reopens it automatically so you can re-grant access. Continue?",
     "resetting": "Resetting…",
-    "confirmButton": "Yes, reset & quit",
+    "confirmButton": "Yes, reset & restart",
     "cancelButton": "Cancel",
     "timeoutError": "Reset returned but the app didn't quit. Try restarting manually."
   }

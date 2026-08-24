@@ -626,6 +626,11 @@ pub struct SpeechModelStatus {
     pub downloaded: bool,
     pub active: bool,
     pub supported: bool,
+    /// Bytes currently on disk for this model (includes any `.partial`).
+    pub disk_bytes: u64,
+    /// Dir has bytes on disk but the model isn't fully downloaded — an
+    /// interrupted/orphaned download the user can resume or reclaim.
+    pub incomplete: bool,
 }
 
 fn model_status_for(entry: &ModelEntry, active_id: Option<&str>) -> SpeechModelStatus {
@@ -644,6 +649,8 @@ fn model_status_for(entry: &ModelEntry, active_id: Option<&str>) -> SpeechModelS
         downloaded: downloader::is_downloaded(entry),
         active: active_id.map(|a| a == entry.id).unwrap_or(false),
         supported: registry::is_supported(entry),
+        disk_bytes: downloader::disk_bytes(entry),
+        incomplete: downloader::has_incomplete_download(entry),
     }
 }
 
@@ -702,7 +709,10 @@ pub async fn download_speech_model(
             }
             Ok(())
         }
-        Err(e) => Err(e.to_string()),
+        Err(e) => {
+            error!(target: "download", model = %id, error = %e, "speech model download failed");
+            Err(e.friendly())
+        }
     }
 }
 
@@ -2239,6 +2249,7 @@ pub async fn uninstall_application(app: AppHandle, delete_data: bool) -> Result<
 
 // ----- Reset TCC permissions -----
 
+
 /// Every TCC service the app ever requests — one per `NS*UsageDescription` in
 /// `Info.plist`. Both `reset_tcc_and_quit` (the "reset permissions" button) and
 /// `uninstall_application` (delete-data path) reset all of them: a service
@@ -2296,7 +2307,11 @@ pub async fn reset_tcc_and_quit(app: AppHandle) -> Result<(), String> {
             ));
         }
     }
-    info!("tcc reset complete; scheduling app exit");
+    // Arm the detached relauncher BEFORE quitting — without it the app
+    // "quits to restart" and never comes back (the exact symptom this button
+    // is meant to fix). Falls back to a plain quit in dev builds.
+    let relaunching = crate::updater::spawn_relauncher();
+    info!(relaunching, "tcc reset complete; scheduling app exit");
     let handle = app.clone();
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
@@ -2395,7 +2410,10 @@ pub async fn download_llm_model(
             }
             Ok(())
         }
-        Err(e) => Err(e.to_string()),
+        Err(e) => {
+            error!(target: "download", model = %id, error = %e, "llm model download failed");
+            Err(e.friendly())
+        }
     }
 }
 
@@ -7794,8 +7812,7 @@ pub async fn download_embedding_model(app: AppHandle) -> Result<(), String> {
     .await
     .map_err(|e| {
         tracing::error!(target: "embed", error = %e, "embedding model download failed");
-        "Embedding model download failed. See Settings → Diagnostics → logs for details."
-            .to_string()
+        e.friendly()
     })?;
     tracing::info!(target: "embed", "embedding model downloaded");
     Ok(())

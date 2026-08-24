@@ -395,7 +395,8 @@
       "delete": "Verwijderen",
       "useThisModel": "Dit model gebruiken",
       "remove": "Verwijderen",
-      "download": "Downloaden"
+      "download": "Downloaden",
+      "retrying": "Verbinding onderbroken — opnieuw proberen…"
     }
   },
   "meetingCard": {
@@ -473,11 +474,11 @@
     "cameraTitle": "Camera (optioneel)",
     "cameraSubtitle": "Wordt alleen gebruikt wanneer je de webcam-overlay inschakelt voor een schermopname. Verleen hier toestemming zodat alles klaarstaat — en zodat een geblokkeerde camera hier op te lossen is, in plaats van stilletjes te mislukken tijdens het opnemen.",
     "resetHeading": "Toestemmingen resetten",
-    "resetDescription": "Wist de toestemmingen voor Microfoon + Toegankelijkheid + Schermopname + Camera en sluit de app af. Gebruik dit als een toestemming niet goed werkt — bij de volgende start wordt opnieuw om toestemming gevraagd.",
+    "resetDescription": "Wist de toestemmingen voor Microfoon + Toegankelijkheid + Schermopname + Camera en sluit de app af en opent die opnieuw — alles wordt opnieuw gevraagd. Gebruik dit als een toestemming kapot lijkt.",
     "resetting": "Bezig met resetten…",
-    "confirmReset": "Ja, reset & sluit af",
+    "confirmReset": "Ja, resetten & herstarten",
     "cancel": "Annuleren",
-    "resetAndQuit": "Reset & sluit af",
+    "resetAndQuit": "Resetten & herstarten",
     "resetTimeoutToast": "Reset is voltooid, maar de app is niet afgesloten. Probeer Echo Scribe handmatig opnieuw te starten.",
     "resetErrorToast": "Kon toestemmingen niet resetten: {{error}}",
     "promptHint": "Keur het macOS-venster goed dat zojuist verscheen. Verscheen er niets? Klik dan opnieuw op “Toegang verlenen” om Systeeminstellingen te openen."
@@ -729,7 +730,10 @@
       "downloading": "Bezig met downloaden…",
       "delete": "Verwijderen",
       "useThisModel": "Dit model gebruiken",
-      "download": "Downloaden"
+      "download": "Downloaden",
+      "incompleteDownload": "Onvolledige download · {{size}} op schijf",
+      "remove": "Verwijderen",
+      "retrying": "Verbinding onderbroken — opnieuw proberen…"
     }
   },
   "startAtLoginToggle": {

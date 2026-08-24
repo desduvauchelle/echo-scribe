@@ -1,22 +1,22 @@
 {
   "version": 1,
-  "_comment": "Local LLM (llama.cpp) model registry. Gemma 4 E2B (2B effective params, MoE) instruction-tuned, Q4_K_M quantization from bartowski's GGUF repo on Hugging Face. Context length 131072 tokens. SHA-256 is PLACEHOLDER (downloader skips verification and logs a warning); size_bytes measured from the bartowski repo on 2026-05-02.",
+  "_comment": "Local LLM (llama.cpp) model registry. Gemma 4 E2B (2B effective params, MoE) instruction-tuned, Q4_K_M quantization from bartowski's GGUF repo on Hugging Face. Context length 131072 tokens. URLs pin an exact repo revision (resolve/main is mutable — the E2B file changed upstream between 2026-05 and 2026-08); sha256 values are HF LFS oids for that revision. When bumping a revision, update url + sha256 + size_bytes together. Files downloaded from older revisions differ by a few KB; is_downloaded tolerates that (see download::is_complete_file).",
   "models": [
     {
       "id": "gemma-4-e2b-it-q4_k_m",
       "display_name": "Gemma 4 E2B (Q4_K_M)",
       "family": "gemma-4",
       "size_label": "3.2 GB",
-      "size_bytes": 3462677760,
+      "size_bytes": 3462680032,
       "context_length": 131072,
       "is_default": true,
       "supported": true,
       "files": [
         {
           "name": "google_gemma-4-E2B-it-Q4_K_M.gguf",
-          "url": "https://huggingface.co/bartowski/google_gemma-4-E2B-it-GGUF/resolve/main/google_gemma-4-E2B-it-Q4_K_M.gguf",
-          "sha256": "PLACEHOLDER",
-          "size_bytes": 3462677760
+          "url": "https://huggingface.co/bartowski/google_gemma-4-E2B-it-GGUF/resolve/81012ba3538e061d5ee003f11f25335b17f82e2d/google_gemma-4-E2B-it-Q4_K_M.gguf",
+          "sha256": "923c4c86177d2ee173a7f5b4fa3d0ac65f5962ab15e6d6a5bc250aec4fd7bf7e",
+          "size_bytes": 3462680032
         }
       ]
     },
@@ -24,17 +24,17 @@
       "id": "gemma-4-e4b-it-q4_k_m",
       "display_name": "Gemma 4 E4B (Q4_K_M)",
       "family": "gemma-4",
-      "size_label": "5.5 GB",
-      "size_bytes": 5892677760,
+      "size_label": "5.4 GB",
+      "size_bytes": 5405170144,
       "context_length": 131072,
       "is_default": false,
       "supported": true,
       "files": [
         {
           "name": "google_gemma-4-E4B-it-Q4_K_M.gguf",
-          "url": "https://huggingface.co/bartowski/google_gemma-4-E4B-it-GGUF/resolve/main/google_gemma-4-E4B-it-Q4_K_M.gguf",
-          "sha256": "PLACEHOLDER",
-          "size_bytes": 5892677760
+          "url": "https://huggingface.co/bartowski/google_gemma-4-E4B-it-GGUF/resolve/029e94146666900b08caf49a3b47b413dfa8ec66/google_gemma-4-E4B-it-Q4_K_M.gguf",
+          "sha256": "d35a3aa7a6d47de237fd488bb6f7f3efd62908d828f85a63da0ee93acdbefe9f",
+          "size_bytes": 5405170144
         }
       ]
     }

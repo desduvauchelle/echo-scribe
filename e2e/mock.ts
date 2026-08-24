@@ -106,6 +106,8 @@ export async function installTauriMock(page: Page, scenario: Scenario = {}) {
       downloaded: state.speechModelReady,
       active: true,
       supported: true,
+      disk_bytes: state.speechModelReady ? 600_000_000 : 0,
+      incomplete: false,
     });
     const llmModel = () => ({
       id: "gemma-test",

@@ -44,10 +44,10 @@
     "note": "Vous pouvez utiliser Echo Scribe dès maintenant et terminer la configuration plus tard dans Réglages."
   },
   "resetTcc": {
-    "linkLabel": "Autorisation bloquée ? Réinitialiser et quitter",
-    "confirmBody": "Ceci efface les autorisations Microphone + Accessibilité + Enregistrement d’écran et quitte Echo Scribe. Vous devrez la relancer et réaccorder l’accès. Continuer ?",
+    "linkLabel": "Autorisation bloquée ? Réinitialiser et redémarrer",
+    "confirmBody": "Cela efface les autorisations Micro + Accessibilité + Enregistrement de l’écran, quitte Echo Scribe puis le rouvre automatiquement pour que vous puissiez réaccorder l’accès. Continuer ?",
     "resetting": "Réinitialisation…",
-    "confirmButton": "Oui, réinitialiser et quitter",
+    "confirmButton": "Oui, réinitialiser et redémarrer",
     "cancelButton": "Annuler",
     "timeoutError": "La réinitialisation s’est terminée mais l’application ne s’est pas fermée. Essayez de la redémarrer manuellement."
   }

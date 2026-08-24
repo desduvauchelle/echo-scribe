@@ -12,7 +12,11 @@ import {
 import { formatBytes } from "../lib/format";
 import { TrashIcon } from "./icons";
 
-type DownloadState = { bytes_downloaded: number; bytes_total: number };
+type DownloadState = {
+  bytes_downloaded: number;
+  bytes_total: number;
+  retrying?: boolean;
+};
 
 type CardProps = {
   model: LlmModelStatus;
@@ -111,6 +115,11 @@ function ModelCard({
                 total: formatBytes(downloading.bytes_total),
               })}
             </div>
+            {downloading.retrying ? (
+              <div className="mt-1 text-[11px] text-warning">
+                {t("llmModelPicker.modelCard.retrying")}
+              </div>
+            ) : null}
           </div>
         ) : null}
         {downloadError && !isDownloading ? (
@@ -224,6 +233,7 @@ export default function LlmModelPicker() {
             pendingRef.current[p.id] = {
               bytes_downloaded: p.bytes_downloaded,
               bytes_total: p.bytes_total,
+              retrying: p.retrying ?? false,
             };
             if (flushTimer.current === null) {
               flushTimer.current = window.setTimeout(() => {

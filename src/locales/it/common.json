@@ -395,7 +395,8 @@
       "delete": "Elimina",
       "useThisModel": "Usa questo modello",
       "remove": "Rimuovi",
-      "download": "Scarica"
+      "download": "Scarica",
+      "retrying": "Connessione interrotta — nuovo tentativo…"
     }
   },
   "meetingCard": {
@@ -473,11 +474,11 @@
     "cameraTitle": "Fotocamera (facoltativo)",
     "cameraSubtitle": "Usata solo quando attivi la sovrapposizione webcam per una registrazione dello schermo. Concedila qui in modo che sia pronta — così una fotocamera bloccata è risolvibile da questa schermata invece di non funzionare silenziosamente a metà registrazione.",
     "resetHeading": "Reimposta permessi",
-    "resetDescription": "Cancella i permessi di Microfono + Accessibilità + Registrazione schermo + Fotocamera ed esce dall'app. Usalo se un permesso sembra non funzionare — al riavvio verrà richiesto di nuovo da zero.",
+    "resetDescription": "Cancella i permessi di Microfono + Accessibilità + Registrazione schermo + Fotocamera, poi chiude e riapre l'app — richiederà tutto da capo. Usalo se un permesso sembra bloccato.",
     "resetting": "Reimpostazione…",
-    "confirmReset": "Sì, reimposta ed esci",
+    "confirmReset": "Sì, ripristina e riavvia",
     "cancel": "Annulla",
-    "resetAndQuit": "Reimposta ed esci",
+    "resetAndQuit": "Ripristina e riavvia",
     "resetTimeoutToast": "La reimpostazione è tornata ma l'app non si è chiusa. Prova a riavviare Echo Scribe manualmente.",
     "resetErrorToast": "Impossibile reimpostare i permessi: {{error}}",
     "promptHint": "Approva la finestra di dialogo di macOS appena apparsa. Se non è apparsa, fai di nuovo clic su “Concedi accesso” per aprire Impostazioni di Sistema."
@@ -729,7 +730,10 @@
       "downloading": "Download in corso…",
       "delete": "Elimina",
       "useThisModel": "Usa questo modello",
-      "download": "Scarica"
+      "download": "Scarica",
+      "incompleteDownload": "Download incompleto · {{size}} su disco",
+      "remove": "Rimuovi",
+      "retrying": "Connessione interrotta — nuovo tentativo…"
     }
   },
   "startAtLoginToggle": {

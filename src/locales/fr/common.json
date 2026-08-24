@@ -395,7 +395,8 @@
       "delete": "Supprimer",
       "useThisModel": "Utiliser ce modèle",
       "remove": "Retirer",
-      "download": "Télécharger"
+      "download": "Télécharger",
+      "retrying": "Connexion interrompue — nouvelle tentative…"
     }
   },
   "meetingCard": {
@@ -473,11 +474,11 @@
     "cameraTitle": "Caméra (facultatif)",
     "cameraSubtitle": "Utilisée uniquement lorsque vous activez l’incrustation webcam pour un enregistrement d’écran. Autorisez-la ici pour qu’elle soit prête — et pour qu’une caméra bloquée puisse être corrigée depuis cet écran plutôt que d’échouer silencieusement en plein enregistrement.",
     "resetHeading": "Réinitialiser les autorisations",
-    "resetDescription": "Efface les autorisations Microphone + Accessibilité + Enregistrement d’écran + Caméra et quitte l’application. À utiliser si une autorisation semble détraquée — le prochain lancement les redemandera depuis le début.",
+    "resetDescription": "Efface les autorisations Micro + Accessibilité + Enregistrement de l’écran + Caméra, puis quitte et rouvre l’app — elle redemandera tout depuis le début. À utiliser si une autorisation semble cassée.",
     "resetting": "Réinitialisation…",
-    "confirmReset": "Oui, réinitialiser et quitter",
+    "confirmReset": "Oui, réinitialiser et redémarrer",
     "cancel": "Annuler",
-    "resetAndQuit": "Réinitialiser et quitter",
+    "resetAndQuit": "Réinitialiser et redémarrer",
     "resetTimeoutToast": "La réinitialisation s’est terminée mais l’application ne s’est pas fermée. Essayez de redémarrer Echo Scribe manuellement.",
     "resetErrorToast": "Impossible de réinitialiser les autorisations : {{error}}",
     "promptHint": "Validez la boîte de dialogue macOS qui vient d’apparaître. Si elle ne s’est pas affichée, cliquez à nouveau sur « Autoriser l’accès » pour ouvrir Réglages Système."
@@ -729,7 +730,10 @@
       "downloading": "Téléchargement…",
       "delete": "Supprimer",
       "useThisModel": "Utiliser ce modèle",
-      "download": "Télécharger"
+      "download": "Télécharger",
+      "incompleteDownload": "Téléchargement incomplet · {{size}} sur le disque",
+      "remove": "Retirer",
+      "retrying": "Connexion interrompue — nouvelle tentative…"
     }
   },
   "startAtLoginToggle": {
