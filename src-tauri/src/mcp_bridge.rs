@@ -38,7 +38,7 @@ pub fn socket_path() -> Result<PathBuf, String> {
     let dir = home
         .join("Library")
         .join("Application Support")
-        .join("EchoScribe");
+        .join(crate::data_folder_name());
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     Ok(dir.join("mcp-bridge.sock"))
 }

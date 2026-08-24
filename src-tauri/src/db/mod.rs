@@ -104,6 +104,6 @@ pub fn default_db_path() -> Result<PathBuf, DbError> {
     Ok(home
         .join("Library")
         .join("Application Support")
-        .join("EchoScribe")
+        .join(crate::data_folder_name())
         .join("echo.db"))
 }

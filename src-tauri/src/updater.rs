@@ -46,8 +46,11 @@ pub fn is_newer(current: &str, remote: &str) -> bool {
 }
 
 fn staging_app_path() -> Option<PathBuf> {
-    dirs::home_dir()
-        .map(|h| h.join("Library/Application Support/EchoScribe/pending-update/Echo Scribe.app"))
+    dirs::home_dir().map(|h| {
+        h.join("Library/Application Support")
+            .join(crate::data_folder_name())
+            .join("pending-update/Echo Scribe.app")
+    })
 }
 
 fn now_unix() -> i64 {
@@ -78,7 +81,10 @@ async fn download_and_stage(version: &str) -> bool {
     let url = format!("https://github.com/{REPO}/releases/download/v{version}/{filename}");
 
     let staging_dir = match dirs::home_dir() {
-        Some(h) => h.join("Library/Application Support/EchoScribe/pending-update"),
+        Some(h) => h
+            .join("Library/Application Support")
+            .join(crate::data_folder_name())
+            .join("pending-update"),
         None => return false,
     };
 
@@ -172,6 +178,13 @@ async fn download_and_stage(version: &str) -> bool {
 /// relaunches, and self-deletes.
 #[cfg(target_os = "macos")]
 pub fn launch_update_helper() {
+    // The helper script replaces /Applications/Echo Scribe.app in place. An
+    // isolated variant (fresh-install simulator) must never do that — it
+    // would overwrite the real install.
+    if crate::data_folder_name() != "EchoScribe" {
+        error!("self-update disabled for isolated variant builds");
+        return;
+    }
     let staging = match staging_app_path() {
         Some(p) if p.exists() => p,
         _ => {

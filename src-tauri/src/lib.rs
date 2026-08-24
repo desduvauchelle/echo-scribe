@@ -103,12 +103,26 @@ use crate::llm::Llm;
 use crate::settings::SettingsStore;
 use crate::ui::tray::TrayHandle;
 
+/// Folder name for every per-app data/log directory ("EchoScribe" in normal
+/// builds). Compile-time overridable so an isolated variant (see
+/// `scripts/build-fresh-sim.sh`) can never touch the real install's data.
+pub fn data_folder_name() -> &'static str {
+    option_env!("ECHO_SCRIBE_DATA_FOLDER").unwrap_or("EchoScribe")
+}
+
+/// Bundle identifier used for identity-keyed side effects (keychain service,
+/// `tccutil reset`, per-identifier support dirs). Compile-time overridable in
+/// lockstep with the identifier in the Tauri config overlay.
+pub fn bundle_id() -> &'static str {
+    option_env!("ECHO_SCRIBE_BUNDLE_ID").unwrap_or("com.echoscribe.app")
+}
+
 /// Resolve the directory crash logs are rotated into. Public so that the
 /// `diagnostics_log_dir` Tauri command (Settings → Diagnostics) can return
 /// the same path the appender writes to.
 pub fn log_dir() -> std::path::PathBuf {
     dirs::home_dir()
-        .map(|h| h.join("Library/Logs/EchoScribe"))
+        .map(|h| h.join("Library/Logs").join(data_folder_name()))
         .unwrap_or_else(std::env::temp_dir)
 }
 
@@ -129,7 +143,8 @@ mod tests {
                 "log dir {s} should sit under home {}",
                 home.display()
             );
-            assert!(s.ends_with("Library/Logs/EchoScribe"), "got {s}");
+            let expected = format!("Library/Logs/{}", data_folder_name());
+            assert!(s.ends_with(&expected), "got {s}");
         } else {
             // No home dir on this host: we fall back to the temp dir.
             assert_eq!(p, std::env::temp_dir());

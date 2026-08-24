@@ -111,7 +111,7 @@ pub fn gui_settings_path() -> Option<PathBuf> {
     if let Some(p) = std::env::var_os("ECHO_SCRIBE_MCP_SETTINGS") {
         return Some(p.into());
     }
-    Some(dirs::config_dir()?.join("com.echoscribe.app").join("settings.json"))
+    Some(dirs::config_dir()?.join(crate::bundle_id()).join("settings.json"))
 }
 
 /// Best-effort read of the GUI settings file. Missing or unreadable file →

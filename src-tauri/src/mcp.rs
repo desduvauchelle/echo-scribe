@@ -22,7 +22,7 @@ fn audit(tool: &str) {
     let Some(home) = dirs::home_dir() else {
         return;
     };
-    let dir = home.join("Library/Logs/EchoScribe");
+    let dir = home.join("Library/Logs").join(crate::data_folder_name());
     let _ = std::fs::create_dir_all(&dir);
     if let Ok(mut file) = std::fs::OpenOptions::new()
         .create(true)

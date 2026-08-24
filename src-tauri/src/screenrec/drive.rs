@@ -19,7 +19,8 @@ const SCOPE: &str = "https://www.googleapis.com/auth/drive.file openid email";
 /// so we verify this scope was actually granted instead of trusting consent.
 const DRIVE_FILE_SCOPE: &str = "https://www.googleapis.com/auth/drive.file";
 
-const KEYCHAIN_SERVICE: &str = "com.echoscribe.app";
+// Keychain service is the bundle id (compile-time overridable) so an isolated
+// variant build never reads or clobbers the real app's Drive token.
 const KEYCHAIN_ACCOUNT: &str = "google_drive_refresh_token";
 
 use std::io::{Read, Write};
@@ -80,7 +81,7 @@ use serde::Deserialize;
 
 #[cfg(target_os = "macos")]
 fn keychain_entry() -> Result<keyring::Entry, String> {
-    keyring::Entry::new(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT).map_err(|e| e.to_string())
+    keyring::Entry::new(crate::bundle_id(), KEYCHAIN_ACCOUNT).map_err(|e| e.to_string())
 }
 
 /// Store (or replace) the long-lived refresh token in the macOS Keychain.

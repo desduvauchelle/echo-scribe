@@ -26,7 +26,9 @@ impl Capabilities {
             meeting_auto_detect: macos,
             system_audio_capture: macos,
             screen_recording: macos,
-            bundle_self_update: macos,
+            // Self-update replaces /Applications/Echo Scribe.app in place, so
+            // it must stay off in isolated variant builds (fresh-install sim).
+            bundle_self_update: macos && crate::data_folder_name() == "EchoScribe",
         }
     }
 }

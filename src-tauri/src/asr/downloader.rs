@@ -53,7 +53,7 @@ impl From<reqwest::Error> for DownloadError {
 /// on macOS.
 pub fn model_storage_dir() -> PathBuf {
     let base = dirs::data_dir().unwrap_or_else(|| std::env::temp_dir());
-    base.join("EchoScribe").join("models")
+    base.join(crate::data_folder_name()).join("models")
 }
 
 /// Per-model directory: `<storage-dir>/<id>/`.

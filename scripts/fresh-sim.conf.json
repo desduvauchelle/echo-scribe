@@ -1,0 +1,16 @@
+{
+  "productName": "Echo Scribe Fresh",
+  "identifier": "com.echoscribe.freshsim",
+  "app": {
+    "security": {
+      "assetProtocol": {
+        "enable": true,
+        "scope": [
+          "$HOME/Library/Application Support/EchoScribeFreshSim/recordings/**",
+          "$HOME/Library/Application Support/EchoScribeFreshSim/recordings/source-thumbs/**",
+          "$APPDATA/EchoScribeFreshSim/recordings/**"
+        ]
+      }
+    }
+  }
+}

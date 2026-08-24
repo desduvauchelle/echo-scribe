@@ -29,6 +29,10 @@ fn main() {
             panic!("screenrec build failed");
         }
     }
+    // The fresh-install simulator (scripts/build-fresh-sim.sh) redirects all
+    // data paths + identity via these compile-time env vars.
+    println!("cargo:rerun-if-env-changed=ECHO_SCRIBE_DATA_FOLDER");
+    println!("cargo:rerun-if-env-changed=ECHO_SCRIBE_BUNDLE_ID");
     println!("cargo:rerun-if-changed=syscap/main.swift");
     println!("cargo:rerun-if-changed=syscap/Package.swift");
     println!("cargo:rerun-if-changed=screenrec/main.swift");

@@ -65,9 +65,17 @@ if CommandLine.arguments.contains("--list-sources") {
                      "label": "Display \(d.displayID) (\(d.width)×\(d.height))"]
                 }
                 // Build (or recreate fresh) the thumbs directory so stale thumbs don't accumulate.
-                let home = FileManager.default.homeDirectoryForCurrentUser
-                let thumbsDir = home
-                    .appendingPathComponent("Library/Application Support/EchoScribe/recordings/source-thumbs")
+                // The host passes --thumbs-dir so variant builds with a relocated data
+                // folder never wipe the real app's cache; the historical hardcoded
+                // path remains the fallback for bare invocations.
+                let thumbsDir: URL
+                if let flagIndex = CommandLine.arguments.firstIndex(of: "--thumbs-dir"),
+                   flagIndex + 1 < CommandLine.arguments.count {
+                    thumbsDir = URL(fileURLWithPath: CommandLine.arguments[flagIndex + 1], isDirectory: true)
+                } else {
+                    thumbsDir = FileManager.default.homeDirectoryForCurrentUser
+                        .appendingPathComponent("Library/Application Support/EchoScribe/recordings/source-thumbs")
+                }
                 try? FileManager.default.removeItem(at: thumbsDir)
                 try? FileManager.default.createDirectory(at: thumbsDir, withIntermediateDirectories: true)
                 // System apps whose windows are never useful capture targets.

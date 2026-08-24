@@ -37,7 +37,7 @@ pub struct EventEnvelope {
 pub fn default_root() -> Result<PathBuf, EventLogError> {
     Ok(dirs::home_dir()
         .ok_or(EventLogError::NoHome)?
-        .join("EchoScribe"))
+        .join(crate::data_folder_name()))
 }
 
 /// Append a single event as a JSON file under

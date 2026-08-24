@@ -107,8 +107,14 @@ pub fn list_sources() -> Result<Sources, String> {
     // permission dialog is traceable to this path. (This is why the setup
     // window defers its source enumeration until it's actually shown.)
     info!(target: "perm", "spawning screenrec --list-sources (may show Screen Recording prompt)");
-    let out = Command::new(&bin)
-        .arg("--list-sources")
+    let mut cmd = Command::new(&bin);
+    cmd.arg("--list-sources");
+    // Tell the sidecar where the thumbs cache lives so it follows the
+    // (compile-time overridable) data folder instead of its hardcoded default.
+    if let Ok(dir) = recordings_dir() {
+        cmd.arg("--thumbs-dir").arg(dir.join("source-thumbs"));
+    }
+    let out = cmd
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
@@ -1080,7 +1086,10 @@ fn resolve_binary() -> std::io::Result<PathBuf> {
 pub fn recordings_dir() -> std::io::Result<PathBuf> {
     let home = std::env::var("HOME")
         .map_err(|_| std::io::Error::new(std::io::ErrorKind::NotFound, "HOME not set"))?;
-    let dir = PathBuf::from(home).join("Library/Application Support/EchoScribe/recordings");
+    let dir = PathBuf::from(home)
+        .join("Library/Application Support")
+        .join(crate::data_folder_name())
+        .join("recordings");
     std::fs::create_dir_all(&dir)?;
     Ok(dir)
 }

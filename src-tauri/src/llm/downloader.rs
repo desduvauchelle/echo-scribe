@@ -55,7 +55,7 @@ impl From<reqwest::Error> for LlmDownloadError {
 /// on macOS.
 pub fn model_storage_dir() -> PathBuf {
     let base = dirs::data_dir().unwrap_or_else(|| std::env::temp_dir());
-    base.join("EchoScribe").join("llm-models")
+    base.join(crate::data_folder_name()).join("llm-models")
 }
 
 pub fn model_dir(entry: &LlmModelEntry) -> PathBuf {

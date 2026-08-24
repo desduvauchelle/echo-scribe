@@ -2091,26 +2091,35 @@ fn containing_app_bundle(executable: &std::path::Path) -> Option<std::path::Path
 }
 
 fn uninstall_data_paths(home: &std::path::Path) -> Vec<std::path::PathBuf> {
-    [
-        "Library/Application Support/EchoScribe",
-        "Library/Application Support/Echo Scribe",
-        "Library/Application Support/com.echoscribe.app",
-        "Library/Caches/com.echoscribe.app",
-        "Library/Caches/echo-scribe",
-        "Library/Preferences/com.echoscribe.app.plist",
-        "Library/Preferences/EchoScribe.plist",
-        "Library/Logs/EchoScribe",
-        "Library/WebKit/com.echoscribe.app",
-        "Library/WebKit/echo-scribe",
-        "Library/HTTPStorages/com.echoscribe.app",
-        "Library/HTTPStorages/EchoScribe",
-        "Library/Saved Application State/com.echoscribe.app.savedState",
-        "Library/LaunchAgents/Echo Scribe.plist",
-        "EchoScribe",
-    ]
-    .into_iter()
-    .map(|relative| home.join(relative))
-    .collect()
+    let folder = crate::data_folder_name();
+    let bundle = crate::bundle_id();
+    let mut relative = vec![
+        format!("Library/Application Support/{folder}"),
+        format!("Library/Application Support/{bundle}"),
+        format!("Library/Caches/{bundle}"),
+        format!("Library/Preferences/{bundle}.plist"),
+        format!("Library/Preferences/{folder}.plist"),
+        format!("Library/Logs/{folder}"),
+        format!("Library/WebKit/{bundle}"),
+        format!("Library/HTTPStorages/{bundle}"),
+        format!("Library/HTTPStorages/{folder}"),
+        format!("Library/Saved Application State/{bundle}.savedState"),
+        folder.to_string(),
+    ];
+    if folder == "EchoScribe" {
+        // Legacy locations older builds of the real app wrote to. Never
+        // included for isolated variants — they belong to the real install.
+        relative.extend(
+            [
+                "Library/Application Support/Echo Scribe",
+                "Library/Caches/echo-scribe",
+                "Library/WebKit/echo-scribe",
+                "Library/LaunchAgents/Echo Scribe.plist",
+            ]
+            .map(String::from),
+        );
+    }
+    relative.into_iter().map(|r| home.join(r)).collect()
 }
 
 #[cfg(target_os = "macos")]
@@ -2197,7 +2206,7 @@ pub async fn uninstall_application(app: AppHandle, delete_data: bool) -> Result<
             }
             for service in TCC_RESET_SERVICES {
                 match std::process::Command::new("/usr/bin/tccutil")
-                    .args(["reset", service, "com.echoscribe.app"])
+                    .args(["reset", service, crate::bundle_id()])
                     .output()
                 {
                     Ok(output) if output.status.success() => {}
@@ -2257,11 +2266,11 @@ pub(crate) const TCC_RESET_SERVICES: [&str; 5] = [
 #[tauri::command]
 pub async fn reset_tcc_and_quit(app: AppHandle) -> Result<(), String> {
     use std::process::Command;
-    const BUNDLE_ID: &str = "com.echoscribe.app";
-    info!(bundle = BUNDLE_ID, "reset_tcc_and_quit invoked");
+    let bundle_id = crate::bundle_id();
+    info!(bundle = bundle_id, "reset_tcc_and_quit invoked");
     for service in TCC_RESET_SERVICES {
         let output = Command::new("/usr/bin/tccutil")
-            .args(["reset", service, BUNDLE_ID])
+            .args(["reset", service, bundle_id])
             .output()
             .map_err(|e| {
                 error!(?e, service, "failed to spawn tccutil");
