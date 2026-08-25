@@ -173,6 +173,9 @@ pub enum PasteBlocker {
     /// The captured app refused to come forward, so ⌘V would land in whatever
     /// app is still in front.
     AppNotFrontmost,
+    /// The target was verified, but another app became frontmost during the
+    /// short settle delay before Cmd+V was dispatched.
+    FocusChanged,
     /// Nothing that can hold text has keyboard focus, so ⌘V would be
     /// swallowed (e.g. dictation started with a file list or button focused).
     NoTextTarget,
@@ -183,6 +186,7 @@ impl PasteBlocker {
     pub fn reason(self) -> &'static str {
         match self {
             PasteBlocker::AppNotFrontmost => "focus_restore",
+            PasteBlocker::FocusChanged => "focus_changed",
             PasteBlocker::NoTextTarget => "no_text_target",
         }
     }
@@ -193,6 +197,9 @@ impl PasteBlocker {
             PasteBlocker::AppNotFrontmost => format!(
                 "Couldn't switch back to {app_label}. Your transcript is on the clipboard — press ⌘V to paste it."
             ),
+            PasteBlocker::FocusChanged =>
+                "Focus moved to another app before the transcript could be pasted. Your transcript is on the clipboard — click the intended field and press ⌘V."
+                    .to_string(),
             PasteBlocker::NoTextTarget =>
                 "No text field was focused, so there was nowhere to type. Your transcript is on the clipboard — click into a field and press ⌘V."
                     .to_string(),
@@ -540,6 +547,21 @@ pub fn current_frontmost_pid() -> Option<i32> {
 #[cfg(not(target_os = "macos"))]
 pub fn current_frontmost_pid() -> Option<i32> {
     None
+}
+
+/// Final guard immediately before synthesizing paste.
+///
+/// Focus can change after app activation was verified but before the settle
+/// delay completes. The caller must only dispatch Cmd+V while the intended
+/// target is still frontmost.
+pub fn paste_target_still_frontmost(
+    expected_target_pid: Option<i32>,
+    current_frontmost_pid: Option<i32>,
+) -> bool {
+    match expected_target_pid {
+        Some(expected_pid) => current_frontmost_pid == Some(expected_pid),
+        None => true,
+    }
 }
 
 /// Which API actually brought the target app forward.
@@ -1776,6 +1798,15 @@ mod tests {
             ..Default::default()
         };
         assert!(unknown.paste_target_confirmed_or_unknown());
+    }
+
+    #[test]
+    fn blocks_paste_when_focus_changes_after_target_verification() {
+        assert!(paste_target_still_frontmost(Some(42), Some(42)));
+        assert!(
+            !paste_target_still_frontmost(Some(42), Some(7)),
+            "Cmd+V must not be sent after another app becomes frontmost during the settle delay"
+        );
     }
 
     #[test]

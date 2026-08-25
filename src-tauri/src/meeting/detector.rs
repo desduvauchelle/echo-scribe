@@ -967,6 +967,20 @@ mod tests {
         assert_eq!(browser_provider_name(None), None);
     }
 
+    #[test]
+    fn browser_provider_name_recognizes_teams_web_meetings() {
+        assert_eq!(
+            browser_provider_name(Some(
+                "https://teams.microsoft.com/v2/l/meetup-join/19%3ameeting_example%40thread.v2/0"
+            )),
+            Some("Microsoft Teams")
+        );
+        assert_eq!(
+            browser_provider_name(Some("https://teams.cloud.microsoft/v2/")),
+            Some("Microsoft Teams")
+        );
+    }
+
     /// Regression test for a user-stopped auto-recording restarting after the
     /// old 60-second post-stop cooldown expired. As long as the same meeting
     /// source remains present, explicit user intent must win indefinitely.

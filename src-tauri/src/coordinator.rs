@@ -442,6 +442,7 @@ pub fn spawn(
                                             let mut restore_outcome: Option<focus::RestoreOutcome> =
                                                 None;
                                             let mut target_app_name: Option<String> = None;
+                                            let mut expected_paste_pid: Option<i32> = None;
                                             if let Some(snap) = pending_context.take() {
                                                 let element = pending_focus_element.take();
                                                 let outcome = focus::restore_focus(
@@ -478,6 +479,8 @@ pub fn spawn(
                                                 std::thread::sleep(
                                                     std::time::Duration::from_millis(settle_ms),
                                                 );
+                                                expected_paste_pid =
+                                                    outcome.redirected_pid.or(Some(snap.pid));
                                                 target_app_name = snap.app_name.clone();
                                                 restore_outcome = Some(outcome);
                                             }
@@ -486,9 +489,28 @@ pub fn spawn(
                                             // that accepts text has focus, the keystroke would be
                                             // silently discarded. Hand the transcript to the user
                                             // via the clipboard instead.
+                                            let frontmost_before_paste =
+                                                focus::current_frontmost_pid();
+                                            let target_still_frontmost =
+                                                focus::paste_target_still_frontmost(
+                                                    expected_paste_pid,
+                                                    frontmost_before_paste,
+                                                );
+                                            if !target_still_frontmost {
+                                                warn!(
+                                                    expected_pid = ?expected_paste_pid,
+                                                    frontmost_pid = ?frontmost_before_paste,
+                                                    "paste target changed during settle delay"
+                                                );
+                                            }
                                             let blocker = restore_outcome
                                                 .as_ref()
-                                                .and_then(|o| o.blocker);
+                                                .and_then(|o| o.blocker)
+                                                .or_else(|| {
+                                                    (!target_still_frontmost).then_some(
+                                                        focus::PasteBlocker::FocusChanged,
+                                                    )
+                                                });
                                             if let Some(blocker) = blocker {
                                                 let app_label =
                                                     target_app_name.unwrap_or_else(|| {
@@ -1169,36 +1191,21 @@ async fn try_intercept_action(
         let text_lower = text_trimmed.to_lowercase();
         let trigger_lower = trigger_word.trim().to_lowercase();
 
-        let mut matched_trigger = None;
         if trigger_lower == "echo" {
-            for trig in &["echo", "eco", "hecho", "ekko"] {
-                if text_lower.starts_with(trig) {
-                    matched_trigger = Some(trig.len());
-                    break;
+            match crate::llm::action_launcher::strip_trigger_prefix(text_trimmed) {
+                Some(command) => command,
+                None => {
+                    // No trigger or narrow command recovery: bypass the LLM.
+                    return InterceptOutcome::Passthrough;
                 }
             }
+        } else if text_lower.starts_with(&trigger_lower) {
+            let remaining = &text_trimmed[trigger_lower.len()..];
+            remaining
+                .trim_start_matches(|c: char| c.is_whitespace() || c.is_ascii_punctuation())
+                .to_string()
         } else {
-            if text_lower.starts_with(&trigger_lower) {
-                matched_trigger = Some(trigger_lower.len());
-            }
-        }
-
-        match matched_trigger {
-            Some(len) => {
-                if text_lower.len() == len {
-                    String::new()
-                } else {
-                    let remaining = &text_trimmed[len..];
-                    let remaining_trimmed = remaining.trim_start_matches(|c: char| {
-                        c.is_whitespace() || c.is_ascii_punctuation()
-                    });
-                    remaining_trimmed.to_string()
-                }
-            }
-            None => {
-                // No trigger prefix found: bypass the LLM entirely (instant paste!)
-                return InterceptOutcome::Passthrough;
-            }
+            return InterceptOutcome::Passthrough;
         }
     } else {
         // For other actions (e.g. LogCapture), we don't intercept action commands here

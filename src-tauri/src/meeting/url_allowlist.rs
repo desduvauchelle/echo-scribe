@@ -31,8 +31,8 @@ pub fn classify(raw: &str) -> Option<&'static str> {
         return None;
     }
 
-    // Microsoft Teams (web): teams.microsoft.com or teams.live.com.
-    if host == "teams.microsoft.com" {
+    // Microsoft Teams (web): the current cloud.microsoft app and legacy hosts.
+    if host == "teams.microsoft.com" || host == "teams.cloud.microsoft" {
         if path.starts_with("/l/meetup-join/")
             || path.starts_with("/_#/conv/")
             || path.starts_with("/v2/")
@@ -178,12 +178,17 @@ mod tests {
             classify("https://teams.microsoft.com/v2/?meetingjoin=true"),
             Some("Microsoft Teams")
         );
+        assert_eq!(
+            classify("https://teams.cloud.microsoft/v2/"),
+            Some("Microsoft Teams")
+        );
     }
 
     #[test]
     fn teams_root_does_not_match() {
         assert_eq!(classify("https://teams.microsoft.com/"), None);
         assert_eq!(classify("https://teams.microsoft.com/_#/files"), None);
+        assert_eq!(classify("https://teams.cloud.microsoft/"), None);
     }
 
     #[test]

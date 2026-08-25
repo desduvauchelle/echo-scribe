@@ -548,10 +548,49 @@ mod stay_awake_tests {
             KeepAwakeMode::Minutes(24 * 60)
         );
     }
+
+    #[test]
+    fn recovers_observed_keep_awake_phrases_when_echo_is_misheard() {
+        for transcript in [
+            "Keep making more two hours.",
+            "Oh Peter Wake for two hours.",
+            "I'm gonna wake for two hours.",
+            "Keep my computer away for three hours.",
+        ] {
+            assert_eq!(
+                strip_trigger_prefix(transcript),
+                Some(if transcript.contains("three") {
+                    "stay awake for three hours".to_string()
+                } else {
+                    "stay awake for two hours".to_string()
+                }),
+                "failed to recover observed ASR command: {transcript}"
+            );
+        }
+    }
+
+    #[test]
+    fn strips_the_normal_echo_prefix_without_rewriting_the_command() {
+        assert_eq!(
+            strip_trigger_prefix("Echo keep my computer awake for three hours."),
+            Some("keep my computer awake for three hours.".to_string())
+        );
+    }
+
+    #[test]
+    fn does_not_recover_duration_bearing_regular_dictation() {
+        assert_eq!(strip_trigger_prefix("Keep this draft for two hours."), None);
+        assert_eq!(
+            strip_trigger_prefix("I woke up two hours before the meeting."),
+            None
+        );
+    }
 }
 
-/// Check if the transcript starts with a command trigger word (e.g., "echo", "eco", "hecho", "ekko").
-/// Returns Some(stripped_command) if a trigger is detected, or None if it's regular dictation.
+/// Check if the transcript starts with a command trigger word (e.g., "echo",
+/// "eco", "hecho", "ekko"). Also recovers a narrowly-scoped keep-awake
+/// command when ASR loses the trigger but retains a short wake/duration phrase.
+/// Returns `Some(command)` when routing should continue, otherwise `None`.
 pub fn strip_trigger_prefix(text: &str) -> Option<String> {
     let text_trimmed = text.trim();
     let text_lower = text_trimmed.to_lowercase();
@@ -572,5 +611,44 @@ pub fn strip_trigger_prefix(text: &str) -> Option<String> {
             }
         }
     }
-    None
+
+    recover_keep_awake_command(&text_lower)
+}
+
+fn recover_keep_awake_command(lower: &str) -> Option<String> {
+    let tokens: Vec<String> = lower
+        .split_whitespace()
+        .map(|token| {
+            token
+                .trim_matches(|c: char| c.is_ascii_punctuation())
+                .to_string()
+        })
+        .filter(|token| !token.is_empty())
+        .collect();
+    if tokens.len() > 10 {
+        return None;
+    }
+
+    let duration_unit_index = tokens
+        .iter()
+        .position(|token| matches!(token.as_str(), "minute" | "minutes" | "hour" | "hours"))?;
+    let duration_amount = duration_unit_index
+        .checked_sub(1)
+        .and_then(|index| tokens.get(index))?;
+    let duration_unit = &tokens[duration_unit_index];
+
+    let has_wake_word = tokens
+        .iter()
+        .any(|token| matches!(token.as_str(), "wake" | "awake" | "caffeinate"));
+    let has_keep = tokens.iter().any(|token| token == "keep");
+    let names_computer = tokens
+        .iter()
+        .any(|token| matches!(token.as_str(), "computer" | "mac" | "machine"));
+    let observed_keep_corruption = lower.starts_with("keep making more ");
+
+    if has_wake_word || (has_keep && names_computer) || observed_keep_corruption {
+        Some(format!("stay awake for {duration_amount} {duration_unit}"))
+    } else {
+        None
+    }
 }

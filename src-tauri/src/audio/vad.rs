@@ -1,13 +1,13 @@
 //! Energy-based Voice Activity Detection for silence filtering.
 //!
-//! Strips silent frames from 16 kHz mono PCM so the ASR engine only sees
-//! actual speech, reducing Parakeet inference time roughly in proportion to
-//! the silence fraction of the recording.
+//! Trims silence from the beginning and end of 16 kHz mono PCM while
+//! preserving the complete utterance between those boundaries.
 //!
-//! Algorithm: per-frame RMS energy gate with onset confirmation, pre-roll,
-//! and hangover — mirroring the SmoothedVad design used in Handy.
+//! Internal low-energy audio is deliberately retained. A webcam or distant
+//! microphone can put quiet words below the energy threshold even when louder
+//! words in the same recording are detected correctly; removing those frames
+//! makes partial sentences unavoidable.
 
-use std::collections::VecDeque;
 use tracing::info;
 
 /// 30 ms at 16 kHz — Silero VAD's native frame size; we match it.
@@ -27,85 +27,48 @@ const HANGOVER_FRAMES: usize = 15;
 /// Suppresses isolated noise spikes.
 const ONSET_FRAMES: usize = 2;
 
-/// Filter silent frames from a 16 kHz mono PCM buffer.
+/// Trim outer silence from a 16 kHz mono PCM buffer.
 ///
-/// Returns a new buffer containing only speech frames (with pre-roll and
-/// hangover padding).  If the whole recording is below the energy threshold
-/// (e.g. mic was muted) the original buffer is returned unchanged so the ASR
-/// engine can still attempt transcription rather than silently producing "".
+/// Once speech begins, every frame through the final detected speech frame is
+/// preserved, including long pauses and quieter words. If the whole recording
+/// is below the energy threshold (e.g. mic was muted), the original buffer is
+/// returned unchanged so the ASR engine can still attempt transcription.
 pub fn filter_silence(samples: &[f32]) -> Vec<f32> {
-    let mut out: Vec<f32> = Vec::with_capacity(samples.len());
+    let frames: Vec<&[f32]> = samples.chunks(FRAME_SAMPLES).collect();
+    let voiced: Vec<bool> = frames
+        .iter()
+        .map(|frame| {
+            let rms = (frame.iter().map(|s| s * s).sum::<f32>() / frame.len() as f32).sqrt();
+            rms > RMS_THRESHOLD
+        })
+        .collect();
 
-    // Ring buffer holding the last PREFILL_FRAMES+1 frames for pre-roll.
-    let mut frame_buf: VecDeque<Vec<f32>> = VecDeque::new();
-
-    let mut in_speech = false;
-    let mut hangover: usize = 0;
-    let mut onset: usize = 0;
-
-    for frame in samples.chunks(FRAME_SAMPLES) {
-        // Always update the ring buffer so pre-roll is always current.
-        frame_buf.push_back(frame.to_vec());
-        while frame_buf.len() > PREFILL_FRAMES + 1 {
-            frame_buf.pop_front();
-        }
-
-        let rms = (frame.iter().map(|s| s * s).sum::<f32>() / frame.len() as f32).sqrt();
-        let is_voice = rms > RMS_THRESHOLD;
-
-        match (in_speech, is_voice) {
-            // --- Potential onset: accumulate consecutive voice frames ---
-            (false, true) => {
-                onset += 1;
-                if onset >= ONSET_FRAMES {
-                    in_speech = true;
-                    hangover = HANGOVER_FRAMES;
-                    onset = 0;
-                    // Flush the entire ring buffer as pre-roll (includes the
-                    // onset frames themselves so nothing is double-emitted).
-                    for f in &frame_buf {
-                        out.extend_from_slice(f);
-                    }
-                }
-                // Otherwise keep waiting — frame already buffered for pre-roll.
-            }
-
-            // --- Ongoing speech ---
-            (true, true) => {
-                hangover = HANGOVER_FRAMES;
-                out.extend_from_slice(frame);
-            }
-
-            // --- Trailing hangover or very short pause ---
-            (true, false) => {
-                if hangover > 0 {
-                    hangover -= 1;
-                    out.extend_from_slice(frame);
-                } else {
-                    in_speech = false;
-                }
-            }
-
-            // --- Silence / broken onset sequence ---
-            (false, false) => {
-                onset = 0;
-            }
-        }
-    }
-
-    if out.is_empty() {
+    let first_confirmed_voice = voiced
+        .windows(ONSET_FRAMES)
+        .position(|window| window.iter().all(|is_voice| *is_voice));
+    let Some(first_voice_frame) = first_confirmed_voice else {
         // Entire recording was silent — return original so ASR can still try.
-        samples.to_vec()
-    } else {
-        let original_ms = samples.len() / 16;
-        let speech_ms = out.len() / 16;
-        let removed_pct = 100 - (out.len() * 100 / samples.len().max(1));
-        info!(
-            original_ms,
-            speech_ms, removed_pct, "VAD: filtered silence from recording"
-        );
-        out
-    }
+        return samples.to_vec();
+    };
+
+    let last_voice_frame = voiced
+        .iter()
+        .rposition(|is_voice| *is_voice)
+        .unwrap_or(first_voice_frame);
+    let start_frame = first_voice_frame.saturating_sub(PREFILL_FRAMES);
+    let end_frame = (last_voice_frame + 1 + HANGOVER_FRAMES).min(frames.len());
+    let start_sample = start_frame * FRAME_SAMPLES;
+    let end_sample = (end_frame * FRAME_SAMPLES).min(samples.len());
+    let out = samples[start_sample..end_sample].to_vec();
+
+    let original_ms = samples.len() / 16;
+    let speech_ms = out.len() / 16;
+    let removed_pct = 100 - (out.len() * 100 / samples.len().max(1));
+    info!(
+        original_ms,
+        speech_ms, removed_pct, "VAD: trimmed outer silence from recording"
+    );
+    out
 }
 
 #[cfg(test)]
@@ -120,6 +83,14 @@ mod tests {
         // Sine wave at comfortable amplitude — clearly above RMS_THRESHOLD.
         let n = frames * FRAME_SAMPLES;
         (0..n).map(|i| (i as f32 * 0.1).sin() * 0.1).collect()
+    }
+
+    fn quiet_speech(frames: usize) -> Vec<f32> {
+        // Deliberately below the energy threshold. This represents words
+        // spoken more quietly than the surrounding phrases, not disposable
+        // silence: once an utterance has begun, it must still reach ASR.
+        let n = frames * FRAME_SAMPLES;
+        (0..n).map(|i| (i as f32 * 0.1).sin() * 0.001).collect()
     }
 
     #[test]
@@ -172,6 +143,21 @@ mod tests {
             "trailing silence should be stripped: out={} input={}",
             out.len(),
             s.len()
+        );
+    }
+
+    #[test]
+    fn preserves_quiet_words_between_louder_speech() {
+        let mut input = speech(20);
+        input.extend(quiet_speech(40));
+        input.extend(speech(20));
+
+        let out = filter_silence(&input);
+
+        assert_eq!(
+            out.len(),
+            input.len(),
+            "VAD must not delete quiet words or sentence fragments from the middle of an utterance"
         );
     }
 
