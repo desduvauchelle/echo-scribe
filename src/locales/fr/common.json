@@ -789,9 +789,12 @@
         "es": "Español",
         "fr": "Français",
         "de": "Deutsch",
-        "pt": "Português"
+        "pt": "Português",
+        "it": "Italiano",
+        "nl": "Nederlands",
+        "pl": "Polski"
       },
-      "footnote": "La détection automatique prend en charge 25 langues européennes. Les commandes vocales sont actuellement en anglais."
+      "footnote": "La détection automatique prend en charge 25 langues européennes. Les commandes vocales suivent la langue choisie ici ; en mode automatique, les commandes anglaises s'appliquent."
     },
     "dictionary": {
       "title": "Dictionnaire",

@@ -135,6 +135,9 @@ function LanguageCard() {
         <option value="fr">{t("transcriptionSettings.language.options.fr")}</option>
         <option value="de">{t("transcriptionSettings.language.options.de")}</option>
         <option value="pt">{t("transcriptionSettings.language.options.pt")}</option>
+        <option value="it">{t("transcriptionSettings.language.options.it")}</option>
+        <option value="nl">{t("transcriptionSettings.language.options.nl")}</option>
+        <option value="pl">{t("transcriptionSettings.language.options.pl")}</option>
       </select>
       <p className="text-[11px] text-muted">{t("transcriptionSettings.language.footnote")}</p>
     </div>

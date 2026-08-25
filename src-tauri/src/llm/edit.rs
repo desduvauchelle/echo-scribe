@@ -53,7 +53,12 @@ pub fn sanitize_edit_output(raw: &str, original: &str) -> Option<String> {
         return None;
     }
     let lower = s.to_lowercase();
+    // Refusal/apology openers across the supported cleanup languages. A false
+    // positive here is benign (the edit aborts, text stays untouched); a miss
+    // lands the model's refusal verbatim in the user's document — so we err on
+    // the side of more prefixes, matching the English-only original's stance.
     const REFUSALS: &[&str] = &[
+        // English
         "i can't",
         "i cannot",
         "i'm sorry",
@@ -62,6 +67,32 @@ pub fn sanitize_edit_output(raw: &str, original: &str) -> Option<String> {
         "i'm unable",
         "i am unable",
         "i won't",
+        // Spanish
+        "no puedo",
+        "lo siento",
+        // French
+        "je ne peux pas",
+        "je suis désolé",
+        "désolé",
+        // German
+        "ich kann nicht",
+        "es tut mir leid",
+        "leider kann ich",
+        // Portuguese
+        "não posso",
+        "desculpe",
+        "sinto muito",
+        // Italian
+        "non posso",
+        "mi dispiace",
+        // Dutch
+        "ik kan niet",
+        "het spijt me",
+        "helaas kan ik",
+        // Polish
+        "nie mogę",
+        "przepraszam",
+        "niestety nie",
     ];
     if REFUSALS.iter().any(|r| lower.starts_with(r)) {
         return None;
@@ -105,6 +136,7 @@ fn strip_leading_preamble(s: &str) -> &str {
         let looks_like_preamble = f.ends_with(':')
             && f.chars().count() <= 60
             && [
+                // English
                 "sure",
                 "here",
                 "here's",
@@ -114,6 +146,31 @@ fn strip_leading_preamble(s: &str) -> &str {
                 "revised",
                 "result",
                 "output",
+                // Spanish
+                "claro",
+                "por supuesto",
+                "aquí",
+                // French
+                "voici",
+                "voilà",
+                "bien sûr",
+                // German
+                "hier",
+                "gerne",
+                "natürlich",
+                // Portuguese
+                "aqui está",
+                // Italian
+                "ecco",
+                "certo",
+                // Dutch
+                "natuurlijk",
+                "zeker",
+                "alsjeblieft",
+                // Polish
+                "oto",
+                "oczywiście",
+                "jasne",
             ]
             .iter()
             .any(|w| f.starts_with(w));
@@ -172,6 +229,30 @@ mod tests {
         assert_eq!(
             sanitize_edit_output("As an AI language model, I cannot rewrite this.", "text"),
             None
+        );
+    }
+
+    #[test]
+    fn rejects_localized_refusals() {
+        for refusal in [
+            "No puedo ayudar con eso.",
+            "Je ne peux pas réécrire ce texte.",
+            "Ich kann nicht dabei helfen.",
+            "Não posso reescrever isso.",
+            "Mi dispiace, non posso riscrivere questo testo.",
+            "Ik kan niet helpen met deze aanvraag.",
+            "Nie mogę tego zrobić.",
+        ] {
+            assert_eq!(sanitize_edit_output(refusal, "text"), None, "{refusal}");
+        }
+    }
+
+    #[test]
+    fn strips_localized_preamble() {
+        let raw = "Ecco il testo rivisto:\nIl rapporto è pronto.";
+        assert_eq!(
+            sanitize_edit_output(raw, "rapporto").as_deref(),
+            Some("Il rapporto è pronto.")
         );
     }
 

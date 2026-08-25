@@ -789,9 +789,12 @@
         "es": "Español",
         "fr": "Français",
         "de": "Deutsch",
-        "pt": "Português"
+        "pt": "Português",
+        "it": "Italiano",
+        "nl": "Nederlands",
+        "pl": "Polski"
       },
-      "footnote": "A detecção automática é compatível com 25 idiomas europeus. Os comandos de edição por voz atualmente são em inglês."
+      "footnote": "A detecção automática é compatível com 25 idiomas europeus. Os comandos de edição por voz seguem o idioma escolhido aqui; no modo automático valem os comandos em inglês."
     },
     "dictionary": {
       "title": "Dicionário",
