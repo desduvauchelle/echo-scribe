@@ -443,136 +443,194 @@ pub fn spawn(
                                                 None;
                                             let mut target_app_name: Option<String> = None;
                                             let mut expected_paste_pid: Option<i32> = None;
+                                            // Tier 0: write the transcript straight into the
+                                            // element that was focused at hotkey time. Addressing
+                                            // the element directly removes every way a paste can
+                                            // land somewhere else — no activation race, no
+                                            // WindowServer key routing, no clipboard. Only used
+                                            // when there is no live caret to respect (see
+                                            // `try_direct_insert`), and never when a spoken
+                                            // "press enter" follows, because Enter is a keystroke
+                                            // and needs the app actually frontmost to be safe.
+                                            let mut delivered_directly = false;
                                             if let Some(snap) = pending_context.take() {
                                                 let element = pending_focus_element.take();
-                                                let outcome = focus::restore_focus(
-                                                    &snap,
-                                                    element.as_ref(),
-                                                    focus::PasteIntent::Insert,
-                                                );
-                                                info!(
-                                                    pid = snap.pid,
-                                                    same_app = outcome.same_app,
-                                                    activated = outcome.activated_app,
-                                                    activation_path =
-                                                        outcome.activation_path.as_str(),
-                                                    frontmost_verified = outcome.frontmost_verified,
-                                                    ax_focused = outcome.ax_focused,
-                                                    ax_error = ?outcome.ax_error,
-                                                    element_captured = outcome.element_captured,
-                                                    ax_role = ?outcome.element_role,
-                                                    frontmost_before = ?outcome.frontmost_pid_before,
-                                                    paste_time_focus = ?outcome.paste_time_focus_role,
-                                                    captured_target = outcome.captured_target.as_str(),
-                                                    paste_time_target = outcome.paste_time_target.as_str(),
-                                                    redirected_to = ?outcome.redirected_pid,
-                                                    blocker = ?outcome.blocker,
-                                                    "focus restored before paste"
-                                                );
-                                                let _ = app.emit("voice:paste_pending", ());
-                                                // Settle delay. Same-app skips the
-                                                // app-activation round-trip so we
-                                                // can wait less; cross-app needs
-                                                // WindowServer time to route key.
-                                                let settle_ms =
-                                                    if outcome.same_app { 60 } else { 250 };
-                                                std::thread::sleep(
-                                                    std::time::Duration::from_millis(settle_ms),
-                                                );
-                                                expected_paste_pid =
-                                                    outcome.redirected_pid.or(Some(snap.pid));
-                                                target_app_name = snap.app_name.clone();
-                                                restore_outcome = Some(outcome);
+                                                let wants_enter = post_action
+                                                    == Some(
+                                                        crate::asr::spoken_commands::PostAction::PressEnter,
+                                                    );
+                                                if !wants_enter {
+                                                    if let Some(insert) = focus::try_direct_insert(
+                                                        &snap,
+                                                        element.as_ref(),
+                                                        &text,
+                                                        focus::PasteIntent::Insert,
+                                                    ) {
+                                                        if insert.delivered() {
+                                                            delivered_directly = true;
+                                                            info!(
+                                                                chars = text.len(),
+                                                                verdict = insert.as_str(),
+                                                                app = ?snap.app_name,
+                                                                "transcript delivered by direct AX insert; no synthetic paste needed"
+                                                            );
+                                                            let _ = app
+                                                                .emit("voice:paste_dispatched", ());
+                                                            record_capture_event(
+                                                                db.as_ref(),
+                                                                &capture_id,
+                                                                "paste_dispatched",
+                                                                Some(&format!(
+                                                                    "direct_ax_insert:{}",
+                                                                    insert.as_str()
+                                                                )),
+                                                            );
+                                                        }
+                                                    }
+                                                }
+                                                if !delivered_directly {
+                                                    let outcome = focus::restore_focus(
+                                                        &snap,
+                                                        element.as_ref(),
+                                                        focus::PasteIntent::Insert,
+                                                    );
+                                                    info!(
+                                                        pid = snap.pid,
+                                                        same_app = outcome.same_app,
+                                                        activated = outcome.activated_app,
+                                                        activation_path =
+                                                            outcome.activation_path.as_str(),
+                                                        frontmost_verified = outcome.frontmost_verified,
+                                                        ax_focused = outcome.ax_focused,
+                                                        ax_error = ?outcome.ax_error,
+                                                        element_captured = outcome.element_captured,
+                                                        ax_role = ?outcome.element_role,
+                                                        frontmost_before = ?outcome.frontmost_pid_before,
+                                                        paste_time_focus = ?outcome.paste_time_focus_role,
+                                                        captured_target = outcome.captured_target.as_str(),
+                                                        paste_time_target = outcome.paste_time_target.as_str(),
+                                                        redirected_to = ?outcome.redirected_pid,
+                                                        blocker = ?outcome.blocker,
+                                                        "focus restored before paste"
+                                                    );
+                                                    let _ = app.emit("voice:paste_pending", ());
+                                                    // Settle delay. Same-app skips the
+                                                    // app-activation round-trip so we
+                                                    // can wait less; cross-app needs
+                                                    // WindowServer time to route key.
+                                                    let settle_ms =
+                                                        if outcome.same_app { 60 } else { 250 };
+                                                    std::thread::sleep(
+                                                        std::time::Duration::from_millis(settle_ms),
+                                                    );
+                                                    expected_paste_pid =
+                                                        outcome.redirected_pid.or(Some(snap.pid));
+                                                    target_app_name = snap.app_name.clone();
+                                                    restore_outcome = Some(outcome);
+                                                }
                                             }
                                             // Never synthesize Cmd+V when it cannot land: if the
                                             // original app refused to come frontmost, or nothing
                                             // that accepts text has focus, the keystroke would be
                                             // silently discarded. Hand the transcript to the user
                                             // via the clipboard instead.
-                                            let frontmost_before_paste =
-                                                focus::current_frontmost_pid();
-                                            let target_still_frontmost =
-                                                focus::paste_target_still_frontmost(
-                                                    expected_paste_pid,
-                                                    frontmost_before_paste,
-                                                );
-                                            if !target_still_frontmost {
-                                                warn!(
-                                                    expected_pid = ?expected_paste_pid,
-                                                    frontmost_pid = ?frontmost_before_paste,
-                                                    "paste target changed during settle delay"
-                                                );
-                                            }
-                                            let blocker = restore_outcome
-                                                .as_ref()
-                                                .and_then(|o| o.blocker)
-                                                .or_else(|| {
-                                                    (!target_still_frontmost).then_some(
-                                                        focus::PasteBlocker::FocusChanged,
-                                                    )
-                                                });
-                                            if let Some(blocker) = blocker {
-                                                let app_label =
-                                                    target_app_name.unwrap_or_else(|| {
-                                                        "the original app".to_string()
+                                            if !delivered_directly {
+                                                let frontmost_before_paste =
+                                                    focus::current_frontmost_pid();
+                                                let target_still_frontmost =
+                                                    focus::paste_target_still_frontmost(
+                                                        expected_paste_pid,
+                                                        frontmost_before_paste,
+                                                    );
+                                                if !target_still_frontmost {
+                                                    warn!(
+                                                        expected_pid = ?expected_paste_pid,
+                                                        frontmost_pid = ?frontmost_before_paste,
+                                                        "paste target changed during settle delay"
+                                                    );
+                                                }
+                                                let blocker = restore_outcome
+                                                    .as_ref()
+                                                    .and_then(|o| o.blocker)
+                                                    .or_else(|| {
+                                                        (!target_still_frontmost).then_some(
+                                                            focus::PasteBlocker::FocusChanged,
+                                                        )
                                                     });
-                                                warn!(
+                                                if let Some(blocker) = blocker {
+                                                    let app_label =
+                                                        target_app_name.unwrap_or_else(|| {
+                                                            "the original app".to_string()
+                                                        });
+                                                    warn!(
                                                 chars = text.len(),
                                                 reason = blocker.reason(),
                                                 "no confirmed paste target; skipping synthetic paste"
                                             );
-                                                match crate::input::paste::copy_to_clipboard(&text)
-                                                {
-                                                    Ok(()) => {
-                                                        let _ = app.emit(
-                                                            "voice:paste_failed",
-                                                            blocker.reason(),
-                                                        );
-                                                        record_capture_event(
-                                                            db.as_ref(),
-                                                            &capture_id,
-                                                            "paste_failed",
-                                                            Some(&format!(
-                                                                "{}; transcript copied",
-                                                                blocker.reason()
-                                                            )),
-                                                        );
-                                                        let _ = app.emit(
-                                                            "asr:error",
-                                                            blocker.user_message(&app_label),
-                                                        );
+                                                    match crate::input::paste::copy_to_clipboard(
+                                                        &text,
+                                                    ) {
+                                                        Ok(()) => {
+                                                            let _ = app.emit(
+                                                                "voice:paste_failed",
+                                                                blocker.reason(),
+                                                            );
+                                                            record_capture_event(
+                                                                db.as_ref(),
+                                                                &capture_id,
+                                                                "paste_failed",
+                                                                Some(&format!(
+                                                                    "{}; transcript copied",
+                                                                    blocker.reason()
+                                                                )),
+                                                            );
+                                                            let _ = app.emit(
+                                                                "asr:error",
+                                                                blocker.user_message(&app_label),
+                                                            );
+                                                        }
+                                                        Err(e) => {
+                                                            error!(?e, "clipboard fallback failed");
+                                                            let _ = app.emit(
+                                                                "asr:error",
+                                                                format!("Paste failed: {e}"),
+                                                            );
+                                                            let _ = app.emit(
+                                                                "voice:paste_failed",
+                                                                "clipboard",
+                                                            );
+                                                            record_capture_event(
+                                                                db.as_ref(),
+                                                                &capture_id,
+                                                                "paste_failed",
+                                                                Some("clipboard fallback failed"),
+                                                            );
+                                                        }
                                                     }
-                                                    Err(e) => {
-                                                        error!(?e, "clipboard fallback failed");
-                                                        let _ = app.emit(
-                                                            "asr:error",
-                                                            format!("Paste failed: {e}"),
-                                                        );
-                                                        let _ = app.emit(
-                                                            "voice:paste_failed",
-                                                            "clipboard",
-                                                        );
-                                                        record_capture_event(
-                                                            db.as_ref(),
-                                                            &capture_id,
-                                                            "paste_failed",
-                                                            Some("clipboard fallback failed"),
-                                                        );
+                                                } else {
+                                                    // If the app reported an unhealed focus void the
+                                                    // Cmd+V likely lands nowhere — leave the transcript
+                                                    // on the clipboard so a manual ⌘V still works.
+                                                    let restore_clipboard = restore_outcome
+                                                        .as_ref()
+                                                        .map(|o| {
+                                                            o.paste_target_confirmed_or_unknown()
+                                                        })
+                                                        .unwrap_or(true);
+                                                    if !restore_clipboard {
+                                                        warn!("focus void unhealed; keeping transcript on clipboard after paste attempt");
                                                     }
-                                                }
-                                            } else {
-                                                // If the app reported an unhealed focus void the
-                                                // Cmd+V likely lands nowhere — leave the transcript
-                                                // on the clipboard so a manual ⌘V still works.
-                                                let restore_clipboard = restore_outcome
-                                                    .as_ref()
-                                                    .map(|o| o.paste_target_confirmed_or_unknown())
-                                                    .unwrap_or(true);
-                                                if !restore_clipboard {
-                                                    warn!("focus void unhealed; keeping transcript on clipboard after paste attempt");
-                                                }
-                                                info!(chars = text.len(), "pasting transcription");
-                                                if let Err(e) = crate::input::paste::paste_at_cursor_with_options(
+                                                    info!(
+                                                        chars = text.len(),
+                                                        "pasting transcription"
+                                                    );
+                                                    // Baseline for the post-paste landing check. Read
+                                                    // before dispatch so a swallowed ⌘V is detectable
+                                                    // rather than silent.
+                                                    let verify_pid = expected_paste_pid;
+                                                    let pre_paste_chars = verify_pid
+                                                        .and_then(focus::focused_char_count);
+                                                    if let Err(e) = crate::input::paste::paste_at_cursor_with_options(
                                                 &text,
                                                 restore_clipboard,
                                             ) {
@@ -584,15 +642,51 @@ pub fn spawn(
                                                 let _ = app.emit("voice:paste_failed", "paste");
                                                 record_capture_event(db.as_ref(), &capture_id, "paste_failed", Some("synthetic paste failed; transcript preserved"));
                                             } else {
-                                                let _ = app.emit("voice:paste_dispatched", ());
-                                                record_capture_event(db.as_ref(), &capture_id, "paste_dispatched", None);
-                                                if post_action == Some(crate::asr::spoken_commands::PostAction::PressEnter) {
-                                                    if let Err(e) = crate::input::paste::press_enter() {
-                                                        error!(?e, "post-paste Enter failed");
-                                                        let _ = app.emit("asr:error", format!("Couldn't press Enter: {e}"));
+                                                // Dispatch succeeded, but CGEventPost reports
+                                                // nothing about whether the target consumed the
+                                                // keystroke. Measure the field: if it never
+                                                // changed, the transcript was swallowed and the
+                                                // user needs it back on the clipboard.
+                                                let landed = match (verify_pid, pre_paste_chars) {
+                                                    (Some(pid), Some(before)) => {
+                                                        focus::wait_for_paste_landed(pid, before, 6)
+                                                    }
+                                                    _ => None,
+                                                };
+                                                if landed == Some(false) {
+                                                    warn!(
+                                                        chars = text.len(),
+                                                        pid = ?verify_pid,
+                                                        before = ?pre_paste_chars,
+                                                        "synthetic paste did not land; restoring transcript to clipboard"
+                                                    );
+                                                    match crate::input::paste::copy_to_clipboard(&text) {
+                                                        Ok(()) => {
+                                                            let _ = app.emit("voice:paste_failed", "paste_not_landed");
+                                                            record_capture_event(db.as_ref(), &capture_id, "paste_failed", Some("paste_not_landed; transcript copied"));
+                                                            let _ = app.emit("asr:error", "That field didn't accept the dictation. Your transcript is on the clipboard — click into a field and press ⌘V.");
+                                                        }
+                                                        Err(e) => {
+                                                            error!(?e, "clipboard fallback failed after unlanded paste");
+                                                            let _ = app.emit("asr:error", "Dictation couldn't be delivered. Use Copy last transcript from the tray.");
+                                                            record_capture_event(db.as_ref(), &capture_id, "paste_failed", Some("paste_not_landed; clipboard fallback failed"));
+                                                        }
+                                                    }
+                                                } else {
+                                                    if landed.is_none() {
+                                                        info!(chars = text.len(), "paste dispatched; target reports no character count, landing unverifiable");
+                                                    }
+                                                    let _ = app.emit("voice:paste_dispatched", ());
+                                                    record_capture_event(db.as_ref(), &capture_id, "paste_dispatched", None);
+                                                    if post_action == Some(crate::asr::spoken_commands::PostAction::PressEnter) {
+                                                        if let Err(e) = crate::input::paste::press_enter() {
+                                                            error!(?e, "post-paste Enter failed");
+                                                            let _ = app.emit("asr:error", format!("Couldn't press Enter: {e}"));
+                                                        }
                                                     }
                                                 }
                                             }
+                                                }
                                             }
                                             force_state(&state, PipelineState::Idle);
                                             on_state_change(TrayPipelineState::Idle);
@@ -625,11 +719,14 @@ pub fn spawn(
                                                 // A missing model still deserves a visible nudge — otherwise
                                                 // every capture silently files untagged and the user never
                                                 // learns why.
-                                                if let Err(crate::classifier::ClassifierError::Llm(
-                                                    crate::llm::LlmError::NoActiveModel,
-                                                )) = &cls
+                                                if let Err(
+                                                    crate::classifier::ClassifierError::Llm(
+                                                        crate::llm::LlmError::NoActiveModel,
+                                                    ),
+                                                ) = &cls
                                                 {
-                                                    let _ = app.emit("llm:not_configured", "log_capture");
+                                                    let _ = app
+                                                        .emit("llm:not_configured", "log_capture");
                                                 }
                                                 let c = cls.unwrap_or_else(|e| {
                                                 warn!(?e, "classify failed; filing capture as a plain note");
@@ -1322,8 +1419,7 @@ async fn try_intercept_action(
                         // surface their own richer UI (start toast / setup
                         // window), so skip the generic confirmation there.
                         let action_type = cmd.action_type.as_deref().unwrap_or("");
-                        if action_type != "start_meeting"
-                            && action_type != "start_screen_recording"
+                        if action_type != "start_meeting" && action_type != "start_screen_recording"
                         {
                             crate::overlay::show_action_toast(app, action_type, &msg);
                         }
@@ -1413,10 +1509,13 @@ async fn run_edit_selection(
     };
 
     // Apply: AX write-back first (clean, no keystrokes), else Cmd+V paste.
+    // Verified write-back: an AXError of 0 is not proof the text landed, and
+    // a silently-failed edit here means the user's selection is left stale
+    // with no indication anything went wrong.
     let applied_via_ax = selection.method == crate::input::focus::SelectionMethod::Ax
         && element
             .as_ref()
-            .map(|el| el.replace_selected_text(&result) == 0)
+            .map(|el| el.insert_text_verified(&result).delivered())
             .unwrap_or(false);
 
     if !applied_via_ax {

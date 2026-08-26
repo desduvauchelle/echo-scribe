@@ -117,26 +117,58 @@ pub enum TextTarget {
     /// A role that provably cannot hold a caret (list, button, menu, …).
     /// ⌘V is delivered and discarded.
     Rejects,
-    /// Unrecognised role, or no role at all. Deliberately permissive: plenty
-    /// of apps expose custom or container roles over perfectly good text
-    /// views, and blind ⌘V is the long-standing behavior that works for them.
+    /// Unrecognised role. Deliberately permissive: plenty of apps expose
+    /// custom or container roles over perfectly good text views, and blind
+    /// ⌘V is the long-standing behavior that works for them.
     #[default]
     Unknown,
+    /// The app reports *no focused element at all*. Distinct from
+    /// [`TextTarget::Unknown`]: there is no element whose role we failed to
+    /// recognise, there is nothing focused, so a ⌘V has provably nowhere to
+    /// land. Treating this as `Unknown` is what let a transcript vanish into
+    /// a Mail inbox on 2026-08-25 — the restore had already failed, the
+    /// re-read said "nothing has focus", and the paste was sent anyway.
+    NoFocus,
 }
 
 impl TextTarget {
+    /// Classify the role of the element captured at hotkey time.
+    ///
+    /// `None` here means "we never captured an element", which is not
+    /// evidence about where the caret is — it stays [`TextTarget::Unknown`]
+    /// so the blind-⌘V path that works for many apps is preserved. Use
+    /// [`TextTarget::from_probe`] for a live focus read, where `None` is
+    /// evidence.
     pub fn from_role(role: Option<&str>) -> Self {
         match role {
             Some(
-                "AXTextArea" | "AXTextField" | "AXSecureTextField" | "AXSearchField"
-                | "AXComboBox",
+                "AXTextArea" | "AXTextField" | "AXSecureTextField" | "AXSearchField" | "AXComboBox",
             ) => TextTarget::Accepts,
             Some(
-                "AXList" | "AXTable" | "AXOutline" | "AXRow" | "AXCell" | "AXColumn"
-                | "AXTabGroup" | "AXButton" | "AXRadioButton" | "AXCheckBox" | "AXPopUpButton"
-                | "AXMenuButton" | "AXMenu" | "AXMenuItem" | "AXMenuBar" | "AXMenuBarItem"
-                | "AXImage" | "AXSlider" | "AXScrollBar" | "AXToolbar" | "AXStaticText"
-                | "AXLink" | "AXProgressIndicator" | "AXDisclosureTriangle",
+                "AXList"
+                | "AXTable"
+                | "AXOutline"
+                | "AXRow"
+                | "AXCell"
+                | "AXColumn"
+                | "AXTabGroup"
+                | "AXButton"
+                | "AXRadioButton"
+                | "AXCheckBox"
+                | "AXPopUpButton"
+                | "AXMenuButton"
+                | "AXMenu"
+                | "AXMenuItem"
+                | "AXMenuBar"
+                | "AXMenuBarItem"
+                | "AXImage"
+                | "AXSlider"
+                | "AXScrollBar"
+                | "AXToolbar"
+                | "AXStaticText"
+                | "AXLink"
+                | "AXProgressIndicator"
+                | "AXDisclosureTriangle",
             ) => TextTarget::Rejects,
             // Containers (AXGroup, AXScrollArea, AXWebArea, AXWindow, …), custom
             // roles, and "no role read" all land here.
@@ -144,11 +176,67 @@ impl TextTarget {
         }
     }
 
+    /// Classify a *live* focus probe of the target app.
+    ///
+    /// Unlike [`TextTarget::from_role`], `None` is meaningful: the app was
+    /// asked what has keyboard focus and answered "nothing". That is a
+    /// provable dead end for ⌘V, so it maps to [`TextTarget::NoFocus`].
+    pub fn from_probe(role: Option<&str>) -> Self {
+        match role {
+            None => TextTarget::NoFocus,
+            Some(r) => TextTarget::from_role(Some(r)),
+        }
+    }
+
+    /// Whether a synthesized ⌘V may be sent at this target.
+    ///
+    /// `Unknown` stays permissive (unrecognised roles are usually fine);
+    /// `Rejects` and `NoFocus` are both provable dead ends.
+    pub fn allows_synthetic_paste(self) -> bool {
+        matches!(self, TextTarget::Accepts | TextTarget::Unknown)
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             TextTarget::Accepts => "accepts",
             TextTarget::Rejects => "rejects",
             TextTarget::Unknown => "unknown",
+            TextTarget::NoFocus => "no_focus",
+        }
+    }
+}
+
+/// Result of writing text straight into a captured AX element.
+///
+/// The distinction that matters is `Refuted` vs `Unverifiable`: an `AXError`
+/// of 0 is *not* proof that text landed (setting an attribute on an element
+/// an app no longer considers live succeeds and does nothing), so we measure
+/// the element instead of believing the return code.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InsertOutcome {
+    /// The element's character count moved as expected. Text is in.
+    Confirmed,
+    /// The write failed, or the character count provably did not change.
+    /// Safe to fall back to ⌘V — nothing was inserted.
+    Refuted,
+    /// The write reported success but the element does not expose a
+    /// character count, so we cannot measure it. Treated as success: we must
+    /// not retry via ⌘V, because if the text *did* land a retry would
+    /// duplicate it.
+    Unverifiable,
+}
+
+impl InsertOutcome {
+    /// Whether the caller should consider the text delivered and skip ⌘V.
+    pub fn delivered(self) -> bool {
+        matches!(self, InsertOutcome::Confirmed | InsertOutcome::Unverifiable)
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            InsertOutcome::Confirmed => "confirmed",
+            InsertOutcome::Refuted => "refuted",
+            InsertOutcome::Unverifiable => "unverifiable",
         }
     }
 }
@@ -279,6 +367,25 @@ fn enable_chromium_ax(app_el: &AXUIElement, pid: i32) {
     }
 }
 
+/// Which application actually owns an AX element, via `AXUIElementGetPid`.
+///
+/// The one authoritative answer to "whose element is this?". Without it a
+/// system-wide focus read can hand us an element belonging to a completely
+/// different app, which we then mislabel with the target's pid and try to
+/// restore into the target — a set that silently no-ops while reporting
+/// success. Returns `None` if the element is stale or the call fails.
+#[cfg(target_os = "macos")]
+fn element_owner_pid(element: &AXUIElement) -> Option<i32> {
+    use std::ptr::NonNull;
+    let mut owner: pid_t = 0;
+    let out = NonNull::new(&mut owner as *mut pid_t)?;
+    let err = unsafe { element.pid(out) };
+    if err.0 != 0 {
+        return None;
+    }
+    Some(owner as i32)
+}
+
 /// Capture the AX-level focused UI element of the given pid's application.
 ///
 /// Tries the **app-level** `AXUIElement` first (the conventional, reliable
@@ -352,6 +459,28 @@ pub fn capture_focused_element(pid: i32) -> Option<FocusElement> {
             let nn = NonNull::new(sw_raw as *mut AXUIElement)?;
             (CFRetained::<AXUIElement>::from_raw(nn), "system-wide")
         };
+
+        // ── Ownership check ─────────────────────────────────────────────
+        // The system-wide focus attribute is global: it can point at an
+        // element belonging to a *different* app than the one we are about
+        // to paste into (commonly a stale pointer to the field we pasted
+        // into moments ago). Keeping such an element would mean restoring
+        // app B's text field as app A's focus — a no-op that returns
+        // kAXErrorSuccess and sends the paste into the void.
+        //
+        // Treat a foreign element as no element at all: the caller then
+        // falls back to a live focus probe of the real target and, if that
+        // comes back empty, blocks the paste instead of guessing.
+        let owner_pid = element_owner_pid(&element);
+        if owner_pid != Some(pid) {
+            tracing::warn!(
+                pid,
+                owner_pid = ?owner_pid,
+                source,
+                "capture_focused_element: focused element belongs to a different app; discarding it"
+            );
+            return None;
+        }
 
         // Best-effort role lookup for diagnostic logging.
         let (role, role_err) = {
@@ -525,6 +654,71 @@ impl FocusElement {
             );
             err.0
         }
+    }
+
+    /// Character count of this element, when it reports one.
+    pub fn char_count(&self) -> Option<i64> {
+        copy_ax_i64_attribute(&self.element, "AXNumberOfCharacters")
+    }
+
+    /// Write `text` into this element at its caret and **verify it landed**.
+    ///
+    /// This is the primary delivery path for dictation, and the reason a
+    /// transcript can no longer arrive in the wrong place: it addresses the
+    /// element directly rather than aiming a keystroke at whatever happens
+    /// to have focus. There is no app activation, no clipboard round-trip,
+    /// and no dependency on which window the WindowServer thinks is key —
+    /// so there is no window in which the target can change underneath us.
+    ///
+    /// Verification measures the element's character count before and after
+    /// and compares against the expected delta (inserted chars minus any
+    /// selection the insert replaced). A `Refuted` result means nothing was
+    /// written, so the caller may safely fall back to ⌘V.
+    pub fn insert_text_verified(&self, text: &str) -> InsertOutcome {
+        let inserted = text.chars().count() as i64;
+        let replaced = self
+            .selected_text()
+            .map(|s| s.chars().count() as i64)
+            .unwrap_or(0);
+        let before = self.char_count();
+
+        let err = self.replace_selected_text(text);
+        if err != 0 {
+            tracing::warn!(
+                pid = self.pid,
+                ax_error = err,
+                "insert_text_verified: AX write failed; falling back to paste"
+            );
+            return InsertOutcome::Refuted;
+        }
+
+        let after = self.char_count();
+        let verdict = match (before, after) {
+            (Some(b), Some(a)) => {
+                let expected = b - replaced + inserted;
+                if a == expected || a != b {
+                    InsertOutcome::Confirmed
+                } else {
+                    InsertOutcome::Refuted
+                }
+            }
+            // No measurable character count: the write reported success and
+            // we cannot prove otherwise. Retrying with ⌘V risks duplicating
+            // text that did land, which is worse than an unverified success.
+            _ => InsertOutcome::Unverifiable,
+        };
+
+        tracing::info!(
+            pid = self.pid,
+            role = ?self.role,
+            chars = inserted,
+            replaced,
+            before = ?before,
+            after = ?after,
+            verdict = verdict.as_str(),
+            "insert_text_verified: direct AX insertion"
+        );
+        verdict
     }
 }
 
@@ -769,6 +963,77 @@ fn wait_until_frontmost(pid: i32, polls: u32, label: &str) -> bool {
     false
 }
 
+/// Deliver `text` straight into the captured element, without activating the
+/// app or synthesizing a keystroke — when that is provably the right target.
+///
+/// Returns `None` when direct insertion does not apply and the caller should
+/// use the activate-and-⌘V path.
+///
+/// The gate matters as much as the write. Direct insertion addresses the
+/// element captured at hotkey time, so it must not be used when the user has
+/// a *live caret somewhere else in the same app*: they may have clicked into
+/// a different field while speaking, and the visible caret wins. So we insert
+/// directly only when there is no live caret to respect:
+///
+///   * the captured app is not frontmost — the user moved away entirely, and
+///     the captured element is exactly where the old code would have pasted
+///     after yanking the app forward; or
+///   * the captured app is frontmost but reports no focused element — a
+///     click-activated window with no first responder, where ⌘V would land
+///     nowhere at all.
+///
+/// `ReplaceSelection` is excluded: the edit path applies its own AX
+/// write-back against a selection it captured itself.
+#[cfg(target_os = "macos")]
+pub fn try_direct_insert(
+    ctx: &FocusContext,
+    element: Option<&FocusElement>,
+    text: &str,
+    intent: PasteIntent,
+) -> Option<InsertOutcome> {
+    if intent != PasteIntent::Insert {
+        return None;
+    }
+    let el = element?;
+    if TextTarget::from_role(el.role()) != TextTarget::Accepts {
+        return None;
+    }
+
+    let frontmost = current_frontmost_pid();
+    let live_focus_present = if frontmost == Some(ctx.pid) {
+        probe_focused_role(ctx.pid).is_some()
+    } else {
+        false
+    };
+    if !should_restore_captured_element(frontmost, ctx.pid, true, live_focus_present) {
+        tracing::info!(
+            pid = ctx.pid,
+            "direct insert skipped; target app frontmost with a live caret to respect"
+        );
+        return None;
+    }
+
+    let outcome = el.insert_text_verified(text);
+    tracing::info!(
+        pid = ctx.pid,
+        app = ?ctx.app_name,
+        frontmost_pid = ?frontmost,
+        outcome = outcome.as_str(),
+        "direct AX insert attempted (no app activation, no synthetic paste)"
+    );
+    Some(outcome)
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn try_direct_insert(
+    _ctx: &FocusContext,
+    _element: Option<&FocusElement>,
+    _text: &str,
+    _intent: PasteIntent,
+) -> Option<InsertOutcome> {
+    None
+}
+
 /// Restore focus before paste. Strategy:
 ///   0. If the captured element provably cannot hold a caret, stop: never
 ///      activate an app for a paste that would be swallowed (see
@@ -904,16 +1169,22 @@ pub fn restore_focus(
     } else {
         paste_time_focus_role.clone()
     };
-    let final_target = TextTarget::from_role(final_focus_role.as_deref());
+    // `from_probe`, not `from_role`: this is a live read of the target app,
+    // so "nothing has focus" is evidence, not an unknown. An `ax_set` of
+    // true only means the AX call returned 0 — this re-read is what decides
+    // whether the restore actually took.
+    let final_target = TextTarget::from_probe(final_focus_role.as_deref());
 
     let blocker = if !frontmost_verified {
         Some(PasteBlocker::AppNotFrontmost)
-    } else if final_target == TextTarget::Rejects {
+    } else if !final_target.allows_synthetic_paste() {
         tracing::warn!(
             pid = ctx.pid,
             captured_role = ?element.and_then(|e| e.role()),
             final_focus_role = ?final_focus_role,
-            "focus landed on an element that cannot accept text; refusing synthetic paste"
+            final_target = final_target.as_str(),
+            ax_restore_reported_success = ax_set,
+            "no element able to accept text has focus; refusing synthetic paste"
         );
         Some(PasteBlocker::NoTextTarget)
     } else {
@@ -973,7 +1244,7 @@ fn redirect_or_block(
     if intent == PasteIntent::Insert {
         if let Some(pid) = candidate {
             let role = probe_focused_role(pid);
-            if TextTarget::from_role(role.as_deref()) == TextTarget::Accepts {
+            if TextTarget::from_probe(role.as_deref()) == TextTarget::Accepts {
                 tracing::warn!(
                     captured_pid = ctx.pid,
                     captured_role = ?captured_role,
@@ -1386,6 +1657,80 @@ fn copy_ax_string_attribute(element: &AXUIElement, attr: &str) -> Option<String>
     }
 }
 
+/// Read an integer AX attribute (e.g. `AXNumberOfCharacters`).
+///
+/// This is the measuring tape for paste verification: comparing a text
+/// element's character count before and after an insert is how we learn
+/// whether text actually landed, rather than trusting an `AXError` of 0.
+/// Uses a slightly longer timeout than the string reader because it is
+/// called on the paste path, where a wrong answer is worse than a slow one.
+#[cfg(target_os = "macos")]
+fn copy_ax_i64_attribute(element: &AXUIElement, attr: &str) -> Option<i64> {
+    use objc2_core_foundation::{CFNumber, CFString, CFType};
+    use std::ptr::NonNull;
+
+    let attr = CFString::from_str(attr);
+    unsafe {
+        let _ = element.set_messaging_timeout(0.2);
+        let mut raw: *const CFType = std::ptr::null();
+        let err =
+            element.copy_attribute_value(&attr, NonNull::new(&mut raw as *mut *const CFType)?);
+        if err.0 != 0 || raw.is_null() {
+            return None;
+        }
+        let value: CFRetained<CFType> = CFRetained::from_raw(NonNull::new(raw as *mut CFType)?);
+        value.downcast::<CFNumber>().ok().and_then(|n| n.as_i64())
+    }
+}
+
+/// Character count of whatever element currently has focus in `pid`, used to
+/// verify that a synthesized ⌘V actually landed. `None` when nothing has
+/// focus or the element does not report a character count.
+#[cfg(target_os = "macos")]
+pub fn focused_char_count(pid: i32) -> Option<i64> {
+    let el = focused_ui_element_macos(pid)?;
+    copy_ax_i64_attribute(&el, "AXNumberOfCharacters")
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn focused_char_count(_pid: i32) -> Option<i64> {
+    None
+}
+
+/// After synthesizing ⌘V, confirm the text actually arrived.
+///
+/// The keystroke path is inherently unverifiable at the point of dispatch —
+/// `CGEventPost` succeeds whether or not anything consumes the event — so
+/// this is the only place we learn that a paste was swallowed. Polls the
+/// focused element's character count, because apps apply a paste
+/// asynchronously and the count is briefly unchanged right after dispatch.
+///
+/// Returns `Some(true)` when the text landed, `Some(false)` when the count
+/// was readable the whole time and never moved, and `None` when the element
+/// reports no character count (nothing provable either way).
+#[cfg(target_os = "macos")]
+pub fn wait_for_paste_landed(pid: i32, before: i64, polls: u32) -> Option<bool> {
+    let mut saw_readable = false;
+    for _ in 0..polls {
+        std::thread::sleep(std::time::Duration::from_millis(60));
+        match focused_char_count(pid) {
+            Some(now) => {
+                saw_readable = true;
+                if now != before {
+                    return Some(true);
+                }
+            }
+            None => {}
+        }
+    }
+    saw_readable.then_some(false)
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn wait_for_paste_landed(_pid: i32, _before: i64, _polls: u32) -> Option<bool> {
+    None
+}
+
 #[cfg(target_os = "macos")]
 fn copy_ax_url_like_attribute(element: &AXUIElement, attr: &str) -> Option<String> {
     use objc2_core_foundation::{CFString, CFType, CFURL};
@@ -1754,6 +2099,72 @@ mod tests {
             "cross-app dictation still needs the captured element after app activation"
         );
         assert!(should_restore_captured_element(Some(7), 42, true, false));
+    }
+
+    #[test]
+    /// A live focus probe that comes back empty is evidence of a dead end,
+    /// while "we never captured an element" is not. Conflating the two is
+    /// what made the caret guard unable to fire.
+    fn probe_none_is_no_focus_but_captured_none_stays_unknown() {
+        assert_eq!(TextTarget::from_probe(None), TextTarget::NoFocus);
+        assert_eq!(TextTarget::from_role(None), TextTarget::Unknown);
+        // An unrecognised role is still permissive on both paths: plenty of
+        // apps wrap real text views in custom roles.
+        assert_eq!(
+            TextTarget::from_probe(Some("AXCustomThing")),
+            TextTarget::Unknown
+        );
+        assert_eq!(
+            TextTarget::from_probe(Some("AXTextArea")),
+            TextTarget::Accepts
+        );
+        assert_eq!(TextTarget::from_probe(Some("AXList")), TextTarget::Rejects);
+    }
+
+    #[test]
+    /// Only provable dead ends block a synthetic paste.
+    fn synthetic_paste_allowed_only_for_accepts_and_unknown() {
+        assert!(TextTarget::Accepts.allows_synthetic_paste());
+        assert!(TextTarget::Unknown.allows_synthetic_paste());
+        assert!(!TextTarget::Rejects.allows_synthetic_paste());
+        assert!(!TextTarget::NoFocus.allows_synthetic_paste());
+    }
+
+    #[test]
+    /// Regression for the 2026-08-25 Mail incident: dictation captured a
+    /// system-wide `AXTextArea` that belonged to another app, the restore
+    /// silently no-opped, and the paste-time re-read reported no focus at
+    /// all — which the old code classified as `Unknown` and pasted into.
+    fn no_focus_after_failed_restore_blocks_the_paste() {
+        // What the log recorded: paste_time_focus=None, so the target is a
+        // provable void, not an unrecognised role.
+        let final_target = TextTarget::from_probe(None);
+        assert_eq!(final_target, TextTarget::NoFocus);
+        assert!(
+            !final_target.allows_synthetic_paste(),
+            "a focus void must never receive a synthetic paste"
+        );
+    }
+
+    #[test]
+    /// An unverifiable write must count as delivered: retrying it via ⌘V
+    /// would duplicate text that may already have landed.
+    fn insert_outcome_delivery_semantics() {
+        assert!(InsertOutcome::Confirmed.delivered());
+        assert!(InsertOutcome::Unverifiable.delivered());
+        assert!(!InsertOutcome::Refuted.delivered());
+    }
+
+    #[test]
+    /// Direct insert is gated on there being no live caret to respect: it
+    /// must not hijack a field the user clicked into while speaking.
+    fn direct_insert_gate_matches_restore_gate() {
+        // App not frontmost → the captured element is the target.
+        assert!(should_restore_captured_element(Some(99), 42, true, false));
+        // App frontmost with a live caret → leave it alone.
+        assert!(!should_restore_captured_element(Some(42), 42, true, true));
+        // App frontmost but reporting a focus void → captured element wins.
+        assert!(should_restore_captured_element(Some(42), 42, true, false));
     }
 
     #[test]
