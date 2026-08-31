@@ -618,7 +618,7 @@ pub fn spawn(
                                                         })
                                                         .unwrap_or(true);
                                                     if !restore_clipboard {
-                                                        warn!("focus void unhealed; keeping transcript on clipboard after paste attempt");
+                                                        warn!("paste target unconfirmed; keeping transcript on clipboard after paste attempt");
                                                     }
                                                     info!(
                                                         chars = text.len(),

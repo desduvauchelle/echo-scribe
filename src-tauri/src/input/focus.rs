@@ -1112,6 +1112,29 @@ pub fn restore_focus(
         return redirect_or_block(ctx, element, intent, frontmost, same_app);
     }
 
+    // Guard 1b: cross-app return with nothing captured. Probe the captured
+    // app *before* activating it: if whatever holds focus there provably
+    // rejects text (dictation started from a file tree, a read-only page…),
+    // activation would steal the user's screen for a ⌘V that gets discarded
+    // — while their live caret may be exactly where they are looking right
+    // now (observed 2026-08-31: VS Code sidebar outline captured, user had
+    // moved to a chat text area by paste time). Same dead-end rule as
+    // Guard 1, evaluated live. `from_role`, not `from_probe`: an empty
+    // probe of a background webview app is opacity, not evidence, and must
+    // stay on the activate-and-verify path.
+    if !same_app && element.is_none() {
+        let pre_activation_role = probe_focused_role(ctx.pid);
+        if TextTarget::from_role(pre_activation_role.as_deref()) == TextTarget::Rejects {
+            tracing::warn!(
+                pid = ctx.pid,
+                app = ?ctx.app_name,
+                live_role = ?pre_activation_role,
+                "captured app's live focus rejects text; skipping its activation"
+            );
+            return redirect_or_block(ctx, element, intent, frontmost, same_app);
+        }
+    }
+
     let mut activated = false;
     let mut activation_path = ActivationPath::None;
     let frontmost_verified = if same_app {
@@ -1408,6 +1431,18 @@ impl RestoreOutcome {
         // be discarded without a trace — keep the transcript on the
         // clipboard so a manual ⌘V still works if it was.
         if self.paste_time_target == TextTarget::NoFocus {
+            return false;
+        }
+        // Blind ⌘V with no captured element and no confirmed text target
+        // (webview containers report AXWebArea/AXGroup): landing is
+        // unverifiable, and webviews can blur their DOM caret across an
+        // activation cycle so the ⌘V lands nowhere (observed 2026-08-31,
+        // 252 chars silently lost AND clobbered off the clipboard by the
+        // old-clipboard restore). Keeping the transcript on the clipboard
+        // makes manual ⌘V an instant recovery, and removes the race where
+        // a slow webview processes the ⌘V after the old clipboard is
+        // restored and pastes stale content.
+        if !self.element_captured && self.paste_time_target != TextTarget::Accepts {
             return false;
         }
         if !self.same_app {
@@ -2236,9 +2271,13 @@ mod tests {
 
     #[test]
     fn paste_target_confirmed_logic() {
-        // Cross-app path: activation/verification is the gate, not focus probing.
+        // Cross-app path with a captured element: activation/verification is
+        // the gate, not focus probing. (Cross-app with *nothing* captured
+        // and an unconfirmed target keeps the transcript on the clipboard —
+        // see blind_paste_at_focus_void_keeps_transcript_on_clipboard.)
         let cross = RestoreOutcome {
             same_app: false,
+            element_captured: true,
             ..Default::default()
         };
         assert!(cross.paste_target_confirmed_or_unknown());
@@ -2268,14 +2307,16 @@ mod tests {
         };
         assert!(live.paste_target_confirmed_or_unknown());
 
-        // App never proved it reports focus (no element captured): stay
-        // conservative, keep the long-standing blind-paste behavior.
+        // App never proved it reports focus (no element captured) and the
+        // live target is unconfirmed: the paste still goes out (blind ⌘V),
+        // but the transcript stays on the clipboard because the landing is
+        // unverifiable.
         let unknown = RestoreOutcome {
             same_app: true,
             element_captured: false,
             ..Default::default()
         };
-        assert!(unknown.paste_target_confirmed_or_unknown());
+        assert!(!unknown.paste_target_confirmed_or_unknown());
     }
 
     #[test]
@@ -2295,6 +2336,28 @@ mod tests {
                 "NoFocus target (same_app={same_app}) must keep the transcript on the clipboard"
             );
         }
+
+        // Same rule for an unconfirmed (Unknown) target with nothing
+        // captured — the AXWebArea blind-⌘V path, where a webview can blur
+        // its caret across activation and swallow the paste unverifiably.
+        let webview_blind = RestoreOutcome {
+            same_app: false,
+            element_captured: false,
+            paste_time_target: TextTarget::Unknown,
+            ..Default::default()
+        };
+        assert!(!webview_blind.paste_target_confirmed_or_unknown());
+
+        // But a confirmed Accepts target restores the user's clipboard even
+        // when nothing was captured at hotkey time (live probe confirmed).
+        let live_confirmed = RestoreOutcome {
+            same_app: true,
+            element_captured: false,
+            paste_time_target: TextTarget::Accepts,
+            paste_time_focus_role: Some("AXTextArea".into()),
+            ..Default::default()
+        };
+        assert!(live_confirmed.paste_target_confirmed_or_unknown());
     }
 
     #[test]
