@@ -418,16 +418,22 @@ pub fn capture_focused_element(pid: i32) -> Option<FocusElement> {
         let out_ptr = NonNull::new(&mut raw as *mut *const CFType)?;
         let mut app_err = app_el.copy_attribute_value(&ax_focused_ui, out_ptr);
 
-        // ── Strategy 1b: Chromium/Electron apps hide their AX tree until
-        // asked. Enable it and retry once (bounded so the hotkey stays
-        // responsive; later captures / the paste-time probe catch up once
-        // the tree has built).
+        // ── Strategy 1b: Chromium/Electron/WebKit apps hide their AX tree
+        // until asked. Enable it and retry, bounded (≤ ~300 ms extra, only
+        // on the empty path) so the hotkey stays responsive; WebKit in
+        // particular often needs more than one beat to build the tree, and
+        // an element captured here is what unlocks the direct-insert path.
         if app_err.0 != 0 || raw.is_null() {
             enable_chromium_ax(&app_el, pid);
-            std::thread::sleep(std::time::Duration::from_millis(120));
-            raw = std::ptr::null();
-            let out_ptr = NonNull::new(&mut raw as *mut *const CFType)?;
-            app_err = app_el.copy_attribute_value(&ax_focused_ui, out_ptr);
+            for settle_ms in [120u64, 180] {
+                std::thread::sleep(std::time::Duration::from_millis(settle_ms));
+                raw = std::ptr::null();
+                let out_ptr = NonNull::new(&mut raw as *mut *const CFType)?;
+                app_err = app_el.copy_attribute_value(&ax_focused_ui, out_ptr);
+                if app_err.0 == 0 && !raw.is_null() {
+                    break;
+                }
+            }
         }
 
         let (element, source) = if app_err.0 == 0 && !raw.is_null() {
@@ -921,6 +927,42 @@ fn probe_focused_role(pid: i32) -> Option<String> {
     Some(copy_ax_string_attribute(&el, "AXRole").unwrap_or_else(|| "?".to_string()))
 }
 
+/// Probe for AX focus, treating an empty first answer as "not built yet"
+/// rather than "nothing focused".
+///
+/// A single-shot probe reads `None` for two very different situations:
+/// a real focus void, and a Chromium/Electron/WebKit app whose AX tree is
+/// lazily built (or an app still re-establishing its first responder right
+/// after a cross-app activation). Production logs show the second case is
+/// the common one — Tauri/Electron apps answered "no focus" moments after
+/// the user was typing in them, and the paste was refused. So on an empty
+/// read, ask the app to build its tree (same switch the capture path
+/// flips) and re-probe with settle sleeps; `just_activated` buys extra
+/// polls because focus restoration after activation is asynchronous.
+/// The retries only run on the empty path, so a healthy app pays nothing.
+#[cfg(target_os = "macos")]
+fn probe_focused_role_settled(pid: i32, just_activated: bool) -> Option<String> {
+    if let Some(role) = probe_focused_role(pid) {
+        return Some(role);
+    }
+    let app_el = unsafe { AXUIElement::new_application(pid as pid_t) };
+    enable_chromium_ax(&app_el, pid);
+    let polls = if just_activated { 4 } else { 2 };
+    for attempt in 0..polls {
+        std::thread::sleep(std::time::Duration::from_millis(120));
+        if let Some(role) = probe_focused_role(pid) {
+            tracing::info!(
+                pid,
+                attempt,
+                role = %role,
+                "probe_focused_role_settled: focus appeared after ax-enable retry"
+            );
+            return Some(role);
+        }
+    }
+    None
+}
+
 /// After a cross-app activation, poll until the target app is actually
 /// frontmost. Activation is asynchronous (and unreliable under modern
 /// cooperative-activation rules), so a `true` return from any activation API
@@ -1124,9 +1166,11 @@ pub fn restore_focus(
     };
 
     // What has focus in the target app *right now*? Only meaningful when the
-    // app is actually frontmost.
+    // app is actually frontmost. The settled probe matters most right after
+    // a cross-app activation: the app is frontmost but may not have
+    // re-established its first responder (or built its AX tree) yet.
     let paste_time_focus_role = if frontmost_verified {
-        probe_focused_role(ctx.pid)
+        probe_focused_role_settled(ctx.pid, !same_app)
     } else {
         None
     };
@@ -1165,7 +1209,7 @@ pub fn restore_focus(
     // so re-read it after to learn where the caret actually ended up. A role
     // that rejects text means the ⌘V we are about to send would be swallowed.
     let final_focus_role = if frontmost_verified && ax_set {
-        probe_focused_role(ctx.pid)
+        probe_focused_role_settled(ctx.pid, false)
     } else {
         paste_time_focus_role.clone()
     };
@@ -1175,8 +1219,25 @@ pub fn restore_focus(
     // whether the restore actually took.
     let final_target = TextTarget::from_probe(final_focus_role.as_deref());
 
+    // `NoFocus` is only proof of a dead end when the app has demonstrated it
+    // reports focus at all — i.e. we captured an app-owned focused element
+    // from it at hotkey time. When we never got one (Tauri/Electron webviews
+    // routinely expose nothing through `AXFocusedUIElement`, even with the
+    // tree enabled), an empty probe is indistinguishable from AX opacity, so
+    // it is not evidence about the caret. Those apps get the long-standing
+    // blind ⌘V, bounded by the post-paste landing check and by keeping the
+    // transcript on the clipboard. The 2026-08-25 Mail regression stays
+    // fixed: Mail *did* expose the captured element, so its silence blocks.
+    let no_focus_provable = element.is_some();
     let blocker = if !frontmost_verified {
         Some(PasteBlocker::AppNotFrontmost)
+    } else if final_target == TextTarget::NoFocus && !no_focus_provable {
+        tracing::warn!(
+            pid = ctx.pid,
+            app = ?ctx.app_name,
+            "target app reports no focused element but never exposed one this round; allowing blind paste under landing check"
+        );
+        None
     } else if !final_target.allows_synthetic_paste() {
         tracing::warn!(
             pid = ctx.pid,
@@ -1343,6 +1404,12 @@ impl RestoreOutcome {
     /// at all) we stay conservative and treat the paste as likely fine —
     /// blind Cmd+V was the long-standing behavior for those apps.
     pub fn paste_target_confirmed_or_unknown(&self) -> bool {
+        // A paste sent at a focus void (the AX-opaque-app blind-⌘V path) may
+        // be discarded without a trace — keep the transcript on the
+        // clipboard so a manual ⌘V still works if it was.
+        if self.paste_time_target == TextTarget::NoFocus {
+            return false;
+        }
         if !self.same_app {
             return true;
         }
@@ -2209,6 +2276,25 @@ mod tests {
             ..Default::default()
         };
         assert!(unknown.paste_target_confirmed_or_unknown());
+    }
+
+    #[test]
+    fn blind_paste_at_focus_void_keeps_transcript_on_clipboard() {
+        // The AX-opaque-app path (blocker downgraded, ⌘V sent at a probe
+        // void) may be silently discarded — the transcript must stay on the
+        // clipboard so a manual ⌘V recovers it. Applies cross-app too.
+        for same_app in [true, false] {
+            let blind = RestoreOutcome {
+                same_app,
+                element_captured: false,
+                paste_time_target: TextTarget::NoFocus,
+                ..Default::default()
+            };
+            assert!(
+                !blind.paste_target_confirmed_or_unknown(),
+                "NoFocus target (same_app={same_app}) must keep the transcript on the clipboard"
+            );
+        }
     }
 
     #[test]
