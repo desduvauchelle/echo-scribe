@@ -28,7 +28,7 @@
     "title": {
       "task": "Taak",
       "meeting": "Meeting",
-      "transcription": "Transcriptie",
+      "transcription": "Dictaat",
       "note": "Notitie"
     },
     "editToggle": {
@@ -37,7 +37,7 @@
     },
     "header": {
       "meetingBadge": "Meeting",
-      "transcriptionBadge": "Transcriptie",
+      "transcriptionBadge": "Dictaat",
       "logCaptureBadge": "Log capture",
       "taskBadge": "Taak",
       "deletedBadge": "Verwijderd"
@@ -53,7 +53,7 @@
       "label": "Soort",
       "unset": "Niet ingesteld",
       "task": "Taak",
-      "transcription": "Transcriptie",
+      "transcription": "Dictaat",
       "note": "Notitie"
     },
     "project": {
@@ -316,14 +316,14 @@
     "loadErrorPrefix": "Kon huidige sneltoets niet laden: {{error}}"
   },
   "itemCard": {
-    "kindTranscription": "Transcriptie",
+    "kindTranscription": "Dictaat",
     "kindTask": "Taak",
     "kindNote": "Notitie",
     "openTaskWord": "taak",
     "openNoteWord": "notitie",
     "openAriaLabel": "Open {{kind}}: {{content}}",
     "copied": "Gekopieerd",
-    "copyTranscription": "Transcriptie kopiëren"
+    "copyTranscription": "Dictaat kopiëren"
   },
   "itemDetailPanel": {
     "loading": "Laden...",
@@ -533,7 +533,7 @@
     "exportFolderLabel": "Exportmap",
     "changeFolderButton": "Wijzigen…",
     "chooseFolderButton": "Map kiezen…",
-    "exportFolderHint": "Items met hoge betrouwbaarheid die naar dit project worden gerouteerd, worden hier als markdown geëxporteerd. Notities/taken/transcripties komen in submappen per soort terecht.",
+    "exportFolderHint": "Items met hoge betrouwbaarheid die naar dit project worden gerouteerd, worden hier als markdown geëxporteerd. Notities/taken/dictaten komen in submappen per soort terecht.",
     "exporting": "Bezig met exporteren…",
     "reexportButton": "Alle bestaande items opnieuw exporteren",
     "deleteButton": "Project verwijderen",
@@ -563,7 +563,7 @@
     "deleteDialogDescription": "Kies wat er gebeurt met de inhoud die momenteel aan dit project is toegewezen.",
     "checkingLinkedContent": "Gekoppelde inhoud controleren…",
     "deleteOnlyTitle": "Alleen project verwijderen",
-    "deleteOnlyDescription": "Behoud alle notities, taken, transcripties, meetings, opnames en chats. Het projectlabel wordt verwijderd en de inhoud wordt niet toegewezen.",
+    "deleteOnlyDescription": "Behoud alle notities, taken, dictaten, meetings, opnames en chats. Het projectlabel wordt verwijderd en de inhoud wordt niet toegewezen.",
     "deleteWithContentTitle": "Project en bijbehorende inhoud verwijderen",
     "deleteWithContentDescription": "Verwijder gekoppelde captures, meetingtranscripten en -samenvattingen, opnames, chats en gegenereerde artefacten permanent. Dit kan niet ongedaan worden gemaakt.",
     "exportedFilesNote": "Bestanden die eerder buiten Echo Scribe zijn geëxporteerd, worden niet verwijderd.",
@@ -578,8 +578,8 @@
       "notes_other": "{{count}} notities",
       "tasks_one": "{{count}} taak",
       "tasks_other": "{{count}} taken",
-      "transcriptions_one": "{{count}} transcriptie",
-      "transcriptions_other": "{{count}} transcripties",
+      "transcriptions_one": "{{count}} dictaat",
+      "transcriptions_other": "{{count}} dictaten",
       "recordings_one": "{{count}} opname",
       "recordings_other": "{{count}} opnames",
       "chats_one": "{{count}} chat",

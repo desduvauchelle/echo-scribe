@@ -106,7 +106,7 @@
     },
     "keepModelInMemory": {
       "title": "Sprachmodell im Speicher behalten",
-      "subtitle": "Wie lange das Sprache-zu-Text-Modell nach der letzten Nutzung geladen bleibt. Länger = schnellere nächste Transkription, aber mehr RAM-Verbrauch."
+      "subtitle": "Wie lange das Sprache-zu-Text-Modell nach der letzten Nutzung geladen bleibt. Länger = schnelleres nächstes Diktat, aber mehr RAM-Verbrauch."
     },
     "microphonePicker": {
       "loading": "Mikrofone werden geladen…",
@@ -154,8 +154,8 @@
         "runLlmBatch": "Lokalen KI-Batch ausführen"
       },
       "toasts": {
-        "queued_one": "{{count}} Transkription zum Taggen eingereiht.",
-        "queued_other": "{{count}} Transkriptionen zum Taggen eingereiht.",
+        "queued_one": "{{count}} Diktat zum Taggen eingereiht.",
+        "queued_other": "{{count}} Diktate zum Taggen eingereiht.",
         "routerAssigned_one": "Router hat {{assigned}} von {{count}} eingereihtem Element zugeordnet.",
         "routerAssigned_other": "Router hat {{assigned}} von {{count}} eingereihten Elementen zugeordnet.",
         "llmAssigned_one": "Lokale KI hat {{assigned}} von {{count}} eingereihtem Element zugeordnet.",

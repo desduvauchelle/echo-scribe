@@ -106,7 +106,7 @@
     },
     "keepModelInMemory": {
       "title": "Spraakmodel in geheugen houden",
-      "subtitle": "Hoe lang het spraak-naar-tekst-model geladen blijft na het laatste gebruik. Langer = snellere volgende transcriptie, maar meer RAM-gebruik."
+      "subtitle": "Hoe lang het spraak-naar-tekst-model geladen blijft na het laatste gebruik. Langer = sneller volgend dictaat, maar meer RAM-gebruik."
     },
     "microphonePicker": {
       "loading": "Microfoons laden…",
@@ -154,8 +154,8 @@
         "runLlmBatch": "Lokale AI-batch uitvoeren"
       },
       "toasts": {
-        "queued_one": "{{count}} transcriptie in wachtrij geplaatst voor taggen.",
-        "queued_other": "{{count}} transcripties in wachtrij geplaatst voor taggen.",
+        "queued_one": "{{count}} dictaat in wachtrij geplaatst voor taggen.",
+        "queued_other": "{{count}} dictaten in wachtrij geplaatst voor taggen.",
         "routerAssigned_one": "Router heeft {{assigned}} van {{count}} item in de wachtrij toegewezen.",
         "routerAssigned_other": "Router heeft {{assigned}} van {{count}} items in de wachtrij toegewezen.",
         "llmAssigned_one": "Lokale AI heeft {{assigned}} van {{count}} item in de wachtrij toegewezen.",

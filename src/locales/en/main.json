@@ -51,7 +51,7 @@
       }
     },
     "empty": {
-      "transcriptions": "No transcriptions yet.",
+      "transcriptions": "No dictations yet.",
       "notes": "No notes yet.",
       "meetings": "No meetings yet.",
       "recordings": "No recordings yet.",
@@ -71,7 +71,7 @@
     },
     "filters": {
       "all": "All",
-      "transcriptions": "Transcriptions",
+      "transcriptions": "Dictations",
       "notes": "Notes",
       "tasks": "Tasks",
       "meetings": "Meetings",
@@ -336,7 +336,7 @@
       "kindLabel": "Kind",
       "options": {
         "all": "All",
-        "transcription": "Transcription",
+        "transcription": "Dictation",
         "note": "Note",
         "task": "Task",
         "meeting": "Meeting",

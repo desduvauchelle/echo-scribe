@@ -28,7 +28,7 @@
     "title": {
       "task": "Attività",
       "meeting": "Riunione",
-      "transcription": "Trascrizione",
+      "transcription": "Dettatura",
       "note": "Nota"
     },
     "editToggle": {
@@ -37,7 +37,7 @@
     },
     "header": {
       "meetingBadge": "Riunione",
-      "transcriptionBadge": "Trascrizione",
+      "transcriptionBadge": "Dettatura",
       "logCaptureBadge": "Acquisizione rapida",
       "taskBadge": "Attività",
       "deletedBadge": "Eliminato"
@@ -53,7 +53,7 @@
       "label": "Tipo",
       "unset": "Non impostato",
       "task": "Attività",
-      "transcription": "Trascrizione",
+      "transcription": "Dettatura",
       "note": "Nota"
     },
     "project": {
@@ -316,14 +316,14 @@
     "loadErrorPrefix": "Impossibile caricare la scorciatoia attuale: {{error}}"
   },
   "itemCard": {
-    "kindTranscription": "Trascrizione",
+    "kindTranscription": "Dettatura",
     "kindTask": "Attività",
     "kindNote": "Nota",
     "openTaskWord": "attività",
     "openNoteWord": "nota",
     "openAriaLabel": "Apri {{kind}}: {{content}}",
     "copied": "Copiato",
-    "copyTranscription": "Copia trascrizione"
+    "copyTranscription": "Copia dettatura"
   },
   "itemDetailPanel": {
     "loading": "Caricamento...",
@@ -533,7 +533,7 @@
     "exportFolderLabel": "Cartella di esportazione",
     "changeFolderButton": "Cambia…",
     "chooseFolderButton": "Scegli cartella…",
-    "exportFolderHint": "Gli elementi ad alta affidabilità instradati a questo progetto vengono esportati qui come markdown. Note / attività / trascrizioni vanno in sottocartelle per tipo.",
+    "exportFolderHint": "Gli elementi ad alta affidabilità instradati a questo progetto vengono esportati qui come markdown. Note / attività / dettature vanno in sottocartelle per tipo.",
     "exporting": "Esportazione…",
     "reexportButton": "Riesporta tutti gli elementi esistenti",
     "deleteButton": "Elimina progetto",
@@ -563,7 +563,7 @@
     "deleteDialogDescription": "Scegli cosa succede al contenuto attualmente assegnato a questo progetto.",
     "checkingLinkedContent": "Controllo del contenuto collegato…",
     "deleteOnlyTitle": "Elimina solo il progetto",
-    "deleteOnlyDescription": "Mantieni ogni nota, attività, trascrizione, riunione, registrazione e chat. Il tag del progetto viene rimosso e il contenuto diventa non assegnato.",
+    "deleteOnlyDescription": "Mantieni ogni nota, attività, dettatura, riunione, registrazione e chat. Il tag del progetto viene rimosso e il contenuto diventa non assegnato.",
     "deleteWithContentTitle": "Elimina progetto e contenuti collegati",
     "deleteWithContentDescription": "Elimina definitivamente le acquisizioni collegate, le trascrizioni e i riepiloghi delle riunioni, le registrazioni, le chat e gli artefatti generati. Questa azione non può essere annullata.",
     "exportedFilesNote": "I file precedentemente esportati fuori da Echo Scribe non vengono rimossi.",
@@ -578,8 +578,8 @@
       "notes_other": "{{count}} note",
       "tasks_one": "{{count}} attività",
       "tasks_other": "{{count}} attività",
-      "transcriptions_one": "{{count}} trascrizione",
-      "transcriptions_other": "{{count}} trascrizioni",
+      "transcriptions_one": "{{count}} dettatura",
+      "transcriptions_other": "{{count}} dettature",
       "recordings_one": "{{count}} registrazione",
       "recordings_other": "{{count}} registrazioni",
       "chats_one": "{{count}} chat",

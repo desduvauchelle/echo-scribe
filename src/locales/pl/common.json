@@ -28,7 +28,7 @@
     "title": {
       "task": "Zadanie",
       "meeting": "Spotkanie",
-      "transcription": "Transkrypcja",
+      "transcription": "Dyktando",
       "note": "Notatka"
     },
     "editToggle": {
@@ -37,7 +37,7 @@
     },
     "header": {
       "meetingBadge": "Spotkanie",
-      "transcriptionBadge": "Transkrypcja",
+      "transcriptionBadge": "Dyktando",
       "logCaptureBadge": "Notatka głosowa",
       "taskBadge": "Zadanie",
       "deletedBadge": "Usunięte"
@@ -53,7 +53,7 @@
       "label": "Rodzaj",
       "unset": "Nieustawiony",
       "task": "Zadanie",
-      "transcription": "Transkrypcja",
+      "transcription": "Dyktando",
       "note": "Notatka"
     },
     "project": {
@@ -322,14 +322,14 @@
     "loadErrorPrefix": "Nie udało się wczytać bieżącego skrótu: {{error}}"
   },
   "itemCard": {
-    "kindTranscription": "Transkrypcja",
+    "kindTranscription": "Dyktando",
     "kindTask": "Zadanie",
     "kindNote": "Notatka",
     "openTaskWord": "zadanie",
     "openNoteWord": "notatkę",
     "openAriaLabel": "Otwórz {{kind}}: {{content}}",
     "copied": "Skopiowano",
-    "copyTranscription": "Kopiuj transkrypcję"
+    "copyTranscription": "Kopiuj dyktando"
   },
   "itemDetailPanel": {
     "loading": "Ładowanie...",
@@ -555,7 +555,7 @@
     "exportFolderLabel": "Folder eksportu",
     "changeFolderButton": "Zmień…",
     "chooseFolderButton": "Wybierz folder…",
-    "exportFolderHint": "Wpisy z wysoką pewnością skierowane do tego projektu są eksportowane tutaj jako pliki markdown. Notatki / zadania / transkrypcje trafiają do podfolderów według rodzaju.",
+    "exportFolderHint": "Wpisy z wysoką pewnością skierowane do tego projektu są eksportowane tutaj jako pliki markdown. Notatki / zadania / dyktanda trafiają do podfolderów według rodzaju.",
     "exporting": "Eksportowanie…",
     "reexportButton": "Wyeksportuj ponownie wszystkie istniejące wpisy",
     "deleteButton": "Usuń projekt",
@@ -585,7 +585,7 @@
     "deleteDialogDescription": "Wybierz, co ma się stać z treścią obecnie przypisaną do tego projektu.",
     "checkingLinkedContent": "Sprawdzanie powiązanej treści…",
     "deleteOnlyTitle": "Usuń tylko projekt",
-    "deleteOnlyDescription": "Zachowaj każdą notatkę, zadanie, transkrypcję, spotkanie, nagranie i czat. Tag projektu zostaje usunięty, a treść staje się nieprzypisana.",
+    "deleteOnlyDescription": "Zachowaj każdą notatkę, zadanie, dyktando, spotkanie, nagranie i czat. Tag projektu zostaje usunięty, a treść staje się nieprzypisana.",
     "deleteWithContentTitle": "Usuń projekt i powiązaną treść",
     "deleteWithContentDescription": "Trwale usuń powiązane wpisy, transkrypcje i podsumowania spotkań, nagrania, czaty i wygenerowane artefakty. Tej operacji nie można cofnąć.",
     "exportedFilesNote": "Pliki wcześniej wyeksportowane poza Echo Scribe nie zostaną usunięte.",
@@ -606,10 +606,10 @@
       "tasks_few": "{{count}} zadania",
       "tasks_many": "{{count}} zadań",
       "tasks_other": "{{count}} zadań",
-      "transcriptions_one": "{{count}} transkrypcja",
-      "transcriptions_few": "{{count}} transkrypcje",
-      "transcriptions_many": "{{count}} transkrypcji",
-      "transcriptions_other": "{{count}} transkrypcji",
+      "transcriptions_one": "{{count}} dyktando",
+      "transcriptions_few": "{{count}} dyktanda",
+      "transcriptions_many": "{{count}} dyktand",
+      "transcriptions_other": "{{count}} dyktand",
       "recordings_one": "{{count}} nagranie",
       "recordings_few": "{{count}} nagrania",
       "recordings_many": "{{count}} nagrań",

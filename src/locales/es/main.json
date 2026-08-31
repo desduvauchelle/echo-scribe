@@ -51,7 +51,7 @@
       }
     },
     "empty": {
-      "transcriptions": "Aún no hay transcripciones.",
+      "transcriptions": "Aún no hay dictados.",
       "notes": "Aún no hay notas.",
       "meetings": "Aún no hay reuniones.",
       "recordings": "Aún no hay grabaciones.",
@@ -71,7 +71,7 @@
     },
     "filters": {
       "all": "Todo",
-      "transcriptions": "Transcripciones",
+      "transcriptions": "Dictados",
       "notes": "Notas",
       "tasks": "Tareas",
       "meetings": "Reuniones",
@@ -336,7 +336,7 @@
       "kindLabel": "Tipo",
       "options": {
         "all": "Todo",
-        "transcription": "Transcripción",
+        "transcription": "Dictado",
         "note": "Nota",
         "task": "Tarea",
         "meeting": "Reunión",

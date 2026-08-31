@@ -106,7 +106,7 @@
     },
     "keepModelInMemory": {
       "title": "Garder le modèle vocal en mémoire",
-      "subtitle": "Durée pendant laquelle le modèle de reconnaissance vocale reste chargé après sa dernière utilisation. Plus longtemps = transcription suivante plus rapide, mais utilise plus de RAM."
+      "subtitle": "Durée pendant laquelle le modèle de reconnaissance vocale reste chargé après sa dernière utilisation. Plus longtemps = dictée suivante plus rapide, mais utilise plus de RAM."
     },
     "microphonePicker": {
       "loading": "Chargement des microphones…",
@@ -154,8 +154,8 @@
         "runLlmBatch": "Exécuter le lot d’IA locale"
       },
       "toasts": {
-        "queued_one": "{{count}} transcription mise en file d’attente pour l’étiquetage.",
-        "queued_other": "{{count}} transcriptions mises en file d’attente pour l’étiquetage.",
+        "queued_one": "{{count}} dictée mise en file d’attente pour l’étiquetage.",
+        "queued_other": "{{count}} dictées mises en file d’attente pour l’étiquetage.",
         "routerAssigned_one": "Le routeur a assigné {{assigned}} élément sur {{count}} en file d’attente.",
         "routerAssigned_other": "Le routeur a assigné {{assigned}} éléments sur {{count}} en file d’attente.",
         "llmAssigned_one": "L’IA locale a assigné {{assigned}} élément sur {{count}} en file d’attente.",

@@ -53,7 +53,7 @@
       }
     },
     "empty": {
-      "transcriptions": "Brak transkrypcji.",
+      "transcriptions": "Brak dyktand.",
       "notes": "Brak notatek.",
       "meetings": "Brak spotkań.",
       "recordings": "Brak nagrań.",
@@ -73,7 +73,7 @@
     },
     "filters": {
       "all": "Wszystko",
-      "transcriptions": "Transkrypcje",
+      "transcriptions": "Dyktanda",
       "notes": "Notatki",
       "tasks": "Zadania",
       "meetings": "Spotkania",
@@ -340,7 +340,7 @@
       "kindLabel": "Rodzaj",
       "options": {
         "all": "Wszystko",
-        "transcription": "Transkrypcja",
+        "transcription": "Dyktando",
         "note": "Notatka",
         "task": "Zadanie",
         "meeting": "Spotkanie",

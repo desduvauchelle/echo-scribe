@@ -187,7 +187,7 @@ fn render_item(item: &Item, project: &Project, tags: &[String]) -> String {
     let title_label = match item.kind {
         Some(ItemKind::Task) => "Task",
         Some(ItemKind::Note) => "Note",
-        Some(ItemKind::Transcription) => "Transcription",
+        Some(ItemKind::Transcription) => "Dictation",
         None => "Item",
     };
 

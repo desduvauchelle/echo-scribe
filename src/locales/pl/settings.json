@@ -106,7 +106,7 @@
     },
     "keepModelInMemory": {
       "title": "Trzymaj model mowy w pamięci",
-      "subtitle": "Jak długo model zamiany mowy na tekst pozostaje załadowany po ostatnim użyciu. Dłużej = szybsza kolejna transkrypcja, ale więcej zużytej pamięci RAM."
+      "subtitle": "Jak długo model zamiany mowy na tekst pozostaje załadowany po ostatnim użyciu. Dłużej = szybsze kolejne dyktando, ale więcej zużytej pamięci RAM."
     },
     "microphonePicker": {
       "loading": "Ładowanie mikrofonów…",
@@ -154,10 +154,10 @@
         "runLlmBatch": "Uruchom wsad lokalnej AI"
       },
       "toasts": {
-        "queued_one": "Dodano do kolejki {{count}} transkrypcję do tagowania.",
-        "queued_few": "Dodano do kolejki {{count}} transkrypcje do tagowania.",
-        "queued_many": "Dodano do kolejki {{count}} transkrypcji do tagowania.",
-        "queued_other": "Dodano do kolejki {{count}} transkrypcji do tagowania.",
+        "queued_one": "Dodano do kolejki {{count}} dyktando do tagowania.",
+        "queued_few": "Dodano do kolejki {{count}} dyktanda do tagowania.",
+        "queued_many": "Dodano do kolejki {{count}} dyktand do tagowania.",
+        "queued_other": "Dodano do kolejki {{count}} dyktand do tagowania.",
         "routerAssigned_one": "Router przypisał {{assigned}} z {{count}} wpisu w kolejce.",
         "routerAssigned_few": "Router przypisał {{assigned}} z {{count}} wpisów w kolejce.",
         "routerAssigned_many": "Router przypisał {{assigned}} z {{count}} wpisów w kolejce.",

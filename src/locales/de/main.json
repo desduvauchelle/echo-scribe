@@ -51,7 +51,7 @@
       }
     },
     "empty": {
-      "transcriptions": "Noch keine Transkriptionen.",
+      "transcriptions": "Noch keine Diktate.",
       "notes": "Noch keine Notizen.",
       "meetings": "Noch keine Meetings.",
       "recordings": "Noch keine Aufnahmen.",
@@ -71,7 +71,7 @@
     },
     "filters": {
       "all": "Alle",
-      "transcriptions": "Transkriptionen",
+      "transcriptions": "Diktate",
       "notes": "Notizen",
       "tasks": "Aufgaben",
       "meetings": "Meetings",
@@ -336,7 +336,7 @@
       "kindLabel": "Art",
       "options": {
         "all": "Alle",
-        "transcription": "Transkription",
+        "transcription": "Diktat",
         "note": "Notiz",
         "task": "Aufgabe",
         "meeting": "Meeting",

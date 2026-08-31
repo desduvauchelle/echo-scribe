@@ -15,7 +15,7 @@ export const STATS_CATEGORIES: Array<{
   singular: string;
   icon: LucideIcon;
 }> = [
-  { key: "transcriptions", label: "Transcriptions", singular: "transcription", icon: Mic },
+  { key: "transcriptions", label: "Dictations", singular: "dictation", icon: Mic },
   { key: "notes", label: "Notes", singular: "note", icon: StickyNote },
   { key: "tasks", label: "Tasks", singular: "task", icon: CheckSquare2 },
   { key: "meetings", label: "Meetings", singular: "meeting", icon: Phone },

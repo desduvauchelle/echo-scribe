@@ -106,7 +106,7 @@
     },
     "keepModelInMemory": {
       "title": "Mantieni il modello vocale in memoria",
-      "subtitle": "Per quanto tempo il modello di trascrizione resta caricato dopo l'ultimo utilizzo. Più a lungo = trascrizione successiva più veloce, ma più RAM usata."
+      "subtitle": "Per quanto tempo il modello di trascrizione resta caricato dopo l'ultimo utilizzo. Più a lungo = dettatura successiva più veloce, ma più RAM usata."
     },
     "microphonePicker": {
       "loading": "Caricamento microfoni…",
@@ -154,8 +154,8 @@
         "runLlmBatch": "Esegui batch AI locale"
       },
       "toasts": {
-        "queued_one": "{{count}} trascrizione accodata per il tagging.",
-        "queued_other": "{{count}} trascrizioni accodate per il tagging.",
+        "queued_one": "{{count}} dettatura accodata per il tagging.",
+        "queued_other": "{{count}} dettature accodate per il tagging.",
         "routerAssigned_one": "Il router ha assegnato {{assigned}} di {{count}} elemento in coda.",
         "routerAssigned_other": "Il router ha assegnato {{assigned}} di {{count}} elementi in coda.",
         "llmAssigned_one": "L'AI locale ha assegnato {{assigned}} di {{count}} elemento in coda.",

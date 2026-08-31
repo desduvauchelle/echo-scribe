@@ -28,7 +28,7 @@
     "title": {
       "task": "Tâche",
       "meeting": "Réunion",
-      "transcription": "Transcription",
+      "transcription": "Dictée",
       "note": "Note"
     },
     "editToggle": {
@@ -37,7 +37,7 @@
     },
     "header": {
       "meetingBadge": "Réunion",
-      "transcriptionBadge": "Transcription",
+      "transcriptionBadge": "Dictée",
       "logCaptureBadge": "Capture rapide",
       "taskBadge": "Tâche",
       "deletedBadge": "Supprimé"
@@ -53,7 +53,7 @@
       "label": "Type",
       "unset": "Non défini",
       "task": "Tâche",
-      "transcription": "Transcription",
+      "transcription": "Dictée",
       "note": "Note"
     },
     "project": {
@@ -316,14 +316,14 @@
     "loadErrorPrefix": "Impossible de charger le raccourci actuel : {{error}}"
   },
   "itemCard": {
-    "kindTranscription": "Transcription",
+    "kindTranscription": "Dictée",
     "kindTask": "Tâche",
     "kindNote": "Note",
     "openTaskWord": "tâche",
     "openNoteWord": "note",
     "openAriaLabel": "Ouvrir {{kind}} : {{content}}",
     "copied": "Copié",
-    "copyTranscription": "Copier la transcription"
+    "copyTranscription": "Copier la dictée"
   },
   "itemDetailPanel": {
     "loading": "Chargement...",
@@ -533,7 +533,7 @@
     "exportFolderLabel": "Dossier d’export",
     "changeFolderButton": "Changer…",
     "chooseFolderButton": "Choisir un dossier…",
-    "exportFolderHint": "Les éléments à haute confiance routés vers ce projet sont exportés ici en Markdown. Notes, tâches et transcriptions vont dans des sous-dossiers par type.",
+    "exportFolderHint": "Les éléments à haute confiance routés vers ce projet sont exportés ici en Markdown. Notes, tâches et dictées vont dans des sous-dossiers par type.",
     "exporting": "Export en cours…",
     "reexportButton": "Réexporter tous les éléments existants",
     "deleteButton": "Supprimer le projet",
@@ -563,7 +563,7 @@
     "deleteDialogDescription": "Choisissez ce qu’il advient du contenu actuellement assigné à ce projet.",
     "checkingLinkedContent": "Vérification du contenu lié…",
     "deleteOnlyTitle": "Supprimer uniquement le projet",
-    "deleteOnlyDescription": "Conserve toutes les notes, tâches, transcriptions, réunions, enregistrements et chats. L’étiquette de projet est retirée et le contenu devient non assigné.",
+    "deleteOnlyDescription": "Conserve toutes les notes, tâches, dictées, réunions, enregistrements et chats. L’étiquette de projet est retirée et le contenu devient non assigné.",
     "deleteWithContentTitle": "Supprimer le projet et le contenu associé",
     "deleteWithContentDescription": "Supprime définitivement les captures liées, les transcriptions et résumés de réunions, les enregistrements, les chats et les artefacts générés. Cette action est irréversible.",
     "exportedFilesNote": "Les fichiers déjà exportés en dehors d’Echo Scribe ne sont pas supprimés.",
@@ -578,8 +578,8 @@
       "notes_other": "{{count}} notes",
       "tasks_one": "{{count}} tâche",
       "tasks_other": "{{count}} tâches",
-      "transcriptions_one": "{{count}} transcription",
-      "transcriptions_other": "{{count}} transcriptions",
+      "transcriptions_one": "{{count}} dictée",
+      "transcriptions_other": "{{count}} dictées",
       "recordings_one": "{{count}} enregistrement",
       "recordings_other": "{{count}} enregistrements",
       "chats_one": "{{count}} chat",

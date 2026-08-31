@@ -106,7 +106,7 @@
     },
     "keepModelInMemory": {
       "title": "Manter o modelo de fala na memória",
-      "subtitle": "Por quanto tempo o modelo de fala em texto permanece carregado após o último uso. Mais tempo = próxima transcrição mais rápida, mas usa mais RAM."
+      "subtitle": "Por quanto tempo o modelo de fala em texto permanece carregado após o último uso. Mais tempo = próximo ditado mais rápido, mas usa mais RAM."
     },
     "microphonePicker": {
       "loading": "Carregando microfones…",
@@ -154,8 +154,8 @@
         "runLlmBatch": "Executar lote de IA local"
       },
       "toasts": {
-        "queued_one": "{{count}} transcrição enfileirada para marcação.",
-        "queued_other": "{{count}} transcrições enfileiradas para marcação.",
+        "queued_one": "{{count}} ditado enfileirado para marcação.",
+        "queued_other": "{{count}} ditados enfileirados para marcação.",
         "routerAssigned_one": "O roteador atribuiu {{assigned}} de {{count}} item na fila.",
         "routerAssigned_other": "O roteador atribuiu {{assigned}} de {{count}} itens na fila.",
         "llmAssigned_one": "A IA local atribuiu {{assigned}} de {{count}} item na fila.",

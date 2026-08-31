@@ -28,7 +28,7 @@
     "title": {
       "task": "Tarea",
       "meeting": "Reunión",
-      "transcription": "Transcripción",
+      "transcription": "Dictado",
       "note": "Nota"
     },
     "editToggle": {
@@ -37,7 +37,7 @@
     },
     "header": {
       "meetingBadge": "Reunión",
-      "transcriptionBadge": "Transcripción",
+      "transcriptionBadge": "Dictado",
       "logCaptureBadge": "Captura rápida",
       "taskBadge": "Tarea",
       "deletedBadge": "Eliminado"
@@ -53,7 +53,7 @@
       "label": "Tipo",
       "unset": "Sin definir",
       "task": "Tarea",
-      "transcription": "Transcripción",
+      "transcription": "Dictado",
       "note": "Nota"
     },
     "project": {
@@ -316,14 +316,14 @@
     "loadErrorPrefix": "No se pudo cargar el atajo actual: {{error}}"
   },
   "itemCard": {
-    "kindTranscription": "Transcripción",
+    "kindTranscription": "Dictado",
     "kindTask": "Tarea",
     "kindNote": "Nota",
     "openTaskWord": "tarea",
     "openNoteWord": "nota",
     "openAriaLabel": "Abrir {{kind}}: {{content}}",
     "copied": "Copiado",
-    "copyTranscription": "Copiar transcripción"
+    "copyTranscription": "Copiar dictado"
   },
   "itemDetailPanel": {
     "loading": "Cargando...",
@@ -533,7 +533,7 @@
     "exportFolderLabel": "Carpeta de exportación",
     "changeFolderButton": "Cambiar…",
     "chooseFolderButton": "Elegir carpeta…",
-    "exportFolderHint": "Los elementos de alta confianza dirigidos a este proyecto se exportan como markdown aquí. Notas / tareas / transcripciones van en subcarpetas por tipo.",
+    "exportFolderHint": "Los elementos de alta confianza dirigidos a este proyecto se exportan como markdown aquí. Notas / tareas / dictados van en subcarpetas por tipo.",
     "exporting": "Exportando…",
     "reexportButton": "Reexportar todos los elementos existentes",
     "deleteButton": "Eliminar proyecto",
@@ -563,7 +563,7 @@
     "deleteDialogDescription": "Elige qué pasa con el contenido actualmente asignado a este proyecto.",
     "checkingLinkedContent": "Comprobando contenido vinculado…",
     "deleteOnlyTitle": "Eliminar solo el proyecto",
-    "deleteOnlyDescription": "Conserva todas las notas, tareas, transcripciones, reuniones, grabaciones y chats. Se elimina la etiqueta del proyecto y el contenido queda sin asignar.",
+    "deleteOnlyDescription": "Conserva todas las notas, tareas, dictados, reuniones, grabaciones y chats. Se elimina la etiqueta del proyecto y el contenido queda sin asignar.",
     "deleteWithContentTitle": "Eliminar el proyecto y el contenido relacionado",
     "deleteWithContentDescription": "Elimina permanentemente las capturas vinculadas, transcripciones y resúmenes de reuniones, grabaciones, chats y artefactos generados. Esta acción no se puede deshacer.",
     "exportedFilesNote": "Los archivos exportados previamente fuera de Echo Scribe no se eliminan.",
@@ -578,8 +578,8 @@
       "notes_other": "{{count}} notas",
       "tasks_one": "{{count}} tarea",
       "tasks_other": "{{count}} tareas",
-      "transcriptions_one": "{{count}} transcripción",
-      "transcriptions_other": "{{count}} transcripciones",
+      "transcriptions_one": "{{count}} dictado",
+      "transcriptions_other": "{{count}} dictados",
       "recordings_one": "{{count}} grabación",
       "recordings_other": "{{count}} grabaciones",
       "chats_one": "{{count}} chat",

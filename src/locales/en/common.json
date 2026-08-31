@@ -28,7 +28,7 @@
     "title": {
       "task": "Task",
       "meeting": "Meeting",
-      "transcription": "Transcription",
+      "transcription": "Dictation",
       "note": "Note"
     },
     "editToggle": {
@@ -37,7 +37,7 @@
     },
     "header": {
       "meetingBadge": "Meeting",
-      "transcriptionBadge": "Transcription",
+      "transcriptionBadge": "Dictation",
       "logCaptureBadge": "Log capture",
       "taskBadge": "Task",
       "deletedBadge": "Deleted"
@@ -53,7 +53,7 @@
       "label": "Kind",
       "unset": "Unset",
       "task": "Task",
-      "transcription": "Transcription",
+      "transcription": "Dictation",
       "note": "Note"
     },
     "project": {
@@ -316,14 +316,14 @@
     "loadErrorPrefix": "Couldn’t load current shortcut: {{error}}"
   },
   "itemCard": {
-    "kindTranscription": "Transcription",
+    "kindTranscription": "Dictation",
     "kindTask": "Task",
     "kindNote": "Note",
     "openTaskWord": "task",
     "openNoteWord": "note",
     "openAriaLabel": "Open {{kind}}: {{content}}",
     "copied": "Copied",
-    "copyTranscription": "Copy transcription"
+    "copyTranscription": "Copy dictation"
   },
   "itemDetailPanel": {
     "loading": "Loading...",
@@ -533,7 +533,7 @@
     "exportFolderLabel": "Export folder",
     "changeFolderButton": "Change…",
     "chooseFolderButton": "Choose folder…",
-    "exportFolderHint": "High-confidence items routed to this project are exported as markdown here. Notes / tasks / transcriptions go into subfolders by kind.",
+    "exportFolderHint": "High-confidence items routed to this project are exported as markdown here. Notes / tasks / dictations go into subfolders by kind.",
     "exporting": "Exporting…",
     "reexportButton": "Re-export all existing items",
     "deleteButton": "Delete project",
@@ -563,7 +563,7 @@
     "deleteDialogDescription": "Choose what happens to content currently assigned to this project.",
     "checkingLinkedContent": "Checking linked content…",
     "deleteOnlyTitle": "Delete project only",
-    "deleteOnlyDescription": "Keep every note, task, transcription, meeting, recording, and chat. The project tag is removed and the content becomes unassigned.",
+    "deleteOnlyDescription": "Keep every note, task, dictation, meeting, recording, and chat. The project tag is removed and the content becomes unassigned.",
     "deleteWithContentTitle": "Delete project and related content",
     "deleteWithContentDescription": "Permanently delete linked captures, meeting transcripts and summaries, recordings, chats, and generated artifacts. This can’t be undone.",
     "exportedFilesNote": "Files previously exported outside Echo Scribe are not removed.",
@@ -578,8 +578,8 @@
       "notes_other": "{{count}} notes",
       "tasks_one": "{{count}} task",
       "tasks_other": "{{count}} tasks",
-      "transcriptions_one": "{{count}} transcription",
-      "transcriptions_other": "{{count}} transcriptions",
+      "transcriptions_one": "{{count}} dictation",
+      "transcriptions_other": "{{count}} dictations",
       "recordings_one": "{{count}} recording",
       "recordings_other": "{{count}} recordings",
       "chats_one": "{{count}} chat",

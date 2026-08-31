@@ -27,7 +27,7 @@ fn kind_label(e: &ActivityEntry) -> &'static str {
     match e.item.kind {
         Some(ItemKind::Note) => "Note",
         Some(ItemKind::Task) => "Task",
-        Some(ItemKind::Transcription) => "Transcription",
+        Some(ItemKind::Transcription) => "Dictation",
         None => {
             if matches!(e.item.source, ItemSource::Meeting) {
                 "Meeting"
@@ -199,7 +199,7 @@ mod tests {
         let md = render_markdown(&entries, "Past 24 hours", "2026-06-11T10:00:00Z");
         assert!(md.contains("# Echo Scribe activity export"));
         assert!(md.contains("**Range:** Past 24 hours · **Items:** 2"));
-        assert!(md.contains("## 2026-06-11 09:30 — Transcription (Acme)"));
+        assert!(md.contains("## 2026-06-11 09:30 — Dictation (Acme)"));
         assert!(md.contains("hello world"));
         assert!(md.contains("## 2026-06-11 09:30 — Note (No project)"));
         assert!(md.contains("a note"));

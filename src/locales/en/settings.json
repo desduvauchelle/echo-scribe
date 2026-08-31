@@ -106,7 +106,7 @@
     },
     "keepModelInMemory": {
       "title": "Keep speech model in memory",
-      "subtitle": "How long the speech-to-text model stays loaded after its last use. Longer = faster next transcription, but uses more RAM."
+      "subtitle": "How long the speech-to-text model stays loaded after its last use. Longer = faster next dictation, but uses more RAM."
     },
     "microphonePicker": {
       "loading": "Loading microphones…",
@@ -154,8 +154,8 @@
         "runLlmBatch": "Run local AI batch"
       },
       "toasts": {
-        "queued_one": "Queued {{count}} transcription for tagging.",
-        "queued_other": "Queued {{count}} transcriptions for tagging.",
+        "queued_one": "Queued {{count}} dictation for tagging.",
+        "queued_other": "Queued {{count}} dictations for tagging.",
         "routerAssigned_one": "Router assigned {{assigned}} of {{count}} queued item.",
         "routerAssigned_other": "Router assigned {{assigned}} of {{count}} queued items.",
         "llmAssigned_one": "Local AI assigned {{assigned}} of {{count}} queued item.",

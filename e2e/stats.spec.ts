@@ -11,7 +11,7 @@ test("dashboard stats switch categories and open the detailed view", async ({ pa
 
   const overview = page.getByRole("region", { name: "Activity statistics" });
   await expect(page.getByRole("tablist", { name: "Activity type" })).toHaveCount(0);
-  await expect(overview.getByText("Transcriptions", { exact: true })).toBeVisible();
+  await expect(overview.getByText("Dictations", { exact: true })).toBeVisible();
   await expect(overview.getByText("Notes", { exact: true })).toBeVisible();
   await expect(overview.getByText("Tasks", { exact: true })).toBeVisible();
   await expect(overview.getByText("Meetings", { exact: true })).toBeVisible();
@@ -32,5 +32,5 @@ test("dashboard stats switch categories and open the detailed view", async ({ pa
   // The back button must return to the dashboard.
   await page.getByRole("button", { name: "Back to dashboard" }).click();
   await expect(page.getByRole("heading", { name: "Stats" })).toHaveCount(0);
-  await expect(overview.getByText("Transcriptions", { exact: true })).toBeVisible();
+  await expect(overview.getByText("Dictations", { exact: true })).toBeVisible();
 });

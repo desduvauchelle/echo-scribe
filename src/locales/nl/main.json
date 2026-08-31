@@ -51,7 +51,7 @@
       }
     },
     "empty": {
-      "transcriptions": "Nog geen transcripties.",
+      "transcriptions": "Nog geen dictaten.",
       "notes": "Nog geen notities.",
       "meetings": "Nog geen meetings.",
       "recordings": "Nog geen opnames.",
@@ -71,7 +71,7 @@
     },
     "filters": {
       "all": "Alles",
-      "transcriptions": "Transcripties",
+      "transcriptions": "Dictaten",
       "notes": "Notities",
       "tasks": "Taken",
       "meetings": "Meetings",
@@ -336,7 +336,7 @@
       "kindLabel": "Soort",
       "options": {
         "all": "Alles",
-        "transcription": "Transcriptie",
+        "transcription": "Dictaat",
         "note": "Notitie",
         "task": "Taak",
         "meeting": "Meeting",

@@ -51,7 +51,7 @@
       }
     },
     "empty": {
-      "transcriptions": "Nessuna trascrizione ancora.",
+      "transcriptions": "Nessuna dettatura ancora.",
       "notes": "Nessuna nota ancora.",
       "meetings": "Nessuna riunione ancora.",
       "recordings": "Nessuna registrazione ancora.",
@@ -71,7 +71,7 @@
     },
     "filters": {
       "all": "Tutto",
-      "transcriptions": "Trascrizioni",
+      "transcriptions": "Dettature",
       "notes": "Note",
       "tasks": "Attività",
       "meetings": "Riunioni",
@@ -336,7 +336,7 @@
       "kindLabel": "Tipo",
       "options": {
         "all": "Tutto",
-        "transcription": "Trascrizione",
+        "transcription": "Dettatura",
         "note": "Nota",
         "task": "Attività",
         "meeting": "Riunione",

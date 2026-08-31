@@ -51,7 +51,7 @@
       }
     },
     "empty": {
-      "transcriptions": "Pas encore de transcription.",
+      "transcriptions": "Pas encore de dictée.",
       "notes": "Pas encore de note.",
       "meetings": "Pas encore de réunion.",
       "recordings": "Pas encore d’enregistrement.",
@@ -71,7 +71,7 @@
     },
     "filters": {
       "all": "Tout",
-      "transcriptions": "Transcriptions",
+      "transcriptions": "Dictées",
       "notes": "Notes",
       "tasks": "Tâches",
       "meetings": "Réunions",
@@ -336,7 +336,7 @@
       "kindLabel": "Type",
       "options": {
         "all": "Tout",
-        "transcription": "Transcription",
+        "transcription": "Dictée",
         "note": "Note",
         "task": "Tâche",
         "meeting": "Réunion",

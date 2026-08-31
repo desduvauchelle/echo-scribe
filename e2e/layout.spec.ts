@@ -322,7 +322,7 @@ test("dashboard stats follow the active filter and expose the stats page", async
   await page.goto("/");
 
   const stats = page.getByRole("region", { name: "Activity statistics" });
-  await expect(stats).toContainText("Transcriptions");
+  await expect(stats).toContainText("Dictations");
   await expect(stats).toContainText("86 this week");
   await expect(page.getByRole("button", { name: "View stats" })).toBeVisible();
 

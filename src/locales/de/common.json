@@ -28,7 +28,7 @@
     "title": {
       "task": "Aufgabe",
       "meeting": "Meeting",
-      "transcription": "Transkription",
+      "transcription": "Diktat",
       "note": "Notiz"
     },
     "editToggle": {
@@ -37,7 +37,7 @@
     },
     "header": {
       "meetingBadge": "Meeting",
-      "transcriptionBadge": "Transkription",
+      "transcriptionBadge": "Diktat",
       "logCaptureBadge": "Sprachnotiz",
       "taskBadge": "Aufgabe",
       "deletedBadge": "Gelöscht"
@@ -53,7 +53,7 @@
       "label": "Art",
       "unset": "Nicht festgelegt",
       "task": "Aufgabe",
-      "transcription": "Transkription",
+      "transcription": "Diktat",
       "note": "Notiz"
     },
     "project": {
@@ -316,14 +316,14 @@
     "loadErrorPrefix": "Aktuelle Tastenkombination konnte nicht geladen werden: {{error}}"
   },
   "itemCard": {
-    "kindTranscription": "Transkription",
+    "kindTranscription": "Diktat",
     "kindTask": "Aufgabe",
     "kindNote": "Notiz",
     "openTaskWord": "Aufgabe",
     "openNoteWord": "Notiz",
     "openAriaLabel": "{{kind}} öffnen: {{content}}",
     "copied": "Kopiert",
-    "copyTranscription": "Transkription kopieren"
+    "copyTranscription": "Diktat kopieren"
   },
   "itemDetailPanel": {
     "loading": "Wird geladen…",
@@ -533,7 +533,7 @@
     "exportFolderLabel": "Exportordner",
     "changeFolderButton": "Ändern…",
     "chooseFolderButton": "Ordner wählen…",
-    "exportFolderHint": "Elemente mit hoher Konfidenz, die diesem Projekt zugeordnet werden, werden hier als Markdown exportiert. Notizen/Aufgaben/Transkriptionen werden nach Art in Unterordner sortiert.",
+    "exportFolderHint": "Elemente mit hoher Konfidenz, die diesem Projekt zugeordnet werden, werden hier als Markdown exportiert. Notizen/Aufgaben/Diktate werden nach Art in Unterordner sortiert.",
     "exporting": "Wird exportiert…",
     "reexportButton": "Alle vorhandenen Elemente erneut exportieren",
     "deleteButton": "Projekt löschen",
@@ -563,7 +563,7 @@
     "deleteDialogDescription": "Wähle, was mit den aktuell diesem Projekt zugewiesenen Inhalten geschehen soll.",
     "checkingLinkedContent": "Verknüpfte Inhalte werden geprüft…",
     "deleteOnlyTitle": "Nur Projekt löschen",
-    "deleteOnlyDescription": "Behält alle Notizen, Aufgaben, Transkriptionen, Meetings, Aufnahmen und Chats. Das Projekt-Tag wird entfernt und die Inhalte werden nicht zugewiesen.",
+    "deleteOnlyDescription": "Behält alle Notizen, Aufgaben, Diktate, Meetings, Aufnahmen und Chats. Das Projekt-Tag wird entfernt und die Inhalte werden nicht zugewiesen.",
     "deleteWithContentTitle": "Projekt und zugehörige Inhalte löschen",
     "deleteWithContentDescription": "Löscht verknüpfte Erfassungen, Meeting-Transkripte und -Zusammenfassungen, Aufnahmen, Chats und generierte Artefakte dauerhaft. Das kann nicht rückgängig gemacht werden.",
     "exportedFilesNote": "Bereits außerhalb von Echo Scribe exportierte Dateien werden nicht entfernt.",
@@ -578,8 +578,8 @@
       "notes_other": "{{count}} Notizen",
       "tasks_one": "{{count}} Aufgabe",
       "tasks_other": "{{count}} Aufgaben",
-      "transcriptions_one": "{{count}} Transkription",
-      "transcriptions_other": "{{count}} Transkriptionen",
+      "transcriptions_one": "{{count}} Diktat",
+      "transcriptions_other": "{{count}} Diktate",
       "recordings_one": "{{count}} Aufnahme",
       "recordings_other": "{{count}} Aufnahmen",
       "chats_one": "{{count}} Chat",

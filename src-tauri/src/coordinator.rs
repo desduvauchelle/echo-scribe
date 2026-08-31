@@ -840,7 +840,7 @@ pub fn spawn(
                                 Err(e) => {
                                     error!(?e, "transcription failed");
                                     let _ =
-                                        app.emit("asr:error", format!("Transcription failed: {e}"));
+                                        app.emit("asr:error", format!("Dictation failed: {e}"));
                                     if matches!(action, Action::LogCapture) {
                                         let _ = app.emit(
                                             "log_capture:classification_ready",
@@ -1359,7 +1359,7 @@ async fn try_intercept_action(
                         );
                         notify_format_failure(
                             app,
-                            "Format template not found. Pasting raw transcription instead.",
+                            "Format template not found. Pasting raw dictation instead.",
                         );
                         return InterceptOutcome::Passthrough;
                     };
@@ -1390,13 +1390,13 @@ async fn try_intercept_action(
                             warn!(target: "format", "format_text produced empty output; falling back to raw paste");
                             notify_format_failure(
                                 app,
-                                "Format produced no output. Pasting raw transcription instead.",
+                                "Format produced no output. Pasting raw dictation instead.",
                             );
                             return InterceptOutcome::Passthrough;
                         }
                         Err(e) => {
                             error!(target: "format", error = %e, "format_text stage-2 failed; falling back to raw paste");
-                            notify_format_failure(app, "Format failed. Pasting raw transcription instead. See logs for details.");
+                            notify_format_failure(app, "Format failed. Pasting raw dictation instead. See logs for details.");
                             return InterceptOutcome::Passthrough;
                         }
                     }
