@@ -192,6 +192,22 @@ pub fn run() {
     info!(accelerator = %OrtAccelerator::CpuOnly, "ORT accelerator selected");
 
     tauri::Builder::default()
+        // Must be the first plugin registered. Two full GUI instances means
+        // two CGEventTap hotkey listeners and two paste pipelines racing on
+        // one dictation (observed 2026-08-31: the login LaunchAgent and
+        // macOS crash-recovery relaunch both started the app after a hard
+        // reboot, and every dictation was recorded and pasted twice). A
+        // second launch now defers to the running instance, which surfaces
+        // the dashboard the way a Dock-icon click on a tray app should.
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            info!(?argv, "second app launch deferred to the running instance");
+            crate::ui::dock::set_dock_visible(true);
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.show();
+                let _ = w.unminimize();
+                let _ = w.set_focus();
+            }
+        }))
         .on_window_event(|window, event| {
             if window.label() == "main" {
                 if let tauri::WindowEvent::CloseRequested { api, .. } = event {
