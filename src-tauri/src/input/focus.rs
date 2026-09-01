@@ -1079,7 +1079,10 @@ pub fn try_direct_insert(
 /// Restore focus before paste. Strategy:
 ///   0. If the captured element provably cannot hold a caret, stop: never
 ///      activate an app for a paste that would be swallowed (see
-///      [`redirect_or_block`]).
+///      [`redirect_or_block`]). And if the captured target is merely
+///      *unverifiable* while the user is right now focused in a provable
+///      text field in another app, paste there instead of activating the
+///      captured app for a gamble (see [`prefer_live_caret`]).
 ///   1. If the captured app is not currently frontmost, call
 ///      `activateWithOptions` to bring the app forward, then **verify** it
 ///      actually became frontmost (`frontmost_verified`) so the caller can
@@ -1132,6 +1135,53 @@ pub fn restore_focus(
                 "captured app's live focus rejects text; skipping its activation"
             );
             return redirect_or_block(ctx, element, intent, frontmost, same_app);
+        }
+    }
+
+    // Guard 1c: cross-app return where the captured target is only Unknown —
+    // a container role like AXGroup, or no role at all — so pasting there is
+    // a gamble, while the app the user is focused on *right now* holds a
+    // provably text-accepting caret. Verified beats unverified: paste where
+    // the user is looking instead of yanking the captured app forward for a
+    // blind ⌘V that may be swallowed (observed 2026-09-01: hotkey pressed
+    // with the Finder desktop focused — captured AXGroup — user moved to a
+    // chat text area while speaking; Finder was activated over it and the
+    // paste landed in nothing). When the current focus is not provably a
+    // text field this falls through to the normal activate-and-verify path,
+    // so opaque-webview origins keep their long-standing blind-⌘V return.
+    if !same_app && intent == PasteIntent::Insert && captured_target == TextTarget::Unknown {
+        if let Some(pid) = frontmost.filter(|p| *p != std::process::id() as i32) {
+            let live_role = probe_focused_role(pid);
+            if prefer_live_caret(
+                same_app,
+                intent,
+                captured_target,
+                TextTarget::from_probe(live_role.as_deref()),
+            ) {
+                tracing::warn!(
+                    captured_pid = ctx.pid,
+                    captured_app = ?ctx.app_name,
+                    captured_role = ?element.and_then(|e| e.role()),
+                    target_pid = pid,
+                    target_role = ?live_role,
+                    "captured target unverifiable; pasting into the live text field the user is focused on instead"
+                );
+                return RestoreOutcome {
+                    same_app,
+                    // The app we are about to paste into is already frontmost,
+                    // so no activation is needed and none was attempted.
+                    frontmost_verified: true,
+                    element_captured: element.is_some(),
+                    element_role: element.and_then(|e| e.role().map(|s| s.to_string())),
+                    frontmost_pid_before: frontmost,
+                    paste_time_focus_role: live_role,
+                    captured_target,
+                    paste_time_target: TextTarget::Accepts,
+                    redirected_pid: Some(pid),
+                    blocker: None,
+                    ..Default::default()
+                };
+            }
         }
     }
 
@@ -1293,6 +1343,31 @@ pub fn restore_focus(
     }
 }
 
+/// Guard 1c decision: on a cross-app return, should the paste abandon the
+/// captured target in favor of the caret the user is focused on right now?
+///
+/// Only when every one of these holds:
+///   * the user actually left the captured app (`!same_app`);
+///   * the paste is additive (`Insert`) — replacing a selection must land in
+///     the captured element or not at all;
+///   * the captured target is `Unknown` — we cannot verify it would take a
+///     ⌘V (a provable `Accepts` always wins the return trip, and a provable
+///     `Rejects` is Guard 1's job);
+///   * the live frontmost focus is provably `Accepts` — anything weaker is
+///     not enough evidence to overrule the captured target.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn prefer_live_caret(
+    same_app: bool,
+    intent: PasteIntent,
+    captured_target: TextTarget,
+    live_frontmost_target: TextTarget,
+) -> bool {
+    !same_app
+        && intent == PasteIntent::Insert
+        && captured_target == TextTarget::Unknown
+        && live_frontmost_target == TextTarget::Accepts
+}
+
 /// Handle a captured element that cannot accept text (Guard 1).
 ///
 /// The captured target is a dead end, so there is nothing to lose by looking
@@ -1410,8 +1485,9 @@ pub struct RestoreOutcome {
     pub captured_target: TextTarget,
     /// Whether whatever holds focus just before Cmd+V can accept text.
     pub paste_time_target: TextTarget,
-    /// Set when the captured target was a dead end and the paste was pointed
-    /// at the app the user is focused on now instead. Diagnostic only —
+    /// Set when the captured target was a dead end (or unverifiable while a
+    /// provable text field held live focus elsewhere) and the paste was
+    /// pointed at the app the user is focused on now instead. Diagnostic only —
     /// nothing needs to be activated, since that app is already frontmost.
     pub redirected_pid: Option<i32>,
     /// `Some` when the paste must not be synthesized at all. Callers fall back
@@ -2170,6 +2246,57 @@ mod tests {
         );
         assert_eq!(outcome.redirected_pid, None);
         assert_eq!(outcome.blocker, Some(PasteBlocker::NoTextTarget));
+    }
+
+    #[test]
+    fn unverifiable_capture_yields_to_a_live_caret_on_cross_app_return() {
+        // The 2026-09-01 Finder-desktop glitch: hotkey pressed with an
+        // AXGroup focused (Unknown), user moved to a chat text area while
+        // speaking. The verified caret must win over activating Finder for
+        // a blind ⌘V into nothing.
+        assert!(prefer_live_caret(
+            false,
+            PasteIntent::Insert,
+            TextTarget::Unknown,
+            TextTarget::Accepts,
+        ));
+    }
+
+    #[test]
+    fn live_caret_never_overrules_a_verified_or_same_app_target() {
+        // Same app: the normal focus-void / live-caret handling applies.
+        assert!(!prefer_live_caret(
+            true,
+            PasteIntent::Insert,
+            TextTarget::Unknown,
+            TextTarget::Accepts,
+        ));
+        // A provably text-accepting captured element always gets the return
+        // trip — that's where dictation started.
+        assert!(!prefer_live_caret(
+            false,
+            PasteIntent::Insert,
+            TextTarget::Accepts,
+            TextTarget::Accepts,
+        ));
+        // Replacing a selection must never be pointed at a different app.
+        assert!(!prefer_live_caret(
+            false,
+            PasteIntent::ReplaceSelection,
+            TextTarget::Unknown,
+            TextTarget::Accepts,
+        ));
+        // The live focus must be *provably* a text field; anything weaker
+        // keeps the long-standing activate-and-blind-⌘V return path (this is
+        // what protects opaque webview origins).
+        for weaker in [TextTarget::Unknown, TextTarget::Rejects, TextTarget::NoFocus] {
+            assert!(!prefer_live_caret(
+                false,
+                PasteIntent::Insert,
+                TextTarget::Unknown,
+                weaker,
+            ));
+        }
     }
 
     #[test]
