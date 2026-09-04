@@ -269,6 +269,7 @@ export default function DashboardView({ projects, onOpenStats, searchRequest = 0
 
   useEffect(() => {
     if (refreshTick === 0) return;
+    void loadAll();
     void fetchItems("reset");
     void loadRecordings();
     void loadMeetings();
@@ -281,16 +282,19 @@ export default function DashboardView({ projects, onOpenStats, searchRequest = 0
     void (async () => {
       const handler = () => {
         if (cancelled) return;
+        void loadAll();
         void fetchItems("reset");
         void loadRecordings();
         void loadMeetings();
       };
       const meetingHandler = () => {
         if (cancelled) return;
+        void loadAll();
         void loadMeetings();
       };
       const recordingHandler = () => {
         if (cancelled) return;
+        void loadAll();
         void loadRecordings();
       };
       const subs = await Promise.all([

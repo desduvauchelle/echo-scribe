@@ -93,7 +93,22 @@
     "couldntSavePreferences": "Couldn't save meeting preferences.",
     "couldntAddGuide": "Couldn't add guide. See Settings → Diagnostics → logs.",
     "consentMessageCopied": "Consent message copied.",
-    "couldntSaveSpeakerLabel": "Couldn't save speaker label."
+    "couldntSaveSpeakerLabel": "Couldn't save speaker label.",
+    "tabGuides": "Guides",
+    "tabNotes": "Notes",
+    "tabCaught": "Caught",
+    "tabTranscript": "Transcript",
+    "tabsAria": "Meeting panels",
+    "talkWidgetsAria": "Talk balance",
+    "talkShareAria": "{{you}} {{youPct}} percent, {{them}} {{themPct}} percent",
+    "talkShareSilent": "Nobody has spoken yet",
+    "longestTurn": "Longest turn",
+    "wordsPerMinute": "Words / min",
+    "questionsAsked": "Questions",
+    "noCaught": "Dates and numbers appear here as they come up.",
+    "caughtDates": "Dates",
+    "caughtNumbers": "Numbers",
+    "caughtSaidBy": "Said by {{speaker}}"
   },
   "screenrecSetup": {
     "loadingSources": "Loading sources…",

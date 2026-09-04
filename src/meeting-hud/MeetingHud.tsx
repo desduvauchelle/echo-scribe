@@ -23,6 +23,8 @@ import {
   type SummaryTemplate,
   type TranscriptSegment,
 } from "../lib/api";
+import { caughtOfKind, extractCaught, type CaughtKind } from "../lib/caught";
+import TalkWidgets from "./TalkWidgets";
 
 type GuideSession = {
   sessionId: string;
@@ -47,6 +49,17 @@ type Card = {
 
 const MAX_CARDS = 50;
 
+type HudTab = "guides" | "notes" | "caught" | "transcript";
+
+const TABS: HudTab[] = ["guides", "notes", "caught", "transcript"];
+
+const TAB_LABEL: Record<HudTab, string> = {
+  guides: "meetingHud.tabGuides",
+  notes: "meetingHud.tabNotes",
+  caught: "meetingHud.tabCaught",
+  transcript: "meetingHud.tabTranscript",
+};
+
 function statusMarker(s: string, kind?: string): string {
   if (s === "covered") return "✓";
   if (s === "partial") return "…";
@@ -66,8 +79,7 @@ export default function MeetingHud() {
   const [sessions, setSessions] = useState<Record<string, GuideSession>>({});
   const [cards, setCards] = useState<Card[]>([]);
   const [segments, setSegments] = useState<TranscriptSegment[]>([]);
-  const [showTranscript, setShowTranscript] = useState(false);
-  const [showNotes, setShowNotes] = useState(false);
+  const [tab, setTab] = useState<HudTab>("guides");
   const [meetingId, setMeetingId] = useState<string | null>(null);
   const [notes, setNotes] = useState("");
   const [savedNotes, setSavedNotes] = useState("");
@@ -234,12 +246,13 @@ export default function MeetingHud() {
       }),
       listen<{ focus: string }>("hud-focus", (e) => {
         if (e.payload.focus === "transcript") {
-          setShowTranscript(true);
+          setTab("transcript");
           backfillTranscript();
         } else if (e.payload.focus === "notes") {
-          setShowNotes(true);
+          setTab("notes");
           backfillWorkspace();
         } else if (e.payload.focus === "guides") {
+          setTab("guides");
           setPickerOpen(true);
           backfillGuides();
           listGuideTemplates().then(setTemplates).catch(() => setTemplates([]));
@@ -309,7 +322,7 @@ export default function MeetingHud() {
   useEffect(() => {
     const el = transcriptRef.current;
     if (el && stickToBottom.current) el.scrollTop = el.scrollHeight;
-  }, [segments, showTranscript]);
+  }, [segments, tab]);
 
   const onTranscriptScroll = useCallback(() => {
     const el = transcriptRef.current;
@@ -319,6 +332,17 @@ export default function MeetingHud() {
 
   const sessionList = Object.values(sessions).sort((a, b) => a.slot - b.slot);
   const atCap = sessionList.length >= 2;
+  const caught = extractCaught(segments);
+
+  const onSelectTab = useCallback(
+    (next: HudTab) => {
+      setTab(next);
+      if (next === "transcript") backfillTranscript();
+      if (next === "notes") backfillWorkspace();
+      if (next === "guides") backfillGuides();
+    },
+    [backfillTranscript, backfillWorkspace, backfillGuides],
+  );
 
   const onAttach = useCallback(
     async (templateId: string) => {
@@ -369,30 +393,6 @@ export default function MeetingHud() {
         <span className="label" data-tauri-drag-region>{t("meetingHud.label")}</span>
         <span className="controls">
           <button
-            className={showNotes ? "active" : ""}
-            onClick={() => {
-              setShowNotes((v) => !v);
-              if (!showNotes) backfillWorkspace();
-            }}
-            title={t("meetingHud.toggleNotes")}
-            aria-label={t("meetingHud.toggleNotes")}
-            aria-pressed={showNotes}
-          >
-            <span aria-hidden="true">✎</span>
-          </button>
-          <button
-            className={showTranscript ? "active" : ""}
-            onClick={() => {
-              setShowTranscript((v) => !v);
-              if (!showTranscript) backfillTranscript();
-            }}
-            title={t("meetingHud.toggleTranscript")}
-            aria-label={t("meetingHud.toggleTranscript")}
-            aria-pressed={showTranscript}
-          >
-            <span aria-hidden="true">☰</span>
-          </button>
-          <button
             onClick={() => getCurrentWindow().hide()}
             title={t("meetingHud.hideWindow")}
             aria-label={t("meetingHud.hideWindowAriaLabel")}
@@ -408,8 +408,30 @@ export default function MeetingHud() {
         </div>
       )}
 
+      <TalkWidgets segments={segments} labels={speakerLabels} />
+
+      <nav className="tabbar" role="tablist" aria-label={t("meetingHud.tabsAria")}>
+        {TABS.map((name) => (
+          <button
+            key={name}
+            role="tab"
+            id={`hud-tab-${name}`}
+            aria-selected={tab === name}
+            aria-controls={`hud-pane-${name}`}
+            className={tab === name ? "active" : ""}
+            onClick={() => onSelectTab(name)}
+          >
+            {t(TAB_LABEL[name])}
+            {name === "caught" && caught.length > 0 && (
+              <span className="tab-count">{caught.length}</span>
+            )}
+          </button>
+        ))}
+      </nav>
+
       <div className="body">
-        <section className="guides">
+        {tab === "guides" && (
+        <section className="guides" role="tabpanel" id="hud-pane-guides" aria-labelledby="hud-tab-guides">
           {sessionList.map((s) => (
             <div key={s.sessionId} className={`guide slot${s.slot}`}>
               <div className="guide-head">
@@ -490,9 +512,8 @@ export default function MeetingHud() {
               </div>
             )}
           </div>
-        </section>
 
-        <section className="feed" aria-live="polite">
+        <div className="feed" aria-live="polite">
           {cards.length === 0 ? (
             <div className="empty">{t("meetingHud.noCards")}</div>
           ) : (
@@ -508,10 +529,57 @@ export default function MeetingHud() {
               </div>
             ))
           )}
+        </div>
         </section>
+        )}
 
-        {showTranscript && (
-          <section className="transcript" ref={transcriptRef} onScroll={onTranscriptScroll}>
+        {tab === "caught" && (
+          <section
+            className="caught"
+            role="tabpanel"
+            id="hud-pane-caught"
+            aria-labelledby="hud-tab-caught"
+          >
+            {caught.length === 0 ? (
+              <div className="empty">{t("meetingHud.noCaught")}</div>
+            ) : (
+              (["date", "number"] as CaughtKind[]).map((kind) => {
+                const items = caughtOfKind(caught, kind);
+                if (items.length === 0) return null;
+                return (
+                  <div key={kind} className="caught-group">
+                    <div className="caught-heading">
+                      {kind === "date" ? t("meetingHud.caughtDates") : t("meetingHud.caughtNumbers")}
+                    </div>
+                    <div className="chips">
+                      {items.map((item) => (
+                        <span
+                          key={`${kind}:${item.text}`}
+                          className={`chip ${item.speaker}`}
+                          title={t("meetingHud.caughtSaidBy", {
+                            speaker: speakerLabels[item.speaker],
+                          })}
+                        >
+                          {item.text}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </section>
+        )}
+
+        {tab === "transcript" && (
+          <section
+            className="transcript"
+            role="tabpanel"
+            id="hud-pane-transcript"
+            aria-labelledby="hud-tab-transcript"
+            ref={transcriptRef}
+            onScroll={onTranscriptScroll}
+          >
             <div className="speaker-labels">
               {(["you", "them"] as const).map((speaker) => (
                 <label key={speaker}>
@@ -544,8 +612,13 @@ export default function MeetingHud() {
           </section>
         )}
 
-        {showNotes && (
-          <section className="live-notes">
+        {tab === "notes" && (
+          <section
+            className="live-notes"
+            role="tabpanel"
+            id="hud-pane-notes"
+            aria-labelledby="hud-tab-notes"
+          >
             <div className="notes-toolbar">
               <label>
                 <span>{t("meetingHud.summaryFormat")}</span>

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import Markdown from "../../components/Markdown";
 import {
   ChevronDown,
   ChevronRight,
@@ -235,13 +236,13 @@ export default function ChatView({ projects }: Props) {
           ) : (
             <div className="flex flex-col gap-3">
               {messages.map((msg) => (
-                <MessageBubble
+                <ChatMessageContent
                   key={msg.id}
                   message={msg}
                   sources={sourcesMap[msg.id]}
                 />
               ))}
-              {loading ? <ThinkingBubble /> : null}
+              {loading ? <ThinkingIndicator /> : null}
               <div ref={bottomRef} />
             </div>
           )}
@@ -320,7 +321,7 @@ function SessionRow({
   );
 }
 
-function MessageBubble({
+function ChatMessageContent({
   message,
   sources,
 }: {
@@ -332,10 +333,10 @@ function MessageBubble({
   return (
     <div className={`flex flex-col ${isUser ? "items-end" : "items-start"}`}>
       <div
-        className={`max-w-[85%] rounded-lg px-3 py-2 text-sm leading-relaxed ${
+        className={`min-w-0 text-sm leading-relaxed text-fg ${
           isUser
-            ? "bg-elevated text-fg"
-            : "bg-elevated/60 text-fg"
+            ? "max-w-[85%] rounded-lg bg-elevated px-3 py-2"
+            : "w-full py-2 [overflow-wrap:anywhere] [&_pre]:overflow-x-auto"
         }`}
       >
         {!isUser ? (
@@ -344,7 +345,11 @@ function MessageBubble({
             {t("chat.message.aiLabel")}
           </p>
         ) : null}
-        <p className="whitespace-pre-wrap">{message.content}</p>
+        {isUser ? (
+          <p className="whitespace-pre-wrap">{message.content}</p>
+        ) : (
+          <Markdown>{message.content}</Markdown>
+        )}
       </div>
       {!isUser && sources && sources.length > 0 && (
         <SourcesPanel sources={sources} />
@@ -390,11 +395,11 @@ function SourcesPanel({ sources }: { sources: ContextSource[] }) {
   );
 }
 
-function ThinkingBubble() {
+function ThinkingIndicator() {
   const { t } = useTranslation("main");
   return (
     <div className="flex justify-start">
-      <div className="rounded-lg bg-elevated/60 px-3 py-2 text-sm text-muted">
+      <div className="py-2 text-sm text-muted">
         <p className="mb-1 text-[10px] font-medium uppercase tracking-wider">
           {t("chat.message.aiLabel")}
         </p>

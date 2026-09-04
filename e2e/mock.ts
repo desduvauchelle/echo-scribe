@@ -124,6 +124,17 @@ export async function installTauriMock(page: Page, scenario: Scenario = {}) {
     });
 
     let nextEventId = 1;
+    const listeners = new Map<number, { event: string; handler: number }>();
+    (window as any).__MOCK_EMIT__ = (event: string, payload: unknown = null) => {
+      for (const [id, listener] of listeners) {
+        if (listener.event === event) {
+          (window as any)[`_${listener.handler}`]({ event, id, payload });
+        }
+      }
+    };
+    (window as any).__TAURI_EVENT_PLUGIN_INTERNALS__ = {
+      unregisterListener: (_event: string, id: number) => listeners.delete(id),
+    };
     const handlers: Record<string, (args: any) => unknown> = {
       permissions_status: () => ({ ...state.permissions }),
       install_warnings: () => [],
@@ -343,8 +354,12 @@ export async function installTauriMock(page: Page, scenario: Scenario = {}) {
       },
       daily_summary_get: () => null,
       "plugin:autostart|is_enabled": () => false,
-      "plugin:event|listen": () => nextEventId++,
-      "plugin:event|unlisten": () => undefined,
+      "plugin:event|listen": (args) => {
+        const id = nextEventId++;
+        listeners.set(id, { event: args.event, handler: args.handler });
+        return id;
+      },
+      "plugin:event|unlisten": (args) => { listeners.delete(args.eventId); },
     };
 
     (window as any).__TAURI_INTERNALS__ = {

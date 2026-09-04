@@ -113,3 +113,12 @@ core-foundation = "0.10"
 # such as CUDA or Vulkan should be enabled only after Windows CI is green.
 llama-cpp-2 = { version = "0.1.146", default-features = false }
 llama-cpp-sys-2 = { version = "0.1.146", default-features = false }
+
+# Keep the dev target/ directory from ballooning. Full debug info is the bulk
+# of a debug build, and on macOS split-debuginfo leaves it in the per-CU .o
+# files, which are then retained forever, and llama-cpp-sys-2 alone emits
+# hundreds per build. "line-tables-only" keeps backtraces with file/line
+# numbers (what we actually read) and drops variable/type info we never use.
+# Cargo never garbage-collects target/, so without this it grows without bound.
+[profile.dev]
+debug = "line-tables-only"

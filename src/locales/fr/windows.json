@@ -93,7 +93,22 @@
     "couldntSavePreferences": "Impossible d’enregistrer les préférences de réunion.",
     "couldntAddGuide": "Impossible d’ajouter le guide. Voir Réglages → Diagnostic → journaux.",
     "consentMessageCopied": "Message de consentement copié.",
-    "couldntSaveSpeakerLabel": "Impossible d’enregistrer l’étiquette de l’intervenant."
+    "couldntSaveSpeakerLabel": "Impossible d’enregistrer l’étiquette de l’intervenant.",
+    "tabGuides": "Guides",
+    "tabNotes": "Notes",
+    "tabCaught": "Repérés",
+    "tabTranscript": "Transcription",
+    "tabsAria": "Panneaux de réunion",
+    "talkWidgetsAria": "Répartition de la parole",
+    "talkShareAria": "{{you}} {{youPct}} pour cent, {{them}} {{themPct}} pour cent",
+    "talkShareSilent": "Personne n'a encore parlé",
+    "longestTurn": "Tour le plus long",
+    "wordsPerMinute": "Mots / min",
+    "questionsAsked": "Questions",
+    "noCaught": "Les dates et les chiffres apparaissent ici au fil de la conversation.",
+    "caughtDates": "Dates",
+    "caughtNumbers": "Chiffres",
+    "caughtSaidBy": "Dit par {{speaker}}"
   },
   "screenrecSetup": {
     "loadingSources": "Chargement des sources…",

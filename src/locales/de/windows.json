@@ -93,7 +93,22 @@
     "couldntSavePreferences": "Meeting-Einstellungen konnten nicht gespeichert werden.",
     "couldntAddGuide": "Guide konnte nicht hinzugefügt werden. Siehe Einstellungen → Diagnose → Protokolle.",
     "consentMessageCopied": "Zustimmungstext kopiert.",
-    "couldntSaveSpeakerLabel": "Sprecherbezeichnung konnte nicht gespeichert werden."
+    "couldntSaveSpeakerLabel": "Sprecherbezeichnung konnte nicht gespeichert werden.",
+    "tabGuides": "Leitfäden",
+    "tabNotes": "Notizen",
+    "tabCaught": "Erfasst",
+    "tabTranscript": "Transkript",
+    "tabsAria": "Meeting-Bereiche",
+    "talkWidgetsAria": "Redeanteil",
+    "talkShareAria": "{{you}} {{youPct}} Prozent, {{them}} {{themPct}} Prozent",
+    "talkShareSilent": "Es hat noch niemand gesprochen",
+    "longestTurn": "Längster Redebeitrag",
+    "wordsPerMinute": "Wörter / Min",
+    "questionsAsked": "Fragen",
+    "noCaught": "Daten und Zahlen erscheinen hier, sobald sie fallen.",
+    "caughtDates": "Daten",
+    "caughtNumbers": "Zahlen",
+    "caughtSaidBy": "Gesagt von {{speaker}}"
   },
   "screenrecSetup": {
     "loadingSources": "Quellen werden geladen…",

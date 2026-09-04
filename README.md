@@ -1,6 +1,6 @@
 # Echo Scribe
 
-**[echoscribe.app →](https://desduvauchelle.github.io/echo-scribe/)**
+**[echo-scribe.ai-juicing.com →](https://echo-scribe.ai-juicing.com)**
 
 A voice-first personal capture tool for macOS. Press a hotkey, speak, and Echo Scribe transcribes and understands your words — entirely on your device, with no internet required.
 

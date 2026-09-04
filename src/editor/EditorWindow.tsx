@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { Loader } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { EditorView } from "../views/sections/EditorView";
@@ -47,6 +48,48 @@ export default function EditorWindow() {
       cancelled = true;
     };
   }, [id, t]);
+
+  // Auto-denoise runs in the background after a recording stops, and the editor
+  // is usually opened seconds after stop — well before it finishes. When it
+  // lands it DELETES `<id>.mp4` and promotes `<id>.cleaned.mp4` onto the row,
+  // so a window holding the pre-denoise snapshot is left pointing at a file
+  // that no longer exists: the preview <video> silently keeps playing off its
+  // open handle, but Export re-fetches the path and dies with HTTP 404.
+  // Re-read the row on `screenrec-changed` (the event Rust emits after the
+  // swap) and hand EditorView the new paths; it keys its <video> on the source
+  // URL, so the preview reloads too. Only swap when a media path actually
+  // moved — this event also fires for renames/exports/recording state, and a
+  // new row identity on every tick would churn EditorView's effects.
+  const mediaKey = useCallback(
+    (r: RecordingRow) =>
+      `${r.denoised_path ?? r.file_path}|${r.webcam_path ?? ""}|${r.events_path ?? ""}`,
+    [],
+  );
+  useEffect(() => {
+    if (!id) return;
+    let unlisten: UnlistenFn | null = null;
+    let cancelled = false;
+    void listen("screenrec-changed", () => {
+      void listRecordings()
+        .then((rows) => {
+          if (cancelled) return;
+          const row = rows.find((r) => r.id === id);
+          if (!row) return;
+          setRecording((prev) =>
+            prev && mediaKey(prev) === mediaKey(row) ? prev : row,
+          );
+        })
+        // A failed refresh is not fatal: the window keeps the row it has.
+        .catch((e) => console.warn("[editor] row refresh failed", e));
+    }).then((fn) => {
+      if (cancelled) void fn();
+      else unlisten = fn;
+    });
+    return () => {
+      cancelled = true;
+      if (unlisten) void unlisten();
+    };
+  }, [id, mediaKey]);
 
   if (error) {
     return (

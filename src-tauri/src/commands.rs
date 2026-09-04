@@ -5877,11 +5877,26 @@ pub(crate) async fn run_denoise(app: AppHandle, id: String) -> Result<(), String
     }
 
     cleanup(None); // remove temp wavs; keep clean_mp4
-                   // Denoise swapped the file on disk (original deleted, cleaned promoted). Tell
-                   // the UI so it re-fetches the row and reloads the player off the new path —
-                   // otherwise the <video> is left pointing at the now-deleted original and
-                   // shows a broken/"not playable" state. `denoise-progress` alone is not a
-                   // reliable completion signal (its final tick may not land exactly at 100).
+
+    // Log the swap. This step DELETES the user's original capture and moves the
+    // row onto `<id>.cleaned.mp4`, and it used to succeed silently — which made
+    // the "editor window holds the pre-denoise path, Export 404s" bug read as a
+    // file vanishing for no reason. Record it so the deletion is always
+    // attributable in the daily log.
+    info!(
+        target: "denoise",
+        %id,
+        promoted = %clean_str,
+        deleted_original = DELETE_ORIGINAL_AFTER_DENOISE,
+        "denoise complete"
+    );
+
+    // Denoise swapped the file on disk (original deleted, cleaned promoted). Tell
+    // the UI so it re-fetches the row and reloads the player off the new path —
+    // otherwise the <video> is left pointing at the now-deleted original and
+    // shows a broken/"not playable" state. `denoise-progress` alone is not a
+    // reliable completion signal (its final tick may not land exactly at 100).
+    // The dedicated editor window listens for this too (EditorWindow.tsx).
     let _ = app.emit("screenrec-changed", ());
     Ok(())
 }

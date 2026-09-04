@@ -2698,6 +2698,22 @@ export function EditorView({
 
       const durationMs = Math.round((durationMsRef.current || duration * 1000) || 0);
 
+      // Re-resolve the source path right before the render. Auto-denoise swaps
+      // the recording file (original deleted, `<id>.cleaned.mp4` promoted onto
+      // the row) in the background after a stop, and this window is typically
+      // opened seconds after that stop. EditorWindow refreshes the row on
+      // `screenrec-changed`, but a swap that lands between that event and this
+      // click would otherwise fetch a deleted path and fail with HTTP 404 after
+      // the user already committed to the export. A stale/failed lookup is
+      // non-fatal — fall back to the mounted path.
+      let fileUrl = src;
+      try {
+        const fresh = (await listRecordings()).find((r) => r.id === recording.id);
+        if (fresh) fileUrl = convertFileSrc(fresh.denoised_path ?? fresh.file_path);
+      } catch (e) {
+        console.warn("[export] could not re-resolve source path; using mounted path", e);
+      }
+
       // Poster frame (MP4 only): the pipeline hands us the first composited
       // output frame as JPEG; after a successful finalize it becomes the
       // recording's library thumbnail so the list shows the EDITED look.
@@ -2706,7 +2722,7 @@ export function EditorView({
       const posterRef: { blob: Blob | null } = { blob: null };
 
       const bytes = await renderRecording({
-        fileUrl: src,
+        fileUrl,
         eventsJsonl,
         durationMs,
         project: proj,

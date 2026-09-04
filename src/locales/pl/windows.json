@@ -93,7 +93,22 @@
     "couldntSavePreferences": "Nie udało się zapisać preferencji spotkania.",
     "couldntAddGuide": "Nie udało się dodać przewodnika. Zobacz Ustawienia → Diagnostyka → logi.",
     "consentMessageCopied": "Skopiowano komunikat zgody.",
-    "couldntSaveSpeakerLabel": "Nie udało się zapisać etykiety mówiącego."
+    "couldntSaveSpeakerLabel": "Nie udało się zapisać etykiety mówiącego.",
+    "tabGuides": "Przewodniki",
+    "tabNotes": "Notatki",
+    "tabCaught": "Wychwycone",
+    "tabTranscript": "Transkrypcja",
+    "tabsAria": "Panele spotkania",
+    "talkWidgetsAria": "Podział rozmowy",
+    "talkShareAria": "{{you}} {{youPct}} procent, {{them}} {{themPct}} procent",
+    "talkShareSilent": "Nikt jeszcze nie mówił",
+    "longestTurn": "Najdłuższa wypowiedź",
+    "wordsPerMinute": "Słowa / min",
+    "questionsAsked": "Pytania",
+    "noCaught": "Daty i liczby pojawiają się tutaj, gdy padną.",
+    "caughtDates": "Daty",
+    "caughtNumbers": "Liczby",
+    "caughtSaidBy": "Powiedział(a) {{speaker}}"
   },
   "screenrecSetup": {
     "loadingSources": "Ładowanie źródeł…",

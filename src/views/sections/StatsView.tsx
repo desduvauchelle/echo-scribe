@@ -1,3 +1,4 @@
+import { listen } from "@tauri-apps/api/event";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -61,17 +62,35 @@ export default function StatsView({ initialCategory, onBack }: Props) {
 
   useEffect(() => {
     let cancelled = false;
-    void getDashboardStats()
-      .then((next) => {
-        if (!cancelled) setStats(next);
-      })
-      .catch((reason: unknown) => {
-        if (!cancelled) {
+    let latestRequest = 0;
+    const refresh = async () => {
+      if (cancelled) return;
+      const request = ++latestRequest;
+      try {
+        const next = await getDashboardStats();
+        if (!cancelled && request === latestRequest) {
+          setStats(next);
+          setError(null);
+        }
+      } catch (reason) {
+        if (!cancelled && request === latestRequest) {
           setError(reason instanceof Error ? reason.message : String(reason));
         }
-      });
+      }
+    };
+    const subscriptions = [
+      "item:created",
+      "app:refresh",
+      "meeting-status",
+      "meeting-complete",
+      "screenrec-changed",
+    ].map((event) => listen(event, () => void refresh()));
+    void refresh();
     return () => {
       cancelled = true;
+      subscriptions.forEach((subscription) => {
+        void subscription.then((unlisten) => unlisten());
+      });
     };
   }, []);
 

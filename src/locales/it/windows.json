@@ -93,7 +93,22 @@
     "couldntSavePreferences": "Impossibile salvare le preferenze della riunione.",
     "couldntAddGuide": "Impossibile aggiungere la guida. Vedi Impostazioni → Diagnostica → log.",
     "consentMessageCopied": "Messaggio di consenso copiato.",
-    "couldntSaveSpeakerLabel": "Impossibile salvare l'etichetta dell'interlocutore."
+    "couldntSaveSpeakerLabel": "Impossibile salvare l'etichetta dell'interlocutore.",
+    "tabGuides": "Guide",
+    "tabNotes": "Note",
+    "tabCaught": "Rilevati",
+    "tabTranscript": "Trascrizione",
+    "tabsAria": "Pannelli della riunione",
+    "talkWidgetsAria": "Distribuzione della parola",
+    "talkShareAria": "{{you}} {{youPct}} per cento, {{them}} {{themPct}} per cento",
+    "talkShareSilent": "Non ha ancora parlato nessuno",
+    "longestTurn": "Turno più lungo",
+    "wordsPerMinute": "Parole / min",
+    "questionsAsked": "Domande",
+    "noCaught": "Date e numeri compaiono qui man mano che emergono.",
+    "caughtDates": "Date",
+    "caughtNumbers": "Numeri",
+    "caughtSaidBy": "Detto da {{speaker}}"
   },
   "screenrecSetup": {
     "loadingSources": "Caricamento sorgenti…",

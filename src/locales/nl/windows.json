@@ -93,7 +93,22 @@
     "couldntSavePreferences": "Kon meetingvoorkeuren niet opslaan.",
     "couldntAddGuide": "Kon gids niet toevoegen. Zie Instellingen → Diagnostiek → logs.",
     "consentMessageCopied": "Toestemmingsbericht gekopieerd.",
-    "couldntSaveSpeakerLabel": "Kon sprekerlabel niet opslaan."
+    "couldntSaveSpeakerLabel": "Kon sprekerlabel niet opslaan.",
+    "tabGuides": "Gidsen",
+    "tabNotes": "Notities",
+    "tabCaught": "Opgevangen",
+    "tabTranscript": "Transcript",
+    "tabsAria": "Vergaderpanelen",
+    "talkWidgetsAria": "Spreekverdeling",
+    "talkShareAria": "{{you}} {{youPct}} procent, {{them}} {{themPct}} procent",
+    "talkShareSilent": "Er heeft nog niemand gesproken",
+    "longestTurn": "Langste beurt",
+    "wordsPerMinute": "Woorden / min",
+    "questionsAsked": "Vragen",
+    "noCaught": "Data en cijfers verschijnen hier zodra ze vallen.",
+    "caughtDates": "Data",
+    "caughtNumbers": "Cijfers",
+    "caughtSaidBy": "Gezegd door {{speaker}}"
   },
   "screenrecSetup": {
     "loadingSources": "Bronnen laden…",

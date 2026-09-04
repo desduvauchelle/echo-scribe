@@ -93,7 +93,22 @@
     "couldntSavePreferences": "No se pudieron guardar las preferencias de la reunión.",
     "couldntAddGuide": "No se pudo añadir la guía. Consulta Ajustes → Diagnóstico → registros.",
     "consentMessageCopied": "Mensaje de consentimiento copiado.",
-    "couldntSaveSpeakerLabel": "No se pudo guardar la etiqueta del hablante."
+    "couldntSaveSpeakerLabel": "No se pudo guardar la etiqueta del hablante.",
+    "tabGuides": "Guías",
+    "tabNotes": "Notas",
+    "tabCaught": "Detectado",
+    "tabTranscript": "Transcripción",
+    "tabsAria": "Paneles de la reunión",
+    "talkWidgetsAria": "Reparto de la conversación",
+    "talkShareAria": "{{you}} {{youPct}} por ciento, {{them}} {{themPct}} por ciento",
+    "talkShareSilent": "Todavía no ha hablado nadie",
+    "longestTurn": "Turno más largo",
+    "wordsPerMinute": "Palabras / min",
+    "questionsAsked": "Preguntas",
+    "noCaught": "Las fechas y las cifras aparecen aquí según surgen.",
+    "caughtDates": "Fechas",
+    "caughtNumbers": "Cifras",
+    "caughtSaidBy": "Dicho por {{speaker}}"
   },
   "screenrecSetup": {
     "loadingSources": "Cargando fuentes…",

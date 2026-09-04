@@ -34,3 +34,44 @@ test("dashboard stats switch categories and open the detailed view", async ({ pa
   await expect(page.getByRole("heading", { name: "Stats" })).toHaveCount(0);
   await expect(overview.getByText("Dictations", { exact: true })).toBeVisible();
 });
+
+// Drive the same IPC event emitted by persist_capture after a saved dictation.
+async function updateDictationCount(page: import("@playwright/test").Page, count: number, event: string) {
+  await page.evaluate(({ count, event }) => {
+    const w = window as any;
+    w.__DICTATION_COUNT__ = count;
+    w.__MOCK_EMIT__(event);
+  }, { count, event });
+}
+
+for (const detailed of [false, true]) {
+  test(`${detailed ? "detailed stats" : "dashboard"} refreshes dictation counts while open`, async ({ page }) => {
+    await installTauriMock(page, {
+      onboardingCompleted: true,
+      permissions: { microphone: true, accessibility: true },
+      speechModelReady: true,
+    });
+    await page.addInitScript(() => {
+      const w = window as any;
+      w.__DICTATION_COUNT__ = 43;
+      const invoke = w.__TAURI_INTERNALS__.invoke;
+      w.__TAURI_INTERNALS__.invoke = async (cmd: string, args: unknown) => {
+        const result = await invoke(cmd, args);
+        if (cmd === "get_dashboard_stats") {
+          result.categories.transcriptions.today.count = w.__DICTATION_COUNT__;
+        }
+        return result;
+      };
+    });
+    await page.goto("/");
+    await page.getByRole("button", { name: "Dictations", exact: true }).click();
+    const overview = page.getByRole("region", { name: "Activity statistics" });
+    if (detailed) await overview.getByRole("button", { name: "View stats" }).click();
+    const today = page.getByText("43", { exact: true });
+    await expect(today).toBeVisible();
+    await updateDictationCount(page, 200, "item:created");
+    await expect(page.getByText("200", { exact: true })).toBeVisible();
+    await updateDictationCount(page, 199, "app:refresh");
+    await expect(page.getByText("199", { exact: true })).toBeVisible();
+  });
+}
