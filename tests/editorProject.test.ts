@@ -1299,6 +1299,7 @@ describe("round-trip stability", () => {
   test("a fully-populated project round-trips unchanged", () => {
     const full = {
       v: 1 as const,
+      exportResolution: "2160" as const,
       trim: { startMs: 250, endMs: 12000 },
       appearance: {
         padding: 120,

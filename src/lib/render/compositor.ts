@@ -1359,12 +1359,16 @@ function drawMasksLayer(
     // blocky look comes from the smoothing-OFF UPSCALE below.
     scratch.ctx.imageSmoothingEnabled = true;
     scratch.ctx.clearRect(0, 0, buf.w, buf.h);
+    // Export draws in logical layout coordinates under a canvas scale. A
+    // canvas read-back uses physical pixels, so sample the same region after
+    // applying that scale (and any preview translation).
+    const transform = ctx.getTransform();
     scratch.ctx.drawImage(
       ctx.canvas as CanvasImageSource,
-      r.x,
-      r.y,
-      r.w,
-      r.h,
+      r.x * transform.a + transform.e,
+      r.y * transform.d + transform.f,
+      r.w * transform.a,
+      r.h * transform.d,
       0,
       0,
       buf.w,

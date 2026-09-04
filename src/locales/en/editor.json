@@ -56,6 +56,13 @@
     "delete": "Delete",
     "copyExportedFile": "Copy exported file",
     "exportFormat": "Export format",
+    "exportResolution": "Export resolution",
+    "resolutionOptions": {
+      "1080": "1080p (recommended)",
+      "2160": "4K",
+      "native": "Original size"
+    },
+    "exportUpscaled": "Source: {{width}} × {{height}}. A larger export won't add detail to the captured screen.",
     "exportingProgress": "{{label}}… {{pct}}%",
     "etaSuffix": " · ~{{eta}} left",
     "exportEdited": "Export edited {{format}}",

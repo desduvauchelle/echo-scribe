@@ -61,6 +61,7 @@ import {
   type ZoomState,
 } from "./compositor";
 import type { RecEvent } from "../autoZoom";
+import { mp4OutputSize } from "./exportSize";
 
 export type RenderProgress = { phase: "decode" | "encode" | "mux"; pct: number };
 
@@ -1085,10 +1086,9 @@ export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8A
     }
   }
 
-  // Output canvas size. MP4 honors the project's aspect preset (auto = source +
-  // 2×padding, capped); GIF caps the SAME layout's width at GIF_MAX_WIDTH (even)
-  // so big screens don't blow up the GIF. The compositor derives its content
-  // rect from whatever outW/outH we give it, so every effect scales along.
+  // MP4 renders the existing composition at the selected resolution. Keep its
+  // logical layout separate from encoder pixels so padding and every overlay
+  // scale together. GIF retains its existing dimensions and rendering path.
   const format: "mp4" | "gif" = opts.format ?? "mp4";
   const layout = outputLayout(codedWidth, codedHeight, appearance.padding, appearance.aspect);
   let outW = layout.outW;
@@ -1097,7 +1097,15 @@ export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8A
     const g = gifOutputSize(layout.outW, layout.outH);
     outW = g.w;
     outH = g.h;
+  } else {
+    const size = mp4OutputSize(codedWidth, codedHeight, appearance.padding,
+      appearance.aspect, project.exportResolution ?? "1080");
+    outW = size.w;
+    outH = size.h;
   }
+  console.info("[render] output", { format, sourceWidth: codedWidth,
+    sourceHeight: codedHeight, width: outW, height: outH,
+    resolution: project.exportResolution ?? "1080" });
 
   // --- Set up canvas + output sink ---
   const canvas = new OffscreenCanvas(outW, outH);
@@ -1257,13 +1265,15 @@ export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8A
             // Motion blur collapses during a scene (zoom ignored ⇒ every
             // sub-sample resolves identically) — force a single draw.
             const frameZoomSamples = scene ? [zoomSamples[0]] : zoomSamples;
+            ctx.save();
+            if (format === "mp4") ctx.scale(outW / layout.outW, outH / layout.outH);
             drawCompositeBlurred(
               ctx,
               frame,
               frame.displayWidth,
               frame.displayHeight,
-              outW,
-              outH,
+              format === "mp4" ? layout.outW : outW,
+              format === "mp4" ? layout.outH : outH,
               appearance,
               frameZoomSamples,
               // Masks are content on the screen frame, so they're suppressed
@@ -1274,6 +1284,7 @@ export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8A
               cursorScale,
               bgImage,
             );
+            ctx.restore();
             frame.close();
 
             // Hand the freshly-composited canvas to the output sink for the CFR

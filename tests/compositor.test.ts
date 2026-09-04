@@ -1786,6 +1786,7 @@ describe("drawCompositeV2 — masks (draw structure)", () => {
     const canvas = { __isCanvas: true };
     const ctx = {
       canvas,
+      getTransform: () => ({ a: 1, d: 1, e: 0, f: 0 }),
       globalAlpha: 1,
       fillStyle: "" as string | CanvasGradient,
       strokeStyle: "",
@@ -1968,6 +1969,28 @@ describe("drawCompositeV2 — masks (draw structure)", () => {
       // The frame draw + the pixelate redraw onto the main ctx = 2 drawImages on
       // the MAIN context (the downscale draw lands on the scratch ctx, not here).
       expect(getDrawImageCount()).toBe(2);
+    } finally {
+      (globalThis as Record<string, unknown>).OffscreenCanvas = prev;
+    }
+  });
+
+  test("pixelate samples the correct physical pixels in a scaled export", () => {
+    const samples: unknown[][] = [];
+    const scratchCtx = {
+      imageSmoothingEnabled: true,
+      clearRect() {},
+      drawImage(...args: unknown[]) { samples.push(args); },
+    };
+    const prev = (globalThis as Record<string, unknown>).OffscreenCanvas;
+    (globalThis as Record<string, unknown>).OffscreenCanvas = class {
+      getContext() { return scratchCtx; }
+    };
+    try {
+      const { ctx } = makeCtxStub();
+      ctx.getTransform = () => ({ a: 2, d: 2, e: 0, f: 0 });
+      draw(ctx, [pixelate("p1")]);
+      // Logical region: (96 + 1920/4, 96 + 1080/4, 1920/2, 1080/2).
+      expect(samples[0].slice(1, 5)).toEqual([1152, 732, 1920, 1080]);
     } finally {
       (globalThis as Record<string, unknown>).OffscreenCanvas = prev;
     }

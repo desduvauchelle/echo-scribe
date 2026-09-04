@@ -56,6 +56,13 @@
     "delete": "Excluir",
     "copyExportedFile": "Copiar arquivo exportado",
     "exportFormat": "Formato de exportação",
+    "exportResolution": "Resolução de exportação",
+    "resolutionOptions": {
+      "1080": "1080p (recomendado)",
+      "2160": "4K",
+      "native": "Tamanho original"
+    },
+    "exportUpscaled": "Origem: {{width}} × {{height}}. Uma exportação maior não adiciona detalhes à captura de ecrã.",
     "exportingProgress": "{{label}}… {{pct}}%",
     "etaSuffix": " · ~{{eta}} restantes",
     "exportEdited": "Exportar {{format}} editado",

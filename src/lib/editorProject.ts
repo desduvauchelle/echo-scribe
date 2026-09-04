@@ -106,10 +106,13 @@ export type Mask = {
  *  Single source of truth — `render/compositor.ts` type-only imports this. */
 export type AspectPreset = "auto" | "16:9" | "9:16" | "1:1" | "4:3";
 
+export type ExportResolution = "1080" | "2160" | "native";
+
 const ASPECT_VALUES: readonly AspectPreset[] = ["auto", "16:9", "9:16", "1:1", "4:3"];
 
 export type EditorProject = {
   v: 1;
+  exportResolution?: ExportResolution; // saved per recording; absent means 1080p
   trim: { startMs: number; endMs: number } | null; // null = full length
   appearance: {
     padding: number; // 0..256 px output-space
@@ -157,6 +160,7 @@ const ZOOM_MODE_VALUES: readonly ZoomMode[] = ["auto", "custom", "off"];
 export function defaultProject(): EditorProject {
   return {
     v: 1,
+    exportResolution: "1080",
     trim: null,
     appearance: {
       padding: 96,
@@ -521,6 +525,8 @@ export function parseProject(json: string | null): EditorProject {
   return {
     v: 1,
     trim: parseTrim(raw.trim),
+    exportResolution: raw.exportResolution === "2160" || raw.exportResolution === "native"
+      ? raw.exportResolution : "1080",
     appearance: {
       padding: clamp(num(appearance.padding, base.appearance.padding), PADDING_MIN, PADDING_MAX),
       cornerRadius: clamp(

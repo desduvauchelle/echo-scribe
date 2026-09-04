@@ -91,6 +91,7 @@ import {
   type CaptionSegment as ProjectCaptionSegment,
   type EditorDefaults,
   type EditorProject,
+  type ExportResolution,
   type Mask,
   type SpeedRange,
   type WebcamScene,
@@ -120,6 +121,7 @@ import {
   clampMasks,
   resizeMaskRect,
 } from "../../lib/editorProject";
+import { mp4OutputSize } from "../../lib/render/exportSize";
 
 /** Background preset filenames. Display labels are looked up at render time
  *  via `t("appearance.backgroundPresets.<name>")` — this array is module-scope
@@ -2885,6 +2887,15 @@ export function EditorView({
   const driveLink =
     rec.upload_status === "done" && rec.drive_link ? rec.drive_link : null;
   const anyBusy = exporting || uploading || quickExporting || transcribing;
+  const exportSizes = (["1080", "2160", "native"] as const).map((resolution) => ({
+    resolution,
+    ...mp4OutputSize(rec.width || 1920, rec.height || 1080,
+      project.appearance.padding, project.appearance.aspect, resolution),
+  }));
+  const selectedExportSize = exportSizes.find((size) =>
+    size.resolution === (project.exportResolution ?? "1080"))!;
+  const exportUpscaled = selectedExportSize.resolution !== "native" &&
+    selectedExportSize.w > exportSizes[2].w && selectedExportSize.h > exportSizes[2].h;
 
   return (
     <div className="flex h-full flex-col">
@@ -3067,6 +3078,30 @@ export function EditorView({
           <option value="mp4">MP4</option>
           <option value="gif">GIF</option>
         </select>
+        {exportFormat === "mp4" ? (
+          <>
+            <label className="sr-only" htmlFor="export-resolution">
+              {t("toolbar.exportResolution")}
+            </label>
+            <select
+              id="export-resolution"
+              value={project.exportResolution ?? "1080"}
+              onChange={(e) => {
+                const exportResolution = e.target.value as ExportResolution;
+                setProject((p) => ({ ...p, exportResolution }));
+              }}
+              disabled={anyBusy || !loaded}
+              aria-describedby={exportUpscaled ? "export-resolution-note" : undefined}
+              className="max-w-full rounded-md border border-line bg-surface px-2 py-1.5 text-[13px] disabled:opacity-50"
+            >
+              {exportSizes.map(({ resolution, w, h }) => (
+                <option key={resolution} value={resolution}>
+                  {t(`toolbar.resolutionOptions.${resolution}`)} · {w} × {h}
+                </option>
+              ))}
+            </select>
+          </>
+        ) : null}
         <button
           onClick={() => void onExport()}
           disabled={anyBusy || !loaded}
@@ -3087,6 +3122,11 @@ export function EditorView({
               }`
             : t("toolbar.exportEdited", { format: exportFormat.toUpperCase() })}
         </button>
+        {exportFormat === "mp4" && exportUpscaled ? (
+          <p id="export-resolution-note" className="basis-full text-[12px] text-muted">
+            {t("toolbar.exportUpscaled", { width: rec.width, height: rec.height })}
+          </p>
+        ) : null}
       </div>
 
       <div className="flex min-h-0 flex-1 gap-4">

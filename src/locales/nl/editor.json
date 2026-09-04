@@ -56,6 +56,13 @@
     "delete": "Verwijderen",
     "copyExportedFile": "Geëxporteerd bestand kopiëren",
     "exportFormat": "Exportformaat",
+    "exportResolution": "Exportresolutie",
+    "resolutionOptions": {
+      "1080": "1080p (aanbevolen)",
+      "2160": "4K",
+      "native": "Oorspronkelijke grootte"
+    },
+    "exportUpscaled": "Bron: {{width}} × {{height}}. Een grotere export voegt geen details toe aan het opgenomen scherm.",
     "exportingProgress": "{{label}}… {{pct}}%",
     "etaSuffix": " · nog ~{{eta}}",
     "exportEdited": "Bewerkte {{format}} exporteren",
