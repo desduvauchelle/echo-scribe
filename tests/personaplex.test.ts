@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
   appendTranscriptPiece,
+  estimateSpmTokens,
   initialSessionState,
+  micSeemsSilent,
   pushLogLine,
   reduceSessionEvent,
   sessionIsActive,
@@ -97,5 +99,27 @@ describe("helpers", () => {
     let lines: string[] = [];
     for (let i = 0; i < 10; i++) lines = pushLogLine(lines, `l${i}`, 4);
     expect(lines).toEqual(["l6", "l7", "l8", "l9"]);
+  });
+});
+
+describe("diagnostics", () => {
+  test("ready records prompt tokens; stats track mic silence and lag", () => {
+    let s = reduceSessionEvent(startingSessionState(), { event: "ready", prompt_tokens: 212 });
+    expect(s.promptTokens).toBe(212);
+    expect(micSeemsSilent(s)).toBe(false);
+    for (let i = 0; i < 3; i++) {
+      s = reduceSessionEvent(s, { event: "stats", step: 25 * (i + 1), ms_per_step: 80, mic_peak: 0.001, mic_active_pct: 0, mic_buffer_ms: 640, queued_frames: 9 });
+    }
+    expect(s.silentWindows).toBe(3);
+    expect(micSeemsSilent(s)).toBe(true);
+    expect(s.micBufferMs).toBe(640);
+    expect(s.queuedFrames).toBe(9);
+    s = reduceSessionEvent(s, { event: "stats", step: 100, ms_per_step: 80, mic_peak: 0.2, mic_active_pct: 40 });
+    expect(s.silentWindows).toBe(0);
+    expect(micSeemsSilent(s)).toBe(false);
+  });
+  test("estimateSpmTokens mirrors the backend heuristic", () => {
+    expect(estimateSpmTokens("")).toBe(0);
+    expect(estimateSpmTokens("a".repeat(35))).toBe(10);
   });
 });

@@ -4,6 +4,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { Copy, FolderOpen, Square, Play, Trash2, X } from "lucide-react";
 import {
+  personaplexBuildBriefing,
   personaplexCancelDownload,
   personaplexDeleteModel,
   personaplexDownload,
@@ -11,17 +12,24 @@ import {
   personaplexStartChat,
   personaplexStatus,
   personaplexStopChat,
+  type PersonaplexBriefing,
   type PersonaplexEvent,
   type PersonaplexStatus,
 } from "../lib/api";
 import {
+  BRIEFING_SIZES,
+  BRIEFING_WARN_TOKENS,
+  LAG_WARN_MS,
   PERSONA_PRESETS,
   REALTIME_BUDGET_MS,
+  estimateSpmTokens,
   initialSessionState,
+  micSeemsSilent,
   pushLogLine,
   reduceSessionEvent,
   sessionIsActive,
   startingSessionState,
+  type BriefingSizeId,
   type PersonaplexSessionState,
 } from "../lib/personaplex";
 import { formatBytes } from "../lib/format";
@@ -29,18 +37,63 @@ import { useToasts } from "./ToastProvider";
 
 const PREFS_KEY = "echoScribe.beta.personaplex";
 
-type Prefs = { voice: string; prompt: string; aec: boolean };
+type AudioSetup = "headphones" | "speakers";
+
+type BriefingPrefs = {
+  recap: boolean;
+  tasks: boolean;
+  meetings: boolean;
+  projects: boolean;
+  people: boolean;
+  focus: string;
+  condense: boolean;
+  size: BriefingSizeId;
+  include: boolean;
+};
+
+type Prefs = { voice: string; prompt: string; audio: AudioSetup; briefing: BriefingPrefs };
+
+const DEFAULT_BRIEFING: BriefingPrefs = {
+  recap: true,
+  tasks: true,
+  meetings: true,
+  projects: true,
+  people: false,
+  focus: "",
+  condense: false,
+  size: "medium",
+  include: true,
+};
 
 function loadPrefs(): Prefs {
-  const fallback: Prefs = { voice: "NATF2", prompt: PERSONA_PRESETS[0].prompt, aec: true };
+  const fallback: Prefs = {
+    voice: "NATF2",
+    prompt: PERSONA_PRESETS[0].prompt,
+    audio: "headphones",
+    briefing: DEFAULT_BRIEFING,
+  };
   try {
     const raw = localStorage.getItem(PREFS_KEY);
     if (!raw) return fallback;
-    const parsed = JSON.parse(raw) as Partial<Prefs>;
+    const parsed = JSON.parse(raw) as Partial<Prefs> & { aec?: boolean };
+    const audio: AudioSetup =
+      parsed.audio === "speakers" || parsed.audio === "headphones"
+        ? parsed.audio
+        : parsed.aec === true
+          ? "speakers"
+          : fallback.audio;
+    const b = (parsed.briefing ?? {}) as Partial<BriefingPrefs>;
+    const sizeOk = BRIEFING_SIZES.some((s) => s.id === b.size);
     return {
       voice: typeof parsed.voice === "string" ? parsed.voice : fallback.voice,
       prompt: typeof parsed.prompt === "string" ? parsed.prompt : fallback.prompt,
-      aec: typeof parsed.aec === "boolean" ? parsed.aec : fallback.aec,
+      audio,
+      briefing: {
+        ...DEFAULT_BRIEFING,
+        ...b,
+        focus: typeof b.focus === "string" ? b.focus : "",
+        size: sizeOk ? (b.size as BriefingSizeId) : DEFAULT_BRIEFING.size,
+      },
     };
   } catch {
     return fallback;
@@ -92,6 +145,9 @@ function LevelBar({ label, level, tone }: { label: string; level: number; tone: 
   );
 }
 
+const inputCls =
+  "rounded-md border border-line bg-surface px-2 py-1 text-sm text-fg focus:border-accent focus:outline-none disabled:opacity-60";
+
 export default function PersonaPlexLab() {
   const { t } = useTranslation("settings");
   const toasts = useToasts();
@@ -106,8 +162,15 @@ export default function PersonaPlexLab() {
   const [logLines, setLogLines] = useState<string[]>([]);
   const [showLog, setShowLog] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [briefing, setBriefing] = useState<PersonaplexBriefing | null>(null);
+  const [briefingText, setBriefingText] = useState("");
+  const [briefingBusy, setBriefingBusy] = useState(false);
+  const [briefingError, setBriefingError] = useState<string | null>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
   const logRef = useRef<HTMLPreElement>(null);
+
+  const setBriefingPrefs = (patch: Partial<BriefingPrefs>) =>
+    setPrefs((p) => ({ ...p, briefing: { ...p.briefing, ...patch } }));
 
   const refresh = useCallback(async () => {
     try {
@@ -238,15 +301,41 @@ export default function PersonaPlexLab() {
     void refresh();
   };
 
+  const onBuildBriefing = async () => {
+    setBriefingBusy(true);
+    setBriefingError(null);
+    const size = BRIEFING_SIZES.find((s) => s.id === prefs.briefing.size) ?? BRIEFING_SIZES[1];
+    try {
+      const b = await personaplexBuildBriefing({
+        recap: prefs.briefing.recap,
+        tasks: prefs.briefing.tasks,
+        meetings: prefs.briefing.meetings,
+        projects: prefs.briefing.projects,
+        people: prefs.briefing.people,
+        focus_query: prefs.briefing.focus,
+        condense: prefs.briefing.condense,
+        max_chars: size.chars,
+      });
+      setBriefing(b);
+      setBriefingText(b.text);
+    } catch (e) {
+      setBriefingError(errText(e));
+    } finally {
+      setBriefingBusy(false);
+    }
+  };
+
   const onStart = async () => {
     setStartError(null);
     setLogLines([]);
     setSession(startingSessionState());
+    const brief = prefs.briefing.include ? briefingText.trim() : "";
     try {
       await personaplexStartChat({
         voice: prefs.voice,
         prompt: prefs.prompt,
-        echo_cancellation: prefs.aec,
+        echo_cancellation: prefs.audio === "speakers",
+        briefing: brief ? brief : null,
       });
     } catch (e) {
       const msg = errText(e);
@@ -280,6 +369,9 @@ export default function PersonaPlexLab() {
     !!status && status.sidecar_installed && status.model_downloaded && !active && !download;
   const pct = download ? Math.min(100, Math.round(download.fraction * 100)) : 0;
   const version = status?.sidecar_version;
+  const briefingTokens = estimateSpmTokens(briefingText);
+  const micSilent = micSeemsSilent(session);
+  const lagging = session.phase === "ready" && session.micBufferMs > LAG_WARN_MS;
 
   return (
     <div className="flex flex-col gap-4">
@@ -427,6 +519,132 @@ export default function PersonaPlexLab() {
         </div>
       </Card>
 
+      <Card title={t("beta.personaplex.briefing.title")}>
+        <div className="flex flex-col gap-3 text-xs text-muted">
+          <p className="leading-relaxed">{t("beta.personaplex.briefing.intro")}</p>
+          <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+            {(["recap", "tasks", "meetings", "projects", "people"] as const).map((k) => (
+              <label key={k} className="flex items-center gap-1.5">
+                <input
+                  type="checkbox"
+                  checked={prefs.briefing[k]}
+                  disabled={active}
+                  onChange={(e) => setBriefingPrefs({ [k]: e.target.checked })}
+                />
+                {t(`beta.personaplex.briefing.include.${k}`)}
+              </label>
+            ))}
+          </div>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_180px]">
+            <label className="flex flex-col gap-1">
+              {t("beta.personaplex.briefing.focusLabel")}
+              <input
+                value={prefs.briefing.focus}
+                disabled={active}
+                placeholder={t("beta.personaplex.briefing.focusPlaceholder")}
+                onChange={(e) => setBriefingPrefs({ focus: e.target.value })}
+                className={inputCls}
+              />
+            </label>
+            <label className="flex flex-col gap-1">
+              {t("beta.personaplex.briefing.size.label")}
+              <select
+                value={prefs.briefing.size}
+                disabled={active}
+                onChange={(e) => setBriefingPrefs({ size: e.target.value as BriefingSizeId })}
+                className={inputCls}
+              >
+                {BRIEFING_SIZES.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {t(`beta.personaplex.briefing.size.${s.id}`)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="flex items-center gap-1.5">
+              <input
+                type="checkbox"
+                checked={prefs.briefing.condense}
+                disabled={active}
+                onChange={(e) => setBriefingPrefs({ condense: e.target.checked })}
+              />
+              {t("beta.personaplex.briefing.condense")}
+            </label>
+            <button
+              type="button"
+              disabled={briefingBusy || active}
+              onClick={() => void onBuildBriefing()}
+              className="rounded-md border border-line px-3 py-1 text-xs font-semibold text-fg hover:bg-elevated disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {briefingBusy
+                ? t("beta.personaplex.briefing.building")
+                : briefing
+                  ? t("beta.personaplex.briefing.rebuild")
+                  : t("beta.personaplex.briefing.build")}
+            </button>
+          </div>
+          {briefingError ? (
+            <p className="text-danger">
+              {t("beta.personaplex.briefing.buildFailed", { error: briefingError })}
+            </p>
+          ) : null}
+          {briefing ? (
+            <div className="flex flex-col gap-2">
+              {briefing.text ? (
+                <>
+                  <textarea
+                    value={briefingText}
+                    disabled={active}
+                    rows={7}
+                    onChange={(e) => setBriefingText(e.target.value)}
+                    className={`${inputCls} resize-y font-mono text-[12px] leading-snug`}
+                  />
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
+                    <span>
+                      {t("beta.personaplex.briefing.meta", {
+                        chars: briefingText.length,
+                        tokens: briefingTokens,
+                      })}
+                    </span>
+                    {briefing.parts.map((p) => (
+                      <span key={p.kind} className="rounded-full bg-elevated px-2 py-0.5">
+                        {t(`beta.personaplex.briefing.include.${p.kind}` as const, {
+                          defaultValue: p.kind,
+                        })}{" "}
+                        {p.count}
+                      </span>
+                    ))}
+                    {briefing.condensed ? (
+                      <span className="text-success">{t("beta.personaplex.briefing.condensed")}</span>
+                    ) : null}
+                    {briefing.truncated ? (
+                      <span>{t("beta.personaplex.briefing.truncated")}</span>
+                    ) : null}
+                    <span>{t("beta.personaplex.briefing.editHint")}</span>
+                  </div>
+                  {briefingTokens > BRIEFING_WARN_TOKENS ? (
+                    <p className="text-warning">{t("beta.personaplex.briefing.warn")}</p>
+                  ) : null}
+                  <label className="flex items-center gap-1.5 text-fg">
+                    <input
+                      type="checkbox"
+                      checked={prefs.briefing.include}
+                      disabled={active}
+                      onChange={(e) => setBriefingPrefs({ include: e.target.checked })}
+                    />
+                    {t("beta.personaplex.briefing.includeNext")}
+                  </label>
+                </>
+              ) : (
+                <p>{t("beta.personaplex.briefing.empty")}</p>
+              )}
+            </div>
+          ) : null}
+        </div>
+      </Card>
+
       <Card
         title={t("beta.personaplex.session.title")}
         aside={
@@ -444,15 +662,15 @@ export default function PersonaPlexLab() {
         }
       >
         <div className="flex flex-col gap-3">
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-[200px_1fr]">
-            <div className="flex flex-col gap-1 text-xs text-muted">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-[220px_1fr]">
+            <div className="flex flex-col gap-2 text-xs text-muted">
               <label className="flex flex-col gap-1">
                 {t("beta.personaplex.session.voice")}
                 <select
                   value={prefs.voice}
                   disabled={active}
                   onChange={(e) => setPrefs((p) => ({ ...p, voice: e.target.value }))}
-                  className="rounded-md border border-line bg-surface px-2 py-1 text-sm text-fg focus:border-accent focus:outline-none disabled:opacity-60"
+                  className={inputCls}
                 >
                   {(status?.voices ?? [{ id: "NATF2", label: "Natural female 2" }]).map((v) => (
                     <option key={v.id} value={v.id}>
@@ -461,15 +679,29 @@ export default function PersonaPlexLab() {
                   ))}
                 </select>
               </label>
-              <label className="mt-2 flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={prefs.aec}
-                  disabled={active}
-                  onChange={(e) => setPrefs((p) => ({ ...p, aec: e.target.checked }))}
-                />
-                {t("beta.personaplex.session.aec")}
-              </label>
+              <fieldset className="flex flex-col gap-1">
+                <legend className="mb-1">{t("beta.personaplex.session.audioSetup.label")}</legend>
+                {(["headphones", "speakers"] as const).map((mode) => (
+                  <label key={mode} className="flex items-start gap-1.5">
+                    <input
+                      type="radio"
+                      name="personaplex-audio-setup"
+                      className="mt-0.5"
+                      checked={prefs.audio === mode}
+                      disabled={active}
+                      onChange={() => setPrefs((p) => ({ ...p, audio: mode }))}
+                    />
+                    <span>
+                      <span className="text-fg">
+                        {t(`beta.personaplex.session.audioSetup.${mode}`)}
+                      </span>
+                      <span className="block text-[11px]">
+                        {t(`beta.personaplex.session.audioSetup.${mode}Hint`)}
+                      </span>
+                    </span>
+                  </label>
+                ))}
+              </fieldset>
             </div>
             <div className="flex flex-col gap-1 text-xs text-muted">
               <label className="flex flex-col gap-1">
@@ -477,10 +709,10 @@ export default function PersonaPlexLab() {
                 <textarea
                   value={prefs.prompt}
                   disabled={active}
-                  rows={4}
+                  rows={5}
                   placeholder={t("beta.personaplex.session.personaPlaceholder")}
                   onChange={(e) => setPrefs((p) => ({ ...p, prompt: e.target.value }))}
-                  className="resize-y rounded-md border border-line bg-surface px-2 py-1 text-sm text-fg focus:border-accent focus:outline-none disabled:opacity-60"
+                  className={`${inputCls} resize-y`}
                 />
               </label>
               <div className="flex flex-wrap items-center gap-1.5">
@@ -545,9 +777,24 @@ export default function PersonaPlexLab() {
                   load: session.loadSecs.toFixed(1),
                   warm: (session.warmSecs ?? 0).toFixed(1),
                 })}
+                {session.promptTokens !== null
+                  ? ` · ${t("beta.personaplex.session.promptTokens", { tokens: session.promptTokens })}`
+                  : ""}
               </span>
             ) : null}
           </div>
+
+          {session.phase === "ready" ? (
+            <p className="text-[11px] text-muted">{t("beta.personaplex.session.talkHint")}</p>
+          ) : null}
+          {micSilent ? (
+            <p className="text-xs text-warning">{t("beta.personaplex.session.micSilent")}</p>
+          ) : null}
+          {lagging ? (
+            <p className="text-[11px] text-warning">
+              {t("beta.personaplex.session.lag", { ms: session.micBufferMs })}
+            </p>
+          ) : null}
 
           {session.error || startError ? (
             <p className="text-xs text-danger">
@@ -587,6 +834,11 @@ export default function PersonaPlexLab() {
                 budget: REALTIME_BUDGET_MS,
                 step: session.step,
                 underruns: session.underruns,
+              })}
+              {" · "}
+              {t("beta.personaplex.session.micStats", {
+                pct: session.micActivePct,
+                lag: session.micBufferMs,
               })}
             </p>
           ) : null}

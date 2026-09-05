@@ -49,6 +49,42 @@ src-tauri/src/personaplex.rs  (gating, status, download + session supervisors)
   patches/speech-swift-v0.0.27.patch` adds an `onTextToken` callback and a
   `modelDirectory` so a caller-managed model folder is self-contained.
 
+## Live-session timing (why the loop is paced)
+
+Upstream's `respondRealtime` reads one 80 ms frame per step from the mic ring
+buffer and never waits: a machine faster than real time (M5 Pro: ~68 ms/step
+early in a session) runs ahead of the microphone, zero-pads the user's speech
+and queues agent audio further and further ahead — the agent "keeps talking
+and never answers". The patch adds `paceToInput`: the sidecar passes it in
+live mode and the loop blocks (≤300 ms) until a full frame is available. In
+prefilled file mode nothing changes. `--realtime-file` feeds a WAV at 24 kHz
+in real time to exercise this headlessly (expect ≈80 ms/step, `mic_buffer_ms`
+≈ one frame, `queued_frames` 0).
+
+The `stats` event carries the diagnostics for "not hearing you" vs "hearing
+you but rambling": `mic_peak`, `mic_active_pct`, `mic_buffer_ms` (how far
+behind real time the model runs), `queued_frames` (agent audio not yet
+played). Rust logs the whole payload under `target=personaplex`.
+
+**Headphones.** Apple's Voice Processing echo cancellation (the Speakers
+setting) suppresses the mic while the speaker plays, and PersonaPlex plays
+almost continuously — so on speakers it rarely hears the user. Headphones with
+echo cancellation off is the setup that works.
+
+## What the agent knows (briefing)
+
+PersonaPlex has no text channel during a conversation; the persona prompt is
+prefilled once. `personaplex_build_briefing` assembles a budgeted snapshot
+(`src-tauri/src/personaplex/briefing.rs`): focus-query captures (FTS + the
+chat's chunk ranking) → latest daily recap → open tasks → recent meeting
+summaries → projects → people, each with per-item caps, dropped greedily when
+the character budget runs out. Optional `condense` rewrites it into prose with
+the local Gemma. The page shows the text (editable) and appends it to the
+persona at start; `compose_prompt` flattens both to one line because newlines
+are not tokenizer pieces. Every briefing token is one frame of the model's
+~3000-frame rolling context, hence the size presets and the >600-token
+warning.
+
 ## Enable / disable
 
 ```bash

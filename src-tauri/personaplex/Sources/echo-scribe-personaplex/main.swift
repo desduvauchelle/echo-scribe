@@ -11,7 +11,7 @@ func usage() -> Never {
       echo-scribe-personaplex download --model-dir DIR [--model-id ID]
       echo-scribe-personaplex chat --model-dir DIR [--model-id ID] [--voice NATF2]
                                    [--prompt TEXT] [--no-aec] [--no-warmup] [--max-steps N]
-                                   [--input-wav IN --output-wav OUT [--post-steps N]]
+                                   [--input-wav IN --output-wav OUT [--post-steps N] [--realtime-file]]
                                    [--ignore-stdin]
       echo-scribe-personaplex voices
       echo-scribe-personaplex version
@@ -132,6 +132,7 @@ case "chat":
     if let s = values["post-steps"], let n = Int(s), n >= 0 { opts.postSteps = n }
     if let p = values["input-wav"] { opts.inputWav = URL(fileURLWithPath: p) }
     if let p = values["output-wav"] { opts.outputWav = URL(fileURLWithPath: p) }
+    opts.realtimeFile = flags.contains("realtime-file")
     if opts.inputWav != nil && opts.outputWav == nil {
         sink.error("--input-wav requires --output-wav")
         exit(64)

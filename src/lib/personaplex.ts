@@ -25,6 +25,17 @@ export type PersonaplexSessionState = {
   underruns: number;
   loadSecs: number | null;
   warmSecs: number | null;
+  /** SentencePiece tokens the persona + briefing occupied (from `ready`). */
+  promptTokens: number | null;
+  /** Peak mic RMS in the last stats window and the share of steps with audible input. */
+  micPeak: number;
+  micActivePct: number;
+  /** Mic audio queued ahead of the model (how far behind real time it runs). */
+  micBufferMs: number;
+  /** Agent frames scheduled but not yet played. */
+  queuedFrames: number;
+  /** Consecutive stats windows (~2 s each) with no audible mic input. */
+  silentWindows: number;
   error: string | null;
   stopReason: string | null;
   exitCode: number | null;
@@ -42,6 +53,12 @@ export const initialSessionState: PersonaplexSessionState = {
   underruns: 0,
   loadSecs: null,
   warmSecs: null,
+  promptTokens: null,
+  micPeak: 0,
+  micActivePct: 0,
+  micBufferMs: 0,
+  queuedFrames: 0,
+  silentWindows: 0,
   error: null,
   stopReason: null,
   exitCode: null,
@@ -93,6 +110,7 @@ export function reduceSessionEvent(
         loadFraction: 1,
         loadSecs: num(ev.load_secs, 0),
         warmSecs: num(ev.warm_secs, 0),
+        promptTokens: typeof ev.prompt_tokens === "number" ? ev.prompt_tokens : null,
       };
     case "text":
       return {
@@ -101,13 +119,20 @@ export function reduceSessionEvent(
       };
     case "level":
       return { ...state, micLevel: num(ev.mic), agentLevel: num(ev.agent) };
-    case "stats":
+    case "stats": {
+      const micPeak = num(ev.mic_peak);
       return {
         ...state,
         step: num(ev.step),
         msPerStep: num(ev.ms_per_step, 0),
         underruns: num(ev.underruns),
+        micPeak,
+        micActivePct: num(ev.mic_active_pct),
+        micBufferMs: num(ev.mic_buffer_ms),
+        queuedFrames: num(ev.queued_frames),
+        silentWindows: micPeak < MIC_SILENT_PEAK ? state.silentWindows + 1 : 0,
       };
+    }
     case "error":
       return { ...state, phase: "error", error: str(ev.msg) || "unknown error" };
     case "stopped":
@@ -156,7 +181,7 @@ export const PERSONA_PRESETS: { id: string; label: string; prompt: string }[] = 
     id: "assistant",
     label: "Assistant",
     prompt:
-      "You are a helpful assistant. Answer questions clearly and concisely. Listen carefully to what the user says, then respond directly to their question or request. Stay on topic. Be concise.",
+      "You are a helpful assistant. Answer questions clearly and concisely. Listen carefully to what the user says, then respond directly to their question or request. Keep each answer to one or two sentences, then stop and wait for the user. Stay on topic.",
   },
   {
     id: "casual",
@@ -174,6 +199,36 @@ export const PERSONA_PRESETS: { id: string; label: string; prompt: string }[] = 
 
 /** 80 ms per step is the real-time budget (12.5 Hz frames). */
 export const REALTIME_BUDGET_MS = 80;
+
+/** Below this peak RMS a stats window counts as "heard nothing". */
+export const MIC_SILENT_PEAK = 0.01;
+/** Windows (~2 s each) of silence before the page suggests checking the mic. */
+export const MIC_SILENT_WINDOWS = 3;
+/** Mic audio queued beyond this means the model is audibly behind. */
+export const LAG_WARN_MS = 500;
+
+/** True when the session has been live long enough with no audible input to
+ *  suspect the microphone (permission, wrong device, muted). */
+export function micSeemsSilent(state: PersonaplexSessionState): boolean {
+  return state.phase === "ready" && state.silentWindows >= MIC_SILENT_WINDOWS;
+}
+
+/** Briefing size presets (characters); tokens are roughly chars / 3.5. */
+export const BRIEFING_SIZES = [
+  { id: "short", chars: 700 },
+  { id: "medium", chars: 1400 },
+  { id: "long", chars: 2800 },
+] as const;
+export type BriefingSizeId = (typeof BRIEFING_SIZES)[number]["id"];
+
+/** Above this the briefing eats a noticeable share of the model's ~4-minute
+ *  rolling context (mirrors the Rust CONTEXT_WARN_TOKENS). */
+export const BRIEFING_WARN_TOKENS = 600;
+
+/** Same heuristic the backend uses (chars / 3.5, rounded up). */
+export function estimateSpmTokens(text: string): number {
+  return Math.ceil(text.length / 3.5);
+}
 
 /** Keep the last `max` lines of a growing log. */
 export function pushLogLine(lines: string[], line: string, max = 300): string[] {

@@ -20,6 +20,10 @@ struct ChatOptions {
     /// File mode only: keep generating this many 80 ms frames after the input
     /// runs out (60 ≈ 5 s) so the agent can finish its reply.
     var postSteps = 60
+    /// File mode variant that feeds the WAV at real time (1920 samples every
+    /// 80 ms) and paces the model to it — exercises the live-session timing
+    /// without a microphone.
+    var realtimeFile = false
 }
 
 /// Runs one full-duplex conversation: load → warm up → stream mic frames in,
@@ -88,6 +92,8 @@ enum ChatRunner {
         let ring: AudioRingBuffer
         var audio: FullDuplexAudioIO?
         var fileFrames = 0
+        var feeder: Thread?
+        let feederStop = StopFlag()
         if let wav = o.inputWav {
             let samples: [Float]
             do {
@@ -96,10 +102,40 @@ enum ChatRunner {
                 sink.error("cannot read \(wav.path): \(error.localizedDescription)")
                 return 2
             }
-            ring = AudioRingBuffer(capacity: samples.count + 24000 * 10)
-            ring.write(samples)
             fileFrames = (samples.count + 1919) / 1920
-            sink.log("info", "file mode: \(samples.count) samples, \(fileFrames) frames from \(wav.lastPathComponent)")
+            if o.realtimeFile {
+                // Live-session simulation: the "microphone" delivers one 80 ms
+                // frame every 80 ms, then silence.
+                let paced = AudioRingBuffer(capacity: 24000 * 5)
+                ring = paced
+                let t = Thread {
+                    var offset = 0
+                    let frame = 1920
+                    let started = Date()
+                    var n = 0
+                    while feederStop.stopReason == nil {
+                        let end = min(offset + frame, samples.count)
+                        if offset < end {
+                            paced.write(Array(samples[offset..<end]))
+                        } else {
+                            paced.write([Float](repeating: 0, count: frame))
+                        }
+                        offset = end
+                        n += 1
+                        let due = started.addingTimeInterval(Double(n) * 0.08)
+                        let sleep = due.timeIntervalSinceNow
+                        if sleep > 0 { Thread.sleep(forTimeInterval: sleep) }
+                    }
+                }
+                t.name = "wav-feeder"
+                t.start()
+                feeder = t
+                sink.log("info", "realtime file mode: \(samples.count) samples, \(fileFrames) frames from \(wav.lastPathComponent), fed at 24 kHz")
+            } else {
+                ring = AudioRingBuffer(capacity: samples.count + 24000 * 10)
+                ring.write(samples)
+                sink.log("info", "file mode: \(samples.count) samples, \(fileFrames) frames from \(wav.lastPathComponent)")
+            }
         } else {
             ring = AudioRingBuffer(capacity: 24000 * 5)
             let io = FullDuplexAudioIO(configuration: .init(
@@ -119,8 +155,10 @@ enum ChatRunner {
         }
 
         let maxSteps = o.inputWav != nil ? fileFrames + o.postSteps : o.maxSteps
+        let paced = o.inputWav == nil || o.realtimeFile
         sink.emit([
             "event": "ready",
+            "paced": paced,
             "load_secs": loadSecs,
             "warm_secs": warmSecs,
             "voice": o.voice.rawValue,
@@ -136,7 +174,8 @@ enum ChatRunner {
             systemPromptTokens: promptTokens,
             userAudioBuffer: ring,
             maxSteps: maxSteps,
-            verbose: false
+            verbose: false,
+            paceToInput: paced
         ) { token in
             if let piece = decoder?.piece(for: token) {
                 sink.emit(["event": "text", "text": piece, "token": Int(token)])
@@ -150,16 +189,24 @@ enum ChatRunner {
             var lastLevelAt = started
             var lastStatsAt = started
             var stepsAtLastStats = 0
+            // Mic diagnostics per stats window: peak RMS and how many steps had
+            // audible input — the difference between "not hearing you" and
+            // "hearing you but ignoring you" lives here.
+            var micPeak: Float = 0
+            var micActiveSteps = 0
             do {
                 for try await frame in stream {
                     step += 1
                     output.push(frame)
                     let now = Date()
+                    let micLevel = audio?.statistics().microphoneLevel ?? 0
+                    micPeak = max(micPeak, micLevel)
+                    if micLevel > 0.01 { micActiveSteps += 1 }
                     if now.timeIntervalSince(lastLevelAt) >= 0.25 {
                         lastLevelAt = now
                         sink.emit([
                             "event": "level",
-                            "mic": audio?.statistics().microphoneLevel ?? 0,
+                            "mic": micLevel,
                             "agent": rms(frame),
                         ])
                     }
@@ -167,13 +214,20 @@ enum ChatRunner {
                         let dt = now.timeIntervalSince(lastStatsAt)
                         let n = max(step - stepsAtLastStats, 1)
                         let stats = audio?.statistics()
+                        let queued = max((stats?.scheduledBuffers ?? 0) - (stats?.completedBuffers ?? 0), 0)
                         sink.emit([
                             "event": "stats",
                             "step": step,
                             "ms_per_step": dt / Double(n) * 1000,
                             "elapsed_secs": now.timeIntervalSince(started),
                             "underruns": stats?.underruns ?? 0,
+                            "mic_peak": micPeak,
+                            "mic_active_pct": Int(Double(micActiveSteps) / Double(n) * 100),
+                            "mic_buffer_ms": ring.available / 24,
+                            "queued_frames": queued,
                         ])
+                        micPeak = 0
+                        micActiveSteps = 0
                         lastStatsAt = now
                         stepsAtLastStats = step
                     }
@@ -188,6 +242,8 @@ enum ChatRunner {
         }
         stop.onStop { consumer.cancel() }
         let code = await consumer.value
+        feederStop.requestStop("session-ended")
+        _ = feeder
         audio?.stop()
 
         if let out = o.outputWav {

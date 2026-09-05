@@ -17,6 +17,8 @@
 //! `target: "personaplex"`; friendly strings go to the UI, raw detail stays in
 //! the daily log.
 
+pub mod briefing;
+
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -24,8 +26,12 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter};
+use rusqlite::Connection;
+use tauri::{AppHandle, Emitter, State};
 use tracing::{error, info, warn};
+
+use crate::commands::AppState;
+use crate::db::DbError;
 
 /// Public, ungated 8-bit MLX conversion (Mimi codec + voices + tokenizer
 /// included). 4-bit exists but produces garbled speech — see speech-swift docs.
@@ -481,6 +487,9 @@ pub struct ChatOptions {
     pub prompt: String,
     #[serde(default = "default_true")]
     pub echo_cancellation: bool,
+    /// Rendered briefing (see [`briefing`]); appended to the persona prompt.
+    #[serde(default)]
+    pub briefing: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -506,10 +515,15 @@ fn start_chat_inner(app: AppHandle, opts: ChatOptions) -> Result<(), String> {
         "--voice".to_string(),
         opts.voice.clone(),
     ];
-    let prompt = opts.prompt.trim();
+    let briefing_chars = opts
+        .briefing
+        .as_deref()
+        .map(|b| b.chars().count())
+        .unwrap_or(0);
+    let prompt = briefing::compose_prompt(&opts.prompt, opts.briefing.as_deref());
     if !prompt.is_empty() {
         args.push("--prompt".to_string());
-        args.push(prompt.to_string());
+        args.push(prompt.clone());
     }
     if !opts.echo_cancellation {
         args.push("--no-aec".to_string());
@@ -517,7 +531,8 @@ fn start_chat_inner(app: AppHandle, opts: ChatOptions) -> Result<(), String> {
     info!(
         target: "personaplex",
         voice = %opts.voice,
-        prompt_chars = prompt.len(),
+        prompt_chars = prompt.chars().count(),
+        briefing_chars,
         aec = opts.echo_cancellation,
         "starting chat session"
     );
@@ -544,7 +559,10 @@ fn start_chat_inner(app: AppHandle, opts: ChatOptions) -> Result<(), String> {
                 SidecarEvent::Text(t) => text_chars += t.len(),
                 SidecarEvent::Level => {}
                 SidecarEvent::Stats { step, ms_per_step } => {
-                    info!(target: "personaplex", step, ms_per_step = format!("{ms_per_step:.1}"), text_chars, "session stats")
+                    // Whole payload: mic peak/activity, input lag and playback
+                    // queue depth are what tell "not hearing you" apart from
+                    // "hearing you but rambling".
+                    info!(target: "personaplex", step, ms_per_step = format!("{ms_per_step:.1}"), text_chars, payload = %val, "session stats")
                 }
                 SidecarEvent::Loading { fraction, status } => {
                     info!(target: "personaplex", pct = (fraction * 100.0) as u32, status, "loading")
@@ -762,6 +780,231 @@ pub fn personaplex_open_model_folder() -> Result<(), String> {
             .map_err(|e| format!("Couldn't open folder: {e}"))?;
     }
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Briefing: what the agent knows
+// ---------------------------------------------------------------------------
+
+fn short_date(iso: &str) -> String {
+    let day = &iso[..10.min(iso.len())];
+    match chrono::NaiveDate::parse_from_str(day, "%Y-%m-%d") {
+        Ok(d) => d.format("%b %-d").to_string(),
+        Err(_) => day.to_string(),
+    }
+}
+
+/// Read everything the briefing may mention. Each source is optional and
+/// independent, so one empty/failed table never blanks the others.
+fn collect_briefing_inputs(
+    conn: &Connection,
+    opts: &briefing::BriefingOptions,
+) -> Result<briefing::BriefingInputs, DbError> {
+    use crate::db::{daily_summaries, meeting_intelligence, meetings, projects, search, tasks};
+
+    let now = chrono::Local::now();
+    let today = now.format("%A, %B %-d, %Y").to_string();
+    let today_key = now.format("%Y-%m-%d").to_string();
+    let yesterday_key = (now - chrono::Duration::days(1)).format("%Y-%m-%d").to_string();
+    let mut inputs = briefing::BriefingInputs {
+        today,
+        ..Default::default()
+    };
+
+    if opts.recap {
+        let rows = daily_summaries::list_recent(conn, 3).unwrap_or_default();
+        if let Some(row) = rows.into_iter().find(|r| !r.narrative.trim().is_empty()) {
+            let label = if row.date == yesterday_key {
+                "Yesterday's".to_string()
+            } else if row.date == today_key {
+                "Today's".to_string()
+            } else {
+                short_date(&row.date)
+            };
+            let sections: crate::daily_summary::generator::Sections =
+                serde_json::from_str(&row.sections_json).unwrap_or_default();
+            let highlights: Vec<String> = sections
+                .focus_work
+                .iter()
+                .chain(sections.things_that_came_up.iter())
+                .map(|s| s.text.clone())
+                .filter(|t| !t.trim().is_empty())
+                .take(3)
+                .collect();
+            inputs.recap = Some(briefing::RecapInput {
+                label,
+                narrative: row.narrative,
+                highlights,
+            });
+        }
+    }
+
+    if opts.tasks {
+        inputs.tasks = tasks::list_tasks(conn, false, None)
+            .unwrap_or_default()
+            .into_iter()
+            .take(8)
+            .map(|t| briefing::TaskInput {
+                text: t.item.content.lines().next().unwrap_or("").to_string(),
+                deadline: t.deadline.as_deref().map(short_date),
+            })
+            .collect();
+    }
+
+    if opts.meetings {
+        inputs.meetings = meetings::list_meetings(conn)
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|m| {
+                let json = m.summary_json.as_deref()?;
+                let stored: crate::meeting::synthesizer::StoredSummary =
+                    serde_json::from_str(json).ok()?;
+                let summary = stored
+                    .markdown
+                    .clone()
+                    .filter(|md| !md.trim().is_empty())
+                    .unwrap_or_else(|| stored.summary.join(" "));
+                let title = if stored.suggested_title.trim().is_empty() {
+                    "Untitled meeting".to_string()
+                } else {
+                    stored.suggested_title.clone()
+                };
+                Some(briefing::MeetingInput {
+                    date: short_date(&m.started_at),
+                    title,
+                    app: m.detected_app_name.clone(),
+                    project: m.project_name.clone(),
+                    summary,
+                })
+            })
+            .take(3)
+            .collect();
+    }
+
+    if opts.projects {
+        inputs.projects = projects::list_projects(conn, false)
+            .unwrap_or_default()
+            .into_iter()
+            .take(8)
+            .map(|p| briefing::ProjectInput {
+                name: p.name,
+                description: p.description,
+            })
+            .collect();
+    }
+
+    if opts.people {
+        let companies: std::collections::HashMap<String, String> =
+            meeting_intelligence::list_companies(conn)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|c| (c.id, c.name))
+                .collect();
+        inputs.people = meeting_intelligence::list_people(conn)
+            .unwrap_or_default()
+            .into_iter()
+            .take(10)
+            .map(|p| briefing::PersonInput {
+                name: p.name,
+                role: p.role,
+                company: p.company_id.and_then(|id| companies.get(&id).cloned()),
+            })
+            .collect();
+    }
+
+    let focus = opts.focus_query.trim();
+    if !focus.is_empty() {
+        let fts = crate::commands::build_rag_query(focus);
+        let terms = crate::llm::rag::query_terms(focus);
+        let items = if fts.is_empty() {
+            Vec::new()
+        } else {
+            search::search_items_with_date_window(
+                conn,
+                &fts,
+                None,
+                None,
+                None,
+                crate::llm::rag::FTS_ITEM_LIMIT,
+            )
+            .unwrap_or_default()
+        };
+        let sources: Vec<crate::llm::rag::ChunkSource> = items
+            .iter()
+            .map(|it| crate::llm::rag::ChunkSource {
+                item_id: it.id.clone(),
+                date: it.captured_at[..10.min(it.captured_at.len())].to_string(),
+                kind: it
+                    .kind
+                    .as_ref()
+                    .map(|k| k.as_str())
+                    .unwrap_or("note")
+                    .to_string(),
+                content: it.content.clone(),
+            })
+            .collect();
+        let budget_tokens = (opts.max_chars / 3).max(150);
+        let snippets = crate::llm::rag::build_context_chunks(&sources, &terms, budget_tokens)
+            .into_iter()
+            .take(5)
+            .map(|c| (short_date(&c.date), c.kind, c.content))
+            .collect();
+        inputs.focus = Some(briefing::FocusInput {
+            query: focus.to_string(),
+            snippets,
+        });
+    }
+
+    Ok(inputs)
+}
+
+/// Build the "what the agent knows" text from the user's own data. Pure
+/// rendering first; optionally condensed by the local Gemma when it is ready.
+#[tauri::command]
+pub async fn personaplex_build_briefing(
+    state: State<'_, AppState>,
+    opts: briefing::BriefingOptions,
+) -> Result<briefing::Briefing, String> {
+    let db = state
+        .db
+        .as_ref()
+        .ok_or_else(|| "The local database isn't available.".to_string())?;
+    let inputs = db
+        .with_conn(|c| collect_briefing_inputs(c, &opts))
+        .map_err(|e| {
+            error!(target: "personaplex", error = %e, "briefing collection failed");
+            "Couldn't read your notes for the briefing. See Settings → Diagnostics → logs."
+                .to_string()
+        })?;
+    let mut b = briefing::render(&inputs, opts.max_chars);
+    let summary: Vec<String> = b.parts.iter().map(|p| format!("{}:{}", p.kind, p.count)).collect();
+    info!(
+        target: "personaplex",
+        chars = b.chars,
+        est_tokens = b.est_tokens,
+        truncated = b.truncated,
+        sections = ?summary,
+        focus = !opts.focus_query.trim().is_empty(),
+        "briefing rendered"
+    );
+
+    if opts.condense && !b.text.is_empty() {
+        if !state.llm.ready() {
+            warn!(target: "personaplex", "condense requested but the language model isn't ready; using the raw briefing");
+        } else {
+            let req = briefing::condense_request(&b.text, opts.max_chars / 6);
+            match state.llm.generate(req).await {
+                Ok(text) if !text.trim().is_empty() => {
+                    let before = b.chars;
+                    b = briefing::with_condensed_text(b, text);
+                    info!(target: "personaplex", before_chars = before, after_chars = b.chars, "briefing condensed by llm");
+                }
+                Ok(_) => warn!(target: "personaplex", "condense returned empty text; using the raw briefing"),
+                Err(e) => warn!(target: "personaplex", error = %e, "condense failed; using the raw briefing"),
+            }
+        }
+    }
+    Ok(b)
 }
 
 // ---------------------------------------------------------------------------

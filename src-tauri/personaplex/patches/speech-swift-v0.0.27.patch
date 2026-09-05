@@ -1,5 +1,5 @@
 diff --git a/Sources/PersonaPlex/PersonaPlex.swift b/Sources/PersonaPlex/PersonaPlex.swift
-index c5d4630..d069184 100644
+index c5d4630..649f54d 100644
 --- a/Sources/PersonaPlex/PersonaPlex.swift
 +++ b/Sources/PersonaPlex/PersonaPlex.swift
 @@ -31,8 +31,14 @@ public final class PersonaPlexModel: Module {
@@ -18,17 +18,39 @@ index c5d4630..d069184 100644
      }
  
      /// SentencePiece tokenizer for encoding/decoding text (loaded from model directory).
-@@ -1012,7 +1018,8 @@ public final class PersonaPlexModel: Module {
+@@ -1012,7 +1018,9 @@ public final class PersonaPlexModel: Module {
          systemPromptTokens: [Int32]? = nil,
          userAudioBuffer: AudioRingBuffer,
          maxSteps: Int = Int.max,
 -        verbose: Bool = false
 +        verbose: Bool = false,
++        paceToInput: Bool = false,
 +        onTextToken: (@Sendable (Int32) -> Void)? = nil
      ) -> AsyncThrowingStream<[Float], Error> {
          AsyncThrowingStream { continuation in
              let task = Task.detached(priority: .userInitiated) { [self] in
-@@ -1271,6 +1278,7 @@ public final class PersonaPlexModel: Module {
+@@ -1182,6 +1190,20 @@ public final class PersonaPlexModel: Module {
+                     for step in prefillLen..<(prefillLen + loopSteps) {
+                         try Task.checkCancellation()
+ 
++                        // Pace to the capture clock: a machine faster than real time
++                        // would otherwise run ahead of the mic, pad the user's speech
++                        // with silence and queue agent audio further and further ahead.
++                        // Bounded wait so a stalled input device degrades to the old
++                        // zero-padding behaviour instead of hanging the session.
++                        if paceToInput {
++                            var waitedUs = 0
++                            while userAudioBuffer.available < mimiFrameSize && waitedUs < 300_000 {
++                                try Task.checkCancellation()
++                                usleep(4_000)
++                                waitedUs += 4_000
++                            }
++                        }
++
+                         // A. Read one mic frame from the ring buffer (zeros on underrun)
+                         let micSamples = userAudioBuffer.read(mimiFrameSize)
+                         let micArray = MLXArray(micSamples).reshaped([1, 1, mimiFrameSize])
+@@ -1271,6 +1293,7 @@ public final class PersonaPlexModel: Module {
                          let textVal = textToken[0].item(Int32.self)
                          if step < totalLen { tokenCache[0][step] = textVal }
                          allTextTokens.append(textVal)
@@ -36,7 +58,7 @@ index c5d4630..d069184 100644
  
                          let agentArr = agentCodes[0]
                          var agentCbCodes = [Int32](repeating: 0, count: nQ)
-@@ -1632,6 +1640,7 @@ public final class PersonaPlexModel: Module {
+@@ -1632,6 +1655,7 @@ public final class PersonaPlexModel: Module {
          }
          let model = PersonaPlexModel(cfg: cfg)
          model.modelId = modelId

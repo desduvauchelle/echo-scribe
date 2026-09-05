@@ -2036,7 +2036,38 @@ export type PersonaplexChatOptions = {
   voice: string;
   prompt: string;
   echo_cancellation: boolean;
+  /** Rendered briefing text (see personaplexBuildBriefing); appended to the persona. */
+  briefing: string | null;
 };
+
+export type PersonaplexBriefingOptions = {
+  recap: boolean;
+  tasks: boolean;
+  meetings: boolean;
+  projects: boolean;
+  people: boolean;
+  focus_query: string;
+  condense: boolean;
+  max_chars: number;
+};
+
+export type PersonaplexBriefingPart = { kind: string; count: number; chars: number };
+
+export type PersonaplexBriefing = {
+  text: string;
+  chars: number;
+  est_tokens: number;
+  parts: PersonaplexBriefingPart[];
+  condensed: boolean;
+  truncated: boolean;
+};
+
+/** Assemble "what the agent knows" from the user's own data (recap, tasks,
+ *  meetings, projects, people, focus-query captures), optionally condensed by
+ *  the local language model. Pure read; nothing is sent anywhere. */
+export const personaplexBuildBriefing = (
+  opts: PersonaplexBriefingOptions,
+): Promise<PersonaplexBriefing> => invoke("personaplex_build_briefing", { opts });
 
 /** One JSON line from the sidecar (or a synthetic `stderr` / `exited` event
  *  added by the Rust supervisor). `event` names the kind; other fields vary. */
