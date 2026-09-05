@@ -1,0 +1,46 @@
+diff --git a/Sources/PersonaPlex/PersonaPlex.swift b/Sources/PersonaPlex/PersonaPlex.swift
+index c5d4630..d069184 100644
+--- a/Sources/PersonaPlex/PersonaPlex.swift
++++ b/Sources/PersonaPlex/PersonaPlex.swift
+@@ -31,8 +31,14 @@ public final class PersonaPlexModel: Module {
+     /// the lookup eliminates the copy-paste pattern that caused #300, where
+     /// one of four voice-loading sites silently hardcoded the 4-bit repo
+     /// and broke the 8-bit variant.
++    /// Directory the weights were loaded from when `fromPretrained` received an
++    /// explicit `cacheDir`. Auxiliary files (voice prompts, tokenizer) resolve
++    /// here first so a caller-managed model directory is self-contained.
++    public internal(set) var modelDirectory: URL? = nil
++
+     internal func modelCacheDirectory() throws -> URL {
+-        try HuggingFaceDownloader.getCacheDirectory(for: modelId)
++        if let modelDirectory { return modelDirectory }
++        return try HuggingFaceDownloader.getCacheDirectory(for: modelId)
+     }
+ 
+     /// SentencePiece tokenizer for encoding/decoding text (loaded from model directory).
+@@ -1012,7 +1018,8 @@ public final class PersonaPlexModel: Module {
+         systemPromptTokens: [Int32]? = nil,
+         userAudioBuffer: AudioRingBuffer,
+         maxSteps: Int = Int.max,
+-        verbose: Bool = false
++        verbose: Bool = false,
++        onTextToken: (@Sendable (Int32) -> Void)? = nil
+     ) -> AsyncThrowingStream<[Float], Error> {
+         AsyncThrowingStream { continuation in
+             let task = Task.detached(priority: .userInitiated) { [self] in
+@@ -1271,6 +1278,7 @@ public final class PersonaPlexModel: Module {
+                         let textVal = textToken[0].item(Int32.self)
+                         if step < totalLen { tokenCache[0][step] = textVal }
+                         allTextTokens.append(textVal)
++                        onTextToken?(textVal)
+ 
+                         let agentArr = agentCodes[0]
+                         var agentCbCodes = [Int32](repeating: 0, count: nQ)
+@@ -1632,6 +1640,7 @@ public final class PersonaPlexModel: Module {
+         }
+         let model = PersonaPlexModel(cfg: cfg)
+         model.modelId = modelId
++        model.modelDirectory = modelDir
+ 
+         // Load weights
+         progressHandler?(0.55, "Loading model weights...")

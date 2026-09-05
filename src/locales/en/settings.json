@@ -32,6 +32,7 @@
       "coding-agents": "Coding Agents",
       "permissions": "Permissions",
       "diagnostics": "Diagnostics",
+      "beta": "Beta",
       "uninstall": "Uninstall"
     }
   },
@@ -49,6 +50,7 @@
     "coding-agents": "Connect Claude Code, Codex, or any MCP client to search your captures — and, if you opt in, record your screen.",
     "permissions": "Microphone, accessibility, and screen-recording access.",
     "diagnostics": "Inspect logs and reset the app if something breaks.",
+    "beta": "Experimental features that only exist on this machine. Expect rough edges.",
     "uninstall": "Remove the app while choosing whether to keep your local data."
   },
   "common": {
@@ -431,6 +433,85 @@
     "section": {
       "title": "Permissions",
       "subtitle": "Re-grant microphone or accessibility access if something feels broken. Reset & quit clears macOS's TCC grants for both services so the next launch re-prompts cleanly."
+    }
+  },
+  "beta": {
+    "personaplex": {
+      "section": {
+        "title": "PersonaPlex voice lab",
+        "subtitle": "Try NVIDIA's PersonaPlex-7B, an open full-duplex speech-to-speech model, entirely on this Mac."
+      },
+      "statusError": "Couldn't read the PersonaPlex status: {{error}}",
+      "about": {
+        "title": "What this is",
+        "body": "PersonaPlex listens and talks at the same time, like a phone call: it can answer while you are still speaking, back-channel, and be interrupted. It is not a text model \u2014 your voice goes in, the agent's voice comes out, plus a rough transcript of what it says (its \"inner monologue\"). English only. Runs fully on-device with MLX, nothing leaves your machine.",
+        "tips": "A persona prompt shapes the answers a lot; vague prompts ramble. Headphones give the cleanest audio. With speakers, keep echo cancellation on so the agent doesn't hear itself."
+      },
+      "runtime": {
+        "title": "Runtime",
+        "installed": "Sidecar installed",
+        "missing": "Sidecar not installed",
+        "missingHint": "Build and install it from the repo (needs Xcode with the Metal Toolchain), then reopen this page:",
+        "installDir": "It installs to {{dir}}",
+        "metallibMissing": "mlx.metallib is missing next to the sidecar \u2014 Metal kernels will compile at run time and inference will be slower.",
+        "version": "speech-swift {{tag}} ({{commit}}), built {{built}}"
+      },
+      "model": {
+        "title": "Model",
+        "notDownloaded": "Not downloaded",
+        "downloaded": "Downloaded \u2014 {{size}} on disk",
+        "partial": "{{size}} on disk so far \u2014 download resumes where it stopped",
+        "downloading": "Downloading\u2026 {{pct}}%",
+        "download": "Download ({{size}})",
+        "resume": "Resume download",
+        "cancel": "Cancel",
+        "delete": "Delete",
+        "openFolder": "Open folder",
+        "downloadFailed": "Download failed: {{error}}",
+        "downloadedToast": "PersonaPlex model downloaded and verified.",
+        "deleteConfirm": "Delete the PersonaPlex weights ({{size}})? You can download them again later.",
+        "ramNote": "The 8-bit weights use about 10 GB of memory while a conversation runs. This Mac has {{ram}}."
+      },
+      "session": {
+        "title": "Conversation",
+        "voice": "Voice",
+        "persona": "Persona prompt",
+        "personaPlaceholder": "Describe who the agent is and how it should talk\u2026",
+        "presets": "Presets:",
+        "aec": "Echo cancellation (keep on with speakers)",
+        "start": "Start conversation",
+        "stop": "Stop",
+        "stopping": "Stopping\u2026",
+        "phase": {
+          "idle": "Idle",
+          "starting": "Starting\u2026",
+          "loading": "Loading model\u2026",
+          "warming": "Warming up (compiling Metal kernels)\u2026",
+          "ready": "Live \u2014 talk now",
+          "stopping": "Stopping\u2026",
+          "error": "Error"
+        },
+        "levels": {
+          "mic": "Mic",
+          "agent": "Agent"
+        },
+        "stats": "{{ms}} ms per step (real-time budget {{budget}}) \u00b7 step {{step}} \u00b7 {{underruns}} playback underruns",
+        "loadStats": "Loaded in {{load}}s, warm-up {{warm}}s",
+        "transcript": "Agent transcript",
+        "transcriptEmpty": "Nothing said yet. Say hello.",
+        "clear": "Clear",
+        "copy": "Copy",
+        "copied": "Copied",
+        "needsModel": "Download the model to start a conversation.",
+        "needsSidecar": "Install the sidecar to start a conversation.",
+        "startFailed": "Something went wrong: {{error}}",
+        "exited": "Session ended ({{reason}})."
+      },
+      "log": {
+        "show": "Show sidecar log",
+        "hide": "Hide sidecar log",
+        "empty": "(no output yet)"
+      }
     }
   },
   "diagnostics": {

@@ -1995,3 +1995,74 @@ export const dailyInsightRuns = (date: string): Promise<GuideRun[]> =>
 
 export const regenerateGuideReview = (runId: string): Promise<void> =>
   invoke("regenerate_guide_review", { runId });
+
+// ---------------------------------------------------------------------------
+// Beta: PersonaPlex voice lab (Settings → Beta). Hidden unless the backend
+// reports beta features enabled (marker file / ECHO_SCRIBE_BETA=1).
+// ---------------------------------------------------------------------------
+
+export const betaFeaturesEnabled = (): Promise<boolean> =>
+  invoke("beta_features_enabled");
+
+export type PersonaplexVoice = { id: string; label: string };
+
+export type PersonaplexSidecarVersion = {
+  sidecar: string;
+  speech_swift: string;
+  speech_swift_commit: string;
+  built_at: string;
+};
+
+export type PersonaplexStatus = {
+  beta: boolean;
+  beta_marker_path: string;
+  sidecar_installed: boolean;
+  sidecar_path: string | null;
+  sidecar_install_dir: string;
+  sidecar_version: PersonaplexSidecarVersion | null;
+  metallib_present: boolean;
+  model_id: string;
+  model_dir: string;
+  model_downloaded: boolean;
+  model_bytes_on_disk: number;
+  model_size_bytes: number;
+  downloading: boolean;
+  session_running: boolean;
+  voices: PersonaplexVoice[];
+  total_ram_bytes: number;
+};
+
+export type PersonaplexChatOptions = {
+  voice: string;
+  prompt: string;
+  echo_cancellation: boolean;
+};
+
+/** One JSON line from the sidecar (or a synthetic `stderr` / `exited` event
+ *  added by the Rust supervisor). `event` names the kind; other fields vary. */
+export type PersonaplexEvent = { event: string } & Record<string, unknown>;
+
+export const personaplexStatus = (): Promise<PersonaplexStatus> =>
+  invoke("personaplex_status");
+
+/** Resolves when the download finished and verified; rejects with a friendly
+ *  message otherwise. Progress arrives on the `personaplex:download` event. */
+export const personaplexDownload = (): Promise<void> =>
+  invoke("personaplex_download");
+
+export const personaplexCancelDownload = (): Promise<void> =>
+  invoke("personaplex_cancel_download");
+
+export const personaplexDeleteModel = (): Promise<void> =>
+  invoke("personaplex_delete_model");
+
+/** Spawns the session; lifecycle + transcript arrive on `personaplex:event`. */
+export const personaplexStartChat = (
+  opts: PersonaplexChatOptions,
+): Promise<void> => invoke("personaplex_start_chat", { opts });
+
+export const personaplexStopChat = (): Promise<void> =>
+  invoke("personaplex_stop_chat");
+
+export const personaplexOpenModelFolder = (): Promise<void> =>
+  invoke("personaplex_open_model_folder");
