@@ -260,19 +260,19 @@
     "launcher": {
       "label": "App-starter voor spraakopdrachten",
       "badge": "Sonoma+",
-      "description": "Onderschept gesproken dictatie om apps te starten, links te openen, e-mails op te stellen, tellers te beheren, meetings en schermopnames te starten/stoppen, en je Mac wakker te houden (bijv. \"echo blijf 2 uur wakker\")."
+      "description": "Onderschept gesproken dictatie om apps te starten, links te openen, e-mails op te stellen, tellers te beheren, meetings en schermopnames te starten/stoppen, en je Mac wakker te houden (bijv. \"tucky blijf 2 uur wakker\")."
     },
     "prefixRouting": {
       "title": "Op prefix gebaseerde triggerroutering",
-      "description": "Route normale gesproken dictaties alleen naar AI als ze beginnen met een triggerwoord (bijv. \"echo\"). Voorkomt vertraging bij dicteren!",
+      "description": "Route normale gesproken dictaties alleen naar AI als ze beginnen met een triggerwoord (bijv. \"tucky\"). Voorkomt vertraging bij dicteren!",
       "toastEnabled": "Prefix-triggerroutering ingeschakeld",
       "toastDisabled": "Prefix-triggerroutering uitgeschakeld",
       "toastUpdateFailed": "Kon instellingen voor prefixroutering niet bijwerken",
       "triggerWordLabel": "Trigger-prefixwoord",
       "toastWordUpdated": "Triggerwoord bijgewerkt naar \"{{word}}\"",
       "toastWordSaveFailed": "Kon triggerwoord niet opslaan",
-      "toastWordReset": "Triggerwoord teruggezet naar \"echo\"",
-      "phoneticNote": "* Let op: \"echo\" reageert automatisch op losjes klinkende varianten (echo, eco, ekko, hecho)!"
+      "toastWordReset": "Triggerwoord teruggezet naar \"tucky\"",
+      "phoneticNote": "* Let op: \"tucky\" reageert automatisch op losjes klinkende varianten (tucky, tuckey, tuckie, tuki)!"
     },
     "actionHotkey": {
       "title": "Speciale actiehotkey",
@@ -300,10 +300,10 @@
   "templates": {
     "section": {
       "title": "Spraaksjablonen voor opmaak",
-      "subtitle": "Zeg \"echo, format as email …\" (of gebruik de actiehotkey) om je dictatie te herschrijven met een aangepaste systeemprompt voordat die wordt geplakt."
+      "subtitle": "Zeg \"tucky, format as email …\" (of gebruik de actiehotkey) om je dictatie te herschrijven met een aangepaste systeemprompt voordat die wordt geplakt."
     },
     "loading": "Sjablonen laden…",
-    "explainer": "Wanneer je dictatie begint met een van de triggerzinnen van een sjabloon (bijv. <mono>\"echo, format as email …\"</mono>), wordt de rest van de zin herschreven via de systeemprompt van het sjabloon voordat die bij je cursor wordt geplakt. Werkt zowel met het \"echo\"-prefix als met de speciale actiehotkey.",
+    "explainer": "Wanneer je dictatie begint met een van de triggerzinnen van een sjabloon (bijv. <mono>\"tucky, format as email …\"</mono>), wordt de rest van de zin herschreven via de systeemprompt van het sjabloon voordat die bij je cursor wordt geplakt. Werkt zowel met het \"tucky\"-prefix als met de speciale actiehotkey.",
     "empty": "Nog geen sjablonen. Voeg er een toe om spraakopmaak in te schakelen.",
     "fields": {
       "namePlaceholder": "Sjabloonnaam",

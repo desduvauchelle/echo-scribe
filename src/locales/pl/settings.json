@@ -266,19 +266,19 @@
     "launcher": {
       "label": "Uruchamianie aplikacji komendami głosowymi",
       "badge": "Sonoma+",
-      "description": "Przechwytuj dyktowanie głosowe, aby uruchamiać aplikacje, otwierać linki, tworzyć e-maile, zarządzać licznikami, uruchamiać/zatrzymywać spotkania i nagrania ekranu oraz nie dopuszczać do uśpienia Maca (np. „echo, nie usypiaj Maca przez 2 godziny”)."
+      "description": "Przechwytuj dyktowanie głosowe, aby uruchamiać aplikacje, otwierać linki, tworzyć e-maile, zarządzać licznikami, uruchamiać/zatrzymywać spotkania i nagrania ekranu oraz nie dopuszczać do uśpienia Maca (np. „tucky, nie usypiaj Maca przez 2 godziny”)."
     },
     "prefixRouting": {
       "title": "Wyzwalanie na podstawie prefiksu",
-      "description": "Kieruj zwykłe dyktowania głosowe do AI tylko wtedy, gdy zaczynają się od słowa wyzwalającego (np. „echo”). Zapobiega to opóźnieniom dyktowania!",
+      "description": "Kieruj zwykłe dyktowania głosowe do AI tylko wtedy, gdy zaczynają się od słowa wyzwalającego (np. „tucky”). Zapobiega to opóźnieniom dyktowania!",
       "toastEnabled": "Wyzwalanie prefiksem włączone",
       "toastDisabled": "Wyzwalanie prefiksem wyłączone",
       "toastUpdateFailed": "Nie udało się zaktualizować ustawień wyzwalania prefiksem",
       "triggerWordLabel": "Słowo wyzwalające (prefiks)",
       "toastWordUpdated": "Słowo wyzwalające zmieniono na „{{word}}”",
       "toastWordSaveFailed": "Nie udało się zapisać słowa wyzwalającego",
-      "toastWordReset": "Słowo wyzwalające zresetowano do „echo”",
-      "phoneticNote": "* Uwaga: „echo” automatycznie wyzwala też podobne fonetycznie słowa (echo, eco, ekko, hecho)!"
+      "toastWordReset": "Słowo wyzwalające zresetowano do „tucky”",
+      "phoneticNote": "* Uwaga: „tucky” automatycznie wyzwala też podobne fonetycznie słowa (tucky, tuckey, tuckie, tuki)!"
     },
     "actionHotkey": {
       "title": "Dedykowany skrót akcji",
@@ -306,10 +306,10 @@
   "templates": {
     "section": {
       "title": "Głosowe szablony formatowania",
-      "subtitle": "Powiedz „echo, sformatuj jako e-mail…” (lub użyj skrótu Akcji), aby przepisać dyktowanie za pomocą niestandardowego promptu systemowego, zanim zostanie wklejone."
+      "subtitle": "Powiedz „tucky, sformatuj jako e-mail…” (lub użyj skrótu Akcji), aby przepisać dyktowanie za pomocą niestandardowego promptu systemowego, zanim zostanie wklejone."
     },
     "loading": "Ładowanie szablonów…",
-    "explainer": "Gdy Twoje dyktowanie zaczyna się od jednej z fraz wyzwalających szablonu (np. <mono>„echo, sformatuj jako e-mail…”</mono>), reszta zdania jest przepisywana przez prompt systemowy szablonu, zanim zostanie wklejona przy kursorze. Działa zarówno z prefiksem „echo”, jak i z dedykowanym skrótem Akcji.",
+    "explainer": "Gdy Twoje dyktowanie zaczyna się od jednej z fraz wyzwalających szablonu (np. <mono>„tucky, sformatuj jako e-mail…”</mono>), reszta zdania jest przepisywana przez prompt systemowy szablonu, zanim zostanie wklejona przy kursorze. Działa zarówno z prefiksem „tucky”, jak i z dedykowanym skrótem Akcji.",
     "empty": "Brak szablonów. Dodaj jeden, aby włączyć formatowanie głosowe.",
     "fields": {
       "namePlaceholder": "Nazwa szablonu",

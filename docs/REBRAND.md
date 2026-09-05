@@ -10,8 +10,8 @@ These names intentionally remain compatibility contracts:
 - Bundle identifier `com.echoscribe.app`, signing identity, and browser storage keys.
 - The internal `echo-scribe` executable, sidecars, and environment variables.
 - The existing login-item identity and legacy MCP `search_echoscribe` tool alias.
-- The existing configurable `echo` voice trigger, so familiar spoken commands
-  continue to work; it can be changed in Settings.
+- The configurable voice trigger now defaults to `tucky`. Upgrading migrates the
+  former `echo` default while preserving a trigger word the user customized.
 
 The installer installs `/Applications/Tucky.app`, backs up previous app bundles,
 and creates an `Echo Scribe.app` symlink for existing integrations. It never moves

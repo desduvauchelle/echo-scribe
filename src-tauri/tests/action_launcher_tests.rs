@@ -238,50 +238,50 @@ fn test_normalize_spoken_email() {
 fn test_strip_trigger_prefix() {
     // Valid trigger cases with various casings and spacing
     assert_eq!(
-        strip_trigger_prefix("echo open terminal"),
+        strip_trigger_prefix("tucky open terminal"),
         Some("open terminal".to_string())
     );
     assert_eq!(
-        strip_trigger_prefix("Echo open terminal"),
+        strip_trigger_prefix("Tucky open terminal"),
         Some("open terminal".to_string())
     );
     assert_eq!(
-        strip_trigger_prefix("echo, open terminal"),
+        strip_trigger_prefix("tucky, open terminal"),
         Some("open terminal".to_string())
     );
     assert_eq!(
-        strip_trigger_prefix("echo - open terminal"),
+        strip_trigger_prefix("tucky - open terminal"),
         Some("open terminal".to_string())
     );
     assert_eq!(
-        strip_trigger_prefix("Echo... open terminal"),
+        strip_trigger_prefix("Tucky... open terminal"),
         Some("open terminal".to_string())
     );
 
     // Phonetic/Robust triggers
     assert_eq!(
-        strip_trigger_prefix("eco launch slack"),
+        strip_trigger_prefix("tuckey launch slack"),
         Some("launch slack".to_string())
     );
     assert_eq!(
-        strip_trigger_prefix("hecho draft an email"),
+        strip_trigger_prefix("tuckie draft an email"),
         Some("draft an email".to_string())
     );
     assert_eq!(
-        strip_trigger_prefix("ekko show counter"),
+        strip_trigger_prefix("tuki show counter"),
         Some("show counter".to_string())
     );
 
     // Trigger word alone
-    assert_eq!(strip_trigger_prefix("echo"), Some("".to_string()));
-    assert_eq!(strip_trigger_prefix("  hecho  "), Some("".to_string()));
+    assert_eq!(strip_trigger_prefix("tucky"), Some("".to_string()));
+    assert_eq!(strip_trigger_prefix("  tuckie  "), Some("".to_string()));
 
     // Non-trigger cases (trigger words embedded or as part of other words)
-    assert_eq!(strip_trigger_prefix("ecosystem is good"), None);
+    assert_eq!(strip_trigger_prefix("tuckytown is fictional"), None);
     assert_eq!(
-        strip_trigger_prefix("today we are going to echo our voices"),
+        strip_trigger_prefix("today we are going to ask Tucky for help"),
         None
     );
-    assert_eq!(strip_trigger_prefix("re-echo the command"), None);
-    assert_eq!(strip_trigger_prefix("my hecho is done"), None);
+    assert_eq!(strip_trigger_prefix("untucky is not a trigger"), None);
+    assert_eq!(strip_trigger_prefix("my tuckie is done"), None);
 }

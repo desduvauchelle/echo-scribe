@@ -16,6 +16,7 @@ const KEY_ACTION_BINDING: &str = "action_binding";
 const KEY_EDIT_SELECTION_BINDING: &str = "edit_selection_binding";
 const KEY_TRIGGER_WORD_ROUTING_ENABLED: &str = "trigger_word_routing_enabled";
 const KEY_ACTION_TRIGGER_WORD: &str = "action_trigger_word";
+const KEY_TUCKY_TRIGGER_WORD_MIGRATED: &str = "tucky_trigger_word_migrated_v1";
 const KEY_SPEECH_MODEL_ID: &str = "speech_model_id";
 const KEY_LLM_MODEL_ID: &str = "llm_model_id";
 const KEY_AUDIO_FEEDBACK_ENABLED: &str = "audio_feedback_enabled";
@@ -81,7 +82,7 @@ const KEY_EDITOR_DEFAULTS: &str = "editor_defaults";
 pub const DEFAULT_MEETING_SUMMARY_PROMPT: &str = "You are an expert meeting note-taker. You receive a transcript of a {duration_minutes}-minute conversation captured from {app}. The transcript labels each segment as 'You:' (the user) or 'Them:' (the other side).";
 
 /// A user-configurable voice "format template". When the user dictates with
-/// the trigger word ("echo …") or the dedicated Action hotkey and the LLM
+/// the trigger word ("tucky …") or the dedicated Action hotkey and the LLM
 /// classifies the intent as `format_text`, the matched template's
 /// `system_prompt` is used to reformat the dictated body before pasting.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
@@ -227,7 +228,41 @@ impl SettingsStore {
         let store = app
             .store(STORE_FILENAME)
             .map_err(|e| SettingsError::Store(e.to_string()))?;
-        Ok(Self { store })
+        let settings = Self { store };
+        if let Err(error) = settings.migrate_tucky_trigger_word() {
+            warn!(?error, "failed to migrate the action trigger word to Tucky");
+        }
+        Ok(settings)
+    }
+
+    fn migrate_tucky_trigger_word(&self) -> Result<(), SettingsError> {
+        let already_migrated = self
+            .store
+            .get(KEY_TUCKY_TRIGGER_WORD_MIGRATED)
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false);
+        if already_migrated {
+            return Ok(());
+        }
+
+        let stored_word = self
+            .store
+            .get(KEY_ACTION_TRIGGER_WORD)
+            .and_then(|value| value.as_str().map(str::to_owned));
+        if should_replace_legacy_trigger_word(stored_word.as_deref()) {
+            self.store.set(
+                KEY_ACTION_TRIGGER_WORD,
+                serde_json::Value::String("tucky".to_string()),
+            );
+        }
+        self.store.set(
+            KEY_TUCKY_TRIGGER_WORD_MIGRATED,
+            serde_json::Value::Bool(true),
+        );
+        self.store
+            .save()
+            .map_err(|e| SettingsError::Store(e.to_string()))?;
+        Ok(())
     }
 
     /// Returns the configured voice-at-cursor binding, or the default
@@ -428,7 +463,7 @@ impl SettingsStore {
         Ok(())
     }
 
-    /// Getter for the action trigger word prefix (default: "echo")
+    /// Getter for the action trigger word prefix (default: "tucky")
     pub fn action_trigger_word(&self) -> String {
         self.store
             .get(KEY_ACTION_TRIGGER_WORD)
@@ -437,7 +472,7 @@ impl SettingsStore {
                     .map(|s| s.to_string())
                     .or_else(|| serde_json::from_value::<String>(v).ok())
             })
-            .unwrap_or_else(|| "echo".to_string())
+            .unwrap_or_else(|| "tucky".to_string())
     }
 
     /// Setter for the action trigger word prefix
@@ -1572,6 +1607,12 @@ pub fn default_edit_selection_binding() -> Binding {
     }
 }
 
+fn should_replace_legacy_trigger_word(stored_word: Option<&str>) -> bool {
+    stored_word
+        .map(|word| word.trim().eq_ignore_ascii_case("echo"))
+        .unwrap_or(true)
+}
+
 #[cfg(test)]
 mod updater_tests {
     use super::*;
@@ -1584,6 +1625,24 @@ mod updater_tests {
     #[test]
     fn dismissed_update_version_constant_is_correct() {
         assert_eq!(KEY_DISMISSED_UPDATE_VERSION, "dismissed_update_version");
+    }
+}
+
+#[cfg(test)]
+mod trigger_word_migration_tests {
+    use super::*;
+
+    #[test]
+    fn migrates_missing_and_legacy_default_trigger_words() {
+        assert!(should_replace_legacy_trigger_word(None));
+        assert!(should_replace_legacy_trigger_word(Some("echo")));
+        assert!(should_replace_legacy_trigger_word(Some(" Echo ")));
+    }
+
+    #[test]
+    fn preserves_custom_trigger_words() {
+        assert!(!should_replace_legacy_trigger_word(Some("computer")));
+        assert!(!should_replace_legacy_trigger_word(Some("tucky")));
     }
 }
 

@@ -550,7 +550,7 @@ mod stay_awake_tests {
     }
 
     #[test]
-    fn recovers_observed_keep_awake_phrases_when_echo_is_misheard() {
+    fn recovers_observed_keep_awake_phrases_when_tucky_is_misheard() {
         for transcript in [
             "Keep making more two hours.",
             "Oh Peter Wake for two hours.",
@@ -570,9 +570,9 @@ mod stay_awake_tests {
     }
 
     #[test]
-    fn strips_the_normal_echo_prefix_without_rewriting_the_command() {
+    fn strips_the_normal_tucky_prefix_without_rewriting_the_command() {
         assert_eq!(
-            strip_trigger_prefix("Echo keep my computer awake for three hours."),
+            strip_trigger_prefix("Tucky keep my computer awake for three hours."),
             Some("keep my computer awake for three hours.".to_string())
         );
     }
@@ -587,14 +587,14 @@ mod stay_awake_tests {
     }
 }
 
-/// Check if the transcript starts with a command trigger word (e.g., "echo",
-/// "eco", "hecho", "ekko"). Also recovers a narrowly-scoped keep-awake
+/// Check if the transcript starts with the Tucky command trigger word, including
+/// a few conservative phonetic spellings. Also recovers a narrowly-scoped keep-awake
 /// command when ASR loses the trigger but retains a short wake/duration phrase.
 /// Returns `Some(command)` when routing should continue, otherwise `None`.
 pub fn strip_trigger_prefix(text: &str) -> Option<String> {
     let text_trimmed = text.trim();
     let text_lower = text_trimmed.to_lowercase();
-    for trigger in &["echo", "eco", "hecho", "ekko"] {
+    for trigger in &["tucky", "tuckey", "tuckie", "tuki"] {
         if text_lower.starts_with(trigger) {
             let trigger_len = trigger.len();
             if text_lower.len() == trigger_len {

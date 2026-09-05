@@ -1338,7 +1338,7 @@ async fn try_intercept_action(
                 s.settings.format_templates(),
             )
         })
-        .unwrap_or((true, true, "echo".to_string(), Vec::new()));
+        .unwrap_or((true, true, "tucky".to_string(), Vec::new()));
 
     if !enabled {
         return InterceptOutcome::Passthrough;
@@ -1362,7 +1362,7 @@ async fn try_intercept_action(
         let text_lower = text_trimmed.to_lowercase();
         let trigger_lower = trigger_word.trim().to_lowercase();
 
-        if trigger_lower == "echo" {
+        if trigger_lower == "tucky" {
             match crate::llm::action_launcher::strip_trigger_prefix(text_trimmed) {
                 Some(command) => command,
                 None => {
@@ -1512,7 +1512,7 @@ async fn try_intercept_action(
             }
         }
         Err(e) => {
-            // Without a model, "echo open Slack" pastes the literal words —
+            // Without a model, "tucky open Slack" pastes the literal words —
             // after a "Processing…" spinner that implied it would work. Tell
             // the user once per session instead of failing silently.
             if matches!(

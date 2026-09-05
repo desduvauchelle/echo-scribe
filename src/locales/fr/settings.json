@@ -260,19 +260,19 @@
     "launcher": {
       "label": "Lanceur d’applications par commande vocale",
       "badge": "Sonoma+",
-      "description": "Intercepte la dictée vocale pour lancer des applications, ouvrir des liens, rédiger des e-mails, gérer des compteurs, démarrer/arrêter des réunions et des enregistrements d’écran, et empêcher votre Mac de se mettre en veille (p. ex. « echo reste éveillé pendant 2 heures »)."
+      "description": "Intercepte la dictée vocale pour lancer des applications, ouvrir des liens, rédiger des e-mails, gérer des compteurs, démarrer/arrêter des réunions et des enregistrements d’écran, et empêcher votre Mac de se mettre en veille (p. ex. « tucky reste éveillé pendant 2 heures »)."
     },
     "prefixRouting": {
       "title": "Routage par mot déclencheur en préfixe",
-      "description": "N’envoie les dictées vocales normales à l’IA que si elles commencent par un mot déclencheur (p. ex. « echo »). Évite les latences de dictée !",
+      "description": "N’envoie les dictées vocales normales à l’IA que si elles commencent par un mot déclencheur (p. ex. « tucky »). Évite les latences de dictée !",
       "toastEnabled": "Routage par préfixe déclencheur activé",
       "toastDisabled": "Routage par préfixe déclencheur désactivé",
       "toastUpdateFailed": "Échec de la mise à jour des réglages de routage par préfixe",
       "triggerWordLabel": "Mot déclencheur en préfixe",
       "toastWordUpdated": "Mot déclencheur mis à jour : « {{word}} »",
       "toastWordSaveFailed": "Échec de l’enregistrement du mot déclencheur",
-      "toastWordReset": "Mot déclencheur réinitialisé à « echo »",
-      "phoneticNote": "* Remarque : « echo » déclenche automatiquement des correspondances phonétiques approximatives (echo, eco, ekko, hecho) !"
+      "toastWordReset": "Mot déclencheur réinitialisé à « tucky »",
+      "phoneticNote": "* Remarque : « tucky » déclenche automatiquement des correspondances phonétiques approximatives (tucky, tuckey, tuckie, tuki) !"
     },
     "actionHotkey": {
       "title": "Raccourci d’action dédié",
@@ -300,10 +300,10 @@
   "templates": {
     "section": {
       "title": "Modèles de mise en forme vocale",
-      "subtitle": "Dites « echo, mets en forme comme un e-mail… » (ou utilisez le raccourci Action) pour réécrire votre dictée avec une consigne personnalisée avant qu’elle ne soit collée."
+      "subtitle": "Dites « tucky, mets en forme comme un e-mail… » (ou utilisez le raccourci Action) pour réécrire votre dictée avec une consigne personnalisée avant qu’elle ne soit collée."
     },
     "loading": "Chargement des modèles…",
-    "explainer": "Quand votre dictée commence par l’une des expressions déclenchantes d’un modèle (p. ex. <mono>« echo, mets en forme comme un e-mail… »</mono>), le reste de la phrase est réécrit via la consigne du modèle avant d’être collé à l’emplacement du curseur. Fonctionne à la fois avec le préfixe « echo » et le raccourci Action dédié.",
+    "explainer": "Quand votre dictée commence par l’une des expressions déclenchantes d’un modèle (p. ex. <mono>« tucky, mets en forme comme un e-mail… »</mono>), le reste de la phrase est réécrit via la consigne du modèle avant d’être collé à l’emplacement du curseur. Fonctionne à la fois avec le préfixe « tucky » et le raccourci Action dédié.",
     "empty": "Pas encore de modèle. Ajoutez-en un pour activer la mise en forme vocale.",
     "fields": {
       "namePlaceholder": "Nom du modèle",

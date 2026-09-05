@@ -189,7 +189,7 @@ export async function installTauriMock(page: Page, scenario: Scenario = {}) {
       get_app_launcher_enabled: () => true,
       get_action_counter: () => 21,
       get_trigger_word_routing_enabled: () => false,
-      get_action_trigger_word: () => "echo",
+      get_action_trigger_word: () => "tucky",
       get_common_actions: () => [
         {
           category: "Applications",

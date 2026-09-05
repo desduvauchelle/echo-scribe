@@ -260,19 +260,19 @@
     "launcher": {
       "label": "Avvio app tramite comando vocale",
       "badge": "Sonoma+",
-      "description": "Intercetta la dettatura vocale per avviare app, aprire link, comporre email, gestire contatori, avviare/interrompere riunioni e registrazioni dello schermo, e mantenere il Mac attivo (es. \"echo resta sveglio per 2 ore\")."
+      "description": "Intercetta la dettatura vocale per avviare app, aprire link, comporre email, gestire contatori, avviare/interrompere riunioni e registrazioni dello schermo, e mantenere il Mac attivo (es. \"tucky resta sveglio per 2 ore\")."
     },
     "prefixRouting": {
       "title": "Instradamento con parola di attivazione",
-      "description": "Instrada le normali dettature vocali all'AI solo se iniziano con una parola di attivazione (es. \"echo\"). Evita latenza nella dettatura!",
+      "description": "Instrada le normali dettature vocali all'AI solo se iniziano con una parola di attivazione (es. \"tucky\"). Evita latenza nella dettatura!",
       "toastEnabled": "Instradamento con parola di attivazione attivato",
       "toastDisabled": "Instradamento con parola di attivazione disattivato",
       "toastUpdateFailed": "Impossibile aggiornare le impostazioni di instradamento",
       "triggerWordLabel": "Parola di attivazione",
       "toastWordUpdated": "Parola di attivazione aggiornata a \"{{word}}\"",
       "toastWordSaveFailed": "Impossibile salvare la parola di attivazione",
-      "toastWordReset": "Parola di attivazione ripristinata a \"echo\"",
-      "phoneticNote": "* Nota: \"echo\" attiva automaticamente corrispondenze fonetiche simili (echo, eco, ekko, hecho)!"
+      "toastWordReset": "Parola di attivazione ripristinata a \"tucky\"",
+      "phoneticNote": "* Nota: \"tucky\" attiva automaticamente corrispondenze fonetiche simili (tucky, tuckey, tuckie, tuki)!"
     },
     "actionHotkey": {
       "title": "Scorciatoia dedicata per le azioni",
@@ -300,10 +300,10 @@
   "templates": {
     "section": {
       "title": "Modelli di formattazione vocale",
-      "subtitle": "Di' \"echo, formatta come email …\" (o usa la scorciatoia Azione) per riscrivere la tua dettatura con un prompt di sistema personalizzato prima che venga incollata."
+      "subtitle": "Di' \"tucky, formatta come email …\" (o usa la scorciatoia Azione) per riscrivere la tua dettatura con un prompt di sistema personalizzato prima che venga incollata."
     },
     "loading": "Caricamento modelli…",
-    "explainer": "Quando la tua dettatura inizia con una delle frasi di attivazione di un modello (es. <mono>\"echo, formatta come email …\"</mono>), il resto della frase viene riscritto tramite il prompt di sistema del modello prima di essere incollato al cursore. Funziona sia con il prefisso \"echo\" sia con la scorciatoia Azione dedicata.",
+    "explainer": "Quando la tua dettatura inizia con una delle frasi di attivazione di un modello (es. <mono>\"tucky, formatta come email …\"</mono>), il resto della frase viene riscritto tramite il prompt di sistema del modello prima di essere incollato al cursore. Funziona sia con il prefisso \"tucky\" sia con la scorciatoia Azione dedicata.",
     "empty": "Nessun modello ancora. Aggiungine uno per attivare la formattazione vocale.",
     "fields": {
       "namePlaceholder": "Nome del modello",

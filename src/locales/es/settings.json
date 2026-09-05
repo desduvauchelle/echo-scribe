@@ -260,19 +260,19 @@
     "launcher": {
       "label": "Lanzador de apps por comando de voz",
       "badge": "Sonoma+",
-      "description": "Intercepta el dictado de voz para abrir apps, enlaces, redactar correos, gestionar contadores, iniciar/detener reuniones y grabaciones de pantalla, y mantener tu Mac despierto (por ejemplo, «echo mantente despierto 2 horas»)."
+      "description": "Intercepta el dictado de voz para abrir apps, enlaces, redactar correos, gestionar contadores, iniciar/detener reuniones y grabaciones de pantalla, y mantener tu Mac despierto (por ejemplo, «tucky mantente despierto 2 horas»)."
     },
     "prefixRouting": {
       "title": "Enrutamiento por palabra de activación",
-      "description": "Envía los dictados de voz normales a la IA solo si empiezan con una palabra de activación (por ejemplo, «echo»). ¡Evita la latencia del dictado!",
+      "description": "Envía los dictados de voz normales a la IA solo si empiezan con una palabra de activación (por ejemplo, «tucky»). ¡Evita la latencia del dictado!",
       "toastEnabled": "Enrutamiento por palabra de activación activado",
       "toastDisabled": "Enrutamiento por palabra de activación desactivado",
       "toastUpdateFailed": "Error al actualizar la configuración de enrutamiento por prefijo",
       "triggerWordLabel": "Palabra de activación",
       "toastWordUpdated": "Palabra de activación actualizada a «{{word}}»",
       "toastWordSaveFailed": "Error al guardar la palabra de activación",
-      "toastWordReset": "Palabra de activación restablecida a «echo»",
-      "phoneticNote": "* Nota: «echo» activa coincidencias fonéticas aproximadas (echo, eco, ekko, hecho) automáticamente."
+      "toastWordReset": "Palabra de activación restablecida a «tucky»",
+      "phoneticNote": "* Nota: «tucky» activa coincidencias fonéticas aproximadas (tucky, tuckey, tuckie, tuki) automáticamente."
     },
     "actionHotkey": {
       "title": "Atajo de acción dedicado",
@@ -300,10 +300,10 @@
   "templates": {
     "section": {
       "title": "Plantillas de formato de voz",
-      "subtitle": "Di «echo, formatea como correo…» (o usa el atajo de acción) para reescribir tu dictado con un prompt del sistema personalizado antes de pegarlo."
+      "subtitle": "Di «tucky, formatea como correo…» (o usa el atajo de acción) para reescribir tu dictado con un prompt del sistema personalizado antes de pegarlo."
     },
     "loading": "Cargando plantillas…",
-    "explainer": "Cuando tu dictado empieza con una de las frases de activación de una plantilla (por ejemplo, <mono>«echo, formatea como correo…»</mono>), el resto de la frase se reescribe mediante el prompt del sistema de la plantilla antes de pegarse en tu cursor. Funciona tanto con el prefijo «echo» como con el atajo de acción dedicado.",
+    "explainer": "Cuando tu dictado empieza con una de las frases de activación de una plantilla (por ejemplo, <mono>«tucky, formatea como correo…»</mono>), el resto de la frase se reescribe mediante el prompt del sistema de la plantilla antes de pegarse en tu cursor. Funciona tanto con el prefijo «tucky» como con el atajo de acción dedicado.",
     "empty": "Aún no hay plantillas. Añade una para activar el formato por voz.",
     "fields": {
       "namePlaceholder": "Nombre de la plantilla",

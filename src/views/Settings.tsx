@@ -2051,7 +2051,7 @@ function AppLauncherSettingsSection() {
   const [counter, setCounter] = useState<number>(0);
   const [templates, setTemplates] = useState<CommonActionTemplate[]>([]);
   const [routingEnabled, setRoutingEnabled] = useState<boolean | null>(null);
-  const [triggerWord, setTriggerWord] = useState<string>("echo");
+  const [triggerWord, setTriggerWord] = useState<string>("tucky");
   const [busy, setBusy] = useState(false);
   const toasts = useToasts();
 
@@ -2064,7 +2064,7 @@ function AppLauncherSettingsSection() {
           getActionCounter(),
           getCommonActions(),
           getTriggerWordRoutingEnabled().catch(() => false),
-          getActionTriggerWord().catch(() => "echo"),
+          getActionTriggerWord().catch(() => "tucky"),
         ]);
         if (!cancelled) {
           setEnabled(en);
@@ -2191,8 +2191,8 @@ function AppLauncherSettingsSection() {
                     onBlur={async () => {
                       const word = triggerWord.trim();
                       if (!word) {
-                        setTriggerWord("echo");
-                        await setActionTriggerWord("echo");
+                        setTriggerWord("tucky");
+                        await setActionTriggerWord("tucky");
                         return;
                       }
                       try {
@@ -2203,13 +2203,13 @@ function AppLauncherSettingsSection() {
                       }
                     }}
                     className="flex-1 bg-surface border border-line rounded-md px-2.5 py-1 text-xs text-fg focus:outline-none focus:border-accent"
-                    placeholder="echo"
+                    placeholder="tucky"
                   />
                   <button
                     type="button"
                     onClick={async () => {
-                      setTriggerWord("echo");
-                      await setActionTriggerWord("echo");
+                      setTriggerWord("tucky");
+                      await setActionTriggerWord("tucky");
                       toasts.push({ tone: "success", message: t("actions.prefixRouting.toastWordReset") });
                     }}
                     className="rounded-md border border-line bg-surface px-2.5 py-1 text-xs font-medium text-fg hover:bg-elevated hover:text-accent transition-colors"
