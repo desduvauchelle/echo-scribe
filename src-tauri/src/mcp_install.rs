@@ -15,14 +15,14 @@ use tracing::{info, warn};
 /// generated TOML table needs no quoting (matches the copy-paste snippet).
 pub fn agent_spec(agent: &str) -> Option<(&'static str, &'static str)> {
     match agent {
-        "claude-code" => Some(("claude", "echo-scribe")),
-        "codex" => Some(("codex", "echo_scribe")),
+        "claude-code" => Some(("claude", "tucky")),
+        "codex" => Some(("codex", "tucky")),
         _ => None,
     }
 }
 
-/// `claude mcp add --scope user echo-scribe -- <exe> --mcp` (user scope so it
-/// applies in every project) / `codex mcp add echo_scribe -- <exe> --mcp`.
+/// `claude mcp add --scope user tucky -- <exe> --mcp` (user scope so it
+/// applies in every project) / `codex mcp add tucky -- <exe> --mcp`.
 pub fn add_args(agent: &str, server_name: &str, exe: &str) -> Vec<String> {
     let mut args: Vec<String> = vec!["mcp".into(), "add".into()];
     if agent == "claude-code" {
@@ -148,9 +148,9 @@ pub async fn install(agent: &str) -> Result<String, String> {
 fn done_message(agent: &str) -> String {
     match agent {
         "claude-code" => {
-            "Connected to Claude Code. New Claude Code sessions will have the echo-scribe tools."
+            "Connected to Claude Code. New Claude Code sessions will have the tucky tools."
         }
-        _ => "Connected to Codex. New Codex sessions will have the echo-scribe tools.",
+        _ => "Connected to Codex. New Codex sessions will have the tucky tools.",
     }
     .to_string()
 }
@@ -173,7 +173,7 @@ mod tests {
 
     #[test]
     fn claude_add_args_use_user_scope_and_arg_separator() {
-        let args = add_args("claude-code", "echo-scribe", "/Applications/Echo Scribe.app/x");
+        let args = add_args("claude-code", "tucky", "/Applications/Tucky.app/x");
         assert_eq!(
             args,
             vec![
@@ -181,9 +181,9 @@ mod tests {
                 "add",
                 "--scope",
                 "user",
-                "echo-scribe",
+                "tucky",
                 "--",
-                "/Applications/Echo Scribe.app/x",
+                "/Applications/Tucky.app/x",
                 "--mcp"
             ]
         );
@@ -194,16 +194,16 @@ mod tests {
         let (cli, name) = agent_spec("codex").unwrap();
         assert_eq!(cli, "codex");
         let args = add_args("codex", name, "/x");
-        assert_eq!(args, vec!["mcp", "add", "echo_scribe", "--", "/x", "--mcp"]);
+        assert_eq!(args, vec!["mcp", "add", "tucky", "--", "/x", "--mcp"]);
     }
 
     #[test]
     fn remove_args_mirror_scope() {
         assert_eq!(
-            remove_args("claude-code", "echo-scribe"),
-            vec!["mcp", "remove", "--scope", "user", "echo-scribe"]
+            remove_args("claude-code", "tucky"),
+            vec!["mcp", "remove", "--scope", "user", "tucky"]
         );
-        assert_eq!(remove_args("codex", "echo_scribe"), vec!["mcp", "remove", "echo_scribe"]);
+        assert_eq!(remove_args("codex", "tucky"), vec!["mcp", "remove", "tucky"]);
     }
 
     #[test]

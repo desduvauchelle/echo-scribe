@@ -122,7 +122,7 @@ fn dispatch(app: &AppHandle<Wry>, method: &str, params: &Value) -> Result<Value,
     if !recording_enabled() {
         return Err(
             "The 'Screen recording' permission for coding agents is turned off. Ask the user \
-             to enable it in Echo Scribe → Settings → Coding Agents."
+             to enable it in Tucky → Settings → Coding Agents."
                 .to_string(),
         );
     }

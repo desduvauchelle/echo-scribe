@@ -157,6 +157,20 @@ explicitly names a different output language. Never silently translate the conte
     )
 }
 
+/// Pin prose to a language already detected from the original source.
+///
+/// This is stronger than [`language_rule`] for multi-pass generation: an
+/// intermediate summary cannot accidentally become the language signal for
+/// the next pass. The escape hatch preserves an explicit user-authored output
+/// language in a custom prompt or recipe.
+pub fn pinned_language_rule(output_language: &str) -> String {
+    format!(
+        "Output language: {output_language}. Write every user-visible word in {output_language}. \
+Do not translate into any other language. Only use a different output language when an \
+instruction above explicitly names one."
+    )
+}
+
 /// Build the prompt for meeting transcript → free-form markdown notes.
 ///
 /// Stage 1 of synthesis: the model writes readable markdown following the
@@ -172,6 +186,29 @@ pub fn build_meeting_notes_prompt(
     custom_prompt: Option<&str>,
     user_notes: Option<&str>,
     summary_template: Option<&crate::db::meeting_intelligence::SummaryTemplate>,
+) -> (Option<String>, String) {
+    build_meeting_notes_prompt_with_language(
+        flattened_transcript,
+        detected_app_name,
+        duration_minutes,
+        start_context,
+        custom_prompt,
+        user_notes,
+        summary_template,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn build_meeting_notes_prompt_with_language(
+    flattened_transcript: &str,
+    detected_app_name: Option<&str>,
+    duration_minutes: u64,
+    start_context: &crate::meeting::MeetingStartContext,
+    custom_prompt: Option<&str>,
+    user_notes: Option<&str>,
+    summary_template: Option<&crate::db::meeting_intelligence::SummaryTemplate>,
+    output_language: Option<&str>,
 ) -> (Option<String>, String) {
     let app = detected_app_name.unwrap_or("a meeting");
 
@@ -211,7 +248,16 @@ The transcript labels each segment as 'You:' (the user) or 'Them:' (the other si
     // the section headings (the exporter writes its own '## Summary' wrapper),
     // so headings follow the transcript language too — except heading names a
     // template pinned above.
-    let language = language_rule("the transcript");
+    let (language, heading_language) = match output_language {
+        Some(output_language) => (
+            pinned_language_rule(output_language),
+            "Use that output language for headings and bullets alike.",
+        ),
+        None => (
+            language_rule("the transcript"),
+            "Headings and bullets alike — a German transcript gets German headings.",
+        ),
+    };
     let system = format!(
         "{resolved_guidelines}{template_block}\n\
 Write the meeting notes as clean markdown:\n\
@@ -220,7 +266,7 @@ Write the meeting notes as clean markdown:\n\
 - Be concise: capture what matters, skip filler and pleasantries.\n\
 - Never invent facts, names, dates, or commitments that are not in the transcript.\n\
 - Do not start with a document title heading and do not add commentary before or after the notes.\n\
-- {language} Headings and bullets alike — a German transcript gets German headings.\n\
+- {language} {heading_language}\n\
 Output markdown only."
     );
     let notes_block = user_notes
@@ -233,7 +279,9 @@ Output markdown only."
         })
         .unwrap_or_default();
     let user = if context_block.is_empty() {
-        format!("{notes_block}Transcript:\n\n{flattened_transcript}\n\nWrite the markdown notes now.")
+        format!(
+            "{notes_block}Transcript:\n\n{flattened_transcript}\n\nWrite the markdown notes now."
+        )
     } else {
         format!(
             "Context at meeting start:\n{context_block}\n{notes_block}Transcript:\n\n{flattened_transcript}\n\nWrite the markdown notes now."
@@ -295,7 +343,7 @@ Output JSON only — no preamble, no commentary, no markdown fences."
 pub fn build_scoped_artifact_system_prompt(instruction: &str) -> String {
     let language = language_rule("the source context");
     format!(
-        "You are EchoScribe's private local meeting assistant. {instruction} Use only the supplied source context. If evidence is missing, say so. Never invent people, commitments, dates, or facts. {language}"
+        "You are Tucky's private local meeting assistant. {instruction} Use only the supplied source context. If evidence is missing, say so. Never invent people, commitments, dates, or facts. {language}"
     )
 }
 
@@ -499,13 +547,12 @@ mod tests {
         // Safari often returns the same string for window title and tab title;
         // the renderer should not repeat it.
         let ctx = crate::meeting::MeetingStartContext {
-            window_title: Some("Echo Scribe — pricing".into()),
+            window_title: Some("Tucky — pricing".into()),
             browser_url: None,
-            browser_tab_title: Some("Echo Scribe — pricing".into()),
+            browser_tab_title: Some("Tucky — pricing".into()),
         };
-        let (_sys, user) =
-            build_meeting_notes_prompt("You: hi\n", None, 1, &ctx, None, None, None);
-        let occurrences = user.matches("Echo Scribe — pricing").count();
+        let (_sys, user) = build_meeting_notes_prompt("You: hi\n", None, 1, &ctx, None, None, None);
+        let occurrences = user.matches("Tucky — pricing").count();
         assert_eq!(
             occurrences, 1,
             "redundant tab title should not be repeated; got {occurrences} occurrences in: {user}"
@@ -550,15 +597,8 @@ mod tests {
             created_at: "2026-01-01".into(),
             updated_at: "2026-01-01".into(),
         };
-        let (sys, _user) = build_meeting_notes_prompt(
-            "You: hi\n",
-            None,
-            10,
-            &ctx,
-            None,
-            None,
-            Some(&template),
-        );
+        let (sys, _user) =
+            build_meeting_notes_prompt("You: hi\n", None, 10, &ctx, None, None, Some(&template));
         let sys_content = sys.unwrap();
         assert!(sys_content.contains("Follow the 'Sales' template."));
         assert!(sys_content.contains("Emphasize objections."));
@@ -636,6 +676,27 @@ mod tests {
     }
 
     #[test]
+    fn meeting_notes_use_the_language_pinned_from_the_original_transcript() {
+        let ctx = crate::meeting::MeetingStartContext::default();
+        let (sys, _user) = build_meeting_notes_prompt_with_language(
+            "--- Chronological Segment 1/2 ---\nintermediate text\n",
+            None,
+            60,
+            &ctx,
+            None,
+            None,
+            None,
+            Some("English"),
+        );
+        let sys = sys.unwrap();
+        assert!(sys.contains("Output language: English"), "got: {sys}");
+        assert!(
+            !sys.contains("German source") && !sys.contains("German transcript"),
+            "a pinned prompt must not prime other languages: {sys}"
+        );
+    }
+
+    #[test]
     fn meeting_notes_template_headings_are_pinned_across_languages() {
         // Template section names are user-authored; the language rule must not
         // make the model translate them.
@@ -677,10 +738,7 @@ mod tests {
             "got: {sys}"
         );
         // Tags group meetings app-wide — translating them fragments the facet.
-        assert!(
-            sys.contains("Always write tags in English"),
-            "got: {sys}"
-        );
+        assert!(sys.contains("Always write tags in English"), "got: {sys}");
         // Project routing still matches the user's exact project names.
         assert!(sys.contains("EXACT name from the list above"), "got: {sys}");
     }

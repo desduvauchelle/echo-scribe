@@ -1,6 +1,6 @@
 /// Dock visibility helpers (macOS only).
 ///
-/// Echo Scribe runs as an `LSUIElement` agent (no dock icon at launch).
+/// Tucky runs as an `LSUIElement` agent (no dock icon at launch).
 /// When the main window is shown we switch to a regular activation policy so
 /// the dock icon appears; when the window is hidden/closed we switch back to
 /// accessory so the dock icon disappears.

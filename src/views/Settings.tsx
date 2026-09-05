@@ -113,7 +113,7 @@ import { useToasts } from "../components/ToastProvider";
 import { useUpdateCheck } from "../lib/useUpdateCheck";
 import { ask } from "@tauri-apps/plugin-dialog";
 
-type PageId =
+export type PageId =
   | "dictation"
   | "logcapture"
   | "meetings"
@@ -194,11 +194,12 @@ const PAGES: Record<PageId, () => React.ReactElement> = {
 
 type Props = {
   onBack: () => void;
+  initialPage?: PageId;
 };
 
-export default function Settings({ onBack }: Props) {
+export default function Settings({ onBack, initialPage = "dictation" }: Props) {
   const { t } = useTranslation("settings");
-  const [page, setPage] = useState<PageId>("dictation");
+  const [page, setPage] = useState<PageId>(initialPage);
   const gates = uiGates(useCapabilities());
 
   // Drop nav items gated behind macOS-only capabilities, then drop any group
@@ -1557,7 +1558,7 @@ function DiagnosticsPage() {
 /** Fallback for the install snippets when the backend can't report its own
  *  executable path (it always can on a normal install). */
 const DEFAULT_MCP_BINARY_PATH =
-  "/Applications/Echo Scribe.app/Contents/MacOS/echo-scribe";
+  "/Applications/Tucky.app/Contents/MacOS/echo-scribe";
 
 function CodingAgentsPage() {
   const { t } = useTranslation("settings");
@@ -2876,7 +2877,7 @@ function DriveSettings() {
   const [clientSecret, setClientSecret] = useState("");
   const [showSetup, setShowSetup] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [folderName, setFolderName] = useState("Echo Scribe");
+  const [folderName, setFolderName] = useState("Tucky");
   const [makePublic, setMakePublic] = useState(true);
 
   useEffect(() => {
@@ -2893,7 +2894,7 @@ function DriveSettings() {
 
   const savePrefs = async (name: string, isPublic: boolean) => {
     try {
-      await setDrivePrefs(name.trim() || "Echo Scribe", isPublic);
+      await setDrivePrefs(name.trim() || "Tucky", isPublic);
     } catch (e) {
       setErr(String(e));
     }
@@ -2972,7 +2973,7 @@ function DriveSettings() {
           value={folderName}
           onChange={(e) => setFolderName(e.target.value)}
           onBlur={() => void savePrefs(folderName, makePublic)}
-          placeholder="Echo Scribe"
+          placeholder="Tucky"
           className="w-full max-w-xs rounded-md border border-line bg-canvas px-2 py-1.5 text-[13px]"
         />
       </div>

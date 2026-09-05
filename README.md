@@ -1,14 +1,17 @@
-# Echo Scribe
+# Tucky
+
+Previously Echo Scribe. Existing data stays in place when upgrading; see
+[rebrand compatibility](docs/REBRAND.md) for the intentionally preserved paths.
 
 **[echo-scribe.ai-juicing.com →](https://echo-scribe.ai-juicing.com)**
 
-A voice-first personal capture tool for macOS. Press a hotkey, speak, and Echo Scribe transcribes and understands your words — entirely on your device, with no internet required.
+A voice-first personal capture tool for macOS. Press a hotkey, speak, and Tucky transcribes and understands your words — entirely on your device, with no internet required.
 
 ---
 
 ## What it does
 
-Echo Scribe turns your voice into organized knowledge. A single global hotkey starts recording from anywhere on your Mac. When you stop speaking, your words are transcribed, classified by a local AI, and saved — no review step, no typing, no friction.
+Tucky turns your voice into organized knowledge. A single global hotkey starts recording from anywhere on your Mac. When you stop speaking, your words are transcribed, classified by a local AI, and saved — no review step, no typing, no friction.
 
 Everything runs on your machine. No audio leaves your device. No account required. No subscription.
 
@@ -49,13 +52,13 @@ You're in the zone coding or writing. An idea surfaces. Press the hotkey, say it
 Say "remind me to follow up with Sarah about the contract on Friday" and it lands in your task list, automatically classified.
 
 **Meeting notes on autopilot**
-Keep Echo Scribe running during calls. Capture decisions, action items, and ideas as they happen without ever switching windows.
+Keep Tucky running during calls. Capture decisions, action items, and ideas as they happen without ever switching windows.
 
 **Personal knowledge base**
 Every capture is searchable. Use the chat interface to ask questions across everything you've ever captured — "what did I decide about the API design?" — answered by the same local LLM that classified the notes.
 
 **Journaling and thinking out loud**
-Some thoughts come easier spoken than typed. Echo Scribe is a frictionless way to externalize ideas and have them organized and searchable later.
+Some thoughts come easier spoken than typed. Tucky is a frictionless way to externalize ideas and have them organized and searchable later.
 
 **Developers and writers**
 Dictate code comments, documentation drafts, TODO items, or feature ideas without leaving the keyboard-driven flow.
@@ -72,7 +75,7 @@ curl -fsSL https://raw.githubusercontent.com/desduvauchelle/echo-scribe/main/ins
 
 The script installs to `/Applications/`, handles macOS security permissions, and works on both Apple Silicon and Intel. To update, run the same command again.
 
-Echo Scribe also checks GitHub Releases in the background. When a newer release has been downloaded, the app shows a restart banner and replaces the app bundle on restart while preserving your local data in `~/Library/Application Support/EchoScribe/`.
+Tucky also checks GitHub Releases in the background. When a newer release has been downloaded, the app shows a restart banner and replaces the app bundle on restart while preserving your local data in `~/Library/Application Support/EchoScribe/`.
 
 The public build is ad-hoc signed, not Developer ID notarized. The installer and updater remove the quarantine flag after downloading so macOS should not show the "developer cannot be verified" block for installs done through this command.
 
@@ -90,9 +93,9 @@ Windows support is currently a development build, published from GitHub Actions.
 
 Download the latest green Windows build:
 
-[Echo Scribe Windows build](https://github.com/desduvauchelle/echo-scribe/actions/workflows/windows.yml)
+[Tucky Windows build](https://github.com/desduvauchelle/echo-scribe/actions/workflows/windows.yml)
 
-Open the latest successful run, download the `echo-scribe-windows` artifact,
+Open the latest successful run, download the `tucky-windows` artifact,
 unzip it, and run the `*-setup.exe` installer.
 
 Windows may show a SmartScreen warning because this development build is not
@@ -129,7 +132,7 @@ cd echo-scribe
 
 The script checks prerequisites (Xcode Command Line Tools, Rust, CMake, and
 bun or npm), asking for confirmation before installing anything missing. It
-builds the Swift sidecars and the app bundle, then installs **Echo Scribe.app**
+builds the Swift sidecars and the app bundle, then installs **Tucky.app**
 to `/Applications` and launches it.
 
 ## Local MCP access

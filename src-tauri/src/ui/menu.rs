@@ -9,7 +9,7 @@ use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 use tracing::warn;
 
-const APP_NAME: &str = "Echo Scribe";
+const APP_NAME: &str = "Tucky";
 
 pub fn install<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     let about_meta = AboutMetadata {

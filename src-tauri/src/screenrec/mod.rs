@@ -88,8 +88,8 @@ fn list_sources_error(stderr: &str) -> String {
         let low = msg.to_lowercase();
         if low.contains("tcc") || low.contains("declined") || low.contains("permission") {
             return "Screen Recording permission is needed to list windows and displays. \
-                    Enable Echo Scribe in System Settings → Privacy & Security → Screen Recording, \
-                    then fully quit and reopen Echo Scribe."
+                    Enable Tucky in System Settings → Privacy & Security → Screen Recording, \
+                    then fully quit and reopen Tucky."
                 .to_string();
         }
     }
@@ -161,8 +161,8 @@ fn list_cameras_error(stderr: &str) -> String {
         let low = msg.to_lowercase();
         if low.contains("tcc") || low.contains("declined") || low.contains("permission") {
             return "Camera permission is needed to list webcams. \
-                    Enable Echo Scribe in System Settings → Privacy & Security → Camera, \
-                    then fully quit and reopen Echo Scribe."
+                    Enable Tucky in System Settings → Privacy & Security → Camera, \
+                    then fully quit and reopen Tucky."
                 .to_string();
         }
     }

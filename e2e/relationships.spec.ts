@@ -14,7 +14,7 @@ const mark = {
 
 const echo = {
   id: "company-echo",
-  name: "Echo Scribe",
+  name: "Tucky",
   domain: "echo-scribe.app",
   notes: "Local-first transcription.",
   created_at: "2026-07-30T12:00:00Z",

@@ -73,7 +73,7 @@ number ::= "-"? ("0" | [1-9] [0-9]*) ("." [0-9]+)?
 ws ::= [ \t\n]*
 "#;
 
-const SYSTEM_PROMPT_BASE: &str = "You are Echo Scribe's classifier. \
+const SYSTEM_PROMPT_BASE: &str = "You are Tucky's classifier. \
 Given the user's spoken transcript, decide whether it is a 'note' (an idea, \
 observation, or piece of context) or a 'task' (something to do). \
 Output a single JSON object EXACTLY matching this schema with no additional \
@@ -474,9 +474,9 @@ mod tests {
     async fn classify_reconciles_new_project_name_to_existing() {
         // Model proposed a "new" project that already exists -> route to its id.
         let stub = StubLlm::new(vec![
-            r#"{"kind":"note","project_id":null,"new_project_name":"Echo Scribe","tags":[],"deadline_iso":null,"confidence":0.9}"#,
+            r#"{"kind":"note","project_id":null,"new_project_name":"Tucky","tags":[],"deadline_iso":null,"confidence":0.9}"#,
         ]);
-        let projects = vec![proj("p1", "Echo Scribe")];
+        let projects = vec![proj("p1", "Tucky")];
         let c = classify(
             &stub,
             "a note",
@@ -495,9 +495,9 @@ mod tests {
     #[tokio::test]
     async fn classify_reconciles_new_project_name_case_insensitively() {
         let stub = StubLlm::new(vec![
-            r#"{"kind":"note","project_id":null,"new_project_name":"  echo scribe ","tags":[],"deadline_iso":null,"confidence":0.9}"#,
+            r#"{"kind":"note","project_id":null,"new_project_name":"  tucky ","tags":[],"deadline_iso":null,"confidence":0.9}"#,
         ]);
-        let projects = vec![proj("p1", "Echo Scribe")];
+        let projects = vec![proj("p1", "Tucky")];
         let c = classify(
             &stub,
             "x",
@@ -518,7 +518,7 @@ mod tests {
         let stub = StubLlm::new(vec![
             r#"{"kind":"note","project_id":null,"new_project_name":"Brand New","tags":[],"deadline_iso":null,"confidence":0.9}"#,
         ]);
-        let projects = vec![proj("p1", "Echo Scribe")];
+        let projects = vec![proj("p1", "Tucky")];
         let c = classify(
             &stub,
             "x",
@@ -667,7 +667,7 @@ mod tests {
 
     #[test]
     fn build_system_prompt_includes_description_and_keywords() {
-        let mut p = proj("p1", "Echo Scribe");
+        let mut p = proj("p1", "Tucky");
         p.description = Some("Native macOS voice notes app, Tauri rebuild.".into());
         p.keywords = vec!["tauri".into(), "rust".into(), "voice".into()];
         p.emoji = Some("🎤".into());
@@ -706,7 +706,7 @@ mod tests {
         let mut p1 = proj("p1", "Acme Sales");
         p1.description = Some("Outbound + meetings with the Acme team.".into());
         p1.keywords = vec!["acme".into(), "john-smith".into(), "q3".into()];
-        let mut p2 = proj("p2", "Echo Scribe");
+        let mut p2 = proj("p2", "Tucky");
         p2.description = Some("Voice notes app rebuild.".into());
         p2.keywords = vec!["tauri".into(), "rust".into(), "voice".into()];
 

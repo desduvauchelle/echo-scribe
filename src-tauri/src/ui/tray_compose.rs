@@ -1,6 +1,6 @@
 //! Pixel compositing for the dynamic menu bar icon.
 //!
-//! The tray icon is the Echo Scribe bars logo plus up to two corner badges:
+//! The tray icon is the Tucky mascot mark plus up to two corner badges:
 //! an activity badge (bottom-right — what the app is doing right now) and a
 //! keep-awake badge (top-right — a power assertion is held). The badge PNGs
 //! live in `resources/` and are rendered from the SVG sources in

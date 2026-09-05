@@ -1,6 +1,6 @@
 {
   "app": {
-    "brand": "Echo Scribe",
+    "brand": "Tucky",
     "toolbar": {
       "search": "Zoeken"
     },
@@ -275,7 +275,7 @@
     },
     "notifications": {
       "disabledPrefix": "Meldingen staan uit — je dagoverzicht verschijnt pas als je ze inschakelt bij",
-      "settingsPath": "Systeeminstellingen → Meldingen → Echo Scribe"
+      "settingsPath": "Systeeminstellingen → Meldingen → Tucky"
     },
     "nav": {
       "previousDay": "Vorige dag",
@@ -392,7 +392,7 @@
       "deleteAria": "Sessie verwijderen"
     },
     "message": {
-      "aiLabel": "Echo Scribe AI"
+      "aiLabel": "Tucky AI"
     },
     "sources": {
       "used_one": "{{count}} bron gebruikt",

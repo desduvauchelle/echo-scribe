@@ -1,4 +1,4 @@
-//! SQLite persistence for Echo Scribe.
+//! SQLite persistence for Tucky.
 //!
 //! Connection lives at `~/Library/Application Support/EchoScribe/echo.db`.
 //! The `Db` handle wraps an `Arc<Mutex<Connection>>` so it can be cloned

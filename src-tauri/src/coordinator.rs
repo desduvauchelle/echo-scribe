@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use tauri::{AppHandle, Emitter, Manager, Wry};
+use tauri::{AppHandle, Emitter, Listener, Manager, Wry};
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
@@ -16,6 +16,49 @@ use crate::event_log::{self, EventEnvelope};
 use crate::input::focus::{self, FocusContext, FocusElement};
 use crate::input::hotkeys::HotkeyEvent;
 use crate::llm::Llm;
+
+async fn capture_own_input(app: &AppHandle<Wry>) -> Option<String> {
+    let window = app.get_webview_window("main")?;
+    if !window.is_focused().unwrap_or(false) { return None; }
+    let id = uuid::Uuid::new_v4().to_string();
+    let (send, receive) = tokio::sync::oneshot::channel();
+    let sender = Arc::new(Mutex::new(Some(send)));
+    let listener = window.listen(format!("voice:self_captured:{id}"), move |event| {
+        if let Some(send) = sender.lock().ok().and_then(|mut sender| sender.take()) { let _ = send.send(event.payload() == "true"); }
+    });
+    let _ = app.emit_to("main", "voice:self_capture", &id);
+    // Let the DOM snapshot finish before a sibling window can take focus.
+    let captured = matches!(tokio::time::timeout(std::time::Duration::from_millis(400), receive).await, Ok(Ok(true)));
+    if !captured {
+        warn!(target: "dictation", "own-window caret snapshot timed out");
+    }
+    window.unlisten(listener);
+    captured.then_some(id)
+}
+
+async fn deliver_to_own_input(app: &AppHandle<Wry>, id: Option<String>, text: &str, press_enter: bool) -> bool {
+    let Some(id) = id else { return false; };
+    // Do not pull the user back after they switched to another app.
+    if focus::current_frontmost_pid() != Some(std::process::id() as i32) { return false; }
+    let Some(window) = app.get_webview_window("main") else { return false; };
+    let (send, receive) = tokio::sync::oneshot::channel();
+    let sender = Arc::new(Mutex::new(Some(send)));
+    let event = format!("voice:self_ack:{id}");
+    let listener = window.listen(event, move |event| {
+        if let Some(send) = sender.lock().ok().and_then(|mut sender| sender.take()) {
+            let _ = send.send(event.payload() == "true");
+        }
+    });
+    let expires = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default().as_millis() + 1500;
+    let sent = window.emit("voice:self_insert", serde_json::json!({
+        "id": id, "text": text, "expires_at": expires as u64, "press_enter": press_enter
+    })).is_ok();
+    let delivered = sent && matches!(tokio::time::timeout(std::time::Duration::from_millis(2000), receive).await, Ok(Ok(true)));
+    window.unlisten(listener);
+    info!(target: "dictation", delivered, "own-window dictation delivery");
+    delivered
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
@@ -135,6 +178,7 @@ pub fn spawn(
         // key-window status. Without this, dictating into our own chat input
         // fails because opening the overlay drops first-responder.
         let mut pending_context: Option<FocusContext> = None;
+        let mut pending_own_capture: Option<String> = None;
         // Held alongside `pending_context`. Non-Send, but the coordinator runs
         // on a `LocalSet` so that's fine. Restoring focus via AX element rather
         // than re-activating the app fixes "paste lands in previous field"
@@ -218,8 +262,13 @@ pub fn spawn(
                     // showing the overlay can shift key-window status away
                     // from the user's text field.
                     pending_context = focus::capture_context();
+                    pending_own_capture = None;
+                    if pending_context.as_ref().is_some_and(|ctx| ctx.pid == std::process::id() as i32) {
+                        pending_own_capture = capture_own_input(&app).await;
+                    }
                     pending_focus_element = pending_context
                         .as_ref()
+                        .filter(|c| c.pid != std::process::id() as i32 || action == Action::EditSelection)
                         .and_then(|c| focus::capture_focused_element(c.pid));
                     if let Some(s) = &pending_context {
                         info!(
@@ -431,12 +480,32 @@ pub fn spawn(
                                             // Hide the overlay synchronously so it
                                             // can't interfere with focus routing.
                                             crate::overlay::hide_recording_overlay_now(&app);
+                                            // Our own WebView knows its DOM caret even when AX
+                                            // sees only a container or the overlay took focus.
+                                            if pending_context.as_ref().is_some_and(|ctx| ctx.pid == std::process::id() as i32) {
+                                                let delivered = deliver_to_own_input(&app, pending_own_capture.take(), &text, post_action == Some(crate::asr::spoken_commands::PostAction::PressEnter)).await;
+                                                pending_context = None;
+                                                pending_focus_element = None;
+                                                if delivered {
+                                                    let _ = app.emit("voice:paste_dispatched", ());
+                                                    record_capture_event(db.as_ref(), &capture_id, "paste_dispatched", Some("webview_insert"));
+                                                } else {
+                                                    let copied = crate::input::paste::copy_to_clipboard(&text).is_ok();
+                                                    warn!(target: "dictation", copied, "own-window dictation not acknowledged");
+                                                    let _ = app.emit("voice:paste_failed", "self_input_unavailable");
+                                                    let _ = app.emit("asr:error", if copied { "Click into a text field and press ⌘V. Your dictation is on the clipboard." } else { "Use Copy last transcript from the tray to recover your dictation." });
+                                                    record_capture_event(db.as_ref(), &capture_id, "paste_failed", Some("self_input_unavailable"));
+                                                }
+                                                force_state(&state, PipelineState::Idle);
+                                                on_state_change(TrayPipelineState::Idle);
+                                                continue;
+                                            }
                                             // Restore focus surgically: prefer the
                                             // captured AX element (lands in the
                                             // exact field), fall back to app
                                             // activation. Skip activation when the
                                             // captured app is already frontmost
-                                            // (e.g. dictating into Echo Scribe
+                                            // (e.g. dictating into Tucky
                                             // itself) — re-activating cycles key
                                             // windows and is the regression source.
                                             let mut restore_outcome: Option<focus::RestoreOutcome> =
@@ -1574,7 +1643,7 @@ fn notify_edit_failure(app: &AppHandle<Wry>, friendly: &str) {
     let _ = app
         .notification()
         .builder()
-        .title("Echo Scribe Edit")
+        .title("Tucky Edit")
         .body(friendly)
         .show();
 }
@@ -1606,7 +1675,7 @@ fn notify_action_llm_missing(app: &tauri::AppHandle) {
     let _ = app
         .notification()
         .builder()
-        .title("Echo Scribe")
+        .title("Tucky")
         .body(
             "No local AI model is installed, so spoken commands are pasted as plain text. \
              Download a model in Settings → Language Model.",
@@ -1616,21 +1685,21 @@ fn notify_action_llm_missing(app: &tauri::AppHandle) {
 
 /// Best-effort UI surface for a format-text failure: emits a Tauri event the
 /// frontend can toast on, plus an OS notification so the user notices when no
-/// Echo Scribe window is visible. The raw error stays in the daily log.
+/// Tucky window is visible. The raw error stays in the daily log.
 fn notify_format_failure(app: &tauri::AppHandle, friendly: &str) {
     let _ = app.emit("format:failed", friendly);
     use tauri_plugin_notification::NotificationExt;
     let _ = app
         .notification()
         .builder()
-        .title("Echo Scribe Format")
+        .title("Tucky Format")
         .body(friendly)
         .show();
 }
 
 /// Surface a recorder-start failure to the user: emits a Tauri event for any
 /// listening UI and fires an OS notification so the user notices even when
-/// no Echo Scribe window is visible. Best-effort — both are fire-and-forget.
+/// no Tucky window is visible. Best-effort — both are fire-and-forget.
 fn notify_recorder_failure(app: &AppHandle<Wry>, err: &RecorderError, preferred: Option<&str>) {
     use tauri_plugin_notification::NotificationExt;
 

@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Builds Echo Scribe from source and installs it to /Applications.
+# Builds Tucky from source and installs it to /Applications.
 # macOS only (Swift sidecars + ScreenCaptureKit + TCC).
 
-[[ "$(uname -s)" == "Darwin" ]] || { echo "Echo Scribe builds on macOS only." >&2; exit 1; }
+[[ "$(uname -s)" == "Darwin" ]] || { echo "Tucky builds on macOS only." >&2; exit 1; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-APP_NAME="Echo Scribe"
+APP_NAME="Tucky"
 BUNDLE_ID="com.echoscribe.app"
 BUILT_APP="$ROOT/src-tauri/target/release/bundle/macos/$APP_NAME.app"
 DEST="/Applications/$APP_NAME.app"
@@ -75,18 +75,7 @@ if [[ "$PM" == bun ]]; then bun tauri build --bundles app; else npx tauri build 
 [[ -d "$BUILT_APP" ]] || { echo "Build failed: $BUILT_APP not found." >&2; exit 1; }
 
 # --- install -----------------------------------------------------------------
-# Each from-source build gets a fresh ad-hoc code signature, so prior TCC
-# grants (Microphone, Accessibility, Screen Recording) no longer apply. Reset
-# them so macOS re-prompts cleanly instead of silently denying.
-
-echo "==> Installing to $DEST"
-osascript -e "tell application \"$APP_NAME\" to quit" 2>/dev/null || true
-pkill -f "$APP_NAME" 2>/dev/null || true
-sleep 1
-tccutil reset Microphone "$BUNDLE_ID" || true
-tccutil reset Accessibility "$BUNDLE_ID" || true
-tccutil reset ScreenCapture "$BUNDLE_ID" || true
-rm -rf "$DEST"
-cp -R "$BUILT_APP" "$DEST"
-open "$DEST"
-echo "Done. Echo Scribe is in /Applications."
+# Use the shared installer for backups and the old MCP/login-item path alias.
+bash "$SCRIPT_DIR/sign-macos-bundle.sh" "$BUILT_APP"
+LOCAL_APP_BUNDLE="$BUILT_APP" bash "$ROOT/install.sh"
+echo "Done. Tucky is in /Applications."

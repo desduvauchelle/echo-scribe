@@ -49,7 +49,7 @@ fn staging_app_path() -> Option<PathBuf> {
     dirs::home_dir().map(|h| {
         h.join("Library/Application Support")
             .join(crate::data_folder_name())
-            .join("pending-update/Echo Scribe.app")
+            .join("pending-update/Tucky.app")
     })
 }
 
@@ -63,7 +63,7 @@ fn now_unix() -> i64 {
 async fn fetch_latest_version() -> Option<String> {
     let url = format!("https://api.github.com/repos/{REPO}/releases/latest");
     let client = reqwest::Client::builder()
-        .user_agent("echo-scribe-updater")
+        .user_agent("tucky-updater")
         .build()
         .ok()?;
     let json: serde_json::Value = client.get(&url).send().await.ok()?.json().await.ok()?;
@@ -77,7 +77,7 @@ async fn download_and_stage(version: &str) -> bool {
     } else {
         "x86_64"
     };
-    let filename = format!("EchoScribe-{arch}.tar.gz");
+    let filename = format!("Tucky-{arch}.tar.gz");
     let url = format!("https://github.com/{REPO}/releases/download/v{version}/{filename}");
 
     let staging_dir = match dirs::home_dir() {
@@ -96,7 +96,7 @@ async fn download_and_stage(version: &str) -> bool {
     let archive_path = staging_dir.join(&filename);
 
     let client = match reqwest::Client::builder()
-        .user_agent("echo-scribe-updater")
+        .user_agent("tucky-updater")
         .build()
     {
         Ok(c) => c,
@@ -156,14 +156,14 @@ async fn download_and_stage(version: &str) -> bool {
 
     let _ = std::fs::remove_file(&archive_path);
 
-    let app_path = staging_dir.join("Echo Scribe.app");
+    let app_path = staging_dir.join("Tucky.app");
     if !app_path.exists() {
-        warn!("Echo Scribe.app not found after extraction");
+        warn!("Tucky.app not found after extraction");
         let _ = std::fs::remove_dir_all(&staging_dir);
         return false;
     }
 
-    let binary_path = staging_dir.join(format!("Echo Scribe.app/Contents/MacOS/{APP_EXECUTABLE}"));
+    let binary_path = staging_dir.join(format!("Tucky.app/Contents/MacOS/{APP_EXECUTABLE}"));
     if !binary_path.exists() {
         warn!("staged binary missing — archive may be corrupt");
         let _ = std::fs::remove_dir_all(&staging_dir);
@@ -224,7 +224,7 @@ pub fn spawn_relauncher() -> bool {
     };
     let pid = std::process::id();
     let log = crate::log_dir().join("relaunch-helper.log");
-    let script_path = std::env::temp_dir().join(format!("echo-scribe-relaunch-{pid}.sh"));
+    let script_path = std::env::temp_dir().join(format!("tucky-relaunch-{pid}.sh"));
     let script = format!(
         "#!/bin/bash\n\
          exec >>\"{log}\" 2>&1\n\
@@ -250,7 +250,7 @@ pub fn spawn_relauncher() -> bool {
 /// relaunches, and self-deletes.
 #[cfg(target_os = "macos")]
 pub fn launch_update_helper() {
-    // The helper script replaces /Applications/Echo Scribe.app in place. An
+    // The helper script replaces /Applications/Tucky.app in place. An
     // isolated variant (fresh-install simulator) must never do that — it
     // would overwrite the real install.
     if crate::data_folder_name() != "EchoScribe" {
@@ -276,10 +276,10 @@ pub fn launch_update_helper() {
     // Replace the bundle we're actually running from; /Applications/Echo
     // Scribe.app is only the conventional install location.
     let target = current_bundle_path()
-        .unwrap_or_else(|| PathBuf::from("/Applications/Echo Scribe.app"));
+        .unwrap_or_else(|| PathBuf::from("/Applications/Tucky.app"));
     let pid = std::process::id();
     let log = crate::log_dir().join("update-helper.log");
-    let script_path = std::env::temp_dir().join(format!("echo-scribe-update-{pid}.sh"));
+    let script_path = std::env::temp_dir().join(format!("tucky-update-{pid}.sh"));
 
     // The old script slept a fixed 2s and then called `open`. If the app took
     // longer than that to exit, `open` merely activated the dying instance —

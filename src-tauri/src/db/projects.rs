@@ -631,13 +631,13 @@ mod tests {
     #[test]
     fn get_project_by_name_is_case_insensitive() {
         let c = fresh();
-        insert_project(&c, &make("1", "Echo Scribe")).unwrap();
+        insert_project(&c, &make("1", "Tucky")).unwrap();
         assert_eq!(
-            get_project_by_name(&c, "echo scribe").unwrap().unwrap().id,
+            get_project_by_name(&c, "tucky").unwrap().unwrap().id,
             "1"
         );
         assert_eq!(
-            get_project_by_name(&c, "Echo Scribe").unwrap().unwrap().id,
+            get_project_by_name(&c, "Tucky").unwrap().unwrap().id,
             "1"
         );
         assert!(get_project_by_name(&c, "Nonexistent").unwrap().is_none());

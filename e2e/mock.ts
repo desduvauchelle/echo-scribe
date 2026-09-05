@@ -14,6 +14,9 @@ export type Scenario = {
   speechModelReady?: boolean;
   /** LLM already downloaded + active (suppresses the "AI features are off" card). */
   llmReady?: boolean;
+  captureCounts?: Partial<Record<"transcriptions" | "notes" | "tasks" | "meetings" | "recordings", number>>;
+  speechDownloadDeferred?: boolean;
+  speechDownloadError?: string;
   /** When set, start_pipeline rejects with this message. */
   startPipelineError?: string | null;
   /** Number of projects shown in Main's sidebar. */
@@ -67,6 +70,8 @@ export async function installTauriMock(page: Page, scenario: Scenario = {}) {
       onboardingCompleted: sc.onboardingCompleted ?? false,
       speechModelReady: sc.speechModelReady ?? false,
       llmReady: sc.llmReady ?? false,
+      captureCounts: sc.captureCounts,
+      speechDownloadError: sc.speechDownloadError ?? null,
       startPipelineError: sc.startPipelineError ?? null,
       projectCount: sc.projectCount ?? 0,
       meetingExportFolder: sc.meetingExportFolder ?? null,
@@ -164,6 +169,10 @@ export async function installTauriMock(page: Page, scenario: Scenario = {}) {
       get_active_speech_model_id: () => "parakeet-test",
       set_active_speech_model: () => undefined,
       download_speech_model: () => {
+        if (state.speechDownloadError) throw new Error(state.speechDownloadError);
+        if (sc.speechDownloadDeferred) return new Promise<void>((resolve) => {
+          (window as any).__FINISH_SPEECH_DOWNLOAD__ = () => { state.speechModelReady = true; resolve(); };
+        });
         state.speechModelReady = true;
       },
       list_llm_models: () => [llmModel()],
@@ -240,11 +249,11 @@ export async function installTauriMock(page: Page, scenario: Scenario = {}) {
           avg_words_per_capture: 42,
           busiest_hour: 10,
           categories: {
-            transcriptions: category(18, 86, 312, 2840),
-            notes: category(3, 14, 52, 428),
-            tasks: category(2, 11, 39, 316),
-            meetings: category(1, 5, 18, 142, true),
-            recordings: category(1, 3, 12, 87, true),
+            transcriptions: state.captureCounts ? category(0, 0, 0, state.captureCounts.transcriptions ?? 0) : category(18, 86, 312, 2840),
+            notes: state.captureCounts ? category(0, 0, 0, state.captureCounts.notes ?? 0) : category(3, 14, 52, 428),
+            tasks: state.captureCounts ? category(0, 0, 0, state.captureCounts.tasks ?? 0) : category(2, 11, 39, 316),
+            meetings: state.captureCounts ? category(0, 0, 0, state.captureCounts.meetings ?? 0, true) : category(1, 5, 18, 142, true),
+            recordings: state.captureCounts ? category(0, 0, 0, state.captureCounts.recordings ?? 0, true) : category(1, 3, 12, 87, true),
           },
           daily_activity: dailyActivity,
         };
@@ -293,13 +302,13 @@ export async function installTauriMock(page: Page, scenario: Scenario = {}) {
       },
       open_meeting_export_folder: () => undefined,
       get_mcp_settings: () => ({
-        binary_path: "/Applications/Echo Scribe.app/Contents/MacOS/echo-scribe",
+        binary_path: "/Applications/Tucky.app/Contents/MacOS/echo-scribe",
         permissions: [
           { id: "knowledge_search", label: "Search captures & notes", description: "Search dictations and notes, and list projects and tasks. Read-only." },
           { id: "meetings", label: "Meetings & transcripts", description: "Read meeting transcripts, summaries, participants, and recipes. Read-only." },
-          { id: "chats", label: "Chats", description: "Search and read your Echo Scribe chat conversations. Read-only." },
+          { id: "chats", label: "Chats", description: "Search and read your Tucky chat conversations. Read-only." },
           { id: "contacts", label: "People & companies", description: "Read confirmed people and company records. Read-only." },
-          { id: "screen_recording", label: "Screen recording", description: "List windows and start/stop screen recordings with mic, system audio, and camera options. Requires Echo Scribe to be running." },
+          { id: "screen_recording", label: "Screen recording", description: "List windows and start/stop screen recordings with mic, system audio, and camera options. Requires Tucky to be running." },
         ].map((perm) => ({ ...perm, enabled: !!state.mcpPermissions[perm.id] })),
       }),
       set_mcp_permission: (a) => {

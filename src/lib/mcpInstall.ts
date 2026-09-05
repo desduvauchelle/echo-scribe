@@ -13,16 +13,16 @@ export type McpInstallSnippets = {
 
 export function mcpInstallSnippets(binaryPath: string): McpInstallSnippets {
   return {
-    claudeCode: `claude mcp add echo-scribe -- "${binaryPath}" --mcp`,
+    claudeCode: `claude mcp add tucky -- "${binaryPath}" --mcp`,
     codexToml: [
-      "[mcp_servers.echo_scribe]",
+      "[mcp_servers.tucky]",
       `command = "${binaryPath}"`,
       'args = ["--mcp"]',
     ].join("\n"),
     genericJson: JSON.stringify(
       {
         mcpServers: {
-          "echo-scribe": { command: binaryPath, args: ["--mcp"] },
+          "tucky": { command: binaryPath, args: ["--mcp"] },
         },
       },
       null,

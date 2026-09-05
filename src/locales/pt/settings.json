@@ -1,7 +1,7 @@
 {
   "language": {
     "title": "Idioma",
-    "subtitle": "Escolha o idioma usado na interface do Echo Scribe.",
+    "subtitle": "Escolha o idioma usado na interface do Tucky.",
     "selectLabel": "Idioma da interface",
     "system": "Padrão do sistema",
     "note": "Aplicado imediatamente."
@@ -39,11 +39,11 @@
     "dictation": "Fala para texto no cursor — modelo, microfone, comportamento de áudio, atalho e limpeza.",
     "logcapture": "Capture um pensamento, ideia ou tarefa por voz e depois arquive e exporte.",
     "meetings": "Detecte chamadas e resuma transcrições de apps de reunião compatíveis.",
-    "daily-recap": "Escolha quando o Echo Scribe resume as reuniões, notas e ditados de ontem.",
+    "daily-recap": "Escolha quando o Tucky resume as reuniões, notas e ditados de ontem.",
     "actions": "Execute aberturas de apps, links, e-mails e contadores diretamente pela sua voz.",
     "templates": "Reescreva o ditado como e-mails, listas ou qualquer estilo antes de ser colado.",
     "language-model": "O modelo Gemma local que alimenta a classificação, os resumos e as ações.",
-    "general": "Inicie no login e mantenha o Echo Scribe atualizado.",
+    "general": "Inicie no login e mantenha o Tucky atualizado.",
     "drive": "Envie gravações de tela para o Google Drive e compartilhe-as com um link.",
     "projects": "Crie, renomeie, arquive ou exclua seus projetos.",
     "coding-agents": "Conecte o Claude Code, o Codex ou qualquer cliente MCP para pesquisar suas capturas — e, se você optar, gravar sua tela.",
@@ -80,7 +80,7 @@
   "dictation": {
     "microphone": {
       "title": "Microfone",
-      "subtitle": "Escolha de qual dispositivo de entrada o Echo Scribe grava. O padrão usa o que o macOS tiver selecionado."
+      "subtitle": "Escolha de qual dispositivo de entrada o Tucky grava. O padrão usa o que o macOS tiver selecionado."
     },
     "audioFeedback": {
       "title": "Feedback sonoro",
@@ -117,7 +117,7 @@
       "sortByLabel": "Ordenar por",
       "sortLastUsed": "Usado por último",
       "sortAlphabetical": "Alfabética",
-      "footerNote": "Quando um microfone salvo é desconectado, o Echo Scribe recusa gravar e avisa você — ele não muda silenciosamente para outro dispositivo."
+      "footerNote": "Quando um microfone salvo é desconectado, o Tucky recusa gravar e avisa você — ele não muda silenciosamente para outro dispositivo."
     },
     "asrUnloadTimeout": {
       "title": "Descarregar após inatividade",
@@ -194,7 +194,7 @@
     },
     "autoDetect": {
       "title": "Detectar reuniões automaticamente",
-      "subtitle": "O Echo Scribe monitora apps de reunião compatíveis e chamadas no navegador, e então oferece para gravar.",
+      "subtitle": "O Tucky monitora apps de reunião compatíveis e chamadas no navegador, e então oferece para gravar.",
       "checkboxLabel": "Detectar automaticamente apps de reunião compatíveis",
       "platformsAriaLabel": "Apps de reunião compatíveis"
     },
@@ -218,7 +218,7 @@
       "title": "Pasta de notas de reunião",
       "subtitle": "Salve automaticamente cada reunião concluída como um arquivo Markdown que outras ferramentas podem ler.",
       "chooseFolder": "Escolher pasta…",
-      "note": "Cada arquivo inclui o resumo, os itens de ação, suas notas e a transcrição com identificação de interlocutores. O Echo Scribe apenas grava o arquivo local; outro app ou agente de IA precisa do seu próprio acesso a esta pasta."
+      "note": "Cada arquivo inclui o resumo, os itens de ação, suas notas e a transcrição com identificação de interlocutores. O Tucky apenas grava o arquivo local; outro app ou agente de IA precisa do seu próprio acesso a esta pasta."
     },
     "guideTemplates": {
       "title": "Modelos de guia",
@@ -348,11 +348,11 @@
   "general": {
     "startup": {
       "title": "Inicialização",
-      "subtitle": "Abra o Echo Scribe automaticamente quando você entrar no sistema."
+      "subtitle": "Abra o Tucky automaticamente quando você entrar no sistema."
     },
     "updates": {
       "title": "Atualizações",
-      "subtitle": "O Echo Scribe verifica atualizações automaticamente todos os dias. Você também pode verificar agora.",
+      "subtitle": "O Tucky verifica atualizações automaticamente todos os dias. Você também pode verificar agora.",
       "currentVersion": "Versão atual",
       "currentVersionWithNumber": "Versão atual {{version}}",
       "checking": "Verificando…",
@@ -398,13 +398,13 @@
   "codingAgents": {
     "toolPermissions": {
       "title": "Permissões de ferramentas",
-      "subtitle": "O Echo Scribe tem um servidor MCP integrado ao qual agentes como Claude Code ou Codex podem se conectar. Marque o que eles têm permissão para acessar — as mudanças se aplicam imediatamente, mesmo para agentes já conectados. Tudo permanece neste Mac.",
+      "subtitle": "O Tucky tem um servidor MCP integrado ao qual agentes como Claude Code ou Codex podem se conectar. Marque o que eles têm permissão para acessar — as mudanças se aplicam imediatamente, mesmo para agentes já conectados. Tudo permanece neste Mac.",
       "loadFailed": "Não foi possível carregar as permissões — veja Configurações → Diagnóstico → registros para mais detalhes.",
       "updateFailed": "Não foi possível atualizar a permissão de {{label}}: {{error}}"
     },
     "connect": {
       "title": "Conecte seu agente de código",
-      "subtitle": "O servidor MCP é o próprio app Echo Scribe — nada extra para baixar. Clique em Instalar e o Echo Scribe se registra na própria CLI do agente, ou copie o trecho para fazer manualmente."
+      "subtitle": "O servidor MCP é o próprio app Tucky — nada extra para baixar. Clique em Instalar e o Tucky se registra na própria CLI do agente, ou copie o trecho para fazer manualmente."
     },
     "snippets": {
       "claudeCode": { "title": "Claude Code", "hint": "A instalação executa: claude mcp add (escopo de usuário)." },
@@ -416,13 +416,13 @@
     },
     "howToUse": {
       "title": "Como usar",
-      "subtitle": "Não há comando para memorizar — converse com seu agente normalmente. Ele enxerga as ferramentas do Echo Scribe e as chama sempre que seu pedido precisar delas; mencionar “Echo Scribe” o incentiva a procurar ali. Experimente um destes:",
-      "recordingNote": "Para prompts de gravação, o Echo Scribe precisa estar em execução e a permissão de Gravação de Tela marcada acima. O agente lista suas janelas, inicia e para a gravação sozinho, recebe o caminho do arquivo de vídeo de volta e pode então assistir ou analisar o arquivo — a gravação também é adicionada à sua biblioteca como qualquer outra."
+      "subtitle": "Não há comando para memorizar — converse com seu agente normalmente. Ele enxerga as ferramentas do Tucky e as chama sempre que seu pedido precisar delas; mencionar “Tucky” o incentiva a procurar ali. Experimente um destes:",
+      "recordingNote": "Para prompts de gravação, o Tucky precisa estar em execução e a permissão de Gravação de Tela marcada acima. O agente lista suas janelas, inicia e para a gravação sozinho, recebe o caminho do arquivo de vídeo de volta e pode então assistir ou analisar o arquivo — a gravação também é adicionada à sua biblioteca como qualquer outra."
     },
     "examplePrompts": {
-      "listWindows": "Liste minhas janelas com o echo-scribe e grave a janela do Chrome com o áudio do sistema. Pare quando eu mandar e resuma o que aconteceu no vídeo.",
+      "listWindows": "Liste minhas janelas com o Tucky e grave a janela do Chrome com o áudio do sistema. Pare quando eu mandar e resuma o que aconteceu no vídeo.",
       "recordBug": "Grave minha tela com o microfone ativado enquanto eu reproduzo este bug, depois pare e analise o vídeo para descobrir o que deu errado.",
-      "searchMeetings": "Pesquise nas minhas reuniões do Echo Scribe a discussão sobre preços e resuma as decisões.",
+      "searchMeetings": "Pesquise nas minhas reuniões do Tucky a discussão sobre preços e resuma as decisões.",
       "lastWeekDictation": "O que eu ditei na semana passada sobre o fluxo de integração?",
       "copyAriaLabel": "Copiar prompt de exemplo"
     }
@@ -436,7 +436,7 @@
   "diagnostics": {
     "section": {
       "title": "Diagnóstico",
-      "subtitle": "Inspecione o registro contínuo de falhas que o Echo Scribe grava na sua pasta pessoal."
+      "subtitle": "Inspecione o registro contínuo de falhas que o Tucky grava na sua pasta pessoal."
     },
     "logFolder": {
       "title": "Pasta de registros",
@@ -459,19 +459,19 @@
     }
   },
   "uninstall": {
-    "confirmDeleteMessage": "Desinstalar o Echo Scribe e remover todos os dados locais? Isso inclui itens capturados, gravações, modelos baixados, configurações, registros, o arquivo local de eventos e a conexão com o Google Drive. Os arquivos serão movidos para a Lixeira, mas a credencial do Drive e as permissões do macOS serão removidas.",
-    "confirmKeepMessage": "Desinstalar o Echo Scribe mas manter todos os dados locais? O app será encerrado e movido para a Lixeira. Reinstalar depois restaurará seus itens, gravações, modelos, configurações e preferências.",
-    "confirmDeleteTitle": "Desinstalar o Echo Scribe e os dados",
-    "confirmTitle": "Desinstalar o Echo Scribe",
+    "confirmDeleteMessage": "Desinstalar o Tucky e remover todos os dados locais? Isso inclui itens capturados, gravações, modelos baixados, configurações, registros, o arquivo local de eventos e a conexão com o Google Drive. Os arquivos serão movidos para a Lixeira, mas a credencial do Drive e as permissões do macOS serão removidas.",
+    "confirmKeepMessage": "Desinstalar o Tucky mas manter todos os dados locais? O app será encerrado e movido para a Lixeira. Reinstalar depois restaurará seus itens, gravações, modelos, configurações e preferências.",
+    "confirmDeleteTitle": "Desinstalar o Tucky e os dados",
+    "confirmTitle": "Desinstalar o Tucky",
     "toastFailed": "Falha na desinstalação: {{error}}",
     "appOnly": {
       "title": "Desinstalar aplicativo",
-      "body": "Remove apenas o Echo Scribe. Seus itens capturados, gravações, modelos baixados, configurações e preferências permanecem neste Mac e ficam disponíveis após reinstalar.",
+      "body": "Remove apenas o Tucky. Seus itens capturados, gravações, modelos baixados, configurações e preferências permanecem neste Mac e ficam disponíveis após reinstalar.",
       "button": "Desinstalar app"
     },
     "appAndData": {
       "title": "Desinstalar aplicativo e dados",
-      "body": "Remove o Echo Scribe e todos os seus dados locais, incluindo itens, gravações, modelos, configurações, registros e o arquivo local de eventos. Use isso apenas quando quiser que a próxima instalação comece do zero.",
+      "body": "Remove o Tucky e todos os seus dados locais, incluindo itens, gravações, modelos, configurações, registros e o arquivo local de eventos. Use isso apenas quando quiser que a próxima instalação comece do zero.",
       "button": "Desinstalar app e dados"
     },
     "uninstalling": "Desinstalando…",

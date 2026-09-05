@@ -1148,7 +1148,7 @@ impl MeetingManager {
         crate::overlay::hide_meeting_hud(&self.app_handle);
 
         // Native desktop notification so the user sees the saved meeting is
-        // ready even when no Echo Scribe window is visible. Title falls back
+        // ready even when no Tucky window is visible. Title falls back
         // through synthesis → detected app name → generic "Meeting".
         {
             use tauri_plugin_notification::NotificationExt;

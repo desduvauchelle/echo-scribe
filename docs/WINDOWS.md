@@ -1,6 +1,6 @@
 # Windows support
 
-Echo Scribe does not currently have a fully supported Windows release.
+Tucky does not currently have a fully supported Windows release.
 A Windows port and development installer build are in progress.
 
 The current app is macOS-first and depends on several macOS-only pieces:
@@ -23,7 +23,7 @@ green.
 3. Select the **Windows** workflow.
 4. Run the workflow manually with **Run workflow**, or open the latest successful
    run from `main`.
-5. Download the `echo-scribe-windows` artifact.
+5. Download the `tucky-windows` artifact.
 6. Unzip the artifact and run the `*-setup.exe` installer.
 
 Windows may show a SmartScreen warning because this development build is not

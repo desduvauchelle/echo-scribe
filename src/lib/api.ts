@@ -186,8 +186,15 @@ export type DownloadProgress = {
 export const listSpeechModels = (): Promise<SpeechModelStatus[]> =>
   invoke("list_speech_models");
 
-export const downloadSpeechModel = (id: string): Promise<void> =>
-  invoke("download_speech_model", { id });
+const speechDownloads = new Map<string, Promise<void>>();
+export const downloadSpeechModel = (id: string): Promise<void> => {
+  const existing = speechDownloads.get(id);
+  if (existing) return existing;
+  const download = invoke<void>("download_speech_model", { id })
+    .finally(() => speechDownloads.delete(id));
+  speechDownloads.set(id, download);
+  return download;
+};
 
 export const getActiveSpeechModelId = (): Promise<string> =>
   invoke("get_active_speech_model_id");

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Build + install "Echo Scribe Fresh" — a fully isolated fresh-install simulator.
+# Build + install "Tucky Fresh" — a fully isolated fresh-install simulator.
 #
 # It is the same app, but:
 #   - bundle identifier com.echoscribe.freshsim  -> its own TCC permission state
 #     (macOS treats it as a brand-new app: no mic/accessibility/screen grants)
-#   - product name "Echo Scribe Fresh"           -> installs alongside the real app
+#   - product name "Tucky Fresh"           -> installs alongside the real app
 #   - data folder EchoScribeFreshSim             -> its own settings, DB, models,
 #     recordings and logs; never touches ~/Library/Application Support/EchoScribe
 #
@@ -32,18 +32,18 @@ ECHO_SCRIBE_DATA_FOLDER=EchoScribeFreshSim \
 ECHO_SCRIBE_BUNDLE_ID=com.echoscribe.freshsim \
   bun tauri build --bundles app --config scripts/fresh-sim.conf.json
 
-APP="src-tauri/target/release/bundle/macos/Echo Scribe Fresh.app"
+APP="src-tauri/target/release/bundle/macos/Tucky Fresh.app"
 [ -d "$APP" ] || { echo "build produced no bundle at $APP" >&2; exit 1; }
 
 # Sanity: never overwrite the real app.
-osascript -e 'tell application "Echo Scribe Fresh" to quit' 2>/dev/null || true
-rm -rf "/Applications/Echo Scribe Fresh.app"
+osascript -e 'tell application "Tucky Fresh" to quit' 2>/dev/null || true
+rm -rf "/Applications/Tucky Fresh.app"
 cp -R "$APP" /Applications/
 
 echo
-echo "Installed /Applications/Echo Scribe Fresh.app"
+echo "Installed /Applications/Tucky Fresh.app"
 echo "  identifier : com.echoscribe.freshsim (fresh TCC — no permissions granted)"
 echo "  data dir   : ~/Library/Application Support/EchoScribeFreshSim"
 echo "  real app + its data are untouched."
 echo
-echo "Tip: quit the real Echo Scribe before launching the sim (global hotkey/tray conflict)."
+echo "Tip: quit the real Tucky before launching the sim (global hotkey/tray conflict)."

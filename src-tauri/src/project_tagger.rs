@@ -922,7 +922,7 @@ mod tests {
     #[test]
     fn deterministic_router_assigns_exact_alias_match() {
         let livecase = project("p1", "LiveCase", &["livecase", "hbsp"]);
-        let echo = project("p2", "Echo Scribe", &["echo scribe"]);
+        let echo = project("p2", "Tucky", &["echo scribe"]);
 
         let result = super::route_deterministically(
             "Update the HBSP proof section for the case simulation page.",
@@ -936,7 +936,7 @@ mod tests {
 
     #[test]
     fn deterministic_router_uses_capture_context_hints() {
-        let mut echo = project("p1", "Echo Scribe", &[]);
+        let mut echo = project("p1", "Tucky", &[]);
         echo.routing_window_hints = vec!["echo-scribe".into()];
         let ctx = FocusContext {
             pid: 1,

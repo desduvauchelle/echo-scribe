@@ -176,7 +176,7 @@ pub fn run() {
     // miss attaching it (early panic during setup) we leak it as a fallback.
     let mut guard_slot: Option<WorkerGuard> = Some(guard);
 
-    info!(log_dir = %dir.display(), "starting Echo Scribe Phase 6");
+    info!(log_dir = %dir.display(), "starting Tucky Phase 6");
 
     // CI-only: ECHO_SCRIBE_SMOKE=1 arms a first-launch watchdog that fails
     // the process if the frontend never renders. No-op otherwise.
@@ -244,10 +244,12 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_notification::init())
-        .plugin(tauri_plugin_autostart::init(
-            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
-            None,
-        ))
+        // Keep the existing login-item identity; the installer preserves its
+        // old executable path with a compatibility link to Tucky.app.
+        .plugin(tauri_plugin_autostart::Builder::new()
+            .app_name(if data_folder_name() == "EchoScribe" { "Echo Scribe" } else { "Tucky Fresh" })
+            .macos_launcher(tauri_plugin_autostart::MacosLauncher::LaunchAgent)
+            .build())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             permissions_status,
@@ -915,7 +917,7 @@ pub fn run() {
             // If permissions are already green at startup AND a model is
             // ready, auto-start the pipeline so returning users don't need to
             // click anything. Otherwise, wait for the user to grant access /
-            // download a model and explicitly hit "Start Echo Scribe" in
+            // download a model and explicitly hit "Start Tucky" in
             // onboarding.
             let perms = permissions::status();
             if perms.microphone && perms.accessibility && asr.ready() {

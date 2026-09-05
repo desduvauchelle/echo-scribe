@@ -56,9 +56,9 @@ test("coding agents page lists permissions, toggles them, and shows install snip
     .getByRole("heading", { name: "Connect your coding agent" })
     .locator("..");
   await expect(connect).toContainText(
-    'claude mcp add echo-scribe -- "/Applications/Echo Scribe.app/Contents/MacOS/echo-scribe" --mcp',
+    'claude mcp add tucky -- "/Applications/Tucky.app/Contents/MacOS/echo-scribe" --mcp',
   );
-  await expect(connect).toContainText("[mcp_servers.echo_scribe]");
+  await expect(connect).toContainText("[mcp_servers.tucky]");
   await expect(connect).toContainText('"mcpServers"');
 
   // One-click install drives the backend and reports success in a toast.

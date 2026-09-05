@@ -29,7 +29,7 @@ pub struct FocusContext {
     pub browser_url: Option<String>,
     /// Active tab title for known browsers. Often richer than `window_title`
     /// for SPAs whose window title is the app name (e.g. "Google Chrome" vs
-    /// "Echo Scribe — pricing"). Fetched via same osascript path as
+    /// "Tucky — pricing"). Fetched via same osascript path as
     /// `browser_url`. `None` outside browsers or on AppleScript failure.
     #[serde(default)]
     pub browser_tab_title: Option<String>,
@@ -798,7 +798,7 @@ impl ActivationPath {
 ///
 /// macOS 14 replaced free-for-all activation with *cooperative* activation:
 /// `NSApplicationActivateIgnoringOtherApps` is deprecated and, per Apple's own
-/// header, "will have no effect". Echo Scribe is an accessory app that is
+/// header, "will have no effect". Tucky is an accessory app that is
 /// never frontmost, so the legacy call is routinely denied — which is exactly
 /// the `activateWithOptions failed` / `frontmost_verified=false` pair we were
 /// logging on the cross-app paste path.

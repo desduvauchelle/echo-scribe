@@ -1,12 +1,12 @@
 {
   "welcome": {
-    "title": "Bienvenue dans Echo Scribe",
+    "title": "Bienvenue dans Tucky",
     "subtitle": "Accordez les autorisations ci-dessous, choisissez un modèle vocal, puis commencez à dicter n’importe où. L’enregistrement d’écran est facultatif — nécessaire seulement si vous voulez que les réunions capturent l’audio de l’autre personne."
   },
   "permissions": {
     "microphone": {
       "title": "Microphone",
-      "subtitle": "Echo Scribe a besoin de votre microphone pour capturer ce que vous dites."
+      "subtitle": "Tucky a besoin de votre microphone pour capturer ce que vous dites."
     },
     "accessibility": {
       "title": "Accessibilité",
@@ -14,7 +14,7 @@
     },
     "screenRecording": {
       "title": "Enregistrement d’écran",
-      "subtitle": "Permet à Echo Scribe de capturer l’audio de l’autre participant pendant les réunions Zoom, Google Meet et autres. Sans cette autorisation, seul votre microphone est enregistré."
+      "subtitle": "Permet à Tucky de capturer l’audio de l’autre participant pendant les réunions Zoom, Google Meet et autres. Sans cette autorisation, seul votre microphone est enregistré."
     },
     "promptHint": "Validez la boîte de dialogue macOS qui vient d’apparaître. Si elle ne s’est pas affichée, cliquez à nouveau sur « Autoriser l’accès » pour ouvrir Réglages Système."
   },
@@ -32,20 +32,20 @@
   },
   "logCaptureShortcut": {
     "title": "Raccourci de capture rapide",
-    "description": "Appuyez et maintenez pour capturer une pensée ou une tâche. Par défaut : Option droite — Echo Scribe la classera en local et affichera un écran de vérification."
+    "description": "Appuyez et maintenez pour capturer une pensée ou une tâche. Par défaut : Option droite — Tucky la classera en local et affichera un écran de vérification."
   },
   "startButton": {
     "starting": "Démarrage…",
-    "label": "Démarrer Echo Scribe"
+    "label": "Démarrer Tucky"
   },
   "skipButton": {
     "skipping": "Ignoré…",
     "label": "Ignorer la configuration pour l’instant",
-    "note": "Vous pouvez utiliser Echo Scribe dès maintenant et terminer la configuration plus tard dans Réglages."
+    "note": "Vous pouvez utiliser Tucky dès maintenant et terminer la configuration plus tard dans Réglages."
   },
   "resetTcc": {
     "linkLabel": "Autorisation bloquée ? Réinitialiser et redémarrer",
-    "confirmBody": "Cela efface les autorisations Micro + Accessibilité + Enregistrement de l’écran, quitte Echo Scribe puis le rouvre automatiquement pour que vous puissiez réaccorder l’accès. Continuer ?",
+    "confirmBody": "Cela efface les autorisations Micro + Accessibilité + Enregistrement de l’écran, quitte Tucky puis le rouvre automatiquement pour que vous puissiez réaccorder l’accès. Continuer ?",
     "resetting": "Réinitialisation…",
     "confirmButton": "Oui, réinitialiser et redémarrer",
     "cancelButton": "Annuler",

@@ -69,7 +69,7 @@ test("saved AI replies render Markdown without a bubble and fit narrow windows",
   await expect(conversation.getByRole("table")).toContainText("Collaboration");
   await expect(conversation.locator("pre code")).toContainText("long-code-token-");
 
-  const assistant = conversation.getByText("Echo Scribe AI", { exact: true }).locator("..");
+  const assistant = conversation.getByText("Tucky AI", { exact: true }).locator("..");
   await expect(assistant).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
   await expect(assistant).toHaveCSS("border-radius", "0px");
   const user = conversation.getByText("Find **patterns** in my notes.", { exact: false });

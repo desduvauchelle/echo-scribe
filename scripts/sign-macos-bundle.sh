@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-APP_PATH="${1:-$ROOT/src-tauri/target/release/bundle/macos/Echo Scribe.app}"
+APP_PATH="${1:-$ROOT/src-tauri/target/release/bundle/macos/Tucky.app}"
 CONFIG="$ROOT/src-tauri/tauri.conf.json"
 ENTITLEMENTS="$ROOT/src-tauri/Entitlements.plist"
 

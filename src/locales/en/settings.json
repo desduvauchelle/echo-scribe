@@ -1,7 +1,7 @@
 {
   "language": {
     "title": "Language",
-    "subtitle": "Choose the language Echo Scribe's interface uses.",
+    "subtitle": "Choose the language Tucky's interface uses.",
     "selectLabel": "Interface language",
     "system": "System default",
     "note": "Applies right away."
@@ -39,11 +39,11 @@
     "dictation": "Speech-to-text at your cursor — model, microphone, audio behavior, hotkey, and cleanup.",
     "logcapture": "Capture a thought, idea, or task by voice, then file and export it.",
     "meetings": "Detect calls and summarize transcripts from supported meeting apps.",
-    "daily-recap": "Choose when Echo Scribe summarizes yesterday's meetings, notes, and dictations.",
+    "daily-recap": "Choose when Tucky summarizes yesterday's meetings, notes, and dictations.",
     "actions": "Run app launches, links, emails, and counters straight from your voice.",
     "templates": "Rewrite dictation into emails, lists, or any style before it's pasted.",
     "language-model": "The local Gemma model that powers classification, summaries, and actions.",
-    "general": "Launch at login and keep Echo Scribe up to date.",
+    "general": "Launch at login and keep Tucky up to date.",
     "drive": "Upload screen recordings to Google Drive and share them with a link.",
     "projects": "Create, rename, archive, or delete your projects.",
     "coding-agents": "Connect Claude Code, Codex, or any MCP client to search your captures — and, if you opt in, record your screen.",
@@ -80,7 +80,7 @@
   "dictation": {
     "microphone": {
       "title": "Microphone",
-      "subtitle": "Pick which input device Echo Scribe records from. Default uses whatever macOS has selected."
+      "subtitle": "Pick which input device Tucky records from. Default uses whatever macOS has selected."
     },
     "audioFeedback": {
       "title": "Audio feedback",
@@ -117,7 +117,7 @@
       "sortByLabel": "Sort by",
       "sortLastUsed": "Last used",
       "sortAlphabetical": "Alphabetical",
-      "footerNote": "When a saved mic is unplugged, Echo Scribe will refuse to record and notify you — it won't silently fall back to another device."
+      "footerNote": "When a saved mic is unplugged, Tucky will refuse to record and notify you — it won't silently fall back to another device."
     },
     "asrUnloadTimeout": {
       "title": "Unload after idle",
@@ -194,7 +194,7 @@
     },
     "autoDetect": {
       "title": "Auto-detect meetings",
-      "subtitle": "Echo Scribe watches supported meeting apps and browser calls, then offers to record.",
+      "subtitle": "Tucky watches supported meeting apps and browser calls, then offers to record.",
       "checkboxLabel": "Detect supported meeting apps automatically",
       "platformsAriaLabel": "Supported meeting apps"
     },
@@ -218,7 +218,7 @@
       "title": "Meeting notes folder",
       "subtitle": "Automatically save each completed meeting as a Markdown file that other tools can read.",
       "chooseFolder": "Choose folder…",
-      "note": "Each file includes the summary, action items, your notes, and the speaker-labelled transcript. Echo Scribe only writes the local file; another app or AI agent needs its own access to this folder."
+      "note": "Each file includes the summary, action items, your notes, and the speaker-labelled transcript. Tucky only writes the local file; another app or AI agent needs its own access to this folder."
     },
     "guideTemplates": {
       "title": "Guide templates",
@@ -348,11 +348,11 @@
   "general": {
     "startup": {
       "title": "Startup",
-      "subtitle": "Launch Echo Scribe automatically when you log in."
+      "subtitle": "Launch Tucky automatically when you log in."
     },
     "updates": {
       "title": "Updates",
-      "subtitle": "Echo Scribe checks for updates automatically each day. You can also check now.",
+      "subtitle": "Tucky checks for updates automatically each day. You can also check now.",
       "currentVersion": "Current version",
       "currentVersionWithNumber": "Current version {{version}}",
       "checking": "Checking…",
@@ -398,13 +398,13 @@
   "codingAgents": {
     "toolPermissions": {
       "title": "Tool permissions",
-      "subtitle": "Echo Scribe has a built-in MCP server that agents like Claude Code or Codex can connect to. Tick what they're allowed to access — changes apply immediately, even for agents already connected. Everything stays on this Mac.",
+      "subtitle": "Tucky has a built-in MCP server that agents like Claude Code or Codex can connect to. Tick what they're allowed to access — changes apply immediately, even for agents already connected. Everything stays on this Mac.",
       "loadFailed": "Couldn't load permissions — see Settings → Diagnostics → logs for details.",
       "updateFailed": "Couldn't update the {{label}} permission: {{error}}"
     },
     "connect": {
       "title": "Connect your coding agent",
-      "subtitle": "The MCP server is the Echo Scribe app itself — nothing extra to download. Click Install and Echo Scribe registers itself with the agent's own CLI, or copy the snippet to do it by hand."
+      "subtitle": "The MCP server is the Tucky app itself — nothing extra to download. Click Install and Tucky registers itself with the agent's own CLI, or copy the snippet to do it by hand."
     },
     "snippets": {
       "claudeCode": { "title": "Claude Code", "hint": "Install runs: claude mcp add (user scope)." },
@@ -416,13 +416,13 @@
     },
     "howToUse": {
       "title": "How to use it",
-      "subtitle": "There's no command to memorize — talk to your agent normally. It sees the Echo Scribe tools and calls them whenever your request needs them; mentioning “Echo Scribe” nudges it to look there. Try one of these:",
-      "recordingNote": "For recording prompts, Echo Scribe must be running and the Screen recording permission ticked above. The agent lists your windows, starts and stops the recording itself, gets the video file path back, and can then watch or analyze the file — the recording also lands in your library like any other."
+      "subtitle": "There's no command to memorize — talk to your agent normally. It sees the Tucky tools and calls them whenever your request needs them; mentioning “Tucky” nudges it to look there. Try one of these:",
+      "recordingNote": "For recording prompts, Tucky must be running and the Screen recording permission ticked above. The agent lists your windows, starts and stops the recording itself, gets the video file path back, and can then watch or analyze the file — the recording also lands in your library like any other."
     },
     "examplePrompts": {
-      "listWindows": "List my windows with echo-scribe and record the Chrome window with system audio. Stop when I tell you and summarize what happened in the video.",
+      "listWindows": "List my windows with Tucky and record the Chrome window with system audio. Stop when I tell you and summarize what happened in the video.",
       "recordBug": "Record my screen with mic on while I reproduce this bug, then stop and analyze the video for what went wrong.",
-      "searchMeetings": "Search my Echo Scribe meetings for the pricing discussion and summarize the decisions.",
+      "searchMeetings": "Search my Tucky meetings for the pricing discussion and summarize the decisions.",
       "lastWeekDictation": "What did I dictate last week about the onboarding flow?",
       "copyAriaLabel": "Copy example prompt"
     }
@@ -436,7 +436,7 @@
   "diagnostics": {
     "section": {
       "title": "Diagnostics",
-      "subtitle": "Inspect the rolling crash log Echo Scribe writes to your home folder."
+      "subtitle": "Inspect the rolling crash log Tucky writes to your home folder."
     },
     "logFolder": {
       "title": "Log folder",
@@ -459,19 +459,19 @@
     }
   },
   "uninstall": {
-    "confirmDeleteMessage": "Uninstall Echo Scribe and remove all local data? This includes captured items, recordings, downloaded models, settings, logs, the local event archive, and the Google Drive connection. Files will be moved to the Trash, but the Drive credential and macOS permission grants will be removed.",
-    "confirmKeepMessage": "Uninstall Echo Scribe but keep all local data? The app will quit and move to the Trash. Reinstalling later will restore your items, recordings, models, settings, and preferences.",
-    "confirmDeleteTitle": "Uninstall Echo Scribe and data",
-    "confirmTitle": "Uninstall Echo Scribe",
+    "confirmDeleteMessage": "Uninstall Tucky and remove all local data? This includes captured items, recordings, downloaded models, settings, logs, the local event archive, and the Google Drive connection. Files will be moved to the Trash, but the Drive credential and macOS permission grants will be removed.",
+    "confirmKeepMessage": "Uninstall Tucky but keep all local data? The app will quit and move to the Trash. Reinstalling later will restore your items, recordings, models, settings, and preferences.",
+    "confirmDeleteTitle": "Uninstall Tucky and data",
+    "confirmTitle": "Uninstall Tucky",
     "toastFailed": "Uninstall failed: {{error}}",
     "appOnly": {
       "title": "Uninstall application",
-      "body": "Removes only Echo Scribe. Your captured items, recordings, downloaded models, settings, and preferences stay on this Mac and are available after reinstalling.",
+      "body": "Removes only Tucky. Your captured items, recordings, downloaded models, settings, and preferences stay on this Mac and are available after reinstalling.",
       "button": "Uninstall app"
     },
     "appAndData": {
       "title": "Uninstall application and data",
-      "body": "Removes Echo Scribe and all of its local data, including items, recordings, models, settings, logs, and the local event archive. Use this only when you want the next install to start fresh.",
+      "body": "Removes Tucky and all of its local data, including items, recordings, models, settings, logs, and the local event archive. Use this only when you want the next install to start fresh.",
       "button": "Uninstall app & data"
     },
     "uninstalling": "Uninstalling…",

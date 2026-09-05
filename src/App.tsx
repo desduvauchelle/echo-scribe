@@ -27,6 +27,9 @@ import RecordingDetailPanel from "./components/RecordingDetailPanel";
 import { useVoicePasteFocus } from "./lib/voicePasteFocus";
 import { useUpdateCheck } from "./lib/useUpdateCheck";
 import { PlatformCapabilitiesProvider } from "./lib/capabilitiesContext";
+import { LearningProvider } from "./components/LearningContext";
+import type { PageId } from "./views/Settings";
+import SpeechSetupStatus from "./components/SpeechSetupStatus";
 
 type View = "checking" | "onboarding" | "main" | "settings";
 
@@ -35,7 +38,7 @@ export default function App() {
     <ToastProvider>
       <PlatformCapabilitiesProvider>
         <ActivityPanelProvider>
-          <AppShell />
+          <LearningProvider><AppShell /></LearningProvider>
           <ActivityPanel />
           <RecordingDetailPanel />
         </ActivityPanelProvider>
@@ -55,6 +58,7 @@ function AppShell() {
   });
   const [resumeNotice, setResumeNotice] = useState<string | null>(null);
   const [mainKey, setMainKey] = useState(0);
+  const [settingsPage, setSettingsPage] = useState<PageId>("dictation");
   const [meetingPrompt, setMeetingPrompt] = useState<{
     bundle_id: string;
     app_name: string;
@@ -309,7 +313,7 @@ function AppShell() {
   }, []);
 
   // Tray menu can request that we navigate to Settings via an `open_settings`
-  // event. The `Open Echo Scribe` menu item already handles the window-show
+  // event. The `Open Tucky` menu item already handles the window-show
   // side; this just routes the React tree.
   useEffect(() => {
     let unlisten: UnlistenFn | null = null;
@@ -493,8 +497,10 @@ function AppShell() {
   if (view === "settings") {
     return (
       <>
+        <div className="fixed bottom-4 right-4 z-40 w-72 max-w-[80vw]"><SpeechSetupStatus /></div>
         <UpdateBanner />
         <Settings
+          initialPage={settingsPage}
           onBack={() => {
             setMainKey((k) => k + 1);
             setView("main");
@@ -511,7 +517,7 @@ function AppShell() {
   // toolbar controls remain interactive.
   return (
     <>
-      <Main key={mainKey} onOpenSettings={() => setView("settings")} />
+      <Main key={mainKey} onOpenSettings={(page = "dictation") => { setSettingsPage(page); setView("settings"); }} />
       {overlay}
     </>
   );

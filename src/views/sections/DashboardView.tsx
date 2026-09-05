@@ -55,6 +55,9 @@ import {
 import { useActivityPanel } from "../../components/ActivityPanelContext";
 import { SkeletonList } from "./ActivityFeed";
 import TasksView from "./TasksView";
+import { LearningCard } from "../../components/Learning";
+import { useLearning } from "../../components/LearningContext";
+import type { LessonId } from "../../lib/learning";
 
 const PAGE_SIZE = 50;
 
@@ -62,6 +65,8 @@ type Props = {
   projects: Map<string, Project>;
   onOpenStats: (category: StatsCategoryKey) => void;
   searchRequest?: number;
+  initialFilter?: "task" | "recording";
+  onLesson?: (id?: LessonId) => void;
 };
 
 type KindFilter = "all" | ItemKind | "recording";
@@ -150,7 +155,8 @@ function emptyLabel(t: (key: string) => string, kind: KindFilter): string {
   return t(EMPTY_LABEL_KEYS[kind]);
 }
 
-export default function DashboardView({ projects, onOpenStats, searchRequest = 0 }: Props) {
+export default function DashboardView({ projects, onOpenStats, searchRequest = 0, initialFilter, onLesson }: Props) {
+  const learning = useLearning();
   const { t } = useTranslation("main");
   const EXPORT_RANGES = exportRanges(t);
   const [stats, setStats] = useState<DashboardStats | null>(null);
@@ -161,11 +167,11 @@ export default function DashboardView({ projects, onOpenStats, searchRequest = 0
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [kindFilter, setKindFilter] = useState<KindFilter>("all");
+  const [kindFilter, setKindFilter] = useState<KindFilter>(initialFilter ?? "all");
   const [recapOpen, setRecapOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(searchRequest > 0);
   const [query, setQuery] = useState("");
   const [searchResults, setSearchResults] = useState<Item[]>([]);
   const [searching, setSearching] = useState(false);
@@ -185,7 +191,7 @@ export default function DashboardView({ projects, onOpenStats, searchRequest = 0
   const [tagProgress, setTagProgress] = useState<ProjectTaggerProgress | null>(null);
   const { push: pushToast } = useToasts();
 
-  const { refreshTick } = useActivityPanel();
+  const { refreshTick, selectedItemId, selectedRecordingId } = useActivityPanel();
   const yesterday = useMemo(() => yesterdayLocalIso(), []);
 
   // Current kind filter, read inside callbacks (event listeners, refetch) so
@@ -389,6 +395,14 @@ export default function DashboardView({ projects, onOpenStats, searchRequest = 0
     return mergeFeed(its, recs, hitMeetings);
   }, [kindFilter, query, searchResults, recordings, meetingsById]);
 
+  useEffect(() => {
+    if (!isSearching || learning.state.retrieved) return;
+    const opened = searchEntries.some((entry) =>
+      entry.type === "recording" ? entry.rec.id === selectedRecordingId :
+      entry.type === "meeting" ? entry.mtg.item_id === selectedItemId : entry.item.id === selectedItemId);
+    if (opened) learning.update((s) => ({ ...s, retrieved: true }));
+  }, [selectedItemId, selectedRecordingId, isSearching, searchEntries, learning.state.retrieved, learning.update]);
+
   const renderEntry = (entry: FeedEntry) => (
     <ActivityLedgerEntry key={entry.key} entry={entry} projects={projects} />
   );
@@ -499,6 +513,7 @@ export default function DashboardView({ projects, onOpenStats, searchRequest = 0
   return (
     <div className="echo-dashboard flex h-full min-h-0 flex-col overflow-hidden">
       <div className="echo-dashboard-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain px-7 pb-5">
+        {onLesson && <LearningCard onLesson={onLesson} />}
         <div className="echo-filter-toolbar flex items-center justify-between gap-3 py-3">
           <div className="flex min-w-0 flex-wrap items-center gap-0.5">
           {(

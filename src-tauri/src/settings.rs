@@ -1216,7 +1216,7 @@ impl SettingsStore {
     }
 
     /// Last folder chosen when saving a user-facing screen-recording export.
-    /// The managed export inside Echo Scribe's recordings directory remains
+    /// The managed export inside Tucky's recordings directory remains
     /// independent; this only seeds the next native Save dialog.
     pub fn screenrec_export_folder(&self) -> Option<String> {
         self.store.get(KEY_SCREENREC_EXPORT_FOLDER).and_then(|v| {
@@ -1459,13 +1459,13 @@ impl SettingsStore {
         Ok(())
     }
 
-    /// Name of the Drive folder uploads go into (default "Echo Scribe").
+    /// Name of the Drive folder uploads go into (default "Tucky").
     pub fn drive_folder_name(&self) -> String {
         self.store
             .get(KEY_DRIVE_FOLDER_NAME)
             .and_then(|v| v.as_str().map(|s| s.to_string()))
             .filter(|s| !s.trim().is_empty())
-            .unwrap_or_else(|| "Echo Scribe".to_string())
+            .unwrap_or_else(|| "Tucky".to_string())
     }
 
     pub fn set_drive_folder_name(&self, name: &str) -> Result<(), SettingsError> {

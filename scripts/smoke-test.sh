@@ -7,14 +7,14 @@
 # view and all sidecars are present in the bundle; nonzero (or our backstop
 # timeout) means a user's first launch would have been broken.
 #
-# Usage: scripts/smoke-test.sh EchoScribe-aarch64.tar.gz
+# Usage: scripts/smoke-test.sh Tucky-aarch64.tar.gz
 #
 # Uses a throwaway HOME so the run behaves like a brand-new user's machine
 # and never touches the invoking user's settings, models, or logs.
 set -euo pipefail
 
 if [[ $# -ne 1 || ! -f "$1" ]]; then
-  echo "Usage: $0 <path-to-EchoScribe-*.tar.gz>" >&2
+  echo "Usage: $0 <path-to-Tucky-*.tar.gz>" >&2
   exit 2
 fi
 ARCHIVE="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
@@ -29,7 +29,7 @@ SMOKE_HOME="$WORK_DIR/home"
 INSTALL_DIR="$WORK_DIR/Applications"
 mkdir -p "$SMOKE_HOME"
 
-APP_BIN="$INSTALL_DIR/Echo Scribe.app/Contents/MacOS/echo-scribe"
+APP_BIN="$INSTALL_DIR/Tucky.app/Contents/MacOS/echo-scribe"
 LOG_DIR="$SMOKE_HOME/Library/Logs/EchoScribe"
 
 cleanup() {

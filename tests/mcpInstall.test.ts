@@ -1,19 +1,19 @@
 import { describe, expect, test } from "bun:test";
 import { mcpInstallSnippets } from "../src/lib/mcpInstall";
 
-const APP_PATH = "/Applications/Echo Scribe.app/Contents/MacOS/echo-scribe";
+const APP_PATH = "/Applications/Tucky.app/Contents/MacOS/echo-scribe";
 
 describe("mcpInstallSnippets", () => {
   test("claude command quotes the space-containing binary path", () => {
     const { claudeCode } = mcpInstallSnippets(APP_PATH);
     expect(claudeCode).toBe(
-      'claude mcp add echo-scribe -- "/Applications/Echo Scribe.app/Contents/MacOS/echo-scribe" --mcp',
+      'claude mcp add tucky -- "/Applications/Tucky.app/Contents/MacOS/echo-scribe" --mcp',
     );
   });
 
   test("codex snippet is a TOML table with command and args", () => {
     const { codexToml } = mcpInstallSnippets(APP_PATH);
-    expect(codexToml).toContain("[mcp_servers.echo_scribe]");
+    expect(codexToml).toContain("[mcp_servers.tucky]");
     expect(codexToml).toContain(`command = "${APP_PATH}"`);
     expect(codexToml).toContain('args = ["--mcp"]');
   });
@@ -23,7 +23,7 @@ describe("mcpInstallSnippets", () => {
     const parsed = JSON.parse(genericJson) as {
       mcpServers: Record<string, { command: string; args: string[] }>;
     };
-    expect(parsed.mcpServers["echo-scribe"].command).toBe(APP_PATH);
-    expect(parsed.mcpServers["echo-scribe"].args).toEqual(["--mcp"]);
+    expect(parsed.mcpServers["tucky"].command).toBe(APP_PATH);
+    expect(parsed.mcpServers["tucky"].args).toEqual(["--mcp"]);
   });
 });

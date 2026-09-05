@@ -1,6 +1,163 @@
 {
+  "learning": {
+    "title": "Learn Tucky",
+    "gettingStarted": "Getting started",
+    "subtitle": "A little practice. A few useful discoveries. Go at your own pace.",
+    "progress": "{{count}} of 3",
+    "hide": "Hide",
+    "coreDone": "You’ve got the basics. Your voice is part of your workflow.",
+    "nextSmallWin": "Your next small win is less than a minute away.",
+    "continue": "Continue",
+    "explore": "Explore more",
+    "refreshError": "Progress couldn’t refresh. Try again.",
+    "oneMore": "One more thing you can do",
+    "tryIt": "Try it",
+    "later": "Later",
+    "dismissTip": "Don’t show again",
+    "win": "{{count}} {{category}}. Look at you go!",
+    "seeWins": "See your wins",
+    "dismissWin": "Dismiss celebration",
+    "minute": "A one-minute discovery",
+    "practiceLabel": "Your practice space",
+    "practiceHint": "Click below, hold {{binding}}, speak, then release.",
+    "practicePlaceholder": "Try: “Here’s one thing I want to get done today.”",
+    "focusPractice": "Put my cursor here",
+    "finishSetup": "Finish voice setup",
+    "practiceSaved": "Real dictations also appear in your Dashboard.",
+    "practiceSuccess": "There it is! Your voice just did the typing.",
+    "practiceSuccessTitle": "You did it!",
+    "practiceNextHint": "Next, give an idea a home. Learn to save a thought without opening a text field.",
+    "practiceNext": "Next: save a thought",
+    "practiceExplore": "Explore on my own",
+    "aiNeeded": "This feature uses an optional smart model on your Mac. Set it up whenever you’re ready.",
+    "setupAi": "Set up smart features",
+    "captureTry": "Hold {{logBinding}} to save a thought or task.",
+    "captureExample": "Try: “Task: send the proposal tomorrow.” Review the result, then save it.",
+    "openCaptureSettings": "See my capture shortcut",
+    "wins": "Your wins",
+    "winsHint": "Small beginnings become everyday habits. Celebrations finish at 200; your captures keep counting.",
+    "count": "{{count}} captured",
+    "milestone": "{{count}} — {{status}}",
+    "earned": "earned",
+    "ahead": "ahead",
+    "tipsToggle": "Show occasional tips",
+    "celebrationsToggle": "Celebrate my milestones",
+    "showSteps": "Show getting started on Dashboard",
+    "local": "Your progress stays on this Mac. No account, tracking service, or daily streak to protect.",
+    "categories": {
+      "transcriptions": "dictations",
+      "notes": "thoughts",
+      "tasks": "tasks",
+      "meetings": "meetings",
+      "recordings": "recordings"
+    },
+    "groups": {
+      "voice": "Write by voice",
+      "memory": "Capture & remember",
+      "meetings": "Meetings",
+      "recordings": "Screen recording",
+      "power": "Make it your own"
+    },
+    "cheers": {
+      "10": "Ten little moments you made easier. A lovely start.",
+      "25": "You’re finding your rhythm. One small win at a time.",
+      "50": "Fifty! This is becoming second nature.",
+      "100": "A hundred moments captured. That deserves a smile.",
+      "200": "Two hundred. What started as a try is now part of your day."
+    },
+    "lessons": {
+      "dictate": {
+        "title": "Dictate anywhere",
+        "summary": "Let your voice do the typing.",
+        "body": "Place your cursor in a text field, hold {{binding}}, speak naturally, and release. Start here, then try a sentence in an email draft or message. Wait for the text before switching apps. You can change your shortcut in Settings → Dictation."
+      },
+      "capture": {
+        "title": "Save a thought or task",
+        "summary": "Keep an idea without finding somewhere to type.",
+        "body": "Dictation types at your cursor. Log Capture saves a thought or task to Tucky. Hold {{logBinding}}, say what’s on your mind, then release. Review the suggested type and project before saving. Once saved, it appears in the Dashboard."
+      },
+      "retrieve": {
+        "title": "Find it again",
+        "summary": "Bring a saved thought back when you need it.",
+        "body": "Open Dashboard search and enter a word you remember from a capture. Open a result to read it. Your third getting-started step completes when you open a matching capture.",
+        "action": "Search my captures"
+      },
+      "projects": {
+        "title": "Give your work a home",
+        "summary": "Keep related thoughts in one project.",
+        "body": "Create a project with a clear name and a short description. Choose it while reviewing a capture, or organize existing captures later. Projects appear in your sidebar.",
+        "action": "Create a project"
+      },
+      "tasks": {
+        "title": "Turn a thought into a next step",
+        "summary": "Review a task, set a deadline, and check it off.",
+        "body": "A task captured by voice appears under Tasks in the Dashboard. Open it to adjust its deadline. Check it off when the work is done.",
+        "action": "Open my tasks"
+      },
+      "chat": {
+        "title": "Ask your memory a question",
+        "summary": "Find connections across your saved captures.",
+        "body": "Open Chat, start a new conversation, and ask “What did I capture today?” Use the source links to check the answer. More useful captures give Chat more to work with.",
+        "action": "Open Chat"
+      },
+      "meetings": {
+        "title": "Leave a meeting with useful notes",
+        "summary": "Capture the conversation and revisit the important parts.",
+        "body": "Use the meeting Record button when you’re ready, or choose how Tucky offers to record supported calls in Settings. Let participants know you’re recording. System audio permission captures the other voices; the optional smart model creates summaries. You can stop at any time.",
+        "action": "Set up meetings"
+      },
+      "people": {
+        "title": "Remember the people behind the meeting",
+        "summary": "Build useful context for your next conversation.",
+        "body": "Confirm meeting speakers and link them to people. People & companies brings their confirmed meeting history together. Choose a person to create a Prep brief before your next conversation.",
+        "action": "Open People & companies"
+      },
+      "daily": {
+        "title": "Start the day with yesterday in view",
+        "summary": "Revisit your meetings, notes, and dictations.",
+        "body": "Daily recaps bring yesterday’s saved activity together. Open Daily recaps to read or generate one. You can choose morning delivery and weekdays in Settings → Daily Recap.",
+        "action": "Open Daily recaps"
+      },
+      "recordings": {
+        "title": "Show it once",
+        "summary": "Capture a screen walkthrough, then edit or share it.",
+        "body": "Use Record screen in the sidebar to choose what to capture. After recording, open it from Dashboard → Recordings to edit, export, or generate a transcript. Google Drive sharing is optional; review who can access the upload before sharing.",
+        "action": "Open my recordings"
+      },
+      "templates": {
+        "title": "Say it, then shape it",
+        "summary": "Turn spoken thoughts into an email or a list.",
+        "body": "Voice format templates rewrite your words before they’re pasted. Review the available templates in Settings, then use the action shortcut or enable the spoken trigger to request a format. Your ordinary dictation shortcut still works as usual.",
+        "action": "Explore format templates"
+      },
+      "actions": {
+        "title": "A shortcut for the little things",
+        "summary": "Use voice commands to open apps and more.",
+        "body": "Settings → Actions shows your current action shortcut, trigger preferences, and examples. Try a simple app launch first. Review settings before using actions that draft emails or change counters.",
+        "action": "Explore voice actions"
+      },
+      "export": {
+        "title": "Take your captures with you",
+        "summary": "Keep useful notes beside your other work.",
+        "body": "Dashboard’s Export menu saves activity as Markdown or CSV. For an ongoing workflow, choose an export folder for a project in Settings. Meeting notes can also have their own folder.",
+        "action": "Set up a project folder"
+      },
+      "agents": {
+        "title": "Give your coding tools useful context",
+        "summary": "Let a connected agent search the work you’ve captured.",
+        "body": "Settings → Coding Agents lets you connect a supported tool and choose what it may access. Search access and screen-recording access are separate controls. Start with only the access you need.",
+        "action": "Explore coding connections"
+      },
+      "startup": {
+        "title": "Make room for one easy habit",
+        "summary": "Try your first message of the day by voice.",
+        "body": "Pick a moment you already repeat: your first email, a note after a call, or a thought before closing your laptop. Use Tucky for that one moment. Launch at login can keep your shortcut ready when you start work.",
+        "action": "See launch-at-login settings"
+      }
+    }
+  },
   "app": {
-    "brand": "Echo Scribe",
+    "brand": "Tucky",
     "toolbar": {
       "search": "Search"
     },
@@ -275,7 +432,7 @@
     },
     "notifications": {
       "disabledPrefix": "Notifications are disabled — your daily recap won't surface until you enable them in",
-      "settingsPath": "System Settings → Notifications → Echo Scribe"
+      "settingsPath": "System Settings → Notifications → Tucky"
     },
     "nav": {
       "previousDay": "Previous day",
@@ -392,7 +549,7 @@
       "deleteAria": "Delete session"
     },
     "message": {
-      "aiLabel": "Echo Scribe AI"
+      "aiLabel": "Tucky AI"
     },
     "sources": {
       "used_one": "{{count}} source used",

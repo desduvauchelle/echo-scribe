@@ -1,6 +1,6 @@
 {
   "app": {
-    "brand": "Echo Scribe",
+    "brand": "Tucky",
     "toolbar": {
       "search": "Buscar"
     },
@@ -275,7 +275,7 @@
     },
     "notifications": {
       "disabledPrefix": "Las notificaciones están desactivadas — tu resumen diario no aparecerá hasta que las actives en",
-      "settingsPath": "Ajustes del Sistema → Notificaciones → Echo Scribe"
+      "settingsPath": "Ajustes del Sistema → Notificaciones → Tucky"
     },
     "nav": {
       "previousDay": "Día anterior",
@@ -392,7 +392,7 @@
       "deleteAria": "Eliminar sesión"
     },
     "message": {
-      "aiLabel": "IA de Echo Scribe"
+      "aiLabel": "IA de Tucky"
     },
     "sources": {
       "used_one": "{{count}} fuente usada",

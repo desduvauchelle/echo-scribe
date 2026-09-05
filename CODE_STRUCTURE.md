@@ -1,4 +1,4 @@
-# Echo Scribe — Code Structure
+# Tucky — Code Structure
 
 A reference for reusing this project architecture in future macOS menu-bar apps built with Tauri v2 + React + Rust.
 

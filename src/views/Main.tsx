@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
   CalendarDays,
+  BookOpen,
   Folder,
   Hash,
   LayoutDashboard,
@@ -35,21 +36,28 @@ import SidebarRecordButton from "../components/SidebarRecordButton";
 import ScreenRecordButton from "../components/ScreenRecordButton";
 import PermissionWarningBanner from "../components/PermissionWarningBanner";
 import UpdateBanner from "../components/UpdateBanner";
+import { LearnView } from "../components/Learning";
+import SpeechSetupStatus from "../components/SpeechSetupStatus";
+import type { LessonId } from "../lib/learning";
+import type { PageId } from "./Settings";
+import { useLearning } from "../components/LearningContext";
 
 export type MainSection =
+  | { kind: "learn"; lesson?: LessonId }
   | { kind: "chat" }
-  | { kind: "dashboard" }
+  | { kind: "dashboard"; filter?: "task" | "recording" }
   | { kind: "stats"; category?: StatsCategoryKey }
   | { kind: "daily"; date?: string }
   | { kind: "relationships" }
   | { kind: "project"; id: string };
 
 type Props = {
-  onOpenSettings: () => void;
+  onOpenSettings: (page?: PageId) => void;
 };
 
 export default function Main({ onOpenSettings }: Props) {
   const { t } = useTranslation("main");
+  const { state: learning } = useLearning();
   const [section, setSection] = useState<MainSection>({ kind: "dashboard" });
   const [projects, setProjects] = useState<Project[]>([]);
   const [showAllProjects, setShowAllProjects] = useState(false);
@@ -118,9 +126,25 @@ export default function Main({ onOpenSettings }: Props) {
   }, [projects]);
 
   const visibleProjects = showAllProjects ? projects : projects.slice(0, 8);
+  const openLesson = (lesson?: LessonId) => setSection({ kind: "learn", lesson });
+  const learningAction = (id: LessonId | "setup-ai" | "setup-voice") => {
+    const settings: Partial<Record<typeof id, PageId>> = {
+      "setup-ai": "language-model", "setup-voice": "dictation", capture: "logcapture",
+      projects: "projects", meetings: "meetings", templates: "templates", actions: "actions",
+      export: "projects", agents: "coding-agents", startup: "general",
+    };
+    if (settings[id]) { onOpenSettings(settings[id]); return; }
+    if (id === "retrieve") { setSection({ kind: "dashboard" }); setDashboardSearchRequest((n) => n + 1); }
+    else if (id === "chat") setSection({ kind: "chat" });
+    else if (id === "daily") setSection({ kind: "daily" });
+    else if (id === "people") setSection({ kind: "relationships" });
+    else if (id === "tasks" || id === "recordings") setSection({ kind: "dashboard", filter: id === "tasks" ? "task" : "recording" });
+  };
 
   const renderContent = () => {
     switch (section.kind) {
+      case "learn":
+        return <LearnView key={section.lesson ?? "library"} lesson={section.lesson} onLesson={openLesson} onAction={learningAction} />;
       case "project": {
         const project = projectMap.get(section.id) ?? null;
         return (
@@ -137,6 +161,9 @@ export default function Main({ onOpenSettings }: Props) {
       case "dashboard":
         return (
           <DashboardView
+            key={section.filter ?? "all"}
+            initialFilter={section.filter}
+            onLesson={openLesson}
             projects={projectMap}
             onOpenStats={(category) => setSection({ kind: "stats", category })}
             searchRequest={dashboardSearchRequest}
@@ -161,6 +188,7 @@ export default function Main({ onOpenSettings }: Props) {
 
   const sectionTitle = (() => {
     switch (section.kind) {
+      case "learn": return t("learning.title");
       case "dashboard": return t("app.nav.dashboard");
       case "chat": return t("app.nav.chat");
       case "daily": return t("app.nav.dailyRecaps");
@@ -332,12 +360,17 @@ export default function Main({ onOpenSettings }: Props) {
         </nav>
 
         <div className="echo-sidebar-bottom flex shrink-0 flex-col gap-3 border-t border-line px-2 pb-2 pt-3">
-          <PermissionWarningBanner onOpenSettings={onOpenSettings} />
+          <SpeechSetupStatus />
+          <NavItem icon={BookOpen} label={t("learning.title")} active={section.kind === "learn"} onClick={() => openLesson()} />
+          <PermissionWarningBanner onOpenSettings={() => onOpenSettings("permissions")}
+            onOpenAiSettings={() => onOpenSettings("language-model")}
+            showMeetingSetup={learning.counts.meetings > 0 || (section.kind === "learn" && section.lesson === "meetings")}
+            showAiSetup={learning.counts.notes + learning.counts.tasks + learning.counts.meetings > 0 || section.kind === "chat" || section.kind === "daily"} />
           <UpdateBanner variant="sidebar" />
           <div className="echo-settings-row flex items-center gap-1.5">
             <button
               type="button"
-              onClick={onOpenSettings}
+              onClick={() => onOpenSettings()}
               className="echo-nav-item flex flex-1 cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] text-muted hover:text-fg"
               title={t("app.settings.openTooltip")}
             >

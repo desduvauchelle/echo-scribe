@@ -1,6 +1,6 @@
 {
   "app": {
-    "brand": "Echo Scribe",
+    "brand": "Tucky",
     "toolbar": {
       "search": "Szukaj"
     },
@@ -277,7 +277,7 @@
     },
     "notifications": {
       "disabledPrefix": "Powiadomienia są wyłączone — Twoje podsumowanie dnia nie pojawi się, dopóki nie włączysz ich w",
-      "settingsPath": "Ustawienia systemowe → Powiadomienia → Echo Scribe"
+      "settingsPath": "Ustawienia systemowe → Powiadomienia → Tucky"
     },
     "nav": {
       "previousDay": "Poprzedni dzień",
@@ -396,7 +396,7 @@
       "deleteAria": "Usuń sesję"
     },
     "message": {
-      "aiLabel": "Echo Scribe AI"
+      "aiLabel": "Tucky AI"
     },
     "sources": {
       "used_one": "{{count}} wykorzystane źródło.",

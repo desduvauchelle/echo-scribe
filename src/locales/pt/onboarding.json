@@ -1,12 +1,12 @@
 {
   "welcome": {
-    "title": "Bem-vindo ao Echo Scribe",
+    "title": "Bem-vindo ao Tucky",
     "subtitle": "Conceda as permissões abaixo, escolha um modelo de fala e comece a ditar em qualquer lugar. A Gravação de Tela é opcional — só é necessária se você quiser que as reuniões capturem o áudio da outra pessoa."
   },
   "permissions": {
     "microphone": {
       "title": "Microfone",
-      "subtitle": "O Echo Scribe precisa do seu microfone para capturar o que você diz."
+      "subtitle": "O Tucky precisa do seu microfone para capturar o que você diz."
     },
     "accessibility": {
       "title": "Acessibilidade",
@@ -14,7 +14,7 @@
     },
     "screenRecording": {
       "title": "Gravação de Tela",
-      "subtitle": "Permite que o Echo Scribe capture o áudio da outra pessoa durante chamadas no Zoom, Google Meet e outras reuniões. Sem ela, apenas o seu microfone é gravado."
+      "subtitle": "Permite que o Tucky capture o áudio da outra pessoa durante chamadas no Zoom, Google Meet e outras reuniões. Sem ela, apenas o seu microfone é gravado."
     },
     "promptHint": "Aprove o diálogo do macOS que acabou de aparecer. Se ele não apareceu, clique novamente em “Conceder acesso” para abrir os Ajustes do Sistema."
   },
@@ -32,20 +32,20 @@
   },
   "logCaptureShortcut": {
     "title": "Atalho de captura de registro",
-    "description": "Pressione e segure para capturar uma ideia ou tarefa. O padrão é Option direito — o Echo Scribe vai classificá-la localmente e exibir uma tela de revisão."
+    "description": "Pressione e segure para capturar uma ideia ou tarefa. O padrão é Option direito — o Tucky vai classificá-la localmente e exibir uma tela de revisão."
   },
   "startButton": {
     "starting": "Iniciando…",
-    "label": "Iniciar Echo Scribe"
+    "label": "Iniciar Tucky"
   },
   "skipButton": {
     "skipping": "Pulando…",
     "label": "Pular configuração por agora",
-    "note": "Você já pode explorar o Echo Scribe e concluir a configuração depois em Configurações."
+    "note": "Você já pode explorar o Tucky e concluir a configuração depois em Configurações."
   },
   "resetTcc": {
     "linkLabel": "Permissão travada? Redefinir e reiniciar",
-    "confirmBody": "Isso apaga as permissões de Microfone + Acessibilidade + Gravação de tela, encerra o Echo Scribe e o reabre automaticamente para você conceder o acesso de novo. Continuar?",
+    "confirmBody": "Isso apaga as permissões de Microfone + Acessibilidade + Gravação de tela, encerra o Tucky e o reabre automaticamente para você conceder o acesso de novo. Continuar?",
     "resetting": "Redefinindo…",
     "confirmButton": "Sim, redefinir e reiniciar",
     "cancelButton": "Cancelar",

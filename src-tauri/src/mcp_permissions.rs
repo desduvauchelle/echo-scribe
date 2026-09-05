@@ -53,7 +53,7 @@ pub const PERMISSIONS: &[McpPermission] = &[
         id: "chats",
         settings_key: "mcp_perm_chats",
         label: "Chats",
-        description: "Search and read your Echo Scribe chat conversations. Read-only.",
+        description: "Search and read your Tucky chat conversations. Read-only.",
         default_on: true,
         macos_only: false,
     },
@@ -70,7 +70,7 @@ pub const PERMISSIONS: &[McpPermission] = &[
         settings_key: "mcp_perm_screen_recording",
         label: "Screen recording",
         description: "List windows and start/stop screen recordings with mic, system audio, \
-                      and camera options. Requires Echo Scribe to be running.",
+                      and camera options. Requires Tucky to be running.",
         default_on: false,
         macos_only: true,
     },
@@ -84,7 +84,7 @@ pub fn by_id(id: &str) -> Option<&'static McpPermission> {
 /// category (enforced by a test in `mcp.rs`).
 pub fn tool_permission(tool: &str) -> Option<&'static McpPermission> {
     let id = match tool {
-        "search_echoscribe" | "list_projects" | "list_tasks" => "knowledge_search",
+        "search_tucky" | "search_echoscribe" | "list_projects" | "list_tasks" => "knowledge_search",
         "list_meetings" | "get_meeting" | "list_recipes" => "meetings",
         "search_chats" | "list_chats" | "get_chat" => "chats",
         "list_people" | "list_companies" => "contacts",

@@ -893,6 +893,7 @@ pub fn ensure_pipeline_started(state: &AppState, app: &AppHandle) {
         };
         let local = tokio::task::LocalSet::new();
         local.spawn_local(async move {
+            let app_for_state = app.clone();
             coordinator::spawn(
                 coord_rx,
                 pipeline_state,
@@ -905,6 +906,7 @@ pub fn ensure_pipeline_started(state: &AppState, app: &AppHandle) {
                 cancel_active,
                 last_transcript,
                 move |new_state: TrayPipelineState| {
+                    let _ = app_for_state.emit("pipeline:busy", new_state != TrayPipelineState::Idle);
                     if let Ok(t) = tray_for_state.lock() {
                         t.set_state(new_state);
                     }
@@ -1112,7 +1114,7 @@ pub fn export_activity(
         now.get(11..13).unwrap_or("00"),
         now.get(14..16).unwrap_or("00"),
     );
-    let path = dir.join(format!("echo-scribe-activity-{stamp}.{ext}"));
+    let path = dir.join(format!("tucky-activity-{stamp}.{ext}"));
     std::fs::write(&path, &body).map_err(|e| {
         error!(
             target: "export",
@@ -2094,12 +2096,12 @@ pub async fn reset_onboarding_and_quit(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-const APP_BUNDLE_NAME: &str = "Echo Scribe.app";
+const APP_BUNDLE_NAME: &str = "Tucky.app";
 
 fn containing_app_bundle(executable: &std::path::Path) -> Option<std::path::PathBuf> {
     executable
         .ancestors()
-        .find(|path| path.file_name().and_then(|name| name.to_str()) == Some(APP_BUNDLE_NAME))
+        .find(|path| matches!(path.file_name().and_then(|name| name.to_str()), Some(APP_BUNDLE_NAME | "Echo Scribe.app")))
         .map(std::path::Path::to_path_buf)
 }
 
@@ -2127,6 +2129,7 @@ fn uninstall_data_paths(home: &std::path::Path) -> Vec<std::path::PathBuf> {
                 "Library/Application Support/Echo Scribe",
                 "Library/Caches/echo-scribe",
                 "Library/WebKit/echo-scribe",
+                "Library/LaunchAgents/Tucky.plist",
                 "Library/LaunchAgents/Echo Scribe.plist",
             ]
             .map(String::from),
@@ -2170,7 +2173,7 @@ fn move_paths_to_trash(paths: &[std::path::PathBuf]) -> Result<(), String> {
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     Err(format!(
-        "Finder could not move Echo Scribe to the Trash: {}",
+        "Finder could not move Tucky to the Trash: {}",
         stderr.trim()
     ))
 }
@@ -2192,7 +2195,7 @@ pub async fn uninstall_application(app: AppHandle, delete_data: bool) -> Result<
         let executable = std::env::current_exe()
             .map_err(|e| format!("could not locate the running application: {e}"))?;
         let bundle = containing_app_bundle(&executable).ok_or_else(|| {
-            "Uninstall is only available when Echo Scribe is running from its app bundle."
+            "Uninstall is only available when Tucky is running from its app bundle."
                 .to_string()
         })?;
 
@@ -2751,7 +2754,7 @@ pub fn install_warnings() -> Vec<String> {
                     "running translocated — TCC grants will not stick"
                 );
                 warnings.push(
-                    "macOS is running Echo Scribe from a temporary location, so permission \
+                    "macOS is running Tucky from a temporary location, so permission \
                      grants won't stick. Quit the app, move it into the Applications folder \
                      with Finder (or reinstall with the install command), then reopen it."
                         .to_string(),
@@ -3156,7 +3159,7 @@ pub async fn chat_with_memory(
 
     let system = if sources.is_empty() {
         format!(
-            "You are a helpful assistant built into Echo Scribe, a voice note and task capture app. \
+            "You are a helpful assistant built into Tucky, a voice note and task capture app. \
              Today is {today_str}. \
              No relevant notes were found for this question.{temporal_note} \
              Do not invent or fabricate any captures or activities. \
@@ -3168,7 +3171,7 @@ pub async fn chat_with_memory(
             .map(|c| format!("[{}] ({}): {}", c.date, c.kind, c.content))
             .collect();
         format!(
-            "You are a helpful assistant built into Echo Scribe. \
+            "You are a helpful assistant built into Tucky. \
              Today is {today_str}. \
              Here are the user's relevant notes and captures:\n\n---\n{}\n---\n\n\
              Answer based only on these notes. \
@@ -5165,7 +5168,7 @@ pub async fn start_screen_recording_inner(
             let _ = app.emit(
                 "screenrec-warning",
                 serde_json::json!({
-                    "message": "Camera access is off for Echo Scribe, so this recording won't include the webcam. Enable it in System Settings → Privacy & Security → Camera, then quit and reopen the app.",
+                    "message": "Camera access is off for Tucky, so this recording won't include the webcam. Enable it in System Settings → Privacy & Security → Camera, then quit and reopen the app.",
                 }),
             );
             camera_uid = None;
@@ -6113,7 +6116,7 @@ pub fn get_recording_export_suggestion(
 
 /// Copy one managed recording export to the user-selected destination and
 /// remember its parent folder for the next Save dialog. The managed copy stays
-/// in Echo Scribe's recordings directory; `saved_path` records this additional
+/// in Tucky's recordings directory; `saved_path` records this additional
 /// user-facing copy so Reveal in Finder remains correct after an app restart.
 #[tauri::command]
 pub fn save_recording_export_copy(
@@ -7463,7 +7466,7 @@ pub async fn drive_connect(state: State<'_, AppState>) -> Result<DriveStatus, St
             // generic message would send the user to the logs for nothing.
             if e.contains(crate::screenrec::drive::SCOPE_MISSING) {
                 return Err("Google Drive access wasn't granted. Connect again and tick the \
-                            checkbox that lets Echo Scribe upload files to Google Drive."
+                            checkbox that lets Tucky upload files to Google Drive."
                     .into());
             }
             return Err(
@@ -8056,10 +8059,10 @@ mod tests {
     #[test]
     fn containing_app_bundle_finds_only_the_echo_scribe_bundle() {
         let installed =
-            std::path::Path::new("/Applications/Echo Scribe.app/Contents/MacOS/echo-scribe");
+            std::path::Path::new("/Applications/Tucky.app/Contents/MacOS/echo-scribe");
         assert_eq!(
             containing_app_bundle(installed),
-            Some(std::path::PathBuf::from("/Applications/Echo Scribe.app"))
+            Some(std::path::PathBuf::from("/Applications/Tucky.app"))
         );
         assert!(containing_app_bundle(std::path::Path::new(
             "/tmp/Another.app/Contents/MacOS/echo-scribe"

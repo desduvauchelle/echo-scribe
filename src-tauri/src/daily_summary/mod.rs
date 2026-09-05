@@ -34,7 +34,7 @@ impl DailySummaryResult {
     }
 }
 
-/// The model id Echo Scribe currently ships. The scheduler uses this when the
+/// The model id Tucky currently ships. The scheduler uses this when the
 /// user hasn't selected a specific LLM in settings; commands that want to
 /// honor the user's choice can pass a different id.
 pub const DEFAULT_LLM_MODEL_ID: &str = "gemma-4-e2b-it-q4_k_m";

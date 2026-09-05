@@ -218,7 +218,7 @@ function DictionaryCard() {
           <p className="text-xs text-muted">{t("transcriptionSettings.dictionary.description")}</p>
         </div>
         <div className="flex shrink-0 gap-2 text-xs">
-          <button type="button" onClick={() => downloadJson("echo-scribe-dictionary.json", entries ?? [])} className="text-muted hover:text-fg">{t("transcriptionSettings.dictionary.exportJson")}</button>
+          <button type="button" onClick={() => downloadJson("tucky-dictionary.json", entries ?? [])} className="text-muted hover:text-fg">{t("transcriptionSettings.dictionary.exportJson")}</button>
           <label className="cursor-pointer text-muted hover:text-fg">{t("transcriptionSettings.dictionary.importJson")}<input type="file" accept="application/json,.json" className="hidden" onChange={(event) => {
             const file = event.target.files?.[0];
             if (!file) return;
@@ -277,7 +277,7 @@ function SnippetsCard() {
       <div className="flex items-start justify-between gap-3">
         <div><div className="text-sm font-semibold text-fg">{t("transcriptionSettings.snippets.title")}</div><p className="text-xs text-muted">{t("transcriptionSettings.snippets.description")}</p></div>
         <div className="flex shrink-0 gap-2 text-xs">
-          <button type="button" onClick={() => downloadJson("echo-scribe-snippets.json", snippets ?? [])} className="text-muted hover:text-fg">{t("transcriptionSettings.snippets.exportJson")}</button>
+          <button type="button" onClick={() => downloadJson("tucky-snippets.json", snippets ?? [])} className="text-muted hover:text-fg">{t("transcriptionSettings.snippets.exportJson")}</button>
           <label className="cursor-pointer text-muted hover:text-fg">{t("transcriptionSettings.snippets.importJson")}<input type="file" accept="application/json,.json" className="hidden" onChange={(event) => {
             const file = event.target.files?.[0];
             if (!file) return;

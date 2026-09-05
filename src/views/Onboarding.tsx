@@ -1,26 +1,18 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Mic } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import HotkeyRebinder from "../components/HotkeyRebinder";
-import LlmModelPicker from "../components/LlmModelPicker";
+import SpeechSetupStatus from "../components/SpeechSetupStatus";
+import { useSpeechSetup } from "../lib/speechSetup";
 import PermissionRow from "../components/PermissionRow";
-import SpeechModelPicker from "../components/SpeechModelPicker";
-import StartAtLoginToggle from "../components/StartAtLoginToggle";
 import {
-  getLogCaptureBinding,
-  listLlmModels,
-  listSpeechModels,
   openAccessibilitySettings,
   openMicrophoneSettings,
-  openScreenRecordingSettings,
   permissionsStatus,
   promptAccessibilityAccess,
   requestMicrophoneAccess,
-  requestScreenRecordingAccess,
   resetTccAndQuit,
   setOnboardingCompleted,
   startPipeline,
-  updateLogCaptureBinding,
   type PermissionsStatus,
 } from "../lib/api";
 
@@ -106,38 +98,10 @@ export default function Onboarding({ initialStatus, onStarted, resumeNotice }: P
   const [starting, setStarting] = useState(false);
   const [skipping, setSkipping] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [modelReady, setModelReady] = useState(false);
-  const [llmReady, setLlmReady] = useState(false);
-  // Once the user clicks "Skip for now" we hide the LLM step's gating banner
-  // so the page reads as "you chose to skip" rather than "you still need to
-  // do something". The flag is local to this onboarding session.
-  const [llmSkipped, setLlmSkipped] = useState(false);
+  const speech = useSpeechSetup(true);
   const intervalRef = useRef<number | null>(null);
-  // First "Grant access" click fires the registering macOS prompt; only later
-  // clicks open System Settings (by then tccd lists the app). The hint under
-  // the row points at the system dialog in between.
-  const prompted = useRef({ accessibility: false, screenRecording: false });
+  const prompted = useRef({ accessibility: false });
   const [accessibilityHint, setAccessibilityHint] = useState(false);
-  const [screenRecordingHint, setScreenRecordingHint] = useState(false);
-
-  const refetchStartGate = useCallback(async () => {
-    try {
-      const ms = await listSpeechModels();
-      setModelReady(ms.some((m) => m.active && m.downloaded));
-    } catch {
-      /* leave gate as-is */
-    }
-    try {
-      const ls = await listLlmModels();
-      setLlmReady(ls.some((m) => m.active && m.downloaded));
-    } catch {
-      /* leave gate as-is */
-    }
-  }, []);
-
-  useEffect(() => {
-    void refetchStartGate();
-  }, [refetchStartGate]);
 
   const refresh = async (): Promise<PermissionsStatus> => {
     setChecking(true);
@@ -160,7 +124,7 @@ export default function Onboarding({ initialStatus, onStarted, resumeNotice }: P
       } catch {
         /* ignore */
       }
-      void refetchStartGate();
+
     };
     intervalRef.current = window.setInterval(tick, 1500);
     return () => {
@@ -169,13 +133,13 @@ export default function Onboarding({ initialStatus, onStarted, resumeNotice }: P
         intervalRef.current = null;
       }
     };
-  }, [refetchStartGate]);
+  }, []);
 
   const bothGranted = status.microphone && status.accessibility;
   // Start is gated on: both perms green AND speech model ready. The LLM
   // is intentionally NOT gated here — voice-at-cursor must be reachable
   // even without an LLM. The user can come back to Settings later.
-  const canStart = bothGranted && modelReady;
+  const canStart = bothGranted && speech.phase === "ready";
 
   const handleGrantMicrophone = async () => {
     try {
@@ -190,39 +154,9 @@ export default function Onboarding({ initialStatus, onStarted, resumeNotice }: P
     }
   };
 
-  const handleGrantScreenRecording = async () => {
-    // CGRequestScreenCaptureAccess() registers the app with tccd
-    // *asynchronously* and returns false on a fresh install — so on the first
-    // click we must NOT open System Settings in the same tick: the pane
-    // renders a stale Screen Recording list that doesn't show the app yet,
-    // and it buries the system prompt behind it. First click: prompt + hint.
-    // Later clicks: the app is registered by then, jump straight to the pane.
-    if (!prompted.current.screenRecording) {
-      prompted.current.screenRecording = true;
-      try {
-        const granted = await requestScreenRecordingAccess();
-        if (granted) {
-          await refresh();
-          return;
-        }
-      } catch {
-        /* registered or not — show the hint either way */
-      }
-      setScreenRecordingHint(true);
-      await refresh().catch(() => {});
-      return;
-    }
-    try {
-      await openScreenRecordingSettings();
-    } catch {
-      /* ignore */
-    }
-    await refresh().catch(() => {});
-  };
-
   const handleGrantAccessibility = async () => {
     // promptAccessibilityAccess() (AXIsProcessTrustedWithOptions) registers
-    // Echo Scribe in the macOS Accessibility list *asynchronously* and always
+    // Tucky in the macOS Accessibility list *asynchronously* and always
     // returns false on a fresh install. The system raises its own "Open
     // System Settings" button as part of that prompt — opening Settings
     // ourselves in the same tick shows a stale list WITHOUT the app in it and
@@ -296,7 +230,7 @@ export default function Onboarding({ initialStatus, onStarted, resumeNotice }: P
           {t("welcome.title")}
         </h1>
         <p className="mt-1.5 text-[13px] leading-relaxed text-muted">
-          {t("welcome.subtitle")}
+          {t("simple.intro")}
         </p>
 
         {resumeNotice ? (
@@ -340,100 +274,7 @@ export default function Onboarding({ initialStatus, onStarted, resumeNotice }: P
 
           <div className="h-px bg-elevated" />
 
-          <PermissionRow
-            title={t("permissions.screenRecording.title")}
-            subtitle={t("permissions.screenRecording.subtitle")}
-            hint={screenRecordingHint ? t("permissions.promptHint") : undefined}
-            granted={status.screen_recording}
-            onGrant={() => {
-              void handleGrantScreenRecording();
-            }}
-            onRecheck={() => {
-              void refresh();
-            }}
-            recheckBusy={checking}
-          />
-
-          <div className="h-px bg-elevated" />
-
-          <div>
-            <SpeechModelPicker
-              onChange={() => {
-                void refetchStartGate();
-              }}
-            />
-          </div>
-
-          <div className="h-px bg-elevated" />
-
-          <div>
-            <div className="flex items-center justify-between gap-3">
-              <h2 className="text-[13px] font-semibold tracking-tight text-fg">
-                {t("llmModel.title")}{" "}
-                <span className="text-xs font-normal text-muted">
-                  {t("llmModel.optional")}
-                </span>
-              </h2>
-              {llmReady ? (
-                <span className="inline-flex items-center rounded-full bg-success/15 px-2 py-0.5 text-xs text-success">
-                  {t("llmModel.ready")}
-                </span>
-              ) : null}
-            </div>
-            <p className="mt-1 text-sm text-muted">
-              {t("llmModel.description")}
-            </p>
-            <div className="mt-3">
-              <LlmModelPicker />
-            </div>
-            {!llmReady && !llmSkipped ? (
-              <button
-                type="button"
-                onClick={() => setLlmSkipped(true)}
-                className="mt-3 text-xs text-muted underline-offset-2 hover:text-fg hover:underline"
-              >
-                {t("llmModel.skipButton")}
-              </button>
-            ) : null}
-            {llmSkipped && !llmReady ? (
-              <p className="mt-3 text-xs text-muted">
-                {t("llmModel.skippedNote")}
-              </p>
-            ) : null}
-          </div>
-
-          <div className="h-px bg-elevated" />
-
-          <div>
-            <h2 className="text-[13px] font-semibold tracking-tight text-fg">
-              {t("dictationShortcut.title")}
-            </h2>
-            <p className="mt-1 text-sm text-muted">
-              {t("dictationShortcut.description")}
-            </p>
-            <div className="mt-3">
-              <HotkeyRebinder />
-            </div>
-          </div>
-
-          <div>
-            <StartAtLoginToggle variant="row" />
-          </div>
-
-          <div>
-            <h2 className="text-[13px] font-semibold tracking-tight text-fg">
-              {t("logCaptureShortcut.title")}
-            </h2>
-            <p className="mt-1 text-sm text-muted">
-              {t("logCaptureShortcut.description")}
-            </p>
-            <div className="mt-3">
-              <HotkeyRebinder
-                load={getLogCaptureBinding}
-                save={updateLogCaptureBinding}
-              />
-            </div>
-          </div>
+          <SpeechSetupStatus start />
         </div>
 
         <button
@@ -474,9 +315,7 @@ export default function Onboarding({ initialStatus, onStarted, resumeNotice }: P
           </p>
         ) : null}
 
-        <div className="mt-6 border-t border-line pt-3">
-          <ResetTccBlock />
-        </div>
+        <details className="mt-6 border-t border-line pt-3 text-xs text-muted"><summary className="cursor-pointer">{t("simple.help")}</summary><div className="pt-3"><ResetTccBlock /></div></details>
       </div>
     </div>
   );

@@ -1,12 +1,12 @@
 {
   "welcome": {
-    "title": "Welkom bij Echo Scribe",
+    "title": "Welkom bij Tucky",
     "subtitle": "Geef de onderstaande toestemmingen, kies een spraakmodel en begin dan overal met dicteren. Schermopname is optioneel — alleen nodig als je wilt dat meetings de audio van de ander vastleggen."
   },
   "permissions": {
     "microphone": {
       "title": "Microfoon",
-      "subtitle": "Echo Scribe heeft je microfoon nodig om vast te leggen wat je zegt."
+      "subtitle": "Tucky heeft je microfoon nodig om vast te leggen wat je zegt."
     },
     "accessibility": {
       "title": "Toegankelijkheid",
@@ -14,7 +14,7 @@
     },
     "screenRecording": {
       "title": "Schermopname",
-      "subtitle": "Hiermee kan Echo Scribe de audio van de andere deelnemer vastleggen tijdens Zoom, Google Meet en andere meetings. Zonder deze toestemming wordt alleen je microfoon opgenomen."
+      "subtitle": "Hiermee kan Tucky de audio van de andere deelnemer vastleggen tijdens Zoom, Google Meet en andere meetings. Zonder deze toestemming wordt alleen je microfoon opgenomen."
     },
     "promptHint": "Keur het macOS-venster goed dat zojuist verscheen. Verscheen er niets? Klik dan opnieuw op “Toegang verlenen” om Systeeminstellingen te openen."
   },
@@ -32,20 +32,20 @@
   },
   "logCaptureShortcut": {
     "title": "Sneltoets voor log capture",
-    "description": "Houd ingedrukt om een gedachte of taak vast te leggen. Standaard is Rechter Option — Echo Scribe classificeert dit lokaal en toont een beoordelingsoverlay."
+    "description": "Houd ingedrukt om een gedachte of taak vast te leggen. Standaard is Rechter Option — Tucky classificeert dit lokaal en toont een beoordelingsoverlay."
   },
   "startButton": {
     "starting": "Bezig met starten…",
-    "label": "Echo Scribe starten"
+    "label": "Tucky starten"
   },
   "skipButton": {
     "skipping": "Bezig met overslaan…",
     "label": "Setup voorlopig overslaan",
-    "note": "Je kunt Echo Scribe nu al verkennen en de setup later afronden in Instellingen."
+    "note": "Je kunt Tucky nu al verkennen en de setup later afronden in Instellingen."
   },
   "resetTcc": {
     "linkLabel": "Toestemming vast? Resetten & herstarten",
-    "confirmBody": "Dit wist de toestemmingen voor Microfoon + Toegankelijkheid + Schermopname, sluit Echo Scribe af en opent het automatisch opnieuw zodat je opnieuw toegang kunt verlenen. Doorgaan?",
+    "confirmBody": "Dit wist de toestemmingen voor Microfoon + Toegankelijkheid + Schermopname, sluit Tucky af en opent het automatisch opnieuw zodat je opnieuw toegang kunt verlenen. Doorgaan?",
     "resetting": "Bezig met resetten…",
     "confirmButton": "Ja, resetten & herstarten",
     "cancelButton": "Annuleren",

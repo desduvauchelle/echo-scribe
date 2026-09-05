@@ -3,15 +3,15 @@
 <plist version="1.0">
 <dict>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Echo Scribe transcribes what you say into text at your cursor. Audio is processed locally and never leaves your machine.</string>
+    <string>Tucky transcribes what you say into text at your cursor. Audio is processed locally and never leaves your machine.</string>
     <key>NSAccessibilityUsageDescription</key>
-    <string>Echo Scribe needs Accessibility access to listen for the global dictation hotkey and paste transcribed text at your cursor in any app.</string>
+    <string>Tucky needs Accessibility access to listen for the global dictation hotkey and paste transcribed text at your cursor in any app.</string>
     <key>NSAppleEventsUsageDescription</key>
-    <string>Echo Scribe synthesizes a paste keystroke to insert transcribed text at your cursor.</string>
+    <string>Tucky synthesizes a paste keystroke to insert transcribed text at your cursor.</string>
     <key>NSScreenCaptureUsageDescription</key>
-    <string>Echo Scribe captures system audio during meetings so it can transcribe the other participants. Only audio is read; no screen content is recorded or stored.</string>
+    <string>Tucky captures system audio during meetings so it can transcribe the other participants. Only audio is read; no screen content is recorded or stored.</string>
     <key>NSCameraUsageDescription</key>
-    <string>Echo Scribe records your camera only when you enable it for a screen recording.</string>
+    <string>Tucky records your camera only when you enable it for a screen recording.</string>
     <key>LSUIElement</key>
     <true/>
 </dict>

@@ -5,7 +5,7 @@
 //!
 //! We take the assertion through IOKit rather than by spawning `caffeinate`
 //! on purpose: an IOKit assertion is owned by *this process*, so macOS drops
-//! it automatically if Echo Scribe crashes or is force-quit. A `caffeinate`
+//! it automatically if Tucky crashes or is force-quit. A `caffeinate`
 //! child would outlive a crashed parent and leave the machine awake forever.
 //!
 //! Timed sessions are session-scoped — a 2-hour hold does not survive a quit.
@@ -31,7 +31,7 @@ pub const KEEP_AWAKE_OPTIONS: &[KeepAwakeMode] = &[
 
 /// Shown to the OS in the assertion name — this is the string that appears in
 /// `pmset -g assertions`, so make it recognisable.
-const ASSERTION_REASON: &str = "Echo Scribe: Keep awake";
+const ASSERTION_REASON: &str = "Tucky: Keep awake";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeepAwakeMode {

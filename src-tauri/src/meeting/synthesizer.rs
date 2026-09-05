@@ -96,6 +96,14 @@ pub fn flatten_transcript(segments: &[Segment]) -> String {
 const MAX_TRANSCRIPT_BYTES: usize = 18_000;
 const CONDENSE_CHUNK_BYTES: usize = 15_000;
 
+fn detected_output_language(text: &str) -> Option<&'static str> {
+    let info = whatlang::detect(text)?;
+    // Meeting transcripts are long, so a reliable result should be decisive.
+    // If detection is uncertain, retain the existing model-inference fallback
+    // instead of confidently pinning the wrong language.
+    info.is_reliable().then(|| info.lang().eng_name())
+}
+
 fn split_for_condensing(text: &str) -> Vec<String> {
     let mut chunks = Vec::new();
     let mut current_chunk = String::new();
@@ -128,7 +136,11 @@ fn split_for_condensing(text: &str) -> Vec<String> {
     chunks
 }
 
-async fn condense_pass(llm: &impl crate::llm::LlmGenerator, text: &str) -> Result<String, String> {
+async fn condense_pass(
+    llm: &impl crate::llm::LlmGenerator,
+    text: &str,
+    output_language: Option<&str>,
+) -> Result<String, String> {
     let chunks = split_for_condensing(text);
     let mut summaries = Vec::new();
     let num_chunks = chunks.len();
@@ -136,12 +148,15 @@ async fn condense_pass(llm: &impl crate::llm::LlmGenerator, text: &str) -> Resul
         // The condensed text is fed straight back into the notes prompt, so an
         // English condensation would force English notes for a non-English
         // meeting no matter what stage 1 is told.
+        let language_rule = output_language
+            .map(crate::llm::prompt::pinned_language_rule)
+            .unwrap_or_else(|| crate::llm::prompt::language_rule("the meeting segment"));
         let system_prompt = format!(
             "You are a precise meeting assistant. Summarize the following meeting segment \
              chronologically. Highlight key points, decisions, and action items discussed \
              during this part of the meeting. Keep it concise but detailed enough for a \
              final synthesizer. {}",
-            crate::llm::prompt::language_rule("the meeting segment")
+            language_rule
         );
         let user_prompt = format!("Meeting Segment {}/{}:\n\n{}", i + 1, num_chunks, chunk);
 
@@ -180,9 +195,10 @@ pub(crate) async fn condense_transcript(
     llm: &impl crate::llm::LlmGenerator,
     text: &str,
 ) -> Result<String, String> {
+    let output_language = detected_output_language(text);
     let mut current = text.to_string();
     loop {
-        let condensed = condense_pass(llm, &current).await?;
+        let condensed = condense_pass(llm, &current, output_language).await?;
         if condensed.len() <= MAX_TRANSCRIPT_BYTES {
             return Ok(condensed);
         }
@@ -215,7 +231,10 @@ fn fallback_title(markdown: &str) -> String {
         .map(str::trim)
         .find(|l| !l.is_empty())
         .unwrap_or("");
-    let line = line.trim_start_matches('#').trim_start_matches(['-', '*', ' ']).trim();
+    let line = line
+        .trim_start_matches('#')
+        .trim_start_matches(['-', '*', ' '])
+        .trim();
     line.chars().take(60).collect()
 }
 
@@ -277,6 +296,7 @@ pub async fn synthesize(
     summary_template: Option<&crate::db::meeting_intelligence::SummaryTemplate>,
 ) -> Result<StoredSummary, String> {
     let flattened_raw = flatten_transcript(segments);
+    let output_language = detected_output_language(&flattened_raw);
     let flattened = if flattened_raw.len() <= MAX_TRANSCRIPT_BYTES {
         flattened_raw
     } else {
@@ -289,7 +309,7 @@ pub async fn synthesize(
 
     // Stage 1: free-form markdown notes. Plain text out — nothing to parse,
     // so a custom or reworded template can't break this stage.
-    let (system, user) = crate::llm::prompt::build_meeting_notes_prompt(
+    let (system, user) = crate::llm::prompt::build_meeting_notes_prompt_with_language(
         &flattened,
         detected_app_name,
         duration_minutes,
@@ -297,6 +317,7 @@ pub async fn synthesize(
         custom_prompt,
         user_notes,
         summary_template,
+        output_language,
     );
     let mut markdown = String::new();
     for attempt in 0..2u8 {
@@ -418,14 +439,56 @@ mod tests {
         // The condensation feeds straight back into the notes prompt, so an
         // English condensation would force English notes for a German meeting.
         let llm = CapturingLlm::default();
-        condense_pass(&llm, "Them: Guten Tag, wie geht es Ihnen?\n")
+        condense_pass(&llm, "Them: Guten Tag, wie geht es Ihnen?\n", None)
             .await
             .unwrap();
         let systems = llm.systems.lock().unwrap();
-        let sys = systems[0].as_deref().expect("condense pass sets a system prompt");
+        let sys = systems[0]
+            .as_deref()
+            .expect("condense pass sets a system prompt");
         assert!(
             sys.contains(&crate::llm::prompt::language_rule("the meeting segment")),
             "got: {sys}"
+        );
+    }
+
+    #[tokio::test]
+    async fn english_condensation_is_pinned_to_english_instead_of_model_inference() {
+        let llm = CapturingLlm::default();
+        condense_pass(
+            &llm,
+            "Them: We reviewed the website strategy and agreed on the next steps.\n",
+            detected_output_language(
+                "Them: We reviewed the website strategy and agreed on the next steps.\n",
+            ),
+        )
+        .await
+        .unwrap();
+        let systems = llm.systems.lock().unwrap();
+        let sys = systems[0]
+            .as_deref()
+            .expect("condense pass sets a system prompt");
+        assert!(
+            sys.contains("Output language: English"),
+            "an English meeting must not leave the output language for the model to infer: {sys}"
+        );
+    }
+
+    #[test]
+    fn detects_dominant_meeting_language_before_synthesis() {
+        assert_eq!(
+            detected_output_language(
+                "You: We reviewed the website strategy and agreed on the next steps.\n\
+                 Them: The dashboard metrics are ready, and we should update the copy today.\n"
+            ),
+            Some("English")
+        );
+        assert_eq!(
+            detected_output_language(
+                "You: Wir haben die Website-Strategie besprochen und die nächsten Schritte vereinbart.\n\
+                 Them: Die Kennzahlen sind fertig und wir aktualisieren den Text heute.\n"
+            ),
+            Some("German")
         );
     }
 
@@ -522,7 +585,10 @@ mod tests {
         };
         let json = serde_json::to_string(&summary).unwrap();
         let parsed: StoredSummary = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed.markdown.as_deref(), Some("## Summary\n- Shipped the thing"));
+        assert_eq!(
+            parsed.markdown.as_deref(),
+            Some("## Summary\n- Shipped the thing")
+        );
         assert_eq!(parsed.suggested_title, "Ship review");
         assert_eq!(parsed.project_name.as_deref(), Some("Beta"));
         assert!(parsed.action_items.is_empty());
@@ -531,7 +597,10 @@ mod tests {
     #[test]
     fn fallback_title_prefers_first_heading() {
         assert_eq!(fallback_title("# Kickoff notes\n\n- a"), "Kickoff notes");
-        assert_eq!(fallback_title("\n\n- First point made\n- Second"), "First point made");
+        assert_eq!(
+            fallback_title("\n\n- First point made\n- Second"),
+            "First point made"
+        );
         assert_eq!(fallback_title(""), "");
         let long = format!("# {}", "x".repeat(100));
         assert_eq!(fallback_title(&long).chars().count(), 60);

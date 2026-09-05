@@ -102,8 +102,8 @@ export default function ActivityPanel() {
       <aside
         ref={panelRef}
         tabIndex={-1}
-        className={`fixed inset-y-0 right-0 z-50 flex w-[480px] max-w-[90vw] flex-col border-l border-line bg-canvas shadow-2xl transition-transform duration-200 ease-out ${
-          open ? "translate-x-0" : "translate-x-full"
+        className={`fixed inset-y-0 right-0 z-50 flex w-[480px] max-w-[90vw] flex-col border-l border-line bg-canvas transition-transform duration-200 ease-out ${
+          open ? "translate-x-0 shadow-2xl" : "translate-x-full shadow-none"
         }`}
         role="dialog"
         aria-modal="true"

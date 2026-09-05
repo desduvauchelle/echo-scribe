@@ -4,6 +4,9 @@ import { listLlmModels, permissionsStatus } from "../lib/api";
 
 type Props = {
   onOpenSettings: () => void;
+  onOpenAiSettings?: () => void;
+  showMeetingSetup?: boolean;
+  showAiSetup?: boolean;
 };
 
 /// Polls permission status every few seconds and renders a warning card in
@@ -11,7 +14,7 @@ type Props = {
 /// mid-session (e.g. user revoked access from System Settings). Stays out of
 /// the way when everything is green. Not a top bar: the top 2rem of the
 /// window is the tauri drag region under the macOS traffic lights.
-export default function PermissionWarningBanner({ onOpenSettings }: Props) {
+export default function PermissionWarningBanner({ onOpenSettings, onOpenAiSettings = onOpenSettings, showMeetingSetup = true, showAiSetup = true }: Props) {
   const { t } = useTranslation();
   const [missing, setMissing] = useState<string[]>([]);
   // Track whether the missing permission(s) actually break core functionality
@@ -52,7 +55,7 @@ export default function PermissionWarningBanner({ onOpenSettings }: Props) {
         const m: string[] = [];
         if (!s.microphone) m.push(t("permissionWarningBanner.microphone"));
         if (!s.accessibility) m.push(t("permissionWarningBanner.accessibility"));
-        if (!s.screen_recording) m.push(t("permissionWarningBanner.screenRecording"));
+        if (showMeetingSetup && !s.screen_recording) m.push(t("permissionWarningBanner.screenRecording"));
         setMissing(m);
         setCoreBroken(!s.microphone || !s.accessibility);
       } catch {
@@ -65,9 +68,9 @@ export default function PermissionWarningBanner({ onOpenSettings }: Props) {
       cancelled = true;
       window.clearInterval(id);
     };
-  }, []);
+  }, [showMeetingSetup, t]);
 
-  if (missing.length === 0 && !llmMissing) return null;
+  if (missing.length === 0 && !(llmMissing && showAiSetup)) return null;
 
   return (
     <div className="flex flex-col gap-2">
@@ -93,7 +96,7 @@ export default function PermissionWarningBanner({ onOpenSettings }: Props) {
           </button>
         </div>
       ) : null}
-      {llmMissing ? (
+      {llmMissing && showAiSetup ? (
         <div
           role="alert"
           className="material-status-card rounded-xl border border-line p-2.5 text-xs text-muted"
@@ -106,7 +109,7 @@ export default function PermissionWarningBanner({ onOpenSettings }: Props) {
           </div>
           <button
             type="button"
-            onClick={onOpenSettings}
+            onClick={onOpenAiSettings}
             className="mt-2 w-full cursor-pointer rounded-md border border-line bg-elevated px-2 py-1 font-semibold text-fg transition-colors hover:bg-elevated/70"
           >
             {t("permissionWarningBanner.fixInSettings")}

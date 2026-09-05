@@ -54,7 +54,7 @@ fn short_ts(iso: &str) -> String {
 
 pub fn render_markdown(entries: &[ActivityEntry], range_label: &str, generated_at: &str) -> String {
     let mut out = String::new();
-    out.push_str("# Echo Scribe activity export\n\n");
+    out.push_str("# Tucky activity export\n\n");
     out.push_str(&format!(
         "**Range:** {range_label} · **Items:** {} · **Generated:** {}\n\n",
         entries.len(),
@@ -197,7 +197,7 @@ mod tests {
             entry(make_item("b", Some(ItemKind::Note), "a note"), None),
         ];
         let md = render_markdown(&entries, "Past 24 hours", "2026-06-11T10:00:00Z");
-        assert!(md.contains("# Echo Scribe activity export"));
+        assert!(md.contains("# Tucky activity export"));
         assert!(md.contains("**Range:** Past 24 hours · **Items:** 2"));
         assert!(md.contains("## 2026-06-11 09:30 — Dictation (Acme)"));
         assert!(md.contains("hello world"));

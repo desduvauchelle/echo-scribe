@@ -1,12 +1,12 @@
 {
   "welcome": {
-    "title": "Witaj w Echo Scribe",
+    "title": "Witaj w Tucky",
     "subtitle": "Przyznaj poniższe uprawnienia, wybierz model mowy, a potem zacznij dyktować w dowolnym miejscu. Nagrywanie ekranu jest opcjonalne — potrzebne tylko, jeśli chcesz, aby spotkania rejestrowały też dźwięk rozmówcy."
   },
   "permissions": {
     "microphone": {
       "title": "Mikrofon",
-      "subtitle": "Echo Scribe potrzebuje dostępu do mikrofonu, aby rejestrować to, co mówisz."
+      "subtitle": "Tucky potrzebuje dostępu do mikrofonu, aby rejestrować to, co mówisz."
     },
     "accessibility": {
       "title": "Dostępność",
@@ -14,7 +14,7 @@
     },
     "screenRecording": {
       "title": "Nagrywanie ekranu",
-      "subtitle": "Pozwala Echo Scribe rejestrować dźwięk drugiej strony podczas Zoom, Google Meet i innych spotkań. Bez tego nagrywany jest tylko Twój mikrofon."
+      "subtitle": "Pozwala Tucky rejestrować dźwięk drugiej strony podczas Zoom, Google Meet i innych spotkań. Bez tego nagrywany jest tylko Twój mikrofon."
     },
     "promptHint": "Zatwierdź okno dialogowe macOS, które właśnie się pojawiło. Jeśli się nie pojawiło, kliknij ponownie „Przyznaj dostęp”, aby otworzyć Ustawienia systemowe."
   },
@@ -32,20 +32,20 @@
   },
   "logCaptureShortcut": {
     "title": "Skrót notatki głosowej",
-    "description": "Naciśnij i przytrzymaj, aby nagrać myśl lub zadanie. Domyślnie to prawy Option — Echo Scribe sklasyfikuje ją lokalnie i pokaże okno przeglądu."
+    "description": "Naciśnij i przytrzymaj, aby nagrać myśl lub zadanie. Domyślnie to prawy Option — Tucky sklasyfikuje ją lokalnie i pokaże okno przeglądu."
   },
   "startButton": {
     "starting": "Uruchamianie…",
-    "label": "Uruchom Echo Scribe"
+    "label": "Uruchom Tucky"
   },
   "skipButton": {
     "skipping": "Pomijanie…",
     "label": "Pomiń konfigurację na razie",
-    "note": "Możesz teraz przeglądać Echo Scribe i dokończyć konfigurację później w Ustawieniach."
+    "note": "Możesz teraz przeglądać Tucky i dokończyć konfigurację później w Ustawieniach."
   },
   "resetTcc": {
     "linkLabel": "Uprawnienie się zacięło? Zresetuj i uruchom ponownie",
-    "confirmBody": "To usuwa uprawnienia Mikrofon + Dostępność + Nagrywanie ekranu, zamyka Echo Scribe i automatycznie otwiera go ponownie, aby można było ponownie przyznać dostęp. Kontynuować?",
+    "confirmBody": "To usuwa uprawnienia Mikrofon + Dostępność + Nagrywanie ekranu, zamyka Tucky i automatycznie otwiera go ponownie, aby można było ponownie przyznać dostęp. Kontynuować?",
     "resetting": "Resetowanie…",
     "confirmButton": "Tak, zresetuj i uruchom ponownie",
     "cancelButton": "Anuluj",

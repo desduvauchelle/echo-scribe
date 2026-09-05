@@ -1,6 +1,6 @@
 {
   "app": {
-    "brand": "Echo Scribe",
+    "brand": "Tucky",
     "toolbar": {
       "search": "Suchen"
     },
@@ -275,7 +275,7 @@
     },
     "notifications": {
       "disabledPrefix": "Benachrichtigungen sind deaktiviert — dein Tages-Recap erscheint erst, wenn du sie aktivierst unter",
-      "settingsPath": "Systemeinstellungen → Mitteilungen → Echo Scribe"
+      "settingsPath": "Systemeinstellungen → Mitteilungen → Tucky"
     },
     "nav": {
       "previousDay": "Vorheriger Tag",
@@ -392,7 +392,7 @@
       "deleteAria": "Sitzung löschen"
     },
     "message": {
-      "aiLabel": "Echo Scribe AI"
+      "aiLabel": "Tucky AI"
     },
     "sources": {
       "used_one": "{{count}} Quelle verwendet",

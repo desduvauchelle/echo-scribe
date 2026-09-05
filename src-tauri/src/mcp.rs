@@ -45,9 +45,9 @@ fn text_result(value: Value) -> Value {
 #[cfg(target_os = "macos")]
 fn recording_tool_definitions() -> Vec<Value> {
     vec![
-        json!({"name":"list_recording_sources","description":"List the windows and displays currently available for screen recording (ids, app names, titles, sizes). Prefer windows with on_screen: true — off-screen windows (other Spaces, minimized) only produce frames when their content updates, so recording them can yield an empty video. Window ids go stale as windows open/close, so call this right before start_recording. Requires the Echo Scribe app to be running and recording control enabled in its Settings → Coding Agents.","inputSchema":{"type":"object","properties":{}}}),
-        json!({"name":"start_recording","description":"Start a screen recording of one window (window_id) or one display (display_id); omit both to record the primary display. Options: mic (default false) records the user's microphone, system_audio (default true) records system sound, camera (default false) also captures the webcam — note the webcam is saved as a SEPARATE video file, never composited into the main video. Returns as soon as capture is running; call stop_recording to finish and get file paths. Requires the Echo Scribe app to be running and recording control enabled in its Settings → Coding Agents.","inputSchema":{"type":"object","properties":{"window_id":{"type":"integer","description":"A window id from list_recording_sources"},"display_id":{"type":"integer","description":"A display id from list_recording_sources"},"mic":{"type":"boolean","default":false},"system_audio":{"type":"boolean","default":true},"camera":{"type":"boolean","default":false}}}}),
-        json!({"name":"stop_recording","description":"Stop the in-progress screen recording, save it into the Echo Scribe library, and return absolute file paths: video_path (H.264 MP4 with any recorded audio) plus webcam_video_path and events_path when present. A background audio-cleanup pass may replace video_path with the returned cleaned_video_path shortly after — if video_path is missing when you read it, use cleaned_video_path.","inputSchema":{"type":"object","properties":{}}}),
+        json!({"name":"list_recording_sources","description":"List the windows and displays currently available for screen recording (ids, app names, titles, sizes). Prefer windows with on_screen: true — off-screen windows (other Spaces, minimized) only produce frames when their content updates, so recording them can yield an empty video. Window ids go stale as windows open/close, so call this right before start_recording. Requires the Tucky app to be running and recording control enabled in its Settings → Coding Agents.","inputSchema":{"type":"object","properties":{}}}),
+        json!({"name":"start_recording","description":"Start a screen recording of one window (window_id) or one display (display_id); omit both to record the primary display. Options: mic (default false) records the user's microphone, system_audio (default true) records system sound, camera (default false) also captures the webcam — note the webcam is saved as a SEPARATE video file, never composited into the main video. Returns as soon as capture is running; call stop_recording to finish and get file paths. Requires the Tucky app to be running and recording control enabled in its Settings → Coding Agents.","inputSchema":{"type":"object","properties":{"window_id":{"type":"integer","description":"A window id from list_recording_sources"},"display_id":{"type":"integer","description":"A display id from list_recording_sources"},"mic":{"type":"boolean","default":false},"system_audio":{"type":"boolean","default":true},"camera":{"type":"boolean","default":false}}}}),
+        json!({"name":"stop_recording","description":"Stop the in-progress screen recording, save it into the Tucky library, and return absolute file paths: video_path (H.264 MP4 with any recorded audio) plus webcam_video_path and events_path when present. A background audio-cleanup pass may replace video_path with the returned cleaned_video_path shortly after — if video_path is missing when you read it, use cleaned_video_path.","inputSchema":{"type":"object","properties":{}}}),
         json!({"name":"get_recording_status","description":"Report whether a screen recording is currently in progress, and if so whether it is paused and what source it captures.","inputSchema":{"type":"object","properties":{}}}),
     ]
 }
@@ -55,14 +55,14 @@ fn recording_tool_definitions() -> Vec<Value> {
 fn tool_definitions() -> Vec<Value> {
     #[allow(unused_mut)]
     let mut tools = vec![
-        json!({"name":"search_echoscribe","description":"Search recent local EchoScribe captures by text.","inputSchema":{"type":"object","properties":{"query":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":100}},"required":["query"]}}),
+        json!({"name":"search_tucky","description":"Search recent local Tucky captures by text.","inputSchema":{"type":"object","properties":{"query":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":100}},"required":["query"]}}),
         json!({"name":"list_meetings","description":"List recent local meetings and their current summaries.","inputSchema":{"type":"object","properties":{"limit":{"type":"integer","minimum":1,"maximum":100}}}}),
         json!({"name":"get_meeting","description":"Read one meeting, including transcript, summary, notes and confirmed speaker labels.","inputSchema":{"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}}),
-        json!({"name":"list_projects","description":"List active local EchoScribe projects.","inputSchema":{"type":"object","properties":{}}}),
+        json!({"name":"list_projects","description":"List active local Tucky projects.","inputSchema":{"type":"object","properties":{}}}),
         json!({"name":"list_tasks","description":"List open local tasks, optionally scoped to a project.","inputSchema":{"type":"object","properties":{"project_id":{"type":"string"}}}}),
-        json!({"name":"search_chats","description":"Search the user's Echo Scribe chat conversations by text (case-insensitive). Returns matching messages with their session name, newest first.","inputSchema":{"type":"object","properties":{"query":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":100}},"required":["query"]}}),
-        json!({"name":"list_chats","description":"List recent Echo Scribe chat sessions, optionally scoped to a project.","inputSchema":{"type":"object","properties":{"project_id":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":100}}}}),
-        json!({"name":"get_chat","description":"Read one Echo Scribe chat session's recent messages (oldest first).","inputSchema":{"type":"object","properties":{"id":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":500}},"required":["id"]}}),
+        json!({"name":"search_chats","description":"Search the user's Tucky chat conversations by text (case-insensitive). Returns matching messages with their session name, newest first.","inputSchema":{"type":"object","properties":{"query":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":100}},"required":["query"]}}),
+        json!({"name":"list_chats","description":"List recent Tucky chat sessions, optionally scoped to a project.","inputSchema":{"type":"object","properties":{"project_id":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":100}}}}),
+        json!({"name":"get_chat","description":"Read one Tucky chat session's recent messages (oldest first).","inputSchema":{"type":"object","properties":{"id":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":500}},"required":["id"]}}),
         json!({"name":"list_people","description":"List confirmed local relationship records.","inputSchema":{"type":"object","properties":{}}}),
         json!({"name":"list_companies","description":"List confirmed local company records.","inputSchema":{"type":"object","properties":{}}}),
         json!({"name":"list_recipes","description":"List reusable local meeting Recipes.","inputSchema":{"type":"object","properties":{}}}),
@@ -81,8 +81,8 @@ fn bridge_call(method: &str, params: Value) -> Result<Value, String> {
     use std::os::unix::net::UnixStream;
     let path = crate::mcp_bridge::socket_path()?;
     let mut stream = UnixStream::connect(&path).map_err(|_| {
-        "Echo Scribe isn't running, so recording tools are unavailable. Ask the user to open \
-         Echo Scribe (or run: open -a \"Echo Scribe\"), then retry."
+        "Tucky isn't running, so recording tools are unavailable. Ask the user to open \
+         Tucky (or run: open -a \"Tucky\"), then retry."
             .to_string()
     })?;
     let _ = stream.set_write_timeout(Some(std::time::Duration::from_secs(10)));
@@ -95,7 +95,7 @@ fn bridge_call(method: &str, params: Value) -> Result<Value, String> {
         .read_line(&mut line)
         .map_err(|e| e.to_string())?;
     let resp: Value = serde_json::from_str(&line)
-        .map_err(|e| format!("Echo Scribe returned an invalid bridge response: {e}"))?;
+        .map_err(|e| format!("Tucky returned an invalid bridge response: {e}"))?;
     if resp.get("ok").and_then(Value::as_bool).unwrap_or(false) {
         Ok(resp.get("result").cloned().unwrap_or(Value::Null))
     } else {
@@ -122,13 +122,13 @@ fn call_tool(db: &Db, name: &str, args: &Value) -> Result<Value, String> {
         {
             return Err(format!(
                 "The '{}' permission for coding agents is turned off. Ask the user to enable \
-                 it in Echo Scribe → Settings → Coding Agents.",
+                 it in Tucky → Settings → Coding Agents.",
                 perm.label
             ));
         }
     }
     match name {
-        "search_echoscribe" => {
+        "search_tucky" | "search_echoscribe" => {
             let query = args
                 .get("query")
                 .and_then(Value::as_str)
@@ -298,7 +298,7 @@ pub fn run_stdio() -> Result<(), String> {
         let result = match method {
             "initialize" => response(
                 id,
-                json!({"protocolVersion":"2024-11-05","capabilities":{"tools":{"listChanged":false}},"serverInfo":{"name":"echo-scribe","version":env!("CARGO_PKG_VERSION")}}),
+                json!({"protocolVersion":"2024-11-05","capabilities":{"tools":{"listChanged":false}},"serverInfo":{"name":"tucky","version":env!("CARGO_PKG_VERSION")}}),
             ),
             "ping" => response(id, json!({})),
             "tools/list" => response(id, json!({"tools":tool_definitions()})),

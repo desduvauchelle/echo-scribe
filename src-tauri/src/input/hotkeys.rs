@@ -4,7 +4,7 @@
 //! matching the bound hotkey so they don't leak through to the focused app
 //! (e.g. Right-Cmd alone won't accidentally trigger menus). On non-macOS
 //! targets we ship a no-op stub so the lib still compiles cross-platform —
-//! Echo Scribe is macOS-only at runtime, but cross-compilation hygiene matters
+//! Tucky is macOS-only at runtime, but cross-compilation hygiene matters
 //! for `cargo check`/CI.
 //!
 //! The public surface is:
@@ -67,7 +67,7 @@ pub fn spawn_listener(
 
 /// Like [`spawn_listener`], but only observes and swallows the binding while
 /// `enabled` is true. Used for Escape-to-cancel so Escape behaves normally in
-/// every app unless Echo Scribe is actively recording.
+/// every app unless Tucky is actively recording.
 #[cfg(target_os = "macos")]
 pub fn spawn_gated_listener(
     binding: Arc<RwLock<Binding>>,

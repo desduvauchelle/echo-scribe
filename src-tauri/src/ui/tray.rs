@@ -397,7 +397,7 @@ fn build_menu<R: Runtime>(
             MenuEntry::Open => items.push(Box::new(MenuItem::with_id(
                 app,
                 "open",
-                "Open Echo Scribe",
+                "Open Tucky",
                 true,
                 None::<&str>,
             )?)),
@@ -452,7 +452,7 @@ fn build_menu<R: Runtime>(
             MenuEntry::Quit => items.push(Box::new(MenuItem::with_id(
                 app,
                 "quit",
-                "Quit Echo Scribe",
+                "Quit Tucky",
                 true,
                 None::<&str>,
             )?)),

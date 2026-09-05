@@ -160,7 +160,7 @@
       "toggle": "Rezepte und Follow-up",
       "runRecipe": "Rezept ausführen",
       "recipeNamePlaceholder": "Rezeptname",
-      "recipePromptPlaceholder": "Was soll Echo Scribe extrahieren oder erstellen?",
+      "recipePromptPlaceholder": "Was soll Tucky extrahieren oder erstellen?",
       "cancel": "Abbrechen",
       "saveRecipe": "Rezept speichern",
       "newRecipe": "+ Neues Rezept",
@@ -346,7 +346,7 @@
     },
     "sessionsTab": {
       "noLinkedSessions": "Keine verknüpften Sitzungen gefunden.",
-      "echoScribeChatHeading": "Echo Scribe Chat",
+      "echoScribeChatHeading": "Tucky Chat",
       "claudeCodeSessionsHeading": "Claude Code Sitzungen",
       "youLabel": "Du:",
       "aiLabel": "KI:",
@@ -458,7 +458,7 @@
     "accessibility": "Bedienungshilfen",
     "screenRecording": "Bildschirmaufnahme",
     "missing": "Fehlende Berechtigung: {{list}}",
-    "coreBroken": "Echo Scribe kann erst wieder diktieren oder einfügen, wenn du die Berechtigung erneut erteilst.",
+    "coreBroken": "Tucky kann erst wieder diktieren oder einfügen, wenn du die Berechtigung erneut erteilst.",
     "meetingsOnly": "Meetings zeichnen dann nur dein Mikrofon auf — das Audio der anderen Person wird nicht erfasst.",
     "fixInSettings": "In den Einstellungen beheben",
     "llmMissingTitle": "KI-Funktionen sind deaktiviert",
@@ -466,11 +466,11 @@
   },
   "permissionsSection": {
     "microphoneTitle": "Mikrofon",
-    "microphoneSubtitle": "Echo Scribe braucht dein Mikrofon, um aufzuzeichnen, was du sagst.",
+    "microphoneSubtitle": "Tucky braucht dein Mikrofon, um aufzuzeichnen, was du sagst.",
     "accessibilityTitle": "Bedienungshilfen",
     "accessibilitySubtitle": "Erforderlich, um transkribierten Text an der Cursorposition in jeder App einzufügen.",
     "screenRecordingTitle": "Bildschirmaufnahme",
-    "screenRecordingSubtitle": "Lässt Echo Scribe das Audio der anderen Teilnehmer bei Zoom, Google Meet und ähnlichen Meetings erfassen. Ohne diese Berechtigung wird nur dein Mikrofon aufgezeichnet.",
+    "screenRecordingSubtitle": "Lässt Tucky das Audio der anderen Teilnehmer bei Zoom, Google Meet und ähnlichen Meetings erfassen. Ohne diese Berechtigung wird nur dein Mikrofon aufgezeichnet.",
     "cameraTitle": "Kamera (optional)",
     "cameraSubtitle": "Wird nur verwendet, wenn du die Webcam-Overlay-Funktion für eine Bildschirmaufnahme aktivierst. Erteile die Berechtigung hier, damit sie bereit ist — und eine blockierte Kamera von diesem Bildschirm aus behoben werden kann, statt mitten in der Aufnahme lautlos zu scheitern.",
     "resetHeading": "Berechtigungen zurücksetzen",
@@ -479,7 +479,7 @@
     "confirmReset": "Ja, zurücksetzen & neu starten",
     "cancel": "Abbrechen",
     "resetAndQuit": "Zurücksetzen & neu starten",
-    "resetTimeoutToast": "Zurücksetzen abgeschlossen, aber die App wurde nicht beendet. Starte Echo Scribe manuell neu.",
+    "resetTimeoutToast": "Zurücksetzen abgeschlossen, aber die App wurde nicht beendet. Starte Tucky manuell neu.",
     "resetErrorToast": "Berechtigungen konnten nicht zurückgesetzt werden: {{error}}",
     "promptHint": "Bestätige den macOS-Dialog, der gerade erschienen ist. Falls keiner erschienen ist, klicke erneut auf „Zugriff erlauben“, um die Systemeinstellungen zu öffnen."
   },
@@ -522,7 +522,7 @@
     "urlHintsLabel": "URL-Hinweise",
     "urlHintsPlaceholder": "hbsp.harvard.edu, github.com/desduvauchelle/echo-scribe",
     "windowHintsLabel": "Fenster-Hinweise",
-    "windowHintsPlaceholder": "echo-scribe, livecaseplus",
+    "windowHintsPlaceholder": "Tucky, livecaseplus",
     "positiveExamplesLabel": "Positivbeispiele",
     "positiveExamplesPlaceholder": "Ein Erfassungsbeispiel pro Zeile",
     "negativeExamplesLabel": "Negativbeispiele",
@@ -566,7 +566,7 @@
     "deleteOnlyDescription": "Behält alle Notizen, Aufgaben, Diktate, Meetings, Aufnahmen und Chats. Das Projekt-Tag wird entfernt und die Inhalte werden nicht zugewiesen.",
     "deleteWithContentTitle": "Projekt und zugehörige Inhalte löschen",
     "deleteWithContentDescription": "Löscht verknüpfte Erfassungen, Meeting-Transkripte und -Zusammenfassungen, Aufnahmen, Chats und generierte Artefakte dauerhaft. Das kann nicht rückgängig gemacht werden.",
-    "exportedFilesNote": "Bereits außerhalb von Echo Scribe exportierte Dateien werden nicht entfernt.",
+    "exportedFilesNote": "Bereits außerhalb von Tucky exportierte Dateien werden nicht entfernt.",
     "deleting": "Wird gelöscht…",
     "cancelButton": "Abbrechen",
     "noLinkedContent": "Keine verknüpften Inhalte gefunden.",
@@ -738,7 +738,7 @@
   },
   "startAtLoginToggle": {
     "title": "Bei Anmeldung starten",
-    "subtitle": "Echo Scribe automatisch starten, wenn du dich an deinem Mac anmeldest.",
+    "subtitle": "Tucky automatisch starten, wenn du dich an deinem Mac anmeldest.",
     "updateError": "Start bei Anmeldung konnte nicht aktualisiert werden: {{error}}"
   },
   "statsCategoryTabs": {
@@ -803,7 +803,7 @@
       "importJson": "JSON importieren",
       "invalidFile": "Ungültige Wörterbuchdatei",
       "saveFailed": "Wörterbuch konnte nicht gespeichert werden: {{error}}",
-      "spokenPlaceholder": "Was Echo hört",
+      "spokenPlaceholder": "Was Tucky hört",
       "replacementPlaceholder": "Ersetzen durch",
       "searchPlaceholder": "Wörterbuch durchsuchen",
       "add": "Hinzufügen",
@@ -845,8 +845,8 @@
   "updateBanner": {
     "dismissAriaLabel": "Update-Hinweis schließen",
     "updateReady": "Update bereit",
-    "versionLabel": "Echo Scribe {{version}}",
+    "versionLabel": "Tucky {{version}}",
     "restartNow": "Jetzt neu starten",
-    "versionReady": "Echo Scribe {{version}} ist bereit"
+    "versionReady": "Tucky {{version}} ist bereit"
   }
 }

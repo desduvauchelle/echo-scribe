@@ -2637,7 +2637,7 @@ export function EditorView({
 
   const onExport = useCallback(async () => {
     // Choose the user-facing destination before doing the expensive render.
-    // The managed copy is still written inside Echo Scribe during finalize.
+    // The managed copy is still written inside Tucky during finalize.
     const format = exportFormat;
     const exportQuality: RecordingExportQuality =
       format === "gif" ? "rendered-gif" : "rendered";
@@ -2877,7 +2877,7 @@ export function EditorView({
   // Top-bar action state derived from the live row. Export entries are appended
   // when generated, so reverse order makes the most recent export the primary
   // Finder action. Each command resolves `saved_path` first and falls back to
-  // Echo Scribe's managed copy if the user-facing copy was later moved/deleted.
+  // Tucky's managed copy if the user-facing copy was later moved/deleted.
   const toolbarExports = parseExports(rec.exports);
   const hasEdited = toolbarExports.some((e) => e.quality === "rendered");
   const revealableExports = [...toolbarExports].reverse();

@@ -1,7 +1,7 @@
 [package]
 name = "echo-scribe"
 version = "0.1.2"
-description = "A Tauri App"
+description = "Tucky — private voice notes, dictation, and work memory"
 authors = ["you"]
 edition = "2021"
 
@@ -83,6 +83,9 @@ base64 = "0.22"
 # RNNoise audio denoiser (pure Rust, embedded model). default-features off to
 # drop the bin feature's clap/hound/dasp CLI deps.
 nnnoiseless = { version = "0.5", default-features = false }
+# Detect the transcript's dominant language once before multi-pass meeting
+# synthesis so the LLM cannot drift languages between condensation passes.
+whatlang = "0.18"
 
 [dev-dependencies]
 tempfile = "3"

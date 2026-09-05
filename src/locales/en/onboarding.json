@@ -1,12 +1,24 @@
 {
+  "simple": {
+    "intro": "Two quick permissions, then your voice does the typing. We’re preparing speech recognition in the background.",
+    "help": "Need help with setup?"
+  },
+  "speechSetup": {
+    "preparing": "Preparing your voice…",
+    "ready": "Ready for your first dictation",
+    "error": "Speech setup needs another try",
+    "retrying": "Connection interrupted. Resuming…",
+    "retry": "Retry",
+    "description": "A one-time speech download, saved on this Mac. You can keep going while it finishes."
+  },
   "welcome": {
-    "title": "Welcome to Echo Scribe",
+    "title": "Welcome to Tucky",
     "subtitle": "Grant the permissions below, pick a speech model, then start dictating anywhere. Screen Recording is optional — only needed if you want meetings to capture the other person's audio."
   },
   "permissions": {
     "microphone": {
       "title": "Microphone",
-      "subtitle": "Echo Scribe needs your microphone to capture what you say."
+      "subtitle": "Tucky needs your microphone to capture what you say."
     },
     "accessibility": {
       "title": "Accessibility",
@@ -14,7 +26,7 @@
     },
     "screenRecording": {
       "title": "Screen Recording",
-      "subtitle": "Lets Echo Scribe capture the other participant's audio during Zoom, Google Meet, and other meetings. Without it, only your microphone is recorded."
+      "subtitle": "Lets Tucky capture the other participant's audio during Zoom, Google Meet, and other meetings. Without it, only your microphone is recorded."
     },
     "promptHint": "Approve the macOS dialog that just appeared. If it didn’t show up, click “Grant access” again to open System Settings."
   },
@@ -32,20 +44,20 @@
   },
   "logCaptureShortcut": {
     "title": "Log capture shortcut",
-    "description": "Press and hold to capture a thought or task. Default is Right Option — Echo Scribe will classify it locally and pop a review overlay."
+    "description": "Press and hold to capture a thought or task. Default is Right Option — Tucky will classify it locally and pop a review overlay."
   },
   "startButton": {
     "starting": "Starting…",
-    "label": "Start Echo Scribe"
+    "label": "Start Tucky"
   },
   "skipButton": {
     "skipping": "Skipping…",
     "label": "Skip setup for now",
-    "note": "You can browse Echo Scribe now and finish setup later in Settings."
+    "note": "You can browse Tucky now and finish setup later in Settings."
   },
   "resetTcc": {
     "linkLabel": "Permission stuck? Reset & restart",
-    "confirmBody": "This wipes Microphone + Accessibility + Screen Recording grants, quits Echo Scribe, and reopens it automatically so you can re-grant access. Continue?",
+    "confirmBody": "This wipes Microphone + Accessibility + Screen Recording grants, quits Tucky, and reopens it automatically so you can re-grant access. Continue?",
     "resetting": "Resetting…",
     "confirmButton": "Yes, reset & restart",
     "cancelButton": "Cancel",

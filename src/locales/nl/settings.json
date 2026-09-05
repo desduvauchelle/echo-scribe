@@ -1,7 +1,7 @@
 {
   "language": {
     "title": "Taal",
-    "subtitle": "Kies de taal die de interface van Echo Scribe gebruikt.",
+    "subtitle": "Kies de taal die de interface van Tucky gebruikt.",
     "selectLabel": "Interfacetaal",
     "system": "Systeemstandaard",
     "note": "Wordt direct toegepast."
@@ -39,11 +39,11 @@
     "dictation": "Spraak-naar-tekst bij je cursor — model, microfoon, audiogedrag, hotkey en opschoning.",
     "logcapture": "Leg een gedachte, idee of taak vast met je stem, en archiveer en exporteer die daarna.",
     "meetings": "Detecteer gesprekken en vat transcripten samen uit ondersteunde meeting-apps.",
-    "daily-recap": "Kies wanneer Echo Scribe een samenvatting maakt van de meetings, notities en dictaties van gisteren.",
+    "daily-recap": "Kies wanneer Tucky een samenvatting maakt van de meetings, notities en dictaties van gisteren.",
     "actions": "Voer app-starts, links, e-mails en tellers direct vanuit je stem uit.",
     "templates": "Herschrijf een dictatie naar e-mails, lijsten of een andere stijl voordat die wordt geplakt.",
     "language-model": "Het lokale Gemma-model dat classificatie, samenvattingen en acties aandrijft.",
-    "general": "Start bij inloggen en houd Echo Scribe up-to-date.",
+    "general": "Start bij inloggen en houd Tucky up-to-date.",
     "drive": "Upload schermopnames naar Google Drive en deel ze met een link.",
     "projects": "Maak, hernoem, archiveer of verwijder je projecten.",
     "coding-agents": "Verbind Claude Code, Codex of elke MCP-client om je captures te doorzoeken — en, als je dat toestaat, je scherm op te nemen.",
@@ -80,7 +80,7 @@
   "dictation": {
     "microphone": {
       "title": "Microfoon",
-      "subtitle": "Kies van welk invoerapparaat Echo Scribe opneemt. Standaard gebruikt wat macOS heeft geselecteerd."
+      "subtitle": "Kies van welk invoerapparaat Tucky opneemt. Standaard gebruikt wat macOS heeft geselecteerd."
     },
     "audioFeedback": {
       "title": "Audiofeedback",
@@ -117,7 +117,7 @@
       "sortByLabel": "Sorteren op",
       "sortLastUsed": "Laatst gebruikt",
       "sortAlphabetical": "Alfabetisch",
-      "footerNote": "Als een opgeslagen microfoon wordt losgekoppeld, weigert Echo Scribe op te nemen en stuurt het een melding — het valt niet stilletjes terug op een ander apparaat."
+      "footerNote": "Als een opgeslagen microfoon wordt losgekoppeld, weigert Tucky op te nemen en stuurt het een melding — het valt niet stilletjes terug op een ander apparaat."
     },
     "asrUnloadTimeout": {
       "title": "Uitladen na inactiviteit",
@@ -194,7 +194,7 @@
     },
     "autoDetect": {
       "title": "Meetings automatisch detecteren",
-      "subtitle": "Echo Scribe houdt ondersteunde meeting-apps en gesprekken in de browser in de gaten en biedt aan om op te nemen.",
+      "subtitle": "Tucky houdt ondersteunde meeting-apps en gesprekken in de browser in de gaten en biedt aan om op te nemen.",
       "checkboxLabel": "Ondersteunde meeting-apps automatisch detecteren",
       "platformsAriaLabel": "Ondersteunde meeting-apps"
     },
@@ -218,7 +218,7 @@
       "title": "Map voor meetingnotities",
       "subtitle": "Sla elke voltooide meeting automatisch op als een Markdown-bestand dat andere tools kunnen lezen.",
       "chooseFolder": "Map kiezen…",
-      "note": "Elk bestand bevat de samenvatting, actiepunten, je notities en het transcript met sprekerlabels. Echo Scribe schrijft alleen het lokale bestand; een andere app of AI-agent heeft eigen toegang tot deze map nodig."
+      "note": "Elk bestand bevat de samenvatting, actiepunten, je notities en het transcript met sprekerlabels. Tucky schrijft alleen het lokale bestand; een andere app of AI-agent heeft eigen toegang tot deze map nodig."
     },
     "guideTemplates": {
       "title": "Gidssjablonen",
@@ -348,11 +348,11 @@
   "general": {
     "startup": {
       "title": "Opstarten",
-      "subtitle": "Start Echo Scribe automatisch wanneer je inlogt."
+      "subtitle": "Start Tucky automatisch wanneer je inlogt."
     },
     "updates": {
       "title": "Updates",
-      "subtitle": "Echo Scribe controleert elke dag automatisch op updates. Je kunt ook nu controleren.",
+      "subtitle": "Tucky controleert elke dag automatisch op updates. Je kunt ook nu controleren.",
       "currentVersion": "Huidige versie",
       "currentVersionWithNumber": "Huidige versie {{version}}",
       "checking": "Controleren…",
@@ -398,13 +398,13 @@
   "codingAgents": {
     "toolPermissions": {
       "title": "Toolrechten",
-      "subtitle": "Echo Scribe heeft een ingebouwde MCP-server waarmee agents zoals Claude Code of Codex verbinding kunnen maken. Vink aan waartoe ze toegang mogen hebben — wijzigingen gelden direct, ook voor agents die al verbonden zijn. Alles blijft op deze Mac.",
+      "subtitle": "Tucky heeft een ingebouwde MCP-server waarmee agents zoals Claude Code of Codex verbinding kunnen maken. Vink aan waartoe ze toegang mogen hebben — wijzigingen gelden direct, ook voor agents die al verbonden zijn. Alles blijft op deze Mac.",
       "loadFailed": "Kon rechten niet laden — zie Instellingen → Diagnostiek → logs voor details.",
       "updateFailed": "Kon het recht voor {{label}} niet bijwerken: {{error}}"
     },
     "connect": {
       "title": "Verbind je coding agent",
-      "subtitle": "De MCP-server is de Echo Scribe-app zelf — niets extra's om te downloaden. Klik op Installeren en Echo Scribe registreert zichzelf bij de eigen CLI van de agent, of kopieer het fragment om het handmatig te doen."
+      "subtitle": "De MCP-server is de Tucky-app zelf — niets extra's om te downloaden. Klik op Installeren en Tucky registreert zichzelf bij de eigen CLI van de agent, of kopieer het fragment om het handmatig te doen."
     },
     "snippets": {
       "claudeCode": { "title": "Claude Code", "hint": "Installeren voert uit: claude mcp add (user scope)." },
@@ -416,13 +416,13 @@
     },
     "howToUse": {
       "title": "Hoe je het gebruikt",
-      "subtitle": "Er is geen opdracht om te onthouden — praat gewoon normaal tegen je agent. Die ziet de Echo Scribe-tools en roept ze aan wanneer je verzoek erom vraagt; het noemen van “Echo Scribe” zet hem ertoe aan daar te kijken. Probeer bijvoorbeeld:",
-      "recordingNote": "Voor opnameprompts moet Echo Scribe actief zijn en moet de toestemming voor Schermopname hierboven aangevinkt zijn. De agent geeft je vensters weer, start en stopt de opname zelf, krijgt het bestandspad van de video terug, en kan het bestand vervolgens bekijken of analyseren — de opname belandt ook gewoon in je bibliotheek, net als elke andere."
+      "subtitle": "Er is geen opdracht om te onthouden — praat gewoon normaal tegen je agent. Die ziet de Tucky-tools en roept ze aan wanneer je verzoek erom vraagt; het noemen van “Tucky” zet hem ertoe aan daar te kijken. Probeer bijvoorbeeld:",
+      "recordingNote": "Voor opnameprompts moet Tucky actief zijn en moet de toestemming voor Schermopname hierboven aangevinkt zijn. De agent geeft je vensters weer, start en stopt de opname zelf, krijgt het bestandspad van de video terug, en kan het bestand vervolgens bekijken of analyseren — de opname belandt ook gewoon in je bibliotheek, net als elke andere."
     },
     "examplePrompts": {
-      "listWindows": "Geef mijn vensters weer met echo-scribe en neem het Chrome-venster op met systeemaudio. Stop wanneer ik het zeg en vat samen wat er in de video gebeurde.",
+      "listWindows": "Geef mijn vensters weer met Tucky en neem het Chrome-venster op met systeemaudio. Stop wanneer ik het zeg en vat samen wat er in de video gebeurde.",
       "recordBug": "Neem mijn scherm op met microfoon terwijl ik deze bug reproduceer, stop dan en analyseer de video op wat er misging.",
-      "searchMeetings": "Doorzoek mijn Echo Scribe-meetings op de prijsdiscussie en vat de beslissingen samen.",
+      "searchMeetings": "Doorzoek mijn Tucky-meetings op de prijsdiscussie en vat de beslissingen samen.",
       "lastWeekDictation": "Wat heb ik vorige week gedicteerd over de onboardingflow?",
       "copyAriaLabel": "Voorbeeldprompt kopiëren"
     }
@@ -436,7 +436,7 @@
   "diagnostics": {
     "section": {
       "title": "Diagnostiek",
-      "subtitle": "Bekijk het doorlopende crashlog dat Echo Scribe naar je persoonlijke map schrijft."
+      "subtitle": "Bekijk het doorlopende crashlog dat Tucky naar je persoonlijke map schrijft."
     },
     "logFolder": {
       "title": "Logmap",
@@ -459,19 +459,19 @@
     }
   },
   "uninstall": {
-    "confirmDeleteMessage": "Echo Scribe verwijderen en alle lokale gegevens wissen? Dit omvat vastgelegde items, opnames, gedownloade modellen, instellingen, logs, het lokale gebeurtenisarchief en de Google Drive-koppeling. Bestanden gaan naar de Prullenbak, maar de Drive-inloggegevens en macOS-toestemmingen worden verwijderd.",
-    "confirmKeepMessage": "Echo Scribe verwijderen maar lokale gegevens bewaren? De app sluit af en gaat naar de Prullenbak. Bij herinstallatie worden je items, opnames, modellen, instellingen en voorkeuren hersteld.",
-    "confirmDeleteTitle": "Echo Scribe en gegevens verwijderen",
-    "confirmTitle": "Echo Scribe verwijderen",
+    "confirmDeleteMessage": "Tucky verwijderen en alle lokale gegevens wissen? Dit omvat vastgelegde items, opnames, gedownloade modellen, instellingen, logs, het lokale gebeurtenisarchief en de Google Drive-koppeling. Bestanden gaan naar de Prullenbak, maar de Drive-inloggegevens en macOS-toestemmingen worden verwijderd.",
+    "confirmKeepMessage": "Tucky verwijderen maar lokale gegevens bewaren? De app sluit af en gaat naar de Prullenbak. Bij herinstallatie worden je items, opnames, modellen, instellingen en voorkeuren hersteld.",
+    "confirmDeleteTitle": "Tucky en gegevens verwijderen",
+    "confirmTitle": "Tucky verwijderen",
     "toastFailed": "Verwijderen mislukt: {{error}}",
     "appOnly": {
       "title": "Applicatie verwijderen",
-      "body": "Verwijdert alleen Echo Scribe. Je vastgelegde items, opnames, gedownloade modellen, instellingen en voorkeuren blijven op deze Mac en zijn beschikbaar na herinstallatie.",
+      "body": "Verwijdert alleen Tucky. Je vastgelegde items, opnames, gedownloade modellen, instellingen en voorkeuren blijven op deze Mac en zijn beschikbaar na herinstallatie.",
       "button": "App verwijderen"
     },
     "appAndData": {
       "title": "Applicatie en gegevens verwijderen",
-      "body": "Verwijdert Echo Scribe en alle bijbehorende lokale gegevens, inclusief items, opnames, modellen, instellingen, logs en het lokale gebeurtenisarchief. Gebruik dit alleen als je de volgende installatie helemaal opnieuw wilt beginnen.",
+      "body": "Verwijdert Tucky en alle bijbehorende lokale gegevens, inclusief items, opnames, modellen, instellingen, logs en het lokale gebeurtenisarchief. Gebruik dit alleen als je de volgende installatie helemaal opnieuw wilt beginnen.",
       "button": "App & gegevens verwijderen"
     },
     "uninstalling": "Bezig met verwijderen…",

@@ -1,6 +1,6 @@
-# Echo Scribe MCP server
+# Tucky MCP server
 
-Echo Scribe includes a Model Context Protocol server for coding agents
+Tucky includes a Model Context Protocol server for coding agents
 (Claude Code, Codex CLI, Cursor, …). It runs entirely on the user's machine
 and exposes curated tools instead of raw SQL access.
 
@@ -12,7 +12,7 @@ connected.
 
 | Category | Tools | Default |
 | --- | --- | --- |
-| Search captures & notes | `search_echoscribe`, `list_projects`, `list_tasks` | on |
+| Search captures & notes | `search_tucky`, `list_projects`, `list_tasks` | on |
 | Meetings & transcripts | `list_meetings`, `get_meeting`, `list_recipes` | on |
 | Chats | `search_chats`, `list_chats`, `get_chat` | on |
 | People & companies | `list_people`, `list_companies` | on |
@@ -33,14 +33,14 @@ locations.
 Claude Code:
 
 ```bash
-claude mcp add echo-scribe -- "/Applications/Echo Scribe.app/Contents/MacOS/echo-scribe" --mcp
+claude mcp add tucky -- "/Applications/Tucky.app/Contents/MacOS/echo-scribe" --mcp
 ```
 
 Codex CLI (`~/.codex/config.toml`):
 
 ```toml
-[mcp_servers.echo_scribe]
-command = "/Applications/Echo Scribe.app/Contents/MacOS/echo-scribe"
+[mcp_servers.tucky]
+command = "/Applications/Tucky.app/Contents/MacOS/echo-scribe"
 args = ["--mcp"]
 ```
 
@@ -49,8 +49,8 @@ Any other MCP client:
 ```json
 {
   "mcpServers": {
-    "echo-scribe": {
-      "command": "/Applications/Echo Scribe.app/Contents/MacOS/echo-scribe",
+    "tucky": {
+      "command": "/Applications/Tucky.app/Contents/MacOS/echo-scribe",
       "args": ["--mcp"]
     }
   }
@@ -66,14 +66,14 @@ client should negotiate MCP protocol version `2024-11-05`.
 ## Using it from an agent
 
 There is no slash command — the agent discovers the tools and calls them when
-a request needs them; mentioning "Echo Scribe" nudges it to look there.
+a request needs them; mentioning "Tucky" nudges it to look there.
 Example prompts:
 
-- "List my windows with echo-scribe and record the Chrome window with system
+- "List my windows with Tucky and record the Chrome window with system
   audio. Stop when I tell you and summarize what happened in the video."
 - "Record my screen with mic on while I reproduce this bug, then stop and
   analyze the video for what went wrong."
-- "Search my Echo Scribe meetings for the pricing discussion and summarize
+- "Search my Tucky meetings for the pricing discussion and summarize
   the decisions."
 - "What did I dictate last week about the onboarding flow?"
 
@@ -83,7 +83,7 @@ file (frames via ffmpeg, transcript, etc.).
 
 ## Knowledge tools (read-only)
 
-- `search_echoscribe` searches local captures.
+- `search_tucky` searches local captures.
 - `list_meetings` and `get_meeting` read meetings, summaries, notes, and
   confirmed speaker labels.
 - `search_chats`, `list_chats`, and `get_chat` search and read the app's
@@ -94,7 +94,7 @@ file (frames via ffmpeg, transcript, etc.).
 
 ## Recording tools (macOS, opt-in)
 
-Available only while the Echo Scribe app is running, and only when the user
+Available only while the Tucky app is running, and only when the user
 has ticked **Screen recording** in Settings → Coding Agents. The
 `--mcp` process forwards these to the app over a local unix socket
 (`~/Library/Application Support/EchoScribe/mcp-bridge.sock`, mode 0600); the
@@ -129,7 +129,7 @@ database as the app and does not send data to a hosted service.
 ## Development smoke test
 
 Set `ECHO_SCRIBE_MCP_DB` to point the MCP process at a temporary SQLite file
-without touching the user's normal Echo Scribe database:
+without touching the user's normal Tucky database:
 
 ```bash
 ECHO_SCRIBE_MCP_DB=/tmp/echo-scribe-mcp.sqlite \

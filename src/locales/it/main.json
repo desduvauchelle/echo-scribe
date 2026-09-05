@@ -1,6 +1,6 @@
 {
   "app": {
-    "brand": "Echo Scribe",
+    "brand": "Tucky",
     "toolbar": {
       "search": "Cerca"
     },
@@ -275,7 +275,7 @@
     },
     "notifications": {
       "disabledPrefix": "Le notifiche sono disattivate — il tuo riepilogo giornaliero non comparirà finché non le attivi in",
-      "settingsPath": "Impostazioni di sistema → Notifiche → Echo Scribe"
+      "settingsPath": "Impostazioni di sistema → Notifiche → Tucky"
     },
     "nav": {
       "previousDay": "Giorno precedente",
@@ -392,7 +392,7 @@
       "deleteAria": "Elimina sessione"
     },
     "message": {
-      "aiLabel": "AI di Echo Scribe"
+      "aiLabel": "AI di Tucky"
     },
     "sources": {
       "used_one": "{{count}} fonte usata",

@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { useOwnInputDictation } from "./ownInputDictation";
 
 type EditableEl = HTMLInputElement | HTMLTextAreaElement | HTMLElement;
 
@@ -22,7 +23,7 @@ function isTextEditable(el: EventTarget | null): el is EditableEl {
  * and re-focuses it (with selection restored) when the backend emits
  * `voice:paste_pending`.
  *
- * Why: when the user dictates while Echo Scribe itself is the frontmost app,
+ * Why: when the user dictates while Tucky itself is the frontmost app,
  * opening the recording overlay (a sibling Tauri window in the same process)
  * drops first-responder off whatever text field they were in. The backend
  * re-activates the previously-frontmost app before pasting, but for the
@@ -32,6 +33,7 @@ function isTextEditable(el: EventTarget | null): el is EditableEl {
  * than overwriting whatever was selected by accident.
  */
 export function useVoicePasteFocus() {
+  useOwnInputDictation();
   useEffect(() => {
     let lastEl: EditableEl | null = null;
     let lastSelStart: number | null = null;

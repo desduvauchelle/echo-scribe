@@ -110,6 +110,11 @@ html:is([data-app-view="main"], [data-app-view="settings"]) #root {
   box-shadow: none;
 }
 
+:root[data-theme="light"] .echo-sidebar {
+  --color-muted: #4c564e;
+  --color-faint: #626b63;
+}
+
 .echo-brand-icon {
   border: 0;
   border-radius: 6px;
@@ -366,5 +371,34 @@ button.no-press {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
+  }
+}
+@keyframes echo-win-arrive {
+  0% { transform: scale(.8) rotate(-12deg); opacity: .3; }
+  65% { transform: scale(1.12) rotate(5deg); opacity: 1; }
+  100% { transform: scale(1) rotate(0); }
+}
+.echo-practice-success {
+  background-image: radial-gradient(ellipse at top right, #e9ac421f, transparent 65%);
+}
+.echo-practice-confetti { display: none; }
+@keyframes echo-practice-burst {
+  0% { transform: translate(0, 18px) rotate(0); opacity: 0; }
+  12% { opacity: 1; }
+  55% { transform: translate(var(--x), var(--y)) rotate(var(--turn)); opacity: 1; }
+  100% { transform: translate(var(--x), 140px) rotate(var(--turn)); opacity: 0; }
+}
+@keyframes echo-practice-arrive {
+  from { opacity: 0; transform: translateY(6px) scale(.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .echo-win-icon { animation: echo-win-arrive 650ms ease-out both; }
+  .echo-practice-animate { animation: echo-practice-arrive 300ms ease-out both; }
+  .echo-practice-animate .echo-practice-badge { animation: echo-win-arrive 650ms ease-out both; }
+  .echo-practice-confetti { display: block; }
+  .echo-practice-confetti i {
+    position: absolute; top: 35%; left: 50%; width: 7px; height: 11px; border-radius: 2px;
+    animation: echo-practice-burst 1250ms ease-out var(--delay) both;
   }
 }

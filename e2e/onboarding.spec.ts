@@ -6,8 +6,8 @@ import { installTauriMock, mockState, recordedCalls } from "./mock";
 // land in — the class of bug that otherwise ships silently because we've
 // all long since completed onboarding on our own machines.
 
-const startButton = /Start Echo Scribe/;
-const welcome = /Welcome to Echo Scribe/;
+const startButton = /Start Tucky/;
+const welcome = /Welcome to Tucky/;
 
 test("fresh install boots into onboarding with Start disabled", async ({ page }) => {
   await installTauriMock(page); // everything ungranted, no models

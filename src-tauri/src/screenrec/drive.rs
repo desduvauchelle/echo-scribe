@@ -405,7 +405,7 @@ pub async fn connect(client_id: &str, client_secret: &str) -> Result<Option<Stri
                 }
             }
             let body = "<html><body style='font-family:system-ui;padding:3rem'>\
-                        <h2>Echo Scribe is connected.</h2><p>You can close this tab.</p></body></html>";
+                        <h2>Tucky is connected.</h2><p>You can close this tab.</p></body></html>";
             let resp = format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
                 body.len(),

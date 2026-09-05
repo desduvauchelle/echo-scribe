@@ -46,7 +46,7 @@ pub enum ActionError {
 }
 
 const ACTION_SYSTEM_PROMPT_BASE: &str = "\
-You are Echo Scribe's system action classifier.
+You are Tucky's system action classifier.
 Analyze the user's voice dictation and classify if it represents a system action/command.
 Respond ONLY with a single JSON object matching this schema:
 {

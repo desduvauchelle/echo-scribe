@@ -19,12 +19,12 @@ export function useUpdateCheck() {
       if (res.status === "up-to-date") {
         toasts.push({
           tone: "success",
-          message: `You're up to date — Echo Scribe ${res.version} is the latest version.`,
+          message: `You're up to date — Tucky ${res.version} is the latest version.`,
         });
       } else if (res.status === "downloading") {
         toasts.push({
           tone: "info",
-          message: `Downloading Echo Scribe ${res.version}… you'll be asked to restart once it's ready.`,
+          message: `Downloading Tucky ${res.version}… you'll be asked to restart once it's ready.`,
         });
       } else {
         toasts.push({ tone: "error", message: res.message });

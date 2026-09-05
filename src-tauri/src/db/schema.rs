@@ -1,4 +1,4 @@
-//! SQLite migration runner for Echo Scribe.
+//! SQLite migration runner for Tucky.
 //!
 //! We deliberately avoid pulling in `refinery` or another migration crate.
 //! The schema is small and stable; we keep an in-code list of versioned

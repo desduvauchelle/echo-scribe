@@ -1,4 +1,4 @@
-# Echo Scribe — Working Notes for Claude
+# Tucky — Working Notes for Claude
 
 ## Error handling & diagnostics (required for every feature)
 
@@ -26,7 +26,7 @@ Build features so failures are *debuggable without a rebuild*. This is not optio
 - `src-tauri/Cargo.toml` — TCC-touching deps (e.g. cpal feature flips, ScreenCaptureKit-related crates, calendar/EventKit crates).
 - A new permission category needs to be re-requested (e.g. first build that adds calendar access).
 
-Symptoms when you SHOULD HAVE reset and didn't: in-process permission prompts crash silently; the Accessibility list shows multiple stale "Echo Scribe.app" entries; the new binary thinks it has no permissions even though the System Settings toggle is on. Sidecar-specific: `stream_stopped: Failed to find any displays or windows to capture` from `echo-scribe-syscap` is the canonical Screen Recording-not-granted signal.
+Symptoms when you SHOULD HAVE reset and didn't: in-process permission prompts crash silently; the Accessibility list shows multiple stale "Tucky.app" entries; the new binary thinks it has no permissions even though the System Settings toggle is on. Sidecar-specific: `stream_stopped: Failed to find any displays or windows to capture` from `echo-scribe-syscap` is the canonical Screen Recording-not-granted signal.
 
 **Skip-TCC reinstall (default):**
 
@@ -34,9 +34,9 @@ Symptoms when you SHOULD HAVE reset and didn't: in-process permission prompts cr
 osascript -e 'tell application "Echo Scribe" to quit' 2>/dev/null
 pkill -f "Echo Scribe" 2>/dev/null
 sleep 1
-rm -rf "/Applications/Echo Scribe.app"
-cp -R "src-tauri/target/release/bundle/macos/Echo Scribe.app" /Applications/
-open "/Applications/Echo Scribe.app"
+rm -rf "/Applications/Tucky.app"
+cp -R "src-tauri/target/release/bundle/macos/Tucky.app" /Applications/
+open "/Applications/Tucky.app"
 ```
 
 **Full TCC-reset reinstall (only when permission-related code changed, or user explicitly asks):**
@@ -48,9 +48,9 @@ sleep 1
 tccutil reset Microphone com.echoscribe.app
 tccutil reset Accessibility com.echoscribe.app
 tccutil reset ScreenCapture com.echoscribe.app
-rm -rf "/Applications/Echo Scribe.app"
-cp -R "src-tauri/target/release/bundle/macos/Echo Scribe.app" /Applications/
-open "/Applications/Echo Scribe.app"
+rm -rf "/Applications/Tucky.app"
+cp -R "src-tauri/target/release/bundle/macos/Tucky.app" /Applications/
+open "/Applications/Tucky.app"
 ```
 
 Things to know:
@@ -94,7 +94,7 @@ bash scripts/reset-fresh-sim.sh
 # Install + first-launch smoke test: real install.sh + real bundle launch with
 # ECHO_SCRIBE_SMOKE=1 in a throwaway HOME. Release CI runs this per arch and
 # blocks publishing on failure. Locally (after a build):
-tar -czf EchoScribe-aarch64.tar.gz -C src-tauri/target/release/bundle/macos "Echo Scribe.app"
+tar -czf EchoScribe-aarch64.tar.gz -C src-tauri/target/release/bundle/macos "Tucky.app"
 bash scripts/smoke-test.sh EchoScribe-aarch64.tar.gz
 ```
 

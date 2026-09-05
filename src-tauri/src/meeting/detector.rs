@@ -10,7 +10,7 @@ use tauri::Emitter;
 use tracing::{info, warn};
 
 /// Best-effort native desktop notification. Used to surface meeting events
-/// (auto-start, ask, failure) when no Echo Scribe window is visible — the
+/// (auto-start, ask, failure) when no Tucky window is visible — the
 /// daily log still has the full detail.
 fn notify_desktop(app: &tauri::AppHandle, title: &str, body: &str) {
     use tauri_plugin_notification::NotificationExt;
@@ -582,7 +582,7 @@ pub fn spawn(manager: Arc<MeetingManager>, settings: SettingsStore, app_handle: 
                         notify_desktop(
                             &app_handle,
                             "Recording meeting",
-                            &format!("Echo Scribe is recording your {} meeting.", display_name),
+                            &format!("Tucky is recording your {} meeting.", display_name),
                         );
                         spawn_end_monitor(manager.clone(), Some(app_for_monitor));
                     }
@@ -605,7 +605,7 @@ pub fn spawn(manager: Arc<MeetingManager>, settings: SettingsStore, app_handle: 
                     notify_desktop(
                         &app_handle,
                         &format!("{} meeting detected", display_name),
-                        "Open Echo Scribe to record this meeting.",
+                        "Open Tucky to record this meeting.",
                     );
                 }
             }
@@ -802,7 +802,7 @@ fn evaluate_meeting_presence(signals: &EndMonitorSignals) -> Presence {
 /// History note: an earlier implementation gated on
 /// `kAudioDevicePropertyDeviceIsRunningSomewhere` (the system-wide "mic in
 /// use" flag). That signal was permanently true once we started recording the
-/// meeting ourselves — Echo Scribe's own cpal input stream contaminated the
+/// meeting ourselves — Tucky's own cpal input stream contaminated the
 /// observation. The auto-stop never fired and meetings recorded forever. The
 /// current logic uses meeting-source presence (window title / URL) instead.
 pub fn spawn_end_monitor(manager: Arc<MeetingManager>, detected_app: Option<String>) {
@@ -1092,13 +1092,13 @@ mod tests {
     }
 
     /// Regression test for the bug where the end-monitor relied on
-    /// `kAudioDevicePropertyDeviceIsRunningSomewhere`. Echo Scribe's own
+    /// `kAudioDevicePropertyDeviceIsRunningSomewhere`. Tucky's own
     /// recorder kept the property `true` for the entire meeting, so the old
     /// silence counter never advanced and auto-stop never fired.
     ///
     /// This test feeds the *exact* situation that used to break the old
     /// monitor: the user has clicked End in Zoom (meeting window now shows
-    /// "Home"), but the system mic is still in use because Echo Scribe is
+    /// "Home"), but the system mic is still in use because Tucky is
     /// recording. The new ticker ignores mic state entirely and uses
     /// meeting-source presence (window title), so it must reach `Stop`.
     #[test]
@@ -1107,7 +1107,7 @@ mod tests {
         // Zoom is frontmost but the meeting window is gone (user clicked End,
         // Zoom now shows its Home view). Note: no mic-state field exists on
         // EndMonitorSignals — by construction the new ticker can't be tricked
-        // by Echo Scribe's own recorder holding the input device open.
+        // by Tucky's own recorder holding the input device open.
         let signals = EndMonitorSignals {
             manager_active: true,
             detected_app: Some("us.zoom.xos".into()),
@@ -1419,7 +1419,7 @@ fn is_default_input_running() -> bool {
 /// frontmost.
 ///
 /// Requires Screen Recording permission for `kCGWindowName` to populate
-/// (Echo Scribe already has it for the screen recorder sidecar). Without
+/// (Tucky already has it for the screen recorder sidecar). Without
 /// the grant, this scan silently returns `None` and detection falls back
 /// to the frontmost-only path — i.e. degrades gracefully.
 #[cfg(target_os = "macos")]
