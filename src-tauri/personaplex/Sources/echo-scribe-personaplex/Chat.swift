@@ -39,7 +39,10 @@ enum ChatRunner {
                 cacheDir: o.modelDir,
                 offlineMode: true
             ) { fraction, status in
-                sink.emit(["event": "loading", "fraction": fraction, "status": status])
+                // Upstream labels its offline cache check "Downloading…"; nothing
+                // is fetched here (offlineMode), so say what actually happens.
+                let label = status.hasPrefix("Downloading") ? "Checking weights on disk" : status
+                sink.emit(["event": "loading", "fraction": fraction, "status": label])
             }
         } catch {
             sink.error("model load failed: \(error.localizedDescription) [\(error)]")

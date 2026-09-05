@@ -19,7 +19,7 @@ final class EventSink: @unchecked Sendable {
 
     func emit(_ fields: [String: Any]) {
         guard JSONSerialization.isValidJSONObject(fields),
-              let data = try? JSONSerialization.data(withJSONObject: fields, options: [.sortedKeys])
+              let data = try? JSONSerialization.data(withJSONObject: fields, options: [.sortedKeys, .withoutEscapingSlashes])
         else {
             FileHandle.standardError.write(Data("unserializable event: \(fields)\n".utf8))
             return
