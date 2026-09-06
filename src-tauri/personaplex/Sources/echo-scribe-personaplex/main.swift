@@ -10,10 +10,12 @@ func usage() -> Never {
     usage:
       echo-scribe-personaplex download --model-dir DIR [--model-id ID]
       echo-scribe-personaplex chat --model-dir DIR [--model-id ID] [--voice NATF2]
-                                   [--prompt TEXT] [--no-aec] [--no-warmup] [--max-steps N]
+                                   [--prompt TEXT] [--no-aec] [--input-device UID_OR_NAME]
+                                   [--no-warmup] [--max-steps N]
                                    [--input-wav IN --output-wav OUT [--post-steps N] [--realtime-file]]
                                    [--ignore-stdin]
       echo-scribe-personaplex voices
+      echo-scribe-personaplex devices        (input devices as JSON)
       echo-scribe-personaplex version
 
     Events are JSON lines on stdout; logs go to stderr. A chat session stops on
@@ -51,6 +53,11 @@ case "version", "--version":
 case "voices":
     let list = PersonaPlexVoice.allCases.map { ["id": $0.rawValue, "label": $0.displayName] }
     let data = try! JSONSerialization.data(withJSONObject: list, options: [.sortedKeys])
+    print(String(decoding: data, as: UTF8.self))
+    exit(0)
+case "devices":
+    let list = AudioDevices.inputs().map(\.json)
+    let data = try! JSONSerialization.data(withJSONObject: list, options: [.sortedKeys, .withoutEscapingSlashes])
     print(String(decoding: data, as: UTF8.self))
     exit(0)
 case "download", "chat":
@@ -127,6 +134,7 @@ case "chat":
     }
     opts.prompt = values["prompt"]
     opts.aec = !flags.contains("no-aec")
+    opts.inputDevice = values["input-device"]
     opts.warmup = !flags.contains("no-warmup")
     if let s = values["max-steps"], let n = Int(s), n > 0 { opts.maxSteps = n }
     if let s = values["post-steps"], let n = Int(s), n >= 0 { opts.postSteps = n }

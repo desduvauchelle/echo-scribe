@@ -2030,7 +2030,20 @@ export type PersonaplexStatus = {
   session_running: boolean;
   voices: PersonaplexVoice[];
   total_ram_bytes: number;
+  /** Microphone name Settings → Dictation prefers; null = system default. */
+  dictation_input_device: string | null;
 };
+
+export type PersonaplexInputDevice = {
+  uid: string;
+  name: string;
+  input_channels: number;
+  is_default: boolean;
+};
+
+/** Input devices as CoreAudio sees them (system default first). */
+export const personaplexListInputDevices = (): Promise<PersonaplexInputDevice[]> =>
+  invoke("personaplex_list_input_devices");
 
 export type PersonaplexChatOptions = {
   voice: string;
@@ -2038,6 +2051,8 @@ export type PersonaplexChatOptions = {
   echo_cancellation: boolean;
   /** Rendered briefing text (see personaplexBuildBriefing); appended to the persona. */
   briefing: string | null;
+  /** CoreAudio device UID or name; null = system default input. */
+  input_device: string | null;
 };
 
 export type PersonaplexBriefingOptions = {

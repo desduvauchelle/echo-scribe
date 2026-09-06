@@ -6,6 +6,7 @@ import {
   micSeemsSilent,
   pushLogLine,
   reduceSessionEvent,
+  resolveMicChoice,
   sessionIsActive,
   startingSessionState,
 } from "../src/lib/personaplex";
@@ -121,5 +122,19 @@ describe("diagnostics", () => {
   test("estimateSpmTokens mirrors the backend heuristic", () => {
     expect(estimateSpmTokens("")).toBe(0);
     expect(estimateSpmTokens("a".repeat(35))).toBe(10);
+  });
+});
+
+describe("microphone choice", () => {
+  test("ready records the live mic name", () => {
+    const s = reduceSessionEvent(startingSessionState(), { event: "ready", mic: "Scarlett 2i2" });
+    expect(s.micName).toBe("Scarlett 2i2");
+    expect(reduceSessionEvent(startingSessionState(), { event: "ready" }).micName).toBeNull();
+  });
+  test("resolveMicChoice maps the three modes", () => {
+    expect(resolveMicChoice("default", "AirPods")).toBeNull();
+    expect(resolveMicChoice("dictation", "AirPods")).toBe("AirPods");
+    expect(resolveMicChoice("dictation", null)).toBeNull();
+    expect(resolveMicChoice({ uid: "BuiltInMicrophoneDevice" }, "AirPods")).toBe("BuiltInMicrophoneDevice");
   });
 });

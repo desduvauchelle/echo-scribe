@@ -320,6 +320,7 @@ pub fn run() {
             personaplex::personaplex_stop_chat,
             personaplex::personaplex_open_model_folder,
             personaplex::personaplex_build_briefing,
+            personaplex::personaplex_list_input_devices,
             chat_with_memory,
             create_chat_session,
             commands::create_chat_session_scoped,

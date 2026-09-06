@@ -478,6 +478,17 @@
         "persona": "Persona prompt",
         "personaPlaceholder": "Describe who the agent is and how it should talk\u2026",
         "presets": "Presets:",
+        "mic": {
+          "label": "Microphone",
+          "refresh": "Refresh the microphone list",
+          "sameAsDictation": "Same as Dictation ({{name}})",
+          "sameAsDictationDefault": "Same as Dictation (system default)",
+          "systemDefault": "System default",
+          "defaultMark": "(default)",
+          "missing": "Saved microphone not connected ({{uid}})",
+          "listFailed": "Couldn't list microphones: {{error}}",
+          "listening": "Listening on {{name}}."
+        },
         "audioSetup": {
           "label": "Audio setup",
           "headphones": "Headphones (recommended)",

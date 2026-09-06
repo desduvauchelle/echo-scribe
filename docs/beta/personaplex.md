@@ -71,6 +71,22 @@ setting) suppresses the mic while the speaker plays, and PersonaPlex plays
 almost continuously — so on speakers it rarely hears the user. Headphones with
 echo cancellation off is the setup that works.
 
+## Microphone selection
+
+`echo-scribe-personaplex devices` prints CoreAudio input devices as JSON
+(`uid`, `name`, `input_channels`, `is_default`); Tucky's
+`personaplex_list_input_devices` runs it (no model load, ~100 ms). `chat
+--input-device UID_OR_NAME` pins the capture device: the patch adds
+`FullDuplexAudioIO.Configuration.inputDeviceID`, set on the input unit with
+`kAudioOutputUnitProperty_CurrentDevice` before formats are read, and
+`currentInputDeviceID()` reads back what is really live — the `ready` event
+carries that name as `mic`, and the page shows "Listening on …". If the pinned
+device refuses to start the sidecar retries with the system default and logs a
+warning. The picker defaults to "Same as Dictation" (the name stored by
+Settings → Dictation), then "System default", then the enumerated devices by
+UID. With the Speakers setting (Voice Processing) the pin goes to the AUVoiceIO
+unit; verify on the page which mic is reported live.
+
 ## What the agent knows (briefing)
 
 PersonaPlex has no text channel during a conversation; the persona prompt is

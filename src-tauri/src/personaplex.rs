@@ -490,6 +490,9 @@ pub struct ChatOptions {
     /// Rendered briefing (see [`briefing`]); appended to the persona prompt.
     #[serde(default)]
     pub briefing: Option<String>,
+    /// CoreAudio input device UID or name; `None` = system default.
+    #[serde(default)]
+    pub input_device: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -528,12 +531,23 @@ fn start_chat_inner(app: AppHandle, opts: ChatOptions) -> Result<(), String> {
     if !opts.echo_cancellation {
         args.push("--no-aec".to_string());
     }
+    let input_device = opts
+        .input_device
+        .as_deref()
+        .map(str::trim)
+        .filter(|d| !d.is_empty())
+        .map(str::to_string);
+    if let Some(dev) = &input_device {
+        args.push("--input-device".to_string());
+        args.push(dev.clone());
+    }
     info!(
         target: "personaplex",
         voice = %opts.voice,
         prompt_chars = prompt.chars().count(),
         briefing_chars,
         aec = opts.echo_cancellation,
+        input_device = input_device.as_deref().unwrap_or("system default"),
         "starting chat session"
     );
     let mut running = spawn_sidecar(&args)?;
@@ -649,6 +663,9 @@ pub struct PersonaplexStatus {
     pub session_running: bool,
     pub voices: Vec<VoiceInfo>,
     pub total_ram_bytes: u64,
+    /// The microphone Settings → Dictation prefers (by name), so the lab can
+    /// default to the same one. `None` = system default.
+    pub dictation_input_device: Option<String>,
 }
 
 fn total_ram_bytes() -> u64 {
@@ -679,10 +696,11 @@ pub fn beta_features_enabled() -> bool {
 }
 
 #[tauri::command]
-pub fn personaplex_status() -> PersonaplexStatus {
+pub fn personaplex_status(state: State<'_, AppState>) -> PersonaplexStatus {
     let sidecar = resolve_sidecar();
     let dir = model_dir();
     PersonaplexStatus {
+        dictation_input_device: state.settings.preferred_input_device(),
         beta: beta_enabled(),
         beta_marker_path: beta_marker_path().to_string_lossy().to_string(),
         sidecar_installed: sidecar.is_some(),
@@ -780,6 +798,77 @@ pub fn personaplex_open_model_folder() -> Result<(), String> {
             .map_err(|e| format!("Couldn't open folder: {e}"))?;
     }
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Input devices
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct InputDeviceInfo {
+    pub uid: String,
+    pub name: String,
+    #[serde(default)]
+    pub input_channels: u32,
+    #[serde(default)]
+    pub is_default: bool,
+}
+
+pub fn parse_devices(json: &str) -> Result<Vec<InputDeviceInfo>, String> {
+    serde_json::from_str::<Vec<InputDeviceInfo>>(json).map_err(|e| e.to_string())
+}
+
+/// Ask the sidecar (CoreAudio) for the input devices. Runs the binary in
+/// `devices` mode, which prints JSON and exits without loading any model.
+fn list_input_devices_blocking() -> Result<Vec<InputDeviceInfo>, String> {
+    let Some(bin) = resolve_sidecar() else {
+        return Err("PersonaPlex sidecar is not installed.".to_string());
+    };
+    let mut child = Command::new(&bin)
+        .arg("devices")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| {
+            error!(target: "personaplex", error = %e, "devices: spawn failed");
+            format!("Couldn't launch the PersonaPlex sidecar: {e}")
+        })?;
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(25)),
+            Ok(None) => {
+                warn!(target: "personaplex", "devices: sidecar hung; killing");
+                let _ = child.kill();
+                return Err("Listing microphones timed out.".to_string());
+            }
+            Err(e) => return Err(format!("devices: wait failed: {e}")),
+        }
+    }
+    let out = child
+        .wait_with_output()
+        .map_err(|e| format!("devices: output failed: {e}"))?;
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    if !out.status.success() {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        error!(target: "personaplex", status = ?out.status, %stderr, "devices: sidecar failed");
+        return Err("Couldn't list microphones. See Settings → Diagnostics → logs.".to_string());
+    }
+    let devices = parse_devices(stdout.trim()).map_err(|e| {
+        error!(target: "personaplex", error = %e, raw = %stdout, "devices: bad JSON");
+        "Couldn't read the microphone list. See Settings → Diagnostics → logs.".to_string()
+    })?;
+    info!(target: "personaplex", count = devices.len(), names = ?devices.iter().map(|d| d.name.as_str()).collect::<Vec<_>>(), "input devices listed");
+    Ok(devices)
+}
+
+#[tauri::command]
+pub async fn personaplex_list_input_devices() -> Result<Vec<InputDeviceInfo>, String> {
+    tokio::task::spawn_blocking(list_input_devices_blocking)
+        .await
+        .map_err(|e| format!("devices task failed: {e}"))?
 }
 
 // ---------------------------------------------------------------------------
@@ -1056,6 +1145,16 @@ mod tests {
         assert!(friendly_error("offline cache miss: no model weights").contains("Download"));
         assert!(friendly_error("microphone/speaker setup failed: boom").contains("microphone"));
         assert!(friendly_error("something odd").contains("Diagnostics"));
+    }
+
+    #[test]
+    fn parses_device_list_from_sidecar() {
+        let json = r#"[{"id":57,"input_channels":1,"is_default":true,"name":"MacBook Pro Microphone","uid":"BuiltInMicrophoneDevice"},{"id":90,"input_channels":2,"is_default":false,"name":"Scarlett 2i2","uid":"AppleUSBAudioEngine:Focusrite:1"}]"#;
+        let d = parse_devices(json).unwrap();
+        assert_eq!(d.len(), 2);
+        assert!(d[0].is_default);
+        assert_eq!(d[1].uid, "AppleUSBAudioEngine:Focusrite:1");
+        assert!(parse_devices("nope").is_err());
     }
 
     #[test]

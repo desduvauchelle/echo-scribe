@@ -2,18 +2,20 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { ask } from "@tauri-apps/plugin-dialog";
-import { Copy, FolderOpen, Square, Play, Trash2, X } from "lucide-react";
+import { Copy, FolderOpen, RefreshCw, Square, Play, Trash2, X } from "lucide-react";
 import {
   personaplexBuildBriefing,
   personaplexCancelDownload,
   personaplexDeleteModel,
   personaplexDownload,
+  personaplexListInputDevices,
   personaplexOpenModelFolder,
   personaplexStartChat,
   personaplexStatus,
   personaplexStopChat,
   type PersonaplexBriefing,
   type PersonaplexEvent,
+  type PersonaplexInputDevice,
   type PersonaplexStatus,
 } from "../lib/api";
 import {
@@ -27,9 +29,11 @@ import {
   micSeemsSilent,
   pushLogLine,
   reduceSessionEvent,
+  resolveMicChoice,
   sessionIsActive,
   startingSessionState,
   type BriefingSizeId,
+  type MicChoice,
   type PersonaplexSessionState,
 } from "../lib/personaplex";
 import { formatBytes } from "../lib/format";
@@ -51,7 +55,19 @@ type BriefingPrefs = {
   include: boolean;
 };
 
-type Prefs = { voice: string; prompt: string; audio: AudioSetup; briefing: BriefingPrefs };
+type Prefs = {
+  voice: string;
+  prompt: string;
+  audio: AudioSetup;
+  mic: MicChoice;
+  briefing: BriefingPrefs;
+};
+
+/** `<select>` value ↔ MicChoice (uids are prefixed so they can't collide). */
+const micChoiceToValue = (c: MicChoice): string =>
+  c === "dictation" || c === "default" ? c : `uid:${c.uid}`;
+const valueToMicChoice = (v: string): MicChoice =>
+  v === "dictation" || v === "default" ? v : { uid: v.replace(/^uid:/, "") };
 
 const DEFAULT_BRIEFING: BriefingPrefs = {
   recap: true,
@@ -70,6 +86,7 @@ function loadPrefs(): Prefs {
     voice: "NATF2",
     prompt: PERSONA_PRESETS[0].prompt,
     audio: "headphones",
+    mic: "dictation",
     briefing: DEFAULT_BRIEFING,
   };
   try {
@@ -82,12 +99,20 @@ function loadPrefs(): Prefs {
         : parsed.aec === true
           ? "speakers"
           : fallback.audio;
+    const rawMic = parsed.mic as unknown;
+    const mic: MicChoice =
+      rawMic === "dictation" || rawMic === "default"
+        ? rawMic
+        : rawMic && typeof rawMic === "object" && typeof (rawMic as { uid?: unknown }).uid === "string"
+          ? { uid: (rawMic as { uid: string }).uid }
+          : fallback.mic;
     const b = (parsed.briefing ?? {}) as Partial<BriefingPrefs>;
     const sizeOk = BRIEFING_SIZES.some((s) => s.id === b.size);
     return {
       voice: typeof parsed.voice === "string" ? parsed.voice : fallback.voice,
       prompt: typeof parsed.prompt === "string" ? parsed.prompt : fallback.prompt,
       audio,
+      mic,
       briefing: {
         ...DEFAULT_BRIEFING,
         ...b,
@@ -166,6 +191,9 @@ export default function PersonaPlexLab() {
   const [briefingText, setBriefingText] = useState("");
   const [briefingBusy, setBriefingBusy] = useState(false);
   const [briefingError, setBriefingError] = useState<string | null>(null);
+  const [devices, setDevices] = useState<PersonaplexInputDevice[]>([]);
+  const [devicesBusy, setDevicesBusy] = useState(false);
+  const [devicesError, setDevicesError] = useState<string | null>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
   const logRef = useRef<HTMLPreElement>(null);
 
@@ -192,6 +220,22 @@ export default function PersonaPlexLab() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  const refreshDevices = useCallback(async () => {
+    setDevicesBusy(true);
+    try {
+      setDevices(await personaplexListInputDevices());
+      setDevicesError(null);
+    } catch (e) {
+      setDevicesError(errText(e));
+    } finally {
+      setDevicesBusy(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (status?.sidecar_installed) void refreshDevices();
+  }, [status?.sidecar_installed, refreshDevices]);
 
   useEffect(() => {
     savePrefs(prefs);
@@ -336,6 +380,7 @@ export default function PersonaPlexLab() {
         prompt: prefs.prompt,
         echo_cancellation: prefs.audio === "speakers",
         briefing: brief ? brief : null,
+        input_device: resolveMicChoice(prefs.mic, status?.dictation_input_device ?? null),
       });
     } catch (e) {
       const msg = errText(e);
@@ -679,6 +724,52 @@ export default function PersonaPlexLab() {
                   ))}
                 </select>
               </label>
+              <label className="flex flex-col gap-1">
+                <span className="flex items-center justify-between">
+                  {t("beta.personaplex.session.mic.label")}
+                  <button
+                    type="button"
+                    disabled={devicesBusy || active}
+                    onClick={() => void refreshDevices()}
+                    title={t("beta.personaplex.session.mic.refresh")}
+                    aria-label={t("beta.personaplex.session.mic.refresh")}
+                    className="text-muted hover:text-fg disabled:opacity-50"
+                  >
+                    <RefreshCw size={11} aria-hidden="true" className={devicesBusy ? "animate-spin" : ""} />
+                  </button>
+                </span>
+                <select
+                  value={micChoiceToValue(prefs.mic)}
+                  disabled={active}
+                  onChange={(e) => setPrefs((p) => ({ ...p, mic: valueToMicChoice(e.target.value) }))}
+                  className={inputCls}
+                >
+                  <option value="dictation">
+                    {status?.dictation_input_device
+                      ? t("beta.personaplex.session.mic.sameAsDictation", {
+                          name: status.dictation_input_device,
+                        })
+                      : t("beta.personaplex.session.mic.sameAsDictationDefault")}
+                  </option>
+                  <option value="default">{t("beta.personaplex.session.mic.systemDefault")}</option>
+                  {devices.map((d) => (
+                    <option key={d.uid} value={`uid:${d.uid}`}>
+                      {d.name}
+                      {d.is_default ? ` ${t("beta.personaplex.session.mic.defaultMark")}` : ""}
+                    </option>
+                  ))}
+                  {typeof prefs.mic === "object" && !devices.some((d) => d.uid === prefs.mic) ? (
+                    <option value={`uid:${prefs.mic.uid}`}>
+                      {t("beta.personaplex.session.mic.missing", { uid: prefs.mic.uid })}
+                    </option>
+                  ) : null}
+                </select>
+                {devicesError ? (
+                  <span className="text-[11px] text-warning">
+                    {t("beta.personaplex.session.mic.listFailed", { error: devicesError })}
+                  </span>
+                ) : null}
+              </label>
               <fieldset className="flex flex-col gap-1">
                 <legend className="mb-1">{t("beta.personaplex.session.audioSetup.label")}</legend>
                 {(["headphones", "speakers"] as const).map((mode) => (
@@ -785,7 +876,12 @@ export default function PersonaPlexLab() {
           </div>
 
           {session.phase === "ready" ? (
-            <p className="text-[11px] text-muted">{t("beta.personaplex.session.talkHint")}</p>
+            <p className="text-[11px] text-muted">
+              {t("beta.personaplex.session.talkHint")}
+              {session.micName
+                ? ` ${t("beta.personaplex.session.mic.listening", { name: session.micName })}`
+                : ""}
+            </p>
           ) : null}
           {micSilent ? (
             <p className="text-xs text-warning">{t("beta.personaplex.session.micSilent")}</p>

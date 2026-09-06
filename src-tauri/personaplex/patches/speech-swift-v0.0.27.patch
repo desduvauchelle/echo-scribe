@@ -1,3 +1,91 @@
+diff --git a/Sources/AudioCommon/FullDuplexAudioIO.swift b/Sources/AudioCommon/FullDuplexAudioIO.swift
+index e85ee16..4826970 100644
+--- a/Sources/AudioCommon/FullDuplexAudioIO.swift
++++ b/Sources/AudioCommon/FullDuplexAudioIO.swift
+@@ -1,5 +1,8 @@
+ #if canImport(AVFoundation)
+ import AVFoundation
++#if os(macOS)
++import AudioToolbox
++#endif
+ import Foundation
+ import os
+ 
+@@ -15,19 +18,24 @@ public final class FullDuplexAudioIO: @unchecked Sendable {
+         public var inputBufferFrames: UInt32
+         public var playbackPrebufferFrames: Int
+         public var enableAEC: Bool
++        /// macOS: CoreAudio `AudioDeviceID` to capture from instead of the
++        /// system default input. `nil` keeps the default.
++        public var inputDeviceID: UInt32?
+ 
+         public init(
+             inputSampleRate: Int = 16_000,
+             outputSampleRate: Int = 22_050,
+             inputBufferFrames: UInt32 = 1_024,
+             playbackPrebufferFrames: Int = 3,
+-            enableAEC: Bool = true
++            enableAEC: Bool = true,
++            inputDeviceID: UInt32? = nil
+         ) {
+             self.inputSampleRate = inputSampleRate
+             self.outputSampleRate = outputSampleRate
+             self.inputBufferFrames = inputBufferFrames
+             self.playbackPrebufferFrames = playbackPrebufferFrames
+             self.enableAEC = enableAEC
++            self.inputDeviceID = inputDeviceID
+         }
+ 
+         public func validate() throws {
+@@ -143,6 +151,24 @@ public final class FullDuplexAudioIO: @unchecked Sendable {
+             throw error
+         }
+ 
++        #if os(macOS)
++        // Pin the capture device before formats are read: the input unit
++        // (AUHAL, or AUVoiceIO with echo cancellation) reports the pinned
++        // device's format from here on.
++        if let deviceID = configuration.inputDeviceID, let unit = inputNode.audioUnit {
++            var id = AudioDeviceID(deviceID)
++            let status = AudioUnitSetProperty(
++                unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0,
++                &id, UInt32(MemoryLayout<AudioDeviceID>.size))
++            if status != noErr {
++                let error = FullDuplexAudioError.invalidConfiguration(
++                    "cannot select input device \(deviceID): OSStatus \(status)")
++                setState(.failed(error.description))
++                throw error
++            }
++        }
++        #endif
++
+         // Capture can be configured immediately after Voice Processing is
+         // enabled. Playback is attached only after `engine.start()` below:
+         // on macOS the output-side Voice Processing format settles
+@@ -304,6 +330,23 @@ public final class FullDuplexAudioIO: @unchecked Sendable {
+         }
+     }
+ 
++    #if os(macOS)
++    /// The CoreAudio device the running input unit actually captures from
++    /// (`nil` when not running or unreadable). Lets callers show the mic that
++    /// is really live rather than the one they asked for.
++    public func currentInputDeviceID() -> UInt32? {
++        lock.lock()
++        let unit = engine?.inputNode.audioUnit
++        lock.unlock()
++        guard let unit else { return nil }
++        var id = AudioDeviceID(0)
++        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
++        let status = AudioUnitGetProperty(
++            unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0, &id, &size)
++        return status == noErr && id != 0 ? UInt32(id) : nil
++    }
++    #endif
++
+     public func statistics() -> Statistics {
+         lock.lock()
+         defer { lock.unlock() }
 diff --git a/Sources/PersonaPlex/PersonaPlex.swift b/Sources/PersonaPlex/PersonaPlex.swift
 index c5d4630..649f54d 100644
 --- a/Sources/PersonaPlex/PersonaPlex.swift

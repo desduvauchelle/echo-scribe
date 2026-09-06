@@ -27,6 +27,8 @@ export type PersonaplexSessionState = {
   warmSecs: number | null;
   /** SentencePiece tokens the persona + briefing occupied (from `ready`). */
   promptTokens: number | null;
+  /** Microphone the sidecar is actually capturing from (from `ready`). */
+  micName: string | null;
   /** Peak mic RMS in the last stats window and the share of steps with audible input. */
   micPeak: number;
   micActivePct: number;
@@ -54,6 +56,7 @@ export const initialSessionState: PersonaplexSessionState = {
   loadSecs: null,
   warmSecs: null,
   promptTokens: null,
+  micName: null,
   micPeak: 0,
   micActivePct: 0,
   micBufferMs: 0,
@@ -111,6 +114,7 @@ export function reduceSessionEvent(
         loadSecs: num(ev.load_secs, 0),
         warmSecs: num(ev.warm_secs, 0),
         promptTokens: typeof ev.prompt_tokens === "number" ? ev.prompt_tokens : null,
+        micName: str(ev.mic) || null,
       };
     case "text":
       return {
@@ -211,6 +215,22 @@ export const LAG_WARN_MS = 500;
  *  suspect the microphone (permission, wrong device, muted). */
 export function micSeemsSilent(state: PersonaplexSessionState): boolean {
   return state.phase === "ready" && state.silentWindows >= MIC_SILENT_WINDOWS;
+}
+
+/** Microphone choice persisted by the lab: follow Dictation's preferred
+ *  device, the system default, or an explicit CoreAudio device UID. */
+export type MicChoice = "dictation" | "default" | { uid: string };
+
+/** What to send the backend as `input_device` for a choice. `dictation`
+ *  resolves to the Dictation page's preferred device name (null when it
+ *  follows the system default too). */
+export function resolveMicChoice(
+  choice: MicChoice,
+  dictationDevice: string | null,
+): string | null {
+  if (choice === "default") return null;
+  if (choice === "dictation") return dictationDevice && dictationDevice.trim() ? dictationDevice : null;
+  return choice.uid;
 }
 
 /** Briefing size presets (characters); tokens are roughly chars / 3.5. */

@@ -1,4 +1,5 @@
 import AudioCommon
+import CoreAudio
 import Foundation
 import PersonaPlex
 
@@ -11,6 +12,8 @@ struct ChatOptions {
     /// over speakers; turn off for headphones if the processing colours the
     /// audio too much.
     var aec = true
+    /// CoreAudio device UID or name; nil = system default input.
+    var inputDevice: String?
     var maxSteps = Int.max
     var warmup = true
     /// Headless test mode: feed a WAV instead of the mic, write the agent's
@@ -91,6 +94,7 @@ enum ChatRunner {
         // 4. Audio I/O: live devices, or a WAV in file mode.
         let ring: AudioRingBuffer
         var audio: FullDuplexAudioIO?
+        var micName = "file"
         var fileFrames = 0
         var feeder: Thread?
         let feederStop = StopFlag()
@@ -137,21 +141,50 @@ enum ChatRunner {
                 sink.log("info", "file mode: \(samples.count) samples, \(fileFrames) frames from \(wav.lastPathComponent)")
             }
         } else {
-            ring = AudioRingBuffer(capacity: 24000 * 5)
-            let io = FullDuplexAudioIO(configuration: .init(
-                inputSampleRate: 24000,
-                outputSampleRate: 24000,
-                inputBufferFrames: 1024,
-                playbackPrebufferFrames: 3,
-                enableAEC: o.aec))
+            let liveRing = AudioRingBuffer(capacity: 24000 * 5)
+            ring = liveRing
+            var deviceID: UInt32?
+            if let key = o.inputDevice?.trimmingCharacters(in: .whitespaces), !key.isEmpty {
+                if let d = AudioDevices.resolve(key) {
+                    deviceID = UInt32(d.id)
+                    sink.log("info", "input device '\(key)' → \(d.name) [\(d.uid)]")
+                } else {
+                    sink.log("warn", "input device '\(key)' not found; using the system default")
+                }
+            }
+            func makeIO(_ device: UInt32?) -> FullDuplexAudioIO {
+                FullDuplexAudioIO(configuration: .init(
+                    inputSampleRate: 24000,
+                    outputSampleRate: 24000,
+                    inputBufferFrames: 1024,
+                    playbackPrebufferFrames: 3,
+                    enableAEC: o.aec,
+                    inputDeviceID: device))
+            }
+            var io = makeIO(deviceID)
             do {
-                try io.start { samples in ring.write(samples) }
+                try io.start { samples in liveRing.write(samples) }
             } catch {
-                sink.error("microphone/speaker setup failed: \(error.localizedDescription) [\(error)]")
-                return 3
+                if deviceID != nil {
+                    // A device that refuses to pin (unplugged between listing
+                    // and start, or one Voice Processing won't take) must not
+                    // kill the session: fall back to the default input.
+                    sink.log("warn", "selected input device failed (\(error.localizedDescription)); retrying with the system default")
+                    io = makeIO(nil)
+                    do {
+                        try io.start { samples in liveRing.write(samples) }
+                    } catch {
+                        sink.error("microphone/speaker setup failed: \(error.localizedDescription) [\(error)]")
+                        return 3
+                    }
+                } else {
+                    sink.error("microphone/speaker setup failed: \(error.localizedDescription) [\(error)]")
+                    return 3
+                }
             }
             audio = io
-            sink.log("info", "audio running: mic=\(io.microphoneName) aec=\(o.aec)")
+            micName = io.currentInputDeviceID().flatMap { AudioDevices.name(for: AudioDeviceID($0)) } ?? io.microphoneName
+            sink.log("info", "audio running: mic=\(micName) aec=\(o.aec)")
         }
 
         let maxSteps = o.inputWav != nil ? fileFrames + o.postSteps : o.maxSteps
@@ -159,6 +192,7 @@ enum ChatRunner {
         sink.emit([
             "event": "ready",
             "paced": paced,
+            "mic": micName,
             "load_secs": loadSecs,
             "warm_secs": warmSecs,
             "voice": o.voice.rawValue,
