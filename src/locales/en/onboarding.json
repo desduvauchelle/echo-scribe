@@ -34,17 +34,13 @@
     "title": "Local AI model",
     "optional": "(optional)",
     "ready": "Ready",
-    "description": "Powers the log-capture flow (auto-classifying notes, tasks, tags). Voice-at-cursor works without it — skip to come back later.",
+    "description": "Powers the Tucky command — saving thoughts and tasks by voice, and classifying them. Dictation works without it — skip to come back later.",
     "skipButton": "Skip for now",
-    "skippedNote": "Skipped. Log-capture will show a friendly notice until you pick a model in Settings."
+    "skippedNote": "Skipped. Saved thoughts stay unclassified until you pick a model in Settings."
   },
   "dictationShortcut": {
     "title": "Dictation shortcut",
     "description": "Press and hold to record. Default is Right Control — change it here if that conflicts with another app."
-  },
-  "logCaptureShortcut": {
-    "title": "Log capture shortcut",
-    "description": "Press and hold to capture a thought or task. Default is Right Option — Tucky will classify it locally and pop a review overlay."
   },
   "startButton": {
     "starting": "Starting…",

@@ -1,4 +1,20 @@
 {
+  "greeting": {
+    "titles": [
+      "Ein wenig Platz für deine Gedanken.",
+      "Was geht dir durch den Kopf?",
+      "Gedanken, die einen zweiten Blick verdienen."
+    ],
+    "descriptions": [
+      "Nimm deinen Gedankenfaden wieder auf.",
+      "Deine nächste Idee hat hier ihren Platz.",
+      "Finde einen Faden und folge ihm."
+    ],
+    "another": "Ein anderer Gedanke",
+    "hide": "Begrüßung ausblenden",
+    "show": "Tuckys Begrüßung anzeigen",
+    "label": "Ein Moment mit Tucky"
+  },
   "app": {
     "brand": "Tucky",
     "toolbar": {

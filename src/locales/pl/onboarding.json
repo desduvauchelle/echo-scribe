@@ -22,17 +22,13 @@
     "title": "Lokalny model AI",
     "optional": "(opcjonalnie)",
     "ready": "Gotowy",
-    "description": "Napędza notatkę głosową (automatyczna klasyfikacja notatek, zadań i tagów). Dyktowanie przy kursorze działa bez niego — możesz pominąć ten krok i wrócić do niego później.",
+    "description": "Napędza polecenie Tucky — zapisywanie myśli i zadań głosem oraz ich klasyfikację. Dyktowanie działa bez niego — możesz wrócić później.",
     "skipButton": "Pomiń na razie",
-    "skippedNote": "Pominięto. Notatka głosowa będzie pokazywać przyjazny komunikat, dopóki nie wybierzesz modelu w Ustawieniach."
+    "skippedNote": "Pominięto. Zapisane myśli pozostaną bez klasyfikacji, dopóki nie wybierzesz modelu w Ustawieniach."
   },
   "dictationShortcut": {
     "title": "Skrót dyktowania",
     "description": "Naciśnij i przytrzymaj, aby nagrywać. Domyślnie to prawy Control — zmień go tutaj, jeśli koliduje z inną aplikacją."
-  },
-  "logCaptureShortcut": {
-    "title": "Skrót notatki głosowej",
-    "description": "Naciśnij i przytrzymaj, aby nagrać myśl lub zadanie. Domyślnie to prawy Option — Tucky sklasyfikuje ją lokalnie i pokaże okno przeglądu."
   },
   "startButton": {
     "starting": "Uruchamianie…",

@@ -126,9 +126,14 @@
     }
   },
   "logCapture": {
-    "hotkey": {
-      "title": "Scorciatoia di acquisizione rapida",
-      "subtitle": "Tieni premuta questa combinazione di tasti per acquisire un pensiero, un'idea o un'attività — classificata in locale e salvata nel tuo registro."
+    "command": {
+      "title": "Salvare un pensiero o un’attività",
+      "subtitle": "Tieni premuta la scorciatoia di dettatura e inizia con il comando Tucky. Tucky lo classifica in locale e lo archivia, senza una seconda scorciatoia.",
+      "examples": {
+        "task": "«Tucky, salva un’attività: inviare la proposta domani».",
+        "note": "«Tucky, annota che il limite dell’API è 100 al minuto».",
+        "remind": "«Tucky, ricordami di chiamare il commercialista»."
+      }
     },
     "export": {
       "title": "Esportazione Markdown",
@@ -173,10 +178,22 @@
   },
   "meetings": {
     "summaryTemplates": {
-      "standard": { "name": "Note standard", "description": "Riepilogo generale e prossimi passi concreti" },
-      "action-item": { "name": "Focus su azioni da svolgere", "description": "Dà priorità ad attività, responsabili e scadenze" },
-      "executive": { "name": "Riepilogo esecutivo", "description": "Roadmap strategiche, risultati e impatto sul business" },
-      "technical": { "name": "Sync tecnico", "description": "Sync di sviluppo approfonditi, API e blocchi" }
+      "standard": {
+        "name": "Note standard",
+        "description": "Riepilogo generale e prossimi passi concreti"
+      },
+      "action-item": {
+        "name": "Focus su azioni da svolgere",
+        "description": "Dà priorità ad attività, responsabili e scadenze"
+      },
+      "executive": {
+        "name": "Riepilogo esecutivo",
+        "description": "Roadmap strategiche, risultati e impatto sul business"
+      },
+      "technical": {
+        "name": "Sync tecnico",
+        "description": "Sync di sviluppo approfonditi, API e blocchi"
+      }
     },
     "promptModal": {
       "title": "Linee guida per il riepilogo delle riunioni",
@@ -403,9 +420,18 @@
       "subtitle": "Il server MCP è l'app Tucky stessa — nulla di aggiuntivo da scaricare. Clicca Installa ed Tucky si registrerà con la CLI dell'agente, oppure copia lo snippet per farlo manualmente."
     },
     "snippets": {
-      "claudeCode": { "title": "Claude Code", "hint": "L'installazione esegue: claude mcp add (ambito utente)." },
-      "codex": { "title": "Codex CLI", "hint": "L'installazione esegue: codex mcp add (scrive in ~/.codex/config.toml)." },
-      "other": { "title": "Altri client MCP", "hint": "Cursor, Windsurf, Gemini CLI — JSON mcpServers standard." },
+      "claudeCode": {
+        "title": "Claude Code",
+        "hint": "L'installazione esegue: claude mcp add (ambito utente)."
+      },
+      "codex": {
+        "title": "Codex CLI",
+        "hint": "L'installazione esegue: codex mcp add (scrive in ~/.codex/config.toml)."
+      },
+      "other": {
+        "title": "Altri client MCP",
+        "hint": "Cursor, Windsurf, Gemini CLI — JSON mcpServers standard."
+      },
       "installing": "Installazione…",
       "installButton": "Installa",
       "copyAriaLabel": "Copia configurazione {{title}}"

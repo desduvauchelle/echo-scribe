@@ -9,12 +9,12 @@ export type LearningState = {
   version: 1; initialized: boolean; counts: Counts; hidden: boolean; retrieved: boolean;
   practiced: boolean; celebrations: boolean; tips: boolean;
   dismissed: string[]; snoozed: Record<string, number>; lastTipAt: number;
-  earned: string[]; pending: Win[];
+  earned: string[]; pending: Win[]; visited: LessonId[];
 };
 export const initialLearning = (): LearningState => ({
   version: 1, initialized: false, counts: emptyCounts(), hidden: false, retrieved: false,
   practiced: false, celebrations: true, tips: true, dismissed: [], snoozed: {}, lastTipAt: 0,
-  earned: [], pending: [],
+  earned: [], pending: [], visited: [],
 });
 export const winId = (win: Win) => `${win.category}:${win.count}`;
 export function countsFromStats(stats: DashboardStats): Counts {
@@ -38,7 +38,7 @@ export function observeCounts(state: LearningState, counts: Counts): LearningSta
 }
 
 export type LessonId = "dictate" | "capture" | "retrieve" | "projects" | "tasks" | "chat" | "meetings" | "people" | "daily" | "recordings" | "templates" | "actions" | "export" | "agents" | "startup";
-export type Lesson = { id: LessonId; group: "voice" | "memory" | "meetings" | "recordings" | "power"; category?: StatsCategoryKey; after: number };
+export type Lesson = { id: LessonId; group: "voice" | "memory" | "meetings" | "recordings" | "commands" | "power"; category?: StatsCategoryKey; after: number };
 export const LESSONS: Lesson[] = [
   { id: "dictate", group: "voice", after: 0 },
   { id: "capture", group: "memory", category: "transcriptions", after: 1 },
@@ -51,7 +51,7 @@ export const LESSONS: Lesson[] = [
   { id: "daily", group: "memory", category: "transcriptions", after: 3 },
   { id: "recordings", group: "recordings", category: "recordings", after: 1 },
   { id: "templates", group: "voice", category: "transcriptions", after: 10 },
-  { id: "actions", group: "power", category: "transcriptions", after: 25 },
+  { id: "actions", group: "commands", category: "transcriptions", after: 25 },
   { id: "export", group: "power", category: "notes", after: 5 },
   { id: "agents", group: "power", category: "notes", after: 10 },
   { id: "startup", group: "power", category: "transcriptions", after: 2 },
@@ -62,6 +62,16 @@ export function nextTip(state: LearningState, now: number): Lesson | undefined {
     && !["dictate", "capture", "retrieve"].includes(lesson.id)
     && !state.dismissed.includes(lesson.id) && (state.snoozed[lesson.id] ?? 0) <= now);
 }
+export type LessonGroup = Lesson["group"];
+export const GROUPS: LessonGroup[] = ["voice", "memory", "meetings", "recordings", "commands", "power"];
+export const groupLessons = (group: LessonGroup) => LESSONS.filter((lesson) => lesson.group === group);
+export function groupProgress(state: LearningState, group: LessonGroup) {
+  const lessons = groupLessons(group);
+  const done = lessons.filter((lesson) => state.visited.includes(lesson.id)).length;
+  return { done, total: lessons.length, complete: lessons.length > 0 && done === lessons.length };
+}
+export const markVisited = (state: LearningState, id: LessonId): LearningState =>
+  state.visited.includes(id) ? state : { ...state, visited: [...state.visited, id] };
 export function learningSteps(state: LearningState) {
   return [state.practiced || state.counts.transcriptions > 0, state.counts.notes + state.counts.tasks > 0, state.retrieved];
 }

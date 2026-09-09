@@ -62,7 +62,7 @@ use crate::commands::{
     get_drive_prefs, get_edit_selection_binding, get_editor_defaults,
     get_export_confidence_threshold, get_filler_removal_enabled, get_filler_words,
     get_format_templates, get_item, get_last_transcript, get_llm_unload_secs,
-    get_log_capture_binding, get_mcp_settings, get_mute_while_recording, get_onboarding_completed,
+    get_mcp_settings, get_mute_while_recording, get_onboarding_completed,
     get_project_auto_tagging_enabled, get_project_delete_impact, get_recording_export_suggestion,
     get_recording_project, get_screenrec_audio_prefs, get_spoken_editing_settings,
     get_transcription_cleanup_language, get_transcription_snippets,
@@ -98,7 +98,7 @@ use crate::commands::{
     show_countdown_overlay, show_main_window, start_pipeline, start_screen_recording,
     stop_screen_recording, submit_area_picker_result, test_llm_inference, transcribe_recording,
     unarchive_project, uncomplete_task, undo_log_capture, uninstall_application,
-    update_edit_selection_binding, update_item, update_log_capture_binding,
+    update_edit_selection_binding, update_item,
     update_project, update_voice_at_cursor_binding, upload_recording, AppState,
 };
 use crate::db::Db;
@@ -271,8 +271,6 @@ pub fn run() {
             get_last_transcript,
             copy_last_transcript,
             paste_last_transcript,
-            get_log_capture_binding,
-            update_log_capture_binding,
             get_edit_selection_binding,
             update_edit_selection_binding,
             get_spoken_editing_settings,
@@ -557,8 +555,6 @@ pub fn run() {
 
             let initial_binding = settings.voice_at_cursor_binding();
             let binding = Arc::new(RwLock::new(initial_binding));
-            let initial_log_binding = settings.log_capture_binding();
-            let log_capture_binding = Arc::new(RwLock::new(initial_log_binding));
             let initial_edit_selection_binding = settings.edit_selection_binding();
             let edit_selection_binding = Arc::new(RwLock::new(initial_edit_selection_binding));
 
@@ -770,7 +766,6 @@ pub fn run() {
                 tray: Arc::clone(&tray),
                 settings,
                 binding,
-                log_capture_binding,
                 edit_selection_binding,
                 cancel_active: Arc::new(AtomicBool::new(false)),
                 last_transcript: Arc::new(Mutex::new(None)),

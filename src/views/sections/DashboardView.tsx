@@ -1,3 +1,4 @@
+import TuckyGreeting from "../../components/TuckyGreeting";
 import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -513,6 +514,7 @@ export default function DashboardView({ projects, onOpenStats, searchRequest = 0
   return (
     <div className="echo-dashboard flex h-full min-h-0 flex-col overflow-hidden">
       <div className="echo-dashboard-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain px-7 pb-5">
+        <TuckyGreeting />
         {onLesson && <LearningCard onLesson={onLesson} />}
         <div className="echo-filter-toolbar flex items-center justify-between gap-3 py-3">
           <div className="flex min-w-0 flex-wrap items-center gap-0.5">

@@ -22,17 +22,13 @@
     "title": "Modelo de IA local",
     "optional": "(opcional)",
     "ready": "Listo",
-    "description": "Impulsa el flujo de captura rápida (clasificación automática de notas, tareas, etiquetas). Voz en el cursor funciona sin él — omite este paso y vuelve más tarde.",
+    "description": "Impulsa el comando de Tucky: guardar ideas y tareas por voz y clasificarlas. El dictado funciona sin él; puedes volver más tarde.",
     "skipButton": "Omitir por ahora",
-    "skippedNote": "Omitido. La captura rápida mostrará un aviso hasta que elijas un modelo en Ajustes."
+    "skippedNote": "Omitido. Las ideas guardadas quedan sin clasificar hasta que elijas un modelo en Ajustes."
   },
   "dictationShortcut": {
     "title": "Atajo de dictado",
     "description": "Mantén pulsado para grabar. El predeterminado es Control derecho — cámbialo aquí si entra en conflicto con otra app."
-  },
-  "logCaptureShortcut": {
-    "title": "Atajo de captura rápida",
-    "description": "Mantén pulsado para capturar una idea o tarea. El predeterminado es Opción derecha — Tucky la clasificará localmente y mostrará una ventana de revisión."
   },
   "startButton": {
     "starting": "Iniciando…",

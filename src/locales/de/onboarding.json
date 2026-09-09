@@ -22,17 +22,13 @@
     "title": "Lokales KI-Modell",
     "optional": "(optional)",
     "ready": "Bereit",
-    "description": "Treibt den Sprachnotiz-Ablauf an (automatische Klassifizierung von Notizen, Aufgaben, Tags). Sprache-am-Cursor funktioniert auch ohne — überspringen und später einrichten.",
+    "description": "Treibt den Tucky-Befehl an — Gedanken und Aufgaben per Sprache speichern und einordnen. Diktieren funktioniert auch ohne — du kannst später darauf zurückkommen.",
     "skipButton": "Vorerst überspringen",
-    "skippedNote": "Übersprungen. Sprachnotiz zeigt einen freundlichen Hinweis, bis du in den Einstellungen ein Modell wählst."
+    "skippedNote": "Übersprungen. Gespeicherte Gedanken bleiben ohne Zuordnung, bis du in den Einstellungen ein Modell wählst."
   },
   "dictationShortcut": {
     "title": "Diktier-Tastenkombination",
     "description": "Gedrückt halten, um aufzunehmen. Standard ist die rechte Strg-Taste — ändere sie hier, falls das mit einer anderen App kollidiert."
-  },
-  "logCaptureShortcut": {
-    "title": "Sprachnotiz-Tastenkombination",
-    "description": "Gedrückt halten, um einen Gedanken oder eine Aufgabe zu erfassen. Standard ist die rechte Wahltaste (Option) — Tucky klassifiziert sie lokal und zeigt ein Überprüfungs-Overlay an."
   },
   "startButton": {
     "starting": "Wird gestartet…",

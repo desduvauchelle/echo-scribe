@@ -26,6 +26,9 @@ import {
   type AreaPickerResultPayload,
 } from "../lib/api";
 
+import { TuckyPeeking } from "../components/TuckyGreeting";
+import "../styles/recording-windows.css";
+
 import { groupWindows } from "./windowGroups";
 
 type SourceKind = "screen" | "window" | "area";
@@ -115,21 +118,40 @@ const SetupWindow: React.FC = () => {
   // mount used to spawn the screenrec sidecar during app launch, and its
   // SCShareableContent call fires the macOS Screen Recording prompt. On a
   // fresh install that meant a permission popup before the user touched
-  // anything. Only enumerate once the window is actually shown.
-  const sourcesLoadedRef = useRef(false);
+  // anything. Only enumerate when the window is actually shown — and do it
+  // on EVERY show, not just the first: this window is hidden (never
+  // destroyed) between recordings, so a once-only load left the mic list
+  // and window thumbnails frozen at whatever the first open of the app run
+  // saw (new USB mic missing, browser thumbnails hours old).
+  const loadInFlightRef = useRef(false);
+  // Bumped per enumeration; appended to thumbnail URLs so the webview cannot
+  // serve a cached image for a thumb the sidecar just rewrote in place
+  // (thumb filenames are stable per window id).
+  const [thumbEpoch, setThumbEpoch] = useState(0);
   const loadSources = () => {
-    if (sourcesLoadedRef.current) return;
-    sourcesLoadedRef.current = true;
+    if (loadInFlightRef.current) return;
+    loadInFlightRef.current = true;
     Promise.all([listScreenSources(), listInputDevices(), getScreenrecAudioPrefs()])
       .then(([sources, devices, prefs]) => {
         setDisplays(sources.displays);
         setWindows(sources.windows);
-        if (sources.displays.length > 0) {
-          setSelectedDisplayId(sources.displays[0].id);
-        }
-        if (sources.windows.length > 0) {
-          setSelectedWindowId(sources.windows[0].id);
-        }
+        setThumbEpoch((n) => n + 1);
+        // Keep the user's current selection when the refreshed list still has
+        // it; only fall back to the first entry when it's gone (or never set).
+        setSelectedDisplayId((cur) =>
+          cur !== null && sources.displays.some((d) => d.id === cur)
+            ? cur
+            : sources.displays.length > 0
+              ? sources.displays[0].id
+              : null,
+        );
+        setSelectedWindowId((cur) =>
+          cur !== null && sources.windows.some((w) => w.id === cur)
+            ? cur
+            : sources.windows.length > 0
+              ? sources.windows[0].id
+              : null,
+        );
         setInputDevices(devices);
         setSysaudio(prefs.sysaudio);
         setMicEnabled(prefs.mic_enabled);
@@ -148,9 +170,15 @@ const SetupWindow: React.FC = () => {
           setCameraEnabled(true);
           setCameraUid(prefs.camera_uid);
         }
+        console.info(
+          `[screenrec-setup] sources refreshed: ${sources.displays.length} displays, ${sources.windows.length} windows, ${devices.length} input devices`,
+        );
       })
       .catch((e) => setError(String(e)))
-      .finally(() => setLoading(false));
+      .finally(() => {
+        loadInFlightRef.current = false;
+        setLoading(false);
+      });
 
     // Cameras load separately: a rejection (permission / helper failure) must
     // not take down the whole setup window. The rejection is already a
@@ -224,8 +252,7 @@ const SetupWindow: React.FC = () => {
       });
       unlistenShown = await listen("screenrec-setup-shown", () => {
         setSetupVisible(true);
-        // First show triggers the (deferred) source/device enumeration —
-        // see loadSources above. No-op on subsequent shows.
+        // Every show re-enumerates sources/devices — see loadSources above.
         loadSources();
       });
       unlistenHidden = await listen("screenrec-setup-hidden", () => {
@@ -449,7 +476,7 @@ const SetupWindow: React.FC = () => {
 
   if (loading) {
     return (
-      <div style={styles.root}>
+      <div className="tucky-recording-setup" style={styles.root}>
         <p style={styles.loadingText}>{t("screenrecSetup.loadingSources")}</p>
       </div>
     );
@@ -457,17 +484,18 @@ const SetupWindow: React.FC = () => {
 
   if (error) {
     return (
-      <div style={styles.root}>
+      <div className="tucky-recording-setup" style={styles.root}>
         <p style={styles.errorText}>{error}</p>
       </div>
     );
   }
 
   return (
-    <div style={styles.root}>
+    <div className="tucky-recording-setup" style={styles.root}>
       {/* Header */}
-      <div style={styles.header}>
+      <div className="tucky-recording-heading" style={styles.header}>
         <h2 style={styles.title}>{t("screenrecSetup.newRecording")}</h2>
+        <TuckyPeeking />
       </div>
 
       <div style={styles.body}>
@@ -589,7 +617,7 @@ const SetupWindow: React.FC = () => {
                               >
                                 {w.thumb ? (
                                   <img
-                                    src={convertFileSrc(w.thumb)}
+                                    src={`${convertFileSrc(w.thumb)}?v=${thumbEpoch}`}
                                     alt=""
                                     style={styles.windowThumb}
                                   />
@@ -872,16 +900,19 @@ const styles: Record<string, React.CSSProperties> = {
     overflow: "hidden",
   },
   header: {
-    padding: "16px 20px 12px",
+    padding: "20px 120px 16px 24px",
+    minHeight: "76px",
+    display: "flex",
+    alignItems: "center",
     borderBottom: "1px solid var(--color-line)",
     flexShrink: 0,
   },
   title: {
     margin: 0,
-    fontSize: "15px",
+    fontSize: "21px",
     fontWeight: 600,
     color: "var(--color-fg)",
-    letterSpacing: "-0.011em",
+    letterSpacing: "-0.035em",
   },
   body: {
     flex: 1,
@@ -889,16 +920,13 @@ const styles: Record<string, React.CSSProperties> = {
     padding: "4px 0",
   },
   section: {
-    padding: "12px 20px",
-    borderBottom: "1px solid var(--color-line)",
+    padding: "6px 24px",
   },
   sectionLabel: {
     display: "block",
-    fontSize: "11px",
+    fontSize: "13px",
     fontWeight: 600,
-    color: "var(--color-muted)",
-    textTransform: "uppercase",
-    letterSpacing: "0.06em",
+    color: "var(--color-fg)",
     marginBottom: "8px",
   },
   segmentedControl: {
@@ -911,7 +939,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   segment: {
     flex: 1,
-    padding: "5px 12px",
+    padding: "8px 10px",
     border: "none",
     borderRadius: "6px",
     backgroundColor: "transparent",
@@ -922,8 +950,8 @@ const styles: Record<string, React.CSSProperties> = {
     transition: "background-color 150ms ease, color 150ms ease",
   },
   segmentActive: {
-    backgroundColor: "var(--color-elevated)",
-    color: "var(--color-fg)",
+    backgroundColor: "var(--color-accent-soft)",
+    color: "var(--color-accent)",
   },
   select: {
     width: "100%",
@@ -1085,7 +1113,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   openSettingsButton: {
     marginTop: "8px",
-    padding: "5px 12px",
+    padding: "8px 10px",
     backgroundColor: "var(--color-surface)",
     color: "var(--color-fg)",
     border: "1px solid var(--color-line)",
@@ -1097,13 +1125,14 @@ const styles: Record<string, React.CSSProperties> = {
   footer: {
     display: "flex",
     gap: "8px",
-    padding: "12px 20px",
+    padding: "16px 24px",
+    backgroundColor: "var(--color-surface)",
     borderTop: "1px solid var(--color-line)",
     justifyContent: "flex-end",
     flexShrink: 0,
   },
   cancelButton: {
-    padding: "7px 16px",
+    padding: "9px 16px",
     backgroundColor: "var(--color-surface)",
     color: "var(--color-muted)",
     border: "1px solid var(--color-line)",
@@ -1114,7 +1143,7 @@ const styles: Record<string, React.CSSProperties> = {
     transition: "background-color 120ms ease, color 120ms ease",
   },
   startButton: {
-    padding: "7px 16px",
+    padding: "9px 16px",
     backgroundColor: "var(--color-accent)",
     // Match the app's shared accent-button foreground: the canvas token is
     // light against the dark-green light-theme accent, and dark against the

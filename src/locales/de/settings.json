@@ -126,9 +126,14 @@
     }
   },
   "logCapture": {
-    "hotkey": {
-      "title": "Sprachnotiz-Hotkey",
-      "subtitle": "Halte diese Tastenkombination gedrückt, um einen Gedanken, eine Idee oder eine Aufgabe zu erfassen — wird lokal klassifiziert und in deinem Log gespeichert."
+    "command": {
+      "title": "Gedanken oder Aufgabe speichern",
+      "subtitle": "Halte deine Diktier-Tastenkombination und beginne mit dem Tucky-Befehl. Tucky ordnet den Eintrag lokal zu und legt ihn ab — ohne zweite Tastenkombination.",
+      "examples": {
+        "task": "„Tucky, speichere eine Aufgabe: das Angebot morgen senden.“",
+        "note": "„Tucky, notiere, dass das API-Limit bei 100 pro Minute liegt.“",
+        "remind": "„Tucky, erinnere mich daran, den Buchhalter anzurufen.“"
+      }
     },
     "export": {
       "title": "Markdown-Export",
@@ -173,10 +178,22 @@
   },
   "meetings": {
     "summaryTemplates": {
-      "standard": { "name": "Standard-Notizassistent", "description": "Allgemeine Zusammenfassung und umsetzbare nächste Schritte" },
-      "action-item": { "name": "Fokus auf Aufgaben", "description": "Priorisiert Aufgaben, Verantwortliche und Termine" },
-      "executive": { "name": "Management-Zusammenfassung", "description": "Strategische Roadmaps, Ergebnisse und geschäftliche Auswirkungen" },
-      "technical": { "name": "Technischer Sync", "description": "Tiefgehende Entwickler-Syncs, APIs und Blocker" }
+      "standard": {
+        "name": "Standard-Notizassistent",
+        "description": "Allgemeine Zusammenfassung und umsetzbare nächste Schritte"
+      },
+      "action-item": {
+        "name": "Fokus auf Aufgaben",
+        "description": "Priorisiert Aufgaben, Verantwortliche und Termine"
+      },
+      "executive": {
+        "name": "Management-Zusammenfassung",
+        "description": "Strategische Roadmaps, Ergebnisse und geschäftliche Auswirkungen"
+      },
+      "technical": {
+        "name": "Technischer Sync",
+        "description": "Tiefgehende Entwickler-Syncs, APIs und Blocker"
+      }
     },
     "promptModal": {
       "title": "Meeting-Zusammenfassungsrichtlinien",
@@ -403,9 +420,18 @@
       "subtitle": "Der MCP-Server ist die Tucky-App selbst — nichts Zusätzliches herunterzuladen. Klicke auf Installieren, und Tucky registriert sich selbst bei der CLI des Agenten, oder kopiere den Codeausschnitt für die manuelle Einrichtung."
     },
     "snippets": {
-      "claudeCode": { "title": "Claude Code", "hint": "Installation führt aus: claude mcp add (Benutzer-Bereich)." },
-      "codex": { "title": "Codex CLI", "hint": "Installation führt aus: codex mcp add (schreibt ~/.codex/config.toml)." },
-      "other": { "title": "Andere MCP-Clients", "hint": "Cursor, Windsurf, Gemini CLI — Standard-mcpServers-JSON." },
+      "claudeCode": {
+        "title": "Claude Code",
+        "hint": "Installation führt aus: claude mcp add (Benutzer-Bereich)."
+      },
+      "codex": {
+        "title": "Codex CLI",
+        "hint": "Installation führt aus: codex mcp add (schreibt ~/.codex/config.toml)."
+      },
+      "other": {
+        "title": "Andere MCP-Clients",
+        "hint": "Cursor, Windsurf, Gemini CLI — Standard-mcpServers-JSON."
+      },
       "installing": "Wird installiert…",
       "installButton": "Installieren",
       "copyAriaLabel": "{{title}}-Einrichtung kopieren"

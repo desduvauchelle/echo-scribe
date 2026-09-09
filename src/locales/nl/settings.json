@@ -126,9 +126,14 @@
     }
   },
   "logCapture": {
-    "hotkey": {
-      "title": "Hotkey voor log capture",
-      "subtitle": "Houd deze toetscombinatie ingedrukt om een gedachte, idee of taak vast te leggen — lokaal geclassificeerd en opgeslagen in je log."
+    "command": {
+      "title": "Een gedachte of taak opslaan",
+      "subtitle": "Houd je dicteersneltoets ingedrukt en begin met het Tucky-commando. Tucky rubriceert het lokaal en slaat het op — geen aparte sneltoets.",
+      "examples": {
+        "task": "“Tucky, sla een taak op: het voorstel morgen versturen.”",
+        "note": "“Tucky, noteer dat de API-limiet 100 per minuut is.”",
+        "remind": "“Tucky, herinner me eraan de boekhouder te bellen.”"
+      }
     },
     "export": {
       "title": "Markdown-export",
@@ -173,10 +178,22 @@
   },
   "meetings": {
     "summaryTemplates": {
-      "standard": { "name": "Standaard notulist", "description": "Algemene samenvatting en concrete vervolgstappen" },
-      "action-item": { "name": "Gericht op actiepunten", "description": "Geeft voorrang aan taken, eigenaren en deadlines" },
-      "executive": { "name": "Directiesamenvatting", "description": "Strategische roadmaps, resultaten en impact op de business" },
-      "technical": { "name": "Technische sync", "description": "Diepgaande dev-syncs, API's en blokkades" }
+      "standard": {
+        "name": "Standaard notulist",
+        "description": "Algemene samenvatting en concrete vervolgstappen"
+      },
+      "action-item": {
+        "name": "Gericht op actiepunten",
+        "description": "Geeft voorrang aan taken, eigenaren en deadlines"
+      },
+      "executive": {
+        "name": "Directiesamenvatting",
+        "description": "Strategische roadmaps, resultaten en impact op de business"
+      },
+      "technical": {
+        "name": "Technische sync",
+        "description": "Diepgaande dev-syncs, API's en blokkades"
+      }
     },
     "promptModal": {
       "title": "Richtlijnen voor meetingsamenvattingen",
@@ -403,9 +420,18 @@
       "subtitle": "De MCP-server is de Tucky-app zelf — niets extra's om te downloaden. Klik op Installeren en Tucky registreert zichzelf bij de eigen CLI van de agent, of kopieer het fragment om het handmatig te doen."
     },
     "snippets": {
-      "claudeCode": { "title": "Claude Code", "hint": "Installeren voert uit: claude mcp add (user scope)." },
-      "codex": { "title": "Codex CLI", "hint": "Installeren voert uit: codex mcp add (schrijft naar ~/.codex/config.toml)." },
-      "other": { "title": "Overige MCP-clients", "hint": "Cursor, Windsurf, Gemini CLI — standaard mcpServers-JSON." },
+      "claudeCode": {
+        "title": "Claude Code",
+        "hint": "Installeren voert uit: claude mcp add (user scope)."
+      },
+      "codex": {
+        "title": "Codex CLI",
+        "hint": "Installeren voert uit: codex mcp add (schrijft naar ~/.codex/config.toml)."
+      },
+      "other": {
+        "title": "Overige MCP-clients",
+        "hint": "Cursor, Windsurf, Gemini CLI — standaard mcpServers-JSON."
+      },
       "installing": "Bezig met installeren…",
       "installButton": "Installeren",
       "copyAriaLabel": "{{title}}-setup kopiëren"

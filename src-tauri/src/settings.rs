@@ -11,7 +11,6 @@ use crate::power::KeepAwakeMode;
 
 const STORE_FILENAME: &str = "settings.json";
 const KEY_VOICE_AT_CURSOR_BINDING: &str = "voice_at_cursor_binding";
-const KEY_LOG_CAPTURE_BINDING: &str = "log_capture_binding";
 const KEY_EDIT_SELECTION_BINDING: &str = "edit_selection_binding";
 const KEY_TRIGGER_WORD_ROUTING_ENABLED: &str = "trigger_word_routing_enabled";
 const KEY_ACTION_TRIGGER_WORD: &str = "action_trigger_word";
@@ -352,34 +351,6 @@ impl SettingsStore {
     pub fn set_llm_model_id(&self, id: &str) -> Result<(), SettingsError> {
         self.store
             .set(KEY_LLM_MODEL_ID, serde_json::Value::String(id.to_string()));
-        self.store
-            .save()
-            .map_err(|e| SettingsError::Store(e.to_string()))?;
-        Ok(())
-    }
-
-    /// Returns the configured log-capture binding, or the default
-    /// (`Binding::single(Key::AltGr)`) if none is stored or invalid.
-    pub fn log_capture_binding(&self) -> Binding {
-        match self.store.get(KEY_LOG_CAPTURE_BINDING) {
-            Some(value) => match serde_json::from_value::<Binding>(value) {
-                Ok(b) => b,
-                Err(e) => {
-                    warn!(
-                        ?e,
-                        "stored log_capture_binding is invalid; falling back to default"
-                    );
-                    default_log_capture_binding()
-                }
-            },
-            None => default_log_capture_binding(),
-        }
-    }
-
-    /// Persist the log-capture binding.
-    pub fn set_log_capture_binding(&self, b: Binding) -> Result<(), SettingsError> {
-        let value = serde_json::to_value(&b)?;
-        self.store.set(KEY_LOG_CAPTURE_BINDING, value);
         self.store
             .save()
             .map_err(|e| SettingsError::Store(e.to_string()))?;
@@ -1554,12 +1525,6 @@ impl SettingsStore {
 /// The default voice-at-cursor binding used when nothing is stored.
 pub fn default_binding() -> Binding {
     Binding::single(Key::ControlRight)
-}
-
-/// The default log-capture binding used when nothing is stored.
-/// Per the Phase 0 design: right Option (AltGr).
-pub fn default_log_capture_binding() -> Binding {
-    Binding::single(Key::AltGr)
 }
 
 /// The default edit-selection binding: Right Option + E.

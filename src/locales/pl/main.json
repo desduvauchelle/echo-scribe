@@ -1,4 +1,20 @@
 {
+  "greeting": {
+    "titles": [
+      "Trochę miejsca na Twoje myśli.",
+      "Co Ci chodzi po głowie?",
+      "Kilka myśli, do których warto wrócić."
+    ],
+    "descriptions": [
+      "Podejmij wątek swoich myśli.",
+      "Twój kolejny pomysł ma tu swoje miejsce.",
+      "Znajdź wątek i podążaj za nim."
+    ],
+    "another": "Inna myśl",
+    "hide": "Ukryj powitanie",
+    "show": "Pokaż powitanie Tucky",
+    "label": "Chwila z Tucky"
+  },
   "app": {
     "brand": "Tucky",
     "toolbar": {

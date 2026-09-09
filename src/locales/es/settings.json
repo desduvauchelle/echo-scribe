@@ -126,9 +126,14 @@
     }
   },
   "logCapture": {
-    "hotkey": {
-      "title": "Atajo de captura rápida",
-      "subtitle": "Mantén pulsada esta combinación de teclas para capturar una idea, pensamiento o tarea — clasificada localmente y guardada en tu registro."
+    "command": {
+      "title": "Guardar una idea o tarea",
+      "subtitle": "Mantén pulsado tu atajo de dictado y empieza con el comando de Tucky. Tucky lo clasifica en local y lo guarda, sin un atajo aparte.",
+      "examples": {
+        "task": "«Tucky, guarda una tarea: enviar la propuesta mañana».",
+        "note": "«Tucky, anota que el límite de la API es 100 por minuto».",
+        "remind": "«Tucky, recuérdame llamar al contable»."
+      }
     },
     "export": {
       "title": "Exportación a Markdown",
@@ -173,10 +178,22 @@
   },
   "meetings": {
     "summaryTemplates": {
-      "standard": { "name": "Tomador de notas estándar", "description": "Resumen general y próximos pasos accionables" },
-      "action-item": { "name": "Enfocado en tareas", "description": "Prioriza tareas, responsables y plazos" },
-      "executive": { "name": "Resumen ejecutivo", "description": "Hojas de ruta estratégicas, resultados e impacto en el negocio" },
-      "technical": { "name": "Sincronización técnica", "description": "Sincronizaciones técnicas profundas, APIs y bloqueos" }
+      "standard": {
+        "name": "Tomador de notas estándar",
+        "description": "Resumen general y próximos pasos accionables"
+      },
+      "action-item": {
+        "name": "Enfocado en tareas",
+        "description": "Prioriza tareas, responsables y plazos"
+      },
+      "executive": {
+        "name": "Resumen ejecutivo",
+        "description": "Hojas de ruta estratégicas, resultados e impacto en el negocio"
+      },
+      "technical": {
+        "name": "Sincronización técnica",
+        "description": "Sincronizaciones técnicas profundas, APIs y bloqueos"
+      }
     },
     "promptModal": {
       "title": "Pautas de resumen de reuniones",
@@ -403,9 +420,18 @@
       "subtitle": "El servidor MCP es la propia app Tucky — no hay nada más que descargar. Haz clic en Instalar y Tucky se registra con el propio CLI del agente, o copia el fragmento para hacerlo a mano."
     },
     "snippets": {
-      "claudeCode": { "title": "Claude Code", "hint": "Instalar ejecuta: claude mcp add (ámbito de usuario)." },
-      "codex": { "title": "Codex CLI", "hint": "Instalar ejecuta: codex mcp add (escribe en ~/.codex/config.toml)." },
-      "other": { "title": "Otros clientes MCP", "hint": "Cursor, Windsurf, Gemini CLI — JSON mcpServers estándar." },
+      "claudeCode": {
+        "title": "Claude Code",
+        "hint": "Instalar ejecuta: claude mcp add (ámbito de usuario)."
+      },
+      "codex": {
+        "title": "Codex CLI",
+        "hint": "Instalar ejecuta: codex mcp add (escribe en ~/.codex/config.toml)."
+      },
+      "other": {
+        "title": "Otros clientes MCP",
+        "hint": "Cursor, Windsurf, Gemini CLI — JSON mcpServers estándar."
+      },
       "installing": "Instalando…",
       "installButton": "Instalar",
       "copyAriaLabel": "Copiar configuración de {{title}}"

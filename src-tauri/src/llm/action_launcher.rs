@@ -11,7 +11,7 @@ use crate::settings::FormatTemplate;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct ActionCommand {
     pub is_action: bool,
-    pub action_type: Option<String>, // "launch_app" | "draft_email" | "open_url" | "increment_counter" | "reset_counter" | "show_counter" | "format_text" | "stay_awake" | "stop_stay_awake" | "start_screen_recording" | "start_meeting" | "stop_meeting"
+    pub action_type: Option<String>, // "launch_app" | "draft_email" | "open_url" | "increment_counter" | "reset_counter" | "show_counter" | "format_text" | "stay_awake" | "stop_stay_awake" | "start_screen_recording" | "start_meeting" | "stop_meeting" | "save_capture"
     pub app_name: Option<String>,
     pub email_to: Option<String>,
     pub email_subject: Option<String>,
@@ -30,6 +30,15 @@ pub struct ActionCommand {
     /// engages an indefinite hold.
     #[serde(default)]
     pub stay_awake_minutes: Option<u32>,
+    /// The thought or task to file. Only set when
+    /// `action_type == "save_capture"`; the words that named the command
+    /// ("save a task", "note that") are already stripped.
+    #[serde(default)]
+    pub capture_body: Option<String>,
+    /// "task" or "note" when the user said which one out loud, otherwise
+    /// `None` and the log-capture classifier decides.
+    #[serde(default)]
+    pub capture_kind: Option<String>,
     pub confidence: f32,
 }
 
@@ -75,12 +84,14 @@ Common templates:
 - Start screen recording: 'start screen recording', 'record my screen', 'new screen recording'. action_type: 'start_screen_recording'
 - Start meeting: 'start meeting', 'start the meeting', 'record this meeting', 'start meeting recording'. action_type: 'start_meeting'
 - Stop meeting: 'stop meeting', 'end the meeting', 'stop meeting recording'. action_type: 'stop_meeting'
+- Save a thought or task: 'save a task send the proposal tomorrow', 'note that the API rate limit is 100 a minute', 'remind me to call the accountant', 'make a note about the pricing change'. action_type: 'save_capture'. Set capture_body to the thought itself with the command words removed, and capture_kind to 'task' when the user said task/remind/to-do, 'note' when they said note/thought/remember, otherwise null.
 - Format text: the user dictates a 'format as X' phrase followed by the body to reformat. action_type: 'format_text'. Set format_id to the matching template id, and format_body to the dictation text AFTER the trigger phrase (the content to be reformatted). Only use format_text if the user's dictation clearly starts with or contains a format-trigger phrase from the list below.";
 
 const ACTION_SYSTEM_PROMPT_TAIL: &str = "\n\
 Rules:
 - If the user's transcript matches any of these command intents, set is_action to true, appropriate action_type, extract details, and set confidence high (e.g. >= 0.85).
-- If it's just regular dictation (like a note, task, diary thoughts, or description), set is_action to false and all other fields to null.
+- If it's just regular dictation (a sentence to type at the cursor, with no command words in front of it), set is_action to false and all other fields to null. Dictation only becomes 'save_capture' when the user actually asks for it to be saved or noted.
+- For save_capture: capture_body must be non-empty. If the user named the command but spoke no content ('save a task'), set is_action to false.
 - For format_text: confidence must be >= 0.85 only when both (a) a recognised format trigger phrase appears AND (b) format_body is non-empty.
 - Respond ONLY with the raw JSON object. No surrounding markdown, no backticks, no prose.";
 
@@ -103,6 +114,87 @@ fn build_action_system_prompt(templates: &[FormatTemplate]) -> String {
     out
 }
 
+/// Command phrases that file the rest of the sentence as a thought or task.
+/// Longest first so "save a task" wins over "save".
+const CAPTURE_PHRASES: &[(&str, Option<&str>)] = &[
+    ("save this as a task", Some("task")),
+    ("save this as a note", Some("note")),
+    ("save it as a task", Some("task")),
+    ("save it as a note", Some("note")),
+    ("add this to my tasks", Some("task")),
+    ("put this on my task list", Some("task")),
+    ("create a task", Some("task")),
+    ("make a task", Some("task")),
+    ("save a task", Some("task")),
+    ("add a task", Some("task")),
+    ("new task", Some("task")),
+    ("save task", Some("task")),
+    ("add task", Some("task")),
+    ("remind me", Some("task")),
+    ("note to self", Some("note")),
+    ("create a note", Some("note")),
+    ("make a note", Some("note")),
+    ("take a note", Some("note")),
+    ("save a note", Some("note")),
+    ("save a thought", Some("note")),
+    ("add a note", Some("note")),
+    ("new note", Some("note")),
+    ("save note", Some("note")),
+    ("add note", Some("note")),
+    ("note that", Some("note")),
+    ("remember that", Some("note")),
+    ("remember this", Some("note")),
+    ("capture this", None),
+    ("save this", None),
+];
+
+/// Words that glue a capture phrase to its content ("save a task **to** call
+/// Bob", "note that **the** build is red"). Stripped so the filed text reads
+/// as the thought itself.
+const CAPTURE_JOINERS: &[&str] = &["that", "to", "about", "for", "saying", "of"];
+
+/// Separator noise between the command and its content — whitespace, colons,
+/// dashes (including the em dash a transcript may produce). Quotes survive,
+/// since a capture may legitimately open with one.
+fn is_capture_separator(c: char) -> bool {
+    c.is_whitespace() || (!c.is_alphanumeric() && c != '"' && c != '\'')
+}
+
+/// Recognize "save a task …" / "note that …" without asking the LLM, so a
+/// capture still files when no model is loaded. Returns the body to file and
+/// the kind the user named, if any.
+pub fn capture_command(command: &str) -> Option<(String, Option<String>)> {
+    let lower = command.to_ascii_lowercase();
+    let (phrase, kind) = CAPTURE_PHRASES
+        .iter()
+        .find(|(phrase, _)| lower.starts_with(phrase))
+        .copied()?;
+    // Match on a word boundary: "save a taskmaster update" is dictation.
+    let rest_raw = &command[phrase.len()..];
+    if !rest_raw.is_empty() && !rest_raw.starts_with(|c: char| !c.is_alphanumeric()) {
+        return None;
+    }
+    let mut rest = rest_raw.trim_start_matches(is_capture_separator).to_string();
+    loop {
+        let lower_rest = rest.to_ascii_lowercase();
+        let Some(joiner) = CAPTURE_JOINERS.iter().find(|j| {
+            lower_rest
+                .strip_prefix(**j)
+                .is_some_and(|r| r.starts_with(char::is_whitespace))
+        }) else {
+            break;
+        };
+        rest = rest[joiner.len()..]
+            .trim_start_matches(is_capture_separator)
+            .to_string();
+    }
+    let body = rest.trim();
+    if body.is_empty() {
+        return None;
+    }
+    Some((body.to_string(), kind.map(str::to_string)))
+}
+
 /// Detect if the spoken transcript represents a system command action.
 /// `templates` is the user's configured voice format templates; their phrases
 /// are injected into the classifier system prompt so the LLM can pick one.
@@ -111,6 +203,49 @@ pub async fn detect_action<L: LlmGenerator + ?Sized>(
     transcript: &str,
     templates: &[FormatTemplate],
 ) -> Result<ActionCommand, ActionError> {
+    // The coordinator has already checked the user's command-routing settings
+    // and removed the trigger word. Recognize complete recording commands here
+    // so opening the existing picker does not depend on a loaded LLM.
+    let normalized = transcript
+        .trim()
+        .trim_end_matches(|c: char| c.is_ascii_punctuation())
+        .to_ascii_lowercase()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    let command = normalized.strip_prefix("please ").unwrap_or(&normalized);
+    let command = command
+        .strip_suffix(" please")
+        .unwrap_or(command)
+        .trim_end_matches(',');
+    if matches!(
+        command,
+        "start screen recording"
+            | "start the screen recording"
+            | "start a screen recording"
+            | "record my screen"
+            | "new screen recording"
+    ) {
+        return Ok(ActionCommand {
+            is_action: true,
+            action_type: Some("start_screen_recording".to_string()),
+            confidence: 1.0,
+            ..Default::default()
+        });
+    }
+    // Run against the original transcript, not the lowercased form, so the
+    // filed thought keeps the capitalisation the user dictated.
+    if let Some((body, kind)) = capture_command(transcript.trim()) {
+        return Ok(ActionCommand {
+            is_action: true,
+            action_type: Some("save_capture".to_string()),
+            capture_body: Some(body),
+            capture_kind: kind,
+            confidence: 1.0,
+            ..Default::default()
+        });
+    }
+
     let system_prompt = build_action_system_prompt(templates);
     let req = GenerateRequest {
         system: Some(system_prompt),
@@ -491,6 +626,57 @@ pub async fn format_text<L: LlmGenerator + ?Sized>(
 }
 
 #[cfg(test)]
+mod screen_recording_tests {
+    use super::*;
+
+    struct NoModel;
+
+    impl LlmGenerator for NoModel {
+        fn generate<'a>(&'a self, _req: GenerateRequest) -> crate::llm::GenerateFuture<'a> {
+            Box::pin(async { Err(LlmError::NoActiveModel) })
+        }
+    }
+
+    #[tokio::test]
+    async fn screen_recording_commands_work_without_a_language_model() {
+        for transcript in [
+            "Tucky start the screen recording",
+            "Tucky, start screen recording.",
+            "Tucky start a screen recording",
+            "Tucky record my screen!",
+            "Tucky new screen recording",
+            "Tucky, START   THE SCREEN RECORDING, please.",
+            "Tucky please start the screen recording",
+        ] {
+            let command = strip_trigger_prefix(transcript).unwrap();
+            let detected = detect_action(&NoModel, &command, &[]).await.unwrap();
+            assert!(detected.is_action, "{transcript}");
+            assert_eq!(detected.action_type.as_deref(), Some("start_screen_recording"));
+            assert!(detected.confidence >= 0.75);
+        }
+    }
+
+    #[tokio::test]
+    async fn other_utterances_still_use_the_classifier() {
+        for command in [
+            "don't start the screen recording",
+            "start the screen recording tomorrow",
+            "how do I start the screen recording",
+            "format as email start the screen recording",
+            "stop screen recording",
+            "start meeting recording",
+            "open Slack",
+        ] {
+            assert!(matches!(
+                detect_action(&NoModel, command, &[]).await,
+                Err(ActionError::Llm(LlmError::NoActiveModel))
+            ), "{command}");
+        }
+        assert_eq!(strip_trigger_prefix("start the screen recording"), None);
+    }
+}
+
+#[cfg(test)]
 mod language_rule_tests {
     use super::*;
 
@@ -650,5 +836,59 @@ fn recover_keep_awake_command(lower: &str) -> Option<String> {
         Some(format!("stay awake for {duration_amount} {duration_unit}"))
     } else {
         None
+    }
+}
+
+#[cfg(test)]
+mod capture_command_tests {
+    use super::*;
+
+    #[test]
+    fn spoken_captures_keep_their_wording_and_named_kind() {
+        for (spoken, body, kind) in [
+            ("save a task send the proposal tomorrow", "send the proposal tomorrow", Some("task")),
+            ("save a task: send the proposal tomorrow", "send the proposal tomorrow", Some("task")),
+            ("save a task to send the proposal", "send the proposal", Some("task")),
+            ("remind me to call the accountant", "call the accountant", Some("task")),
+            ("note that the API limit is 100 a minute", "the API limit is 100 a minute", Some("note")),
+            ("make a note about the pricing change", "the pricing change", Some("note")),
+            ("capture this — Sarah owns the migration", "Sarah owns the migration", None),
+        ] {
+            let got = capture_command(spoken).unwrap_or_else(|| panic!("{spoken}"));
+            assert_eq!(got.0, body, "{spoken}");
+            assert_eq!(got.1.as_deref(), kind, "{spoken}");
+        }
+    }
+
+    #[test]
+    fn plain_dictation_is_never_swallowed_as_a_capture() {
+        for spoken in [
+            "save a task",                       // named the command, said nothing to file
+            "save a taskmaster export",          // phrase is only a prefix of a real word
+            "the note that you sent was helpful", // phrase is not at the start
+            "send the proposal tomorrow",
+            "",
+        ] {
+            assert_eq!(capture_command(spoken), None, "{spoken}");
+        }
+    }
+
+    #[tokio::test]
+    async fn captures_file_even_when_no_model_is_loaded() {
+        let detected = detect_action(&NoModel, "note that the build is red", &[])
+            .await
+            .expect("capture should not need the LLM");
+        assert!(detected.is_action);
+        assert_eq!(detected.action_type.as_deref(), Some("save_capture"));
+        assert_eq!(detected.capture_body.as_deref(), Some("the build is red"));
+        assert_eq!(detected.capture_kind.as_deref(), Some("note"));
+    }
+
+    struct NoModel;
+
+    impl LlmGenerator for NoModel {
+        fn generate<'a>(&'a self, _req: GenerateRequest) -> crate::llm::GenerateFuture<'a> {
+            Box::pin(async { Err(LlmError::NoActiveModel) })
+        }
     }
 }

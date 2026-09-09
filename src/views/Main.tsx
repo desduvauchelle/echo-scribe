@@ -23,7 +23,7 @@ import {
   type StatsCategoryKey,
 } from "../lib/api";
 import { formatBindingLabel } from "../lib/displayText";
-import logoUrl from "../../src-tauri/icons/32x32.png";
+import logoUrl from "../../src-tauri/icons/128x128.png";
 import ActivityFeed from "./sections/ActivityFeed";
 import ChatView from "./sections/ChatView";
 import DashboardView from "./sections/DashboardView";
@@ -210,16 +210,18 @@ export default function Main({ onOpenSettings }: Props) {
       <header className="echo-app-toolbar flex h-12 shrink-0 items-stretch border-b border-line">
         <div className="echo-app-toolbar-sidebar flex w-[232px] shrink-0 items-center border-r border-line px-3" data-tauri-drag-region>
           <span className="w-[72px] shrink-0" aria-hidden="true" data-tauri-drag-region />
-          <div className="pointer-events-none flex min-w-0 items-center gap-1.5 text-[12px] font-semibold tracking-tight text-fg">
-            <img
-              src={logoUrl}
-              alt=""
-              width={18}
-              height={18}
-              className="echo-brand-icon h-[18px] w-[18px]"
-              aria-hidden="true"
-            />
-            <span className="truncate">{t("app.brand")}</span>
+          <div className="echo-brand pointer-events-none flex min-w-0 items-center text-fg">
+            <span className="echo-brand-badge" aria-hidden="true">
+              <img
+                src={logoUrl}
+                alt=""
+                width={36}
+                height={36}
+                className="echo-brand-icon"
+                aria-hidden="true"
+              />
+            </span>
+            <span className="echo-brand-wordmark truncate">{t("app.brand")}</span>
           </div>
         </div>
 

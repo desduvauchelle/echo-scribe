@@ -22,17 +22,13 @@
     "title": "Modèle d’IA locale",
     "optional": "(facultatif)",
     "ready": "Prêt",
-    "description": "Alimente le flux de capture rapide (classification automatique des notes, tâches, étiquettes). La voix au curseur fonctionne sans lui — vous pouvez l’ignorer pour y revenir plus tard.",
+    "description": "Alimente la commande Tucky : enregistrer idées et tâches à la voix, et les classer. La dictée fonctionne sans — vous pourrez y revenir.",
     "skipButton": "Ignorer pour l’instant",
-    "skippedNote": "Ignoré. La capture rapide affichera un message d’information tant que vous n’avez pas choisi de modèle dans Réglages."
+    "skippedNote": "Ignoré. Les idées enregistrées restent non classées tant que vous n’avez pas choisi de modèle dans les Réglages."
   },
   "dictationShortcut": {
     "title": "Raccourci de dictée",
     "description": "Appuyez et maintenez pour enregistrer. Par défaut : Control droit — modifiez-le ici en cas de conflit avec une autre application."
-  },
-  "logCaptureShortcut": {
-    "title": "Raccourci de capture rapide",
-    "description": "Appuyez et maintenez pour capturer une pensée ou une tâche. Par défaut : Option droite — Tucky la classera en local et affichera un écran de vérification."
   },
   "startButton": {
     "starting": "Démarrage…",

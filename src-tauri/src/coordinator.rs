@@ -63,6 +63,10 @@ async fn deliver_to_own_input(app: &AppHandle<Wry>, id: Option<String>, text: &s
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
     VoiceAtCursor,
+    /// File the dictation as a thought or task instead of pasting it. No
+    /// hotkey starts this any more — the coordinator switches a
+    /// VoiceAtCursor recording over when the transcript turns out to be a
+    /// capture command ("tucky, save a task …").
     LogCapture,
     /// Voice-edit the current text selection in place ("Command Mode").
     EditSelection,
@@ -227,30 +231,6 @@ pub fn spawn(
                     if paused.load(Ordering::SeqCst) {
                         info!(?action, "hotkey Pressed dropped: paused via tray");
                         continue;
-                    }
-
-                    // Mid-recording upgrade: if LogCapture fires while
-                    // VoiceAtCursor is already recording, promote the
-                    // in-progress recording to LogCapture without restarting
-                    // the recorder. The user pressed Option to start talking,
-                    // then pressed / to signal "this should be a log entry".
-                    if action == Action::LogCapture {
-                        let upgraded = {
-                            let mut s = state.lock().unwrap();
-                            if *s == PipelineState::Recording(Action::VoiceAtCursor) {
-                                *s = PipelineState::Recording(Action::LogCapture);
-                                true
-                            } else {
-                                false
-                            }
-                        };
-                        if upgraded {
-                            info!("upgraded in-progress VoiceAtCursor recording to LogCapture");
-                            let _ = app.emit("voice:recording_stopped", ());
-                            let _ = app.emit("log_capture:recording_started", ());
-                            crate::overlay::show_log_recording_overlay(&app);
-                            continue;
-                        }
                     }
 
                     if !transition_from_idle_to_recording(&state, action) {
@@ -445,8 +425,13 @@ pub fn spawn(
                                         on_state_change(TrayPipelineState::Idle);
                                         continue;
                                     }
-                                    let text = match try_intercept_action(&app, &llm, &text, action)
-                                        .await
+                                    // A capture command re-routes this dictation into the
+                                    // log-capture pipeline below, so `action` can change here.
+                                    let mut capture_kind_hint = None;
+                                    let (action, text) = match try_intercept_action(
+                                        &app, &llm, &text, action,
+                                    )
+                                    .await
                                     {
                                         InterceptOutcome::Consumed => {
                                             crate::overlay::hide_recording_overlay_now(&app);
@@ -454,8 +439,12 @@ pub fn spawn(
                                             on_state_change(TrayPipelineState::Idle);
                                             continue;
                                         }
-                                        InterceptOutcome::Reformatted(s) => s,
-                                        InterceptOutcome::Passthrough => text,
+                                        InterceptOutcome::Reformatted(s) => (action, s),
+                                        InterceptOutcome::Capture { body, kind } => {
+                                            capture_kind_hint = kind;
+                                            (Action::LogCapture, body)
+                                        }
+                                        InterceptOutcome::Passthrough => (action, text),
                                     };
                                     match action {
                                         Action::VoiceAtCursor => {
@@ -769,6 +758,15 @@ pub fn spawn(
                                                 pending_context.as_ref().map(|c| c as &_),
                                             )
                                             .await;
+                                            // The user said "task" or "note" out loud; that
+                                            // beats the classifier's guess.
+                                            let cls = match (cls, capture_kind_hint) {
+                                                (Ok(mut c), Some(kind)) => {
+                                                    c.kind = kind;
+                                                    Ok(c)
+                                                }
+                                                (other, _) => other,
+                                            };
                                             feedback::play(Sfx::Ready);
                                             crate::overlay::hide_recording_overlay(&app);
 
@@ -796,7 +794,8 @@ pub fn spawn(
                                                 let c = cls.unwrap_or_else(|e| {
                                                 warn!(?e, "classify failed; filing capture as a plain note");
                                                 Classification {
-                                                    kind: crate::db::items::ItemKind::Note,
+                                                    kind: capture_kind_hint
+                                                        .unwrap_or(crate::db::items::ItemKind::Note),
                                                     project_id: None,
                                                     new_project_name: None,
                                                     tags: Vec::new(),
@@ -1312,6 +1311,14 @@ pub enum InterceptOutcome {
     /// reformatted body that should be pasted at the user's cursor in
     /// place of the raw transcription.
     Reformatted(String),
+    /// "tucky, save a task: …" — the body should be filed through the
+    /// log-capture pipeline instead of pasted at the cursor. `kind` is set
+    /// only when the user named note or task out loud; otherwise the
+    /// classifier decides.
+    Capture {
+        body: String,
+        kind: Option<crate::db::items::ItemKind>,
+    },
     /// No intercept fired. Caller should use the original transcription.
     Passthrough,
 }
@@ -1394,6 +1401,28 @@ async fn try_intercept_action(
                 // rewritten string for the caller to paste via the normal
                 // focus-restore path. On any failure here we fall back to
                 // pasting the raw transcription so dictation is never lost.
+                if cmd.action_type.as_deref() == Some("save_capture") {
+                    let body = cmd.capture_body.clone().unwrap_or_default();
+                    let body = body.trim();
+                    if body.is_empty() {
+                        warn!(target: "capture", "save_capture matched with no body; pasting the dictation instead");
+                        return InterceptOutcome::Passthrough;
+                    }
+                    let kind = match cmd.capture_kind.as_deref() {
+                        Some("task") => Some(crate::db::items::ItemKind::Task),
+                        Some("note") => Some(crate::db::items::ItemKind::Note),
+                        _ => None,
+                    };
+                    info!(target: "capture", kind = ?kind, chars = body.len(), "voice command filing a capture");
+                    if let Some(s) = app.try_state::<crate::commands::AppState>() {
+                        let _ = s.settings.increment_action_counter();
+                    }
+                    return InterceptOutcome::Capture {
+                        body: body.to_string(),
+                        kind,
+                    };
+                }
+
                 if cmd.action_type.as_deref() == Some("format_text") {
                     let body = cmd
                         .format_body

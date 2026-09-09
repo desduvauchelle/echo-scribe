@@ -126,9 +126,14 @@
     }
   },
   "logCapture": {
-    "hotkey": {
-      "title": "Skrót notatki głosowej",
-      "subtitle": "Przytrzymaj tę kombinację klawiszy, aby nagrać myśl, pomysł lub zadanie — sklasyfikowane lokalnie i zapisane w Twoim dzienniku."
+    "command": {
+      "title": "Zapisywanie myśli lub zadania",
+      "subtitle": "Przytrzymaj skrót dyktowania i zacznij od polecenia Tucky. Tucky sklasyfikuje wpis lokalnie i go zapisze — bez osobnego skrótu.",
+      "examples": {
+        "task": "„Tucky, zapisz zadanie: wysłać ofertę jutro”.",
+        "note": "„Tucky, zanotuj, że limit API to 100 na minutę”.",
+        "remind": "„Tucky, przypomnij mi, żeby zadzwonić do księgowego”."
+      }
     },
     "export": {
       "title": "Eksport do Markdown",
@@ -179,10 +184,22 @@
   },
   "meetings": {
     "summaryTemplates": {
-      "standard": { "name": "Standardowy notatnik", "description": "Ogólne podsumowanie i konkretne kolejne kroki" },
-      "action-item": { "name": "Skupiony na zadaniach", "description": "Priorytetyzuje zadania, osoby odpowiedzialne i terminy" },
-      "executive": { "name": "Podsumowanie zarządcze", "description": "Strategiczne plany, wyniki i wpływ na biznes" },
-      "technical": { "name": "Synchronizacja techniczna", "description": "Dogłębne synchronizacje deweloperskie, API i blokery" }
+      "standard": {
+        "name": "Standardowy notatnik",
+        "description": "Ogólne podsumowanie i konkretne kolejne kroki"
+      },
+      "action-item": {
+        "name": "Skupiony na zadaniach",
+        "description": "Priorytetyzuje zadania, osoby odpowiedzialne i terminy"
+      },
+      "executive": {
+        "name": "Podsumowanie zarządcze",
+        "description": "Strategiczne plany, wyniki i wpływ na biznes"
+      },
+      "technical": {
+        "name": "Synchronizacja techniczna",
+        "description": "Dogłębne synchronizacje deweloperskie, API i blokery"
+      }
     },
     "promptModal": {
       "title": "Wytyczne podsumowania spotkania",
@@ -409,9 +426,18 @@
       "subtitle": "Serwer MCP to sama aplikacja Tucky — nie trzeba nic dodatkowo pobierać. Kliknij Zainstaluj, a Tucky zarejestruje się we własnym CLI agenta, albo skopiuj fragment kodu, aby zrobić to ręcznie."
     },
     "snippets": {
-      "claudeCode": { "title": "Claude Code", "hint": "Instalacja uruchamia: claude mcp add (zakres użytkownika)." },
-      "codex": { "title": "Codex CLI", "hint": "Instalacja uruchamia: codex mcp add (zapisuje ~/.codex/config.toml)." },
-      "other": { "title": "Inni klienci MCP", "hint": "Cursor, Windsurf, Gemini CLI — standardowy JSON mcpServers." },
+      "claudeCode": {
+        "title": "Claude Code",
+        "hint": "Instalacja uruchamia: claude mcp add (zakres użytkownika)."
+      },
+      "codex": {
+        "title": "Codex CLI",
+        "hint": "Instalacja uruchamia: codex mcp add (zapisuje ~/.codex/config.toml)."
+      },
+      "other": {
+        "title": "Inni klienci MCP",
+        "hint": "Cursor, Windsurf, Gemini CLI — standardowy JSON mcpServers."
+      },
       "installing": "Instalowanie…",
       "installButton": "Zainstaluj",
       "copyAriaLabel": "Kopiuj konfigurację {{title}}"

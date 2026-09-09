@@ -126,9 +126,14 @@
     }
   },
   "logCapture": {
-    "hotkey": {
-      "title": "Log capture hotkey",
-      "subtitle": "Hold this key combination to capture a thought, idea, or task — classified locally and saved to your log."
+    "command": {
+      "title": "Saving a thought or task",
+      "subtitle": "Hold your dictation shortcut and start with the Tucky command. Tucky classifies it locally and files it — no separate shortcut.",
+      "examples": {
+        "task": "“Tucky, save a task: send the proposal tomorrow.”",
+        "note": "“Tucky, note that the API limit is 100 a minute.”",
+        "remind": "“Tucky, remind me to call the accountant.”"
+      }
     },
     "export": {
       "title": "Markdown export",
@@ -173,10 +178,22 @@
   },
   "meetings": {
     "summaryTemplates": {
-      "standard": { "name": "Standard Note-Taker", "description": "General summary and actionable next steps" },
-      "action-item": { "name": "Action-Item Focused", "description": "Prioritizes tasks, owners, and deadlines" },
-      "executive": { "name": "Executive Summary", "description": "Strategic roadmaps, outcomes, and business impact" },
-      "technical": { "name": "Technical Sync", "description": "Deep dev syncs, APIs, and blockers" }
+      "standard": {
+        "name": "Standard Note-Taker",
+        "description": "General summary and actionable next steps"
+      },
+      "action-item": {
+        "name": "Action-Item Focused",
+        "description": "Prioritizes tasks, owners, and deadlines"
+      },
+      "executive": {
+        "name": "Executive Summary",
+        "description": "Strategic roadmaps, outcomes, and business impact"
+      },
+      "technical": {
+        "name": "Technical Sync",
+        "description": "Deep dev syncs, APIs, and blockers"
+      }
     },
     "promptModal": {
       "title": "Meeting Summary Guidelines",
@@ -403,9 +420,18 @@
       "subtitle": "The MCP server is the Tucky app itself — nothing extra to download. Click Install and Tucky registers itself with the agent's own CLI, or copy the snippet to do it by hand."
     },
     "snippets": {
-      "claudeCode": { "title": "Claude Code", "hint": "Install runs: claude mcp add (user scope)." },
-      "codex": { "title": "Codex CLI", "hint": "Install runs: codex mcp add (writes ~/.codex/config.toml)." },
-      "other": { "title": "Other MCP clients", "hint": "Cursor, Windsurf, Gemini CLI — standard mcpServers JSON." },
+      "claudeCode": {
+        "title": "Claude Code",
+        "hint": "Install runs: claude mcp add (user scope)."
+      },
+      "codex": {
+        "title": "Codex CLI",
+        "hint": "Install runs: codex mcp add (writes ~/.codex/config.toml)."
+      },
+      "other": {
+        "title": "Other MCP clients",
+        "hint": "Cursor, Windsurf, Gemini CLI — standard mcpServers JSON."
+      },
       "installing": "Installing…",
       "installButton": "Install",
       "copyAriaLabel": "Copy {{title}} setup"

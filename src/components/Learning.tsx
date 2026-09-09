@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
-import { ArrowLeft, ArrowRight, BookOpen, Check, ChevronRight, Circle, Mic, Sparkles, Trophy, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, BookOpen, Check, ChevronDown, ChevronRight, Circle, Mic, Sparkles, Trophy, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { frontendLog, getLogCaptureBinding, getVoiceAtCursorBinding, listLlmModels, listSpeechModels, permissionsStatus } from "../lib/api";
+import { frontendLog, getVoiceAtCursorBinding, listLlmModels, listSpeechModels, permissionsStatus } from "../lib/api";
 import { formatBindingLabel } from "../lib/displayText";
-import { CATEGORIES, LESSONS, MILESTONES, learningSteps, nextTip, winId, type LessonId } from "../lib/learning";
+import { CATEGORIES, GROUPS, MILESTONES, groupLessons, groupProgress, learningSteps, markVisited, nextTip, winId, type LessonId } from "../lib/learning";
 import { useLearning } from "./LearningContext";
 import SpeechSetupStatus from "./SpeechSetupStatus";
 import { useSpeechSetup } from "../lib/speechSetup";
@@ -52,12 +52,12 @@ export function LearnView({ lesson, onLesson, onAction }: Props & { lesson?: Les
   const { t: common } = useTranslation();
   const { state, update } = useLearning();
   const [binding, setBinding] = useState("");
-  const [logBinding, setLogBinding] = useState("");
   const [ready, setReady] = useState(false);
   const [ai, setAi] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [text, setText] = useState("");
   const [practiced, setPracticed] = useState(false);
+  const [openGroup, setOpenGroup] = useState<string | undefined>("voice");
   const speech = useSpeechSetup();
   const input = useRef<HTMLTextAreaElement>(null);
   const success = useRef<HTMLDivElement>(null);
@@ -65,10 +65,13 @@ export function LearnView({ lesson, onLesson, onAction }: Props & { lesson?: Les
     if (practiced && lesson === "dictate") success.current?.scrollIntoView({ block: "nearest", behavior: "instant" });
   }, [practiced, lesson]);
   useEffect(() => {
+    if (lesson) update((s) => markVisited(s, lesson));
+  }, [lesson, update]);
+  useEffect(() => {
     let cancelled = false;
-    void Promise.all([getVoiceAtCursorBinding(), getLogCaptureBinding(), permissionsStatus(), listSpeechModels(), listLlmModels()]).then(([voice, log, perms, models, llms]) => {
+    void Promise.all([getVoiceAtCursorBinding(), permissionsStatus(), listSpeechModels(), listLlmModels()]).then(([voice, perms, models, llms]) => {
       if (cancelled) return;
-      setBinding(formatBindingLabel(common, voice)); setLogBinding(formatBindingLabel(common, log));
+      setBinding(formatBindingLabel(common, voice));
       setReady(perms.microphone && perms.accessibility && models.some((m) => m.active && m.downloaded));
       setAi(llms.some((m) => m.active && m.downloaded)); setLoaded(true);
     }).catch((e) => { frontendLog("error", `learning: readiness failed: ${String(e)}`); if (!cancelled) setLoaded(true); });
@@ -89,7 +92,7 @@ export function LearnView({ lesson, onLesson, onAction }: Props & { lesson?: Les
         <button className={quiet + " mb-5 flex items-center gap-1"} onClick={() => onLesson()}><ArrowLeft size={14} />{t("learning.title")}</button>
         <p className="text-xs font-medium text-accent">{t("learning.minute")}</p>
         <h2 className="mt-2 text-2xl font-semibold tracking-tight">{t(`learning.lessons.${lesson}.title`)}</h2>
-        <p className="mt-3 max-w-xl text-sm leading-relaxed text-muted">{t(`learning.lessons.${lesson}.body`, { binding, logBinding })}</p>
+        <p className="mt-3 max-w-xl text-sm leading-relaxed text-muted">{t(`learning.lessons.${lesson}.body`, { binding })}</p>
         {lesson === "dictate" ? <div className="mt-6 rounded-xl border border-line bg-surface p-5">
           {practiced && <div ref={success} className={`echo-practice-success relative mb-5 overflow-hidden rounded-xl border border-accent/30 bg-accent-soft p-5 ${state.celebrations ? "echo-practice-animate" : ""}`}>
             {state.celebrations && <div className="echo-practice-confetti pointer-events-none absolute inset-0" aria-hidden="true">{Array.from({ length: 24 }, (_, i) => <i key={i} style={{ "--x": `${(i % 8 - 3.5) * 44}px`, "--y": `${-45 - (i % 5) * 18}px`, "--turn": `${(i % 2 ? 1 : -1) * (120 + i * 19)}deg`, "--delay": `${i % 4 * 35}ms`, backgroundColor: ["#239b7a", "#e9ac42", "#a78bfa", "#ec7997", "#55bccc"][i % 5] } as CSSProperties} />)}</div>}
@@ -112,22 +115,47 @@ export function LearnView({ lesson, onLesson, onAction }: Props & { lesson?: Les
           </div>
         </div> : <div className="mt-6 rounded-xl border border-line bg-surface p-5">
           {needsAi && loaded && !ai ? <><p className="mb-3 text-sm text-muted">{t("learning.aiNeeded")}</p><button className={button} onClick={() => onAction("setup-ai")}>{t("learning.setupAi")}</button></> :
-            lesson === "capture" ? <><p className="text-sm font-medium">{t("learning.captureTry", { logBinding: logBinding || "…" })}</p><p className="mt-2 text-sm text-muted">{t("learning.captureExample")}</p><button className={quiet + " mt-3"} onClick={() => onAction("capture")}>{t("learning.openCaptureSettings")}</button></> :
+            lesson === "capture" ? <><p className="text-sm font-medium">{t("learning.captureTry", { binding: binding || "…" })}</p><p className="mt-2 text-sm text-muted">{t("learning.captureExample")}</p><button className={quiet + " mt-3"} onClick={() => onAction("capture")}>{t("learning.openCaptureSettings")}</button></> :
               <button className={button} onClick={() => onAction(lesson)}>{t(`learning.lessons.${lesson}.action`)}<ArrowRight size={14} /></button>}
         </div>}
       </> : <>
         <h2 className="text-2xl font-semibold tracking-tight">{t("learning.title")}</h2>
         <p className="mt-2 text-sm text-muted">{t("learning.subtitle")}</p>
-        <div className="mt-6 grid items-start gap-4 sm:grid-cols-2">
-          {["voice", "memory", "meetings", "recordings", "power"].map((group) => <section key={group} className="rounded-xl border border-line bg-surface p-4">
-            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-faint">{t(`learning.groups.${group}`)}</h3>
-            {LESSONS.filter((l) => l.group === group).map((l) => <button key={l.id} onClick={() => onLesson(l.id)} className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-2.5 text-left hover:bg-elevated"><span><span className="block text-sm font-medium">{t(`learning.lessons.${l.id}.title`)}</span><span className="mt-1 block text-xs leading-relaxed text-muted">{t(`learning.lessons.${l.id}.summary`)}</span></span><ChevronRight size={14} className="shrink-0 text-faint" /></button>)}
-          </section>)}
+        <div className="mt-6 space-y-3">
+          {GROUPS.map((group) => {
+            const lessons = groupLessons(group);
+            const progress = groupProgress(state, group);
+            const open = openGroup === group;
+            return <section key={group} className="overflow-hidden rounded-xl border border-line bg-surface">
+              <h3>
+                <button type="button" aria-expanded={open} onClick={() => setOpenGroup(open ? undefined : group)} className="flex w-full items-center gap-3 px-4 py-3.5 text-left hover:bg-elevated">
+                  <span className={`flex size-5 shrink-0 items-center justify-center rounded-full border ${progress.complete ? "border-success bg-success text-canvas" : "border-line text-transparent"}`} aria-hidden="true">{progress.complete && <Check size={12} strokeWidth={3} />}</span>
+                  <span className="flex-1 text-sm font-medium">{t(`learning.groups.${group}`)}</span>
+                  <span className="shrink-0 text-xs tabular-nums text-faint">{progress.done}/{progress.total}</span>
+                  <ChevronDown size={16} className={`shrink-0 text-faint transition-transform ${open ? "rotate-180" : ""}`} aria-hidden="true" />
+                </button>
+              </h3>
+              {open && <div className="space-y-1 border-t border-line px-2 py-2">{lessons.map((l) => {
+                const done = state.visited.includes(l.id);
+                return <button key={l.id} onClick={() => onLesson(l.id)} className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left hover:bg-elevated">
+                  {done ? <Check size={14} className="shrink-0 text-success" aria-hidden="true" /> : <Circle size={12} className="shrink-0 text-faint" aria-hidden="true" />}
+                  <span className="flex-1"><span className="block text-sm font-medium">{t(`learning.lessons.${l.id}.title`)}</span><span className="mt-1 block text-xs leading-relaxed text-muted">{t(`learning.lessons.${l.id}.summary`)}</span></span>
+                  <ChevronRight size={14} className="shrink-0 text-faint" aria-hidden="true" />
+                </button>;
+              })}</div>}
+            </section>;
+          })}
         </div>
         <section className="mt-6 rounded-xl border border-line bg-surface p-5" aria-label={t("learning.wins")}>
-          <h3 className="flex items-center gap-2 text-base font-semibold"><Trophy size={18} className="text-accent" />{t("learning.wins")}</h3>
+          <h3 className="flex items-center gap-2 text-base font-semibold"><Trophy size={18} className="text-accent" aria-hidden="true" />{t("learning.wins")}</h3>
           <p className="mt-1 text-xs text-muted">{t("learning.winsHint")}</p>
-          <div className="mt-4 space-y-4">{CATEGORIES.map((category) => <div key={category}><div className="mb-2 flex justify-between text-xs"><span>{t(`learning.categories.${category}`)}</span><span className="text-muted">{t("learning.count", { count: state.counts[category] })}</span></div><div className="flex gap-2">{MILESTONES.map((count) => <span key={count} className={`flex flex-1 items-center justify-center gap-1 rounded-lg border py-2 text-xs ${state.earned.includes(winId({ category, count })) ? "border-accent/30 bg-accent-soft text-accent" : "border-line text-faint"}`} aria-label={t("learning.milestone", { count, status: t(state.earned.includes(winId({ category, count })) ? "learning.earned" : "learning.ahead") })}>{state.earned.includes(winId({ category, count })) && <Check size={12} />}{count}</span>)}</div></div>)}</div>
+          <div className="mt-4 space-y-4">{CATEGORIES.map((category) => <div key={category}>
+            <div className="mb-2 flex justify-between text-xs"><span>{t(`learning.categories.${category}`)}</span><span className="text-muted">{t("learning.count", { count: state.counts[category] })}</span></div>
+            <div className="flex flex-wrap gap-2">{MILESTONES.map((count) => {
+              const earned = state.earned.includes(winId({ category, count }));
+              return <span key={count} className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs tabular-nums ${earned ? "border-accent/40 bg-accent-soft font-medium text-accent" : "border-line text-faint"}`} aria-label={t("learning.milestone", { count, status: t(earned ? "learning.earned" : "learning.ahead") })}>{earned ? <Check size={12} strokeWidth={3} aria-hidden="true" /> : <Circle size={8} aria-hidden="true" />}{count}</span>;
+            })}</div>
+          </div>)}</div>
         </section>
         <div className="mt-5 flex flex-wrap gap-4 text-xs text-muted">
           <label className="flex items-center gap-2"><input type="checkbox" checked={state.tips} onChange={(e) => update((s) => ({ ...s, tips: e.target.checked }))} />{t("learning.tipsToggle")}</label>

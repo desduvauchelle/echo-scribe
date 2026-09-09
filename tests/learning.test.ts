@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { CATEGORIES, MILESTONES, emptyCounts, initialLearning, learningSteps, nextTip, observeCounts } from "../src/lib/learning";
+import { CATEGORIES, GROUPS, LESSONS, MILESTONES, emptyCounts, groupLessons, groupProgress, initialLearning, learningSteps, markVisited, nextTip, observeCounts } from "../src/lib/learning";
 
 describe("local learning progress", () => {
   test("existing history earns milestones without a historical pop-up backlog", () => {
@@ -44,5 +44,26 @@ describe("local learning progress", () => {
     expect(nextTip({ ...state, snoozed: { people: now + 1000 } }, now)).toBeUndefined();
     expect(nextTip({ ...state, lastTipAt: now - 1000 }, now)).toBeUndefined();
     expect(nextTip({ ...state, tips: false }, now)).toBeUndefined();
+  });
+});
+
+describe("lesson tracking", () => {
+  test("every lesson belongs to exactly one listed group", () => {
+    expect(GROUPS.flatMap(groupLessons)).toHaveLength(LESSONS.length);
+    for (const group of GROUPS) expect(groupLessons(group).length).toBeGreaterThan(0);
+  });
+  test("a group reads complete only once every one of its lessons has been opened", () => {
+    let state = initialLearning();
+    const lessons = groupLessons("voice");
+    expect(groupProgress(state, "voice")).toEqual({ done: 0, total: lessons.length, complete: false });
+    for (const lesson of lessons.slice(0, -1)) state = markVisited(state, lesson.id);
+    expect(groupProgress(state, "voice").complete).toBe(false);
+    state = markVisited(state, lessons.at(-1)!.id);
+    expect(groupProgress(state, "voice")).toEqual({ done: lessons.length, total: lessons.length, complete: true });
+  });
+  test("opening the same lesson twice does not double-count it", () => {
+    const once = markVisited(initialLearning(), "dictate");
+    expect(markVisited(once, "dictate")).toBe(once);
+    expect(markVisited(once, "dictate").visited).toEqual(["dictate"]);
   });
 });

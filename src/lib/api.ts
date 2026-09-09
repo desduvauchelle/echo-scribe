@@ -86,12 +86,6 @@ export const copyLastTranscript = (): Promise<string> =>
 export const pasteLastTranscript = (): Promise<string> =>
   invoke("paste_last_transcript");
 
-export const getLogCaptureBinding = (): Promise<JsBinding> =>
-  invoke("get_log_capture_binding");
-
-export const updateLogCaptureBinding = (binding: JsBinding): Promise<void> =>
-  invoke("update_log_capture_binding", { binding });
-
 export const getEditSelectionBinding = (): Promise<JsBinding> =>
   invoke("get_edit_selection_binding");
 

@@ -20,6 +20,8 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import { TuckyPeeking } from "../../components/TuckyGreeting";
+import "../../styles/recording-windows.css";
 import { useToasts } from "../../components/ToastProvider";
 import {
   DriveReconnectModal,
@@ -2898,7 +2900,7 @@ export function EditorView({
     selectedExportSize.w > exportSizes[2].w && selectedExportSize.h > exportSizes[2].h;
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="tucky-editor flex h-full flex-col">
       {/* Drive re-auth modal: shown when an upload was blocked on missing/
           expired authorization; on success we retry the same upload. */}
       {reconnect ? (
@@ -2911,37 +2913,40 @@ export function EditorView({
           }}
         />
       ) : null}
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        {/* Title (editable). No Back button — the editor is its own window, so
-            closing IS the window; the name stands alone. */}
-        {renaming ? (
-          <input
-            autoFocus
-            value={nameInput}
-            onChange={(e) => setNameInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") void saveRename();
-              if (e.key === "Escape") {
-                e.stopPropagation();
-                setRenaming(false);
-              }
-            }}
-            onBlur={() => void saveRename()}
-            className="min-w-0 flex-1 rounded-md border border-line bg-surface px-2 py-1.5 text-[15px] font-semibold outline-none focus:border-accent"
-          />
-        ) : (
-          <h2
-            className="min-w-0 flex-1 truncate text-[15px] font-semibold"
-            title={recordingDisplayName(rec)}
-          >
-            {recordingDisplayName(rec)}
-          </h2>
-        )}
-        {!renaming ? (
-          <IconButton title={t("toolbar.rename")} onClick={startRename} disabled={anyBusy}>
-            <Pencil size={15} />
-          </IconButton>
-        ) : null}
+      <div className="tucky-editor-toolbar flex flex-wrap items-center gap-2">
+        <div className="tucky-recording-heading tucky-editor-heading">
+          <TuckyPeeking />
+          {/* Title (editable). No Back button — the editor is its own window, so
+              closing IS the window; the name stands alone. */}
+          {renaming ? (
+            <input
+              autoFocus
+              value={nameInput}
+              onChange={(e) => setNameInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void saveRename();
+                if (e.key === "Escape") {
+                  e.stopPropagation();
+                  setRenaming(false);
+                }
+              }}
+              onBlur={() => void saveRename()}
+              className="min-w-0 flex-1 rounded-md border border-line bg-surface px-2 py-1.5 text-[15px] font-semibold outline-none focus:border-accent"
+            />
+          ) : (
+            <h2
+              className="min-w-0 flex-1 truncate text-[15px] font-semibold"
+              title={recordingDisplayName(rec)}
+            >
+              {recordingDisplayName(rec)}
+            </h2>
+          )}
+          {!renaming ? (
+            <IconButton title={t("toolbar.rename")} onClick={startRename} disabled={anyBusy}>
+              <Pencil size={15} />
+            </IconButton>
+          ) : null}
+        </div>
 
         {/* Reveal the latest export by default. Original remains explicitly
             available in the menu, but is no longer the surprising primary
@@ -3129,7 +3134,7 @@ export function EditorView({
         ) : null}
       </div>
 
-      <div className="flex min-h-0 flex-1 gap-4">
+      <div className="tucky-editor-workspace flex min-h-0 flex-1 gap-4">
         {/* Left: preview */}
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="relative grid flex-1 place-items-center overflow-hidden rounded-lg bg-black">
@@ -3684,7 +3689,7 @@ export function EditorView({
         </div>
 
         {/* Right: controls */}
-        <div className="w-[300px] shrink-0 overflow-y-auto rounded-lg border border-line p-4">
+        <div className="tucky-editor-inspector w-[300px] shrink-0 overflow-y-auto rounded-lg border border-line p-4">
           <h3 className="mb-4 text-[13px] font-semibold">{t("appearance.title")}</h3>
 
           <label className="mb-1 flex items-center justify-between text-[12px] text-muted">

@@ -60,7 +60,6 @@ pub struct AppState {
     pub tray: Arc<Mutex<TrayHandle<Wry>>>,
     pub settings: SettingsStore,
     pub binding: Arc<RwLock<Binding>>,
-    pub log_capture_binding: Arc<RwLock<Binding>>,
     pub edit_selection_binding: Arc<RwLock<Binding>>,
     /// Escape is intercepted only while this flag is true.
     pub cancel_active: Arc<AtomicBool>,
@@ -424,36 +423,6 @@ pub fn update_voice_at_cursor_binding(
 }
 
 #[tauri::command]
-pub fn get_log_capture_binding(state: State<'_, AppState>) -> JsBinding {
-    let b = state
-        .log_capture_binding
-        .read()
-        .map(|g| g.clone())
-        .unwrap_or_else(|_| crate::settings::default_log_capture_binding());
-    b.into()
-}
-
-#[tauri::command]
-pub fn update_log_capture_binding(
-    state: State<'_, AppState>,
-    binding: JsBinding,
-) -> Result<(), String> {
-    let parsed: Binding = binding
-        .try_into()
-        .map_err(|e: BindingConversionError| e.to_string())?;
-    state
-        .settings
-        .set_log_capture_binding(parsed.clone())
-        .map_err(|e| e.to_string())?;
-    let mut guard = state
-        .log_capture_binding
-        .write()
-        .map_err(|_| "binding lock poisoned".to_string())?;
-    *guard = parsed;
-    Ok(())
-}
-
-#[tauri::command]
 pub fn get_edit_selection_binding(state: State<'_, AppState>) -> JsBinding {
     let b = state
         .edit_selection_binding
@@ -729,18 +698,12 @@ pub fn ensure_pipeline_started(state: &AppState, app: &AppHandle) {
     }
 
     let (vac_tx, mut vac_rx) = mpsc::unbounded_channel::<HotkeyEvent>();
-    let (lc_tx, mut lc_rx) = mpsc::unbounded_channel::<HotkeyEvent>();
     let (es_tx, mut es_rx) = mpsc::unbounded_channel::<HotkeyEvent>();
     let (cancel_tx, mut cancel_rx) = mpsc::unbounded_channel::<HotkeyEvent>();
 
     spawn_listener(
         Arc::clone(&state.binding),
         vac_tx,
-        Arc::clone(&state.rebinding),
-    );
-    spawn_listener(
-        Arc::clone(&state.log_capture_binding),
-        lc_tx,
         Arc::clone(&state.rebinding),
     );
     spawn_listener(
@@ -775,19 +738,6 @@ pub fn ensure_pipeline_started(state: &AppState, app: &AppHandle) {
             while let Some(ev) = vac_rx.recv().await {
                 if coord_tx
                     .send(CoordinatorMsg::Hotkey(Action::VoiceAtCursor, ev))
-                    .is_err()
-                {
-                    break;
-                }
-            }
-        });
-    }
-    {
-        let coord_tx = coord_tx.clone();
-        tauri::async_runtime::spawn(async move {
-            while let Some(ev) = lc_rx.recv().await {
-                if coord_tx
-                    .send(CoordinatorMsg::Hotkey(Action::LogCapture, ev))
                     .is_err()
                 {
                     break;
@@ -4464,7 +4414,14 @@ pub fn delete_meeting(state: tauri::State<'_, AppState>, id: String) -> Result<(
 
 #[tauri::command]
 pub fn list_input_devices() -> Vec<crate::audio::devices::InputDevice> {
-    crate::audio::devices::list_input_devices()
+    let devices = crate::audio::devices::list_input_devices();
+    info!(
+        target: "audio",
+        count = devices.len(),
+        names = ?devices.iter().map(|d| d.name.as_str()).collect::<Vec<_>>(),
+        "listed input devices"
+    );
+    devices
 }
 
 #[tauri::command]
@@ -4577,6 +4534,14 @@ pub fn get_common_actions() -> Vec<CommonActionTemplate> {
                 "increment counter".to_string(),
                 "what is the count".to_string(),
                 "reset action count".to_string(),
+            ],
+        },
+        CommonActionTemplate {
+            category: "Screen Recording".to_string(),
+            description: "Open the recording picker to choose what to capture".to_string(),
+            voice_phrases: vec![
+                "start the screen recording".to_string(),
+                "record my screen".to_string(),
             ],
         },
     ]

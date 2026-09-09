@@ -1,3 +1,4 @@
+import { TuckyPeeking } from "../components/TuckyGreeting";
 import { useEffect, useState, type SyntheticEvent } from "react";
 import {
   ArrowLeft,
@@ -48,7 +49,6 @@ import {
   getDailyRecapSettings,
   getInputDeviceSort,
   getLlmUnloadSecs,
-  getLogCaptureBinding,
   getMcpSettings,
   setMcpPermission,
   installMcpForAgent,
@@ -72,7 +72,6 @@ import {
   setMuteWhileRecording,
   setPreferredInputDevice,
   testLlmInference,
-  updateLogCaptureBinding,
   getAppLauncherEnabled,
   setAppLauncherEnabled,
   getActionCounter,
@@ -303,7 +302,8 @@ export default function Settings({ onBack, initialPage = "dictation" }: Props) {
           <div className="w-full max-w-[960px]">
             {activeItem && ActivePage ? (
               <>
-                <header className="mb-6 border-b border-line pb-4">
+                <header className="tucky-settings-heading mb-6 border-b border-line pb-4">
+                  <TuckyPeeking />
                   <h1 className="text-[15px] font-semibold tracking-tight text-fg">
                     {t(`nav.items.${activeItem.id}`)}
                   </h1>
@@ -383,13 +383,14 @@ function LogCapturePage() {
   return (
     <div className="flex flex-col gap-8">
       <Section
-        title={t("logCapture.hotkey.title")}
-        subtitle={t("logCapture.hotkey.subtitle")}
+        title={t("logCapture.command.title")}
+        subtitle={t("logCapture.command.subtitle")}
       >
-        <HotkeyRebinder
-          load={getLogCaptureBinding}
-          save={updateLogCaptureBinding}
-        />
+        <ul className="space-y-1 text-sm text-muted">
+          {["task", "note", "remind"].map((example) => (
+            <li key={example}>{t(`logCapture.command.examples.${example}`)}</li>
+          ))}
+        </ul>
       </Section>
 
       <AutoFileSettings />

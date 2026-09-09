@@ -22,17 +22,13 @@
     "title": "Lokaal AI-model",
     "optional": "(optioneel)",
     "ready": "Gereed",
-    "description": "Drijft de log-capture-flow aan (notities, taken en tags automatisch classificeren). Stem-bij-cursor werkt ook zonder — sla over en kom later terug.",
+    "description": "Voedt het Tucky-commando — gedachten en taken met je stem opslaan en rubriceren. Dicteren werkt ook zonder; je kunt later terugkomen.",
     "skipButton": "Voorlopig overslaan",
-    "skippedNote": "Overgeslagen. Log capture toont een vriendelijke melding totdat je een model kiest in Instellingen."
+    "skippedNote": "Overgeslagen. Opgeslagen gedachten blijven ongerubriceerd tot je een model kiest in Instellingen."
   },
   "dictationShortcut": {
     "title": "Dictatiesneltoets",
     "description": "Houd ingedrukt om op te nemen. Standaard is Rechter Control — wijzig dit hier als het conflicteert met een andere app."
-  },
-  "logCaptureShortcut": {
-    "title": "Sneltoets voor log capture",
-    "description": "Houd ingedrukt om een gedachte of taak vast te leggen. Standaard is Rechter Option — Tucky classificeert dit lokaal en toont een beoordelingsoverlay."
   },
   "startButton": {
     "starting": "Bezig met starten…",

@@ -28,12 +28,21 @@ Build features so failures are *debuggable without a rebuild*. This is not optio
 
 Symptoms when you SHOULD HAVE reset and didn't: in-process permission prompts crash silently; the Accessibility list shows multiple stale "Tucky.app" entries; the new binary thinks it has no permissions even though the System Settings toggle is on. Sidecar-specific: `stream_stopped: Failed to find any displays or windows to capture` from `echo-scribe-syscap` is the canonical Screen Recording-not-granted signal.
 
+**Quit by the *app* name, not the old one.** The bundle is `Tucky.app` and its binary is
+`echo-scribe`, so `tell application "Echo Scribe" to quit` and `pkill -f "Echo Scribe"` both match
+nothing — the running instance survives, `open` just refocuses it, and you end up reviewing the
+*old* build while the new one sits unused in `/Applications`. Always confirm the relaunch is the
+new build: `pgrep -fl "Tucky.app/Contents/MacOS/echo-scribe"` should show a *new* pid after the
+copy. The `$` anchor on the pkill pattern matters: without it the pattern also matches the
+sidecars (`echo-scribe-syscap`, `echo-scribe-screenrec`), which another session may be running
+out of the same bundle.
+
 **Skip-TCC reinstall (default):**
 
 ```bash
-osascript -e 'tell application "Echo Scribe" to quit' 2>/dev/null
-pkill -f "Echo Scribe" 2>/dev/null
-sleep 1
+osascript -e 'tell application "Tucky" to quit' 2>/dev/null
+pkill -f "Tucky.app/Contents/MacOS/echo-scribe$" 2>/dev/null
+sleep 2
 rm -rf "/Applications/Tucky.app"
 cp -R "src-tauri/target/release/bundle/macos/Tucky.app" /Applications/
 open "/Applications/Tucky.app"
@@ -42,9 +51,9 @@ open "/Applications/Tucky.app"
 **Full TCC-reset reinstall (only when permission-related code changed, or user explicitly asks):**
 
 ```bash
-osascript -e 'tell application "Echo Scribe" to quit' 2>/dev/null
-pkill -f "Echo Scribe" 2>/dev/null
-sleep 1
+osascript -e 'tell application "Tucky" to quit' 2>/dev/null
+pkill -f "Tucky.app/Contents/MacOS/echo-scribe$" 2>/dev/null
+sleep 2
 tccutil reset Microphone com.echoscribe.app
 tccutil reset Accessibility com.echoscribe.app
 tccutil reset ScreenCapture com.echoscribe.app

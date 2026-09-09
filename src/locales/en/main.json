@@ -1,4 +1,20 @@
 {
+  "greeting": {
+    "titles": [
+      "A little space for your thoughts.",
+      "Something on your mind?",
+      "A few thoughts worth coming back to."
+    ],
+    "descriptions": [
+      "Pick up where your mind left off.",
+      "Your next idea has a place here.",
+      "Find a thread and follow it."
+    ],
+    "another": "Another thought",
+    "hide": "Hide greeting",
+    "show": "Show Tucky’s greeting",
+    "label": "A moment with Tucky"
+  },
   "learning": {
     "title": "Learn Tucky",
     "gettingStarted": "Getting started",
@@ -31,9 +47,9 @@
     "practiceExplore": "Explore on my own",
     "aiNeeded": "This feature uses an optional smart model on your Mac. Set it up whenever you’re ready.",
     "setupAi": "Set up smart features",
-    "captureTry": "Hold {{logBinding}} to save a thought or task.",
-    "captureExample": "Try: “Task: send the proposal tomorrow.” Review the result, then save it.",
-    "openCaptureSettings": "See my capture shortcut",
+    "captureTry": "Hold {{binding}} and say “Tucky, save a task”, then the task.",
+    "captureExample": "Try: “Tucky, note that the API limit is 100 a minute.”",
+    "openCaptureSettings": "See my capture commands",
     "wins": "Your wins",
     "winsHint": "Small beginnings become everyday habits. Celebrations finish at 200; your captures keep counting.",
     "count": "{{count}} captured",
@@ -56,6 +72,7 @@
       "memory": "Capture & remember",
       "meetings": "Meetings",
       "recordings": "Screen recording",
+      "commands": "Voice commands",
       "power": "Make it your own"
     },
     "cheers": {
@@ -74,7 +91,7 @@
       "capture": {
         "title": "Save a thought or task",
         "summary": "Keep an idea without finding somewhere to type.",
-        "body": "Dictation types at your cursor. Log Capture saves a thought or task to Tucky. Hold {{logBinding}}, say what’s on your mind, then release. Review the suggested type and project before saving. Once saved, it appears in the Dashboard."
+        "body": "Dictation types at your cursor. To keep a thought in Tucky instead, hold {{binding}} and start with a command: “Tucky, save a task: send the proposal tomorrow”. Tucky files it locally and it appears in the Dashboard. Say “task” or “note” and Tucky uses it; leave it out and Tucky decides."
       },
       "retrieve": {
         "title": "Find it again",
@@ -133,7 +150,7 @@
       "actions": {
         "title": "The Tucky command",
         "summary": "Use voice commands to open apps and more.",
-        "body": "In Settings → Tucky command, enable the command and its spoken trigger. Hold your dictation shortcut and say “Tucky, open Safari”. You can also open links, draft emails, and manage counters.",
+        "body": "In Settings → Tucky command, enable the command and its spoken trigger. Hold your dictation shortcut and say “Tucky, open Safari”. You can also save thoughts and tasks, open links, draft emails, and manage counters.",
         "action": "Explore voice actions"
       },
       "export": {
@@ -508,7 +525,7 @@
       "nothingInProject": "Nothing in “{{name}}” yet.",
       "noCaptures": "No captures yet.",
       "recordingsSubtitle": "Start a screen recording from the tray to capture one.",
-      "projectSubtitle": "Use the log capture hotkey to add to this project.",
+      "projectSubtitle": "Say “Tucky, save a note” while dictating to add to this project.",
       "defaultSubtitle": "Hold the dictation hotkey to record your first thought."
     },
     "loadMore": {

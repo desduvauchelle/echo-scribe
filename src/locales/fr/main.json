@@ -1,4 +1,20 @@
 {
+  "greeting": {
+    "titles": [
+      "Un petit espace pour vos pensées.",
+      "Une idée en tête ?",
+      "Quelques pensées à retrouver."
+    ],
+    "descriptions": [
+      "Reprenez le fil de vos idées.",
+      "Votre prochaine idée a sa place ici.",
+      "Trouvez un fil et suivez-le."
+    ],
+    "another": "Une autre pensée",
+    "hide": "Masquer l’accueil",
+    "show": "Afficher l’accueil de Tucky",
+    "label": "Un moment avec Tucky"
+  },
   "app": {
     "brand": "Tucky",
     "toolbar": {

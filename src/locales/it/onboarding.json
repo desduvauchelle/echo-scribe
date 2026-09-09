@@ -22,17 +22,13 @@
     "title": "Modello AI locale",
     "optional": "(facoltativo)",
     "ready": "Pronto",
-    "description": "Alimenta il flusso di acquisizione rapida (classificazione automatica di note, attività, tag). La dettatura al cursore funziona anche senza — salta e torna più tardi.",
+    "description": "Alimenta il comando Tucky: salvare pensieri e attività con la voce e classificarli. La dettatura funziona anche senza — puoi tornarci più tardi.",
     "skipButton": "Salta per ora",
-    "skippedNote": "Saltato. L'acquisizione rapida mostrerà un avviso finché non scegli un modello nelle Impostazioni."
+    "skippedNote": "Saltato. I pensieri salvati restano senza classificazione finché non scegli un modello nelle Impostazioni."
   },
   "dictationShortcut": {
     "title": "Scorciatoia di dettatura",
     "description": "Tieni premuto per registrare. Il valore predefinito è Control destro — cambialo qui se è in conflitto con un'altra app."
-  },
-  "logCaptureShortcut": {
-    "title": "Scorciatoia di acquisizione rapida",
-    "description": "Tieni premuto per acquisire un pensiero o un'attività. Il valore predefinito è Option destro — Tucky la classificherà in locale e mostrerà una finestra di revisione."
   },
   "startButton": {
     "starting": "Avvio…",

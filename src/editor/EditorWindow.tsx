@@ -119,10 +119,10 @@ export default function EditorWindow() {
     );
   }
 
-  // Same container idiom the detail pane gave the inline editor (scrollable,
-  // padded), sized to the window instead of a pane.
+  // The editor owns its toolbar and workspace spacing; the window provides
+  // the full-height scroll container.
   return (
-    <div className="flex h-screen flex-col overflow-y-auto bg-canvas p-6 text-fg">
+    <div className="tucky-editor-window flex h-screen flex-col overflow-y-auto bg-canvas text-fg">
       <EditorView
         key={recording.id}
         recording={recording}

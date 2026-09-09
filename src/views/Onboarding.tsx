@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Mic } from "lucide-react";
+import { TuckyPeeking } from "../components/TuckyGreeting";
 import { useTranslation } from "react-i18next";
 import SpeechSetupStatus from "../components/SpeechSetupStatus";
 import { useSpeechSetup } from "../lib/speechSetup";
@@ -221,11 +221,9 @@ export default function Onboarding({ initialStatus, onStarted, resumeNotice }: P
   };
 
   return (
-    <div className="flex min-h-full items-center justify-center bg-canvas px-6 py-12 text-fg">
-      <div className="w-full max-w-[480px] rounded-xl border border-line bg-surface p-6 shadow-xl shadow-black/40">
-        <div className="mb-3 inline-flex h-9 w-9 items-center justify-center rounded-lg bg-accent-soft text-accent">
-          <Mic size={18} strokeWidth={2} aria-hidden="true" />
-        </div>
+    <div className="tucky-onboarding flex min-h-full items-center justify-center bg-canvas px-6 py-12 text-fg">
+      <div className="tucky-onboarding-card w-full max-w-[480px] rounded-xl border border-line bg-surface p-6">
+        <TuckyPeeking />
         <h1 className="text-xl font-semibold tracking-tight text-fg">
           {t("welcome.title")}
         </h1>

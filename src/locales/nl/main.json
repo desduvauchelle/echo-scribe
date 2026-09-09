@@ -1,4 +1,20 @@
 {
+  "greeting": {
+    "titles": [
+      "Een beetje ruimte voor je gedachten.",
+      "Waar denk je aan?",
+      "Een paar gedachten om op terug te komen."
+    ],
+    "descriptions": [
+      "Pak de draad van je gedachten weer op.",
+      "Je volgende idee heeft hier een plek.",
+      "Vind een draad en volg die."
+    ],
+    "another": "Een andere gedachte",
+    "hide": "Begroeting verbergen",
+    "show": "Tucky’s begroeting tonen",
+    "label": "Een moment met Tucky"
+  },
   "app": {
     "brand": "Tucky",
     "toolbar": {

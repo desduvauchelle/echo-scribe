@@ -1,4 +1,20 @@
 {
+  "greeting": {
+    "titles": [
+      "Un piccolo spazio per i tuoi pensieri.",
+      "Hai qualcosa in mente?",
+      "Qualche pensiero da ritrovare."
+    ],
+    "descriptions": [
+      "Riprendi il filo dei tuoi pensieri.",
+      "La tua prossima idea ha un posto qui.",
+      "Trova un filo e seguilo."
+    ],
+    "another": "Un altro pensiero",
+    "hide": "Nascondi saluto",
+    "show": "Mostra il saluto di Tucky",
+    "label": "Un momento con Tucky"
+  },
   "app": {
     "brand": "Tucky",
     "toolbar": {
