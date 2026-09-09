@@ -5258,6 +5258,9 @@ pub fn stop_screen_recording_inner(
     // on every stop — clean or errored — so a failed `handle.stop()` / DB insert
     // can never strand an always-on-top preview on screen.
     crate::overlay::hide_camera_preview(app);
+    // Same policy for the area frame (the dimmed "this is what's captured"
+    // overlay left up by an "Area" recording): gone on every stop path.
+    crate::overlay::hide_area_picker(app);
     let (handle, meta) = {
         let mut guard = state
             .active_recording
@@ -7129,6 +7132,13 @@ pub fn show_area_picker(app: AppHandle, display_id: u32) -> Result<(), String> {
     crate::overlay::show_area_picker(&app, display_id)
 }
 
+/// Show the area picker in passive frame mode (dim outside `rect`, clear
+/// inside, click-through) on `display_id`. See `overlay::show_area_frame`.
+#[tauri::command]
+pub fn show_area_frame(app: AppHandle, display_id: u32, rect: [f64; 4]) -> Result<(), String> {
+    crate::overlay::show_area_frame(&app, display_id, rect)
+}
+
 /// Hide the area-picker overlay unconditionally. Called by the setup window
 /// on every path that should dismiss the picker without a result (e.g. it
 /// re-shows itself before the picker reports back, or the setup window
@@ -7145,10 +7155,19 @@ pub fn close_area_picker(app: AppHandle) {
 /// cancel; `Some([x, y, w, h])` (GLOBAL points) on confirm.
 #[tauri::command]
 pub fn submit_area_picker_result(app: AppHandle, rect: Option<[f64; 4]>) {
-    crate::overlay::hide_area_picker(&app);
     match rect {
         Some(r) => {
             info!(target: "screenrec", ?r, "area picker confirmed");
+            // Confirm: switch the same window into passive frame mode in
+            // place (no hide → show blink) so the chosen area stays visibly
+            // marked. If we somehow can't, fall back to hiding — the setup
+            // window re-shows the frame itself once the rect lands.
+            let framed = crate::overlay::last_area_picker_display()
+                .map(|d| crate::overlay::show_area_frame(&app, d, r).is_ok())
+                .unwrap_or(false);
+            if !framed {
+                crate::overlay::hide_area_picker(&app);
+            }
             if let Some(setup) = app.get_webview_window("screenrec_setup") {
                 if let Err(e) = setup.emit("area-picker-result", serde_json::json!({ "rect": r })) {
                     warn!(target: "screenrec", ?e, "area-picker-result emit failed");
@@ -7157,6 +7176,7 @@ pub fn submit_area_picker_result(app: AppHandle, rect: Option<[f64; 4]>) {
         }
         None => {
             info!(target: "screenrec", "area picker cancelled");
+            crate::overlay::hide_area_picker(&app);
             if let Some(setup) = app.get_webview_window("screenrec_setup") {
                 if let Err(e) =
                     setup.emit("area-picker-result", serde_json::json!({ "rect": null }))

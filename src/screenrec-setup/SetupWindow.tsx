@@ -14,6 +14,7 @@ import {
   openCameraSettings,
   showAreaPicker,
   closeAreaPicker,
+  showAreaFrame,
   showCountdownOverlay,
   hideCountdownOverlay,
   showCameraPreview,
@@ -245,11 +246,29 @@ const SetupWindow: React.FC = () => {
     };
   }, []);
 
+  // Passive area frame: while setup is up on the "area" source with a
+  // confirmed rect (and no pick in progress), keep the click-through frame
+  // overlay on the target display so the user sees exactly what will be
+  // captured — dimmed outside, clear inside. Switching source kind or losing
+  // the rect hides it. Deliberately gated on `setupVisible` and NOT torn down
+  // when setup hides: recording start hides setup but the frame must stay up
+  // for the whole recording (Rust hides it on stop / dismiss).
+  useEffect(() => {
+    if (!setupVisible || pickerOpen) return;
+    if (sourceKind === "area" && areaRect && selectedDisplayId !== null) {
+      showAreaFrame(selectedDisplayId, areaRect).catch((e) => {
+        console.warn("[screenrec-setup] area frame show failed", e);
+      });
+    } else {
+      void closeAreaPicker().catch(() => {});
+    }
+  }, [setupVisible, pickerOpen, sourceKind, areaRect, selectedDisplayId]);
+
   const handleCancel = async () => {
-    // Never strand the picker overlay if the user dismisses setup while a
-    // pick is in progress.
+    // Never strand the picker overlay (an in-progress pick OR the passive
+    // area frame) if the user dismisses setup.
+    await closeAreaPicker().catch(() => {});
     if (pickerOpen) {
-      await closeAreaPicker();
       setPickerOpen(false);
     }
     // Dismissing setup without starting: release the pre-warmed camera too.

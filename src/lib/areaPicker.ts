@@ -79,6 +79,26 @@ export function localRectToGlobal(
   return [origin.x + x0, origin.y + y0, w, h];
 }
 
+/**
+ * Inverse of `localRectToGlobal`: convert a GLOBAL points rect (as stored by
+ * the setup window / passed to the sidecar) back into the picker-local CSS px
+ * rect used to draw the passive "frame" overlay. Clamped to the display so a
+ * rect picked on a display whose geometry has since changed can never draw
+ * off-surface.
+ */
+export function globalRectToLocal(
+  global: [number, number, number, number],
+  origin: Point,
+  displaySize: { width: number; height: number },
+): Rect {
+  const [gx, gy, gw, gh] = global;
+  const x0 = clamp(gx - origin.x, 0, displaySize.width);
+  const y0 = clamp(gy - origin.y, 0, displaySize.height);
+  const x1 = clamp(gx - origin.x + gw, 0, displaySize.width);
+  const y1 = clamp(gy - origin.y + gh, 0, displaySize.height);
+  return { x: x0, y: y0, w: Math.max(0, x1 - x0), h: Math.max(0, y1 - y0) };
+}
+
 function clamp(v: number, min: number, max: number): number {
   return Math.min(Math.max(v, min), max);
 }

@@ -1856,6 +1856,15 @@ export const getDisplayBounds = (
 export const showAreaPicker = (displayId: number): Promise<void> =>
   invoke("show_area_picker", { displayId });
 
+/** Show the area picker in passive "frame" mode on `displayId`: everything
+ *  outside `rect` (GLOBAL points) is dimmed, the rect itself is clear, and the
+ *  overlay is click-through — a persistent marker of what's being captured.
+ *  Stays up through the recording (Rust hides it on stop). */
+export const showAreaFrame = (
+  displayId: number,
+  rect: [number, number, number, number],
+): Promise<void> => invoke("show_area_frame", { displayId, rect });
+
 /** Hide the area-picker overlay unconditionally (no-op if not showing). */
 export const closeAreaPicker = (): Promise<void> => invoke("close_area_picker");
 

@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { submitAreaPickerResult } from "../lib/api";
 import {
   dragToLocalRect,
+  globalRectToLocal,
   isDragRectSignificant,
   localRectToGlobal,
   type Point,
@@ -18,6 +19,14 @@ type StartPayload = {
   height: number;
 };
 
+/** `area-picker-frame`: the confirmed GLOBAL rect plus the display geometry
+ *  needed to map it back into this page's local px (see `globalRectToLocal`). */
+type FramePayload = StartPayload & { rect: [number, number, number, number] };
+
+/** `pick`: interactive drag/keyboard selection. `frame`: passive marker of
+ *  the confirmed area (Rust makes the window click-through in this mode). */
+type Mode = "pick" | "frame";
+
 /**
  * Full-screen, transparent, always-on-top overlay for dragging out a capture
  * region. Shown by Rust (`overlay::show_area_picker`) sized+positioned to
@@ -31,9 +40,17 @@ type StartPayload = {
  * selection + "W×H" readout near the cursor, mouseup confirms and reports
  * the GLOBAL rect back to Rust. Esc cancels at any point (whether or not a
  * drag is in progress). Both confirm and cancel go through
- * `submitAreaPickerResult`, which the Rust side uses to unconditionally hide
- * this window — so there is no path that can leave the picker stranded
+ * `submitAreaPickerResult`; on cancel Rust hides this window, on confirm it
+ * switches the SAME window into frame mode (`area-picker-frame`, below) —
+ * either way there is no path that can leave an interactive picker stranded
  * on-screen.
+ *
+ * Frame mode (`area-picker-frame` event, `overlay::show_area_frame`): after
+ * a confirm, and for the whole recording, this page keeps drawing the
+ * confirmed rect as a clear cut-out in a grey translucent wash so the user
+ * can see exactly what is captured. The window is click-through and
+ * unfocused in this mode, so no mouse/keyboard handling applies; the next
+ * `area-picker-start` flips it back to pick mode.
  */
 /** Default keyboard-selection rect: centered, half the surface in each
  *  dimension. Created on the first arrow-key press (no mouse needed). */
@@ -50,6 +67,11 @@ const defaultKeyboardRect = (): Rect => {
 
 const KB_STEP_PX = 20;
 
+/** Grey translucent wash over everything that is NOT captured (both the
+ *  live drag and the passive post-confirm frame). Neutral grey rather than
+ *  black so the dimmed part reads as "greyed out", not "blacked out". */
+const DIM_WASH = "rgba(60, 60, 60, 0.45)";
+
 const AreaPicker: React.FC = () => {
   const { t } = useTranslation("windows");
   const [display, setDisplay] = useState<StartPayload | null>(null);
@@ -58,6 +80,11 @@ const AreaPicker: React.FC = () => {
   // Keyboard-driven selection rect (arrow keys move, Shift+arrows resize,
   // Enter confirms). Cleared when a mouse drag starts.
   const [kbRect, setKbRect] = useState<Rect | null>(null);
+  const [mode, setMode] = useState<Mode>("pick");
+  // Confirmed rect, in local px, drawn while in frame mode.
+  const [frameRect, setFrameRect] = useState<Rect | null>(null);
+  const modeRef = useRef<Mode>("pick");
+  modeRef.current = mode;
   // Mirrors dragStart/dragCurrent in a ref so the Esc keydown handler (bound
   // once) always reads the latest drag state without re-binding per frame.
   const draggingRef = useRef(false);
@@ -74,18 +101,40 @@ const AreaPicker: React.FC = () => {
     rootRef.current?.focus();
 
     let unlistenStart: (() => void) | undefined;
+    let unlistenFrame: (() => void) | undefined;
     (async () => {
       unlistenStart = await listen<StartPayload>("area-picker-start", (event) => {
         setDisplay(event.payload);
+        setMode("pick");
+        setFrameRect(null);
         setDragStart(null);
         setDragCurrent(null);
         setKbRect(null);
         draggingRef.current = false;
         rootRef.current?.focus();
       });
+      unlistenFrame = await listen<FramePayload>("area-picker-frame", (event) => {
+        const p = event.payload;
+        setDisplay(p);
+        setMode("frame");
+        setFrameRect(
+          globalRectToLocal(
+            p.rect,
+            { x: p.origin_x, y: p.origin_y },
+            { width: p.width, height: p.height },
+          ),
+        );
+        setDragStart(null);
+        setDragCurrent(null);
+        setKbRect(null);
+        draggingRef.current = false;
+      });
     })();
 
     const onKeyDown = (e: KeyboardEvent) => {
+      // Frame mode is passive: the window shouldn't have focus, but if a key
+      // does land here it must not cancel/confirm anything.
+      if (modeRef.current === "frame") return;
       if (e.key === "Escape") {
         e.preventDefault();
         void submitAreaPickerResult(null);
@@ -135,11 +184,19 @@ const AreaPicker: React.FC = () => {
 
     return () => {
       unlistenStart?.();
+      unlistenFrame?.();
       window.removeEventListener("keydown", onKeyDown);
     };
   }, []);
 
+  // Crosshair only while picking; in frame mode the window is click-through
+  // so the cursor belongs to whatever is underneath.
+  useEffect(() => {
+    document.body.style.cursor = mode === "pick" ? "crosshair" : "default";
+  }, [mode]);
+
   const handleMouseDown = (e: React.MouseEvent) => {
+    if (modeRef.current === "frame") return;
     if (e.button !== 0) return; // left-click only
     const p = { x: e.clientX, y: e.clientY };
     setDragStart(p);
@@ -179,11 +236,34 @@ const AreaPicker: React.FC = () => {
   const local: Rect | null =
     dragStart && dragCurrent ? dragToLocalRect(dragStart, dragCurrent) : kbRect;
 
+  if (mode === "frame") {
+    return (
+      <div ref={rootRef} tabIndex={-1} style={styles.root} data-mode="frame">
+        {frameRect && frameRect.w > 0 && frameRect.h > 0 && (
+          /* Same one-element trick as the live selection below: the frame's
+             own box-shadow washes everything OUTSIDE it grey, the inside stays
+             fully clear (no tint) so the captured region reads as "normally
+             lit". */
+          <div
+            style={{
+              ...styles.frame,
+              left: frameRect.x,
+              top: frameRect.y,
+              width: frameRect.w,
+              height: frameRect.h,
+            }}
+          />
+        )}
+      </div>
+    );
+  }
+
   return (
     <div
       ref={rootRef}
       tabIndex={-1}
       style={styles.root}
+      data-mode="pick"
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
@@ -237,13 +317,24 @@ const styles: Record<string, React.CSSProperties> = {
   backdrop: {
     position: "absolute",
     inset: 0,
-    background: "rgba(0, 0, 0, 0.35)",
+    background: DIM_WASH,
   },
   selection: {
     position: "absolute",
     border: "2px solid #22d3ee",
-    boxShadow: "0 0 0 9999px rgba(0, 0, 0, 0.35)",
-    background: "rgba(34, 211, 238, 0.08)",
+    boxShadow: `0 0 0 9999px ${DIM_WASH}`,
+    // No fill: the region being captured must look exactly like the screen
+    // underneath, so the dim/clear contrast is the whole signal.
+    background: "transparent",
+    pointerEvents: "none",
+  },
+  frame: {
+    position: "absolute",
+    // Lighter border + wash than the live selection: this stays up for the
+    // whole recording, so it should mark the region without shouting.
+    border: "2px solid rgba(34, 211, 238, 0.9)",
+    boxShadow: `0 0 0 9999px ${DIM_WASH}`,
+    background: "transparent",
     pointerEvents: "none",
   },
   readout: {

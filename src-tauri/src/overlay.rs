@@ -1,5 +1,6 @@
 use tauri::webview::WebviewWindowBuilder;
 use tauri::{AppHandle, Emitter, Manager, Runtime, Wry};
+use std::sync::atomic::{AtomicU32, Ordering};
 use tracing::{debug, error, info, warn};
 
 const OVERLAY_WIDTH: f64 = 240.0;
@@ -1037,11 +1038,17 @@ pub fn show_area_picker(app_handle: &AppHandle<Wry>, display_id: u32) -> Result<
         width: w,
         height: h,
     }));
+    // Pick mode needs the mouse: undo the click-through that frame mode
+    // (`show_area_frame`) may have left on the same window.
+    if let Err(e) = w_handle.set_ignore_cursor_events(false) {
+        warn!(target: "screenrec", ?e, "area_picker set_ignore_cursor_events(false) failed");
+    }
     if let Err(e) = w_handle.show() {
         error!(target: "screenrec", ?e, "area_picker show failed");
     }
     let _ = w_handle.set_always_on_top(true);
     let _ = w_handle.set_focus();
+    LAST_AREA_PICKER_DISPLAY.store(display_id, Ordering::Relaxed);
     if let Err(e) = w_handle.emit(
         "area-picker-start",
         serde_json::json!({ "display_id": display_id, "origin_x": x, "origin_y": y, "width": w, "height": h }),
@@ -1049,6 +1056,85 @@ pub fn show_area_picker(app_handle: &AppHandle<Wry>, display_id: u32) -> Result<
         warn!(target: "screenrec", ?e, "area-picker-start emit failed");
     }
     info!(target: "screenrec", display_id, x, y, w, h, "area picker shown");
+    Ok(())
+}
+
+/// The display the picker was last shown on (`show_area_picker`), so a
+/// confirm can switch the SAME window into frame mode in place without the
+/// page having to echo the display id back. 0 = never shown.
+static LAST_AREA_PICKER_DISPLAY: AtomicU32 = AtomicU32::new(0);
+
+pub fn last_area_picker_display() -> Option<u32> {
+    match LAST_AREA_PICKER_DISPLAY.load(Ordering::Relaxed) {
+        0 => None,
+        id => Some(id),
+    }
+}
+
+/// Re-shows the area-picker window in **frame mode**: a passive, click-through
+/// overlay covering `display_id` that dims everything OUTSIDE `rect` (GLOBAL
+/// points) and leaves the rect itself clear, so the user can see exactly
+/// which part of the screen is being captured — after confirming a selection
+/// and for the whole recording. It never takes the mouse
+/// (`set_ignore_cursor_events(true)`) or keyboard focus, and the sidecar's
+/// display capture excludes Tucky's own windows, so it does not appear in the
+/// recording. The setup window and camera self-view are re-fronted afterwards
+/// so the frame never covers them. Hidden by `hide_area_picker` (recording
+/// stop, setup dismiss, source-kind change).
+pub fn show_area_frame(
+    app_handle: &AppHandle<Wry>,
+    display_id: u32,
+    rect: [f64; 4],
+) -> Result<(), String> {
+    let (x, y, w, h) = crate::screenrec::display_bounds(display_id).ok_or_else(|| {
+        error!(target: "screenrec", display_id, "show_area_frame: display not found");
+        "That display is no longer available. Reopen the recording setup and pick a display again."
+            .to_string()
+    })?;
+    if app_handle.get_webview_window("area_picker").is_none() {
+        create_area_picker(app_handle);
+    }
+    let w_handle = app_handle
+        .get_webview_window("area_picker")
+        .ok_or_else(|| "area picker window missing after create".to_string())?;
+    let _ = w_handle.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
+    let _ = w_handle.set_size(tauri::Size::Logical(tauri::LogicalSize {
+        width: w,
+        height: h,
+    }));
+    if let Err(e) = w_handle.set_ignore_cursor_events(true) {
+        // Without click-through the frame would swallow every click on the
+        // display for the whole recording — log loudly, but still show it.
+        error!(target: "screenrec", ?e, "area_frame set_ignore_cursor_events(true) failed");
+    }
+    if let Err(e) = w_handle.show() {
+        error!(target: "screenrec", ?e, "area_frame show failed");
+    }
+    let _ = w_handle.set_always_on_top(true);
+    if let Err(e) = w_handle.emit(
+        "area-picker-frame",
+        serde_json::json!({
+            "display_id": display_id,
+            "origin_x": x, "origin_y": y, "width": w, "height": h,
+            "rect": rect,
+        }),
+    ) {
+        warn!(target: "screenrec", ?e, "area-picker-frame emit failed");
+    }
+    // `show()` ordered the frame in front of every other floating window,
+    // including ours. Re-front the ones the user still needs on top of it
+    // (show() on an already-visible window is an order-front on macOS).
+    for label in ["camera_preview", "screenrec_setup"] {
+        if let Some(other) = app_handle.get_webview_window(label) {
+            if other.is_visible().unwrap_or(false) {
+                let _ = other.show();
+                if label == "screenrec_setup" {
+                    let _ = other.set_focus();
+                }
+            }
+        }
+    }
+    info!(target: "screenrec", display_id, ?rect, "area frame shown");
     Ok(())
 }
 

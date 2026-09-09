@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   dragToLocalRect,
+  globalRectToLocal,
   isDragRectSignificant,
   localRectToGlobal,
   MIN_DRAG_SIZE,
@@ -102,5 +103,32 @@ describe("localRectToGlobal", () => {
     const origin = { x: -1920, y: -200 }; // display placed left of and above the primary
     const size = { width: 1920, height: 1080 };
     expect(localRectToGlobal(local, origin, size)).toEqual([-1720, -100, 400, 300]);
+  });
+});
+
+describe("globalRectToLocal", () => {
+  test("subtracts the display origin (secondary display)", () => {
+    expect(
+      globalRectToLocal([1540, 120, 300, 200], { x: 1440, y: 100 }, { width: 1920, height: 1080 }),
+    ).toEqual({ x: 100, y: 20, w: 300, h: 200 });
+  });
+
+  test("round-trips with localRectToGlobal", () => {
+    const origin = { x: -1920, y: 0 };
+    const size = { width: 1920, height: 1080 };
+    const local = { x: 50, y: 60, w: 700, h: 400 };
+    expect(globalRectToLocal(localRectToGlobal(local, origin, size), origin, size)).toEqual(local);
+  });
+
+  test("clamps a rect that overhangs the display", () => {
+    expect(
+      globalRectToLocal([1800, 1000, 400, 300], { x: 0, y: 0 }, { width: 1920, height: 1080 }),
+    ).toEqual({ x: 1800, y: 1000, w: 120, h: 80 });
+  });
+
+  test("collapses a rect entirely off the display to zero size", () => {
+    expect(
+      globalRectToLocal([-500, -500, 100, 100], { x: 0, y: 0 }, { width: 1920, height: 1080 }),
+    ).toEqual({ x: 0, y: 0, w: 0, h: 0 });
   });
 });
