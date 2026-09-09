@@ -2,9 +2,9 @@ use tauri::webview::WebviewWindowBuilder;
 use tauri::{AppHandle, Emitter, Manager, Runtime, Wry};
 use tracing::{debug, error, info, warn};
 
-const OVERLAY_WIDTH: f64 = 172.0;
-const MEETING_OVERLAY_WIDTH: f64 = 236.0;
-const OVERLAY_HEIGHT: f64 = 36.0;
+const OVERLAY_WIDTH: f64 = 240.0;
+const MEETING_OVERLAY_WIDTH: f64 = 320.0;
+const OVERLAY_HEIGHT: f64 = 64.0;
 /// Distance from the bottom of the screen.
 const OVERLAY_BOTTOM_OFFSET: f64 = 80.0;
 
@@ -64,8 +64,29 @@ pub fn create_recording_overlay(app_handle: &AppHandle<Wry>) {
     .visible(false)
     .build()
     {
-        Ok(_) => {
+        Ok(window) => {
             debug!("recording overlay window created (hidden)");
+            // Check even without a move event: unplugging a display does not
+            // reliably move its windows. Wait for a settled position so a drag
+            // can cross the gap between displays without snapping back.
+            std::thread::spawn(move || {
+                let mut previous = None;
+                loop {
+                    std::thread::sleep(std::time::Duration::from_secs(2));
+                    let Ok(visible) = window.is_visible() else {
+                        break;
+                    };
+                    if !visible {
+                        previous = None;
+                        continue;
+                    }
+                    let position = window.outer_position().ok();
+                    if position.is_some() && position == previous {
+                        keep_recording_overlay_visible(&window);
+                    }
+                    previous = position;
+                }
+            });
         }
         Err(e) => {
             error!("failed to create recording overlay window: {}", e);
@@ -117,17 +138,123 @@ fn calculate_overlay_position(app_handle: &AppHandle<Wry>, width: f64) -> Option
     Some((x, y))
 }
 
+/// Physical coordinates throughout: never mix logical origins from displays
+/// with different scale factors.
+fn recovered_overlay_position(
+    position: (i32, i32),
+    size: (u32, u32),
+    areas: &[(i32, i32, u32, u32)],
+) -> Option<(i32, i32)> {
+    let (x, y) = (i64::from(position.0), i64::from(position.1));
+    let (w, h) = (i64::from(size.0), i64::from(size.1));
+    if areas.iter().any(|&(ax, ay, aw, ah)| {
+        x >= i64::from(ax)
+            && y >= i64::from(ay)
+            && x + w <= i64::from(ax) + i64::from(aw)
+            && y + h <= i64::from(ay) + i64::from(ah)
+    }) {
+        return None;
+    }
+    // Prefer the display with the greatest overlap, otherwise the primary
+    // display (ordered first by the caller).
+    let area = areas.iter().max_by_key(|&&(ax, ay, aw, ah)| {
+        let overlap_x = (x + w).min(i64::from(ax) + i64::from(aw)) - x.max(i64::from(ax));
+        let overlap_y = (y + h).min(i64::from(ay) + i64::from(ah)) - y.max(i64::from(ay));
+        overlap_x.max(0) * overlap_y.max(0)
+    })?;
+    let overlaps = x < i64::from(area.0) + i64::from(area.2)
+        && x + w > i64::from(area.0)
+        && y < i64::from(area.1) + i64::from(area.3)
+        && y + h > i64::from(area.1);
+    let &(ax, ay, aw, ah) = if overlaps { area } else { areas.first()? };
+    let (ax, ay, aw, ah) = (i64::from(ax), i64::from(ay), i64::from(aw), i64::from(ah));
+    let target = if overlaps {
+        (
+            x.clamp(ax, ax + (aw - w).max(0)),
+            y.clamp(ay, ay + (ah - h).max(0)),
+        )
+    } else {
+        (ax + (aw - w).max(0) / 2, ay + (ah - h).max(0) / 2)
+    };
+    Some((target.0 as i32, target.1 as i32))
+}
+
+fn keep_recording_overlay_visible(window: &tauri::WebviewWindow<Wry>) {
+    let (Ok(position), Ok(size), Ok(mut monitors)) = (
+        window.outer_position(),
+        window.outer_size(),
+        window.available_monitors(),
+    ) else {
+        return;
+    };
+    if let Ok(Some(primary)) = window.primary_monitor() {
+        monitors.sort_by_key(|m| m.position() != primary.position());
+    }
+    let areas: Vec<_> = monitors
+        .iter()
+        .map(|monitor| {
+            let area = monitor.work_area();
+            (
+                area.position.x,
+                area.position.y,
+                area.size.width,
+                area.size.height,
+            )
+        })
+        .collect();
+    if let Some((x, y)) =
+        recovered_overlay_position((position.x, position.y), (size.width, size.height), &areas)
+    {
+        let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
+    }
+}
+
+#[cfg(test)]
+mod recording_overlay_position_tests {
+    use super::recovered_overlay_position as recover;
+    #[test]
+    fn preserves_secondary_display_and_negative_coordinates() {
+        assert_eq!(
+            recover(
+                (-1000, 100),
+                (640, 128),
+                &[(0, 48, 2880, 1700), (-1920, 0, 1920, 1080)]
+            ),
+            None
+        );
+    }
+    #[test]
+    fn unplugged_display_recenters_in_primary_work_area() {
+        assert_eq!(
+            recover((-1900, 100), (640, 128), &[(0, 48, 2880, 1700)]),
+            Some((1120, 834))
+        );
+    }
+    #[test]
+    fn resizing_clamps_full_widget_inside_work_area() {
+        assert_eq!(
+            recover((1800, 1000), (320, 64), &[(0, 24, 1920, 1016)]),
+            Some((1600, 976))
+        );
+    }
+    #[test]
+    fn avoids_menu_bar_and_handles_no_displays() {
+        assert_eq!(
+            recover((100, 0), (240, 64), &[(0, 24, 1920, 1016)]),
+            Some((100, 24))
+        );
+        assert_eq!(recover((0, 0), (240, 64), &[]), None);
+    }
+}
+
 fn show_overlay_state(app_handle: &AppHandle<Wry>, state: &str) {
     if let Some(overlay) = app_handle.get_webview_window("recording_overlay") {
-        // Re-position in case the user moved monitors.
-        if let Some((x, y)) = calculate_overlay_position(app_handle, OVERLAY_WIDTH) {
-            let _ = overlay.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
-        }
         let _ = overlay.show();
         let _ = overlay.set_size(tauri::Size::Logical(tauri::LogicalSize {
             width: OVERLAY_WIDTH,
             height: OVERLAY_HEIGHT,
         }));
+        keep_recording_overlay_visible(&overlay);
         // The overlay must never become the key window — if it does, Cmd+V
         // lands here instead of the user's target app. On macOS, showing a
         // window can make it key even if it was created with focused(false).
@@ -143,14 +270,12 @@ fn show_overlay_state(app_handle: &AppHandle<Wry>, state: &str) {
 /// modes) so the frontend can pick up the contextual app name.
 pub fn show_meeting_overlay(app_handle: &AppHandle<Wry>, detected_app_name: Option<&str>) {
     if let Some(overlay) = app_handle.get_webview_window("recording_overlay") {
-        if let Some((x, y)) = calculate_overlay_position(app_handle, MEETING_OVERLAY_WIDTH) {
-            let _ = overlay.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
-        }
         let _ = overlay.show();
         let _ = overlay.set_size(tauri::Size::Logical(tauri::LogicalSize {
             width: MEETING_OVERLAY_WIDTH,
             height: OVERLAY_HEIGHT,
         }));
+        keep_recording_overlay_visible(&overlay);
         let _ = overlay.set_always_on_top(true);
         let _ = overlay.emit(
             "show-overlay",
@@ -190,14 +315,12 @@ pub fn show_transcribing_overlay(app_handle: &AppHandle<Wry>) {
 /// the label tells the user which downstream step is currently running.
 pub fn show_processing_overlay(app_handle: &AppHandle<Wry>, label: &str) {
     if let Some(overlay) = app_handle.get_webview_window("recording_overlay") {
-        if let Some((x, y)) = calculate_overlay_position(app_handle, OVERLAY_WIDTH) {
-            let _ = overlay.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
-        }
         let _ = overlay.show();
         let _ = overlay.set_size(tauri::Size::Logical(tauri::LogicalSize {
             width: OVERLAY_WIDTH,
             height: OVERLAY_HEIGHT,
         }));
+        keep_recording_overlay_visible(&overlay);
         let _ = overlay.set_always_on_top(true);
         let _ = overlay.emit(
             "show-overlay",

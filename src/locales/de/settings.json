@@ -23,7 +23,7 @@
       "logcapture": "Sprachnotiz",
       "meetings": "Meetings",
       "daily-recap": "Tages-Recap",
-      "actions": "Aktionen",
+      "actions": "Tucky-Befehl",
       "templates": "Vorlagen",
       "language-model": "Sprachmodell",
       "general": "Allgemein",
@@ -254,17 +254,17 @@
   },
   "actions": {
     "section": {
-      "title": "Sprachbefehle & App-Starter",
-      "subtitle": "Erkennt Befehlsaktionen in deinen Sprachdiktaten, um Apps zu starten, Links zu öffnen, E-Mails zu verfassen und Zähler zu verwalten."
+      "title": "Tucky-Befehl",
+      "subtitle": "Verwende dein Diktierkürzel und beginne mit „Tucky“, gefolgt von deinem Wunsch. Zum Beispiel: „Tucky, öffne Safari“."
     },
     "launcher": {
-      "label": "Sprachbefehl-App-Starter",
+      "label": "Tucky-Befehl",
       "badge": "Sonoma+",
       "description": "Erfasst Sprachdiktate, um Apps zu starten, Links zu öffnen, E-Mails zu verfassen, Zähler zu verwalten, Meetings und Bildschirmaufnahmen zu starten/stoppen und deinen Mac wach zu halten (z. B. „tucky bleib 2 Stunden wach“)."
     },
     "prefixRouting": {
-      "title": "Präfixbasiertes Auslöser-Routing",
-      "description": "Leitet normale Sprachdiktate nur dann an die KI weiter, wenn sie mit einem Auslösewort beginnen (z. B. „tucky“). Verhindert Latenz beim Diktieren!",
+      "title": "Gesprochener Auslöser",
+      "description": "Verwende dein Diktierkürzel und beginne mit „Tucky“, gefolgt von deinem Wunsch. Zum Beispiel: „Tucky, öffne Safari“.",
       "toastEnabled": "Präfix-Auslöser-Routing aktiviert",
       "toastDisabled": "Präfix-Auslöser-Routing deaktiviert",
       "toastUpdateFailed": "Einstellungen für Präfix-Routing konnten nicht aktualisiert werden",
@@ -273,10 +273,6 @@
       "toastWordSaveFailed": "Auslösewort konnte nicht gespeichert werden",
       "toastWordReset": "Auslösewort auf „tucky“ zurückgesetzt",
       "phoneticNote": "* Hinweis: „tucky“ löst automatisch auch phonetisch ähnliche Varianten aus (tucky, tuckey, tuckie, tuki)!"
-    },
-    "actionHotkey": {
-      "title": "Eigener Aktions-Hotkey",
-      "description": "Drücke eine eigene Tastenkombination, um den Aktionsbefehl-Modus direkt auszulösen. Läuft immer über die KI und umgeht die Präfix-Regeln."
     },
     "editSelection": {
       "title": "Auswahl-bearbeiten-Hotkey",
@@ -300,10 +296,10 @@
   "templates": {
     "section": {
       "title": "Sprach-Formatvorlagen",
-      "subtitle": "Sage „tucky, als E-Mail formatieren …“ (oder nutze den Aktions-Hotkey), um dein Diktat vor dem Einfügen mit einem eigenen System-Prompt umzuschreiben."
+      "subtitle": "Sage „tucky, als E-Mail formatieren …“, um dein Diktat vor dem Einfügen mit einem eigenen System-Prompt umzuschreiben."
     },
     "loading": "Vorlagen werden geladen…",
-    "explainer": "Wenn dein Diktat mit einer der Auslösephrasen einer Vorlage beginnt (z. B. <mono>„tucky, als E-Mail formatieren …“</mono>), wird der Rest des Satzes über den System-Prompt der Vorlage umgeschrieben, bevor er an deiner Cursorposition eingefügt wird. Funktioniert sowohl mit dem „tucky“-Präfix als auch mit dem eigenen Aktions-Hotkey.",
+    "explainer": "Wenn dein Diktat mit einer der Auslösephrasen einer Vorlage beginnt (z. B. <mono>„tucky, als E-Mail formatieren …“</mono>), wird der Rest des Satzes über den System-Prompt der Vorlage umgeschrieben, bevor er an deiner Cursorposition eingefügt wird.",
     "empty": "Noch keine Vorlagen. Füge eine hinzu, um Sprachformatierung zu aktivieren.",
     "fields": {
       "namePlaceholder": "Vorlagenname",

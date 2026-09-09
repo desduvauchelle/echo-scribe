@@ -111,6 +111,11 @@
     "caughtSaidBy": "Said by {{speaker}}"
   },
   "screenrecSetup": {
+    "searchWindows": "Search apps or windows",
+    "noMatchingWindows": "No matching windows. Try another search.",
+    "windowCount_one": "{{count}} window",
+    "windowCount_other": "{{count}} windows",
+    "selectedWindow": "Selected: {{name}}",
     "loadingSources": "Loading sources…",
     "newRecording": "New Recording",
     "capture": "Capture",

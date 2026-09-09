@@ -23,7 +23,7 @@
       "logcapture": "Notatka głosowa",
       "meetings": "Spotkania",
       "daily-recap": "Podsumowanie dnia",
-      "actions": "Akcje",
+      "actions": "Polecenie Tucky",
       "templates": "Szablony",
       "language-model": "Model językowy",
       "general": "Ogólne",
@@ -260,17 +260,17 @@
   },
   "actions": {
     "section": {
-      "title": "Komendy głosowe i uruchamianie aplikacji",
-      "subtitle": "Wykrywaj komendy w Twoich dyktowaniach głosowych, aby uruchamiać aplikacje, otwierać linki, tworzyć e-maile i zarządzać licznikami."
+      "title": "Polecenie Tucky",
+      "subtitle": "Użyj skrótu dyktowania i zacznij od „Tucky”, a następnie powiedz, co chcesz zrobić. Na przykład: „Tucky, otwórz Safari”."
     },
     "launcher": {
-      "label": "Uruchamianie aplikacji komendami głosowymi",
+      "label": "Polecenie Tucky",
       "badge": "Sonoma+",
       "description": "Przechwytuj dyktowanie głosowe, aby uruchamiać aplikacje, otwierać linki, tworzyć e-maile, zarządzać licznikami, uruchamiać/zatrzymywać spotkania i nagrania ekranu oraz nie dopuszczać do uśpienia Maca (np. „tucky, nie usypiaj Maca przez 2 godziny”)."
     },
     "prefixRouting": {
-      "title": "Wyzwalanie na podstawie prefiksu",
-      "description": "Kieruj zwykłe dyktowania głosowe do AI tylko wtedy, gdy zaczynają się od słowa wyzwalającego (np. „tucky”). Zapobiega to opóźnieniom dyktowania!",
+      "title": "Wyzwalacz głosowy",
+      "description": "Użyj skrótu dyktowania i zacznij od „Tucky”, a następnie powiedz, co chcesz zrobić. Na przykład: „Tucky, otwórz Safari”.",
       "toastEnabled": "Wyzwalanie prefiksem włączone",
       "toastDisabled": "Wyzwalanie prefiksem wyłączone",
       "toastUpdateFailed": "Nie udało się zaktualizować ustawień wyzwalania prefiksem",
@@ -279,10 +279,6 @@
       "toastWordSaveFailed": "Nie udało się zapisać słowa wyzwalającego",
       "toastWordReset": "Słowo wyzwalające zresetowano do „tucky”",
       "phoneticNote": "* Uwaga: „tucky” automatycznie wyzwala też podobne fonetycznie słowa (tucky, tuckey, tuckie, tuki)!"
-    },
-    "actionHotkey": {
-      "title": "Dedykowany skrót akcji",
-      "description": "Naciśnij niestandardową kombinację klawiszy, aby bezpośrednio uruchomić tryb komend akcji. Zawsze uruchamia AI i pomija reguły prefiksu."
     },
     "editSelection": {
       "title": "Skrót edycji zaznaczenia",
@@ -306,10 +302,10 @@
   "templates": {
     "section": {
       "title": "Głosowe szablony formatowania",
-      "subtitle": "Powiedz „tucky, sformatuj jako e-mail…” (lub użyj skrótu Akcji), aby przepisać dyktowanie za pomocą niestandardowego promptu systemowego, zanim zostanie wklejone."
+      "subtitle": "Powiedz „tucky, sformatuj jako e-mail…”, aby przepisać dyktowanie za pomocą niestandardowego promptu systemowego, zanim zostanie wklejone."
     },
     "loading": "Ładowanie szablonów…",
-    "explainer": "Gdy Twoje dyktowanie zaczyna się od jednej z fraz wyzwalających szablonu (np. <mono>„tucky, sformatuj jako e-mail…”</mono>), reszta zdania jest przepisywana przez prompt systemowy szablonu, zanim zostanie wklejona przy kursorze. Działa zarówno z prefiksem „tucky”, jak i z dedykowanym skrótem Akcji.",
+    "explainer": "Gdy Twoje dyktowanie zaczyna się od jednej z fraz wyzwalających szablonu (np. <mono>„tucky, sformatuj jako e-mail…”</mono>), reszta zdania jest przepisywana przez prompt systemowy szablonu, zanim zostanie wklejona przy kursorze.",
     "empty": "Brak szablonów. Dodaj jeden, aby włączyć formatowanie głosowe.",
     "fields": {
       "namePlaceholder": "Nazwa szablonu",

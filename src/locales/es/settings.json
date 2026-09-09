@@ -23,7 +23,7 @@
       "logcapture": "Captura rápida",
       "meetings": "Reuniones",
       "daily-recap": "Resumen diario",
-      "actions": "Acciones",
+      "actions": "Comando Tucky",
       "templates": "Plantillas",
       "language-model": "Modelo de lenguaje",
       "general": "General",
@@ -254,17 +254,17 @@
   },
   "actions": {
     "section": {
-      "title": "Comandos de voz y lanzador de apps",
-      "subtitle": "Detecta acciones de comando dentro de tus dictados de voz para abrir aplicaciones, enlaces, redactar correos y gestionar contadores."
+      "title": "Comando Tucky",
+      "subtitle": "Usa tu atajo de dictado y empieza por «Tucky», seguido de lo que quieres hacer. Por ejemplo: «Tucky, abre Safari»."
     },
     "launcher": {
-      "label": "Lanzador de apps por comando de voz",
+      "label": "Comando Tucky",
       "badge": "Sonoma+",
       "description": "Intercepta el dictado de voz para abrir apps, enlaces, redactar correos, gestionar contadores, iniciar/detener reuniones y grabaciones de pantalla, y mantener tu Mac despierto (por ejemplo, «tucky mantente despierto 2 horas»)."
     },
     "prefixRouting": {
-      "title": "Enrutamiento por palabra de activación",
-      "description": "Envía los dictados de voz normales a la IA solo si empiezan con una palabra de activación (por ejemplo, «tucky»). ¡Evita la latencia del dictado!",
+      "title": "Activador de voz",
+      "description": "Usa tu atajo de dictado y empieza por «Tucky», seguido de lo que quieres hacer. Por ejemplo: «Tucky, abre Safari».",
       "toastEnabled": "Enrutamiento por palabra de activación activado",
       "toastDisabled": "Enrutamiento por palabra de activación desactivado",
       "toastUpdateFailed": "Error al actualizar la configuración de enrutamiento por prefijo",
@@ -273,10 +273,6 @@
       "toastWordSaveFailed": "Error al guardar la palabra de activación",
       "toastWordReset": "Palabra de activación restablecida a «tucky»",
       "phoneticNote": "* Nota: «tucky» activa coincidencias fonéticas aproximadas (tucky, tuckey, tuckie, tuki) automáticamente."
-    },
-    "actionHotkey": {
-      "title": "Atajo de acción dedicado",
-      "description": "Pulsa una combinación de teclas personalizada para activar el modo de comando de acción directamente. Siempre ejecuta la IA y omite las reglas de prefijo."
     },
     "editSelection": {
       "title": "Atajo de edición de selección",
@@ -300,10 +296,10 @@
   "templates": {
     "section": {
       "title": "Plantillas de formato de voz",
-      "subtitle": "Di «tucky, formatea como correo…» (o usa el atajo de acción) para reescribir tu dictado con un prompt del sistema personalizado antes de pegarlo."
+      "subtitle": "Di «tucky, formatea como correo…» para reescribir tu dictado con un prompt del sistema personalizado antes de pegarlo."
     },
     "loading": "Cargando plantillas…",
-    "explainer": "Cuando tu dictado empieza con una de las frases de activación de una plantilla (por ejemplo, <mono>«tucky, formatea como correo…»</mono>), el resto de la frase se reescribe mediante el prompt del sistema de la plantilla antes de pegarse en tu cursor. Funciona tanto con el prefijo «tucky» como con el atajo de acción dedicado.",
+    "explainer": "Cuando tu dictado empieza con una de las frases de activación de una plantilla (por ejemplo, <mono>«tucky, formatea como correo…»</mono>), el resto de la frase se reescribe mediante el prompt del sistema de la plantilla antes de pegarse en tu cursor.",
     "empty": "Aún no hay plantillas. Añade una para activar el formato por voz.",
     "fields": {
       "namePlaceholder": "Nombre de la plantilla",

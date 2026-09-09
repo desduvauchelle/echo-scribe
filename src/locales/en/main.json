@@ -127,13 +127,13 @@
       "templates": {
         "title": "Say it, then shape it",
         "summary": "Turn spoken thoughts into an email or a list.",
-        "body": "Voice format templates rewrite your words before they’re pasted. Review the available templates in Settings, then use the action shortcut or enable the spoken trigger to request a format. Your ordinary dictation shortcut still works as usual.",
+        "body": "Voice format templates rewrite your words before they’re pasted. Enable the Tucky command in Settings, then hold your dictation shortcut and say “Tucky, format as email…” followed by your message.",
         "action": "Explore format templates"
       },
       "actions": {
-        "title": "A shortcut for the little things",
+        "title": "The Tucky command",
         "summary": "Use voice commands to open apps and more.",
-        "body": "Settings → Actions shows your current action shortcut, trigger preferences, and examples. Try a simple app launch first. Review settings before using actions that draft emails or change counters.",
+        "body": "In Settings → Tucky command, enable the command and its spoken trigger. Hold your dictation shortcut and say “Tucky, open Safari”. You can also open links, draft emails, and manage counters.",
         "action": "Explore voice actions"
       },
       "export": {

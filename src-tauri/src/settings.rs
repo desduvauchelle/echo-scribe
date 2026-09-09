@@ -12,7 +12,6 @@ use crate::power::KeepAwakeMode;
 const STORE_FILENAME: &str = "settings.json";
 const KEY_VOICE_AT_CURSOR_BINDING: &str = "voice_at_cursor_binding";
 const KEY_LOG_CAPTURE_BINDING: &str = "log_capture_binding";
-const KEY_ACTION_BINDING: &str = "action_binding";
 const KEY_EDIT_SELECTION_BINDING: &str = "edit_selection_binding";
 const KEY_TRIGGER_WORD_ROUTING_ENABLED: &str = "trigger_word_routing_enabled";
 const KEY_ACTION_TRIGGER_WORD: &str = "action_trigger_word";
@@ -82,7 +81,7 @@ const KEY_EDITOR_DEFAULTS: &str = "editor_defaults";
 pub const DEFAULT_MEETING_SUMMARY_PROMPT: &str = "You are an expert meeting note-taker. You receive a transcript of a {duration_minutes}-minute conversation captured from {app}. The transcript labels each segment as 'You:' (the user) or 'Them:' (the other side).";
 
 /// A user-configurable voice "format template". When the user dictates with
-/// the trigger word ("tucky …") or the dedicated Action hotkey and the LLM
+/// the Tucky command ("tucky …") and the LLM
 /// classifies the intent as `format_text`, the matched template's
 /// `system_prompt` is used to reformat the dictated body before pasting.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
@@ -381,34 +380,6 @@ impl SettingsStore {
     pub fn set_log_capture_binding(&self, b: Binding) -> Result<(), SettingsError> {
         let value = serde_json::to_value(&b)?;
         self.store.set(KEY_LOG_CAPTURE_BINDING, value);
-        self.store
-            .save()
-            .map_err(|e| SettingsError::Store(e.to_string()))?;
-        Ok(())
-    }
-
-    /// Returns the configured action hotkey binding, or the default
-    /// combo Option+A if none is stored or invalid.
-    pub fn action_binding(&self) -> Binding {
-        match self.store.get(KEY_ACTION_BINDING) {
-            Some(value) => match serde_json::from_value::<Binding>(value) {
-                Ok(b) => b,
-                Err(e) => {
-                    warn!(
-                        ?e,
-                        "stored action_binding is invalid; falling back to default"
-                    );
-                    default_action_binding()
-                }
-            },
-            None => default_action_binding(),
-        }
-    }
-
-    /// Persist the action hotkey binding.
-    pub fn set_action_binding(&self, b: Binding) -> Result<(), SettingsError> {
-        let value = serde_json::to_value(&b)?;
-        self.store.set(KEY_ACTION_BINDING, value);
         self.store
             .save()
             .map_err(|e| SettingsError::Store(e.to_string()))?;
@@ -1589,14 +1560,6 @@ pub fn default_binding() -> Binding {
 /// Per the Phase 0 design: right Option (AltGr).
 pub fn default_log_capture_binding() -> Binding {
     Binding::single(Key::AltGr)
-}
-
-/// The default dedicated action binding: Alt + KeyA
-pub fn default_action_binding() -> Binding {
-    Binding {
-        primary: SerKey(Key::KeyA),
-        modifiers: vec![(ModifierKind::Alt, ModifierSide::Either)],
-    }
 }
 
 /// The default edit-selection binding: Right Option + E.

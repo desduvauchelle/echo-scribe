@@ -81,8 +81,6 @@ import {
   getActionCounter,
   resetActionCounter,
   getCommonActions,
-  getActionBinding,
-  updateActionBinding,
   getEditSelectionBinding,
   updateEditSelectionBinding,
   getTriggerWordRoutingEnabled,
@@ -2184,7 +2182,7 @@ function AppLauncherSettingsSection() {
 
       {enabled && (
         <div className="rounded-lg border border-line bg-canvas p-4 flex flex-col gap-4 transition-all duration-300">
-          {/* Option 2: Prefix-Based Routing */}
+          {/* Tucky command */}
           <div className="border border-line rounded-lg p-4 bg-surface/30 flex flex-col gap-3">
             <div className="flex items-center justify-between">
               <div>
@@ -2195,6 +2193,7 @@ function AppLauncherSettingsSection() {
               </div>
               <input
                 type="checkbox"
+                aria-label={t("actions.prefixRouting.title")}
                 disabled={busy || routingEnabled === null}
                 checked={routingEnabled ?? false}
                 onChange={async (e) => {
@@ -2261,22 +2260,6 @@ function AppLauncherSettingsSection() {
             )}
           </div>
 
-          {/* Option 3: Dedicated Action Hotkey */}
-          <div className="border border-line rounded-lg p-4 bg-surface/30 flex flex-col gap-3">
-            <div>
-              <span className="text-xs font-semibold text-fg block">{t("actions.actionHotkey.title")}</span>
-              <span className="text-[11px] text-muted block mt-0.5">
-                {t("actions.actionHotkey.description")}
-              </span>
-            </div>
-            <div className="mt-1">
-              <HotkeyRebinder
-                load={getActionBinding}
-                save={updateActionBinding}
-              />
-            </div>
-          </div>
-
           {/* Edit selection: voice-rewrite highlighted text in place */}
           <div className="border border-line rounded-lg p-4 bg-surface/30 flex flex-col gap-3">
             <div>
@@ -2333,7 +2316,7 @@ function AppLauncherSettingsSection() {
                         key={phrase}
                         className="min-w-0 max-w-full whitespace-normal break-words rounded border border-line bg-surface-2 px-1.5 py-0.5 font-mono text-[10px] leading-relaxed text-fg [overflow-wrap:anywhere]"
                       >
-                        "{phrase}"
+                        "{triggerWord.trim() || "Tucky"}, {phrase}"
                       </code>
                     ))}
                   </div>

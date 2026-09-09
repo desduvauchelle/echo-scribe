@@ -17,7 +17,7 @@ use serde::Serialize;
 /// A timed caption span, ready to hand to the frontend. Times are **ms relative
 /// to the recording's t=0**. Serialized camelCase so the TS side receives
 /// `{ startMs, endMs, text }` (matches the `src/lib/api.ts` wrapper's type).
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CaptionSegment {
     pub start_ms: u64,

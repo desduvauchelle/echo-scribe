@@ -23,7 +23,7 @@
       "logcapture": "Captura de registro",
       "meetings": "Reuniões",
       "daily-recap": "Resumo diário",
-      "actions": "Ações",
+      "actions": "Comando Tucky",
       "templates": "Modelos",
       "language-model": "Modelo de linguagem",
       "general": "Geral",
@@ -254,17 +254,17 @@
   },
   "actions": {
     "section": {
-      "title": "Comandos de voz e abertura de apps",
-      "subtitle": "Detecte ações de comando dentro dos seus ditados de voz para abrir aplicativos, abrir links, redigir e-mails e gerenciar contadores."
+      "title": "Comando Tucky",
+      "subtitle": "Usa o atalho de ditado e começa com «Tucky», seguido do que queres fazer. Por exemplo: «Tucky, abre o Safari»."
     },
     "launcher": {
-      "label": "Abertura de apps por comando de voz",
+      "label": "Comando Tucky",
       "badge": "Sonoma+",
       "description": "Intercepta o ditado de voz para abrir apps, abrir links, redigir e-mails, gerenciar contadores, iniciar/parar reuniões e gravações de tela, e manter o seu Mac ativo (ex.: \"tucky stay awake for 2 hours\")."
     },
     "prefixRouting": {
-      "title": "Roteamento por palavra-gatilho",
-      "description": "Roteia ditados de voz normais para a IA somente se começarem com uma palavra-gatilho (ex.: \"tucky\"). Evita latência no ditado!",
+      "title": "Ativação por voz",
+      "description": "Usa o atalho de ditado e começa com «Tucky», seguido do que queres fazer. Por exemplo: «Tucky, abre o Safari».",
       "toastEnabled": "Roteamento por palavra-gatilho ativado",
       "toastDisabled": "Roteamento por palavra-gatilho desativado",
       "toastUpdateFailed": "Falha ao atualizar as configurações de roteamento por prefixo",
@@ -273,10 +273,6 @@
       "toastWordSaveFailed": "Falha ao salvar a palavra-gatilho",
       "toastWordReset": "Palavra-gatilho redefinida para \"tucky\"",
       "phoneticNote": "* Observação: \"tucky\" aciona correspondências fonéticas aproximadas automaticamente (tucky, tuckey, tuckie, tuki)!"
-    },
-    "actionHotkey": {
-      "title": "Atalho dedicado de ação",
-      "description": "Pressione uma combinação de teclas personalizada para acionar diretamente o modo de comando de ação. Sempre executa a IA e ignora as regras de prefixo."
     },
     "editSelection": {
       "title": "Atalho de editar seleção",
@@ -300,10 +296,10 @@
   "templates": {
     "section": {
       "title": "Modelos de formatação por voz",
-      "subtitle": "Diga \"tucky, format as email …\" (ou use o atalho de ação) para reescrever seu ditado com um prompt de sistema personalizado antes de ser colado."
+      "subtitle": "Diga \"tucky, format as email …\" para reescrever seu ditado com um prompt de sistema personalizado antes de ser colado."
     },
     "loading": "Carregando modelos…",
-    "explainer": "Quando seu ditado começa com uma das frases-gatilho de um modelo (ex.: <mono>\"tucky, format as email …\"</mono>), o restante da frase é reescrito pelo prompt de sistema do modelo antes de ser colado no cursor. Funciona tanto com o prefixo \"tucky\" quanto com o atalho dedicado de ação.",
+    "explainer": "Quando seu ditado começa com uma das frases-gatilho de um modelo (ex.: <mono>\"tucky, format as email …\"</mono>), o restante da frase é reescrito pelo prompt de sistema do modelo antes de ser colado no cursor.",
     "empty": "Ainda não há modelos. Adicione um para ativar a formatação por voz.",
     "fields": {
       "namePlaceholder": "Nome do modelo",

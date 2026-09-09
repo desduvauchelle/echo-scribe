@@ -63,7 +63,6 @@ async fn deliver_to_own_input(app: &AppHandle<Wry>, id: Option<String>, text: &s
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
     VoiceAtCursor,
-    ActionCommand,
     LogCapture,
     /// Voice-edit the current text selection in place ("Command Mode").
     EditSelection,
@@ -324,9 +323,6 @@ pub fn spawn(
                     feedback::play(Sfx::Start);
                     match action {
                         Action::VoiceAtCursor => crate::overlay::show_recording_overlay(&app),
-                        Action::ActionCommand => {
-                            crate::overlay::show_action_recording_overlay(&app)
-                        }
                         Action::LogCapture => crate::overlay::show_log_recording_overlay(&app),
                         Action::EditSelection => {
                             crate::overlay::show_action_recording_overlay(&app)
@@ -462,7 +458,7 @@ pub fn spawn(
                                         InterceptOutcome::Passthrough => text,
                                     };
                                     match action {
-                                        Action::VoiceAtCursor | Action::ActionCommand => {
+                                        Action::VoiceAtCursor => {
                                             if let Ok(mut slot) = last_transcript.lock() {
                                                 *slot = Some(text.clone());
                                             }
@@ -1344,14 +1340,7 @@ async fn try_intercept_action(
         return InterceptOutcome::Passthrough;
     }
 
-    let stripped_text = if action == Action::ActionCommand {
-        // Dedicated Action Hotkey: bypass trigger word prefix check entirely
-        let trimmed = text.trim();
-        if trimmed.is_empty() {
-            return InterceptOutcome::Passthrough;
-        }
-        trimmed.to_string()
-    } else if action == Action::VoiceAtCursor {
+    let stripped_text = if action == Action::VoiceAtCursor {
         // Prefix-Based Routing
         if !trigger_enabled {
             // Option 2 fallback bypass: standard voice typing completely bypasses LLM

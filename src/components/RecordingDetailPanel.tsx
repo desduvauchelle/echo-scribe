@@ -32,6 +32,7 @@ import {
 import { useToasts } from "./ToastProvider";
 import { useActivityPanel } from "./ActivityPanelContext";
 import { useFocusTrap } from "./a11y/Dialog";
+import RecordingFeedback from "./RecordingFeedback";
 import {
   DriveReconnectModal,
   recordingDisplayName,
@@ -104,7 +105,7 @@ export default function RecordingDetailPanel() {
         aria-labelledby="recording-panel-title"
       >
         {open && selectedRecordingId ? (
-          <PanelBody id={selectedRecordingId} onClose={close} />
+          <PanelBody key={selectedRecordingId} id={selectedRecordingId} onClose={close} />
         ) : null}
       </aside>
     </>
@@ -466,6 +467,8 @@ function PanelBody({ id, onClose }: { id: string; onClose: () => void }) {
                 <CopyButton value={rec.drive_link} />
               </div>
             ) : null}
+
+            <RecordingFeedback key={rec.id} rec={rec} />
 
             <div className="mt-6 border-t border-line pt-4">
               <div className="mb-2 flex items-center justify-between">

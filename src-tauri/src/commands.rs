@@ -61,7 +61,6 @@ pub struct AppState {
     pub settings: SettingsStore,
     pub binding: Arc<RwLock<Binding>>,
     pub log_capture_binding: Arc<RwLock<Binding>>,
-    pub action_binding: Arc<RwLock<Binding>>,
     pub edit_selection_binding: Arc<RwLock<Binding>>,
     /// Escape is intercepted only while this flag is true.
     pub cancel_active: Arc<AtomicBool>,
@@ -455,33 +454,6 @@ pub fn update_log_capture_binding(
 }
 
 #[tauri::command]
-pub fn get_action_binding(state: State<'_, AppState>) -> JsBinding {
-    let b = state
-        .action_binding
-        .read()
-        .map(|g| g.clone())
-        .unwrap_or_else(|_| crate::settings::default_action_binding());
-    b.into()
-}
-
-#[tauri::command]
-pub fn update_action_binding(state: State<'_, AppState>, binding: JsBinding) -> Result<(), String> {
-    let parsed: Binding = binding
-        .try_into()
-        .map_err(|e: BindingConversionError| e.to_string())?;
-    state
-        .settings
-        .set_action_binding(parsed.clone())
-        .map_err(|e| e.to_string())?;
-    let mut guard = state
-        .action_binding
-        .write()
-        .map_err(|_| "action_binding lock poisoned".to_string())?;
-    *guard = parsed;
-    Ok(())
-}
-
-#[tauri::command]
 pub fn get_edit_selection_binding(state: State<'_, AppState>) -> JsBinding {
     let b = state
         .edit_selection_binding
@@ -758,7 +730,6 @@ pub fn ensure_pipeline_started(state: &AppState, app: &AppHandle) {
 
     let (vac_tx, mut vac_rx) = mpsc::unbounded_channel::<HotkeyEvent>();
     let (lc_tx, mut lc_rx) = mpsc::unbounded_channel::<HotkeyEvent>();
-    let (ac_tx, mut ac_rx) = mpsc::unbounded_channel::<HotkeyEvent>();
     let (es_tx, mut es_rx) = mpsc::unbounded_channel::<HotkeyEvent>();
     let (cancel_tx, mut cancel_rx) = mpsc::unbounded_channel::<HotkeyEvent>();
 
@@ -770,11 +741,6 @@ pub fn ensure_pipeline_started(state: &AppState, app: &AppHandle) {
     spawn_listener(
         Arc::clone(&state.log_capture_binding),
         lc_tx,
-        Arc::clone(&state.rebinding),
-    );
-    spawn_listener(
-        Arc::clone(&state.action_binding),
-        ac_tx,
         Arc::clone(&state.rebinding),
     );
     spawn_listener(
@@ -822,19 +788,6 @@ pub fn ensure_pipeline_started(state: &AppState, app: &AppHandle) {
             while let Some(ev) = lc_rx.recv().await {
                 if coord_tx
                     .send(CoordinatorMsg::Hotkey(Action::LogCapture, ev))
-                    .is_err()
-                {
-                    break;
-                }
-            }
-        });
-    }
-    {
-        let coord_tx = coord_tx.clone();
-        tauri::async_runtime::spawn(async move {
-            while let Some(ev) = ac_rx.recv().await {
-                if coord_tx
-                    .send(CoordinatorMsg::Hotkey(Action::ActionCommand, ev))
                     .is_err()
                 {
                     break;
@@ -5472,6 +5425,16 @@ pub fn list_recordings(
 
 fn delete_recording_files(row: &crate::db::recordings::RecordingRow) {
     let id = &row.id;
+    if let Ok(base) = crate::screenrec::recordings_dir() {
+        if let Ok(folder) = crate::recording_feedback::bundle_root(&base, id) {
+            if folder.exists() {
+                match std::fs::remove_dir_all(&folder) {
+                    Ok(()) => info!(target: "recording_feedback", %id, "deleted recording feedback bundles"),
+                    Err(e) => tracing::warn!(target: "recording_feedback", %id, error = %e, "could not delete feedback bundles"),
+                }
+            }
+        }
+    }
     match std::fs::remove_file(&row.file_path) {
         Ok(()) => {
             info!(target: "screenrec", recording_id = %id, path = %row.file_path, "deleted recording file")
@@ -5695,7 +5658,7 @@ pub async fn generate_captions(
 
     // Extract audio to a temp WAV in the recordings dir (same path as transcribe).
     let wav = match crate::screenrec::recordings_dir() {
-        Ok(d) => d.join(format!("{id}.captions.wav")),
+        Ok(d) => d.join(format!("{id}.{}.captions.wav", uuid::Uuid::new_v4())),
         Err(e) => {
             error!(target: "captions", %id, error = %e, "recordings_dir failed");
             return Err("Caption generation failed — see logs.".into());

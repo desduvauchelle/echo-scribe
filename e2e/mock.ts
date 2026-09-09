@@ -186,7 +186,6 @@ export async function installTauriMock(page: Page, scenario: Scenario = {}) {
       is_pipeline_running: () => state.pipelineRunning,
       get_voice_at_cursor_binding: () => binding,
       get_log_capture_binding: () => binding,
-      get_action_binding: () => binding,
       get_edit_selection_binding: () => binding,
       get_app_launcher_enabled: () => true,
       get_action_counter: () => 21,

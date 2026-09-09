@@ -25,6 +25,8 @@ import {
   type AreaPickerResultPayload,
 } from "../lib/api";
 
+import { groupWindows } from "./windowGroups";
+
 type SourceKind = "screen" | "window" | "area";
 
 /** The countdown page (src/countdown/Countdown.tsx) is the single owner of
@@ -47,6 +49,10 @@ const SetupWindow: React.FC = () => {
   const [windows, setWindows] = useState<WindowSource[]>([]);
   const [selectedDisplayId, setSelectedDisplayId] = useState<number | null>(null);
   const [selectedWindowId, setSelectedWindowId] = useState<number | null>(null);
+
+  const [windowSearch, setWindowSearch] = useState("");
+  const [expandedApps, setExpandedApps] = useState<Record<string, boolean>>({});
+  const windowGroups = groupWindows(windows, windowSearch);
 
   // Area state ("area" source kind): the picker runs on `selectedDisplayId`
   // (the same display dropdown "screen" uses) and reports back a GLOBAL
@@ -511,34 +517,83 @@ const SetupWindow: React.FC = () => {
               {windows.length === 0 ? (
                 <p style={styles.emptyText}>{t("screenrecSetup.noWindowsFound")}</p>
               ) : (
-                <div style={styles.windowList}>
-                  {windows.map((w) => (
-                    <button
-                      key={w.id}
-                      style={{
-                        ...styles.windowRow,
-                        ...(selectedWindowId === w.id
-                          ? styles.windowRowSelected
-                          : {}),
-                      }}
-                      onClick={() => setSelectedWindowId(w.id)}
-                    >
-                      {w.thumb ? (
-                        <img
-                          src={convertFileSrc(w.thumb)}
-                          alt=""
-                          style={styles.windowThumb}
-                        />
-                      ) : (
-                        <div style={styles.windowThumbPlaceholder} />
-                      )}
-                      <div style={styles.windowMeta}>
-                        <span style={styles.windowApp}>{w.app}</span>
-                        <span style={styles.windowTitle}>{w.title}</span>
-                      </div>
-                    </button>
-                  ))}
-                </div>
+                <>
+                  <input
+                    type="search"
+                    aria-label={t("screenrecSetup.searchWindows")}
+                    placeholder={t("screenrecSetup.searchWindows")}
+                    value={windowSearch}
+                    onChange={(e) => setWindowSearch(e.target.value)}
+                    style={{ ...styles.select, boxSizing: "border-box", marginBottom: "8px", cursor: "text" }}
+                  />
+                  <div style={styles.windowList}>
+                    {windowGroups.length === 0 && (
+                      <p style={{ ...styles.emptyText, padding: "8px" }} role="status">
+                        {t("screenrecSetup.noMatchingWindows")}
+                      </p>
+                    )}
+                    {windowGroups.map((group, index) => {
+                      const expanded = typeof expandedApps[group.app] === "boolean"
+                        ? expandedApps[group.app]
+                        : group.defaultExpanded;
+                      // Search exposes every match without changing manual group preferences.
+                      const visible = !group.grouped || !!windowSearch.trim() || expanded;
+                      return (
+                        <div key={group.app} style={{ flexShrink: 0 }}>
+                          {group.grouped && !windowSearch.trim() && (
+                            <button
+                              style={{ ...styles.windowRow, gap: "8px" }}
+                              aria-expanded={expanded}
+                              aria-controls={`window-group-${index}`}
+                              onClick={() => setExpandedApps((previous) => ({ ...previous, [group.app]: !expanded }))}
+                            >
+                              <span aria-hidden="true">{expanded ? "▾" : "▸"}</span>
+                              <span style={{ ...styles.windowApp, minWidth: 0, flexShrink: 1 }}>{group.app}</span>
+                              <span style={{ ...styles.windowTitle, marginLeft: "auto", flexShrink: 0 }}>
+                                {t("screenrecSetup.windowCount", { count: group.total })}
+                              </span>
+                            </button>
+                          )}
+                          <div id={`window-group-${index}`} hidden={!visible}>
+                            {group.windows.map((w) => (
+                              <button
+                                key={w.id}
+                                style={{
+                                  ...styles.windowRow,
+                                  ...(selectedWindowId === w.id
+                                    ? styles.windowRowSelected
+                                    : {}),
+                                }}
+                                aria-pressed={selectedWindowId === w.id}
+                                title={`${w.app} — ${w.title}`}
+                                onClick={() => setSelectedWindowId(w.id)}
+                              >
+                                {w.thumb ? (
+                                  <img
+                                    src={convertFileSrc(w.thumb)}
+                                    alt=""
+                                    style={styles.windowThumb}
+                                  />
+                                ) : (
+                                  <div style={styles.windowThumbPlaceholder} />
+                                )}
+                                <div style={styles.windowMeta}>
+                                  <span style={styles.windowApp}>{w.app}</span>
+                                  <span style={styles.windowTitle}>{w.title}</span>
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p style={{ ...styles.windowTitle, margin: "8px 0 0" }}>
+                    {t("screenrecSetup.selectedWindow", {
+                      name: windows.find((w) => w.id === selectedWindowId)?.title || windows.find((w) => w.id === selectedWindowId)?.app,
+                    })}
+                  </p>
+                </>
               )}
             </>
           ) : (

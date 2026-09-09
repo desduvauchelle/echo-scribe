@@ -23,7 +23,7 @@
       "logcapture": "Log Capture",
       "meetings": "Meetings",
       "daily-recap": "Daily Recap",
-      "actions": "Actions",
+      "actions": "Tucky command",
       "templates": "Templates",
       "language-model": "Language Model",
       "general": "General",
@@ -256,17 +256,17 @@
   },
   "actions": {
     "section": {
-      "title": "Voice commands & app launcher",
-      "subtitle": "Detect command actions inside your voice dictations to launch applications, open links, compose emails, and manage counters."
+      "title": "Tucky command",
+      "subtitle": "Use your dictation shortcut and start with “Tucky”, followed by what you want to do. For example: “Tucky, open Safari”."
     },
     "launcher": {
-      "label": "Voice command app launcher",
+      "label": "Tucky command",
       "badge": "Sonoma+",
       "description": "Intercept voice dictation to launch apps, open links, compose emails, manage counters, start/stop meetings and screen recordings, and keep your Mac awake (e.g. \"tucky stay awake for 2 hours\")."
     },
     "prefixRouting": {
-      "title": "Prefix-Based Trigger Routing",
-      "description": "Route normal voice dictations to AI only if they start with a trigger word (e.g. \"tucky\"). Prevents dictation latency!",
+      "title": "Spoken trigger",
+      "description": "Use your dictation shortcut and start with “Tucky”, followed by what you want to do. For example: “Tucky, open Safari”.",
       "toastEnabled": "Prefix trigger routing enabled",
       "toastDisabled": "Prefix trigger routing disabled",
       "toastUpdateFailed": "Failed to update prefix routing settings",
@@ -275,10 +275,6 @@
       "toastWordSaveFailed": "Failed to save trigger word",
       "toastWordReset": "Trigger word reset to \"tucky\"",
       "phoneticNote": "* Note: \"tucky\" triggers loose phonetic matches (tucky, tuckey, tuckie, tuki) automatically!"
-    },
-    "actionHotkey": {
-      "title": "Dedicated Action Hotkey",
-      "description": "Press a custom key combination to trigger Action Command mode directly. Always runs AI and bypasses prefix rules."
     },
     "editSelection": {
       "title": "Edit Selection Hotkey",
@@ -302,10 +298,10 @@
   "templates": {
     "section": {
       "title": "Voice format templates",
-      "subtitle": "Say \"tucky, format as email …\" (or use the Action hotkey) to rewrite your dictation with a custom system prompt before it gets pasted."
+      "subtitle": "Say \"tucky, format as email …\" to rewrite your dictation with a custom system prompt before it gets pasted."
     },
     "loading": "Loading templates…",
-    "explainer": "When your dictation starts with one of a template's trigger phrases (e.g. <mono>\"tucky, format as email …\"</mono>), the rest of the sentence is rewritten through the template's system prompt before it's pasted at your cursor. Works with both the \"tucky\" prefix and the dedicated Action hotkey.",
+    "explainer": "When your dictation starts with one of a template's trigger phrases (e.g. <mono>\"tucky, format as email …\"</mono>), the rest of the sentence is rewritten through the template's system prompt before it's pasted at your cursor.",
     "empty": "No templates yet. Add one to enable voice formatting.",
     "fields": {
       "namePlaceholder": "Template name",

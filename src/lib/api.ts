@@ -92,12 +92,6 @@ export const getLogCaptureBinding = (): Promise<JsBinding> =>
 export const updateLogCaptureBinding = (binding: JsBinding): Promise<void> =>
   invoke("update_log_capture_binding", { binding });
 
-export const getActionBinding = (): Promise<JsBinding> =>
-  invoke("get_action_binding");
-
-export const updateActionBinding = (binding: JsBinding): Promise<void> =>
-  invoke("update_action_binding", { binding });
-
 export const getEditSelectionBinding = (): Promise<JsBinding> =>
   invoke("get_edit_selection_binding");
 

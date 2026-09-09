@@ -23,7 +23,7 @@
       "logcapture": "Acquisizione rapida",
       "meetings": "Riunioni",
       "daily-recap": "Riepilogo giornaliero",
-      "actions": "Azioni",
+      "actions": "Comando Tucky",
       "templates": "Modelli",
       "language-model": "Modello linguistico",
       "general": "Generale",
@@ -254,17 +254,17 @@
   },
   "actions": {
     "section": {
-      "title": "Comandi vocali e avvio app",
-      "subtitle": "Rileva azioni comando all'interno delle tue dettature vocali per avviare applicazioni, aprire link, comporre email e gestire contatori."
+      "title": "Comando Tucky",
+      "subtitle": "Usa la scorciatoia di dettatura e inizia con «Tucky», seguito da ciò che vuoi fare. Per esempio: «Tucky, apri Safari»."
     },
     "launcher": {
-      "label": "Avvio app tramite comando vocale",
+      "label": "Comando Tucky",
       "badge": "Sonoma+",
       "description": "Intercetta la dettatura vocale per avviare app, aprire link, comporre email, gestire contatori, avviare/interrompere riunioni e registrazioni dello schermo, e mantenere il Mac attivo (es. \"tucky resta sveglio per 2 ore\")."
     },
     "prefixRouting": {
-      "title": "Instradamento con parola di attivazione",
-      "description": "Instrada le normali dettature vocali all'AI solo se iniziano con una parola di attivazione (es. \"tucky\"). Evita latenza nella dettatura!",
+      "title": "Attivazione vocale",
+      "description": "Usa la scorciatoia di dettatura e inizia con «Tucky», seguito da ciò che vuoi fare. Per esempio: «Tucky, apri Safari».",
       "toastEnabled": "Instradamento con parola di attivazione attivato",
       "toastDisabled": "Instradamento con parola di attivazione disattivato",
       "toastUpdateFailed": "Impossibile aggiornare le impostazioni di instradamento",
@@ -273,10 +273,6 @@
       "toastWordSaveFailed": "Impossibile salvare la parola di attivazione",
       "toastWordReset": "Parola di attivazione ripristinata a \"tucky\"",
       "phoneticNote": "* Nota: \"tucky\" attiva automaticamente corrispondenze fonetiche simili (tucky, tuckey, tuckie, tuki)!"
-    },
-    "actionHotkey": {
-      "title": "Scorciatoia dedicata per le azioni",
-      "description": "Premi una combinazione di tasti personalizzata per attivare direttamente la modalità Comando azione. Esegue sempre l'AI e ignora le regole del prefisso."
     },
     "editSelection": {
       "title": "Scorciatoia modifica selezione",
@@ -300,10 +296,10 @@
   "templates": {
     "section": {
       "title": "Modelli di formattazione vocale",
-      "subtitle": "Di' \"tucky, formatta come email …\" (o usa la scorciatoia Azione) per riscrivere la tua dettatura con un prompt di sistema personalizzato prima che venga incollata."
+      "subtitle": "Di' \"tucky, formatta come email …\" per riscrivere la tua dettatura con un prompt di sistema personalizzato prima che venga incollata."
     },
     "loading": "Caricamento modelli…",
-    "explainer": "Quando la tua dettatura inizia con una delle frasi di attivazione di un modello (es. <mono>\"tucky, formatta come email …\"</mono>), il resto della frase viene riscritto tramite il prompt di sistema del modello prima di essere incollato al cursore. Funziona sia con il prefisso \"tucky\" sia con la scorciatoia Azione dedicata.",
+    "explainer": "Quando la tua dettatura inizia con una delle frasi di attivazione di un modello (es. <mono>\"tucky, formatta come email …\"</mono>), il resto della frase viene riscritto tramite il prompt di sistema del modello prima di essere incollato al cursore.",
     "empty": "Nessun modello ancora. Aggiungine uno per attivare la formattazione vocale.",
     "fields": {
       "namePlaceholder": "Nome del modello",

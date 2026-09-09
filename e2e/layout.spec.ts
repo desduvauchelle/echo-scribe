@@ -290,12 +290,17 @@ test("action cheatsheet wraps long email examples without horizontal overflow", 
   await page.goto("/");
 
   await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByRole("button", { name: "Actions", exact: true }).click();
+  await page.getByRole("button", { name: "Tucky command", exact: true }).click();
+
+  await expect(page.getByText("Dedicated Action Hotkey", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Edit Selection Hotkey", { exact: true })).toBeVisible();
+  await expect(page.getByRole("checkbox", { name: "Spoken trigger", exact: true })).toBeVisible();
 
   const emailCard = page.locator('[data-action-category="Emails"]');
   const phrases = emailCard.locator("code");
   await expect(emailCard).toBeVisible();
   await expect(phrases).toHaveCount(2);
+  await expect(phrases.first()).toContainText("tucky, email");
 
   const overflow = await page.evaluate(() => {
     const content = document.querySelector<HTMLElement>(".echo-settings-content")!;

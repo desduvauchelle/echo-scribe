@@ -25,6 +25,7 @@ pub mod personaplex;
 pub mod platform;
 pub mod power;
 pub mod project_tagger;
+pub mod recording_feedback;
 pub mod screenrec;
 pub mod settings;
 pub mod smoke;
@@ -54,7 +55,7 @@ use crate::commands::{
     download_llm_model, download_speech_model, drive_connect, drive_disconnect, drive_status,
     embedding_index_status, ensure_pipeline_started_from_handle, export_activity,
     export_project_backfill, export_recording, finalize_rendered_recording, finish_countdown,
-    generate_captions, get_action_binding, get_action_counter, get_action_trigger_word,
+    generate_captions, get_action_counter, get_action_trigger_word,
     get_active_llm_model_id, get_active_speech_model_id, get_app_launcher_enabled,
     get_asr_unload_secs, get_audio_feedback_enabled, get_auto_file_enabled,
     get_auto_file_threshold, get_common_actions, get_custom_words, get_dashboard_stats,
@@ -98,7 +99,7 @@ use crate::commands::{
     show_countdown_overlay, show_main_window, start_pipeline, start_screen_recording,
     stop_screen_recording, submit_area_picker_result, test_llm_inference, transcribe_recording,
     unarchive_project, uncomplete_task, undo_log_capture, uninstall_application,
-    update_action_binding, update_edit_selection_binding, update_item, update_log_capture_binding,
+    update_edit_selection_binding, update_item, update_log_capture_binding,
     update_project, update_voice_at_cursor_binding, upload_recording, AppState,
 };
 use crate::db::Db;
@@ -273,8 +274,6 @@ pub fn run() {
             paste_last_transcript,
             get_log_capture_binding,
             update_log_capture_binding,
-            get_action_binding,
-            update_action_binding,
             get_edit_selection_binding,
             update_edit_selection_binding,
             get_spoken_editing_settings,
@@ -502,6 +501,9 @@ pub fn run() {
             get_recording_export_suggestion,
             save_recording_export_copy,
             generate_captions,
+            recording_feedback::create_recording_feedback,
+            recording_feedback::save_recording_feedback,
+            recording_feedback::load_recording_feedback,
             read_recording_events,
             finalize_rendered_recording,
             save_rendered_gif,
@@ -567,8 +569,6 @@ pub fn run() {
             let binding = Arc::new(RwLock::new(initial_binding));
             let initial_log_binding = settings.log_capture_binding();
             let log_capture_binding = Arc::new(RwLock::new(initial_log_binding));
-            let initial_action_binding = settings.action_binding();
-            let action_binding = Arc::new(RwLock::new(initial_action_binding));
             let initial_edit_selection_binding = settings.edit_selection_binding();
             let edit_selection_binding = Arc::new(RwLock::new(initial_edit_selection_binding));
 
@@ -781,7 +781,6 @@ pub fn run() {
                 settings,
                 binding,
                 log_capture_binding,
-                action_binding,
                 edit_selection_binding,
                 cancel_active: Arc::new(AtomicBool::new(false)),
                 last_transcript: Arc::new(Mutex::new(None)),

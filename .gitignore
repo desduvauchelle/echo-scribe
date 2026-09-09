@@ -89,3 +89,6 @@ Handy/
 .superpowers/
 output/
 prototypes/
+
+# Local browser inspection captures
+.playwright-cli/
