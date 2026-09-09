@@ -4,7 +4,6 @@ import {
   Bot,
   CalendarDays,
   Copy,
-  FlaskConical,
   Mic,
   NotebookPen,
   Phone,
@@ -28,7 +27,6 @@ import AppLanguagePicker from "../components/AppLanguagePicker";
 import HotkeyRebinder from "../components/HotkeyRebinder";
 import SpeechModelPicker from "../components/SpeechModelPicker";
 import LlmModelPicker from "../components/LlmModelPicker";
-import PersonaPlexLab from "../components/PersonaPlexLab";
 import ProjectManager from "../components/ProjectManager";
 import GuideTemplateManager from "../components/GuideTemplateManager";
 import PermissionsSection from "../components/PermissionsSection";
@@ -38,7 +36,6 @@ import Dialog from "../components/a11y/Dialog";
 import { useCapabilities } from "../lib/capabilitiesContext";
 import { uiGates } from "../lib/capabilities";
 import {
-  betaFeaturesEnabled,
   diagnosticsLogDir,
   diagnosticsOpenLogFolder,
   diagnosticsRecentLog,
@@ -128,7 +125,6 @@ export type PageId =
   | "coding-agents"
   | "permissions"
   | "diagnostics"
-  | "beta"
   | "uninstall";
 
 type NavItem = { id: PageId; icon: LucideIcon };
@@ -161,7 +157,6 @@ const NAV_GROUPS: NavGroup[] = [
       { id: "coding-agents", icon: Bot },
       { id: "permissions", icon: ShieldCheck },
       { id: "diagnostics", icon: Wrench },
-      { id: "beta", icon: FlaskConical },
       { id: "uninstall", icon: Trash2 },
     ],
   },
@@ -192,7 +187,6 @@ const PAGES: Record<PageId, () => React.ReactElement> = {
   "coding-agents": CodingAgentsPage,
   permissions: PermissionsPage,
   diagnostics: DiagnosticsPage,
-  beta: BetaPage,
   uninstall: UninstallPage,
 };
 
@@ -205,23 +199,6 @@ export default function Settings({ onBack, initialPage = "dictation" }: Props) {
   const { t } = useTranslation("settings");
   const [page, setPage] = useState<PageId>(initialPage);
   const gates = uiGates(useCapabilities());
-  // Beta pages exist only where the backend says so (marker file /
-  // ECHO_SCRIBE_BETA=1); everyone else never sees the nav item.
-  const [betaEnabled, setBetaEnabled] = useState(false);
-  useEffect(() => {
-    let cancelled = false;
-    betaFeaturesEnabled()
-      .then((on) => {
-        if (!cancelled) setBetaEnabled(on);
-      })
-      .catch(() => {
-        /* no backend (dev preview / e2e): keep hidden */
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
   // Drop nav items gated behind macOS-only capabilities, then drop any group
   // that ends up empty. Everything not explicitly gated stays visible.
   const visibleGroups: NavGroup[] = NAV_GROUPS.map((group) => ({
@@ -231,7 +208,6 @@ export default function Settings({ onBack, initialPage = "dictation" }: Props) {
       if (item.id === "drive") return gates.showDrive;
       if (item.id === "permissions") return gates.showNativePermissions;
       if (item.id === "uninstall") return gates.showSelfUpdate;
-      if (item.id === "beta") return betaEnabled;
       return true;
     }),
   })).filter((group) => group.items.length > 0);
@@ -1555,20 +1531,6 @@ function PermissionsPage() {
         subtitle={t("permissions.section.subtitle")}
       >
         <PermissionsSection />
-      </Section>
-    </div>
-  );
-}
-
-function BetaPage() {
-  const { t } = useTranslation("settings");
-  return (
-    <div className="flex flex-col gap-8">
-      <Section
-        title={t("beta.personaplex.section.title")}
-        subtitle={t("beta.personaplex.section.subtitle")}
-      >
-        <PersonaPlexLab />
       </Section>
     </div>
   );

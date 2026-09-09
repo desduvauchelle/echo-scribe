@@ -21,7 +21,6 @@ pub mod mcp_permissions;
 pub mod meeting;
 pub mod overlay;
 pub mod permissions;
-pub mod personaplex;
 pub mod platform;
 pub mod power;
 pub mod project_tagger;
@@ -310,16 +309,6 @@ pub fn run() {
             set_active_llm_model,
             delete_llm_model,
             test_llm_inference,
-            personaplex::beta_features_enabled,
-            personaplex::personaplex_status,
-            personaplex::personaplex_download,
-            personaplex::personaplex_cancel_download,
-            personaplex::personaplex_delete_model,
-            personaplex::personaplex_start_chat,
-            personaplex::personaplex_stop_chat,
-            personaplex::personaplex_open_model_folder,
-            personaplex::personaplex_build_briefing,
-            personaplex::personaplex_list_input_devices,
             chat_with_memory,
             create_chat_session,
             commands::create_chat_session_scoped,
@@ -961,9 +950,6 @@ pub fn run() {
             // and aborting. We bypass the destructors with `_exit` — the OS
             // reclaims memory on process exit anyway.
             if let tauri::RunEvent::Exit = event {
-                // Beta sidecar holds the mic + ~10 GB of weights; never let it
-                // outlive the app.
-                crate::personaplex::shutdown();
                 #[cfg(unix)]
                 unsafe {
                     libc::_exit(0);

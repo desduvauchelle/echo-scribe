@@ -152,8 +152,6 @@ export async function installTauriMock(page: Page, scenario: Scenario = {}) {
       open_accessibility_settings: () => undefined,
       open_screen_recording_settings: () => undefined,
       open_microphone_settings: () => undefined,
-      // Settings → Beta stays hidden in e2e (no marker file on CI).
-      beta_features_enabled: () => false,
       platform_capabilities: () => ({
         direct_voice_capture: true,
         local_database: true,

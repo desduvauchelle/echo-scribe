@@ -120,15 +120,6 @@ curl -fsSL https://raw.githubusercontent.com/desduvauchelle/echo-scribe/main/ins
 ```
 The script detects arch, fetches the latest release from the GitHub API, downloads the matching `.tar.gz`, installs to `/Applications/`, and strips the quarantine attribute so Gatekeeper never blocks it.
 
-## Beta features (local-only)
-
-Settings → Beta only exists when `~/Library/Application Support/EchoScribe/beta.enabled`
-exists (or `ECHO_SCRIBE_BETA=1`). The code ships in every build; the marker gates the UI.
-Current beta: the PersonaPlex voice lab (`src-tauri/src/personaplex.rs`,
-`src/components/PersonaPlexLab.tsx`, Swift sidecar in `src-tauri/personaplex/`, installed
-outside the bundle by `bash scripts/build-personaplex-sidecar.sh`). Design + smoke test:
-`docs/beta/personaplex.md`. Don't add the sidecar to `externalBin` — CI doesn't build it.
-
 ## Plans + specs
 
 Phase plans live under `docs/superpowers/plans/`. The Phase 0 plan and Phase 1 plan are the source of truth for what we've built so far. Future phases get their own plan files.
