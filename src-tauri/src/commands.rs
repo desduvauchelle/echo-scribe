@@ -5161,13 +5161,20 @@ pub async fn start_screen_recording_inner(
         cursor_hidden: hide_cursor,
     };
     *guard = Some((handle, meta));
+    // Drop the active-recording lock BEFORE the tray update and before
+    // touching windows. `TrayHandle::set_screenrec_active` → `set_icon`
+    // dispatches to the main thread and blocks until it runs; if the webview
+    // is polling `is_screen_recording` at that instant, the main thread is
+    // itself blocked on this mutex → circular wait, app frozen with the
+    // spinner while the sidecar keeps recording (seen 2026-09-09; stack
+    // sample: main in is_screen_recording→Mutex::lock, tokio worker in
+    // start_screen_recording→refresh_icon→set_icon→cvwait). Never hold
+    // `active_recording` across anything that hops to the main thread.
+    drop(guard);
     // Flip tray icon to red and update menu label.
     if let Ok(t) = state.tray.lock() {
         t.set_screenrec_active(true);
     }
-    // Drop the active-recording lock before touching windows so overlay work
-    // can never contend with a concurrent stop.
-    drop(guard);
     // Show the floating camera self-view when a webcam is being recorded. The
     // sidecar records the camera by `uniqueID`; the preview mirrors it by name
     // (see `show_camera_preview`). Best-effort: a failed lookup or missing
