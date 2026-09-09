@@ -6,6 +6,25 @@ import { logCameraPreviewError } from "../lib/api";
 type StartPayload = { camera_name?: string };
 
 /**
+ * Video constraints for the self-view. They deliberately MATCH what the
+ * recording sidecar pins on the device (≤1080p at a fixed 30 fps): macOS
+ * shares one hardware stream between every process that has the camera open,
+ * and the last client to configure the device wins. A preview opened with
+ * bare `{ video: true }` left a Logitech C920 with a 24 fps ceiling under the
+ * sidecar's recording (2026-09-09), which is where the juddery camera bubble
+ * came from. `ideal` (not `exact`) so an unusual camera never fails the
+ * preview; the sidecar re-pins if the device drifts anyway.
+ */
+function selfViewConstraints(deviceId?: string): MediaTrackConstraints {
+  return {
+    ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
+    width: { ideal: 1920 },
+    height: { ideal: 1080 },
+    frameRate: { ideal: 30 },
+  };
+}
+
+/**
  * Floating self-view: a small mirrored webcam preview shown while a screen
  * recording with the camera enabled is running.
  *
@@ -77,13 +96,13 @@ const CameraPreview: React.FC = () => {
       const direct = await findByLabel();
       if (direct?.deviceId) {
         stream = await navigator.mediaDevices.getUserMedia({
-          video: { deviceId: { exact: direct.deviceId } },
+          video: selfViewConstraints(direct.deviceId),
         });
       } else {
         // Labels not populated yet (or no name requested): open the default
         // camera. This grant populates labels; wry auto-grants the WKWebView
         // permission, so it never blocks on a prompt.
-        stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        stream = await navigator.mediaDevices.getUserMedia({ video: selfViewConstraints() });
 
         // If a specific camera was requested and the probe stream is NOT
         // already that device, switch — opening the matched device BEFORE
@@ -94,7 +113,7 @@ const CameraPreview: React.FC = () => {
           const match = await findByLabel();
           if (match?.deviceId) {
             const preferred = await navigator.mediaDevices.getUserMedia({
-              video: { deviceId: { exact: match.deviceId } },
+              video: selfViewConstraints(match.deviceId),
             });
             stream.getTracks().forEach((t) => t.stop());
             stream = preferred;

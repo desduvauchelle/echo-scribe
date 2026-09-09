@@ -300,7 +300,10 @@ type CodecChoice = {
  * is logged to console).
  */
 async function pickCodec(width: number, height: number): Promise<CodecChoice> {
-  const bitrate = Math.min(20_000_000, Math.max(4_000_000, Math.round(width * height * TARGET_FPS * 0.1)));
+  // ~0.15 bit/pixel/frame → ≈9.3 Mbit/s at 1080p30 (was 0.1 → 6.2 Mbit/s,
+  // which VBR undershot to ~2.2 Mbit/s on a real export and left text soft
+  // after the 1632→1920 upscale). VBR still spends little on static content.
+  const bitrate = Math.min(30_000_000, Math.max(6_000_000, Math.round(width * height * TARGET_FPS * 0.15)));
   const base: Omit<VideoEncoderConfig, "codec"> = {
     width,
     height,
@@ -1135,6 +1138,11 @@ export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8A
   // additionally drops a plain 30fps source to every other frame. Starts at -1
   // so the first kept frame (grid index ≥0) always advances.
   let lastGridIndex = -1;
+  /** Last KEPT screen frame (a cheap clone) + its source time, reused by the
+   *  CFR gap fill to keep overlays moving while the screen is static. MP4 only. */
+  let heldFrame: VideoFrame | null = null;
+  let heldSrcMs = 0;
+  let filledSlots = 0;
   /** Backpressure stall guard: abort if the encode/decode queues make zero forward progress for this long. */
   const BACKPRESSURE_STALL_MS = 30_000;
 
@@ -1150,51 +1158,20 @@ export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8A
   const MAX_PENDING_COMPOSITES = MAX_ENCODE_QUEUE;
 
   const decodeDone = new Promise<void>((resolveDecode, rejectDecode) => {
-    const decoder = new VideoDecoder({
-      output: (frame) => {
-        // `frame.timestamp` is the SOURCE presentation time (µs). Use it for
-        // BOTH the trim-skip decision and the zoom/cursor/webcam lookup; only
-        // the emitted output frame's timestamp is re-anchored to the trim start.
-        const tsSourceUs = frame.timestamp;
-        const tMsSource = tsSourceUs / 1000;
-
-        // Trim: drop frames outside the kept [startMs, endMs) window.
-        if (!frameInTrimWindow(tsSourceUs, trim)) {
-          frame.close();
-          processedFrames++;
-          onProgress({ phase: "encode", pct: Math.min(99, Math.round((processedFrames / totalFrames) * 100)) });
-          return;
-        }
-
-        // Speed-aware CFR pacing. Map this frame's POST-TRIM source time
-        // through `speedMap` to an OUTPUT time, then quantize to the sink's grid
-        // (30fps for MP4, 15fps for GIF). Drop the frame unless its grid index
-        // advances past the last emitted one (collapsing sped-up regions to
-        // ≤fps). With no speed ranges the map is identity, so this reduces to
-        // the classic "drop frames faster than the grid fps" pacing — which for
-        // GIF's 15fps grid means a 30fps source drops to every other frame.
-        const outMs = speedMap.srcToOut(tMsSource - trim.startMs);
-        const gridIndex = speedGridIndex(outMs, gridFps);
-        if (gridIndex <= lastGridIndex) {
-          frame.close();
-          processedFrames++;
-          onProgress({ phase: "encode", pct: Math.min(99, Math.round((processedFrames / totalFrames) * 100)) });
-          return;
-        }
-        // The FIRST kept frame must land on grid slot 0: capture starts a few
-        // frames after t=0 (ScreenCaptureKit warm-up), so its natural slot is
-        // often 2–3, and mp4-muxer (strict mode) rejects a track whose first
-        // sample isn't at timestamp 0 — which used to kill the whole export.
-        // Pulling only this frame back keeps every later frame on its natural
-        // slot, so audio (muxed from source t=0 in Rust) stays in sync; the
-        // screen content didn't change before the first capture anyway.
-        const emitGridIndex = lastGridIndex === -1 ? 0 : gridIndex;
-        lastGridIndex = gridIndex;
-
-        // Enqueue the composite for this kept frame onto the serialized chain.
-        // The frame is closed inside the async task once drawn.
-        pendingComposites++;
-        compositeChain = compositeChain.then(async () => {
+    /**
+     * Composite ONE output frame: `frame` (a decoded screen frame) with every
+     * overlay looked up at SOURCE time `tMsSource`, emitted on grid slot
+     * `emitGridIndex`. `closeFrame` is true for a freshly decoded frame the
+     * chain owns, false for a HELD frame reused by gap fills (its owner closes
+     * it later). Serialized through `compositeChain` via `enqueueComposite`.
+     */
+    const compositeOne = async (
+      frame: VideoFrame,
+      tMsSource: number,
+      tsSourceUs: number,
+      emitGridIndex: number,
+      closeFrame: boolean,
+    ): Promise<void> => {
           try {
             // Zoom sub-samples for this frame: a single current-time state when
             // blur is off / on a static stretch, or N eased states across the
@@ -1285,7 +1262,7 @@ export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8A
               bgImage,
             );
             ctx.restore();
-            frame.close();
+            if (closeFrame) frame.close();
 
             // Hand the freshly-composited canvas to the output sink for the CFR
             // grid slot this frame mapped to. MP4 re-anchors the encoded frame's
@@ -1306,20 +1283,122 @@ export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8A
                 console.warn("[render] poster encode failed:", e);
               }
             }
+            // Encoder backpressure INSIDE the chain too: gap fills (below) can
+            // enqueue hundreds of composites at once, and the feed loop's own
+            // check only runs between decodes. Never let the encode queue
+            // balloon past MAX_ENCODE_QUEUE live frames.
+            const stallStartedAt = Date.now();
+            while (sink.isBackpressured()) {
+              await new Promise((r) => setTimeout(r, 1));
+              if (sink.error) throw sink.error;
+              if (Date.now() - stallStartedAt > BACKPRESSURE_STALL_MS) {
+                throw new Error(
+                  `Render stalled: encoder made no progress for ${BACKPRESSURE_STALL_MS / 1000}s inside the composite chain.`,
+                );
+              }
+            }
             sink.emit(canvas, ctx, emitGridIndex);
             processedFrames++;
             onProgress({ phase: "encode", pct: Math.min(99, Math.round((processedFrames / totalFrames) * 100)) });
           } catch (e) {
-            try {
-              frame.close();
-            } catch {
-              // already closed
+            if (closeFrame) {
+              try {
+                frame.close();
+              } catch {
+                // already closed
+              }
             }
             rejectDecode(e);
           } finally {
             pendingComposites--;
           }
-        });
+    };
+    const enqueueComposite = (
+      frame: VideoFrame,
+      tMsSource: number,
+      tsSourceUs: number,
+      emitGridIndex: number,
+      closeFrame: boolean,
+    ): void => {
+      pendingComposites++;
+      compositeChain = compositeChain.then(() =>
+        compositeOne(frame, tMsSource, tsSourceUs, emitGridIndex, closeFrame),
+      );
+    };
+
+    const decoder = new VideoDecoder({
+      output: (frame) => {
+        // `frame.timestamp` is the SOURCE presentation time (µs). Use it for
+        // BOTH the trim-skip decision and the zoom/cursor/webcam lookup; only
+        // the emitted output frame's timestamp is re-anchored to the trim start.
+        const tsSourceUs = frame.timestamp;
+        const tMsSource = tsSourceUs / 1000;
+
+        // Trim: drop frames outside the kept [startMs, endMs) window.
+        if (!frameInTrimWindow(tsSourceUs, trim)) {
+          frame.close();
+          processedFrames++;
+          onProgress({ phase: "encode", pct: Math.min(99, Math.round((processedFrames / totalFrames) * 100)) });
+          return;
+        }
+
+        // Speed-aware CFR pacing. Map this frame's POST-TRIM source time
+        // through `speedMap` to an OUTPUT time, then quantize to the sink's grid
+        // (30fps for MP4, 15fps for GIF). Drop the frame unless its grid index
+        // advances past the last emitted one (collapsing sped-up regions to
+        // ≤fps). With no speed ranges the map is identity, so this reduces to
+        // the classic "drop frames faster than the grid fps" pacing — which for
+        // GIF's 15fps grid means a 30fps source drops to every other frame.
+        const outMs = speedMap.srcToOut(tMsSource - trim.startMs);
+        const gridIndex = speedGridIndex(outMs, gridFps);
+        if (gridIndex <= lastGridIndex) {
+          frame.close();
+          processedFrames++;
+          onProgress({ phase: "encode", pct: Math.min(99, Math.round((processedFrames / totalFrames) * 100)) });
+          return;
+        }
+        // The FIRST kept frame must land on grid slot 0: capture starts a few
+        // frames after t=0 (ScreenCaptureKit warm-up), so its natural slot is
+        // often 2–3, and mp4-muxer (strict mode) rejects a track whose first
+        // sample isn't at timestamp 0 — which used to kill the whole export.
+        // Pulling only this frame back keeps every later frame on its natural
+        // slot, so audio (muxed from source t=0 in Rust) stays in sync; the
+        // screen content didn't change before the first capture anyway.
+        const emitGridIndex = lastGridIndex === -1 ? 0 : gridIndex;
+
+        // ---- CFR gap fill (MP4 only) ----
+        // ScreenCaptureKit only delivers a frame when the screen CHANGES, so a
+        // static screen leaves holes in the grid. Before this fill, the export
+        // emitted a frame only per SOURCE frame, which froze everything drawn
+        // per output slot — the webcam bubble, zoom eases, cursor fade — for as
+        // long as the screen sat still (the "staggery camera" report of
+        // 2026-09-09). Re-composite the HELD screen frame on every skipped slot
+        // with the overlays looked up at the interpolated source time. GIF keeps
+        // its own per-frame delay semantics and is left alone.
+        if (format === "mp4" && lastGridIndex >= 0 && gridIndex > lastGridIndex + 1 && heldFrame) {
+          const held = heldFrame;
+          const prevGrid = lastGridIndex;
+          const prevSrcMs = heldSrcMs;
+          for (let slot = prevGrid + 1; slot < gridIndex; slot++) {
+            const frac = (slot - prevGrid) / (gridIndex - prevGrid);
+            const fillSrcMs = prevSrcMs + frac * (tMsSource - prevSrcMs);
+            enqueueComposite(held, fillSrcMs, Math.round(fillSrcMs * 1000), slot, false);
+            filledSlots++;
+          }
+        }
+        lastGridIndex = gridIndex;
+        if (format === "mp4") {
+          // Retire the previous held frame AFTER any fills that reference it
+          // have drawn (the chain is serialized), then hold this one.
+          const old = heldFrame;
+          if (old) compositeChain = compositeChain.then(() => old.close());
+          heldFrame = frame.clone();
+          heldSrcMs = tMsSource;
+        }
+
+        // Enqueue the composite for this kept frame onto the serialized chain.
+        // The frame is closed inside the async task once drawn.
+        enqueueComposite(frame, tMsSource, tsSourceUs, emitGridIndex, true);
       },
       error: (e) => rejectDecode(e),
     });
@@ -1359,8 +1438,28 @@ export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8A
           // reserved for the fetch/demux pre-roll before this loop.
         }
         await decoder.flush();
+        // Tail fill (MP4): the screen may have gone static before the end of
+        // the (trimmed) recording while the webcam and audio carried on. Hold
+        // the last screen frame through to the trim end so the bubble keeps
+        // moving and the video track is as long as the audio track.
+        if (format === "mp4" && heldFrame && lastGridIndex >= 0) {
+          const endGrid = speedGridIndex(speedMap.srcToOut(trimmedDurationMs), gridFps);
+          const held = heldFrame;
+          for (let slot = lastGridIndex + 1; slot < endGrid; slot++) {
+            const fillSrcMs = Math.min(trim.endMs, heldSrcMs + ((slot - lastGridIndex) * 1000) / gridFps);
+            enqueueComposite(held, fillSrcMs, Math.round(fillSrcMs * 1000), slot, false);
+            filledSlots++;
+          }
+          lastGridIndex = Math.max(lastGridIndex, endGrid - 1);
+        }
+        if (heldFrame) {
+          const old = heldFrame;
+          heldFrame = null;
+          compositeChain = compositeChain.then(() => old.close());
+        }
         // Drain any composites still queued after the last decoded frame.
         await compositeChain;
+        if (filledSlots > 0) console.info("[render] CFR gap fill: emitted", filledSlots, "held-frame slots");
         decoder.close();
         resolveDecode();
       } catch (e) {
@@ -1374,6 +1473,16 @@ export async function renderRecording(opts: RenderRecordingOpts): Promise<Uint8A
   } finally {
     // Release the webcam decoder + any held frames regardless of outcome.
     webcamSource?.close();
+    // (Cast: TS can't see the closure assignments above and narrows to null.)
+    const leftover = heldFrame as VideoFrame | null;
+    if (leftover) {
+      try {
+        leftover.close();
+      } catch {
+        // already closed
+      }
+      heldFrame = null;
+    }
   }
   if (sink.error) throw sink.error;
 

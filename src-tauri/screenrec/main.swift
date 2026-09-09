@@ -573,11 +573,25 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, AVCaptureAudio
     func setupWriter() throws {
         writer = try AVAssetWriter(outputURL: outURL, fileType: .mp4)
 
+        // Explicit encoder budget. The AVAssetWriter default for a ~1600×900
+        // capture came out at ~2.7 Mbit/s — soft text once the editor upscales
+        // it to 1080p. ~0.2 bit/pixel/frame at 30 fps (≈9 Mbit/s at 1632×922,
+        // ≈12 Mbit/s at 1080p) with a 40 Mbit/s cap for large displays; VBR
+        // still spends far less than this on static screen content.
+        let bitrate = max(4_000_000, min(40_000_000, Int(Double(pxWidth * pxHeight) * 30.0 * 0.2)))
         let videoSettings: [String: Any] = [
             AVVideoCodecKey: AVVideoCodecType.h264,
             AVVideoWidthKey: pxWidth,
             AVVideoHeightKey: pxHeight,
+            AVVideoCompressionPropertiesKey: [
+                AVVideoAverageBitRateKey: bitrate,
+                AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel,
+                AVVideoExpectedSourceFrameRateKey: 30,
+                AVVideoMaxKeyFrameIntervalKey: 60,
+                AVVideoAllowFrameReorderingKey: false,
+            ],
         ]
+        emit(["event": "diag", "phase": "video_writer_settings", "w": pxWidth, "h": pxHeight, "bitrate": bitrate])
         videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: videoSettings)
         videoInput.expectsMediaDataInRealTime = true
         guard writer.canAdd(videoInput) else {
