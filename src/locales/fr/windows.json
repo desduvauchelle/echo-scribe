@@ -55,7 +55,7 @@
     "keyboardHint": "Flèches pour déplacer, Maj+flèches pour redimensionner, Entrée pour confirmer"
   },
   "meetingHud": {
-    "label": "HUD RÉUNION",
+    "label": "HUD réunion",
     "toggleNotes": "Afficher/masquer les notes en direct",
     "toggleTranscript": "Afficher/masquer la transcription en direct",
     "hideWindow": "Masquer (la réunion continue d’être enregistrée)",

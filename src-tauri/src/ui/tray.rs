@@ -581,6 +581,7 @@ impl TrayHandle<Wry> {
                                         t.set_screenrec_active(false);
                                     }
                                     let _ = app.emit("screenrec-changed", ());
+                                    crate::commands::reveal_saved_recording(&app, &row.id);
                                     crate::commands::spawn_auto_denoise(app.clone(), row.id);
                                 }
                                 Err(e) => {

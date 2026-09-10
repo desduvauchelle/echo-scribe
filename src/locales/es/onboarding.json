@@ -46,5 +46,27 @@
     "confirmButton": "Sí, restablecer y reiniciar",
     "cancelButton": "Cancelar",
     "timeoutError": "El restablecimiento se completó, pero la app no se cerró. Intenta reiniciarla manualmente."
+  },
+  "mcpConnect": {
+    "title": "Conecta tu IA (opcional)",
+    "subtitle": "Permite que Claude, Codex, Cursor o cualquier cliente compatible con MCP — incluido ChatGPT Desktop — lea y busque en tus grabaciones y notas.",
+    "claudeCode": {
+      "title": "Claude Code",
+      "hint": "Install ejecuta: claude mcp add (ámbito de usuario)."
+    },
+    "codex": {
+      "title": "Codex CLI",
+      "hint": "Install ejecuta: codex mcp add (escribe ~/.codex/config.toml)."
+    },
+    "other": {
+      "title": "Otros clientes MCP",
+      "hint": "Cursor, Windsurf, Gemini CLI, ChatGPT Desktop — JSON mcpServers estándar."
+    },
+    "installButton": "Instalar",
+    "installing": "Instalando…",
+    "copyButton": "Copiar",
+    "copied": "Copiado",
+    "copyAriaLabel": "Copiar configuración de {{title}}",
+    "skipHint": "Puedes hacerlo en cualquier momento desde Ajustes → Agentes de código."
   }
 }

@@ -135,6 +135,18 @@ pub fn new_state_handle() -> StateHandle {
     Arc::new(Mutex::new(PipelineState::Idle))
 }
 
+/// Restore persistent recording UI only after transient work (including paste) ends.
+async fn notify_pipeline_state(
+    next: TrayPipelineState,
+    notify: &impl Fn(TrayPipelineState),
+    restore: impl std::future::Future<Output = ()>,
+) {
+    if matches!(next, TrayPipelineState::Idle) {
+        restore.await;
+    }
+    notify(next);
+}
+
 /// Spawn the coordinator. It owns a Recorder and consumes [`CoordinatorMsg`]s
 /// from the multiplexed channel. The two hotkey listeners feed into this
 /// channel via a small adapter (see `commands.rs::ensure_pipeline_started`).
@@ -173,6 +185,14 @@ pub fn spawn(
     // on the runtime. `commands::ensure_pipeline_started` sets up that
     // `LocalSet` on a dedicated thread.
     tokio::task::spawn_local(async move {
+        let notify = on_state_change;
+        let on_state_change = |next| {
+            notify_pipeline_state(next, &notify, async {
+                if let Some(state) = app.try_state::<crate::commands::AppState>() {
+                    state.meeting_manager.restore_recording_overlay().await;
+                }
+            })
+        };
         let mut recorder = Recorder::new();
         // Frontmost-app snapshot taken at hotkey-press time. We restore it
         // before synthesizing Cmd+V so the paste lands in whichever app the
@@ -220,7 +240,7 @@ pub fn spawn(
                             pending_focus_element = None;
                             pending_selection = None;
                             force_state(&state, PipelineState::Idle);
-                            on_state_change(TrayPipelineState::Idle);
+                            on_state_change(TrayPipelineState::Idle).await;
                             let _ = app.emit("voice:recording_cancelled", ());
                             if active == Action::LogCapture {
                                 let _ = app.emit("log_capture:cancelled", ());
@@ -280,7 +300,7 @@ pub fn spawn(
                                 pending_context = None;
                                 pending_focus_element = None;
                                 force_state(&state, PipelineState::Idle);
-                                on_state_change(TrayPipelineState::Idle);
+                                on_state_change(TrayPipelineState::Idle).await;
                                 continue;
                             }
                             None => {
@@ -293,12 +313,12 @@ pub fn spawn(
                                 pending_context = None;
                                 pending_focus_element = None;
                                 force_state(&state, PipelineState::Idle);
-                                on_state_change(TrayPipelineState::Idle);
+                                on_state_change(TrayPipelineState::Idle).await;
                                 continue;
                             }
                         }
                     }
-                    on_state_change(TrayPipelineState::Recording);
+                    on_state_change(TrayPipelineState::Recording).await;
                     crate::audio::mute::on_recording_start();
                     feedback::play(Sfx::Start);
                     match action {
@@ -324,7 +344,7 @@ pub fn spawn(
                         crate::overlay::hide_recording_overlay(&app);
                         force_state(&state, PipelineState::Idle);
                         pending_selection = None;
-                        on_state_change(TrayPipelineState::Idle);
+                        on_state_change(TrayPipelineState::Idle).await;
                         if matches!(action, Action::LogCapture) {
                             let _ = app.emit("log_capture:cancelled", ());
                         }
@@ -353,7 +373,7 @@ pub fn spawn(
                     if matches!(action, Action::VoiceAtCursor) {
                         let _ = app.emit("voice:recording_stopped", ());
                     }
-                    on_state_change(TrayPipelineState::Transcribing);
+                    on_state_change(TrayPipelineState::Transcribing).await;
                     crate::audio::mute::on_recording_stop();
                     feedback::play(Sfx::Stop);
                     crate::overlay::show_transcribing_overlay(&app);
@@ -384,7 +404,7 @@ pub fn spawn(
                                     crate::overlay::hide_recording_overlay(&app);
                                     force_state(&state, PipelineState::Idle);
                                     pending_selection = None;
-                                    on_state_change(TrayPipelineState::Idle);
+                                    on_state_change(TrayPipelineState::Idle).await;
                                 }
                                 Ok(text) => {
                                     if matches!(action, Action::EditSelection) {
@@ -399,7 +419,7 @@ pub fn spawn(
                                         .await;
                                         crate::overlay::hide_recording_overlay_now(&app);
                                         force_state(&state, PipelineState::Idle);
-                                        on_state_change(TrayPipelineState::Idle);
+                                        on_state_change(TrayPipelineState::Idle).await;
                                         continue;
                                     }
                                     let raw_text = text.clone();
@@ -409,7 +429,7 @@ pub fn spawn(
                                         info!("spoken cancel command discarded transcript");
                                         crate::overlay::hide_recording_overlay_now(&app);
                                         force_state(&state, PipelineState::Idle);
-                                        on_state_change(TrayPipelineState::Idle);
+                                        on_state_change(TrayPipelineState::Idle).await;
                                         let _ = app.emit("voice:recording_cancelled", ());
                                         continue;
                                     }
@@ -422,7 +442,7 @@ pub fn spawn(
                                         info!("spoken editing produced an empty transcript; discarding");
                                         crate::overlay::hide_recording_overlay_now(&app);
                                         force_state(&state, PipelineState::Idle);
-                                        on_state_change(TrayPipelineState::Idle);
+                                        on_state_change(TrayPipelineState::Idle).await;
                                         continue;
                                     }
                                     // A capture command re-routes this dictation into the
@@ -436,7 +456,7 @@ pub fn spawn(
                                         InterceptOutcome::Consumed => {
                                             crate::overlay::hide_recording_overlay_now(&app);
                                             force_state(&state, PipelineState::Idle);
-                                            on_state_change(TrayPipelineState::Idle);
+                                            on_state_change(TrayPipelineState::Idle).await;
                                             continue;
                                         }
                                         InterceptOutcome::Reformatted(s) => (action, s),
@@ -482,7 +502,7 @@ pub fn spawn(
                                                     record_capture_event(db.as_ref(), &capture_id, "paste_failed", Some("self_input_unavailable"));
                                                 }
                                                 force_state(&state, PipelineState::Idle);
-                                                on_state_change(TrayPipelineState::Idle);
+                                                on_state_change(TrayPipelineState::Idle).await;
                                                 continue;
                                             }
                                             // Restore focus surgically: prefer the
@@ -743,14 +763,14 @@ pub fn spawn(
                                                 }
                                             }
                                             force_state(&state, PipelineState::Idle);
-                                            on_state_change(TrayPipelineState::Idle);
+                                            on_state_change(TrayPipelineState::Idle).await;
                                         }
                                         Action::LogCapture => {
                                             crate::overlay::show_processing_overlay(
                                                 &app,
                                                 "Filing note…",
                                             );
-                                            on_state_change(TrayPipelineState::Thinking);
+                                            on_state_change(TrayPipelineState::Thinking).await;
                                             let cls = run_classifier(
                                                 &llm,
                                                 &text,
@@ -865,7 +885,7 @@ pub fn spawn(
                                                     }
                                                 }
                                                 force_state(&state, PipelineState::Idle);
-                                                on_state_change(TrayPipelineState::Idle);
+                                                on_state_change(TrayPipelineState::Idle).await;
                                             } else {
                                                 // Review mode (auto-file disabled in Settings): show the
                                                 // confirm overlay so the user can edit before saving.
@@ -884,7 +904,7 @@ pub fn spawn(
                                                     &state,
                                                     PipelineState::AwaitingConfirmation,
                                                 );
-                                                on_state_change(TrayPipelineState::Thinking);
+                                                on_state_change(TrayPipelineState::Thinking).await;
                                             }
                                         }
                                         Action::EditSelection => {
@@ -892,12 +912,12 @@ pub fn spawn(
                                             // this arm keeps the match exhaustive.
                                             crate::overlay::hide_recording_overlay(&app);
                                             force_state(&state, PipelineState::Idle);
-                                            on_state_change(TrayPipelineState::Idle);
+                                            on_state_change(TrayPipelineState::Idle).await;
                                         }
                                         Action::Cancel => {
                                             crate::overlay::hide_recording_overlay(&app);
                                             force_state(&state, PipelineState::Idle);
-                                            on_state_change(TrayPipelineState::Idle);
+                                            on_state_change(TrayPipelineState::Idle).await;
                                         }
                                     }
                                 }
@@ -918,7 +938,7 @@ pub fn spawn(
                                     crate::overlay::hide_recording_overlay(&app);
                                     force_state(&state, PipelineState::Idle);
                                     pending_selection = None;
-                                    on_state_change(TrayPipelineState::Idle);
+                                    on_state_change(TrayPipelineState::Idle).await;
                                 }
                             }
                         }
@@ -931,7 +951,7 @@ pub fn spawn(
                             crate::overlay::hide_recording_overlay(&app);
                             force_state(&state, PipelineState::Idle);
                             pending_selection = None;
-                            on_state_change(TrayPipelineState::Idle);
+                            on_state_change(TrayPipelineState::Idle).await;
                         }
                     }
                 }
@@ -981,14 +1001,14 @@ pub fn spawn(
                     }
                     let _ = reply.send(res);
                     force_state(&state, PipelineState::Idle);
-                    on_state_change(TrayPipelineState::Idle);
+                    on_state_change(TrayPipelineState::Idle).await;
                 }
                 CoordinatorMsg::CancelLogCapture => {
                     pending_context = None;
                     pending_focus_element = None;
                     let _ = app.emit("log_capture:cancelled", ());
                     force_state(&state, PipelineState::Idle);
-                    on_state_change(TrayPipelineState::Idle);
+                    on_state_change(TrayPipelineState::Idle).await;
                 }
             }
         }
@@ -1959,6 +1979,24 @@ fn persist_log_capture(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn idle_restores_meeting_widget_after_voice_cleanup() {
+        use std::cell::Cell;
+        // Meeting start shows the shared window; consumed voice-action cleanup
+        // hides it. The idle transition must restore it before notifying idle.
+        let visible = Cell::new(false);
+        notify_pipeline_state(TrayPipelineState::Idle, &|_| {
+            assert!(visible.get(), "meeting widget was left hidden after voice cleanup");
+        }, async { visible.set(true); }).await;
+    }
+
+    #[tokio::test]
+    async fn recording_does_not_restore_meeting_over_dictation() {
+        notify_pipeline_state(TrayPipelineState::Recording, &|_| {}, async {
+            panic!("meeting widget must not replace active dictation");
+        }).await;
+    }
 
     #[test]
     fn idle_to_recording_transition() {

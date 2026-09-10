@@ -3,6 +3,7 @@ import { TuckyPeeking } from "../components/TuckyGreeting";
 import { useTranslation } from "react-i18next";
 import SpeechSetupStatus from "../components/SpeechSetupStatus";
 import { useSpeechSetup } from "../lib/speechSetup";
+import OnboardingMcpCard from "../components/OnboardingMcpCard";
 import PermissionRow from "../components/PermissionRow";
 import {
   openAccessibilitySettings,
@@ -273,6 +274,10 @@ export default function Onboarding({ initialStatus, onStarted, resumeNotice }: P
           <div className="h-px bg-elevated" />
 
           <SpeechSetupStatus start />
+
+          <div className="h-px bg-elevated" />
+
+          <OnboardingMcpCard />
         </div>
 
         <button

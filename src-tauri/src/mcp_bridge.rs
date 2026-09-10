@@ -265,7 +265,9 @@ fn stop_recording(app: &AppHandle<Wry>) -> Result<Value, String> {
     let state = app.state::<crate::commands::AppState>();
     let row = crate::commands::stop_screen_recording_inner(&state, app)?;
     // Match the stop command's side effects so an MCP-stopped recording
-    // behaves identically: UI refresh + background denoise.
+    // behaves identically: UI refresh + background denoise. The one thing we
+    // deliberately skip is `reveal_saved_recording` — an agent stopping a
+    // capture must not pull the app in front of whatever the user is doing.
     let _ = app.emit("screenrec-changed", ());
     crate::commands::spawn_auto_denoise(app.clone(), row.id.clone());
     // Auto-denoise runs in the background and, when it succeeds, replaces the

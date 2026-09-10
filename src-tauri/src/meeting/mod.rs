@@ -270,6 +270,19 @@ impl MeetingManager {
         self.state.lock().await.is_some()
     }
 
+    /// The dictation coordinator calls this after its transient UI and paste
+    /// cleanup. Hold the meeting lock through show so stop cannot race a stale
+    /// snapshot and bring back an indicator for a finished recording.
+    pub(crate) async fn restore_recording_overlay(&self) {
+        let guard = self.state.lock().await;
+        if let Some(active) = guard.as_ref() {
+            crate::overlay::show_meeting_overlay(
+                &self.app_handle,
+                active.detected_app_name.as_deref(),
+            );
+        }
+    }
+
     /// True while the post-stop cooldown is in effect. The auto-detector should
     /// skip auto-starting during this window.
     pub fn in_cooldown(&self) -> bool {

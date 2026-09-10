@@ -25,6 +25,7 @@ import {
 } from "../lib/api";
 import { caughtOfKind, extractCaught, type CaughtKind } from "../lib/caught";
 import TalkWidgets from "./TalkWidgets";
+import logoUrl from "../../src-tauri/icons/128x128.png";
 
 type GuideSession = {
   sessionId: string;
@@ -390,7 +391,10 @@ export default function MeetingHud() {
   return (
     <div className="hud">
       <header data-tauri-drag-region>
-        <span className="label" data-tauri-drag-region>{t("meetingHud.label")}</span>
+        <div className="hud-brand" data-tauri-drag-region>
+          <img src={logoUrl} alt="" width={28} height={28} draggable={false} aria-hidden="true" />
+          <span className="label" data-tauri-drag-region>{t("meetingHud.label")}</span>
+        </div>
         <span className="controls">
           <button
             onClick={() => getCurrentWindow().hide()}
@@ -443,6 +447,7 @@ export default function MeetingHud() {
                       [s.sessionId]: { ...s, collapsed: !s.collapsed },
                     }))
                   }
+                  aria-expanded={!s.collapsed}
                   title={s.collapsed ? t("meetingHud.expand") : t("meetingHud.collapse")}
                 >
                   {s.templateName}

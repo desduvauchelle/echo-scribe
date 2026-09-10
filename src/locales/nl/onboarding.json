@@ -46,5 +46,27 @@
     "confirmButton": "Ja, resetten & herstarten",
     "cancelButton": "Annuleren",
     "timeoutError": "Reset is voltooid, maar de app is niet afgesloten. Probeer handmatig opnieuw te starten."
+  },
+  "mcpConnect": {
+    "title": "Verbind je AI (optioneel)",
+    "subtitle": "Laat Claude, Codex, Cursor of elke MCP-compatibele client — inclusief ChatGPT Desktop — je opnames en notities lezen en doorzoeken.",
+    "claudeCode": {
+      "title": "Claude Code",
+      "hint": "Install voert uit: claude mcp add (gebruikersscope)."
+    },
+    "codex": {
+      "title": "Codex CLI",
+      "hint": "Install voert uit: codex mcp add (schrijft ~/.codex/config.toml)."
+    },
+    "other": {
+      "title": "Andere MCP-clients",
+      "hint": "Cursor, Windsurf, Gemini CLI, ChatGPT Desktop — standaard mcpServers-JSON."
+    },
+    "installButton": "Installeren",
+    "installing": "Installeren…",
+    "copyButton": "Kopiëren",
+    "copied": "Gekopieerd",
+    "copyAriaLabel": "Kopieer configuratie voor {{title}}",
+    "skipHint": "Je kunt dit altijd doen via Instellingen → Coding Agents."
   }
 }

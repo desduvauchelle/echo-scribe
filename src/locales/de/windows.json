@@ -55,7 +55,7 @@
     "keyboardHint": "Pfeiltasten bewegen, Umschalt+Pfeiltasten ändern die Größe, Enter bestätigt"
   },
   "meetingHud": {
-    "label": "MEETING-HUD",
+    "label": "Meeting-HUD",
     "toggleNotes": "Live-Notizen ein-/ausblenden",
     "toggleTranscript": "Live-Transkript ein-/ausblenden",
     "hideWindow": "Ausblenden (Meeting nimmt weiter auf)",

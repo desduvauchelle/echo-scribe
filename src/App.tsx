@@ -21,7 +21,10 @@ import Settings from "./views/Settings";
 import LogCaptureOverlay from "./views/LogCaptureOverlay";
 import { ToastProvider, useToasts } from "./components/ToastProvider";
 import UpdateBanner from "./components/UpdateBanner";
-import { ActivityPanelProvider } from "./components/ActivityPanelContext";
+import {
+  ActivityPanelProvider,
+  useActivityPanel,
+} from "./components/ActivityPanelContext";
 import ActivityPanel from "./components/ActivityPanel";
 import RecordingDetailPanel from "./components/RecordingDetailPanel";
 import { useVoicePasteFocus } from "./lib/voicePasteFocus";
@@ -41,10 +44,35 @@ export default function App() {
           <LearningProvider><AppShell /></LearningProvider>
           <ActivityPanel />
           <RecordingDetailPanel />
+          <SavedRecordingOpener />
         </ActivityPanelProvider>
       </PlatformCapabilitiesProvider>
     </ToastProvider>
   );
+}
+
+/** A screen recording just finished. The backend has already brought this
+ *  window forward (`reveal_saved_recording` in commands.rs) — open the new
+ *  recording's detail panel so the video and its actions are right there
+ *  instead of buried in the library. */
+function SavedRecordingOpener() {
+  const { openRecording } = useActivityPanel();
+  useEffect(() => {
+    let unlisten: UnlistenFn | null = null;
+    let cancelled = false;
+    (async () => {
+      const fn = await listen<{ id: string }>("screenrec-saved", (event) => {
+        if (event.payload?.id) openRecording(event.payload.id);
+      });
+      if (cancelled) fn();
+      else unlisten = fn;
+    })();
+    return () => {
+      cancelled = true;
+      if (unlisten) unlisten();
+    };
+  }, [openRecording]);
+  return null;
 }
 
 function AppShell() {

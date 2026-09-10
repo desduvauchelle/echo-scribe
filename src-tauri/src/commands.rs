@@ -5357,6 +5357,35 @@ fn remove_orphan_capture_file(path: &str, what: &str) {
     }
 }
 
+/// Put a just-saved recording in front of the user: bring the main window
+/// forward and tell the UI which recording to open (the detail panel with the
+/// player, Edit video, export and upload actions).
+///
+/// Called from the paths where a person stopped the capture themselves (the
+/// stop command and the tray item) — they were almost certainly in the app
+/// they were recording, so without this the new video is invisible until they
+/// go hunting for it. Deliberately NOT called from the MCP stop path, where an
+/// agent stopping a recording must not yank focus out from under whatever the
+/// user is doing.
+pub(crate) fn reveal_saved_recording(app: &AppHandle<Wry>, id: &str) {
+    crate::ui::dock::set_dock_visible(true);
+    match app.get_webview_window("main") {
+        Some(w) => {
+            let _ = w.show();
+            let _ = w.unminimize();
+            if let Err(e) = w.set_focus() {
+                warn!(target: "screenrec", recording_id = %id, %e, "couldn't focus the main window after stop");
+            }
+        }
+        None => {
+            warn!(target: "screenrec", recording_id = %id, "no main window to reveal the saved recording in")
+        }
+    }
+    // The frontend opens the recording detail panel on this id (App.tsx).
+    let _ = app.emit("screenrec-saved", serde_json::json!({ "id": id }));
+    info!(target: "screenrec", recording_id = %id, "revealed saved recording in the main window");
+}
+
 #[tauri::command]
 pub fn stop_screen_recording(
     state: State<'_, AppState>,
@@ -5368,6 +5397,7 @@ pub fn stop_screen_recording(
     // torn down, so the UI must reconcile either way.
     let _ = app.emit("screenrec-changed", ());
     let row = res?;
+    reveal_saved_recording(&app, &row.id);
     spawn_auto_denoise(app, row.id.clone());
     Ok(row)
 }

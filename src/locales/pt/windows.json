@@ -55,7 +55,7 @@
     "keyboardHint": "Setas movem, Shift+setas redimensiona, Enter confirma"
   },
   "meetingHud": {
-    "label": "PAINEL DA REUNIÃO",
+    "label": "Painel da reunião",
     "toggleNotes": "Alternar notas ao vivo",
     "toggleTranscript": "Alternar transcrição ao vivo",
     "hideWindow": "Ocultar (a reunião continua gravando)",

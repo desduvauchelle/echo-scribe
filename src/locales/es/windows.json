@@ -55,7 +55,7 @@
     "keyboardHint": "Las flechas mueven, Mayús+flechas cambia el tamaño, Enter confirma"
   },
   "meetingHud": {
-    "label": "PANEL DE REUNIÓN",
+    "label": "Panel de reunión",
     "toggleNotes": "Mostrar/ocultar notas en vivo",
     "toggleTranscript": "Mostrar/ocultar transcripción en vivo",
     "hideWindow": "Ocultar (la reunión sigue grabándose)",

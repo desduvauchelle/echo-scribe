@@ -3,6 +3,35 @@ use tauri::{AppHandle, Emitter, Manager, Runtime, Wry};
 use std::sync::atomic::{AtomicU32, Ordering};
 use tracing::{debug, error, info, warn};
 
+// Invalidate pending fade-out callbacks whenever the shared pill changes.
+static RECORDING_OVERLAY_REVISION: AtomicU32 = AtomicU32::new(0);
+
+fn complete_recording_overlay_hide(revision: u32, hide: impl FnOnce()) {
+    if RECORDING_OVERLAY_REVISION.load(Ordering::SeqCst) == revision {
+        hide();
+    }
+}
+
+#[cfg(test)]
+mod recording_overlay_cleanup_tests {
+    use super::*;
+    use std::cell::Cell;
+
+    #[test]
+    fn restored_meeting_invalidates_pending_dictation_fade() {
+        let hidden = Cell::new(false);
+        let fade = RECORDING_OVERLAY_REVISION.fetch_add(1, Ordering::SeqCst) + 1;
+        complete_recording_overlay_hide(fade, || hidden.set(true));
+        assert!(hidden.get(), "an unchanged fade should hide the widget");
+
+        hidden.set(false);
+        // Restoring the meeting (or starting a new dictation) advances revision.
+        RECORDING_OVERLAY_REVISION.fetch_add(1, Ordering::SeqCst);
+        complete_recording_overlay_hide(fade, || hidden.set(true));
+        assert!(!hidden.get(), "stale dictation fade hid the restored meeting");
+    }
+}
+
 const OVERLAY_WIDTH: f64 = 240.0;
 const MEETING_OVERLAY_WIDTH: f64 = 320.0;
 const OVERLAY_HEIGHT: f64 = 64.0;
@@ -249,6 +278,7 @@ mod recording_overlay_position_tests {
 }
 
 fn show_overlay_state(app_handle: &AppHandle<Wry>, state: &str) {
+    RECORDING_OVERLAY_REVISION.fetch_add(1, Ordering::SeqCst);
     if let Some(overlay) = app_handle.get_webview_window("recording_overlay") {
         let _ = overlay.show();
         let _ = overlay.set_size(tauri::Size::Logical(tauri::LogicalSize {
@@ -270,6 +300,7 @@ fn show_overlay_state(app_handle: &AppHandle<Wry>, state: &str) {
 /// Emits a JSON object payload (vs. the plain-string payload for the other
 /// modes) so the frontend can pick up the contextual app name.
 pub fn show_meeting_overlay(app_handle: &AppHandle<Wry>, detected_app_name: Option<&str>) {
+    RECORDING_OVERLAY_REVISION.fetch_add(1, Ordering::SeqCst);
     if let Some(overlay) = app_handle.get_webview_window("recording_overlay") {
         let _ = overlay.show();
         let _ = overlay.set_size(tauri::Size::Logical(tauri::LogicalSize {
@@ -315,6 +346,7 @@ pub fn show_transcribing_overlay(app_handle: &AppHandle<Wry>) {
 /// the transcribing state — pulsing text, no waveform, no icon swap — but
 /// the label tells the user which downstream step is currently running.
 pub fn show_processing_overlay(app_handle: &AppHandle<Wry>, label: &str) {
+    RECORDING_OVERLAY_REVISION.fetch_add(1, Ordering::SeqCst);
     if let Some(overlay) = app_handle.get_webview_window("recording_overlay") {
         let _ = overlay.show();
         let _ = overlay.set_size(tauri::Size::Logical(tauri::LogicalSize {
@@ -335,12 +367,18 @@ pub fn show_processing_overlay(app_handle: &AppHandle<Wry>, label: &str) {
 
 /// Hides the overlay with a fade-out delay so the CSS animation can play.
 pub fn hide_recording_overlay(app_handle: &AppHandle<Wry>) {
+    let revision = RECORDING_OVERLAY_REVISION.fetch_add(1, Ordering::SeqCst) + 1;
     if let Some(overlay) = app_handle.get_webview_window("recording_overlay") {
         let _ = overlay.emit("hide-overlay", ());
-        let overlay_clone = overlay.clone();
+        let app = app_handle.clone();
         std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_millis(300));
-            let _ = overlay_clone.hide();
+            // Check when the native operation runs, not before queueing it.
+            let _ = app.run_on_main_thread(move || {
+                complete_recording_overlay_hide(revision, || {
+                    let _ = overlay.hide();
+                });
+            });
         });
     }
 }
@@ -349,6 +387,7 @@ pub fn hide_recording_overlay(app_handle: &AppHandle<Wry>) {
 /// Used before pasting so the always-on-top overlay doesn't interfere
 /// with focus restore and Cmd+V delivery to the target app.
 pub fn hide_recording_overlay_now(app_handle: &AppHandle<Wry>) {
+    RECORDING_OVERLAY_REVISION.fetch_add(1, Ordering::SeqCst);
     if let Some(overlay) = app_handle.get_webview_window("recording_overlay") {
         let _ = overlay.hide();
     }

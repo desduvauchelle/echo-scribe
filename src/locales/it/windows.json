@@ -55,7 +55,7 @@
     "keyboardHint": "I tasti freccia spostano, Maiusc+frecce ridimensionano, Invio conferma"
   },
   "meetingHud": {
-    "label": "HUD RIUNIONE",
+    "label": "HUD riunione",
     "toggleNotes": "Attiva/disattiva note dal vivo",
     "toggleTranscript": "Attiva/disattiva trascrizione dal vivo",
     "hideWindow": "Nascondi (la riunione continua a registrare)",

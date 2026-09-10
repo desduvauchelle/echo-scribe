@@ -55,7 +55,7 @@
     "keyboardHint": "Arrow keys move, Shift+arrows resize, Enter confirms"
   },
   "meetingHud": {
-    "label": "MEETING HUD",
+    "label": "Meeting HUD",
     "toggleNotes": "Toggle live notes",
     "toggleTranscript": "Toggle live transcript",
     "hideWindow": "Hide (meeting keeps recording)",

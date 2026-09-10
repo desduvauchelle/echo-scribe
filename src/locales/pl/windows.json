@@ -55,7 +55,7 @@
     "keyboardHint": "Strzałki przesuwają, Shift+strzałki zmieniają rozmiar, Enter potwierdza"
   },
   "meetingHud": {
-    "label": "HUD SPOTKANIA",
+    "label": "HUD spotkania",
     "toggleNotes": "Przełącz notatki na żywo",
     "toggleTranscript": "Przełącz transkrypcję na żywo",
     "hideWindow": "Ukryj (spotkanie nadal się nagrywa)",

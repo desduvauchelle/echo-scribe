@@ -55,7 +55,7 @@
     "keyboardHint": "Pijltjestoetsen verplaatsen, Shift+pijltjes vergroten/verkleinen, Enter bevestigt"
   },
   "meetingHud": {
-    "label": "MEETING HUD",
+    "label": "Meeting HUD",
     "toggleNotes": "Live notities in-/uitschakelen",
     "toggleTranscript": "Live transcript in-/uitschakelen",
     "hideWindow": "Verbergen (meeting blijft opnemen)",
