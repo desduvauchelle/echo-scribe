@@ -130,10 +130,9 @@
       "yesterdayLabel": "Ontem · {{date}}",
       "close": "Fechar",
       "sections": {
-        "meetings": "Reuniões",
-        "focusWork": "Trabalho focado",
-        "notes": "Notas",
-        "thingsThatCameUp": "Assuntos que surgiram"
+        "whatHappened": "O que aconteceu",
+        "whatMattered": "O que importou",
+        "whatsNext": "O que vem a seguir"
       }
     }
   },
@@ -311,10 +310,9 @@
       "retry": "Tentar novamente"
     },
     "sections": {
-      "meetings": "Reuniões",
-      "focusWork": "Trabalho focado",
-      "notes": "Notas",
-      "thingsThatCameUp": "Assuntos que surgiram"
+      "whatHappened": "O que aconteceu",
+      "whatMattered": "O que importou",
+      "whatsNext": "O que vem a seguir"
     },
     "footer": {
       "generatedAt": "Gerado às {{time}}",

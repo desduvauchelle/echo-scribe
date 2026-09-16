@@ -288,10 +288,9 @@
       "yesterdayLabel": "Yesterday · {{date}}",
       "close": "Close",
       "sections": {
-        "meetings": "Meetings",
-        "focusWork": "Focus work",
-        "notes": "Notes",
-        "thingsThatCameUp": "Things that came up"
+        "whatHappened": "What happened",
+        "whatMattered": "What mattered",
+        "whatsNext": "What's next"
       }
     }
   },
@@ -469,10 +468,9 @@
       "retry": "Retry"
     },
     "sections": {
-      "meetings": "Meetings",
-      "focusWork": "Focus work",
-      "notes": "Notes",
-      "thingsThatCameUp": "Things that came up"
+      "whatHappened": "What happened",
+      "whatMattered": "What mattered",
+      "whatsNext": "What's next"
     },
     "footer": {
       "generatedAt": "Generated {{time}}",
@@ -718,5 +716,12 @@
       "averageCapture": "Average capture",
       "daysValue": "{{count}} days"
     }
+  },
+  "projectPage": {
+    "settings": "Project settings",
+    "create": "Create project",
+    "nameLabel": "Project name",
+    "renameHint": "Double-click to rename. You can also press Enter or F2.",
+    "renameFailed": "Couldn’t rename the project. Try again."
   }
 }

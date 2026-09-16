@@ -619,7 +619,10 @@ mod tests {
 
     #[test]
     fn emphasis_particles_survive_duplicate_collapse() {
-        assert_eq!(collapse_repeated_tokens("Sì sì va bene.", "it"), "Sì sì va bene.");
+        assert_eq!(
+            collapse_repeated_tokens("Sì sì va bene.", "it"),
+            "Sì sì va bene."
+        );
         assert_eq!(
             collapse_repeated_tokens("Tak tak rozumiem.", "pl"),
             "Tak tak rozumiem."

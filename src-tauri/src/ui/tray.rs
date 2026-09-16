@@ -13,9 +13,7 @@ use tracing::{error, info, warn};
 use crate::commands::AppState;
 use crate::coordinator::TrayPipelineState;
 use crate::power::{KeepAwakeMode, KeepAwakeStatus, KEEP_AWAKE_OPTIONS};
-use crate::ui::tray_compose::{
-    self, Activity, ACTIVITY_KNOCKOUT, AWAKE_KNOCKOUT, ICON_SIZE,
-};
+use crate::ui::tray_compose::{self, Activity, ACTIVITY_KNOCKOUT, AWAKE_KNOCKOUT, ICON_SIZE};
 
 /// Prefix for every "Keep awake" menu item id. The suffix is the mode's
 /// `storage_key`, so `keep_awake:off`, `keep_awake:indefinite`, `keep_awake:30`.
@@ -262,8 +260,7 @@ fn build_keep_awake_menu<R: Runtime>(
         refs.push(item);
     }
 
-    let submenu =
-        Submenu::with_id_and_items(app, "keep_awake", status.menu_label(), true, &refs)?;
+    let submenu = Submenu::with_id_and_items(app, "keep_awake", status.menu_label(), true, &refs)?;
     Ok((submenu, items))
 }
 
@@ -286,7 +283,9 @@ enum MenuEntry {
     /// while a recording runs.
     StopScreenrec,
     /// "Pause recording" / "Resume recording", directly under its stop row.
-    PauseRecording { paused: bool },
+    PauseRecording {
+        paused: bool,
+    },
     /// "Stop meeting" with the cyan disc icon — hoisted to the top while a
     /// meeting runs.
     StopMeeting,
@@ -295,7 +294,9 @@ enum MenuEntry {
     StartMeeting,
     StartScreenrec,
     LastTranscript,
-    PauseHotkeys { paused: bool },
+    PauseHotkeys {
+        paused: bool,
+    },
     KeepAwake,
     Settings,
     Quit,
@@ -951,7 +952,10 @@ mod menu_plan_tests {
             ]
         );
         assert!(!plan.contains(&MenuEntry::StartScreenrec));
-        assert!(plan.contains(&MenuEntry::StartMeeting), "meeting still startable");
+        assert!(
+            plan.contains(&MenuEntry::StartMeeting),
+            "meeting still startable"
+        );
     }
 
     #[test]
@@ -972,7 +976,10 @@ mod menu_plan_tests {
         });
         assert_eq!(&plan[..2], &[MenuEntry::StopMeeting, MenuEntry::Separator]);
         assert!(!plan.contains(&MenuEntry::StartMeeting));
-        assert!(plan.contains(&MenuEntry::StartScreenrec), "screenrec still startable");
+        assert!(
+            plan.contains(&MenuEntry::StartScreenrec),
+            "screenrec still startable"
+        );
     }
 
     #[test]
@@ -1015,9 +1022,19 @@ mod menu_plan_tests {
         for state in [
             MenuState::default(),
             idle(),
-            MenuState { screenrec_active: true, ..idle() },
-            MenuState { meeting_active: true, ..idle() },
-            MenuState { screenrec_active: true, meeting_active: true, ..idle() },
+            MenuState {
+                screenrec_active: true,
+                ..idle()
+            },
+            MenuState {
+                meeting_active: true,
+                ..idle()
+            },
+            MenuState {
+                screenrec_active: true,
+                meeting_active: true,
+                ..idle()
+            },
         ] {
             let plan = menu_plan(&state);
             assert_ne!(plan.first(), Some(&MenuEntry::Separator));

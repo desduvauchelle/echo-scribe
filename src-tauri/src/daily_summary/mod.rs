@@ -104,10 +104,9 @@ pub async fn generate_for_date(
             info!(
                 date = %date,
                 narrative_len = out.narrative.len(),
-                meetings_bullets = out.sections.meetings.len(),
-                focus_work_bullets = out.sections.focus_work.len(),
-                notes_bullets = out.sections.notes.len(),
-                things_bullets = out.sections.things_that_came_up.len(),
+                happened_bullets = out.sections.what_happened.len(),
+                mattered_bullets = out.sections.what_mattered.len(),
+                next_bullets = out.sections.whats_next.len(),
                 "daily_summary: generated"
             );
             let row = DailySummaryRow {

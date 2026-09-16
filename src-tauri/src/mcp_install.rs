@@ -203,7 +203,10 @@ mod tests {
             remove_args("claude-code", "tucky"),
             vec!["mcp", "remove", "--scope", "user", "tucky"]
         );
-        assert_eq!(remove_args("codex", "tucky"), vec!["mcp", "remove", "tucky"]);
+        assert_eq!(
+            remove_args("codex", "tucky"),
+            vec!["mcp", "remove", "tucky"]
+        );
     }
 
     #[test]

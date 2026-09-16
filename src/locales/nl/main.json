@@ -130,10 +130,9 @@
       "yesterdayLabel": "Gisteren · {{date}}",
       "close": "Sluiten",
       "sections": {
-        "meetings": "Meetings",
-        "focusWork": "Focuswerk",
-        "notes": "Notities",
-        "thingsThatCameUp": "Dingen die aan bod kwamen"
+        "whatHappened": "Wat er gebeurde",
+        "whatMattered": "Wat ertoe deed",
+        "whatsNext": "Wat volgt"
       }
     }
   },
@@ -311,10 +310,9 @@
       "retry": "Opnieuw proberen"
     },
     "sections": {
-      "meetings": "Meetings",
-      "focusWork": "Focuswerk",
-      "notes": "Notities",
-      "thingsThatCameUp": "Dingen die aan bod kwamen"
+      "whatHappened": "Wat er gebeurde",
+      "whatMattered": "Wat ertoe deed",
+      "whatsNext": "Wat volgt"
     },
     "footer": {
       "generatedAt": "Gegenereerd {{time}}",

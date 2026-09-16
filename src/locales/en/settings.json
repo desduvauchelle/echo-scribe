@@ -526,5 +526,29 @@
       "saveButton": "Save",
       "savingEllipsis": "Saving…"
     }
+  },
+  "memory": {
+    "title": "Use less memory",
+    "description": "Release idle AI models within about 35 seconds and wait to index new captures while speech or writing models are in use. The next AI action may take longer to start. Applies to all models and overrides the keep-loaded timers below. Enabled by default on Macs with 8 GB of RAM or less.",
+    "loadError": "Couldn’t read the memory setting. Reopen Settings to try again.",
+    "saveError": "Couldn’t save the memory setting. Please try again."
+  },
+  "workflows": {
+    "title": "Custom workflows",
+    "subtitle": "Open a saved bookmark with your voice.",
+    "help": "With app actions and trigger-word routing enabled, say “{{trigger}}, Pipe drive new authors” while using voice typing. Enter only “Pipe drive new authors” as the trigger phrase. Phrases match the whole command, ignoring case and punctuation.",
+    "empty": "Add a trigger phrase and paste the exact page URL you want to open.",
+    "phrase": "Trigger phrase",
+    "url": "Bookmark URL",
+    "enabled": "Enabled",
+    "remove": "Remove",
+    "removeLabel": "Remove workflow {{index}}",
+    "add": "Add workflow",
+    "save": "Save workflows",
+    "saving": "Saving…",
+    "saved": "Workflows saved.",
+    "loadError": "Couldn’t load workflows. Reopen this settings page to try again.",
+    "saveError": "Couldn’t save workflows.",
+    "loading": "Loading workflows…"
   }
 }

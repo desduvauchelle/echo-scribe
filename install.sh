@@ -76,7 +76,8 @@ else
 fi
 
 # Validate and stage before touching either existing installation.
-if [[ ! -x "$APP_SRC/Contents/MacOS/echo-scribe" || ! -f "$APP_SRC/Contents/Info.plist" ]]; then
+if [[ ! -f "$APP_SRC/Contents/Info.plist" ]] ||
+   [[ ! -x "$APP_SRC/Contents/MacOS/Tucky" && ! -x "$APP_SRC/Contents/MacOS/echo-scribe" ]]; then
   echo "Error: archive does not contain a valid Tucky app bundle." >&2
   exit 1
 fi
@@ -89,10 +90,12 @@ if [[ "${SKIP_STOP:-0}" != "1" ]]; then
   # Address only an already-running app; do not launch an absent old name.
   osascript -e 'if application id "com.echoscribe.app" is running then tell application id "com.echoscribe.app" to quit' 2>/dev/null || true
   for name in "$APP_BUNDLE" "$LEGACY_BUNDLE"; do
-    while IFS= read -r pid; do
-      [[ -n "$pid" ]] && kill "$pid" 2>/dev/null || true
-    done < <(ps -axo pid=,comm= | awk -v exe="$INSTALL_DIR/$name/Contents/MacOS/echo-scribe" '
-      { pid=$1; sub(/^[[:space:]]*[0-9]+[[:space:]]+/, ""); if ($0 == exe) print pid }')
+    for executable in Tucky echo-scribe; do
+      while IFS= read -r pid; do
+        [[ -n "$pid" ]] && kill "$pid" 2>/dev/null || true
+      done < <(ps -axo pid=,comm= | awk -v exe="$INSTALL_DIR/$name/Contents/MacOS/$executable" '
+        { pid=$1; sub(/^[[:space:]]*[0-9]+[[:space:]]+/, ""); if ($0 == exe) print pid }')
+    done
   done
   sleep 1
 fi

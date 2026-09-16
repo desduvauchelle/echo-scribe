@@ -89,7 +89,8 @@ fn bridge_call(method: &str, params: Value) -> Result<Value, String> {
     // Generous read deadline: starting a recording can block on a one-time
     // macOS camera-permission prompt the user has to answer.
     let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(180)));
-    writeln!(stream, "{}", json!({"method": method, "params": params})).map_err(|e| e.to_string())?;
+    writeln!(stream, "{}", json!({"method": method, "params": params}))
+        .map_err(|e| e.to_string())?;
     let mut line = String::new();
     BufReader::new(stream)
         .read_line(&mut line)
@@ -225,7 +226,10 @@ fn call_tool(db: &Db, name: &str, args: &Value) -> Result<Value, String> {
             Ok(text_result(json!(sessions)))
         }
         "get_chat" => {
-            let id = args.get("id").and_then(Value::as_str).ok_or("id is required")?;
+            let id = args
+                .get("id")
+                .and_then(Value::as_str)
+                .ok_or("id is required")?;
             let limit = args
                 .get("limit")
                 .and_then(Value::as_u64)

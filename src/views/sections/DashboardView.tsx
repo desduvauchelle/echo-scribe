@@ -946,19 +946,37 @@ function RecapModal({
           <p className="text-sm leading-relaxed text-fg">
             {summary.narrative}
           </p>
-          <RecapSection title={t("dashboard.recap.sections.meetings")} items={summary.sections.meetings ?? []} />
           <RecapSection
-            title={t("dashboard.recap.sections.focusWork")}
-            items={summary.sections.focus_work ?? []}
+            title={t("dashboard.recap.sections.whatHappened")}
+            items={recapOutcomeItems(summary, "what_happened")}
           />
-          <RecapSection title={t("dashboard.recap.sections.notes")} items={summary.sections.notes ?? []} />
           <RecapSection
-            title={t("dashboard.recap.sections.thingsThatCameUp")}
-            items={summary.sections.things_that_came_up ?? []}
+            title={t("dashboard.recap.sections.whatMattered")}
+            items={summary.sections.what_mattered ?? []}
+          />
+          <RecapSection
+            title={t("dashboard.recap.sections.whatsNext")}
+            items={recapOutcomeItems(summary, "whats_next")}
           />
         </div>
     </Dialog>
   );
+}
+
+function recapOutcomeItems(
+  summary: DailySummary,
+  section: "what_happened" | "whats_next",
+): DailySummarySectionItem[] {
+  const current = summary.sections[section];
+  if (current) return current;
+
+  return section === "what_happened"
+    ? [
+        ...(summary.sections.meetings ?? []),
+        ...(summary.sections.focus_work ?? []),
+        ...(summary.sections.notes ?? []),
+      ]
+    : summary.sections.things_that_came_up ?? [];
 }
 
 function RecapSection({

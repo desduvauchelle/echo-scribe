@@ -1,6 +1,6 @@
+use std::sync::atomic::{AtomicU32, Ordering};
 use tauri::webview::WebviewWindowBuilder;
 use tauri::{AppHandle, Emitter, Manager, Runtime, Wry};
-use std::sync::atomic::{AtomicU32, Ordering};
 use tracing::{debug, error, info, warn};
 
 // Invalidate pending fade-out callbacks whenever the shared pill changes.
@@ -28,7 +28,10 @@ mod recording_overlay_cleanup_tests {
         // Restoring the meeting (or starting a new dictation) advances revision.
         RECORDING_OVERLAY_REVISION.fetch_add(1, Ordering::SeqCst);
         complete_recording_overlay_hide(fade, || hidden.set(true));
-        assert!(!hidden.get(), "stale dictation fade hid the restored meeting");
+        assert!(
+            !hidden.get(),
+            "stale dictation fade hid the restored meeting"
+        );
     }
 }
 

@@ -1,13 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { mcpInstallSnippets } from "../src/lib/mcpInstall";
 
-const APP_PATH = "/Applications/Tucky.app/Contents/MacOS/echo-scribe";
+const APP_PATH = "/Applications/Tucky.app/Contents/MacOS/Tucky";
 
 describe("mcpInstallSnippets", () => {
   test("claude command quotes the space-containing binary path", () => {
     const { claudeCode } = mcpInstallSnippets(APP_PATH);
     expect(claudeCode).toBe(
-      'claude mcp add tucky -- "/Applications/Tucky.app/Contents/MacOS/echo-scribe" --mcp',
+      'claude mcp add tucky -- "/Applications/Tucky.app/Contents/MacOS/Tucky" --mcp',
     );
   });
 

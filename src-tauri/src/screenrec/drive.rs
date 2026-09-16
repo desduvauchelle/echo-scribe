@@ -474,7 +474,9 @@ pub async fn ensure_folder(access_token: &str, folder_name: &str) -> Result<Stri
     if !resp.status().is_success() {
         let body = resp.text().await.unwrap_or_default();
         if is_scope_error(&body) {
-            return Err(format!("{SCOPE_MISSING}: Drive folder lookup failed: {body}"));
+            return Err(format!(
+                "{SCOPE_MISSING}: Drive folder lookup failed: {body}"
+            ));
         }
         return Err(format!("Drive folder lookup failed: {body}"));
     }
@@ -502,7 +504,9 @@ pub async fn ensure_folder(access_token: &str, folder_name: &str) -> Result<Stri
     if !resp.status().is_success() {
         let body = resp.text().await.unwrap_or_default();
         if is_scope_error(&body) {
-            return Err(format!("{SCOPE_MISSING}: Drive folder create failed: {body}"));
+            return Err(format!(
+                "{SCOPE_MISSING}: Drive folder create failed: {body}"
+            ));
         }
         return Err(format!("Drive folder create failed: {body}"));
     }

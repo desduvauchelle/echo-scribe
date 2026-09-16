@@ -3,11 +3,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Inbox, Mic } from "lucide-react";
 import {
-  archiveProject,
   countItemsForProject,
   listItems,
   listRecordings,
-  renameProject,
   type Item,
   type ItemKind,
   type Project,
@@ -16,17 +14,12 @@ import {
 import ActivityLedgerEntry from "../../components/ActivityLedgerEntry";
 import { mergeFeed, type FeedEntry } from "../../lib/feed";
 import { useActivityPanel } from "../../components/ActivityPanelContext";
-import { useToasts } from "../../components/ToastProvider";
 
 type Props = {
   /** Optional project filter; when present, the feed shows only that project. */
   project?: Project | null;
   /** Cache of all known projects (for ItemCard pills). */
   projects: Map<string, Project>;
-  /** Refresh global project list (after rename/archive). */
-  onProjectsChanged?: () => void;
-  /** Called after archive — typically clears the project selection. */
-  onProjectArchived?: () => void;
 };
 
 type KindFilter = "all" | ItemKind | "recording";
@@ -36,8 +29,6 @@ const PAGE_SIZE = 50;
 export default function ActivityFeed({
   project,
   projects,
-  onProjectsChanged,
-  onProjectArchived,
 }: Props) {
   const { t } = useTranslation("main");
   const [items, setItems] = useState<Item[]>([]);
@@ -48,9 +39,6 @@ export default function ActivityFeed({
   const [error, setError] = useState<string | null>(null);
   const [kindFilter, setKindFilter] = useState<KindFilter>("all");
   const [projectCount, setProjectCount] = useState<number | null>(null);
-  const [renaming, setRenaming] = useState(false);
-  const [renameValue, setRenameValue] = useState(project?.name ?? "");
-  const toasts = useToasts();
   const { refreshTick } = useActivityPanel();
 
   const projectId = project?.id ?? null;
@@ -145,7 +133,6 @@ export default function ActivityFeed({
       setProjectCount(null);
       return;
     }
-    setRenameValue(project.name);
     let cancelled = false;
     void (async () => {
       try {
@@ -183,107 +170,9 @@ export default function ActivityFeed({
     return mergeFeed(filteredItems, recs);
   }, [filteredItems, recordings, kindFilter]);
 
-  const handleRename = async () => {
-    if (!project) return;
-    const name = renameValue.trim();
-    if (!name || name === project.name) {
-      setRenaming(false);
-      setRenameValue(project.name);
-      return;
-    }
-    try {
-      await renameProject(project.id, name);
-      onProjectsChanged?.();
-      setRenaming(false);
-    } catch (e) {
-      toasts.push({
-        tone: "error",
-        message: t("activityFeed.toast.renameFailed", {
-          error: e instanceof Error ? e.message : String(e),
-        }),
-      });
-    }
-  };
-
-  const handleArchive = async () => {
-    if (!project) return;
-    try {
-      await archiveProject(project.id);
-      toasts.push({
-        tone: "success",
-        message: t("activityFeed.toast.archived", { name: project.name }),
-      });
-      onProjectsChanged?.();
-      onProjectArchived?.();
-    } catch (e) {
-      toasts.push({
-        tone: "error",
-        message: t("activityFeed.toast.archiveFailed", {
-          error: e instanceof Error ? e.message : String(e),
-        }),
-      });
-    }
-  };
-
   return (
     <div className="flex h-full flex-col">
-      {project ? (
-        <div className="border-b border-line bg-canvas/40 px-6 py-4">
-          {renaming ? (
-            <div className="flex items-center gap-2">
-              <input
-                value={renameValue}
-                onChange={(e) => setRenameValue(e.target.value)}
-                className="flex-1 rounded-md border border-line bg-canvas px-2 py-1 text-lg font-semibold focus:border-accent focus:outline-none"
-                autoFocus
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") void handleRename();
-                  if (e.key === "Escape") {
-                    setRenaming(false);
-                    setRenameValue(project.name);
-                  }
-                }}
-              />
-              <button
-                type="button"
-                onClick={() => void handleRename()}
-                className="rounded-md bg-accent px-3 py-1 text-xs font-semibold text-canvas hover:bg-accent-hover"
-              >
-                {t("activityFeed.rename.save")}
-              </button>
-            </div>
-          ) : (
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <h1 className="truncate text-lg font-semibold tracking-tight">
-                  {project.name}
-                </h1>
-                <p className="text-xs text-muted">
-                  {projectCount === null
-                    ? ""
-                    : t("activityFeed.header.captureCount", { count: projectCount })}
-                </p>
-              </div>
-              <div className="flex shrink-0 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setRenaming(true)}
-                  className="rounded border border-line px-2 py-1 text-xs hover:bg-elevated"
-                >
-                  {t("activityFeed.actions.rename")}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void handleArchive()}
-                  className="rounded border border-line px-2 py-1 text-xs hover:bg-danger/15 hover:text-danger"
-                >
-                  {t("activityFeed.actions.archive")}
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      ) : (
+      {!project && (
         <div className="border-b border-line bg-canvas/40 px-6 py-4">
           <h1 className="text-lg font-semibold tracking-tight">{t("activityFeed.header.allActivityTitle")}</h1>
           <p className="text-xs text-muted">{t("activityFeed.header.allActivitySubtitle")}</p>
@@ -291,6 +180,7 @@ export default function ActivityFeed({
       )}
 
       <div className="flex flex-wrap items-center gap-3 border-b border-line bg-canvas/40 px-6 py-3 text-xs text-muted">
+        {project && projectCount !== null && <span className="mr-auto">{t("activityFeed.header.captureCount", { count: projectCount })}</span>}
         <FilterGroup<KindFilter>
           label={t("activityFeed.filter.kindLabel")}
           value={kindFilter}

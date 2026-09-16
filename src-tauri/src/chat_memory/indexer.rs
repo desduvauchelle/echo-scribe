@@ -188,6 +188,14 @@ pub fn spawn(app: tauri::AppHandle) {
 
             let (db, embedder) = {
                 let state = app.state::<crate::commands::AppState>();
+                let foreground_recent = state.asr.is_loaded()
+                    || state.llm.is_loaded()
+                    || state.asr.idle_for().as_secs() < 30
+                    || state.llm.idle_for().as_secs() < 30;
+                if crate::util::memory::defer_indexing(foreground_recent) {
+                    tracing::debug!(target: "mem", "deferring background indexing to reduce model overlap");
+                    continue;
+                }
                 (state.db.clone(), std::sync::Arc::clone(&state.embedder))
             };
             let Some(db) = db else { continue };

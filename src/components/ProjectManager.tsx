@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { AlertTriangle, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
@@ -16,15 +17,25 @@ import ProjectEditor, { ProjectBadge } from "./ProjectEditor";
 
 type Props = {
   onChanged?: () => void;
+  /** undefined: full manager; null: create page; Project: focused edit page. */
+  initialProject?: Project | null;
+  onClose?: () => void;
+  onSaved?: (project: Project) => void;
+  onRemoved?: () => void;
 };
 
 type EditTarget = { mode: "create" } | { mode: "edit"; project: Project } | null;
 
-export default function ProjectManager({ onChanged }: Props) {
+export default function ProjectManager({ onChanged, initialProject, onClose, onSaved, onRemoved }: Props) {
   const { t } = useTranslation();
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
-  const [edit, setEdit] = useState<EditTarget>(null);
+  const [editorBusy, setEditorBusy] = useState(false);
+  const [archiving, setArchiving] = useState(false);
+  const focused = initialProject !== undefined;
+  const [edit, setEdit] = useState<EditTarget>(() => focused
+    ? initialProject ? { mode: "edit", project: initialProject } : { mode: "create" }
+    : null);
   const [deleteTarget, setDeleteTarget] = useState<Project | null>(null);
   const [deleteImpact, setDeleteImpact] =
     useState<ProjectDeleteImpact | null>(null);
@@ -52,6 +63,11 @@ export default function ProjectManager({ onChanged }: Props) {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    const subscription = listen("projects:changed", () => { void refresh(); onChanged?.(); });
+    return () => { void subscription.then((unlisten) => unlisten()); };
+  }, [refresh, onChanged]);
 
   useEffect(() => {
     if (!deleteTarget) {
@@ -83,10 +99,13 @@ export default function ProjectManager({ onChanged }: Props) {
   }, [deleteTarget, t]);
 
   const handleArchive = async (p: Project) => {
+    if (archiving || editorBusy) return;
+    setArchiving(true);
     try {
       await archiveProject(p.id);
       await refresh();
       onChanged?.();
+      if (focused) onRemoved?.();
     } catch (e) {
       toasts.push({
         tone: "error",
@@ -94,7 +113,7 @@ export default function ProjectManager({ onChanged }: Props) {
           error: e instanceof Error ? e.message : String(e),
         }),
       });
-    }
+    } finally { setArchiving(false); }
   };
 
   const handleUnarchive = async (p: Project) => {
@@ -121,6 +140,7 @@ export default function ProjectManager({ onChanged }: Props) {
       await deleteProject(target.id, { deleteRelated });
       setDeleteTarget(null);
       setEdit(null);
+      if (focused) onRemoved?.();
       await refresh();
       onChanged?.();
       toasts.push({
@@ -142,16 +162,20 @@ export default function ProjectManager({ onChanged }: Props) {
 
   return (
     <div className="flex flex-col gap-3">
+      {!focused && <button type="button" onClick={() => window.dispatchEvent(new Event("project-assistant:open"))}
+        className="self-start rounded-md border border-line px-3 py-2 text-xs hover:bg-elevated">{t("projectAssistant.open")}</button>}
       {edit ? (
         <ProjectEditor
           project={edit.mode === "edit" ? edit.project : null}
-          onSaved={async () => {
+          onSaved={async (saved) => {
             setEdit(null);
             await refresh();
             onChanged?.();
+            onSaved?.(saved);
           }}
+          onBusyChange={setEditorBusy}
           onDeleteRequest={setDeleteTarget}
-          onCancel={() => setEdit(null)}
+          onCancel={() => focused ? onClose?.() : setEdit(null)}
         />
       ) : (
         <div className="flex justify-end">
@@ -165,7 +189,10 @@ export default function ProjectManager({ onChanged }: Props) {
         </div>
       )}
 
-      {loading ? (
+      {focused && edit?.mode === "edit" && <button type="button" disabled={archiving || editorBusy} onClick={() => void handleArchive(edit.project)}
+        className="self-start rounded border border-line px-3 py-2 text-xs text-muted hover:bg-elevated">{t("projectManager.archiveButton")}</button>}
+
+      {!focused && (loading ? (
         <p className="text-xs text-muted">{t("projectManager.loading")}</p>
       ) : projects.length === 0 ? (
         <p className="text-xs text-muted">
@@ -245,7 +272,7 @@ export default function ProjectManager({ onChanged }: Props) {
             </li>
           ))}
         </ul>
-      )}
+      ))}
 
       {deleteTarget && (
         <Dialog

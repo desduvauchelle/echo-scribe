@@ -19,16 +19,23 @@ use crate::llm::Llm;
 
 async fn capture_own_input(app: &AppHandle<Wry>) -> Option<String> {
     let window = app.get_webview_window("main")?;
-    if !window.is_focused().unwrap_or(false) { return None; }
+    if !window.is_focused().unwrap_or(false) {
+        return None;
+    }
     let id = uuid::Uuid::new_v4().to_string();
     let (send, receive) = tokio::sync::oneshot::channel();
     let sender = Arc::new(Mutex::new(Some(send)));
     let listener = window.listen(format!("voice:self_captured:{id}"), move |event| {
-        if let Some(send) = sender.lock().ok().and_then(|mut sender| sender.take()) { let _ = send.send(event.payload() == "true"); }
+        if let Some(send) = sender.lock().ok().and_then(|mut sender| sender.take()) {
+            let _ = send.send(event.payload() == "true");
+        }
     });
     let _ = app.emit_to("main", "voice:self_capture", &id);
     // Let the DOM snapshot finish before a sibling window can take focus.
-    let captured = matches!(tokio::time::timeout(std::time::Duration::from_millis(400), receive).await, Ok(Ok(true)));
+    let captured = matches!(
+        tokio::time::timeout(std::time::Duration::from_millis(400), receive).await,
+        Ok(Ok(true))
+    );
     if !captured {
         warn!(target: "dictation", "own-window caret snapshot timed out");
     }
@@ -36,11 +43,22 @@ async fn capture_own_input(app: &AppHandle<Wry>) -> Option<String> {
     captured.then_some(id)
 }
 
-async fn deliver_to_own_input(app: &AppHandle<Wry>, id: Option<String>, text: &str, press_enter: bool) -> bool {
-    let Some(id) = id else { return false; };
+async fn deliver_to_own_input(
+    app: &AppHandle<Wry>,
+    id: Option<String>,
+    text: &str,
+    press_enter: bool,
+) -> bool {
+    let Some(id) = id else {
+        return false;
+    };
     // Do not pull the user back after they switched to another app.
-    if focus::current_frontmost_pid() != Some(std::process::id() as i32) { return false; }
-    let Some(window) = app.get_webview_window("main") else { return false; };
+    if focus::current_frontmost_pid() != Some(std::process::id() as i32) {
+        return false;
+    }
+    let Some(window) = app.get_webview_window("main") else {
+        return false;
+    };
     let (send, receive) = tokio::sync::oneshot::channel();
     let sender = Arc::new(Mutex::new(Some(send)));
     let event = format!("voice:self_ack:{id}");
@@ -49,12 +67,24 @@ async fn deliver_to_own_input(app: &AppHandle<Wry>, id: Option<String>, text: &s
             let _ = send.send(event.payload() == "true");
         }
     });
-    let expires = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default().as_millis() + 1500;
-    let sent = window.emit("voice:self_insert", serde_json::json!({
-        "id": id, "text": text, "expires_at": expires as u64, "press_enter": press_enter
-    })).is_ok();
-    let delivered = sent && matches!(tokio::time::timeout(std::time::Duration::from_millis(2000), receive).await, Ok(Ok(true)));
+    let expires = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+        + 1500;
+    let sent = window
+        .emit(
+            "voice:self_insert",
+            serde_json::json!({
+                "id": id, "text": text, "expires_at": expires as u64, "press_enter": press_enter
+            }),
+        )
+        .is_ok();
+    let delivered = sent
+        && matches!(
+            tokio::time::timeout(std::time::Duration::from_millis(2000), receive).await,
+            Ok(Ok(true))
+        );
     window.unlisten(listener);
     info!(target: "dictation", delivered, "own-window dictation delivery");
     delivered
@@ -262,12 +292,17 @@ pub fn spawn(
                     // from the user's text field.
                     pending_context = focus::capture_context();
                     pending_own_capture = None;
-                    if pending_context.as_ref().is_some_and(|ctx| ctx.pid == std::process::id() as i32) {
+                    if pending_context
+                        .as_ref()
+                        .is_some_and(|ctx| ctx.pid == std::process::id() as i32)
+                    {
                         pending_own_capture = capture_own_input(&app).await;
                     }
                     pending_focus_element = pending_context
                         .as_ref()
-                        .filter(|c| c.pid != std::process::id() as i32 || action == Action::EditSelection)
+                        .filter(|c| {
+                            c.pid != std::process::id() as i32 || action == Action::EditSelection
+                        })
                         .and_then(|c| focus::capture_focused_element(c.pid));
                     if let Some(s) = &pending_context {
                         info!(
@@ -448,24 +483,22 @@ pub fn spawn(
                                     // A capture command re-routes this dictation into the
                                     // log-capture pipeline below, so `action` can change here.
                                     let mut capture_kind_hint = None;
-                                    let (action, text) = match try_intercept_action(
-                                        &app, &llm, &text, action,
-                                    )
-                                    .await
-                                    {
-                                        InterceptOutcome::Consumed => {
-                                            crate::overlay::hide_recording_overlay_now(&app);
-                                            force_state(&state, PipelineState::Idle);
-                                            on_state_change(TrayPipelineState::Idle).await;
-                                            continue;
-                                        }
-                                        InterceptOutcome::Reformatted(s) => (action, s),
-                                        InterceptOutcome::Capture { body, kind } => {
-                                            capture_kind_hint = kind;
-                                            (Action::LogCapture, body)
-                                        }
-                                        InterceptOutcome::Passthrough => (action, text),
-                                    };
+                                    let (action, text) =
+                                        match try_intercept_action(&app, &llm, &text, action).await
+                                        {
+                                            InterceptOutcome::Consumed => {
+                                                crate::overlay::hide_recording_overlay_now(&app);
+                                                force_state(&state, PipelineState::Idle);
+                                                on_state_change(TrayPipelineState::Idle).await;
+                                                continue;
+                                            }
+                                            InterceptOutcome::Reformatted(s) => (action, s),
+                                            InterceptOutcome::Capture { body, kind } => {
+                                                capture_kind_hint = kind;
+                                                (Action::LogCapture, body)
+                                            }
+                                            InterceptOutcome::Passthrough => (action, text),
+                                        };
                                     match action {
                                         Action::VoiceAtCursor => {
                                             if let Ok(mut slot) = last_transcript.lock() {
@@ -487,19 +520,38 @@ pub fn spawn(
                                             crate::overlay::hide_recording_overlay_now(&app);
                                             // Our own WebView knows its DOM caret even when AX
                                             // sees only a container or the overlay took focus.
-                                            if pending_context.as_ref().is_some_and(|ctx| ctx.pid == std::process::id() as i32) {
+                                            if pending_context.as_ref().is_some_and(|ctx| {
+                                                ctx.pid == std::process::id() as i32
+                                            }) {
                                                 let delivered = deliver_to_own_input(&app, pending_own_capture.take(), &text, post_action == Some(crate::asr::spoken_commands::PostAction::PressEnter)).await;
                                                 pending_context = None;
                                                 pending_focus_element = None;
                                                 if delivered {
                                                     let _ = app.emit("voice:paste_dispatched", ());
-                                                    record_capture_event(db.as_ref(), &capture_id, "paste_dispatched", Some("webview_insert"));
+                                                    record_capture_event(
+                                                        db.as_ref(),
+                                                        &capture_id,
+                                                        "paste_dispatched",
+                                                        Some("webview_insert"),
+                                                    );
                                                 } else {
-                                                    let copied = crate::input::paste::copy_to_clipboard(&text).is_ok();
+                                                    let copied =
+                                                        crate::input::paste::copy_to_clipboard(
+                                                            &text,
+                                                        )
+                                                        .is_ok();
                                                     warn!(target: "dictation", copied, "own-window dictation not acknowledged");
-                                                    let _ = app.emit("voice:paste_failed", "self_input_unavailable");
+                                                    let _ = app.emit(
+                                                        "voice:paste_failed",
+                                                        "self_input_unavailable",
+                                                    );
                                                     let _ = app.emit("asr:error", if copied { "Click into a text field and press ⌘V. Your dictation is on the clipboard." } else { "Use Copy last transcript from the tray to recover your dictation." });
-                                                    record_capture_event(db.as_ref(), &capture_id, "paste_failed", Some("self_input_unavailable"));
+                                                    record_capture_event(
+                                                        db.as_ref(),
+                                                        &capture_id,
+                                                        "paste_failed",
+                                                        Some("self_input_unavailable"),
+                                                    );
                                                 }
                                                 force_state(&state, PipelineState::Idle);
                                                 on_state_change(TrayPipelineState::Idle).await;
@@ -923,8 +975,7 @@ pub fn spawn(
                                 }
                                 Err(e) => {
                                     error!(?e, "transcription failed");
-                                    let _ =
-                                        app.emit("asr:error", format!("Dictation failed: {e}"));
+                                    let _ = app.emit("asr:error", format!("Dictation failed: {e}"));
                                     if matches!(action, Action::LogCapture) {
                                         let _ = app.emit(
                                             "log_capture:classification_ready",
@@ -1351,7 +1402,7 @@ async fn try_intercept_action(
     text: &str,
     action: Action,
 ) -> InterceptOutcome {
-    let (enabled, trigger_enabled, trigger_word, format_templates) = app
+    let (enabled, trigger_enabled, trigger_word, format_templates, workflows) = app
         .try_state::<crate::commands::AppState>()
         .map(|s| {
             (
@@ -1359,9 +1410,10 @@ async fn try_intercept_action(
                 s.settings.trigger_word_routing_enabled(),
                 s.settings.action_trigger_word(),
                 s.settings.format_templates(),
+                s.settings.voice_workflows(),
             )
         })
-        .unwrap_or((true, true, "tucky".to_string(), Vec::new()));
+        .unwrap_or((true, true, "tucky".to_string(), Vec::new(), Vec::new()));
 
     if !enabled {
         return InterceptOutcome::Passthrough;
@@ -1408,7 +1460,21 @@ async fn try_intercept_action(
     bump_tray(app, TrayPipelineState::Thinking);
 
     info!(target: "format", "Checking dictation for action launcher intent: '{}'", stripped_text);
-    match crate::llm::action_launcher::detect_action(llm, &stripped_text, &format_templates).await {
+    let bookmark = crate::voice_workflows::matching(&workflows, &stripped_text);
+    let detected = if let Some(workflow) = bookmark {
+        Ok(crate::llm::action_launcher::ActionCommand {
+            is_action: true,
+            action_type: Some("open_url".into()),
+            url: url::Url::parse(&workflow.url)
+                .ok()
+                .map(|url| url.to_string()),
+            confidence: 1.0,
+            ..Default::default()
+        })
+    } else {
+        crate::llm::action_launcher::detect_action(llm, &stripped_text, &format_templates).await
+    };
+    match detected {
         Ok(cmd) => {
             if cmd.is_action && cmd.confidence >= 0.75 {
                 info!(
@@ -1509,6 +1575,21 @@ async fn try_intercept_action(
                     }
                 }
 
+                if cmd.action_type.as_deref() == Some("project_agent") {
+                    // Project requests have their own durable result panel. Consume errors
+                    // as well: never paste a command that may already have changed data.
+                    if let Err(error) = crate::project_assistant::run_project_assistant(
+                        app.clone(),
+                        stripped_text.clone(),
+                    )
+                    .await
+                    {
+                        warn!(target: "project_agent", error = %error, "project request failed");
+                        crate::overlay::show_action_toast(app, "project_agent", &error);
+                    }
+                    return InterceptOutcome::Consumed;
+                }
+
                 match crate::llm::action_launcher::execute_action(app, &cmd).await {
                     Ok(msg) => {
                         info!(msg, "Voice action executed successfully");
@@ -1539,6 +1620,10 @@ async fn try_intercept_action(
                         return InterceptOutcome::Consumed;
                     }
                     Err(e) => {
+                        if bookmark.is_some() {
+                            crate::overlay::show_action_toast(app, "open_url", "Couldn’t open the bookmark. Check its URL in Settings → Tucky command.");
+                            return InterceptOutcome::Consumed;
+                        }
                         error!(error = %e, "Voice action execution failed; falling back to standard pipeline");
                     }
                 }
@@ -1986,16 +2071,27 @@ mod tests {
         // Meeting start shows the shared window; consumed voice-action cleanup
         // hides it. The idle transition must restore it before notifying idle.
         let visible = Cell::new(false);
-        notify_pipeline_state(TrayPipelineState::Idle, &|_| {
-            assert!(visible.get(), "meeting widget was left hidden after voice cleanup");
-        }, async { visible.set(true); }).await;
+        notify_pipeline_state(
+            TrayPipelineState::Idle,
+            &|_| {
+                assert!(
+                    visible.get(),
+                    "meeting widget was left hidden after voice cleanup"
+                );
+            },
+            async {
+                visible.set(true);
+            },
+        )
+        .await;
     }
 
     #[tokio::test]
     async fn recording_does_not_restore_meeting_over_dictation() {
         notify_pipeline_state(TrayPipelineState::Recording, &|_| {}, async {
             panic!("meeting widget must not replace active dictation");
-        }).await;
+        })
+        .await;
     }
 
     #[test]

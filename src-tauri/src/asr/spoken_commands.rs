@@ -358,12 +358,7 @@ fn replacement_pairs(language: CommandLanguage) -> &'static [(&'static str, &'st
             ("verander", "in"),
             ("vervang", "door"),
         ],
-        CommandLanguage::Polish => &[
-            ENGLISH[0],
-            ENGLISH[1],
-            ("zmień", "na"),
-            ("zamień", "na"),
-        ],
+        CommandLanguage::Polish => &[ENGLISH[0], ENGLISH[1], ("zmień", "na"), ("zamień", "na")],
     }
 }
 
@@ -734,10 +729,7 @@ mod tests {
     #[test]
     fn matches_commands_with_non_ascii_capitalization() {
         // ASCII lowercasing would leave a leading "Ś" untouched and miss this.
-        let out = process(
-            "Średnik",
-            options_for(CommandLanguage::Polish),
-        );
+        let out = process("Średnik", options_for(CommandLanguage::Polish));
         assert_eq!(out.text, ";");
     }
 

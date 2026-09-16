@@ -69,6 +69,16 @@ jobs:
           APPLE_SIGNING_IDENTITY: "-"
         run: bun tauri build --bundles app
 
+      - name: Sign bundle with legacy executable compatibility
+        env:
+          CODESIGN_IDENTITY: "-"
+        run: bash scripts/sign-macos-bundle.sh
+
+      - name: Verify MCP lifecycle and legacy executable path
+        run: |
+          python3 scripts/test-mcp-lifecycle.py src-tauri/target/release/bundle/macos/Tucky.app/Contents/MacOS/Tucky
+          python3 scripts/test-mcp-lifecycle.py src-tauri/target/release/bundle/macos/Tucky.app/Contents/MacOS/echo-scribe
+
       - name: Package
         run: bash scripts/package-release.sh
 

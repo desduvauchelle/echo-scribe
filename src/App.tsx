@@ -32,6 +32,7 @@ import { useUpdateCheck } from "./lib/useUpdateCheck";
 import { PlatformCapabilitiesProvider } from "./lib/capabilitiesContext";
 import { LearningProvider } from "./components/LearningContext";
 import type { PageId } from "./views/Settings";
+import ProjectAssistant from "./components/ProjectAssistant";
 import SpeechSetupStatus from "./components/SpeechSetupStatus";
 
 type View = "checking" | "onboarding" | "main" | "settings";
@@ -45,6 +46,7 @@ export default function App() {
           <ActivityPanel />
           <RecordingDetailPanel />
           <SavedRecordingOpener />
+          <ProjectAssistant />
         </ActivityPanelProvider>
       </PlatformCapabilitiesProvider>
     </ToastProvider>

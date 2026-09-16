@@ -1,3 +1,5 @@
+import VoiceWorkflows from "../components/VoiceWorkflows";
+import MemorySettings from "../components/MemorySettings";
 import { TuckyPeeking } from "../components/TuckyGreeting";
 import { useEffect, useState, type SyntheticEvent } from "react";
 import {
@@ -372,6 +374,7 @@ function DictationPage() {
         title={t("dictation.keepModelInMemory.title")}
         subtitle={t("dictation.keepModelInMemory.subtitle")}
       >
+        <MemorySettings />
         <AsrUnloadTimeoutSelect />
       </Section>
     </div>
@@ -442,6 +445,7 @@ function ActionsPage() {
       >
         <AppLauncherSettingsSection />
       </Section>
+      <Section title={t("workflows.title")} subtitle={t("workflows.subtitle")}><VoiceWorkflows /></Section>
     </div>
   );
 }
@@ -1556,7 +1560,7 @@ function DiagnosticsPage() {
 /** Fallback for the install snippets when the backend can't report its own
  *  executable path (it always can on a normal install). */
 const DEFAULT_MCP_BINARY_PATH =
-  "/Applications/Tucky.app/Contents/MacOS/echo-scribe";
+  "/Applications/Tucky.app/Contents/MacOS/Tucky";
 
 function CodingAgentsPage() {
   const { t } = useTranslation("settings");

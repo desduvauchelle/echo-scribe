@@ -132,10 +132,9 @@
       "yesterdayLabel": "Wczoraj · {{date}}",
       "close": "Zamknij",
       "sections": {
-        "meetings": "Spotkania",
-        "focusWork": "Praca skupiona",
-        "notes": "Notatki",
-        "thingsThatCameUp": "Sprawy, które się pojawiły"
+        "whatHappened": "Co się wydarzyło",
+        "whatMattered": "Co było ważne",
+        "whatsNext": "Co dalej"
       }
     }
   },
@@ -313,10 +312,9 @@
       "retry": "Ponów"
     },
     "sections": {
-      "meetings": "Spotkania",
-      "focusWork": "Praca skupiona",
-      "notes": "Notatki",
-      "thingsThatCameUp": "Sprawy, które się pojawiły"
+      "whatHappened": "Co się wydarzyło",
+      "whatMattered": "Co było ważne",
+      "whatsNext": "Co dalej"
     },
     "footer": {
       "generatedAt": "Wygenerowano {{time}}",

@@ -130,10 +130,9 @@
       "yesterdayLabel": "Hier · {{date}}",
       "close": "Fermer",
       "sections": {
-        "meetings": "Réunions",
-        "focusWork": "Travail concentré",
-        "notes": "Notes",
-        "thingsThatCameUp": "Ce qui s’est passé"
+        "whatHappened": "Ce qui s’est passé",
+        "whatMattered": "Ce qui a compté",
+        "whatsNext": "La suite"
       }
     }
   },
@@ -311,10 +310,9 @@
       "retry": "Réessayer"
     },
     "sections": {
-      "meetings": "Réunions",
-      "focusWork": "Travail concentré",
-      "notes": "Notes",
-      "thingsThatCameUp": "Ce qui s’est passé"
+      "whatHappened": "Ce qui s’est passé",
+      "whatMattered": "Ce qui a compté",
+      "whatsNext": "La suite"
     },
     "footer": {
       "generatedAt": "Généré à {{time}}",

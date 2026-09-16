@@ -5,6 +5,12 @@ use serde::{Deserialize, Serialize};
 
 use super::DbError;
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProjectFolder {
+    pub id: String,
+    pub path: String,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Project {
     pub id: String,
@@ -13,6 +19,12 @@ pub struct Project {
     pub archived_at: Option<String>,
     #[serde(default)]
     pub description: Option<String>,
+    #[serde(default)]
+    pub purpose: Option<String>,
+    #[serde(default)]
+    pub instructions: Option<String>,
+    #[serde(default)]
+    pub reference_folders: Vec<ProjectFolder>,
     /// Topical keywords / aliases that help the classifier route items to
     /// this project. Stored as a JSON array of lowercase strings in the
     /// `keywords` column.
@@ -53,6 +65,12 @@ pub struct ProjectPatch {
     pub name: Option<String>,
     #[serde(default, with = "double_option")]
     pub description: Option<Option<String>>,
+    #[serde(default, with = "double_option")]
+    pub purpose: Option<Option<String>>,
+    #[serde(default, with = "double_option")]
+    pub instructions: Option<Option<String>>,
+    #[serde(default)]
+    pub reference_folders: Option<Vec<ProjectFolder>>,
     #[serde(default)]
     pub keywords: Option<Vec<String>>,
     #[serde(default, with = "double_option")]
@@ -113,6 +131,16 @@ fn row_to_project(row: &Row<'_>) -> rusqlite::Result<Project> {
         created_at: row.get("created_at")?,
         archived_at: row.get("archived_at")?,
         description: row.get("description").ok(),
+        purpose: row.get("purpose").ok(),
+        instructions: row.get("instructions").ok(),
+        reference_folders: serde_json::from_str(&row.get::<_, String>("reference_folders")?)
+            .map_err(|e| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    0,
+                    rusqlite::types::Type::Text,
+                    Box::new(e),
+                )
+            })?,
         keywords: parse_keywords(kw_raw),
         color: row.get("color").ok(),
         emoji: row.get("emoji").ok(),
@@ -127,7 +155,7 @@ fn row_to_project(row: &Row<'_>) -> rusqlite::Result<Project> {
     })
 }
 
-const SELECT_COLS: &str = "id, name, created_at, archived_at, description, keywords, color, emoji, updated_at, export_folder, routing_aliases, routing_app_hints, routing_url_hints, routing_window_hints, routing_positive_examples, routing_negative_examples";
+const SELECT_COLS: &str = "id, name, created_at, archived_at, description, keywords, color, emoji, updated_at, export_folder, routing_aliases, routing_app_hints, routing_url_hints, routing_window_hints, routing_positive_examples, routing_negative_examples, purpose, instructions, reference_folders";
 
 pub fn insert_project(conn: &Connection, p: &Project) -> Result<(), DbError> {
     let keywords_json = serde_json::to_string(&p.keywords).unwrap_or_else(|_| "[]".to_string());
@@ -144,8 +172,8 @@ pub fn insert_project(conn: &Connection, p: &Project) -> Result<(), DbError> {
     let routing_negative_examples_json =
         serde_json::to_string(&p.routing_negative_examples).unwrap_or_else(|_| "[]".to_string());
     conn.execute(
-        "INSERT INTO projects(id, name, created_at, archived_at, description, keywords, color, emoji, updated_at, export_folder, routing_aliases, routing_app_hints, routing_url_hints, routing_window_hints, routing_positive_examples, routing_negative_examples)
-         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+        "INSERT INTO projects(id, name, created_at, archived_at, description, keywords, color, emoji, updated_at, export_folder, routing_aliases, routing_app_hints, routing_url_hints, routing_window_hints, routing_positive_examples, routing_negative_examples, purpose, instructions, reference_folders)
+         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
         params![
             p.id,
             p.name,
@@ -163,6 +191,9 @@ pub fn insert_project(conn: &Connection, p: &Project) -> Result<(), DbError> {
             routing_window_hints_json,
             routing_positive_examples_json,
             routing_negative_examples_json,
+            p.purpose,
+            p.instructions,
+            serde_json::to_string(&p.reference_folders).expect("folder serialization"),
         ],
     )?;
     Ok(())
@@ -235,6 +266,21 @@ pub fn update_project(
     if let Some(desc_opt) = &patch.description {
         sets.push(format!("description = ?{}", sets.len() + 1));
         vals.push(Box::new(desc_opt.clone()));
+    }
+    for (column, value) in [
+        ("purpose", &patch.purpose),
+        ("instructions", &patch.instructions),
+    ] {
+        if let Some(value) = value {
+            sets.push(format!("{column} = ?{}", sets.len() + 1));
+            vals.push(Box::new(value.clone()));
+        }
+    }
+    if let Some(folders) = &patch.reference_folders {
+        sets.push(format!("reference_folders = ?{}", sets.len() + 1));
+        vals.push(Box::new(
+            serde_json::to_string(folders).expect("folder serialization"),
+        ));
     }
     if let Some(kw) = &patch.keywords {
         let json = serde_json::to_string(kw).unwrap_or_else(|_| "[]".to_string());
@@ -600,7 +646,33 @@ mod tests {
             routing_window_hints: Vec::new(),
             routing_positive_examples: Vec::new(),
             routing_negative_examples: Vec::new(),
+            ..Default::default()
         }
+    }
+
+    #[test]
+    fn project_context_round_trips_and_patch_clear_preserves_export() {
+        let c = fresh();
+        let mut project = make("context", "Website");
+        project.purpose = Some("Launch".into());
+        project.instructions = Some("Use short answers".into());
+        project.reference_folders = vec![ProjectFolder {
+            id: "f1".into(),
+            path: "/references".into(),
+        }];
+        project.export_folder = Some("/exports".into());
+        insert_project(&c, &project).unwrap();
+        assert_eq!(get_project(&c, "context").unwrap().unwrap(), project);
+        let patch: ProjectPatch =
+            serde_json::from_str(r#"{"purpose":null,"instructions":null,"reference_folders":[]}"#)
+                .unwrap();
+        update_project(&c, "context", &patch, "later").unwrap();
+        let updated = get_project(&c, "context").unwrap().unwrap();
+        assert!(updated.purpose.is_none());
+        assert!(updated.instructions.is_none());
+        assert!(updated.reference_folders.is_empty());
+        assert_eq!(updated.export_folder.as_deref(), Some("/exports"));
+        assert_eq!(updated.name, "Website");
     }
 
     #[test]
@@ -632,14 +704,8 @@ mod tests {
     fn get_project_by_name_is_case_insensitive() {
         let c = fresh();
         insert_project(&c, &make("1", "Tucky")).unwrap();
-        assert_eq!(
-            get_project_by_name(&c, "tucky").unwrap().unwrap().id,
-            "1"
-        );
-        assert_eq!(
-            get_project_by_name(&c, "Tucky").unwrap().unwrap().id,
-            "1"
-        );
+        assert_eq!(get_project_by_name(&c, "tucky").unwrap().unwrap().id, "1");
+        assert_eq!(get_project_by_name(&c, "Tucky").unwrap().unwrap().id, "1");
         assert!(get_project_by_name(&c, "Nonexistent").unwrap().is_none());
     }
 
@@ -713,6 +779,7 @@ mod tests {
             routing_window_hints: None,
             routing_positive_examples: None,
             routing_negative_examples: None,
+            ..Default::default()
         };
         update_project(&c, "1", &patch, "2026-05-26T10:00:00Z").unwrap();
         let got = get_project(&c, "1").unwrap().unwrap();
@@ -746,6 +813,7 @@ mod tests {
             routing_window_hints: None,
             routing_positive_examples: None,
             routing_negative_examples: None,
+            ..Default::default()
         };
         update_project(&c, "1", &patch, "2026-05-26T10:00:00Z").unwrap();
         let got = get_project(&c, "1").unwrap().unwrap();

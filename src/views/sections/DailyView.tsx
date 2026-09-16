@@ -299,15 +299,17 @@ export default function DailyView({ initialDate }: Props) {
               {summary.narrative}
             </p>
 
-            <Section title={t("daily.sections.meetings")} items={summary.sections.meetings ?? []} />
             <Section
-              title={t("daily.sections.focusWork")}
-              items={summary.sections.focus_work ?? []}
+              title={t("daily.sections.whatHappened")}
+              items={outcomeItems(summary, "what_happened")}
             />
-            <Section title={t("daily.sections.notes")} items={summary.sections.notes ?? []} />
             <Section
-              title={t("daily.sections.thingsThatCameUp")}
-              items={summary.sections.things_that_came_up ?? []}
+              title={t("daily.sections.whatMattered")}
+              items={summary.sections.what_mattered ?? []}
+            />
+            <Section
+              title={t("daily.sections.whatsNext")}
+              items={outcomeItems(summary, "whats_next")}
             />
 
             <footer className="mt-2 flex items-center justify-between border-t border-line pt-3 text-xs text-muted">
@@ -489,4 +491,20 @@ function Section({
       </ul>
     </section>
   );
+}
+
+function outcomeItems(
+  summary: DailySummary,
+  section: "what_happened" | "whats_next",
+): DailySummarySectionItem[] {
+  const current = summary.sections[section];
+  if (current) return current;
+
+  return section === "what_happened"
+    ? [
+        ...(summary.sections.meetings ?? []),
+        ...(summary.sections.focus_work ?? []),
+        ...(summary.sections.notes ?? []),
+      ]
+    : summary.sections.things_that_came_up ?? [];
 }

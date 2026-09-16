@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   createProject,
@@ -7,6 +7,7 @@ import {
   updateProject,
   type Project,
 } from "../lib/api";
+import ProjectReferences from "./ProjectReferences";
 import { useToasts } from "./ToastProvider";
 
 type Props = {
@@ -15,6 +16,7 @@ type Props = {
   onSaved: (p: Project) => void;
   onDeleteRequest?: (project: Project) => void;
   onCancel: () => void;
+  onBusyChange?: (busy: boolean) => void;
 };
 
 const COLOR_PALETTE: Array<{ value: string; nameKey: string }> = [
@@ -33,6 +35,7 @@ export default function ProjectEditor({
   onSaved,
   onDeleteRequest,
   onCancel,
+  onBusyChange,
 }: Props) {
   const { t } = useTranslation();
   const toasts = useToasts();
@@ -40,6 +43,10 @@ export default function ProjectEditor({
 
   const [name, setName] = useState(project?.name ?? "");
   const [description, setDescription] = useState(project?.description ?? "");
+  const [purpose, setPurpose] = useState(project?.purpose ?? "");
+  const [instructions, setInstructions] = useState(project?.instructions ?? "");
+  const [referenceFolders, setReferenceFolders] = useState(project?.reference_folders ?? []);
+  const [folderPicking, setFolderPicking] = useState(false);
   const [emoji, setEmoji] = useState(project?.emoji ?? "");
   const [color, setColor] = useState<string | null>(project?.color ?? null);
   const [keywordsInput, setKeywordsInput] = useState("");
@@ -59,6 +66,10 @@ export default function ProjectEditor({
   );
   const [saving, setSaving] = useState(false);
   const [backfilling, setBackfilling] = useState(false);
+  useEffect(() => {
+    onBusyChange?.(saving || folderPicking);
+    return () => onBusyChange?.(false);
+  }, [saving, folderPicking, onBusyChange]);
 
   const addKeyword = (raw: string) => {
     const normalized = raw.trim().toLowerCase();
@@ -109,6 +120,9 @@ export default function ProjectEditor({
       if (isEdit && project) {
         const updated = await updateProject(project.id, {
           name: trimmedName,
+          purpose: purpose.trim() || null,
+          instructions: instructions.trim() || null,
+          reference_folders: referenceFolders,
           description: description.trim() || null,
           keywords: finalKeywords,
           color: color || null,
@@ -125,6 +139,9 @@ export default function ProjectEditor({
       } else {
         const created = await createProject({
           name: trimmedName,
+          purpose: purpose.trim() || undefined,
+          instructions: instructions.trim() || undefined,
+          reference_folders: referenceFolders,
           description: description.trim() || undefined,
           keywords: finalKeywords,
           color: color || undefined,
@@ -210,6 +227,7 @@ export default function ProjectEditor({
         <button
           type="button"
           onClick={onCancel}
+          disabled={saving || folderPicking}
           className="rounded border border-line px-2 py-0.5 text-xs hover:bg-elevated"
         >
           {t("projectEditor.close")}
@@ -251,6 +269,19 @@ export default function ProjectEditor({
           {t("projectEditor.descriptionHint")}
         </span>
       </label>
+
+      <label className="flex flex-col gap-1 text-xs text-muted">
+        {t("projectReferences.purpose")}
+        <textarea value={purpose} onChange={(e) => setPurpose(e.target.value)} rows={2} maxLength={2000}
+          placeholder={t("projectReferences.purposePlaceholder")} className="rounded-md border border-line bg-canvas px-3 py-2 text-sm focus:border-accent focus:outline-none" />
+      </label>
+      <label className="flex flex-col gap-1 text-xs text-muted">
+        {t("projectReferences.instructions")}
+        <textarea value={instructions} onChange={(e) => setInstructions(e.target.value)} rows={2} maxLength={2000}
+          placeholder={t("projectReferences.instructionsPlaceholder")} className="rounded-md border border-line bg-canvas px-3 py-2 text-sm focus:border-accent focus:outline-none" />
+      </label>
+      <ProjectReferences project={project} folders={referenceFolders} onChange={setReferenceFolders}
+        disabled={saving} onBusyChange={setFolderPicking} />
 
       <div className="flex flex-col gap-1 text-xs text-muted">
         {t("projectEditor.keywordsLabel")}
@@ -442,6 +473,7 @@ export default function ProjectEditor({
           <button
             type="button"
             onClick={onCancel}
+          disabled={saving || folderPicking}
             className="rounded-md border border-line px-3 py-1 text-xs hover:bg-elevated"
           >
             {t("projectEditor.cancelButton")}
@@ -449,7 +481,7 @@ export default function ProjectEditor({
           <button
             type="button"
             onClick={() => void handleSave()}
-            disabled={saving || !name.trim()}
+            disabled={saving || folderPicking || !name.trim()}
             className="rounded-md bg-accent px-3 py-1 text-xs font-semibold text-canvas hover:bg-accent-hover disabled:opacity-50"
           >
             {saving

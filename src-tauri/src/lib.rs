@@ -23,6 +23,8 @@ pub mod overlay;
 pub mod permissions;
 pub mod platform;
 pub mod power;
+pub mod project_assistant;
+pub mod project_files;
 pub mod project_tagger;
 pub mod recording_feedback;
 pub mod screenrec;
@@ -32,6 +34,7 @@ pub(crate) mod temporal;
 pub mod ui;
 pub mod updater;
 mod util;
+pub mod voice_workflows;
 
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, RwLock};
@@ -54,30 +57,27 @@ use crate::commands::{
     download_llm_model, download_speech_model, drive_connect, drive_disconnect, drive_status,
     embedding_index_status, ensure_pipeline_started_from_handle, export_activity,
     export_project_backfill, export_recording, finalize_rendered_recording, finish_countdown,
-    generate_captions, get_action_counter, get_action_trigger_word,
-    get_active_llm_model_id, get_active_speech_model_id, get_app_launcher_enabled,
-    get_asr_unload_secs, get_audio_feedback_enabled, get_auto_file_enabled,
-    get_auto_file_threshold, get_common_actions, get_custom_words, get_dashboard_stats,
-    get_default_filler_words, get_dictionary_entries, get_display_bounds, get_drive_client_id,
-    get_drive_prefs, get_edit_selection_binding, get_editor_defaults,
-    get_export_confidence_threshold, get_filler_removal_enabled, get_filler_words,
-    get_format_templates, get_item, get_last_transcript, get_llm_unload_secs,
-    get_mcp_settings, get_mute_while_recording, get_onboarding_completed,
+    generate_captions, get_action_counter, get_action_trigger_word, get_active_llm_model_id,
+    get_active_speech_model_id, get_app_launcher_enabled, get_asr_unload_secs,
+    get_audio_feedback_enabled, get_auto_file_enabled, get_auto_file_threshold, get_common_actions,
+    get_custom_words, get_dashboard_stats, get_default_filler_words, get_dictionary_entries,
+    get_display_bounds, get_drive_client_id, get_drive_prefs, get_edit_selection_binding,
+    get_editor_defaults, get_export_confidence_threshold, get_filler_removal_enabled,
+    get_filler_words, get_format_templates, get_item, get_last_transcript, get_llm_unload_secs,
+    get_low_memory_mode, get_mcp_settings, get_mute_while_recording, get_onboarding_completed,
     get_project_auto_tagging_enabled, get_project_delete_impact, get_recording_export_suggestion,
     get_recording_project, get_screenrec_audio_prefs, get_spoken_editing_settings,
     get_transcription_cleanup_language, get_transcription_snippets,
-    get_trigger_word_routing_enabled, get_voice_at_cursor_binding, hide_camera_preview,
-    install_mcp_for_agent,
-    hide_countdown_overlay, import_editor_background, install_warnings, is_pipeline_running,
-    is_screen_recording,
-    is_screen_recording_paused, list_cameras, list_chat_sessions, list_claude_sessions,
-    list_item_events, list_items, list_llm_models, list_projects, list_recordings,
-    list_screen_sources, list_sessions_for_item, list_speech_models, list_tags_for_item,
-    list_tasks, load_chat_messages, load_claude_session, log_camera_preview_error,
-    log_export_error, open_accessibility_settings, open_camera_settings, open_microphone_settings,
-    open_recording_editor, open_screen_recording_settings, open_screenrec_setup,
-    paste_last_transcript, pause_screen_recording, permissions_status, pick_export_folder,
-    platform_capabilities, project_tagger_backfill, project_tagger_status,
+    get_trigger_word_routing_enabled, get_voice_at_cursor_binding, get_voice_workflows,
+    hide_camera_preview, hide_countdown_overlay, import_editor_background, install_mcp_for_agent,
+    install_warnings, is_pipeline_running, is_screen_recording, is_screen_recording_paused,
+    list_cameras, list_chat_sessions, list_claude_sessions, list_item_events, list_items,
+    list_llm_models, list_projects, list_recordings, list_screen_sources, list_sessions_for_item,
+    list_speech_models, list_tags_for_item, list_tasks, load_chat_messages, load_claude_session,
+    log_camera_preview_error, log_export_error, open_accessibility_settings, open_camera_settings,
+    open_microphone_settings, open_recording_editor, open_screen_recording_settings,
+    open_screenrec_setup, paste_last_transcript, pause_screen_recording, permissions_status,
+    pick_export_folder, platform_capabilities, project_tagger_backfill, project_tagger_status,
     prompt_accessibility_access, read_recording_events, rename_chat_session, rename_project,
     rename_recording, request_camera_access, request_microphone_access,
     request_screen_recording_access, reset_action_counter, reset_onboarding_and_quit,
@@ -89,17 +89,16 @@ use crate::commands::{
     set_audio_feedback_enabled, set_auto_file_enabled, set_auto_file_threshold, set_custom_words,
     set_dictionary_entries, set_drive_client_credentials, set_drive_prefs, set_editor_defaults,
     set_export_confidence_threshold, set_filler_removal_enabled, set_filler_words,
-    set_format_templates, set_llm_unload_secs, set_mcp_permission,
-    set_mute_while_recording, set_onboarding_completed,
-    set_project_auto_tagging_enabled, set_rebinding, set_recording_project,
-    set_recording_thumbnail, set_screenrec_audio_prefs, set_spoken_editing_settings,
-    set_task_deadline, set_transcription_cleanup_language, set_transcription_snippets,
-    set_trigger_word_routing_enabled, show_area_frame, show_area_picker, show_camera_preview,
-    show_countdown_overlay, show_main_window, start_pipeline, start_screen_recording,
-    stop_screen_recording, submit_area_picker_result, test_llm_inference, transcribe_recording,
-    unarchive_project, uncomplete_task, undo_log_capture, uninstall_application,
-    update_edit_selection_binding, update_item,
-    update_project, update_voice_at_cursor_binding, upload_recording, AppState,
+    set_format_templates, set_llm_unload_secs, set_low_memory_mode, set_mcp_permission,
+    set_mute_while_recording, set_onboarding_completed, set_project_auto_tagging_enabled,
+    set_rebinding, set_recording_project, set_recording_thumbnail, set_screenrec_audio_prefs,
+    set_spoken_editing_settings, set_task_deadline, set_transcription_cleanup_language,
+    set_transcription_snippets, set_trigger_word_routing_enabled, set_voice_workflows,
+    show_area_frame, show_area_picker, show_camera_preview, show_countdown_overlay,
+    show_main_window, start_pipeline, start_screen_recording, stop_screen_recording,
+    submit_area_picker_result, test_llm_inference, transcribe_recording, unarchive_project,
+    uncomplete_task, undo_log_capture, uninstall_application, update_edit_selection_binding,
+    update_item, update_project, update_voice_at_cursor_binding, upload_recording, AppState,
 };
 use crate::db::Db;
 use crate::llm::Llm;
@@ -348,6 +347,8 @@ pub fn run() {
             set_onboarding_completed,
             get_llm_unload_secs,
             set_llm_unload_secs,
+            get_low_memory_mode,
+            set_low_memory_mode,
             get_asr_unload_secs,
             set_asr_unload_secs,
             show_main_window,
@@ -374,6 +375,12 @@ pub fn run() {
             run_project_tagger_deterministic_once,
             run_project_tagger_llm_once,
             pick_export_folder,
+            crate::project_assistant::pick_reference_folders,
+            crate::project_assistant::reference_folder_status,
+            crate::project_assistant::reveal_project_reference,
+            crate::project_assistant::run_project_assistant,
+            crate::project_assistant::get_project_assistant_report,
+            crate::project_assistant::stop_project_assistant,
             export_project_backfill,
             list_item_events,
             list_sessions_for_item,
@@ -465,6 +472,8 @@ pub fn run() {
             get_action_counter,
             reset_action_counter,
             get_common_actions,
+            get_voice_workflows,
+            set_voice_workflows,
             get_format_templates,
             set_format_templates,
             get_editor_defaults,
@@ -542,6 +551,7 @@ pub fn run() {
 
             // Persisted settings.
             let settings = SettingsStore::load(&app.handle().clone())?;
+            crate::util::memory::set_low_memory(settings.low_memory_mode());
 
             // One-shot log so the user (and us, when debugging) can see
             // which apps have a sticky `Always`/`Never` pref.
@@ -665,6 +675,8 @@ pub fn run() {
                             llm_idle_s = llm_sampler.idle_for().as_secs(),
                             embed_loaded = embed_sampler.is_loaded(),
                             embed_idle_s = embed_sampler.idle_for().as_secs(),
+                            low_memory_mode = crate::util::memory::low_memory(),
+                            memory_pressure = crate::util::memory::under_pressure(),
                             "[mem] sample"
                         );
                     }

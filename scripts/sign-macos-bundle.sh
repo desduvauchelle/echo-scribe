@@ -45,5 +45,10 @@ sign_executable() {
 sign_executable "echo-scribe-syscap" "com.echoscribe.app.syscap"
 sign_executable "echo-scribe-screenrec" "com.echoscribe.app.screenrec"
 
+# Preserve old MCP paths and updater validation inside the signed bundle.
+if [[ -x "$APP_PATH/Contents/MacOS/Tucky" ]]; then
+  ln -sfn Tucky "$APP_PATH/Contents/MacOS/echo-scribe"
+fi
+
 codesign --force --sign "$IDENTITY" --options runtime --entitlements "$ENTITLEMENTS" "$APP_PATH"
 codesign --verify --deep --strict "$APP_PATH"

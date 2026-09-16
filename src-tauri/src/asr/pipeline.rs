@@ -88,7 +88,7 @@ impl AsrPipeline {
     pub fn spawn_unloader(self: &Arc<Self>) {
         let weak = Arc::downgrade(self);
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(30));
+            let mut interval = tokio::time::interval(Duration::from_secs(5));
             interval.tick().await;
             loop {
                 interval.tick().await;
@@ -101,38 +101,21 @@ impl AsrPipeline {
     }
 
     fn maybe_unload(&self) {
-        let (idle_for, unload_after) = {
-            let idle = match self.last_used.lock() {
-                Ok(g) => g.elapsed(),
-                Err(_) => return,
-            };
-            let ua = match self.unload_after.lock() {
+        // Never wait behind inference or evict using an idle snapshot from before it.
+        if let Ok(mut guard) = self.engine.try_lock() {
+            let idle_for = self.idle_for();
+            let unload_after = match self.unload_after.lock() {
                 Ok(g) => *g,
                 Err(_) => return,
             };
-            (idle, ua)
-        };
-        if unload_after.is_zero() || idle_for < unload_after {
-            return;
-        }
-        if let Ok(mut guard) = self.engine.lock() {
+            if !crate::util::memory::should_unload(idle_for, unload_after) {
+                return;
+            }
             if guard.is_some() {
-                let rss_before_mib = current_rss_mib();
-                info!(
-                    target: "mem",
-                    idle_secs = idle_for.as_secs(),
-                    rss_mib_before = rss_before_mib,
-                    "[mem] unloading idle ASR engine"
-                );
+                let before = current_rss_mib();
                 *guard = None;
-                drop(guard);
-                let rss_after_mib = current_rss_mib();
-                info!(
-                    target: "mem",
-                    rss_mib_after = rss_after_mib,
-                    freed_mib = rss_before_mib.saturating_sub(rss_after_mib),
-                    "[mem] ASR engine dropped"
-                );
+                info!(target: "mem", idle_secs = idle_for.as_secs(), rss_mib_before = before,
+                    rss_mib_after = current_rss_mib(), "[mem] ASR engine dropped");
             }
         }
     }
@@ -197,6 +180,8 @@ impl AsrPipeline {
     /// soon as recording starts so the engine is warm by the time the user
     /// releases the hotkey. If the engine is already loaded this is a no-op.
     pub fn warm_up(&self) {
+        self.touch();
+        let last_used = Arc::clone(&self.last_used);
         let model_path: Option<PathBuf> = {
             let guard = match self.active_model.read() {
                 Ok(g) => g,
@@ -237,6 +222,10 @@ impl AsrPipeline {
                     Err(e) => warn!(error = ?e, "warm-up load failed; will retry on transcribe"),
                 }
             }
+            // Publish fresh activity while still holding the engine lock.
+            if let Ok(mut used) = last_used.lock() {
+                *used = Instant::now();
+            }
         });
     }
 
@@ -265,6 +254,8 @@ impl AsrPipeline {
         };
 
         let engine_slot = Arc::clone(&self.engine);
+        self.touch();
+        let last_used = Arc::clone(&self.last_used);
         let input_samples = samples.len();
 
         // Resample on a blocking thread so we don't hog the runtime.
@@ -314,8 +305,11 @@ impl AsrPipeline {
                 );
             }
             let eng = guard.as_mut().expect("engine just loaded");
-            let text = eng.transcribe(&resampled)?;
-            Ok(text)
+            let result = eng.transcribe(&resampled);
+            if let Ok(mut used) = last_used.lock() {
+                *used = Instant::now();
+            }
+            Ok(result?)
         })
         .await
         .map_err(|_| AsrError::Join)??;
@@ -541,6 +535,37 @@ impl AsrPipeline {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    #[ignore = "requires the locally downloaded Parakeet model"]
+    async fn warm_up_does_not_get_evicted_by_old_idle_timestamp() {
+        let pipeline = AsrPipeline::new(Duration::from_secs(120));
+        let model = super::super::registry::lookup("parakeet-v3").unwrap();
+        assert!(is_downloaded(&model));
+        pipeline.set_active_model(model.clone());
+        *pipeline.last_used.lock().unwrap() = Instant::now() - Duration::from_secs(600);
+        pipeline.warm_up();
+        for _ in 0..300 {
+            if pipeline.is_loaded() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        assert!(pipeline.is_loaded(), "warm-up did not load the engine");
+        pipeline.maybe_unload();
+        assert!(
+            pipeline.is_loaded(),
+            "newly warmed engine evicted using stale idle time"
+        );
+        *pipeline.last_used.lock().unwrap() = Instant::now() - Duration::from_secs(600);
+        {
+            let _busy = pipeline.engine.lock().unwrap();
+            pipeline.maybe_unload(); // must not block behind an in-flight operation
+        }
+        assert!(pipeline.is_loaded());
+        pipeline.maybe_unload();
+        assert!(!pipeline.is_loaded(), "idle engine was not released");
+    }
 
     #[test]
     fn window_ranges_splits_correctly() {

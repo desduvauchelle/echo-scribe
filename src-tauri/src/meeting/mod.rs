@@ -945,7 +945,11 @@ impl MeetingManager {
                         summary_json: summary_run_json,
                         user_notes_snapshot,
                         transcript_hash,
-                        status: if summary_run_error.is_some() { "failed".into() } else { "ready".into() },
+                        status: if summary_run_error.is_some() {
+                            "failed".into()
+                        } else {
+                            "ready".into()
+                        },
                         error: summary_run_error,
                         created_at: ended_at.clone(),
                     },

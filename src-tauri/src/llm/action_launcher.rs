@@ -60,7 +60,7 @@ Analyze the user's voice dictation and classify if it represents a system action
 Respond ONLY with a single JSON object matching this schema:
 {
   \"is_action\": true | false,
-  \"action_type\": \"launch_app\" | \"draft_email\" | \"open_url\" | \"increment_counter\" | \"reset_counter\" | \"show_counter\" | \"format_text\" | \"stay_awake\" | \"stop_stay_awake\" | \"start_screen_recording\" | \"start_meeting\" | \"stop_meeting\" | null,
+  \"action_type\": \"launch_app\" | \"draft_email\" | \"open_url\" | \"increment_counter\" | \"reset_counter\" | \"show_counter\" | \"format_text\" | \"stay_awake\" | \"stop_stay_awake\" | \"start_screen_recording\" | \"start_meeting\" | \"stop_meeting\" | \"project_agent\" | null,
   \"app_name\": \"<name of app to launch or null>\",
   \"email_to\": \"<recipient name or email address or null>\",
   \"email_subject\": \"<subject line or null>\",
@@ -88,6 +88,7 @@ Common templates:
 - Format text: the user dictates a 'format as X' phrase followed by the body to reformat. action_type: 'format_text'. Set format_id to the matching template id, and format_body to the dictation text AFTER the trigger phrase (the content to be reformatted). Only use format_text if the user's dictation clearly starts with or contains a format-trigger phrase from the list below.";
 
 const ACTION_SYSTEM_PROMPT_TAIL: &str = "\n\
+- Project assistant: requests to create, find, rename, describe, update, archive or restore a project; create or update tasks and notes in a named project; mark project tasks done or reopen them; link or unlink project reference folders; or answer questions using project files or notes. Set action_type to 'project_agent'. Examples: 'create a project called Website and let me choose its folders', 'add a task to the LiveCase project to finish the pipeline', 'mark the pipeline task done in LiveCase', 'check the Website project files for the navigation decision'. This action may need several steps.
 Rules:
 - If the user's transcript matches any of these command intents, set is_action to true, appropriate action_type, extract details, and set confidence high (e.g. >= 0.85).
 - If it's just regular dictation (a sentence to type at the cursor, with no command words in front of it), set is_action to false and all other fields to null. Dictation only becomes 'save_capture' when the user actually asks for it to be saved or noted.
@@ -174,7 +175,9 @@ pub fn capture_command(command: &str) -> Option<(String, Option<String>)> {
     if !rest_raw.is_empty() && !rest_raw.starts_with(|c: char| !c.is_alphanumeric()) {
         return None;
     }
-    let mut rest = rest_raw.trim_start_matches(is_capture_separator).to_string();
+    let mut rest = rest_raw
+        .trim_start_matches(is_capture_separator)
+        .to_string();
     loop {
         let lower_rest = rest.to_ascii_lowercase();
         let Some(joiner) = CAPTURE_JOINERS.iter().find(|j| {
@@ -233,6 +236,31 @@ pub async fn detect_action<L: LlmGenerator + ?Sized>(
             ..Default::default()
         });
     }
+    // A task/note command naming a project needs the project-aware tool loop,
+    // not the generic capture shortcut below. The project assistant resolves
+    // the real project ID and writes the item there explicitly.
+    let names_project = [
+        " to project ",
+        " to the project ",
+        " in project ",
+        " in the project ",
+        " for project ",
+        " for the project ",
+    ]
+    .iter()
+    .any(|needle| format!(" {command} ").contains(needle));
+    let item_command = ["task", "note", "to-do", "todo"]
+        .iter()
+        .any(|word| command.split_whitespace().any(|part| part == *word));
+    if names_project && item_command {
+        return Ok(ActionCommand {
+            is_action: true,
+            action_type: Some("project_agent".to_string()),
+            confidence: 1.0,
+            ..Default::default()
+        });
+    }
+
     // Run against the original transcript, not the lowercased form, so the
     // filed thought keeps the capitalisation the user dictated.
     if let Some((body, kind)) = capture_command(transcript.trim()) {
@@ -471,7 +499,10 @@ pub async fn execute_action(app: &AppHandle, cmd: &ActionCommand) -> Result<Stri
 
             Ok(match mode {
                 KeepAwakeMode::Minutes(m) => {
-                    format!("Keeping your Mac awake for {}", crate::power::human_duration(m))
+                    format!(
+                        "Keeping your Mac awake for {}",
+                        crate::power::human_duration(m)
+                    )
                 }
                 _ => "Keeping your Mac awake until you turn it off".to_string(),
             })
@@ -520,9 +551,9 @@ pub async fn execute_action(app: &AppHandle, cmd: &ActionCommand) -> Result<Stri
                 .stop_by_user()
                 .await
                 .map_err(|e| match e {
-                    crate::meeting::MeetingError::NotRecording => ActionError::Execute(
-                        "No meeting recording is in progress".to_string(),
-                    ),
+                    crate::meeting::MeetingError::NotRecording => {
+                        ActionError::Execute("No meeting recording is in progress".to_string())
+                    }
                     other => ActionError::Execute(format!("couldn't stop meeting: {other}")),
                 })?;
             info!(target: "meeting", meeting_id = %id, "meeting stopped by voice action");
@@ -651,7 +682,10 @@ mod screen_recording_tests {
             let command = strip_trigger_prefix(transcript).unwrap();
             let detected = detect_action(&NoModel, &command, &[]).await.unwrap();
             assert!(detected.is_action, "{transcript}");
-            assert_eq!(detected.action_type.as_deref(), Some("start_screen_recording"));
+            assert_eq!(
+                detected.action_type.as_deref(),
+                Some("start_screen_recording")
+            );
             assert!(detected.confidence >= 0.75);
         }
     }
@@ -667,10 +701,13 @@ mod screen_recording_tests {
             "start meeting recording",
             "open Slack",
         ] {
-            assert!(matches!(
-                detect_action(&NoModel, command, &[]).await,
-                Err(ActionError::Llm(LlmError::NoActiveModel))
-            ), "{command}");
+            assert!(
+                matches!(
+                    detect_action(&NoModel, command, &[]).await,
+                    Err(ActionError::Llm(LlmError::NoActiveModel))
+                ),
+                "{command}"
+            );
         }
         assert_eq!(strip_trigger_prefix("start the screen recording"), None);
     }
@@ -679,6 +716,18 @@ mod screen_recording_tests {
 #[cfg(test)]
 mod language_rule_tests {
     use super::*;
+
+    #[test]
+    fn project_commands_are_in_the_classifier_schema_and_guidance() {
+        let prompt = build_action_system_prompt(&[]);
+        assert!(prompt.contains("\"project_agent\" | null"));
+        assert!(prompt.contains("link or unlink project reference folders"));
+        let cmd = parse_raw_action(
+            r#"{"is_action":true,"action_type":"project_agent","confidence":0.98}"#,
+        )
+        .unwrap();
+        assert_eq!(cmd.action_type.as_deref(), Some("project_agent"));
+    }
 
     /// The action classifier emits fixed English enum values (`action_type`,
     /// `format_id`) and matches English trigger phrases, so it must NOT get the
@@ -846,13 +895,41 @@ mod capture_command_tests {
     #[test]
     fn spoken_captures_keep_their_wording_and_named_kind() {
         for (spoken, body, kind) in [
-            ("save a task send the proposal tomorrow", "send the proposal tomorrow", Some("task")),
-            ("save a task: send the proposal tomorrow", "send the proposal tomorrow", Some("task")),
-            ("save a task to send the proposal", "send the proposal", Some("task")),
-            ("remind me to call the accountant", "call the accountant", Some("task")),
-            ("note that the API limit is 100 a minute", "the API limit is 100 a minute", Some("note")),
-            ("make a note about the pricing change", "the pricing change", Some("note")),
-            ("capture this — Sarah owns the migration", "Sarah owns the migration", None),
+            (
+                "save a task send the proposal tomorrow",
+                "send the proposal tomorrow",
+                Some("task"),
+            ),
+            (
+                "save a task: send the proposal tomorrow",
+                "send the proposal tomorrow",
+                Some("task"),
+            ),
+            (
+                "save a task to send the proposal",
+                "send the proposal",
+                Some("task"),
+            ),
+            (
+                "remind me to call the accountant",
+                "call the accountant",
+                Some("task"),
+            ),
+            (
+                "note that the API limit is 100 a minute",
+                "the API limit is 100 a minute",
+                Some("note"),
+            ),
+            (
+                "make a note about the pricing change",
+                "the pricing change",
+                Some("note"),
+            ),
+            (
+                "capture this — Sarah owns the migration",
+                "Sarah owns the migration",
+                None,
+            ),
         ] {
             let got = capture_command(spoken).unwrap_or_else(|| panic!("{spoken}"));
             assert_eq!(got.0, body, "{spoken}");
@@ -863,8 +940,8 @@ mod capture_command_tests {
     #[test]
     fn plain_dictation_is_never_swallowed_as_a_capture() {
         for spoken in [
-            "save a task",                       // named the command, said nothing to file
-            "save a taskmaster export",          // phrase is only a prefix of a real word
+            "save a task",                        // named the command, said nothing to file
+            "save a taskmaster export",           // phrase is only a prefix of a real word
             "the note that you sent was helpful", // phrase is not at the start
             "send the proposal tomorrow",
             "",
@@ -882,6 +959,23 @@ mod capture_command_tests {
         assert_eq!(detected.action_type.as_deref(), Some("save_capture"));
         assert_eq!(detected.capture_body.as_deref(), Some("the build is red"));
         assert_eq!(detected.capture_kind.as_deref(), Some("note"));
+    }
+
+    #[tokio::test]
+    async fn named_project_item_commands_use_the_project_agent() {
+        for spoken in [
+            "add a task to the project LiveCase to finish the pipeline",
+            "can you add a task to the project life case to finish the pipeline on Zendesk",
+            "create a note in the project LiveCase about the pipeline",
+        ] {
+            let detected = detect_action(&NoModel, spoken, &[]).await.unwrap();
+            assert_eq!(
+                detected.action_type.as_deref(),
+                Some("project_agent"),
+                "{spoken}"
+            );
+            assert_eq!(detected.confidence, 1.0, "{spoken}");
+        }
     }
 
     struct NoModel;

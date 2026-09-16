@@ -48,12 +48,26 @@ impl<'de> Deserialize<'de> for SectionItem {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct Sections {
     #[serde(default)]
+    pub what_happened: Vec<SectionItem>,
+    #[serde(default)]
+    pub what_mattered: Vec<SectionItem>,
+    #[serde(default)]
+    pub whats_next: Vec<SectionItem>,
+
+    // Recaps generated before the outcome-based format used source-type
+    // sections. Keep reading those rows so an app update does not make
+    // existing history look empty; newly generated recaps never write them.
+    #[serde(default)]
+    #[serde(skip_serializing)]
     pub meetings: Vec<SectionItem>,
     #[serde(default)]
+    #[serde(skip_serializing)]
     pub focus_work: Vec<SectionItem>,
     #[serde(default)]
+    #[serde(skip_serializing)]
     pub notes: Vec<SectionItem>,
     #[serde(default)]
+    #[serde(skip_serializing)]
     pub things_that_came_up: Vec<SectionItem>,
 }
 
@@ -198,17 +212,20 @@ Produce JSON with this shape:
 {
   "narrative": "2-3 sentence opener describing the shape of the day",
   "sections": {
-    "meetings":            [{ "text": "...", "source_id": "m1" }],
-    "focus_work":          [{ "text": "...", "source_id": "d12" }],
-    "notes":               [{ "text": "...", "source_id": "n3"  }],
-    "things_that_came_up": [{ "text": "...", "source_id": "m1"  }]
+    "what_happened": [{ "text": "...", "source_id": "m1" }],
+    "what_mattered": [{ "text": "...", "source_id": "d12" }],
+    "whats_next":    [{ "text": "...", "source_id": "n3"  }]
   }
 }
 
 Rules:
+- Create an outcome-oriented morning brief, not a chronological log or a list organized by source type.
+- Prioritize signal over coverage and do not repeat the same event across sections.
+- "what_happened" summarizes the few meaningful conversations, work, and developments from the day.
+- "what_mattered" surfaces decisions, progress, changed understanding, risks, and other key outcomes. Do not include routine activity just because it occurred.
+- "whats_next" lists only explicit commitments, follow-ups, and open questions. Include an owner, date, or urgency only when the source states it. Never invent a task, decision, commitment, owner, date, or urgency.
 - Each section is an array. If a section has no real content, return an empty array.
 - For each bullet, set `source_id` to the [m#]/[n#]/[d#] tag from the input that the bullet draws from. If the bullet draws from multiple sources or you are unsure, omit `source_id`.
-- "things_that_came_up" must list commitments the person made, open questions they raised, and things they said they'd follow up on. Quote concise phrases when useful. Return [] if there are none.
 - Do not include any text outside the JSON object.
 "#;
 
@@ -220,7 +237,7 @@ pub const OUTPUT_GRAMMAR: &str = r##"
 root        ::= ws "{" ws "\"narrative\"" ws ":" ws string ws "," ws "\"sections\"" ws ":" ws sections ws "}" ws
 sections    ::= "{" ws section-entry ("," ws section-entry)* ws "}"
 section-entry ::= section-key ws ":" ws section-arr
-section-key ::= "\"meetings\"" | "\"focus_work\"" | "\"notes\"" | "\"things_that_came_up\""
+section-key ::= "\"what_happened\"" | "\"what_mattered\"" | "\"whats_next\""
 section-arr ::= "[" ws ( item ( ws "," ws item )* )? ws "]"
 item        ::= "{" ws "\"text\"" ws ":" ws string ( ws "," ws "\"source_id\"" ws ":" ws ( string | "null" ) )? ws "}"
 string      ::= "\"" char* "\""
@@ -497,7 +514,11 @@ mod tests {
         assert!(system.contains("Respond with strict JSON"));
         assert!(user.contains("Date: 2026-05-12"));
         assert!(user.contains("\"narrative\""));
-        assert!(user.contains("\"things_that_came_up\""));
+        assert!(user.contains("\"what_happened\""));
+        assert!(user.contains("\"what_mattered\""));
+        assert!(user.contains("\"whats_next\""));
+        assert!(user.contains("outcome-oriented morning brief"));
+        assert!(user.contains("Never invent a task, decision, commitment, owner, date, or urgency"));
     }
 
     // ── language-follow rule ─────────────────────────────────────────────
@@ -665,19 +686,19 @@ mod tests {
         let raw = r#"{
             "narrative": "x",
             "sections": {
-                "things_that_came_up": [
+                "whats_next": [
                     "Gonzalo to conduct a 30-minute discovery call.",
                     "Follow up on Q3 hiring."
                 ]
             }
         }"#;
         let out = parse_response(raw).unwrap();
-        assert_eq!(out.sections.things_that_came_up.len(), 2);
+        assert_eq!(out.sections.whats_next.len(), 2);
         assert_eq!(
-            out.sections.things_that_came_up[0].text,
+            out.sections.whats_next[0].text,
             "Gonzalo to conduct a 30-minute discovery call."
         );
-        assert_eq!(out.sections.things_that_came_up[0].source_id, None);
+        assert_eq!(out.sections.whats_next[0].source_id, None);
     }
 
     #[test]
@@ -685,17 +706,20 @@ mod tests {
         let raw = r#"{
             "narrative": "x",
             "sections": {
-                "notes": [
+                "what_happened": [
                     {"text": "Structured note", "source_id": "n1"},
                     "Bare string note"
                 ]
             }
         }"#;
         let out = parse_response(raw).unwrap();
-        assert_eq!(out.sections.notes.len(), 2);
-        assert_eq!(out.sections.notes[0].source_id.as_deref(), Some("n1"));
-        assert_eq!(out.sections.notes[1].text, "Bare string note");
-        assert_eq!(out.sections.notes[1].source_id, None);
+        assert_eq!(out.sections.what_happened.len(), 2);
+        assert_eq!(
+            out.sections.what_happened[0].source_id.as_deref(),
+            Some("n1")
+        );
+        assert_eq!(out.sections.what_happened[1].text, "Bare string note");
+        assert_eq!(out.sections.what_happened[1].source_id, None);
     }
 
     #[test]
@@ -726,16 +750,18 @@ mod tests {
         let raw = r#"{
             "narrative": "Quiet day, mostly focused work.",
             "sections": {
-                "meetings": [],
-                "focus_work": [{"text": "Heavy VS Code activity", "source_id": "d5"}],
-                "notes": [],
-                "things_that_came_up": []
+                "what_happened": [],
+                "what_mattered": [{"text": "The roadmap decision was ready for review.", "source_id": "d5"}],
+                "whats_next": []
             }
         }"#;
         let out = parse_response(raw).unwrap();
         assert_eq!(out.narrative, "Quiet day, mostly focused work.");
-        assert_eq!(out.sections.focus_work.len(), 1);
-        assert_eq!(out.sections.focus_work[0].source_id.as_deref(), Some("d5"));
+        assert_eq!(out.sections.what_mattered.len(), 1);
+        assert_eq!(
+            out.sections.what_mattered[0].source_id.as_deref(),
+            Some("d5")
+        );
     }
 
     #[test]
@@ -757,6 +783,16 @@ mod tests {
         let raw = r#"{"narrative":"x","sections":{"notes":[{"text":"y"}]}}"#;
         let out = parse_response(raw).unwrap();
         assert!(out.sections.notes[0].source_id.is_none());
+    }
+
+    #[test]
+    fn parses_legacy_sections_without_writing_them_back() {
+        let raw = r#"{"narrative":"x","sections":{"meetings":[{"text":"Legacy meeting"}]}}"#;
+        let out = parse_response(raw).unwrap();
+        assert_eq!(out.sections.meetings.len(), 1);
+        let serialized = serde_json::to_string(&out.sections).unwrap();
+        assert!(!serialized.contains("meetings"));
+        assert!(serialized.contains("what_happened"));
     }
 
     #[test]

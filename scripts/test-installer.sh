@@ -70,3 +70,15 @@ PATH="$BIN_DIR:$PATH" INSTALL_DIR="$WORK_DIR/LegacyInstall" \
   SKIP_STOP=1 SKIP_LAUNCH=1 bash "$ROOT_DIR/install.sh"
 test -x "$WORK_DIR/LegacyInstall/Tucky.app/Contents/MacOS/echo-scribe"
 echo "Tucky upgrade, legacy archive, and failed-download preservation checks passed."
+
+# Upgrade to the renamed binary while preserving the old executable alias.
+mv "$FIXTURE_DIR/Tucky.app/Contents/MacOS/echo-scribe" "$FIXTURE_DIR/Tucky.app/Contents/MacOS/Tucky"
+ln -s Tucky "$FIXTURE_DIR/Tucky.app/Contents/MacOS/echo-scribe"
+PATH="$BIN_DIR:$PATH" INSTALL_DIR="$INSTALL_DIR" LOCAL_APP_BUNDLE="$FIXTURE_DIR/Tucky.app" \
+  SKIP_STOP=1 SKIP_LAUNCH=1 bash "$ROOT_DIR/install.sh"
+test -x "$INSTALL_DIR/Tucky.app/Contents/MacOS/Tucky"
+test -L "$INSTALL_DIR/Echo Scribe.app/Contents/MacOS/echo-scribe"
+"$INSTALL_DIR/Echo Scribe.app/Contents/MacOS/echo-scribe" --mcp
+bash "$ROOT_DIR/scripts/package-release.sh" "$FIXTURE_DIR/Tucky.app" "$WORK_DIR/renamed-releases"
+tar -tzf "$WORK_DIR/renamed-releases/Tucky-aarch64.tar.gz" | grep -q '^Tucky.app/Contents/MacOS/Tucky$'
+echo "Renamed executable and legacy MCP compatibility checks passed."

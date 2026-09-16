@@ -88,7 +88,9 @@ pub fn tool_permission(tool: &str) -> Option<&'static McpPermission> {
         "list_meetings" | "get_meeting" | "list_recipes" => "meetings",
         "search_chats" | "list_chats" | "get_chat" => "chats",
         "list_people" | "list_companies" => "contacts",
-        "list_recording_sources" | "start_recording" | "stop_recording"
+        "list_recording_sources"
+        | "start_recording"
+        | "stop_recording"
         | "get_recording_status" => "screen_recording",
         _ => return None,
     };
@@ -111,7 +113,11 @@ pub fn gui_settings_path() -> Option<PathBuf> {
     if let Some(p) = std::env::var_os("ECHO_SCRIBE_MCP_SETTINGS") {
         return Some(p.into());
     }
-    Some(dirs::config_dir()?.join(crate::bundle_id()).join("settings.json"))
+    Some(
+        dirs::config_dir()?
+            .join(crate::bundle_id())
+            .join("settings.json"),
+    )
 }
 
 /// Best-effort read of the GUI settings file. Missing or unreadable file →
@@ -160,7 +166,10 @@ mod tests {
         let meetings = by_id("meetings").unwrap();
         assert!(!enabled_in(&json!({}), recording));
         assert!(enabled_in(&json!({}), meetings));
-        assert!(enabled_in(&json!({"mcp_perm_screen_recording": true}), recording));
+        assert!(enabled_in(
+            &json!({"mcp_perm_screen_recording": true}),
+            recording
+        ));
         assert!(!enabled_in(&json!({"mcp_perm_meetings": false}), meetings));
     }
 }

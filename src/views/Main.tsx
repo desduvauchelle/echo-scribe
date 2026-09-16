@@ -4,7 +4,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
   CalendarDays,
   BookOpen,
-  Folder,
+  Plus,
   Hash,
   LayoutDashboard,
   MessageSquare,
@@ -24,6 +24,8 @@ import {
 } from "../lib/api";
 import { formatBindingLabel } from "../lib/displayText";
 import logoUrl from "../../src-tauri/icons/128x128.png";
+import EditableProjectName from "../components/EditableProjectName";
+import ProjectManager from "../components/ProjectManager";
 import ActivityFeed from "./sections/ActivityFeed";
 import ChatView from "./sections/ChatView";
 import DashboardView from "./sections/DashboardView";
@@ -49,7 +51,8 @@ export type MainSection =
   | { kind: "stats"; category?: StatsCategoryKey }
   | { kind: "daily"; date?: string }
   | { kind: "relationships" }
-  | { kind: "project"; id: string };
+  | { kind: "project"; id: string }
+  | { kind: "project-settings"; id: string | null };
 
 type Props = {
   onOpenSettings: (page?: PageId) => void;
@@ -105,6 +108,7 @@ export default function Main({ onOpenSettings }: Props) {
     let cancelled = false;
 
     void Promise.all([
+      listen("projects:changed", () => void refreshProjects()),
       listen("voice:recording_started", () => setVoiceRecordingActive(true)),
       listen("voice:recording_stopped", () => setVoiceRecordingActive(false)),
       listen("recorder:start_failed", () => setVoiceRecordingActive(false)),
@@ -145,14 +149,27 @@ export default function Main({ onOpenSettings }: Props) {
     switch (section.kind) {
       case "learn":
         return <LearnView key={section.lesson ?? "library"} lesson={section.lesson} onLesson={openLesson} onAction={learningAction} />;
+      case "project-settings": {
+        const project = section.id ? projectMap.get(section.id) ?? null : null;
+        return <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
+          <div className="mx-auto w-full max-w-3xl">
+            <ProjectManager key={section.id ?? "new"} initialProject={project}
+              onChanged={refreshProjects}
+              onClose={() => setSection(project ? { kind: "project", id: project.id } : { kind: "dashboard" })}
+              onRemoved={() => setSection({ kind: "dashboard" })}
+              onSaved={(saved) => {
+                setProjects((previous) => [...previous.filter((p) => p.id !== saved.id), saved].sort((a,b) => a.name.localeCompare(b.name)));
+                setSection({ kind: "project", id: saved.id });
+              }} />
+          </div>
+        </div>;
+      }
       case "project": {
         const project = projectMap.get(section.id) ?? null;
         return (
           <ActivityFeed
             project={project}
             projects={projectMap}
-            onProjectsChanged={refreshProjects}
-            onProjectArchived={() => setSection({ kind: "dashboard" })}
           />
         );
       }
@@ -194,6 +211,7 @@ export default function Main({ onOpenSettings }: Props) {
       case "daily": return t("app.nav.dailyRecaps");
       case "relationships": return t("app.nav.peopleAndCompanies");
       case "stats": return t("app.nav.statistics");
+      case "project-settings": return t(section.id ? "projectPage.settings" : "projectPage.create");
       case "project": return projectMap.get(section.id)?.name ?? t("app.projects.fallbackName");
     }
   })();
@@ -226,14 +244,22 @@ export default function Main({ onOpenSettings }: Props) {
         </div>
 
         <div className="flex min-w-0 flex-1 items-center gap-3 px-3">
-          <div className="min-w-0" data-tauri-drag-region>
-            <h1 className="truncate text-[12px] font-semibold leading-tight">{sectionTitle}</h1>
+          <div className="min-w-0 max-w-[70%]">
+            {section.kind === "project" && projectMap.has(section.id) ? <EditableProjectName
+              key={section.id} project={projectMap.get(section.id)!}
+              onSaved={(name) => setProjects((previous) => previous.map((p) => p.id === section.id ? { ...p, name } : p))} />
+              : <h1 className="truncate text-[12px] font-semibold leading-tight" data-tauri-drag-region>{sectionTitle}</h1>}
             <div className="truncate text-[9px] leading-tight text-faint">{today}</div>
           </div>
           <div
             className="echo-toolbar-drag-region h-full min-w-12 flex-1"
             data-tauri-drag-region
           />
+          {section.kind === "project" && <button type="button" onClick={() => setSection({ kind: "project-settings", id: section.id })}
+            aria-label={t("projectPage.settings")} title={t("projectPage.settings")}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted hover:bg-elevated hover:text-fg focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent">
+            <SettingsIcon size={17} aria-hidden="true" />
+          </button>}
           {section.kind === "dashboard" ? (
             <button
               type="button"
@@ -322,14 +348,11 @@ export default function Main({ onOpenSettings }: Props) {
           <span className="text-[11px] font-medium uppercase leading-none tracking-[0.08em] text-muted">
             {t("app.projects.label")}
           </span>
-          <span className="flex h-4 w-4 items-center justify-center">
-            <Folder
-              size={12}
-              strokeWidth={2}
-              className="text-faint"
-              aria-hidden="true"
-            />
-          </span>
+          <button type="button" onClick={() => setSection({ kind: "project-settings", id: null })}
+            aria-label={t("projectPage.create")} title={t("projectPage.create")}
+            className="flex h-7 w-7 items-center justify-center rounded text-muted hover:bg-elevated hover:text-fg focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent">
+            <Plus size={15} strokeWidth={2} aria-hidden="true" />
+          </button>
         </div>
         <nav
           aria-label={t("app.projects.ariaLabel")}
@@ -343,7 +366,7 @@ export default function Main({ onOpenSettings }: Props) {
                 key={p.id}
                 icon={Hash}
                 label={p.name}
-                active={section.kind === "project" && section.id === p.id}
+                active={(section.kind === "project" || section.kind === "project-settings") && section.id === p.id}
                 onClick={() => setSection({ kind: "project", id: p.id })}
               />
             ))

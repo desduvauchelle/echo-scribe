@@ -4,7 +4,7 @@
 fn main() {
     if std::env::args().any(|arg| arg == "--mcp") {
         if let Err(error) = echo_scribe_lib::mcp::run_stdio() {
-            eprintln!("EchoScribe MCP failed: {error}");
+            eprintln!("Tucky MCP failed: {error}");
             std::process::exit(1);
         }
     } else {

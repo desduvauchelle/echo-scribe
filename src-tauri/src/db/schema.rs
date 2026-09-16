@@ -644,6 +644,14 @@ call out when an earlier point changes or gets reopened',
    datetime('now'));
 "#,
     ),
+    (
+        33,
+        r#"
+ALTER TABLE projects ADD COLUMN purpose TEXT;
+ALTER TABLE projects ADD COLUMN instructions TEXT;
+ALTER TABLE projects ADD COLUMN reference_folders TEXT NOT NULL DEFAULT '[]';
+"#,
+    ),
 ];
 
 const META_TABLE_SQL: &str = r#"
@@ -664,13 +672,41 @@ pub fn run_migrations(conn: &mut Connection) -> Result<(), DbError> {
             continue;
         }
         let tx = conn.transaction()?;
-        tx.execute_batch(sql)?;
+        if *version == 33 {
+            ensure_project_reference_columns(&tx)?;
+        } else {
+            tx.execute_batch(sql)?;
+        }
         tx.execute(
             "INSERT INTO schema_meta(key, value) VALUES (?1, ?2)
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
             params![VERSION_KEY, version.to_string()],
         )?;
         tx.commit()?;
+    }
+    // Some installed databases already carry version 33 without these columns.
+    // Check the actual schema as well as the version marker, preserving any data.
+    let tx = conn.transaction()?;
+    ensure_project_reference_columns(&tx)?;
+    tx.commit()?;
+    Ok(())
+}
+
+fn ensure_project_reference_columns(conn: &Connection) -> Result<(), DbError> {
+    let columns = conn
+        .prepare("PRAGMA table_info(projects)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?;
+    for (name, definition) in [
+        ("purpose", "TEXT"),
+        ("instructions", "TEXT"),
+        ("reference_folders", "TEXT NOT NULL DEFAULT '[]'"),
+    ] {
+        if !columns.iter().any(|column| column == name) {
+            conn.execute_batch(&format!(
+                "ALTER TABLE projects ADD COLUMN {name} {definition}"
+            ))?;
+        }
     }
     Ok(())
 }
@@ -705,7 +741,7 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(v, "32");
+        assert_eq!(v, MIGRATIONS.last().unwrap().0.to_string());
     }
 
     #[test]
@@ -873,7 +909,7 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(version, "32");
+        assert_eq!(version, "33");
     }
 
     #[test]
@@ -1104,6 +1140,55 @@ mod tests {
             )
             .unwrap();
         assert_eq!(tracker_kind, "tracker");
+    }
+
+    #[test]
+    fn migration_v33_preserves_existing_projects_and_exports() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        run_migrations_up_to(&mut conn, 32);
+        conn.execute("INSERT INTO projects(id,name,created_at,description,export_folder) VALUES('p','Website','now','Original description','/exports')", []).unwrap();
+        run_migrations(&mut conn).unwrap();
+        run_migrations(&mut conn).unwrap();
+        let project = crate::db::projects::get_project(&conn, "p")
+            .unwrap()
+            .unwrap();
+        assert_eq!(project.description.as_deref(), Some("Original description"));
+        assert_eq!(project.export_folder.as_deref(), Some("/exports"));
+        assert!(project.reference_folders.is_empty());
+        assert!(project.purpose.is_none());
+        assert!(project.instructions.is_none());
+    }
+
+    #[test]
+    fn repairs_project_columns_when_version_already_claims_33() {
+        for partial in [false, true] {
+            let mut conn = Connection::open_in_memory().unwrap();
+            run_migrations_up_to(&mut conn, 32);
+            conn.execute("INSERT INTO projects(id,name,created_at,description,export_folder) VALUES('p','Website','now','Keep me','/exports')", []).unwrap();
+            conn.execute(
+                "UPDATE schema_meta SET value='33' WHERE key='schema_version'",
+                [],
+            )
+            .unwrap();
+            if partial {
+                conn.execute_batch("ALTER TABLE projects ADD COLUMN purpose TEXT; UPDATE projects SET purpose='Existing purpose';").unwrap();
+            }
+            run_migrations(&mut conn).unwrap();
+            run_migrations(&mut conn).unwrap();
+            let projects = crate::db::projects::list_projects(&conn, false).unwrap();
+            assert_eq!(projects.len(), 1);
+            assert_eq!(projects[0].description.as_deref(), Some("Keep me"));
+            assert_eq!(projects[0].export_folder.as_deref(), Some("/exports"));
+            assert_eq!(
+                projects[0].purpose.as_deref(),
+                if partial {
+                    Some("Existing purpose")
+                } else {
+                    None
+                }
+            );
+            assert!(projects[0].reference_folders.is_empty());
+        }
     }
 
     /// Apply migrations through `version` only (upgrade-path simulation).

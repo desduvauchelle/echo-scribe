@@ -2289,7 +2289,11 @@ mod tests {
         // The live focus must be *provably* a text field; anything weaker
         // keeps the long-standing activate-and-blind-⌘V return path (this is
         // what protects opaque webview origins).
-        for weaker in [TextTarget::Unknown, TextTarget::Rejects, TextTarget::NoFocus] {
+        for weaker in [
+            TextTarget::Unknown,
+            TextTarget::Rejects,
+            TextTarget::NoFocus,
+        ] {
             assert!(!prefer_live_caret(
                 false,
                 PasteIntent::Insert,

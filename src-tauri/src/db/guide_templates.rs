@@ -287,7 +287,15 @@ pub fn seed_builtin_templates(conn: &Connection, now_iso: &str) -> Result<usize,
             "INSERT OR IGNORE INTO guide_templates
                 (id, name, description, goal, notes, kind, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)",
-            params![b.id, b.name, b.description, b.goal, b.notes, b.kind, now_iso],
+            params![
+                b.id,
+                b.name,
+                b.description,
+                b.goal,
+                b.notes,
+                b.kind,
+                now_iso
+            ],
         )?;
     }
     Ok(inserted)

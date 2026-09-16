@@ -237,7 +237,12 @@ export function parseCaptureContext(raw: string | null | undefined): ParsedCaptu
   }
 }
 
+export type ProjectFolder = { id: string; path: string };
+
 export type Project = {
+  purpose?: string | null;
+  instructions?: string | null;
+  reference_folders?: ProjectFolder[];
   id: string;
   name: string;
   created_at: string;
@@ -273,6 +278,9 @@ export type ProjectDeleteImpact = {
  *  Omit a field to leave it alone; set to null to clear; set to value to update.
  *  `keywords` has no clear semantic — pass `[]` to empty it. */
 export type ProjectPatch = {
+  purpose?: string | null;
+  instructions?: string | null;
+  reference_folders?: ProjectFolder[];
   name?: string;
   description?: string | null;
   keywords?: string[];
@@ -288,6 +296,9 @@ export type ProjectPatch = {
 };
 
 export type CreateProjectInput = {
+  purpose?: string;
+  instructions?: string;
+  reference_folders?: ProjectFolder[];
   name: string;
   description?: string;
   keywords?: string[];
@@ -1281,6 +1292,10 @@ export type DailySummarySectionItem = {
 };
 
 export type DailySummarySections = {
+  what_happened?: DailySummarySectionItem[];
+  what_mattered?: DailySummarySectionItem[];
+  whats_next?: DailySummarySectionItem[];
+  // Retained only so recaps generated before the outcome-based format remain readable.
   meetings?: DailySummarySectionItem[];
   focus_work?: DailySummarySectionItem[];
   notes?: DailySummarySectionItem[];
@@ -1992,3 +2007,28 @@ export const dailyInsightRuns = (date: string): Promise<GuideRun[]> =>
 
 export const regenerateGuideReview = (runId: string): Promise<void> =>
   invoke("regenerate_guide_review", { runId });
+
+export const pickReferenceFolders = (): Promise<ProjectFolder[]> => invoke("pick_reference_folders");
+export const referenceFolderStatus = (folders: ProjectFolder[]): Promise<Array<{ id: string; available: boolean }>> =>
+  invoke("reference_folder_status", { folders });
+export const revealProjectReference = (projectId: string, folderId: string, path?: string): Promise<void> =>
+  invoke("reveal_project_reference", { projectId, folderId, path: path ?? null });
+export type ProjectAssistantSource = {
+  number: number; project_id: string; folder_id: string | null; path: string | null;
+  item_id: string | null; line: number; label: string;
+};
+export type ProjectAssistantReport = {
+  request: string; status: "running" | "done" | "error" | "stopped" | "incomplete";
+  answer: string; changes: string[]; sources: ProjectAssistantSource[];
+};
+export const runProjectAssistant = (request: string): Promise<ProjectAssistantReport> => invoke("run_project_assistant", { request });
+export const getProjectAssistantReport = (): Promise<ProjectAssistantReport | null> => invoke("get_project_assistant_report");
+export const stopProjectAssistant = (): Promise<void> => invoke("stop_project_assistant");
+
+export const getLowMemoryMode = (): Promise<boolean> => invoke("get_low_memory_mode");
+export const setLowMemoryMode = (enabled: boolean): Promise<void> =>
+  invoke("set_low_memory_mode", { enabled });
+
+export type VoiceWorkflow = { id: string; phrase: string; url: string; enabled: boolean };
+export const getVoiceWorkflows = () => invoke<VoiceWorkflow[]>("get_voice_workflows");
+export const setVoiceWorkflows = (workflows: VoiceWorkflow[]) => invoke<void>("set_voice_workflows", { workflows });

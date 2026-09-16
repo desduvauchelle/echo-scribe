@@ -41,7 +41,7 @@ pub enum EmbedError {
 
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tracing::{info, warn};
+use tracing::info;
 
 use engine::EmbedEngine;
 
@@ -122,20 +122,13 @@ impl Embedder {
 
     /// Background task: drop the engine after `unload_after` of inactivity.
     pub fn spawn_unloader(self: &Arc<Self>) {
-        if self.unload_after.is_zero() {
-            return;
-        }
         let weak = Arc::downgrade(self);
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(60));
+            let mut interval = tokio::time::interval(Duration::from_secs(5));
             interval.tick().await;
             loop {
                 interval.tick().await;
                 let Some(this) = weak.upgrade() else { return };
-                let idle = this.idle_for();
-                if idle < this.unload_after {
-                    continue;
-                }
                 // Clone the inner Arc so the lock guard borrows this local
                 // (which lives to the end of the loop body) rather than `this`.
                 // A `match` with a named guard binding avoids the if-let
@@ -144,10 +137,14 @@ impl Embedder {
                 let mut guard = match engine.try_lock() {
                     Ok(g) => g,
                     Err(_) => {
-                        warn!(target: "mem", "embed engine busy; deferring idle-unload");
+                        tracing::debug!(target: "mem", "embed engine busy; deferring idle-unload");
                         continue;
                     }
                 };
+                let idle = this.idle_for();
+                if !crate::util::memory::should_unload(idle, this.unload_after) {
+                    continue;
+                }
                 if guard.is_some() {
                     info!(target: "mem", idle_secs = idle.as_secs(), "[mem] unloading idle embedding engine");
                     *guard = None;

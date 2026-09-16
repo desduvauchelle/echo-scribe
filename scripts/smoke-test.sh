@@ -29,7 +29,7 @@ SMOKE_HOME="$WORK_DIR/home"
 INSTALL_DIR="$WORK_DIR/Applications"
 mkdir -p "$SMOKE_HOME"
 
-APP_BIN="$INSTALL_DIR/Tucky.app/Contents/MacOS/echo-scribe"
+APP_BIN="$INSTALL_DIR/Tucky.app/Contents/MacOS/Tucky"
 LOG_DIR="$SMOKE_HOME/Library/Logs/EchoScribe"
 
 cleanup() {

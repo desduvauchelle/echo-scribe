@@ -33,14 +33,14 @@ locations.
 Claude Code:
 
 ```bash
-claude mcp add tucky -- "/Applications/Tucky.app/Contents/MacOS/echo-scribe" --mcp
+claude mcp add tucky -- "/Applications/Tucky.app/Contents/MacOS/Tucky" --mcp
 ```
 
 Codex CLI (`~/.codex/config.toml`):
 
 ```toml
 [mcp_servers.tucky]
-command = "/Applications/Tucky.app/Contents/MacOS/echo-scribe"
+command = "/Applications/Tucky.app/Contents/MacOS/Tucky"
 args = ["--mcp"]
 ```
 
@@ -50,7 +50,7 @@ Any other MCP client:
 {
   "mcpServers": {
     "tucky": {
-      "command": "/Applications/Tucky.app/Contents/MacOS/echo-scribe",
+      "command": "/Applications/Tucky.app/Contents/MacOS/Tucky",
       "args": ["--mcp"]
     }
   }
@@ -58,7 +58,7 @@ Any other MCP client:
 ```
 
 For a source build, replace the command with the absolute path to
-`src-tauri/target/release/echo-scribe` (or the debug binary while developing).
+`src-tauri/target/release/Tucky` (or the debug binary while developing).
 
 The server uses newline-delimited JSON-RPC over standard input and output. The
 client should negotiate MCP protocol version `2024-11-05`.
@@ -133,7 +133,7 @@ without touching the user's normal Tucky database:
 
 ```bash
 ECHO_SCRIBE_MCP_DB=/tmp/echo-scribe-mcp.sqlite \
-  src-tauri/target/debug/echo-scribe --mcp
+  src-tauri/target/debug/Tucky --mcp
 ```
 
 `ECHO_SCRIBE_MCP_SETTINGS` similarly points the permission checks at an
@@ -142,3 +142,15 @@ alternative settings.json (the real one lives at
 
 Recording tools ignore both overrides — they always talk to the running app,
 which enforces the Screen recording permission against its live state.
+
+### Process names and connection lifetime
+
+The app executable is named `Tucky`. Signed macOS release bundles also contain
+an `echo-scribe` symlink for older MCP registrations and updater checks. New
+registrations should use `/Applications/Tucky.app/Contents/MacOS/Tucky`.
+
+Each connected AI session can own a separate lightweight `--mcp` process. These
+processes wait for input and exit when the client closes its connection. Closing
+a Tucky window does not close AI clients' MCP connections. Verify the real
+executable with `python3 scripts/test-mcp-lifecycle.py <path-to-executable>`;
+the check uses a temporary database and does not read user captures.

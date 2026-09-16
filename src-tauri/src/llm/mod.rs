@@ -9,7 +9,7 @@
 //!  - On the first [`Llm::generate`] call after activation, the GGUF is
 //!    lazy-loaded inside `spawn_blocking` (loading a 4B Q4 GGUF on Apple
 //!    Silicon takes a couple of seconds).
-//!  - A background tokio task ticks once a minute and unloads the engine if
+//!  - A background tokio task ticks every five seconds and unloads the engine if
 //!    `last_used` is older than `unload_after`. This keeps RAM/VRAM free
 //!    during idle stretches between voice captures.
 
@@ -17,6 +17,7 @@ pub mod action_launcher;
 pub mod downloader;
 pub mod edit;
 pub mod engine;
+pub mod project_agent;
 pub mod prompt;
 pub mod rag;
 pub mod registry;
@@ -116,7 +117,7 @@ impl Llm {
     pub fn spawn_unloader(self: &Arc<Self>) {
         let weak = Arc::downgrade(self);
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(60));
+            let mut interval = tokio::time::interval(Duration::from_secs(5));
             interval.tick().await;
             loop {
                 interval.tick().await;
@@ -131,15 +132,17 @@ impl Llm {
     }
 
     async fn maybe_unload(&self) -> Result<(), LlmError> {
+        let Ok(mut guard) = self.engine.try_lock() else {
+            return Ok(());
+        };
         let (idle_for, unload_after) = {
             let idle = self.last_used.lock().map_err(|_| LlmError::Join)?.elapsed();
             let ua = *self.unload_after.lock().map_err(|_| LlmError::Join)?;
             (idle, ua)
         };
-        if unload_after.is_zero() || idle_for < unload_after {
+        if !crate::util::memory::should_unload(idle_for, unload_after) {
             return Ok(());
         }
-        let mut guard = self.engine.lock().await;
         if guard.is_some() {
             let rss_before_mib = current_rss_mib();
             info!(

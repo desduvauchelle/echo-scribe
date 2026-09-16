@@ -104,9 +104,7 @@ impl FetchError {
             FetchError::Network(_) | FetchError::Stalled | FetchError::Truncated { .. } => true,
             // Oversized: the partial is deleted first, then a clean retry is fine.
             FetchError::TooLarge { .. } => true,
-            FetchError::Http { status, .. } => {
-                *status >= 500 || *status == 429 || *status == 408
-            }
+            FetchError::Http { status, .. } => *status >= 500 || *status == 429 || *status == 408,
             _ => false,
         }
     }
@@ -372,7 +370,10 @@ where
     let status = resp.status();
     let (mut out, mut written) = if existing > 0 && status == reqwest::StatusCode::PARTIAL_CONTENT {
         info!(target: "download", file = %spec.name, resume_from = existing, "resuming download");
-        let f = fs::OpenOptions::new().append(true).open(partial_path).await?;
+        let f = fs::OpenOptions::new()
+            .append(true)
+            .open(partial_path)
+            .await?;
         (f, existing)
     } else if status == reqwest::StatusCode::RANGE_NOT_SATISFIABLE {
         // Our partial is at/past the remote size — it can't be right. Restart.
@@ -519,10 +520,16 @@ mod tests {
         );
 
         std::fs::write(&p, vec![0u8; 500]).unwrap();
-        assert!(!is_complete_file(&p, 1000), "a half-downloaded file does not");
+        assert!(
+            !is_complete_file(&p, 1000),
+            "a half-downloaded file does not"
+        );
 
         std::fs::write(&p, vec![0u8; 42]).unwrap();
-        assert!(is_complete_file(&p, 0), "unknown expected size: presence + non-empty");
+        assert!(
+            is_complete_file(&p, 0),
+            "unknown expected size: presence + non-empty"
+        );
 
         let _ = std::fs::remove_dir_all(&tmp);
     }
@@ -538,7 +545,10 @@ mod tests {
         assert!(msg.contains("1.1 GB"), "{msg}");
         let msg = FetchError::Stalled.friendly();
         assert!(msg.contains("resumes"), "{msg}");
-        assert!(!msg.contains("error sending request"), "no raw reqwest text");
+        assert!(
+            !msg.contains("error sending request"),
+            "no raw reqwest text"
+        );
     }
 
     #[test]

@@ -809,7 +809,8 @@ pub fn ensure_pipeline_started(state: &AppState, app: &AppHandle) {
                 cancel_active,
                 last_transcript,
                 move |new_state: TrayPipelineState| {
-                    let _ = app_for_state.emit("pipeline:busy", new_state != TrayPipelineState::Idle);
+                    let _ =
+                        app_for_state.emit("pipeline:busy", new_state != TrayPipelineState::Idle);
                     if let Ok(t) = tray_for_state.lock() {
                         t.set_state(new_state);
                     }
@@ -1065,6 +1066,12 @@ pub fn list_projects(
 pub struct CreateProjectInput {
     pub name: String,
     #[serde(default)]
+    pub purpose: Option<String>,
+    #[serde(default)]
+    pub instructions: Option<String>,
+    #[serde(default)]
+    pub reference_folders: Vec<db::projects::ProjectFolder>,
+    #[serde(default)]
     pub description: Option<String>,
     #[serde(default)]
     pub keywords: Option<Vec<String>>,
@@ -1119,7 +1126,11 @@ pub fn create_project(
     }
     let db = require_db(&state)?;
     let now = chrono_now_iso();
+    let reference_folders = crate::project_files::validate_folders(input.reference_folders, &[])?;
     let project = Project {
+        purpose: input.purpose,
+        instructions: input.instructions,
+        reference_folders,
         id: ulid::Ulid::new().to_string(),
         name: trimmed,
         created_at: now.clone(),
@@ -1199,6 +1210,16 @@ pub fn update_project(
     // + dedupe keywords. Validation: reject empty/whitespace name (UI also
     // guards, but defend the boundary).
     let mut patch = input.patch.clone();
+    if let Some(folders) = patch.reference_folders.take() {
+        let existing = db
+            .with_conn(|c| db::projects::get_project(c, &input.id))
+            .map_err(|e| e.to_string())?
+            .ok_or("Project not found.")?;
+        patch.reference_folders = Some(crate::project_files::validate_folders(
+            folders,
+            &existing.reference_folders,
+        )?);
+    }
     if let Some(n) = &patch.name {
         let trimmed = n.trim().to_string();
         if trimmed.is_empty() {
@@ -2004,7 +2025,12 @@ const APP_BUNDLE_NAME: &str = "Tucky.app";
 fn containing_app_bundle(executable: &std::path::Path) -> Option<std::path::PathBuf> {
     executable
         .ancestors()
-        .find(|path| matches!(path.file_name().and_then(|name| name.to_str()), Some(APP_BUNDLE_NAME | "Echo Scribe.app")))
+        .find(|path| {
+            matches!(
+                path.file_name().and_then(|name| name.to_str()),
+                Some(APP_BUNDLE_NAME | "Echo Scribe.app")
+            )
+        })
         .map(std::path::Path::to_path_buf)
 }
 
@@ -2098,8 +2124,7 @@ pub async fn uninstall_application(app: AppHandle, delete_data: bool) -> Result<
         let executable = std::env::current_exe()
             .map_err(|e| format!("could not locate the running application: {e}"))?;
         let bundle = containing_app_bundle(&executable).ok_or_else(|| {
-            "Uninstall is only available when Tucky is running from its app bundle."
-                .to_string()
+            "Uninstall is only available when Tucky is running from its app bundle.".to_string()
         })?;
 
         let mut paths = Vec::new();
@@ -2154,7 +2179,6 @@ pub async fn uninstall_application(app: AppHandle, delete_data: bool) -> Result<
 }
 
 // ----- Reset TCC permissions -----
-
 
 /// Every TCC service the app ever requests — one per `NS*UsageDescription` in
 /// `Info.plist`. Both `reset_tcc_and_quit` (the "reset permissions" button) and
@@ -3113,6 +3137,21 @@ pub async fn chat_with_memory(
 }
 
 #[tauri::command]
+pub fn get_low_memory_mode(state: State<'_, AppState>) -> bool {
+    state.settings.low_memory_mode()
+}
+
+#[tauri::command]
+pub fn set_low_memory_mode(state: State<'_, AppState>, enabled: bool) -> Result<(), String> {
+    state.settings.set_low_memory_mode(enabled).map_err(|e| {
+        warn!(target: "mem", %e, "could not save low-memory mode");
+        "Couldn't save the memory setting. Please try again.".to_string()
+    })?;
+    crate::util::memory::set_low_memory(enabled);
+    Ok(())
+}
+
+#[tauri::command]
 pub fn get_llm_unload_secs(state: State<'_, AppState>) -> u64 {
     state.settings.llm_unload_secs()
 }
@@ -3661,25 +3700,31 @@ async fn generate_scoped_artifact(
     scope_id: &str,
 ) -> Result<crate::db::meeting_intelligence::MeetingArtifact, String> {
     if !state.llm.ready() {
-        return Err("No local AI model is loaded. Download one in Settings → Language Model.".into());
+        return Err(
+            "No local AI model is loaded. Download one in Settings → Language Model.".into(),
+        );
     }
     let db = state.db.as_ref().ok_or("db unavailable")?;
     let (context, source_ids) = scoped_intelligence_context(db, scope_kind, scope_id)?;
     if context.trim().is_empty() {
         return Err("No local context is available for this workflow.".into());
     }
-    let response = state.llm.generate(GenerateRequest {
-        system: Some(crate::llm::prompt::build_scoped_artifact_system_prompt(
-            instruction,
-        )),
-        user: format!("Source context:\n\n{context}"),
-        history: Vec::new(),
-        max_tokens: 1200,
-        temperature: 0.35,
-        stop_strings: Vec::new(),
-        grammar_gbnf: None,
-        n_ctx: Some(16384),
-    }).await.map_err(|e| e.to_string())?;
+    let response = state
+        .llm
+        .generate(GenerateRequest {
+            system: Some(crate::llm::prompt::build_scoped_artifact_system_prompt(
+                instruction,
+            )),
+            user: format!("Source context:\n\n{context}"),
+            history: Vec::new(),
+            max_tokens: 1200,
+            temperature: 0.35,
+            stop_strings: Vec::new(),
+            grammar_gbnf: None,
+            n_ctx: Some(16384),
+        })
+        .await
+        .map_err(|e| e.to_string())?;
     let now = chrono::Utc::now().to_rfc3339();
     let artifact = crate::db::meeting_intelligence::MeetingArtifact {
         id: uuid::Uuid::new_v4().to_string(),
@@ -5434,8 +5479,12 @@ fn delete_recording_files(row: &crate::db::recordings::RecordingRow) {
         if let Ok(folder) = crate::recording_feedback::bundle_root(&base, id) {
             if folder.exists() {
                 match std::fs::remove_dir_all(&folder) {
-                    Ok(()) => info!(target: "recording_feedback", %id, "deleted recording feedback bundles"),
-                    Err(e) => tracing::warn!(target: "recording_feedback", %id, error = %e, "could not delete feedback bundles"),
+                    Ok(()) => {
+                        info!(target: "recording_feedback", %id, "deleted recording feedback bundles")
+                    }
+                    Err(e) => {
+                        tracing::warn!(target: "recording_feedback", %id, error = %e, "could not delete feedback bundles")
+                    }
                 }
             }
         }
@@ -7450,9 +7499,11 @@ pub async fn drive_connect(state: State<'_, AppState>) -> Result<DriveStatus, St
             // from a genuine connect failure — the fix is different, and the
             // generic message would send the user to the logs for nothing.
             if e.contains(crate::screenrec::drive::SCOPE_MISSING) {
-                return Err("Google Drive access wasn't granted. Connect again and tick the \
+                return Err(
+                    "Google Drive access wasn't granted. Connect again and tick the \
                             checkbox that lets Tucky upload files to Google Drive."
-                    .into());
+                        .into(),
+                );
             }
             return Err(
                 "Couldn't connect to Google Drive. See Settings → Diagnostics → logs for details."
@@ -8043,8 +8094,7 @@ mod tests {
 
     #[test]
     fn containing_app_bundle_finds_only_the_echo_scribe_bundle() {
-        let installed =
-            std::path::Path::new("/Applications/Tucky.app/Contents/MacOS/echo-scribe");
+        let installed = std::path::Path::new("/Applications/Tucky.app/Contents/MacOS/echo-scribe");
         assert_eq!(
             containing_app_bundle(installed),
             Some(std::path::PathBuf::from("/Applications/Tucky.app"))
@@ -8274,4 +8324,19 @@ mod tests {
         let missing = root.path().join("nope.mp4");
         assert!(validate_reveal_path(root.path(), missing.to_str().unwrap()).is_err());
     }
+}
+
+#[tauri::command]
+pub fn get_voice_workflows(
+    state: State<'_, AppState>,
+) -> Vec<crate::voice_workflows::VoiceWorkflow> {
+    state.settings.voice_workflows()
+}
+
+#[tauri::command]
+pub fn set_voice_workflows(
+    state: State<'_, AppState>,
+    workflows: Vec<crate::voice_workflows::VoiceWorkflow>,
+) -> Result<(), String> {
+    state.settings.set_voice_workflows(&workflows)
 }

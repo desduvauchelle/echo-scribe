@@ -9,6 +9,8 @@ export type Scenario = {
     calendars: boolean;
     camera: boolean;
   }>;
+  lowMemoryMode?: boolean;
+  memorySaveError?: boolean;
   onboardingCompleted?: boolean;
   /** Speech model already downloaded + active (the Start gate). */
   speechModelReady?: boolean;
@@ -67,6 +69,8 @@ export async function installTauriMock(page: Page, scenario: Scenario = {}) {
         camera: false,
         ...(sc.permissions ?? {}),
       },
+      voiceWorkflows: [] as Array<{ id: string; phrase: string; url: string; enabled: boolean }>,
+      lowMemoryMode: sc.lowMemoryMode ?? false,
       onboardingCompleted: sc.onboardingCompleted ?? false,
       speechModelReady: sc.speechModelReady ?? false,
       llmReady: sc.llmReady ?? false,
@@ -141,6 +145,15 @@ export async function installTauriMock(page: Page, scenario: Scenario = {}) {
       unregisterListener: (_event: string, id: number) => listeners.delete(id),
     };
     const handlers: Record<string, (args: any) => unknown> = {
+      get_voice_workflows: () => state.voiceWorkflows,
+      set_voice_workflows: ({ workflows }) => {
+        state.voiceWorkflows = workflows;
+      },
+      get_low_memory_mode: () => state.lowMemoryMode,
+      set_low_memory_mode: (args: any) => {
+        if (sc.memorySaveError) throw new Error("save failed");
+        state.lowMemoryMode = args.enabled;
+      },
       permissions_status: () => ({ ...state.permissions }),
       install_warnings: () => [],
       // Grant-flow commands: the prompting calls report the (mock) TCC state
@@ -257,6 +270,7 @@ export async function installTauriMock(page: Page, scenario: Scenario = {}) {
           daily_activity: dailyActivity,
         };
       },
+      get_project_assistant_report: () => null,
       list_projects: () =>
         Array.from({ length: state.projectCount }, (_, index) => ({
           id: `project-${index + 1}`,
@@ -301,7 +315,7 @@ export async function installTauriMock(page: Page, scenario: Scenario = {}) {
       },
       open_meeting_export_folder: () => undefined,
       get_mcp_settings: () => ({
-        binary_path: "/Applications/Tucky.app/Contents/MacOS/echo-scribe",
+        binary_path: "/Applications/Tucky.app/Contents/MacOS/Tucky",
         permissions: [
           { id: "knowledge_search", label: "Search captures & notes", description: "Search dictations and notes, and list projects and tasks. Read-only." },
           { id: "meetings", label: "Meetings & transcripts", description: "Read meeting transcripts, summaries, participants, and recipes. Read-only." },

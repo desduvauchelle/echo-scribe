@@ -12,7 +12,7 @@ import { mcpInstallSnippets } from "../lib/mcpInstall";
 // Same fallback the Settings page uses when the backend can't report its own
 // executable path — the copy snippet still shows a working install line.
 const DEFAULT_MCP_BINARY_PATH =
-  "/Applications/Tucky.app/Contents/MacOS/echo-scribe";
+  "/Applications/Tucky.app/Contents/MacOS/Tucky";
 
 /** Optional onboarding card that surfaces the built-in MCP server so a user
  *  can hook Tucky to Claude Code / Codex / Cursor / any MCP-capable client

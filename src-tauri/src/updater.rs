@@ -275,8 +275,7 @@ pub fn launch_update_helper() {
 
     // Replace the bundle we're actually running from; /Applications/Echo
     // Scribe.app is only the conventional install location.
-    let target = current_bundle_path()
-        .unwrap_or_else(|| PathBuf::from("/Applications/Tucky.app"));
+    let target = current_bundle_path().unwrap_or_else(|| PathBuf::from("/Applications/Tucky.app"));
     let pid = std::process::id();
     let log = crate::log_dir().join("update-helper.log");
     let script_path = std::env::temp_dir().join(format!("tucky-update-{pid}.sh"));

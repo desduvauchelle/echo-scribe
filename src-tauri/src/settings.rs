@@ -713,6 +713,21 @@ impl SettingsStore {
             .unwrap_or(default)
     }
 
+    pub fn low_memory_mode(&self) -> bool {
+        self.store
+            .get("low_memory_mode")
+            .and_then(|v| v.as_bool())
+            .unwrap_or_else(crate::util::memory::default_low_memory)
+    }
+
+    pub fn set_low_memory_mode(&self, enabled: bool) -> Result<(), SettingsError> {
+        self.store
+            .set("low_memory_mode", serde_json::Value::Bool(enabled));
+        self.store
+            .save()
+            .map_err(|e| SettingsError::Store(e.to_string()))
+    }
+
     /// How many seconds the LLM engine stays loaded after its last use before
     /// being automatically evicted from RAM. `0` means never evict. Defaults
     /// to [`DEFAULT_LLM_UNLOAD_SECS`] (2 minutes).
@@ -1506,6 +1521,32 @@ impl SettingsStore {
             }
         }
         defaults
+    }
+
+    pub fn voice_workflows(&self) -> Vec<crate::voice_workflows::VoiceWorkflow> {
+        self.store
+            .get("voice_workflows_v1")
+            .and_then(|value| serde_json::from_value(value).ok())
+            .unwrap_or_default()
+    }
+
+    pub fn set_voice_workflows(
+        &self,
+        workflows: &[crate::voice_workflows::VoiceWorkflow],
+    ) -> Result<(), String> {
+        crate::voice_workflows::validate(workflows)?;
+        let value = serde_json::to_value(workflows).map_err(|e| e.to_string())?;
+        let previous = self.store.get("voice_workflows_v1");
+        self.store.set("voice_workflows_v1", value);
+        if let Err(error) = self.store.save() {
+            if let Some(previous) = previous {
+                self.store.set("voice_workflows_v1", previous);
+            } else {
+                self.store.delete("voice_workflows_v1");
+            }
+            return Err(error.to_string());
+        }
+        Ok(())
     }
 
     /// Replace the full list of format templates. Marks seeded so an empty

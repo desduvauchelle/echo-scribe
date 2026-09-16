@@ -63,9 +63,7 @@ pub fn spawn(app: AppHandle<Wry>) {
                 return;
             }
         };
-        if let Err(e) =
-            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
-        {
+        if let Err(e) = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)) {
             warn!(target: "mcp", %e, "bridge socket chmod failed");
         }
         info!(target: "mcp", path = %path.display(), "mcp bridge listening");
@@ -155,14 +153,23 @@ fn list_sources() -> Result<Value, String> {
 }
 
 fn start_recording(app: &AppHandle<Wry>, params: &Value) -> Result<Value, String> {
-    let window_id = params.get("window_id").and_then(Value::as_u64).map(|v| v as u32);
-    let display_id = params.get("display_id").and_then(Value::as_u64).map(|v| v as u32);
+    let window_id = params
+        .get("window_id")
+        .and_then(Value::as_u64)
+        .map(|v| v as u32);
+    let display_id = params
+        .get("display_id")
+        .and_then(Value::as_u64)
+        .map(|v| v as u32);
     let mic = params.get("mic").and_then(Value::as_bool).unwrap_or(false);
     let sysaudio = params
         .get("system_audio")
         .and_then(Value::as_bool)
         .unwrap_or(true);
-    let camera = params.get("camera").and_then(Value::as_bool).unwrap_or(false);
+    let camera = params
+        .get("camera")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
 
     let sources = crate::commands::list_screen_sources()?;
     let mut warnings: Vec<String> = Vec::new();
