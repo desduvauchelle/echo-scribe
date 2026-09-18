@@ -307,6 +307,26 @@ pub fn capture_context() -> Option<FocusContext> {
     let bundle_id = app.bundleIdentifier().map(|s| s.to_string());
     let app_name = app.localizedName().map(|s| s.to_string());
 
+    // Never AX-query our own process. Callers run on background threads, and
+    // an in-process AX read lands in WebKit's accessibility code off the main
+    // thread, which WebKit turns into a deliberate crash
+    // (crashDueToApplicationCallingMainThreadOnlyWebKitAPIFromBackgroundThread).
+    // Tucky is frontmost e.g. while the desktop pet is being dragged.
+    if pid == std::process::id() as i32 {
+        tracing::debug!(target: "focus", "capture_context: frontmost is Tucky, skipping AX probes");
+        return Some(FocusContext {
+            pid,
+            bundle_id,
+            app_name,
+            window_title: None,
+            browser_url: None,
+            browser_tab_title: None,
+            content_title: None,
+            content_url: None,
+            content_source: None,
+        });
+    }
+
     let window_title = capture_window_title_macos(pid);
     let browser_url = bundle_id.as_deref().and_then(capture_browser_url_macos);
     let browser_tab_title = bundle_id
