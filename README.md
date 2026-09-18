@@ -1,19 +1,27 @@
 # Tucky
 
-Previously Echo Scribe. Existing data stays in place when upgrading; see
-[rebrand compatibility](docs/REBRAND.md) for the intentionally preserved paths.
+**Free, private voice to text for your whole Mac.** Press a hotkey, speak, and clean text appears wherever your cursor is: ChatGPT, Claude, Cursor, Slack, Gmail, VS Code. Speech recognition and the AI that tidies your words both run on your Mac. No account, no subscription, no cloud.
 
-**[echo-scribe.ai-juicing.com →](https://echo-scribe.ai-juicing.com)**
+**[tucky.ai-juicing.com →](https://tucky.ai-juicing.com)**
 
-A voice-first personal capture tool for macOS. Press a hotkey, speak, and Tucky transcribes and understands your words — entirely on your device, with no internet required.
+```bash
+curl -fsSL https://raw.githubusercontent.com/desduvauchelle/echo-scribe/main/install.sh | bash
+```
+
+macOS 14+, Apple Silicon or Intel. [What the installer does ↓](#install-on-macos)
+
+> Previously Echo Scribe. Existing data stays in place when upgrading; see
+> [rebrand compatibility](docs/REBRAND.md) for the intentionally preserved paths.
 
 ---
 
 ## What it does
 
-Tucky turns your voice into organized knowledge. A single global hotkey starts recording from anywhere on your Mac. When you stop speaking, your words are transcribed, classified by a local AI, and saved — no review step, no typing, no friction.
-
-Everything runs on your machine. No audio leaves your device. No account required. No subscription.
+- **Dictate anywhere.** One global hotkey works in any app. Filler words and false starts are removed before the text lands at your cursor. Built for people who prompt AI all day: spoken prompts come out longer and more specific than typed ones.
+- **Tell it how to format.** Start with the trigger word ("Tucky, format this as an email", "Tucky, turn this into bullet points") and the local LLM rewrites your dictation in your own tone.
+- **Record meetings locally.** Zoom, Google Meet and Teams calls are detected; you choose per app whether to always record, ask first, or never. You get a live transcript, then a summary, decisions and follow-ups.
+- **Record your screen.** Narrated walkthroughs and bug reports, edited locally, with an optional transcript.
+- **Search everything.** Dictations, notes, tasks and meeting transcripts live in one local, full-text-searchable library you can chat with, export, or expose to your own AI tools over [MCP](docs/MCP.md).
 
 ---
 
@@ -35,10 +43,10 @@ The app lives in your menu bar. The main window gives you a feed of everything c
 
 ## 100% private by design
 
-- Audio is processed in memory and never written to disk
+- Dictation audio is processed in memory; meeting and screen recordings are saved only on your Mac, in `~/Library/Application Support/EchoScribe/`
 - All AI inference runs locally (Parakeet + Gemma 4 via llama.cpp with Metal GPU offload)
 - No telemetry, no analytics, no cloud sync
-- SQLite database lives in `~/Library/Application Support/EchoScribe/` — your data, your machine
+- SQLite database lives in the same folder — your data, your machine
 - Models are downloaded once and cached locally; no internet needed after that
 
 ---
