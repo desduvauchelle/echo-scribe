@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { Trans, useTranslation } from "react-i18next";
 import { mcpInstallSnippets } from "../lib/mcpInstall";
+import DesktopPetSettings from "../components/DesktopPetSettings";
 import AppLanguagePicker from "../components/AppLanguagePicker";
 import HotkeyRebinder from "../components/HotkeyRebinder";
 import SpeechModelPicker from "../components/SpeechModelPicker";
@@ -1447,6 +1448,10 @@ function GeneralPage() {
         subtitle={t("general.startup.subtitle")}
       >
         <StartAtLoginToggle />
+      </Section>
+
+      <Section title="Desktop pet" subtitle="Choose how large Tucky appears on your desktop.">
+        <DesktopPetSettings />
       </Section>
 
       {/* Self-update swaps the macOS .app bundle — gate on the same capability

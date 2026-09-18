@@ -474,6 +474,16 @@ impl SettingsStore {
         Ok(())
     }
 
+    pub fn desktop_pet_size(&self) -> u8 {
+        self.store.get("desktop_pet_size").and_then(|v| v.as_u64())
+            .filter(|v| *v <= 2).unwrap_or(0) as u8
+    }
+
+    pub fn set_desktop_pet_size(&self, size: u8) -> Result<(), SettingsError> {
+        self.store.set("desktop_pet_size", serde_json::json!(size.min(2)));
+        self.store.save().map_err(|e| SettingsError::Store(e.to_string()))
+    }
+
     /// Whether system audio should be muted while recording. Defaults to `false`.
     pub fn mute_while_recording(&self) -> bool {
         self.store

@@ -1,0 +1,16 @@
+html, body, #root { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
+main { height: 100%; box-sizing: border-box; padding: 4px 5px; display: grid; grid-template-rows: minmax(0, 1fr) 16px; place-items: center; user-select: none; -webkit-user-select: none; }
+svg { width: 100%; height: 100%; filter: drop-shadow(0 2px 2px rgba(32, 22, 12, 0.32)); overflow: visible; cursor: grab; touch-action: none; }
+svg:active { cursor: grabbing; }
+.pupil { transform: translate(var(--eye-x, 0px), var(--eye-y, 0px)); transition: transform 100ms linear; }
+.headphones { opacity: 0; transform: translateY(-80px); transition: opacity 180ms ease, transform 220ms ease; pointer-events: none; }
+.headphones-on { opacity: 1; transform: translateY(0); }
+@media (prefers-reduced-motion: reduce) {
+  .pupil { transform: none; transition: none; }
+  .headphones { transition: none; }
+}
+
+.pet-meter-slot { width: 100%; height: 16px; display: grid; place-items: center; }
+.pet-meter { height: 16px; display: flex; align-items: center; justify-content: center; gap: 2px; padding: 0 4px; border-radius: 6px; background: rgba(248, 245, 235, 0.88); }
+.pet-meter span { width: 2px; border-radius: 2px; background: #4c5640; transition: height 60ms ease-out, opacity 120ms ease-out; }
+@media (prefers-reduced-motion: reduce) { .pet-meter span { transition: none; } }

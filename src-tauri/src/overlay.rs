@@ -212,7 +212,7 @@ fn recovered_overlay_position(
     Some((target.0 as i32, target.1 as i32))
 }
 
-fn keep_recording_overlay_visible(window: &tauri::WebviewWindow<Wry>) {
+pub(crate) fn keep_recording_overlay_visible(window: &tauri::WebviewWindow<Wry>) {
     let (Ok(position), Ok(size), Ok(mut monitors)) = (
         window.outer_position(),
         window.outer_size(),
@@ -653,6 +653,7 @@ pub fn show_action_toast(app_handle: &AppHandle<Wry>, kind: &str, message: &str)
 
 /// Sends audio level data to the overlay window for waveform visualization.
 pub fn emit_levels(app_handle: &AppHandle<Wry>, levels: &[f32]) {
+    crate::desktop_pet::update_levels(levels);
     if let Some(overlay) = app_handle.get_webview_window("recording_overlay") {
         let _ = overlay.emit("mic-level", levels);
     }

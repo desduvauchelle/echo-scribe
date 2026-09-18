@@ -16,6 +16,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: resolve(__dirname, "index.html"),
+        "desktop-pet": resolve(__dirname, "src/desktop-pet/index.html"),
         overlay: resolve(__dirname, "src/overlay/index.html"),
         consent: resolve(__dirname, "src/consent-overlay/index.html"),
         "meeting-toast": resolve(__dirname, "src/meeting-toast/index.html"),

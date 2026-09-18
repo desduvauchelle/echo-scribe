@@ -20,6 +20,7 @@ pub mod mcp_install;
 pub mod mcp_permissions;
 pub mod meeting;
 pub mod overlay;
+mod desktop_pet;
 pub mod permissions;
 pub mod platform;
 pub mod power;
@@ -252,6 +253,10 @@ pub fn run() {
             .build())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
+            desktop_pet::desktop_pet_get_size,
+            desktop_pet::desktop_pet_set_size,
+            desktop_pet::desktop_pet_state,
+            desktop_pet::desktop_pet_context_menu,
             permissions_status,
             platform_capabilities,
             open_microphone_settings,

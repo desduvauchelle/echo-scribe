@@ -166,6 +166,9 @@ impl<R: Runtime> TrayHandle<R> {
         let screenrec = self.screenrec_active.load(Ordering::SeqCst);
         let meeting = self.meeting_active.load(Ordering::SeqCst);
         let awake = self.awake_active.load(Ordering::SeqCst);
+        crate::desktop_pet::set_listening(crate::desktop_pet::recording_is_active(
+            pipeline, meeting, screenrec, self.screenrec_paused.load(Ordering::SeqCst),
+        ));
         let activity = tray_compose::activity_for(pipeline, screenrec, meeting, paused);
 
         let app = self.icon.app_handle();
@@ -298,6 +301,7 @@ enum MenuEntry {
         paused: bool,
     },
     KeepAwake,
+    DesktopPet,
     Settings,
     Quit,
 }
@@ -336,6 +340,7 @@ fn menu_plan(s: &MenuState) -> Vec<MenuEntry> {
     if s.keep_awake_supported {
         plan.push(MenuEntry::KeepAwake);
     }
+    plan.push(MenuEntry::DesktopPet);
     plan.push(MenuEntry::Settings);
     plan.push(MenuEntry::Separator);
     plan.push(MenuEntry::Quit);
@@ -443,6 +448,15 @@ fn build_menu<R: Runtime>(
                 keep_awake_menu = Some(submenu);
                 keep_awake_items = ka_items;
             }
+            MenuEntry::DesktopPet => items.push(Box::new(CheckMenuItem::with_id(
+                app,
+                "desktop_pet",
+                "Show desktop pet",
+                true,
+                app.get_webview_window("desktop_pet")
+                    .and_then(|w| w.is_visible().ok()).unwrap_or(false),
+                None::<&str>,
+            )?)),
             MenuEntry::Settings => items.push(Box::new(MenuItem::with_id(
                 app,
                 "settings",
@@ -485,6 +499,11 @@ impl TrayHandle<Wry> {
         if let Ok(mut slot) = self.paused.lock() {
             *slot = Arc::clone(&paused);
         }
+        crate::desktop_pet::restore_size(app.state::<AppState>().settings.desktop_pet_size());
+        let refresh_app = app.clone();
+        std::thread::spawn(move || {
+            if let Ok(tray) = refresh_app.state::<AppState>().tray.lock() { tray.rebuild_menu(); };
+        });
         let app_for_handler = app.clone();
         self.icon.on_menu_event(move |_app, event| {
             match event.id().as_ref() {
@@ -493,6 +512,31 @@ impl TrayHandle<Wry> {
                 }
                 "open" => {
                     show_main_window(&app_for_handler);
+                }
+                id if id.starts_with("desktop_pet_size:") => {
+                    if let Ok(size) = id.trim_start_matches("desktop_pet_size:").parse::<u8>() {
+                        let app = app_for_handler.clone();
+                        std::thread::spawn(move || {
+                            if let Err(e) = crate::desktop_pet::set_size(&app, size) {
+                                warn!(%e, "desktop pet size failed");
+                                let _ = app.emit("asr:error", format!("Could not save pet size: {e}"));
+                            }
+                            if let Ok(tray) = app.state::<AppState>().tray.lock() { tray.rebuild_menu(); };
+                        });
+                    }
+                }
+                "desktop_pet" | "desktop_pet_hide" => {
+                    let hide_only = event.id().as_ref() == "desktop_pet_hide";
+                    let app = app_for_handler.clone();
+                    std::thread::spawn(move || {
+                        if let Err(e) = if hide_only { crate::desktop_pet::hide(&app) } else { crate::desktop_pet::toggle(&app) } {
+                            warn!(%e, "desktop pet toggle failed");
+                            let _ = app.emit("asr:error", format!("Could not toggle desktop pet: {e}"));
+                        }
+                        if let Ok(tray) = app.state::<AppState>().tray.lock() {
+                            tray.rebuild_menu();
+                        };
+                    });
                 }
                 "settings" => {
                     show_main_window(&app_for_handler);
@@ -706,6 +750,7 @@ impl TrayHandle<Wry> {
     /// "Pause recording" while running. Idempotent.
     pub fn set_screenrec_paused(&self, paused: bool) {
         if self.screenrec_paused.swap(paused, Ordering::SeqCst) != paused {
+            self.refresh_icon();
             self.rebuild_menu();
         }
     }
@@ -922,6 +967,20 @@ mod menu_plan_tests {
         MenuState {
             keep_awake_supported: true,
             ..MenuState::default()
+        }
+    }
+
+    #[test]
+    fn desktop_pet_remains_available_during_recording_and_pause() {
+        for screenrec_active in [false, true] {
+            for meeting_active in [false, true] {
+                let plan = menu_plan(&MenuState {
+                    screenrec_active, meeting_active, hotkeys_paused: true, ..idle()
+                });
+                assert_eq!(plan.iter().filter(|row| **row == MenuEntry::DesktopPet).count(), 1);
+                assert!(plan.contains(&MenuEntry::Settings));
+                assert_eq!(plan.last(), Some(&MenuEntry::Quit));
+            }
         }
     }
 
