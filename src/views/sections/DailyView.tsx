@@ -15,6 +15,7 @@ import {
 } from "../../lib/api";
 import { parseGuideReview } from "../../lib/guideReview";
 import { useActivityPanel } from "../../components/ActivityPanelContext";
+import { RecapBulletText } from "../../components/RecapBulletText";
 
 const FIRST_RUN_FLAG = "daily_recap_first_run_dismissed";
 
@@ -480,7 +481,7 @@ function Section({
             key={i}
             className="rounded-md border border-line bg-canvas p-3 text-sm text-fg"
           >
-            <span>{it.text}</span>
+            <RecapBulletText text={it.text} />
             {it.source_id ? (
               <span className="ml-2 text-[10px] text-faint">
                 [{it.source_id}]

@@ -78,105 +78,210 @@ pub struct DailySummaryOutput {
     pub sections: Sections,
 }
 
-/// Cap on per-app dictations sent to the model in the first-pass prompt.
-/// When exceeded, the overflow becomes a "+N more dictations" trailer.
-/// On busy days the map-reduce fallback (see [`generate`]) replaces full
-/// dictation lists with LLM-generated condensations.
-const DICTATIONS_PER_APP_CAP: usize = 15;
+/// Days with at most this many (non-noise) dictations send them to the
+/// recap prompt verbatim. Above it, dictations are first digested into
+/// chronological work sessions so the recap sees the *whole* day — the old
+/// "first 15 per app" cap silently dropped ~75% of a busy day.
+const RAW_DICTATION_LIMIT: usize = 15;
 
 /// Per-item character caps. Tokens are roughly chars/4 for English-ish
 /// content; these caps keep the per-item contribution bounded.
-///
-/// `MEETING_TITLE_CAP_CHARS` is small because the `items.content` field for
-/// meetings actually stores transcript text (up to ~90 KB on long calls).
-/// 200 chars is enough for a real title without dragging in transcripts.
-const MEETING_TITLE_CAP_CHARS: usize = 200;
-const MEETING_SUMMARY_CAP_CHARS: usize = 800;
+const MEETING_SUMMARY_CAP_CHARS: usize = 1_500;
 const NOTE_CAP_CHARS: usize = 600;
 const DICTATION_CAP_CHARS: usize = 400;
+/// Dictation length inside a session-digest sub-prompt.
+const SESSION_DICTATION_CAP_CHARS: usize = 350;
+
+/// A work session closes when the next dictation is this far away…
+const SESSION_GAP_MINUTES: i64 = 60;
+/// …or when its digest input would exceed this many chars / dictations.
+const SESSION_MAX_CHARS: usize = 6_000;
+const SESSION_MAX_ITEMS: usize = 30;
 
 /// Soft budget for the assembled user-prompt string. Targets ~12K tokens
-/// (rule of thumb 4 chars/token), leaving ~4K of headroom inside the
-/// runtime's 16K n_ctx for the system prompt + response (max_tokens = 768).
-/// When exceeded, the map-reduce path in [`generate`] kicks in to condense
-/// dictation groups via secondary LLM calls before retrying.
+/// (rule of thumb 4 chars/token), leaving headroom inside the runtime's 16K
+/// n_ctx for the system prompt + response.
 const MAX_USER_PROMPT_CHARS: usize = 48_000;
 
 fn truncate(s: &str, max: usize) -> String {
-    if s.chars().count() <= max {
-        s.to_string()
-    } else {
-        let mut out: String = s.chars().take(max).collect();
-        out.push('…');
-        out
-    }
+    crate::daily_summary::collector::truncate_chars(s, max)
 }
 
-/// Build the system + user prompt strings for a given input. Enforces both
-/// per-item character caps and a total prompt budget so the model never
-/// sees more input than its context window can hold.
-pub fn build_prompt(input: &DailySummaryInput) -> (String, String) {
-    let system = full_system_prompt();
-    let mut user = build_user_prompt(input, DICTATIONS_PER_APP_CAP);
+/// One chronological stretch of dictations, digested by the LLM into a few
+/// "topic: what happened" lines.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WorkSession {
+    pub start: String,
+    pub end: String,
+    pub count: usize,
+    pub apps: Vec<String>,
+    pub digest: String,
+}
 
-    // If we're still over budget, shrink the per-app dictation cap until the
-    // prompt fits or we run out of room to shrink.
-    let mut cap = DICTATIONS_PER_APP_CAP;
-    while user.len() > MAX_USER_PROMPT_CHARS && cap > 0 {
-        cap = cap.saturating_sub(2);
-        user = build_user_prompt(input, cap);
+/// What the final recap prompt sees for dictations.
+#[derive(Debug, Clone, PartialEq)]
+pub enum DictationView<'a> {
+    Raw(Vec<&'a ItemForSummary>),
+    Sessions(Vec<WorkSession>),
+}
+
+/// Dictations that carry no information about the day: agent housekeeping
+/// ("commit and push", "do it", "yes please") and one-to-three word replies.
+/// Left in, the model dutifully turns them into "What's next: commit and push".
+pub fn is_noise_dictation(text: &str) -> bool {
+    let lower = text.trim().to_lowercase();
+    let words = lower.split_whitespace().count();
+    if words <= 3 {
+        return true;
     }
+    if words <= 10 && lower.contains("commit") && lower.contains("push") {
+        return true;
+    }
+    const FILLERS: &[&str] = &[
+        "do it", "go ahead", "go for it", "sounds good", "yes please", "yes, please",
+        "let's do it", "make it happen", "continue", "alright, add it",
+    ];
+    words <= 6 && FILLERS.iter().any(|f| lower.contains(f))
+}
 
+pub fn meaningful_dictations(input: &DailySummaryInput) -> Vec<&ItemForSummary> {
+    input
+        .dictations
+        .iter()
+        .filter(|d| !is_noise_dictation(&d.content))
+        .collect()
+}
+
+fn dictation_line(d: &ItemForSummary, cap: usize) -> String {
+    let place = match &d.context {
+        Some(c) => format!("{} · {}", d.app, c),
+        None => d.app.clone(),
+    };
+    format!(
+        "{} [{}] {}",
+        local_clock(&d.captured_at),
+        place,
+        truncate(d.content.trim(), cap).replace('\n', " ")
+    )
+}
+
+/// Split dictations into chronological chunks: a new chunk starts after a
+/// long gap or once the chunk is big enough to digest in one small call.
+pub fn chunk_sessions<'a>(items: &[&'a ItemForSummary]) -> Vec<Vec<&'a ItemForSummary>> {
+    let mut out: Vec<Vec<&ItemForSummary>> = Vec::new();
+    let mut cur: Vec<&ItemForSummary> = Vec::new();
+    let mut cur_chars = 0usize;
+    let mut last_ts: Option<chrono::DateTime<chrono::FixedOffset>> = None;
+    for &d in items {
+        let ts = chrono::DateTime::parse_from_rfc3339(&d.captured_at).ok();
+        let gap = matches!((last_ts, ts), (Some(a), Some(b)) if (b - a).num_minutes() >= SESSION_GAP_MINUTES);
+        let line_len = dictation_line(d, SESSION_DICTATION_CAP_CHARS).len() + 1;
+        if !cur.is_empty()
+            && (gap || cur.len() >= SESSION_MAX_ITEMS || cur_chars + line_len > SESSION_MAX_CHARS)
+        {
+            out.push(std::mem::take(&mut cur));
+            cur_chars = 0;
+        }
+        cur.push(d);
+        cur_chars += line_len;
+        if ts.is_some() {
+            last_ts = ts;
+        }
+    }
+    if !cur.is_empty() {
+        out.push(cur);
+    }
+    out
+}
+
+/// Build the system + user prompt strings. Enforces per-item caps and the
+/// total prompt budget so the model never sees more than its context holds.
+pub fn build_prompt(input: &DailySummaryInput, dictations: &DictationView) -> (String, String) {
+    let system = full_system_prompt();
+    let mut user = build_user_prompt(input, dictations, usize::MAX);
+    // Raw dictations are only used on light days, but a handful of very long
+    // meeting summaries could still overflow — shrink the raw list if so.
+    let mut keep = match dictations {
+        DictationView::Raw(v) => v.len(),
+        DictationView::Sessions(_) => 0,
+    };
+    while user.len() > MAX_USER_PROMPT_CHARS && keep > 0 {
+        keep = keep.saturating_sub(2);
+        user = build_user_prompt(input, dictations, keep);
+    }
     (system, user)
 }
 
-fn build_user_prompt(input: &DailySummaryInput, dictation_cap: usize) -> String {
+fn build_user_prompt(input: &DailySummaryInput, dictations: &DictationView, raw_keep: usize) -> String {
     let mut user = String::new();
     user.push_str(&format!("Date: {}\n\n", input.date));
 
     if !input.meetings.is_empty() {
-        user.push_str("# Meetings\n");
+        user.push_str("# Meetings (most reliable source for decisions and action items)\n");
         for (i, m) in input.meetings.iter().enumerate() {
-            let id = format!("m{}", i + 1);
-            let raw_title = m.suggested_title.as_deref().unwrap_or("(untitled)");
-            let title = truncate(raw_title, MEETING_TITLE_CAP_CHARS);
-            user.push_str(&format!("- [{id}] {title} (started {})\n", m.started_at));
-            if let Some(s) = &m.summary_json {
+            user.push_str(&format!(
+                "- [m{}] {} at {}\n",
+                i + 1,
+                truncate(&m.title, 200),
+                local_clock(&m.started_at)
+            ));
+            if let Some(s) = &m.summary {
                 let s = truncate(s, MEETING_SUMMARY_CAP_CHARS);
-                user.push_str(&format!("  summary: {s}\n"));
+                for line in s.lines().filter(|l| !l.trim().is_empty()) {
+                    user.push_str(&format!("    {}\n", line.trim_end()));
+                }
             }
         }
         user.push('\n');
     }
 
     if !input.notes.is_empty() {
-        user.push_str("# Notes\n");
+        user.push_str("# Notes the person captured for themselves\n");
         for (i, n) in input.notes.iter().enumerate() {
-            let id = format!("n{}", i + 1);
-            let content = truncate(&n.content, NOTE_CAP_CHARS);
-            user.push_str(&format!("- [{id}] ({}) {}\n", n.captured_at, content));
+            let content = truncate(n.content.trim(), NOTE_CAP_CHARS).replace('\n', " ");
+            user.push_str(&format!(
+                "- [n{}] {} {}\n",
+                i + 1,
+                local_clock(&n.captured_at),
+                content
+            ));
         }
         user.push('\n');
     }
 
-    if !input.dictations_by_app.is_empty() && dictation_cap > 0 {
-        user.push_str("# Dictations grouped by app\n");
-        let mut dictation_counter = 0;
-        for (app, items) in &input.dictations_by_app {
-            user.push_str(&format!("## {app} ({} total)\n", items.len()));
-            for item in items.iter().take(dictation_cap) {
-                dictation_counter += 1;
-                let content = truncate(&item.content, DICTATION_CAP_CHARS);
-                user.push_str(&format!("- [d{dictation_counter}] {}\n", content));
-            }
-            if items.len() > dictation_cap {
+    match dictations {
+        DictationView::Raw(items) if !items.is_empty() && raw_keep > 0 => {
+            user.push_str("# Dictations (mostly spoken to AI assistants; time [app · place] text)\n");
+            for (i, d) in items.iter().take(raw_keep).enumerate() {
                 user.push_str(&format!(
-                    "- ...and {} more dictations into {app}\n",
-                    items.len() - dictation_cap
+                    "- [d{}] {}\n",
+                    i + 1,
+                    dictation_line(d, DICTATION_CAP_CHARS)
                 ));
+            }
+            if items.len() > raw_keep {
+                user.push_str(&format!("- ...and {} more dictations\n", items.len() - raw_keep));
             }
             user.push('\n');
         }
+        DictationView::Sessions(sessions) if !sessions.is_empty() => {
+            user.push_str("# Work sessions (digested from dictations, chronological)\n");
+            for (i, s) in sessions.iter().enumerate() {
+                user.push_str(&format!(
+                    "- [s{}] {}–{} ({} dictations in {})\n",
+                    i + 1,
+                    s.start,
+                    s.end,
+                    s.count,
+                    s.apps.join(", ")
+                ));
+                for line in s.digest.lines().filter(|l| !l.trim().is_empty()) {
+                    user.push_str(&format!("    {}\n", line.trim()));
+                }
+            }
+            user.push('\n');
+        }
+        _ => {}
     }
 
     user.push_str(STYLE_GUIDANCE);
@@ -184,7 +289,7 @@ fn build_user_prompt(input: &DailySummaryInput, dictation_cap: usize) -> String 
 }
 
 const SYSTEM_PROMPT: &str =
-    "You are summarizing one day of one person's work. Be honest about the shape of the day. Do not inflate. Omit any section that has no real content. Respond with strict JSON matching the provided schema.";
+    "You write a short, specific end-of-day recap for one person, like a sharp chief of staff would. Be concrete and honest about the shape of the day. Do not inflate. Respond with strict JSON matching the provided schema.";
 
 /// Meetings, notes, and dictations for one day can each be in a different
 /// language (Parakeet transcribes 25 of them); without an explicit rule the
@@ -210,24 +315,32 @@ fn full_system_prompt() -> String {
 const STYLE_GUIDANCE: &str = r#"
 Produce JSON with this shape:
 {
-  "narrative": "2-3 sentence opener describing the shape of the day",
+  "narrative": "1-2 sentences naming the day's main threads",
   "sections": {
-    "what_happened": [{ "text": "...", "source_id": "m1" }],
-    "what_mattered": [{ "text": "...", "source_id": "d12" }],
-    "whats_next":    [{ "text": "...", "source_id": "n3"  }]
+    "what_happened": [{ "text": "Topic: what happened", "source_id": "s1" }],
+    "what_mattered": [{ "text": "Topic: the decision or consequence", "source_id": "m1" }],
+    "whats_next":    [{ "text": "Topic: the open item", "source_id": "m1" }]
   }
 }
 
-Rules:
-- Create an outcome-oriented morning brief, not a chronological log or a list organized by source type.
-- Prioritize signal over coverage and do not repeat the same event across sections.
-- "what_happened" summarizes the few meaningful conversations, work, and developments from the day.
-- "what_mattered" surfaces decisions, progress, changed understanding, risks, and other key outcomes. Do not include routine activity just because it occurred.
-- "whats_next" lists only explicit commitments, follow-ups, and open questions. Include an owner, date, or urgency only when the source states it. Never invent a task, decision, commitment, owner, date, or urgency.
-- Each section is an array. If a section has no real content, return an empty array.
-- For each bullet, set `source_id` to the [m#]/[n#]/[d#] tag from the input that the bullet draws from. If the bullet draws from multiple sources or you are unsure, omit `source_id`.
+How to read the input:
+- The person builds software products. Most dictations are them talking to AI assistants and coding agents (Claude, ChatGPT, Codex, Cursor, terminals): instructions, feedback, and thinking out loud. Use them to tell what the person worked on. They are NOT the person's to-do list — the agent usually did that work on the spot.
+- Meetings are the most reliable source for decisions and action items.
+- Transcripts contain speech-recognition errors. Use the obviously intended word, or leave a garbled term out. Never repeat nonsense.
+
+Writing rules:
+- Every bullet starts with a short topic (the product, feature, customer, or person), a colon, then what happened. Example: "LiveCase nurturing emails: rewrote the follow-up so it speaks to case writers, not instructors."
+- Use the concrete names from the input. Active voice, past tense, at most 25 words per bullet.
+- Banned filler: "a discussion centered on", "there was a focus on", "various", "several dictations", "significant", "heavily focused", "refinement", "exploration of".
+- narrative: 1-2 plain sentences naming the 2-3 main threads. Example: "Mostly LiveCase: nurturing emails and the Lucy task list, plus a pricing call about creator monetization."
+- what_happened: 3-7 bullets, one per main thread, biggest first. Cover every work session and meeting: merge sessions about the same product into one bullet, and never spend two bullets on one thread.
+- what_mattered: 0-4 bullets. Only real decisions, changes of direction, problems discovered, or things shipped. Do not restate a what_happened bullet; state the decision or its consequence. Leave it empty rather than pad it.
+- whats_next: 0-5 bullets. Only open items: meeting action items, things the person said they will do later or put on hold, unresolved problems. Never list an instruction the person gave an AI agent (like "commit and push", "fix the padding", "add a button"). Leave it empty rather than pad it. Never invent a task, decision, commitment, owner, date, or urgency.
+- For each bullet, set `source_id` to the [m#]/[n#]/[s#]/[d#] tag it draws from. If it draws from several or you are unsure, omit `source_id`.
 - Do not include any text outside the JSON object.
 "#;
+
+const SESSION_DIGEST_PROMPT: &str = "You turn a stretch of one person's voice dictations into a short work log. Most dictations are the person talking to AI assistants and coding agents (instructions, feedback, thinking out loud) or writing messages. Infer what they were working on and what changed. Output 1-4 lines, each starting with \"- \". Start each line with the real product or feature name taken from the dictations, a colon, then what they worked on, decided, or asked for. Good: \"- Lucy task list: merged loop tasks into the main task list, with filters per loop.\" Bad: \"- Project: Task management: unify tasks.\" Never use the words Project, Feature, or Topic as the name. At most 25 words per line. Merge related dictations into one line. Keep it if the person states a decision or a plan for later, and say so (\"decided…\", \"put … on hold\", \"plans to…\"). Skip housekeeping (commit/push, \"do it\", \"yes\"). Speech-recognition errors are common (\"Cloud\" or \"Clod\" usually means Claude): use the obviously intended word or leave it out. Never invent details. Plain text lines only, no preamble.";
 
 /// GBNF grammar that forces the model to emit JSON matching the schema.
 ///
@@ -251,6 +364,7 @@ pub fn prompt_version() -> String {
     let mut h = Sha256::new();
     h.update(full_system_prompt().as_bytes());
     h.update(STYLE_GUIDANCE.as_bytes());
+    h.update(SESSION_DIGEST_PROMPT.as_bytes());
     h.update(OUTPUT_GRAMMAR.as_bytes());
     let digest = h.finalize();
     digest[..4].iter().map(|b| format!("{:02x}", b)).collect()
@@ -258,53 +372,37 @@ pub fn prompt_version() -> String {
 
 use tracing::{info, warn};
 
-use crate::daily_summary::collector::ItemForSummary;
+use crate::daily_summary::collector::{local_clock, ItemForSummary};
 use crate::llm::{GenerateRequest, Llm, LlmError};
 
-/// Per-sub-call char budget when condensing a single app's dictations.
-/// Anything beyond this gets dropped from the condense input — but the count
-/// "N total" is still surfaced in the synthetic line that replaces the group.
-const CONDENSE_SUB_PROMPT_CHARS: usize = 8_000;
-
-/// Generate a daily summary by prompting the local LLM with the input
-/// bundle. Awaits the async `Llm::generate` (which internally wraps the
-/// CPU/Metal-bound work in `spawn_blocking`).
+/// Generate a daily summary with the local LLM.
 ///
-/// **Map-reduce fallback:** if the assembled prompt exceeds
-/// `MAX_USER_PROMPT_CHARS`, we condense each app's dictations into a
-/// 1–3 sentence summary via a secondary LLM call per app, then rebuild
-/// the daily-summary prompt against the condensed input. This preserves
-/// signal from every dictation instead of truncating tail items away.
+/// Light days send dictations verbatim. Busier days first digest dictations
+/// into chronological work sessions (one small LLM call each) so the final
+/// prompt covers the whole day instead of a truncated slice of it.
 pub async fn generate(
     llm: &Llm,
     input: &DailySummaryInput,
 ) -> Result<DailySummaryOutput, GenerateError> {
-    let (system, user) = build_prompt(input);
-    if user.len() <= MAX_USER_PROMPT_CHARS {
-        return call(llm, system, user).await;
-    }
-
+    let meaningful = meaningful_dictations(input);
     info!(
-        prompt_chars = user.len(),
-        budget = MAX_USER_PROMPT_CHARS,
-        dictation_apps = input.dictations_by_app.len(),
-        "daily_summary: prompt exceeds budget, condensing dictation groups via map-reduce"
+        target: "daily_summary",
+        dictations = input.dictations.len(),
+        meaningful = meaningful.len(),
+        "daily_summary: filtered noise dictations"
     );
-
-    let condensed = condense_dictation_groups(llm, input).await;
-    let (system, user) = build_prompt(&condensed);
-    if user.len() > MAX_USER_PROMPT_CHARS {
-        warn!(
-            prompt_chars = user.len(),
-            budget = MAX_USER_PROMPT_CHARS,
-            "daily_summary: still over budget after condensing; build_prompt's shrink loop will have trimmed further"
-        );
+    let view = if meaningful.len() <= RAW_DICTATION_LIMIT {
+        DictationView::Raw(meaningful)
     } else {
-        info!(
-            prompt_chars = user.len(),
-            "daily_summary: condensed prompt fits within budget"
-        );
-    }
+        DictationView::Sessions(digest_sessions(llm, &meaningful).await)
+    };
+    let (system, user) = build_prompt(input, &view);
+    info!(
+        target: "daily_summary",
+        prompt_chars = user.len(),
+        sessions = matches!(view, DictationView::Sessions(ref s) if !s.is_empty()),
+        "daily_summary: recap prompt built"
+    );
     call(llm, system, user).await
 }
 
@@ -324,10 +422,6 @@ async fn call(
             system: Some(system),
             user,
             history: Vec::new(),
-            // 1536 tokens of output room. A full recap with 4 sections of
-            // ~5 bullets each + a narrative comes in around 800-1200
-            // tokens; the extra slack covers heavy days. n_ctx = 16384,
-            // so input can still be ~14K tokens.
             max_tokens: 1536,
             temperature: 0.3,
             stop_strings: Vec::new(),
@@ -350,77 +444,105 @@ async fn call(
     })
 }
 
-/// Replace each dictation-app group with a single synthetic "condensed"
-/// entry whose content is an LLM-generated 1–3 sentence summary of that
-/// app's dictations. Tiny groups (≤3 items) are passed through unchanged.
-/// If condensing any one group fails, that group keeps its original items
-/// (best-effort degradation rather than aborting the whole recap).
-async fn condense_dictation_groups(llm: &Llm, input: &DailySummaryInput) -> DailySummaryInput {
-    let mut condensed = input.clone();
-    let mut new_groups = Vec::with_capacity(condensed.dictations_by_app.len());
-    for (app, items) in condensed.dictations_by_app.drain(..) {
-        let total = items.len();
-        if total <= 3 {
-            new_groups.push((app, items));
-            continue;
-        }
-        match summarize_dictation_group(llm, &app, &items).await {
-            Ok(summary) => {
-                let synthetic = ItemForSummary {
-                    id: format!("condensed-{app}"),
-                    content: format!("[Condensed from {total} dictations] {summary}"),
-                    captured_at: items
-                        .first()
-                        .map(|i| i.captured_at.clone())
-                        .unwrap_or_default(),
-                    capture_context: Some(app.clone()),
-                };
-                new_groups.push((app, vec![synthetic]));
+/// Digest each chronological chunk of dictations. A chunk whose digest call
+/// fails degrades to its first few raw dictations rather than vanishing.
+async fn digest_sessions(llm: &Llm, items: &[&ItemForSummary]) -> Vec<WorkSession> {
+    let chunks = chunk_sessions(items);
+    let mut out = Vec::with_capacity(chunks.len());
+    for (i, chunk) in chunks.iter().enumerate() {
+        let mut apps: Vec<String> = Vec::new();
+        for d in chunk {
+            if !apps.contains(&d.app) {
+                apps.push(d.app.clone());
             }
-            Err(e) => {
+        }
+        let start = local_clock(&chunk[0].captured_at);
+        let end = local_clock(&chunk[chunk.len() - 1].captured_at);
+        let digest = match digest_one_session(llm, chunk).await {
+            Ok(d) if !d.trim().is_empty() => d,
+            Ok(_) | Err(_) => {
                 warn!(
-                    app = %app,
-                    items = total,
-                    error = %e,
-                    "daily_summary: failed to condense dictation group, keeping original"
+                    target: "daily_summary",
+                    session = i + 1,
+                    items = chunk.len(),
+                    "daily_summary: session digest failed or empty; using raw excerpt"
                 );
-                new_groups.push((app, items));
+                chunk
+                    .iter()
+                    .take(5)
+                    .map(|d| format!("- {}", truncate(d.content.trim(), 160).replace('\n', " ")))
+                    .collect::<Vec<_>>()
+                    .join("\n")
             }
-        }
+        };
+        info!(
+            target: "daily_summary",
+            session = i + 1,
+            items = chunk.len(),
+            %start,
+            %end,
+            digest = %digest.replace('\n', " | "),
+            "daily_summary: session digested"
+        );
+        out.push(WorkSession {
+            start,
+            end,
+            count: chunk.len(),
+            apps,
+            digest,
+        });
     }
-    condensed.dictations_by_app = new_groups;
-    condensed
+    out
 }
 
-async fn summarize_dictation_group(
-    llm: &Llm,
-    app: &str,
-    items: &[ItemForSummary],
-) -> Result<String, GenerateError> {
-    let mut content = String::new();
-    let mut remaining = CONDENSE_SUB_PROMPT_CHARS;
-    for item in items {
-        let line = format!("- {}\n", item.content.trim());
-        if line.len() > remaining {
-            break;
-        }
-        remaining -= line.len();
-        content.push_str(&line);
-    }
+async fn digest_one_session(llm: &Llm, chunk: &[&ItemForSummary]) -> Result<String, GenerateError> {
+    let lines: String = chunk
+        .iter()
+        .map(|d| format!("{}\n", dictation_line(d, SESSION_DICTATION_CAP_CHARS)))
+        .collect();
     let req = GenerateRequest {
-        system: Some(
-            "You are summarizing what a person was doing in one app today based on short dictations they spoke aloud. Be brief (1-3 sentences). Capture themes and notable items. Use prose, not bullets. Do not invent details that are not in the input.".into(),
-        ),
-        user: format!("App: {app}\nDictations:\n{content}"),
+        system: Some(SESSION_DIGEST_PROMPT.into()),
+        user: format!("Dictations (time [app · place] text):\n{lines}\nWork log:"),
         history: Vec::new(),
-        max_tokens: 200,
-        temperature: 0.3,
+        max_tokens: 260,
+        temperature: 0.2,
         stop_strings: Vec::new(),
         grammar_gbnf: None,
         n_ctx: Some(4096),
     };
     let raw = llm.generate(req).await.map_err(GenerateError::Llm)?;
-    Ok(raw.trim().to_string())
+    Ok(clean_digest(&raw))
+}
+
+/// The 2B model sometimes copies the prompt's placeholder as the topic
+/// ("Project: Task list: …", "Project or feature: …"). Drop that prefix.
+fn strip_placeholder_topic(line: &str) -> &str {
+    const PLACEHOLDERS: &[&str] = &["project or feature:", "project:", "feature:", "topic:"];
+    let lower = line.to_lowercase();
+    for p in PLACEHOLDERS {
+        if lower.starts_with(p) {
+            return line[p.len()..].trim_start();
+        }
+    }
+    line
+}
+
+/// Keep only bullet-ish lines, normalised to "- …". Drops any preamble the
+/// model adds ("Here is the work log:").
+pub fn clean_digest(raw: &str) -> String {
+    raw.lines()
+        .map(str::trim)
+        .filter_map(|l| {
+            let body = l
+                .strip_prefix("- ")
+                .or_else(|| l.strip_prefix("* "))
+                .or_else(|| l.strip_prefix("• "))?;
+            let body = strip_placeholder_topic(body.trim());
+            (!body.is_empty()).then(|| format!("- {body}"))
+        })
+        .take(5)
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -440,12 +562,47 @@ pub fn parse_response(raw: &str) -> Result<DailySummaryOutput, ParseError> {
         .ok_or_else(|| ParseError::Json("no balanced JSON object found in response".into()))?;
     let v: serde_json::Value =
         serde_json::from_str(json_slice).map_err(|e| ParseError::Json(e.to_string()))?;
-    let out: DailySummaryOutput =
+    let mut out: DailySummaryOutput =
         serde_json::from_value(v).map_err(|e| ParseError::Schema(e.to_string()))?;
+    for item in out
+        .sections
+        .what_happened
+        .iter_mut()
+        .chain(out.sections.what_mattered.iter_mut())
+        .chain(out.sections.whats_next.iter_mut())
+    {
+        item.text = strip_trailing_source_tag(&item.text);
+    }
     if out.narrative.trim().is_empty() {
         return Err(ParseError::Schema("narrative is empty".into()));
     }
     Ok(out)
+}
+
+/// Models sometimes echo the source tag into the text ("… pricing. (m1)").
+/// The tag already lives in `source_id`; drop it from the prose.
+fn strip_trailing_source_tag(text: &str) -> String {
+    let t = text.trim_end();
+    let Some(open) = t.rfind(['(', '[']) else {
+        return t.to_string();
+    };
+    let tail = &t[open..];
+    let inner = tail.trim_start_matches(['(', '[']).trim_end_matches([')', ']']);
+    let is_tag = (tail.ends_with(')') || tail.ends_with(']'))
+        && inner
+            .split([',', ' '])
+            .filter(|p| !p.is_empty())
+            .all(|p| {
+                let mut c = p.chars();
+                matches!(c.next(), Some('m' | 'n' | 's' | 'd'))
+                    && !c.as_str().is_empty()
+                    && c.as_str().chars().all(|ch| ch.is_ascii_digit())
+            });
+    if is_tag {
+        t[..open].trim_end().to_string()
+    } else {
+        t.to_string()
+    }
 }
 
 /// Scan `raw` for the first balanced `{...}` JSON object, respecting strings
@@ -504,20 +661,35 @@ mod tests {
             date: date.into(),
             meetings: vec![],
             notes: vec![],
-            dictations_by_app: vec![],
+            dictations: vec![],
         }
+    }
+
+    fn dictation(id: &str, at: &str, text: &str) -> ItemForSummary {
+        ItemForSummary {
+            id: id.into(),
+            content: text.into(),
+            captured_at: at.into(),
+            app: "Claude".into(),
+            context: None,
+        }
+    }
+
+    fn prompt(input: &DailySummaryInput) -> (String, String) {
+        let view = DictationView::Raw(meaningful_dictations(input));
+        build_prompt(input, &view)
     }
 
     #[test]
     fn prompt_includes_date_and_schema() {
-        let (system, user) = build_prompt(&empty_input("2026-05-12"));
+        let (system, user) = prompt(&empty_input("2026-05-12"));
         assert!(system.contains("Respond with strict JSON"));
         assert!(user.contains("Date: 2026-05-12"));
         assert!(user.contains("\"narrative\""));
         assert!(user.contains("\"what_happened\""));
         assert!(user.contains("\"what_mattered\""));
         assert!(user.contains("\"whats_next\""));
-        assert!(user.contains("outcome-oriented morning brief"));
+        assert!(user.contains("They are NOT the person's to-do list"));
         assert!(user.contains("Never invent a task, decision, commitment, owner, date, or urgency"));
     }
 
@@ -529,7 +701,7 @@ mod tests {
 
     #[test]
     fn prompt_system_carries_the_language_rule() {
-        let (system, _user) = build_prompt(&empty_input("2026-05-12"));
+        let (system, _user) = prompt(&empty_input("2026-05-12"));
         assert!(
             system.contains(&crate::llm::prompt::language_rule(
                 "the day's source material below (meetings, notes, and dictations)"
@@ -543,7 +715,7 @@ mod tests {
         // A day can mix a German meeting with English dictations; the
         // recap should follow whichever language dominates, not just "the
         // transcript" (singular) framing the other prompts use.
-        let (system, _user) = build_prompt(&empty_input("2026-05-12"));
+        let (system, _user) = prompt(&empty_input("2026-05-12"));
         assert!(
             system.contains("follow whichever language dominates"),
             "got: {system}"
@@ -559,6 +731,7 @@ mod tests {
         let mut static_only = Sha256::new();
         static_only.update(SYSTEM_PROMPT.as_bytes());
         static_only.update(STYLE_GUIDANCE.as_bytes());
+        static_only.update(SESSION_DIGEST_PROMPT.as_bytes());
         static_only.update(OUTPUT_GRAMMAR.as_bytes());
         let static_digest = static_only.finalize();
         let static_hash: String = static_digest[..4]
@@ -569,91 +742,99 @@ mod tests {
     }
 
     #[test]
-    fn prompt_includes_meetings_with_short_ids() {
+    fn prompt_includes_meetings_with_title_and_summary_lines() {
         let mut input = empty_input("2026-05-12");
         input.meetings.push(MeetingForSummary {
             id: "long-uuid-1".into(),
             started_at: "2026-05-12T09:00:00Z".into(),
             ended_at: None,
-            suggested_title: Some("Roadmap sync".into()),
-            summary_json: Some(r#"{"summary":["Discussed Q3"]}"#.into()),
+            title: "Roadmap sync".into(),
+            summary: Some("## Summary\n- Discussed Q3".into()),
         });
-        let (_, user) = build_prompt(&input);
-        assert!(user.contains("[m1] Roadmap sync"));
-        assert!(user.contains("Discussed Q3"));
+        let (_, user) = prompt(&input);
+        assert!(user.contains("[m1] Roadmap sync at "));
+        assert!(user.contains("    - Discussed Q3"));
     }
 
     #[test]
-    fn prompt_truncates_long_meeting_title() {
-        // The items.content column for meetings can hold transcript text
-        // up to ~90 KB. The prompt must cap that or the whole budget is
-        // blown by a single meeting.
+    fn prompt_caps_long_meeting_summary() {
         let mut input = empty_input("2026-05-12");
-        let huge_title = "x".repeat(10_000);
         input.meetings.push(MeetingForSummary {
             id: "m-1".into(),
             started_at: "2026-05-12T09:00:00Z".into(),
             ended_at: None,
-            suggested_title: Some(huge_title),
-            summary_json: None,
+            title: "Call".into(),
+            summary: Some("x".repeat(10_000)),
         });
-        let (_, user) = build_prompt(&input);
-        assert!(
-            user.len() < 2_000,
-            "expected prompt to be short with title capped, got {} chars",
-            user.len()
-        );
-        assert!(
-            user.contains('…'),
-            "expected ellipsis marker on truncated title"
-        );
+        let (_, user) = prompt(&input);
+        assert!(user.len() < 2_000 + STYLE_GUIDANCE.len(), "got {} chars", user.len());
+        assert!(user.contains('…'));
     }
 
     #[test]
-    fn prompt_caps_dictations_per_app() {
+    fn noise_dictations_are_filtered() {
+        assert!(is_noise_dictation("Add commit and push please."));
+        assert!(is_noise_dictation("Add everything, commit and push."));
+        assert!(is_noise_dictation("Do it now."));
+        assert!(is_noise_dictation("Alright, can you make it happen?"));
+        assert!(!is_noise_dictation(
+            "The save flow archive and delete should be on top of the page"
+        ));
+        assert!(!is_noise_dictation("Give it to Lucy tomorrow morning."));
+    }
+
+    #[test]
+    fn raw_prompt_lists_dictations_with_ids_and_skips_noise() {
         let mut input = empty_input("2026-05-12");
-        let items: Vec<ItemForSummary> = (0..25)
-            .map(|i| ItemForSummary {
-                id: format!("uuid-{i}"),
-                content: format!("dict {i}"),
-                captured_at: "2026-05-12T10:00:00Z".into(),
-                capture_context: Some("VS Code".into()),
+        input.dictations = vec![
+            dictation("a", "2026-05-12T10:00:00Z", "Unify the loop tasks with the main task list"),
+            dictation("b", "2026-05-12T10:01:00Z", "Commit and push please."),
+            dictation("c", "2026-05-12T10:02:00Z", "Hide the workflow ending option for now"),
+        ];
+        let (_, user) = prompt(&input);
+        assert!(user.contains("[d1]"));
+        assert!(user.contains("[d2]"));
+        assert!(!user.contains("[d3]"));
+        assert!(!user.contains("Commit and push"));
+        assert!(user.contains("[Claude] Unify the loop tasks"));
+    }
+
+    #[test]
+    fn sessions_split_on_gap_and_size() {
+        let items: Vec<ItemForSummary> = (0..40)
+            .map(|i| {
+                let hour = if i < 35 { 10 } else { 14 };
+                dictation(&format!("d{i}"), &format!("2026-05-12T{hour}:{:02}:00Z", i % 60), "some words here to count")
             })
             .collect();
-        input.dictations_by_app.push(("VS Code".into(), items));
-        let (_, user) = build_prompt(&input);
-        assert!(
-            user.contains("...and 10 more dictations into VS Code"),
-            "expected overflow line for 10 extras with default cap of {DICTATIONS_PER_APP_CAP}"
-        );
-        assert!(user.contains("[d15]"));
-        assert!(!user.contains("[d16]"));
+        let refs: Vec<&ItemForSummary> = items.iter().collect();
+        let chunks = chunk_sessions(&refs);
+        // 35 items at 10:xx → 30 + 5 (size cap), then a >60min gap → new chunk.
+        let sizes: Vec<usize> = chunks.iter().map(|c| c.len()).collect();
+        assert_eq!(sizes, vec![30, 5, 5]);
     }
 
     #[test]
-    fn prompt_enforces_total_char_budget() {
-        // 12 apps × 10 dictations × ~300-char content each ≈ 36k chars before
-        // the budget kicks in. The shrink loop should drop dictations until
-        // the assembled prompt fits within MAX_USER_PROMPT_CHARS.
-        let mut input = empty_input("2026-05-12");
-        let long_content = "x".repeat(300);
-        for app_n in 0..12 {
-            let items: Vec<ItemForSummary> = (0..10)
-                .map(|i| ItemForSummary {
-                    id: format!("uuid-{app_n}-{i}"),
-                    content: long_content.clone(),
-                    captured_at: "2026-05-12T10:00:00Z".into(),
-                    capture_context: Some(format!("App{app_n}")),
-                })
-                .collect();
-            input.dictations_by_app.push((format!("App{app_n}"), items));
-        }
-        let (_, user) = build_prompt(&input);
-        assert!(
-            user.len() <= MAX_USER_PROMPT_CHARS,
-            "prompt should fit in budget, got {} chars (cap {})",
-            user.len(),
-            MAX_USER_PROMPT_CHARS
+    fn session_view_renders_digests() {
+        let input = empty_input("2026-05-12");
+        let view = DictationView::Sessions(vec![WorkSession {
+            start: "09:00".into(),
+            end: "10:30".into(),
+            count: 12,
+            apps: vec!["Claude".into(), "Arc".into()],
+            digest: "- LiveCase emails: rewrote follow-up".into(),
+        }]);
+        let (_, user) = build_prompt(&input, &view);
+        assert!(user.contains("[s1] 09:00–10:30 (12 dictations in Claude, Arc)"));
+        assert!(user.contains("    - LiveCase emails: rewrote follow-up"));
+    }
+
+    #[test]
+    fn clean_digest_drops_preamble_and_normalises_bullets() {
+        let raw = "Here is the work log:\n* Tucky: fixed recap\n- Project: LiveCase: emails\n\n• Project or feature: Lucy: tasks\n";
+        assert_eq!(
+            clean_digest(raw),
+            "- Tucky: fixed recap\n- LiveCase: emails\n- Lucy: tasks"
         );
     }
 
@@ -720,6 +901,20 @@ mod tests {
         );
         assert_eq!(out.sections.what_happened[1].text, "Bare string note");
         assert_eq!(out.sections.what_happened[1].source_id, None);
+    }
+
+    #[test]
+    fn parse_strips_echoed_source_tags_from_text() {
+        let raw = r#"{"narrative":"x","sections":{"what_happened":[
+            {"text":"Pricing: usage-based. (m1)","source_id":"m1"},
+            {"text":"CDI index: auto-sync [s4, s5]"},
+            {"text":"Keep (this part) intact"}]}}"#;
+        let out = parse_response(raw).unwrap();
+        let texts: Vec<_> = out.sections.what_happened.iter().map(|i| i.text.as_str()).collect();
+        assert_eq!(
+            texts,
+            vec!["Pricing: usage-based.", "CDI index: auto-sync", "Keep (this part) intact"]
+        );
     }
 
     #[test]

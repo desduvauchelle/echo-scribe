@@ -59,6 +59,7 @@ import TasksView from "./TasksView";
 import { LearningCard } from "../../components/Learning";
 import { useLearning } from "../../components/LearningContext";
 import type { LessonId } from "../../lib/learning";
+import { RecapBulletText } from "../../components/RecapBulletText";
 
 const PAGE_SIZE = 50;
 
@@ -998,7 +999,7 @@ function RecapSection({
             key={i}
             className="rounded-md border border-line bg-surface/60 p-3 text-sm text-fg"
           >
-            {it.text}
+            <RecapBulletText text={it.text} />
           </li>
         ))}
       </ul>

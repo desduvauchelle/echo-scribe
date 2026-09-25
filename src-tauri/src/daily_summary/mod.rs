@@ -63,8 +63,7 @@ pub async fn generate_for_date(
         date = %date,
         meetings = input.meetings.len(),
         notes = input.notes.len(),
-        dictation_apps = input.dictations_by_app.len(),
-        dictations = input.dictations_by_app.iter().map(|(_, v)| v.len()).sum::<usize>(),
+        dictations = input.dictations.len(),
         model_version = %model_version,
         "daily_summary: starting generation"
     );
@@ -90,12 +89,7 @@ pub async fn generate_for_date(
         .notes
         .iter()
         .map(|n| n.id.clone())
-        .chain(
-            input
-                .dictations_by_app
-                .iter()
-                .flat_map(|(_, items)| items.iter().map(|i| i.id.clone())),
-        )
+        .chain(input.dictations.iter().map(|i| i.id.clone()))
         .collect();
 
     // 2. Async: call LLM.
@@ -213,11 +207,7 @@ mod tests {
         assert_eq!(mids, vec!["m1"]);
         let nids: Vec<_> = input.notes.iter().map(|n| n.id.as_str()).collect();
         assert_eq!(nids, vec!["n1"]);
-        let dids: Vec<_> = input
-            .dictations_by_app
-            .iter()
-            .flat_map(|(_, v)| v.iter().map(|i| i.id.as_str()))
-            .collect();
+        let dids: Vec<_> = input.dictations.iter().map(|i| i.id.as_str()).collect();
         assert_eq!(dids, vec!["d1"]);
     }
 }
