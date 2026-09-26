@@ -113,9 +113,17 @@ impl TagTarget {
     ) -> Result<(), DbError> {
         match self {
             TagTarget::Item(item) => {
-                items::apply_classification(conn, &item.id, project_id, confidence, classified_by)?;
-                if !tags.is_empty() {
-                    items::replace_tags(conn, &item.id, tags)?;
+                let changed = conn.execute(
+                    "UPDATE items SET project_id = ?1, confidence = ?2, classified_by = ?3
+                     WHERE id = ?4 AND project_id IS NULL AND deleted_at IS NULL",
+                    rusqlite::params![project_id, confidence as f64, classified_by, item.id],
+                )?;
+                if changed != 0 {
+                    // Preserve tags the user may have added while inference ran.
+                    for tag in tags {
+                        conn.execute("INSERT OR IGNORE INTO item_tags(item_id, tag) VALUES (?1, ?2)",
+                            rusqlite::params![item.id, tag])?;
+                    }
                 }
             }
             TagTarget::Recording { id, .. } => {
@@ -266,6 +274,24 @@ pub fn run_deterministic_batch(
     Ok(summary)
 }
 
+async fn classify_with_context<L: LlmGenerator + ?Sized>(
+    llm: &L, transcript: &str, projects: &[Project], recents: &[Item],
+    now_iso: &str, now_dow: &str, focus: Option<&FocusContext>,
+) -> Result<crate::classifier::Classification, crate::classifier::ClassifierError> {
+    let route = route_deterministically(transcript, focus, projects);
+    let result = crate::classifier::classify(llm, transcript, projects, recents, now_iso, now_dow, focus).await;
+    let Some(project_id) = route.project_id else { return result };
+    // A proven routing rule still works when the model is unavailable or unsure.
+    // When it agrees, retain its topical tags instead of skipping tagging entirely.
+    let tags = result.as_ref().ok()
+        .filter(|c| c.confidence >= 0.6 && c.project_id.as_deref() == Some(project_id.as_str()))
+        .map(|c| c.tags.clone()).unwrap_or_default();
+    Ok(crate::classifier::Classification {
+        kind: crate::db::items::ItemKind::Note, project_id: Some(project_id),
+        new_project_name: None, tags, deadline_iso: None, confidence: route.confidence,
+    })
+}
+
 pub async fn run_llm_batch<L: LlmGenerator + ?Sized>(
     conn: &Connection,
     llm: &L,
@@ -298,7 +324,7 @@ pub async fn run_llm_batch<L: LlmGenerator + ?Sized>(
             continue;
         }
         let focus = target.focus();
-        match crate::classifier::classify(
+        match classify_with_context(
             llm,
             &target.classifier_text(),
             &projects,
@@ -374,7 +400,7 @@ pub async fn run_llm_batch_db<L: LlmGenerator + ?Sized>(
             continue;
         }
         let focus = target.focus();
-        let classified = crate::classifier::classify(
+        let classified = classify_with_context(
             llm,
             &target.classifier_text(),
             &projects,
@@ -480,7 +506,7 @@ pub async fn run_full_pass_db<L: LlmGenerator + ?Sized>(
             }
             let focus = target.focus();
             let route = route_deterministically(target.text(), focus.as_ref(), &projects);
-            if let Some(project_id) = route.project_id {
+            if let Some(project_id) = route.project_id.filter(|_| llm.is_none()) {
                 db.with_conn(|conn| {
                     target.apply(conn, &project_id, route.confidence, "router-v1", &[])?;
                     project_tag_jobs::mark_done(conn, &job.item_id, now_iso)
@@ -503,7 +529,7 @@ pub async fn run_full_pass_db<L: LlmGenerator + ?Sized>(
                 on_progress(&summary, total);
                 continue;
             };
-            let classified = crate::classifier::classify(
+            let classified = classify_with_context(
                 llm,
                 &target.classifier_text(),
                 &projects,
@@ -591,17 +617,12 @@ pub fn spawn_worker(
                 configured_interval,
                 "starting scheduled project tagger pass"
             );
-            match db.with_conn(|c| run_deterministic_batch(c, batch_size, &now)) {
-                Ok(summary) => {
-                    info!(target: "project_tagger", ?summary, "deterministic pass complete");
-                }
-                Err(e) => {
-                    warn!(target: "project_tagger", error = %e, "deterministic pass failed");
-                    continue;
-                }
-            }
+            let run_router = || match db.with_conn(|c| run_deterministic_batch(c, batch_size, &now)) {
+                Ok(summary) => info!(target: "project_tagger", ?summary, "deterministic pass complete"),
+                Err(e) => warn!(target: "project_tagger", error = %e, "deterministic pass failed"),
+            };
             if !llm.ready() {
-                info!(target: "project_tagger", "skipping LLM pass: no ready model");
+                run_router();
                 continue;
             }
             let interval_elapsed = last_llm_run
@@ -610,6 +631,7 @@ pub fn spawn_worker(
             let opportunistic_loaded_run =
                 settings.project_auto_tagging_opportunistic() && llm.is_loaded();
             if !interval_elapsed && !opportunistic_loaded_run {
+                run_router();
                 info!(
                     target: "project_tagger",
                     configured_interval,
@@ -666,7 +688,8 @@ pub fn route_deterministically(
         .iter()
         .map(|p| Score {
             project_id: p.id.clone(),
-            value: score_project(p, &transcript_l, &context_l, &haystack_all),
+            value: score_project(p, &transcript_l, &context_l, &haystack_all)
+                + if focus.is_some_and(|ctx| matches_project_context(ctx, p)) { 12 } else { 0 },
         })
         .collect::<Vec<_>>();
     scores.sort_by(|a, b| {
@@ -693,6 +716,24 @@ pub fn route_deterministically(
         project_id: Some(best.project_id.clone()),
         confidence: score_to_confidence(best.value),
     }
+}
+
+/// Exact external workspace names or an explicitly configured project folder.
+/// Avoid treating arbitrary sidebar text or email domains as an exact match.
+fn matches_project_context(ctx: &FocusContext, project: &Project) -> bool {
+    use crate::input::context::ContextKind;
+    let normalize = |s: &str| s.chars().filter(|c| c.is_alphanumeric()).flat_map(char::to_lowercase).collect::<String>();
+    ctx.signals.iter().any(|signal| match signal.kind {
+        ContextKind::Workspace | ContextKind::Project => {
+            let name = normalize(&signal.value);
+            !name.is_empty() && name == normalize(&project.name)
+        }
+        ContextKind::Document => project.reference_folders.iter().any(|folder| {
+            let folder = folder.path.trim_end_matches('/');
+            !folder.is_empty() && (signal.value == folder || signal.value.starts_with(&format!("{folder}/")))
+        }),
+        _ => false,
+    })
 }
 
 fn score_project(
@@ -759,7 +800,7 @@ fn context_text(focus: Option<&FocusContext>) -> String {
     let Some(ctx) = focus else {
         return String::new();
     };
-    [
+    let mut text = [
         ctx.bundle_id.as_deref(),
         ctx.app_name.as_deref(),
         ctx.window_title.as_deref(),
@@ -771,7 +812,14 @@ fn context_text(focus: Option<&FocusContext>) -> String {
     .into_iter()
     .flatten()
     .collect::<Vec<_>>()
-    .join("\n")
+    .join("\n");
+    for signal in ctx.signals.iter().take(crate::input::context::MAX_SIGNALS) {
+        use crate::input::context::ContextKind;
+        if matches!(signal.kind, ContextKind::SelectedItem | ContextKind::Heading | ContextKind::Recipient | ContextKind::Sender | ContextKind::MailHeader | ContextKind::Unknown) { continue; }
+        text.push('\n');
+        text.extend(signal.value.chars().take(crate::input::context::MAX_VALUE_CHARS));
+    }
+    text
 }
 
 fn contains_phrase(haystack_l: &str, needle_l: &str) -> bool {
@@ -912,11 +960,85 @@ mod tests {
             confidence: None,
             classified_by: None,
             capture_context: None,
+            importance: None,
         };
         let target = super::TagTarget::Item(item);
         assert!(target.classifier_text().chars().count() <= super::CLASSIFIER_ITEM_MAX_CHARS);
         // The router still sees the full text.
         assert!(target.text().chars().count() > super::CLASSIFIER_ITEM_MAX_CHARS);
+    }
+
+    struct ContextCheckingLlm;
+    impl crate::llm::LlmGenerator for ContextCheckingLlm {
+        fn generate<'a>(&'a self, req: crate::llm::GenerateRequest) -> crate::llm::GenerateFuture<'a> {
+            let prompt = req.system.unwrap();
+            assert!(prompt.contains("livecaseplus-server"));
+            assert!(prompt.contains("Launch review"));
+            assert!(prompt.contains("client@example.com"));
+            assert!(prompt.contains("untrusted observed data"));
+            Box::pin(async { Ok(r#"{"kind":"note","project_id":"p1","new_project_name":null,"tags":["launch"],"deadline_iso":null,"confidence":0.9}"#.into()) })
+        }
+    }
+
+    #[tokio::test]
+    async fn stored_rich_context_reaches_tagging_for_dictations_notes_and_tasks() {
+        use crate::db::{items, project_tag_jobs};
+        use crate::input::context::{ContextKind, push_signal};
+        let conn = fresh_db();
+        crate::db::projects::insert_project(&conn, &project("p1", "LiveCase", &["livecaseplus-server"])).unwrap();
+        for (index, kind) in [None, Some(ItemKind::Note), Some(ItemKind::Task)].into_iter().enumerate() {
+            let mut ctx = FocusContext::default();
+            push_signal(&mut ctx.signals, ContextKind::Workspace, "livecaseplus-server", "claude_session_header");
+            push_signal(&mut ctx.signals, ContextKind::Conversation, "Launch review", "claude_session_header");
+            push_signal(&mut ctx.signals, ContextKind::Recipient, "client@example.com", "ax_mail_header");
+            let id = format!("rich-{index}");
+            let item = crate::db::items::Item {
+                id: id.clone(), content: "Follow up on this".into(),
+                source: if kind.is_none() { ItemSource::VoiceAtCursor } else { ItemSource::LogCapture },
+                kind, project_id: None, captured_at: "2026-09-25T12:00:00Z".into(),
+                created_at: "2026-09-25T12:00:00Z".into(), deleted_at: None,
+                confidence: None, classified_by: None, importance: None,
+                capture_context: serde_json::to_string(&ctx).ok(),
+            };
+            items::insert_item(&conn, &item).unwrap();
+            items::replace_tags(&conn, &id, &["keep-user-tag".into()]).unwrap();
+            project_tag_jobs::enqueue(&conn, &id, "2026-09-25T12:00:00Z").unwrap();
+        }
+        let result = super::run_llm_batch(&conn, &ContextCheckingLlm, 10, "2026-09-25T12:01:00Z", "Friday").await.unwrap();
+        assert_eq!(result.assigned, 3);
+        for index in 0..3 {
+            let id = format!("rich-{index}");
+            assert_eq!(items::get_item(&conn, &id).unwrap().unwrap().project_id.as_deref(), Some("p1"));
+            assert_eq!(items::list_tags_for_item(&conn, &id).unwrap(), vec!["keep-user-tag", "launch"]);
+            let expected = [None, Some(ItemKind::Note), Some(ItemKind::Task)][index];
+            assert_eq!(items::get_item(&conn, &id).unwrap().unwrap().kind, expected);
+        }
+    }
+
+    #[test]
+    fn exact_workspace_matches_project_without_manual_aliases() {
+        use crate::input::context::{ContextKind, push_signal};
+        let mut ctx = FocusContext::default();
+        push_signal(&mut ctx.signals, ContextKind::Workspace, "recursive-solutions", "claude_session_header");
+        let result = super::route_deterministically("Fix this", Some(&ctx), &[project("p1", "Recursive Solutions", &[])]);
+        assert_eq!(result.project_id.as_deref(), Some("p1"));
+    }
+
+    #[test]
+    fn recipient_and_sidebar_alone_do_not_auto_assign_project() {
+        use crate::input::context::{ContextKind, push_signal};
+        let mut ctx = FocusContext::default();
+        push_signal(&mut ctx.signals, ContextKind::Recipient, "livecase@example.com", "ax_mail_header");
+        push_signal(&mut ctx.signals, ContextKind::SelectedItem, "LiveCase", "ax_selected_item");
+        let result = super::route_deterministically("Follow up", Some(&ctx), &[project("p1", "LiveCase", &["livecase"])]);
+        assert_eq!(result.project_id, None);
+    }
+
+    #[test]
+    fn legacy_capture_context_without_pid_survives_for_tagging() {
+        let ctx = super::parse_focus_context(Some(r#"{"app_name":"ChatGPT","content_title":"LiveCase launch"}"#));
+        assert!(ctx.is_some(), "saved context must not require a process id");
+        assert_eq!(ctx.unwrap().content_title.as_deref(), Some("LiveCase launch"));
     }
 
     #[test]
@@ -939,6 +1061,8 @@ mod tests {
         let mut echo = project("p1", "Tucky", &[]);
         echo.routing_window_hints = vec!["echo-scribe".into()];
         let ctx = FocusContext {
+            diagnostics: None,
+            signals: Vec::new(),
             pid: 1,
             bundle_id: Some("com.microsoft.VSCode".into()),
             app_name: Some("Code".into()),
@@ -960,6 +1084,8 @@ mod tests {
         let mut livecase = project("p1", "LiveCase", &[]);
         livecase.routing_window_hints = vec!["livecaseplus-server".into()];
         let ctx = FocusContext {
+            diagnostics: None,
+            signals: Vec::new(),
             pid: 1,
             bundle_id: Some("com.openai.codex".into()),
             app_name: Some("Codex".into()),

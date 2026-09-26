@@ -31,7 +31,18 @@ export default function ProjectAssistant() {
     }).catch(() => { /* A previous report is optional. */ });
     const show = () => { setOpen(true); setError(null); };
     window.addEventListener("project-assistant:open", show);
-    return () => { disposed = true; void unsubscribe.then((fn) => fn()); window.removeEventListener("project-assistant:open", show); };
+    // "Open" on the background progress toast: show that run's full report.
+    const unsubscribeOpen = listen("project-assistant:open-report", () => {
+      void getProjectAssistantReport().then((saved) => {
+        if (disposed) return;
+        if (saved) setReport(saved);
+        show();
+      }).catch(() => { if (!disposed) show(); });
+    });
+    return () => {
+      disposed = true; void unsubscribe.then((fn) => fn()); void unsubscribeOpen.then((fn) => fn());
+      window.removeEventListener("project-assistant:open", show);
+    };
   }, []);
 
   const submit = async () => {

@@ -40,14 +40,24 @@
       "transcriptionBadge": "Dictée",
       "logCaptureBadge": "Capture rapide",
       "taskBadge": "Tâche",
-      "deletedBadge": "Supprimé"
+      "deletedBadge": "Supprimé",
+      "unsorted": "Non classé",
+      "changeType": "Changer le type",
+      "copy": "Copier le texte",
+      "copied": "Copié",
+      "copyFailed": "Impossible de copier dans le presse-papiers.",
+      "moveToTrash": "Mettre à la corbeille",
+      "restore": "Restaurer depuis la corbeille",
+      "inTrash": "Dans la corbeille",
+      "saveFailed": "Impossible d'enregistrer cette modification. Voir Réglages → Diagnostics → journaux."
     },
     "content": {
       "label": "Contenu",
       "saving": "Enregistrement…",
       "unsaved": "Non enregistré",
       "saved": "Enregistré",
-      "empty": "Aucun contenu."
+      "empty": "Aucun contenu.",
+      "editAriaLabel": "Modifier le texte"
     },
     "kind": {
       "label": "Type",
@@ -94,7 +104,8 @@
       "completed": "Terminée",
       "markComplete": "Marquer comme terminée",
       "deadline": "Échéance",
-      "clear": "Effacer"
+      "clear": "Effacer",
+      "markIncomplete": "Marquer comme non terminée"
     },
     "meetingView": {
       "peopleToggle": "Personnes",
@@ -209,6 +220,32 @@
       "copyContent": "Copier le contenu",
       "restore": "Restaurer",
       "delete": "Supprimer"
+    },
+    "props": {
+      "due": "Échéance",
+      "importance": "Importance",
+      "noProject": "Aucun projet",
+      "addTag": "Ajouter un tag…",
+      "setDue": "Définir une échéance…",
+      "overdue": "En retard",
+      "today": "Aujourd'hui",
+      "tomorrow": "Demain",
+      "clearDue": "Effacer l'échéance"
+    },
+    "importance": {
+      "high": "Haute",
+      "medium": "Moyenne",
+      "low": "Basse"
+    },
+    "captured": {
+      "label": "Capturé depuis",
+      "details": "Détails",
+      "projectAssistant": "Assistant de projet",
+      "filedByAssistant": "Classé automatiquement par l'assistant de projet",
+      "sortedByAi": "Trié par l'IA · {{pct}} % de confiance"
+    },
+    "history": {
+      "label": "Historique"
     }
   },
   "activityPanelContext": {},
@@ -339,7 +376,10 @@
       "kind_changed": "Type modifié",
       "project_changed": "Projet modifié",
       "tags_changed": "Étiquettes mises à jour",
-      "classified": "Classé automatiquement"
+      "classified": "Classé automatiquement",
+      "project_assigned": "Classé dans",
+      "paste_dispatched": "Collé",
+      "importance_changed": "Importance modifiée"
     },
     "activityTab": {
       "noActivity": "Aucune activité enregistrée."
@@ -492,7 +532,15 @@
       "cyan": "Cyan",
       "blue": "Bleu",
       "violet": "Violet",
-      "pink": "Rose"
+      "pink": "Rose",
+      "burgundy": "Bordeaux",
+      "coral": "Corail",
+      "amber": "Ambre",
+      "lime": "Vert citron",
+      "teal": "Sarcelle",
+      "sky": "Bleu ciel",
+      "indigo": "Indigo",
+      "slate": "Gris ardoise"
     },
     "nameRequired": "Le nom du projet est requis.",
     "saveFailed": "Échec de l’enregistrement : {{error}}",
@@ -798,6 +846,8 @@
     },
     "dictionary": {
       "title": "Dictionnaire",
+      "manage": "Gérer le dictionnaire",
+      "close": "Fermer",
       "description": "Associez un mot ou une expression prononcés à une orthographe, une casse ou une ponctuation exactes.",
       "exportJson": "Exporter en JSON",
       "importJson": "Importer un JSON",

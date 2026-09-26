@@ -25,6 +25,7 @@ pub mod permissions;
 pub mod platform;
 pub mod power;
 pub mod project_assistant;
+pub mod agent_toast;
 pub mod project_files;
 pub mod project_tagger;
 pub mod recording_feedback;
@@ -36,6 +37,7 @@ pub mod ui;
 pub mod updater;
 mod util;
 pub mod voice_workflows;
+pub mod wakeword;
 
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, RwLock};
@@ -49,6 +51,8 @@ use tracing_subscriber::EnvFilter;
 use crate::asr::pipeline::AsrPipeline;
 use crate::asr::registry;
 use crate::commands::{
+    add_focus_task, get_daily_focus_note, get_morning_focus_enabled, list_focus_tasks, reorder_focus_tasks,
+    save_daily_focus_note, set_daily_focus_recording, set_morning_focus_enabled, set_task_focus,
     app_version, apply_update_and_restart, archive_project, cancel_countdown, cancel_log_capture,
     chat_with_memory, check_for_update, close_area_picker, complete_task, confirm_log_capture,
     copy_export_to_clipboard, copy_last_transcript, count_items, count_items_for_project,
@@ -257,6 +261,7 @@ pub fn run() {
             desktop_pet::desktop_pet_set_size,
             desktop_pet::desktop_pet_state,
             desktop_pet::desktop_pet_context_menu,
+            desktop_pet::desktop_pet_focus_set_visible,
             permissions_status,
             platform_capabilities,
             open_microphone_settings,
@@ -286,6 +291,8 @@ pub fn run() {
             get_transcription_snippets,
             set_transcription_snippets,
             get_trigger_word_routing_enabled,
+            commands::get_wake_word_status,
+            commands::set_wake_word_enabled,
             set_trigger_word_routing_enabled,
             get_action_trigger_word,
             set_action_trigger_word,
@@ -330,6 +337,15 @@ pub fn run() {
             list_tasks,
             complete_task,
             uncomplete_task,
+            list_focus_tasks,
+            get_daily_focus_note,
+            get_morning_focus_enabled,
+            set_morning_focus_enabled,
+            save_daily_focus_note,
+            set_daily_focus_recording,
+            add_focus_task,
+            reorder_focus_tasks,
+            set_task_focus,
             set_task_deadline,
             update_item,
             restore_item,
@@ -386,6 +402,8 @@ pub fn run() {
             crate::project_assistant::run_project_assistant,
             crate::project_assistant::get_project_assistant_report,
             crate::project_assistant::stop_project_assistant,
+            crate::agent_toast::resize_agent_toast,
+            crate::agent_toast::open_project_assistant_report,
             export_project_backfill,
             list_item_events,
             list_sessions_for_item,
@@ -410,6 +428,14 @@ pub fn run() {
             commands::regenerate_meeting_summary,
             commands::list_meeting_participants,
             commands::set_meeting_speaker_label,
+            crate::meeting::debrief::list_pending_debriefs,
+            crate::meeting::debrief::accept_meeting_task_suggestion,
+            crate::meeting::debrief::dismiss_meeting_task_suggestion,
+            crate::meeting::debrief::set_meeting_project,
+            crate::meeting::debrief::add_meeting_participant,
+            crate::meeting::debrief::remove_meeting_participant,
+            crate::meeting::debrief::complete_meeting_debrief,
+            crate::meeting::debrief::set_task_assignee,
             commands::list_recipes,
             commands::save_recipe,
             commands::run_recipe,
@@ -791,6 +817,7 @@ pub fn run() {
                 rebinding,
                 coord_tx: Mutex::new(None),
                 pipeline_state: Arc::clone(&pipeline_state),
+                wake_status: Mutex::new(crate::wakeword::WakeStatus::default()),
                 asr: Arc::clone(&asr),
                 llm: Arc::clone(&llm),
                 embedder: Arc::clone(&embedder),
@@ -882,9 +909,11 @@ pub fn run() {
             // Create the floating recording overlay (hidden until a hotkey
             // triggers a recording).
             crate::overlay::create_recording_overlay(&app.handle().clone());
+            crate::overlay::create_activity_bubble(&app.handle().clone());
             crate::overlay::create_consent_overlay(&app.handle().clone());
             crate::overlay::create_meeting_start_toast(&app.handle().clone());
             crate::overlay::create_action_toast(&app.handle().clone());
+            crate::agent_toast::create(&app.handle().clone());
             crate::overlay::create_meeting_hud(&app.handle().clone());
 
             // Seed builtin guide templates exactly once. The settings flag —

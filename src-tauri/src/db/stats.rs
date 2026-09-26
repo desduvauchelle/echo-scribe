@@ -555,6 +555,7 @@ mod tests {
             confidence: None,
             classified_by: None,
             capture_context: None,
+            importance: None,
         }
     }
 

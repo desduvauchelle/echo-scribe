@@ -6,32 +6,27 @@
   width: 100vw;
   height: 100vh;
   box-sizing: border-box;
-  padding: 6px;
+  padding: 4px;
   overflow: hidden;
 }
 
 .meeting-toast {
   width: 100%;
-  min-height: 84px;
+  min-height: 64px;
   box-sizing: border-box;
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr) auto 28px 28px;
+  grid-template-columns: 28px minmax(0, 1fr) auto 24px 24px;
   align-items: center;
-  gap: 10px;
-  padding: 13px 12px 13px 14px;
-  color: #f7f7fb;
-  background:
-    linear-gradient(135deg, rgba(35, 31, 43, 0.98), rgba(20, 22, 29, 0.98));
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 17px;
-  box-shadow:
-    0 14px 40px rgba(0, 0, 0, 0.38),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  gap: 7px;
+  padding: 8px 10px;
+  color: #fbf6ea;
+  background: linear-gradient(120deg, #123b2d, #0e241b);
+  border: 1px solid #64856b99;
+  border-radius: 32px;
+  box-shadow: 0 4px 14px #081b1533;
   opacity: 0;
-  transform: translate3d(0, -12px, 0) scale(0.98);
-  transform-origin: top right;
+  transform: translate3d(0, 6px, 0) scale(0.98);
+  transform-origin: center;
   pointer-events: none;
   transition:
     opacity 220ms ease-out,
@@ -46,21 +41,22 @@
 
 .meeting-toast.is-exiting {
   opacity: 0;
-  transform: translate3d(0, -7px, 0) scale(0.99);
+  transform: translate3d(0, 4px, 0) scale(0.99);
   pointer-events: none;
   transition-duration: 200ms;
 }
 
 .meeting-toast-mark {
-  width: 34px;
-  height: 34px;
-  border-radius: 11px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 2px;
-  background: linear-gradient(145deg, #8b7cff, #e074a8);
-  box-shadow: 0 5px 16px rgba(139, 124, 255, 0.28);
+  background: #315441;
+  border: 1px solid #ffffff26;
+  box-sizing: border-box;
 }
 
 .meeting-toast-mark span {
@@ -89,7 +85,7 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 2px;
 }
 
 .meeting-toast-copy strong,
@@ -100,18 +96,18 @@
 }
 
 .meeting-toast-copy strong {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 620;
   letter-spacing: -0.01em;
 }
 
 .meeting-toast-copy span {
-  color: rgba(235, 234, 242, 0.62);
+  color: #c9d8c9;
   font-size: 11px;
 }
 
 .meeting-toast-copy span.is-error {
-  color: #ffabc4;
+  color: #ffc0a8;
 }
 
 .meeting-toast button {
@@ -120,12 +116,12 @@
 }
 
 .meeting-toast-open {
-  height: 30px;
-  padding: 0 11px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 9px;
-  color: #f5f3ff;
-  background: rgba(255, 255, 255, 0.09);
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid #8bb99a66;
+  border-radius: 14px;
+  color: #fbf6ea;
+  background: #ffffff14;
   font-size: 11px !important;
   font-weight: 600 !important;
   cursor: pointer;
@@ -146,14 +142,14 @@
 }
 
 .meeting-toast-icon {
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   padding: 0;
   display: grid;
   place-items: center;
   border: 0;
-  border-radius: 8px;
-  color: rgba(240, 239, 247, 0.58);
+  border-radius: 50%;
+  color: #c9d8c9;
   background: transparent;
   cursor: pointer;
   transition:
@@ -180,7 +176,7 @@
 }
 
 .meeting-toast button:focus-visible {
-  outline: 2px solid #a99dff;
+  outline: 2px solid #e0b26a;
   outline-offset: 1px;
 }
 
@@ -206,3 +202,27 @@
     animation: none;
   }
 }
+
+.meeting-toast-stage { padding-bottom: 14px; }
+.meeting-toast {
+  position: relative;
+  height: calc(100% - 12px);
+  color: var(--bubble-fg);
+  background: var(--bubble-bg);
+  border-color: var(--bubble-border);
+  border-radius: 17px 17px 5px 17px;
+  box-shadow: 0 7px 18px var(--bubble-shadow);
+}
+.meeting-toast::after {
+  content: ""; position: absolute; left: calc(50% - 7px); bottom: -8px;
+  width: 14px; height: 14px; transform: rotate(45deg);
+  border-right: 1px solid var(--bubble-border); border-bottom: 1px solid var(--bubble-border);
+  background: var(--bubble-bg);
+}
+.meeting-toast-mark { background: var(--bubble-subtle); border-color: var(--bubble-border); }
+.meeting-toast-mark span { background: var(--bubble-accent); }
+.meeting-toast-copy span, .meeting-toast button { color: var(--bubble-muted); }
+.meeting-toast-copy span.is-error, .meeting-toast-stop:hover { color: #c45b53; }
+.meeting-toast button { background: var(--bubble-subtle); border-color: var(--bubble-border); }
+.meeting-toast button:hover { color: var(--bubble-fg); background: var(--bubble-subtle); border-color: var(--bubble-border); }
+.meeting-toast button:focus-visible { outline-color: var(--bubble-accent); }

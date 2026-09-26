@@ -1,4 +1,5 @@
 import VoiceWorkflows from "../components/VoiceWorkflows";
+import WakeWordSettings from "../components/WakeWordSettings";
 import MemorySettings from "../components/MemorySettings";
 import { TuckyPeeking } from "../components/TuckyGreeting";
 import { useEffect, useState, type SyntheticEvent } from "react";
@@ -26,6 +27,7 @@ import {
 } from "lucide-react";
 import { Trans, useTranslation } from "react-i18next";
 import { mcpInstallSnippets } from "../lib/mcpInstall";
+import { setLearnSidebarHidden, useLearnSidebarHidden } from "../lib/learnSidebar";
 import DesktopPetSettings from "../components/DesktopPetSettings";
 import AppLanguagePicker from "../components/AppLanguagePicker";
 import HotkeyRebinder from "../components/HotkeyRebinder";
@@ -50,6 +52,7 @@ import {
   getExportConfidenceThreshold,
   setExportConfidenceThreshold,
   getDailyRecapSettings,
+  getMorningFocusEnabled,
   getInputDeviceSort,
   getLlmUnloadSecs,
   getMcpSettings,
@@ -70,6 +73,7 @@ import {
   setAutoFileEnabled,
   setAutoFileThreshold,
   setDailyRecapSettings,
+  setMorningFocusEnabled,
   setInputDeviceSort,
   setLlmUnloadSecs,
   setMuteWhileRecording,
@@ -444,7 +448,8 @@ function ActionsPage() {
         title={t("actions.section.title")}
         subtitle={t("actions.section.subtitle")}
       >
-        <AppLauncherSettingsSection />
+        <WakeWordSettings />
+        <div className="mt-4"><AppLauncherSettingsSection /></div>
       </Section>
       <Section title={t("workflows.title")} subtitle={t("workflows.subtitle")}><VoiceWorkflows /></Section>
     </div>
@@ -1450,6 +1455,17 @@ function GeneralPage() {
         <StartAtLoginToggle />
       </Section>
 
+      <Section
+        title={t("general.sidebar.title")}
+        subtitle={t("general.sidebar.subtitle")}
+      >
+        <ShowLearnInSidebarToggle />
+      </Section>
+
+      <Section title={t("general.morningFocus.title")} subtitle={t("general.morningFocus.subtitle")}>
+        <ShowMorningFocusToggle />
+      </Section>
+
       <Section title="Desktop pet" subtitle="Choose how large Tucky appears on your desktop.">
         <DesktopPetSettings />
       </Section>
@@ -1932,6 +1948,66 @@ function Section({
       <div className="mt-4">{children}</div>
     </section>
   );
+}
+
+/** Restores the "Learn Tucky" sidebar row hidden via its hover X button. */
+function ShowLearnInSidebarToggle() {
+  const { t } = useTranslation("settings");
+  const hidden = useLearnSidebarHidden();
+  return (
+    <label className="flex items-center justify-between rounded-lg border border-line bg-canvas p-3">
+      <div>
+        <div className="text-sm font-semibold text-fg">
+          {t("general.sidebar.showLearn.label")}
+        </div>
+        <p className="text-xs text-muted">
+          {t("general.sidebar.showLearn.description")}
+        </p>
+      </div>
+      <input
+        type="checkbox"
+        checked={!hidden}
+        onChange={(e) => setLearnSidebarHidden(!e.target.checked)}
+        className="h-4 w-4 cursor-pointer accent-accent"
+      />
+    </label>
+  );
+}
+
+function ShowMorningFocusToggle() {
+  const { t } = useTranslation("settings");
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [busy, setBusy] = useState(false);
+  const toasts = useToasts();
+
+  useEffect(() => {
+    let cancelled = false;
+    void getMorningFocusEnabled().then((value) => { if (!cancelled) setEnabled(value); })
+      .catch((e) => { if (!cancelled) toasts.push({ tone: "error", message: String(e) }); });
+    return () => { cancelled = true; };
+  }, [toasts]);
+
+  const onToggle = async (next: boolean) => {
+    setBusy(true);
+    try {
+      await setMorningFocusEnabled(next);
+      setEnabled(next);
+    } catch (e) {
+      toasts.push({ tone: "error", message: String(e) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return <label className="flex items-center justify-between gap-4 rounded-lg border border-line bg-canvas p-3">
+    <div>
+      <div className="text-sm font-semibold text-fg">{t("general.morningFocus.label")}</div>
+      <p className="text-xs text-muted">{t("general.morningFocus.description")}</p>
+    </div>
+    <input type="checkbox" checked={enabled ?? false} disabled={enabled === null || busy}
+      onChange={(event) => void onToggle(event.target.checked)}
+      className="h-4 w-4 shrink-0 cursor-pointer accent-accent" />
+  </label>;
 }
 
 function AudioFeedbackToggle() {

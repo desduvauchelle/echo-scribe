@@ -359,6 +359,14 @@
     }
   },
   "general": {
+    "sidebar": {
+      "title": "Barra lateral",
+      "subtitle": "Escolha o que aparece na barra lateral esquerda.",
+      "showLearn": {
+        "label": "Mostrar Learn Tucky na barra lateral",
+        "description": "Mantenha as lições do Tucky a um clique."
+      }
+    },
     "startup": {
       "title": "Inicialização",
       "subtitle": "Abra o Tucky automaticamente quando você entrar no sistema."

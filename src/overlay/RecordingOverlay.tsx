@@ -121,7 +121,7 @@ const RecordingOverlay: React.FC = () => {
   };
 
   return (
-    <div onMouseDown={drag} className={`recording-overlay ${isVisible ? "fade-in" : ""} ${state === "log-recording" ? "log-mode" : ""} ${isMeeting ? "meeting-mode" : ""} ${state === "action-recording" ? "action-mode" : ""} ${isProcessing ? "processing-mode" : ""}`}>
+    <div onMouseDown={drag} className={`recording-overlay ${isVisible ? "fade-in" : ""} ${isRecording ? "recording-mode" : ""} ${state === "log-recording" ? "log-mode" : ""} ${isMeeting ? "meeting-mode" : ""} ${state === "action-recording" ? "action-mode" : ""} ${isProcessing ? "processing-mode" : ""}`}>
       <div className={`overlay-left face-${face}`}>
         <img className="tucky-face" src={`/mascot/${face}.png`} alt="Tucky" draggable={false} />
         <span className="activity-dot" aria-hidden="true" />
@@ -137,9 +137,9 @@ const RecordingOverlay: React.FC = () => {
                 key={i}
                 className="bar"
                 style={{
-                  height: `${Math.min(20, 4 + Math.pow(v, 0.7) * 16)}px`,
+                  height: `${Math.min(16, 4 + Math.pow(v, 0.7) * 12)}px`,
                   transition: "height 60ms ease-out, opacity 120ms ease-out",
-                  opacity: Math.max(0.2, v * 1.7),
+                  opacity: Math.max(0.45, v * 1.7),
                 }}
               />
             ))}

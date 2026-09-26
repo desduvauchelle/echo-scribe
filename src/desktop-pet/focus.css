@@ -1,0 +1,19 @@
+html, body, #root { box-sizing: border-box; width: 100%; height: 100%; margin: 0; overflow: hidden; background: transparent; }
+.pet-focus-bubble { position: relative; display: flex; flex-direction: column; box-sizing: border-box; height: calc(100% - 12px); margin: 0 7px 12px 2px; padding: 14px 17px; border: 1px solid var(--bubble-border); border-radius: 17px 17px 5px 17px; background: var(--bubble-bg); box-shadow: 0 8px 22px var(--bubble-shadow); color: var(--bubble-fg); font: 13px/1.45 system-ui, sans-serif; }
+.pet-focus-bubble::after { content: ""; position: absolute; right: 14px; bottom: -9px; width: 16px; height: 16px; transform: rotate(45deg); border-right: 1px solid var(--bubble-border); border-bottom: 1px solid var(--bubble-border); background: var(--bubble-bg); }
+.pet-focus-header { display: flex; align-items: start; justify-content: space-between; gap: 8px; margin-bottom: 7px; }
+.pet-focus-bubble span { display: block; padding-top: 3px; color: var(--bubble-accent); font-size: 10px; font-weight: 700; letter-spacing: .11em; text-transform: uppercase; }
+.pet-focus-bubble button { display: grid; place-items: center; width: 24px; height: 24px; margin: -5px -8px 0 0; padding: 0; border: 0; border-radius: 7px; background: transparent; color: var(--bubble-muted); cursor: pointer; font: 20px/1 system-ui, sans-serif; }
+.pet-focus-bubble button:hover, .pet-focus-bubble button:focus-visible { background: var(--bubble-subtle); color: var(--bubble-fg); }
+.pet-focus-bubble button:focus-visible { outline: 2px solid var(--bubble-accent); outline-offset: 1px; }
+.pet-focus-content { min-height: 0; overflow: auto; scrollbar-width: thin; }
+.pet-focus-bubble p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.pet-focus-tasks { margin-top: 10px; }
+.pet-focus-tasks:first-child { margin-top: 0; }
+.pet-focus-tasks:not(:first-child) { padding-top: 10px; border-top: 1px solid var(--bubble-border); }
+.pet-focus-tasks span { margin-bottom: 5px; }
+.pet-focus-tasks ul { margin: 0; padding: 0; list-style: none; }
+.pet-focus-tasks li { position: relative; padding: 3px 0 3px 17px; overflow-wrap: anywhere; }
+.pet-focus-tasks li::before { content: ""; position: absolute; top: 9px; left: 0; width: 7px; height: 7px; border: 1px solid var(--bubble-accent); border-radius: 50%; }
+.pet-focus-tasks li.is-done { color: var(--bubble-muted); text-decoration: line-through; }
+.pet-focus-tasks li.is-done::before { content: "✓"; top: 4px; width: auto; height: auto; border: 0; color: var(--bubble-accent); font-size: 12px; text-decoration: none; }

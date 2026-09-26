@@ -40,14 +40,24 @@
       "transcriptionBadge": "Dictation",
       "logCaptureBadge": "Log capture",
       "taskBadge": "Task",
-      "deletedBadge": "Deleted"
+      "deletedBadge": "Deleted",
+      "unsorted": "Unsorted",
+      "changeType": "Change type",
+      "copy": "Copy text",
+      "copied": "Copied",
+      "copyFailed": "Couldn't copy to the clipboard.",
+      "moveToTrash": "Move to trash",
+      "restore": "Restore from trash",
+      "inTrash": "In trash",
+      "saveFailed": "Couldn't save that change. See Settings → Diagnostics → logs for details."
     },
     "content": {
       "label": "Content",
       "saving": "Saving…",
       "unsaved": "Unsaved",
       "saved": "Saved",
-      "empty": "No content."
+      "empty": "No content.",
+      "editAriaLabel": "Edit text"
     },
     "kind": {
       "label": "Kind",
@@ -94,7 +104,8 @@
       "completed": "Completed",
       "markComplete": "Mark complete",
       "deadline": "Deadline",
-      "clear": "Clear"
+      "clear": "Clear",
+      "markIncomplete": "Mark as not done"
     },
     "meetingView": {
       "peopleToggle": "People",
@@ -209,6 +220,32 @@
       "copyContent": "Copy content",
       "restore": "Restore",
       "delete": "Delete"
+    },
+    "props": {
+      "due": "Due",
+      "importance": "Importance",
+      "noProject": "No project",
+      "addTag": "Add tag…",
+      "setDue": "Set due date…",
+      "overdue": "Overdue",
+      "today": "Today",
+      "tomorrow": "Tomorrow",
+      "clearDue": "Clear due date"
+    },
+    "importance": {
+      "high": "High",
+      "medium": "Medium",
+      "low": "Low"
+    },
+    "captured": {
+      "label": "Captured from",
+      "details": "Details",
+      "projectAssistant": "Project assistant",
+      "filedByAssistant": "Filed automatically by the project assistant",
+      "sortedByAi": "Sorted by AI · {{pct}}% confidence"
+    },
+    "history": {
+      "label": "History"
     }
   },
   "activityPanelContext": {},
@@ -339,7 +376,10 @@
       "kind_changed": "Kind changed",
       "project_changed": "Project changed",
       "tags_changed": "Tags updated",
-      "classified": "Auto-classified"
+      "classified": "Auto-classified",
+      "project_assigned": "Filed under",
+      "paste_dispatched": "Pasted",
+      "importance_changed": "Importance changed"
     },
     "activityTab": {
       "noActivity": "No activity recorded."
@@ -492,7 +532,15 @@
       "cyan": "Cyan",
       "blue": "Blue",
       "violet": "Violet",
-      "pink": "Pink"
+      "pink": "Pink",
+      "burgundy": "Burgundy",
+      "coral": "Coral",
+      "amber": "Amber",
+      "lime": "Lime",
+      "teal": "Teal",
+      "sky": "Sky blue",
+      "indigo": "Indigo",
+      "slate": "Slate"
     },
     "nameRequired": "Project name is required.",
     "saveFailed": "Save failed: {{error}}",
@@ -798,6 +846,8 @@
     },
     "dictionary": {
       "title": "Dictionary",
+      "manage": "Manage dictionary",
+      "close": "Close",
       "description": "Map a spoken word or phrase to exact spelling, casing, or punctuation.",
       "exportJson": "Export JSON",
       "importJson": "Import JSON",

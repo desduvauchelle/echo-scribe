@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   clampMeetingsToPage,
+  groupFeedByDay,
   mergeBrowseFeed,
   mergeFeed,
 } from "../src/lib/feed";
@@ -19,6 +20,7 @@ function item(id: string, capturedAt: string, kind: Item["kind"] = "note"): Item
     confidence: null,
     classified_by: null,
     capture_context: null,
+    importance: null,
   } as Item;
 }
 
@@ -136,5 +138,35 @@ describe("mergeBrowseFeed", () => {
       "r:old-rec",
       "m:old-meeting",
     ]);
+  });
+});
+
+describe("groupFeedByDay", () => {
+  const local = (y: number, m: number, d: number, h: number) =>
+    new Date(y, m - 1, d, h).toISOString();
+
+  test("buckets a newest-first feed into today / yesterday / earlier days", () => {
+    const now = new Date(2026, 8, 25, 15);
+    const feed = mergeFeed(
+      [
+        item("a", local(2026, 9, 25, 14)),
+        item("b", local(2026, 9, 25, 0)),
+        item("c", local(2026, 9, 24, 23)),
+        item("d", local(2026, 9, 20, 9)),
+        item("e", local(2026, 9, 20, 8)),
+      ],
+      [],
+    );
+    const groups = groupFeedByDay(feed, now);
+    expect(groups.map((g) => [g.key, g.day, g.entries.map((e) => e.key)])).toEqual([
+      ["2026-09-25", "today", ["i:a", "i:b"]],
+      ["2026-09-24", "yesterday", ["i:c"]],
+      ["2026-09-20", "earlier", ["i:d", "i:e"]],
+    ]);
+    expect(groups[2].date.getDate()).toBe(20);
+  });
+
+  test("empty feed yields no groups", () => {
+    expect(groupFeedByDay([])).toEqual([]);
   });
 });

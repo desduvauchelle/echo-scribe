@@ -45,7 +45,7 @@ pub fn arm_watchdog() {
 
 /// Sidecars that must ship inside the bundle, next to the main binary.
 /// Keep in sync with `bundle.externalBin` in tauri.conf.json.
-const SIDECARS: [&str; 2] = ["echo-scribe-syscap", "echo-scribe-screenrec"];
+const SIDECARS: [&str; 3] = ["echo-scribe-syscap", "echo-scribe-screenrec", "tucky-wakeword"];
 
 fn missing_sidecars() -> Vec<String> {
     let exe_dir = match std::env::current_exe()

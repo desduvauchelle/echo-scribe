@@ -214,7 +214,7 @@ pub fn link_action(
 pub fn list_action_items(conn: &Connection, meeting_id: &str) -> Result<Vec<Item>, DbError> {
     let mut stmt = conn.prepare(
         "SELECT i.id, i.content, i.source, i.kind, i.project_id, i.captured_at,
-                i.created_at, i.deleted_at, i.confidence, i.classified_by, i.capture_context
+                i.created_at, i.deleted_at, i.confidence, i.classified_by, i.capture_context, i.importance
          FROM meeting_action_links l
          JOIN items i ON i.id = l.item_id
          WHERE l.meeting_id = ?1 AND i.deleted_at IS NULL

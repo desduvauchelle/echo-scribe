@@ -14,3 +14,108 @@ svg:active { cursor: grabbing; }
 .pet-meter { height: 16px; display: flex; align-items: center; justify-content: center; gap: 2px; padding: 0 4px; border-radius: 6px; background: rgba(248, 245, 235, 0.88); }
 .pet-meter span { width: 2px; border-radius: 2px; background: #4c5640; transition: height 60ms ease-out, opacity 120ms ease-out; }
 @media (prefers-reduced-motion: reduce) { .pet-meter span { transition: none; } }
+
+/* Small facial gestures; the body stays planted on the desktop. */
+.tucky-eyelid { animation: tucky-blink 7.4s ease-in-out infinite; }
+.tucky-nose { transform-origin: 626px 599px; animation: tucky-sniff 11s ease-in-out infinite; }
+.tucky-mouth-smile { opacity: 0; transition: opacity 140ms ease; }
+.tucky-mouth-rest { transition: opacity 140ms ease; }
+.reaction-completed .tucky-mouth-rest, .reaction-saved .tucky-mouth-rest { opacity: 0; }
+.reaction-completed .tucky-mouth-smile, .reaction-saved .tucky-mouth-smile { opacity: 1; }
+.reaction-saved .tucky-note { animation: tucky-tuck 2.2s ease-in-out both; }
+.reaction-saved .tucky-paw { transform-origin: 380px 755px; animation: tucky-paw 2.2s ease-in-out both; }
+.reaction-saved .tucky-pouch { transform-origin: 620px 1080px; animation: tucky-pouch 2.2s ease-in-out both; }
+@keyframes tucky-blink { 0%, 42%, 46%, 100% { transform: translateY(0); } 44% { transform: translateY(210px); } }
+@keyframes tucky-sniff { 0%, 72%, 79%, 100% { transform: translateY(0) rotate(0); } 74%, 77% { transform: translateY(-4px) rotate(-3deg); } 75.5% { transform: translateY(1px) rotate(3deg); } }
+@keyframes tucky-tuck { 0%, 100% { transform: translateY(0); opacity: 1; } 18% { transform: translateY(-35px) rotate(-2deg); } 55%, 78% { transform: translateY(145px); opacity: 1; } 79% { opacity: 0; transform: translateY(145px); } 80% { opacity: 0; transform: translateY(0); } }
+@keyframes tucky-paw { 0%, 100% { transform: rotate(0); } 18% { transform: rotate(-6deg); } 55%, 70% { transform: rotate(12deg); } }
+@keyframes tucky-pouch { 0%, 45%, 100% { transform: scale(1); } 60% { transform: scale(1.035, 1.025); } }
+.pet-preview { position: fixed; bottom: 12px; left: 0; right: 0; display: flex; justify-content: center; gap: 8px; }
+.pet-preview button { padding: 8px 12px; border: 1px solid #bca789; border-radius: 8px; background: #fff5e4; color: #382610; cursor: pointer; }
+@media (prefers-reduced-motion: reduce) {
+  .tucky-eyelid, .tucky-nose, .tucky-note, .tucky-paw, .tucky-pouch { animation: none !important; }
+  .tucky-mouth-rest, .tucky-mouth-smile { transition: none; }
+}
+
+main.preview-mode { padding-bottom: 60px; }
+
+.tucky-closed-lash { opacity: 0; animation: tucky-lash 7.4s ease-in-out infinite; }
+@keyframes tucky-lash { 0%, 43%, 45%, 100% { opacity: 0; } 44% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .tucky-closed-lash { animation: none; } }
+
+/* Expressions remain legible even when motion is disabled. */
+.tucky-mouth-thought, .tucky-mouth-concern, .tucky-extra-notes { opacity: 0; }
+
+.reaction-thinking .tucky-mouth-rest, .reaction-thinking .tucky-mouth-stem,
+.reaction-attention .tucky-mouth-rest, .reaction-attention .tucky-mouth-stem,
+.reaction-failed .tucky-mouth-rest, .reaction-failed .tucky-mouth-stem { opacity: 0; }
+.reaction-thinking .tucky-mouth-thought,
+.reaction-attention .tucky-mouth-concern, .reaction-failed .tucky-mouth-concern { opacity: 1; }
+.reaction-thinking .pupil { transform: translate(15px, -20px); animation: tucky-consider 6s ease-in-out infinite; }
+.reaction-thinking .tucky-brows { transform: translateY(-8px); }
+.reaction-listening .tucky-brows { transform: translateY(-10px); transition: transform 250ms ease; }
+.reaction-paused .tucky-eyelid { animation: none; transform: translateY(62px); }
+.reaction-paused .tucky-closed-lash { animation: none; }
+.reaction-paused .pupil { transform: translate(0, 10px); }
+.reaction-attention .tucky-brows path:first-child, .reaction-failed .tucky-brows path:first-child { transform: translateY(-20px) rotate(-3deg); transform-origin: 450px 350px; }
+.reaction-attention .tucky-paw { transform-origin: 380px 755px; animation: tucky-attention 900ms ease-in-out both; }
+.reaction-failed .tucky-brows { animation: tucky-worry 650ms ease-in-out; }
+
+.reaction-completed .tucky-brows { animation: tucky-pleased 1.2s ease-in-out both; }
+.reaction-cancelled .tucky-eyelid { animation: tucky-soft-blink 650ms ease-in-out both; }
+.reaction-cancelled .tucky-closed-lash { animation: tucky-cancel-lash 650ms ease-in-out both; }
+.thinking-dot { animation: tucky-thought-dot 1.5s ease-in-out infinite; }
+@keyframes tucky-consider { 0%, 30%, 100% { transform: translate(15px,-20px); } 45%, 65% { transform: translate(-12px,-18px); } }
+@keyframes tucky-attention { 0%, 100% { transform: rotate(0); } 45% { transform: rotate(-9deg); } }
+@keyframes tucky-worry { 0%, 100% { transform: translateX(0); } 30% { transform: translateX(-6px); } 65% { transform: translateX(6px); } }
+
+@keyframes tucky-pleased { 0%, 100% { transform: translateY(0); } 35% { transform: translateY(9px); } 65% { transform: translateY(-4px); } }
+@keyframes tucky-soft-blink { 0%, 100% { transform: translateY(0); } 45%, 65% { transform: translateY(210px); } }
+@keyframes tucky-cancel-lash { 0%, 25%, 85%, 100% { opacity: 0; } 45%, 65% { opacity: 1; } }
+@keyframes tucky-thought-dot { 0%, 70%, 100% { opacity: .35; transform: translateY(0); } 35% { opacity: 1; transform: translateY(-8px); } }
+
+/* The preview is a control panel; these styles never affect the native pet. */
+main.preview-mode { height: calc(100% - 218px); padding: 18px 16px 6px; }
+.pet-preview { box-sizing: border-box; bottom: 0; padding: 12px 18px 16px; display: block; background: #fbf5eb; border-top: 1px solid #e4d6c1; color: #382610; font: 13px/1.4 system-ui, sans-serif; text-align: center; max-height: 218px; overflow-y: auto; }
+.pet-preview header strong { font-size: 16px; }
+.pet-preview p { margin: 3px 0 10px; }
+.pet-preview nav { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+.pet-preview button { font: inherit; padding: 6px 10px; }
+.pet-preview button[aria-pressed="true"] { background: #56613b; color: #fff; border-color: #56613b; }
+.pet-preview button:focus-visible { outline: 3px solid #bd803b; outline-offset: 2px; }
+.pet-preview small { display: block; margin-top: 10px; color: #75654e; font-size: 11px; }
+@media (max-width: 400px) { main.preview-mode { height: calc(100% - 268px); } .pet-preview { max-height: 268px; } }
+@media (prefers-reduced-motion: reduce) {
+  .pet-body *, .thinking-dot { animation: none !important; transition: none !important; }
+  .reaction-thinking .pupil { transform: translate(15px,-20px); }
+  .reaction-cancelled .tucky-eyelid { transform: none; }
+}
+
+.tucky-ear-left { transform-origin: 425px 291px; }
+.tucky-ear-right { transform-origin: 845px 291px; }
+[data-ear-twitch="left"] .tucky-ear-left { animation: tucky-ear-flick 650ms ease-in-out; }
+[data-ear-twitch="right"] .tucky-ear-right { animation: tucky-ear-flick 650ms ease-in-out reverse; }
+@keyframes tucky-ear-flick { 0%, 100% { transform: rotate(0); } 24% { transform: rotate(-12deg); } 48% { transform: rotate(5deg); } 70% { transform: rotate(-4deg); } }
+.tucky-thinking-hands, .tucky-tearing { display: none; }
+.reaction-thinking .tucky-paw, .reaction-thinking .tucky-right-paw,
+.reaction-completed .tucky-paw, .reaction-completed .tucky-right-paw,
+.reaction-completed .tucky-note { visibility: hidden; }
+.reaction-thinking .tucky-thinking-hands { display: inline; transform-origin: 626px 830px; animation: tucky-chin 250ms ease-out both; }
+@keyframes tucky-chin { from { opacity: 0; } to { opacity: 1; } }
+.reaction-completed .tucky-tearing { display: inline; animation: tucky-paper-appear 2.2s ease-in-out both; }
+.tucky-tear-left { transform-origin: 381px 750px; transform: rotate(14deg); }
+.tucky-tear-right { transform-origin: 864px 750px; transform: rotate(-14deg); }
+.reaction-completed .tucky-tear-left { animation: tucky-rip-left 2.2s ease-in-out both; }
+.reaction-completed .tucky-tear-right { animation: tucky-rip-right 2.2s ease-in-out both; }
+@keyframes tucky-paper-appear { 0% { opacity: 0; } 12%, 85% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes tucky-rip-left { 0%, 35% { transform: rotate(0); } 48% { transform: rotate(4deg); } 65%, 100% { transform: rotate(14deg); } }
+@keyframes tucky-rip-right { 0%, 35% { transform: rotate(0); } 48% { transform: rotate(-4deg); } 65%, 100% { transform: rotate(-14deg); } }
+
+.tucky-writing { display: none; }
+.reaction-listening .tucky-paw, .reaction-listening .tucky-right-paw, .reaction-listening .tucky-note { visibility: hidden; }
+.reaction-listening .tucky-writing { display: inline; }
+.tucky-writing-paw { transform-origin: 855px 760px; }
+.reaction-listening .tucky-writing-paw { animation: tucky-write 3.6s ease-in-out infinite; }
+.reaction-listening .tucky-ink { stroke-dasharray: 110; animation: tucky-ink 3.6s ease-in-out infinite; }
+@keyframes tucky-write { 0%, 65%, 100% { transform: rotate(0); } 10%, 30%, 50% { transform: rotate(-2deg); } 20%, 40%, 60% { transform: rotate(2deg); } }
+@keyframes tucky-ink { 0%, 8% { stroke-dashoffset: 110; } 65%, 90% { stroke-dashoffset: 0; opacity: 1; } 100% { stroke-dashoffset: 0; opacity: 0; } }

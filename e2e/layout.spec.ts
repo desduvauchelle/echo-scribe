@@ -318,7 +318,7 @@ test("action cheatsheet wraps long email examples without horizontal overflow", 
   expect(overflow.phrases.every((amount) => amount <= 1)).toBe(true);
 });
 
-test("dashboard stats follow the active filter and expose the stats page", async ({ page }) => {
+test("dashboard pulse summarises the week and exposes the stats page", async ({ page }) => {
   await installTauriMock(page, {
     onboardingCompleted: true,
     permissions: { microphone: true, accessibility: true },
@@ -326,17 +326,29 @@ test("dashboard stats follow the active filter and expose the stats page", async
   });
   await page.goto("/");
 
-  const stats = page.getByRole("region", { name: "Activity statistics" });
-  await expect(stats).toContainText("Dictations");
-  await expect(stats).toContainText("86 this week");
-  await expect(page.getByRole("button", { name: "View stats" })).toBeVisible();
+  const pulse = page.getByRole("region", { name: "Activity statistics" });
+  await expect(pulse).toContainText("This week:");
+  await expect(pulse).toContainText("86 dictations");
+  await expect(pulse).toContainText("14 notes");
+  await expect(pulse).toContainText("5 meetings");
+  await expect(pulse.getByRole("button", { name: "View stats" })).toBeVisible();
 
-  await page.getByRole("button", { name: "Notes", exact: true }).click();
-  await expect(stats).toContainText("Today");
-  await expect(stats).toContainText("3");
-  await expect(stats).toContainText("This week");
-  await expect(stats).toContainText("14");
+  await pulse.getByRole("button", { name: "This week:" }).click();
+  await expect(pulse).toContainText("Today:");
+  await expect(pulse).toContainText("18 dictations");
+  await expect(pulse).toContainText("1 meeting");
+  await page.reload();
+  await expect(pulse).toContainText("Today:");
+  await expect(pulse).toContainText("18 dictations");
+  await pulse.getByRole("button", { name: "Today:" }).click();
+  await expect(pulse).toContainText("This week:");
+  await expect(pulse).toContainText("86 dictations");
 
-  await page.getByRole("button", { name: "View stats" }).click();
+  // The kind filters live in the activity section and don't narrow the pulse.
+  await page.locator(".echo-activity-ledger .echo-filter-toolbar").getByRole("button", { name: "Notes", exact: true }).click();
+  await expect(pulse).toContainText("86 dictations");
+  await expect(pulse).toContainText("14 notes");
+
+  await pulse.getByRole("button", { name: "View stats" }).click();
   await expect(page.getByRole("heading", { name: "Stats" })).toBeVisible();
 });

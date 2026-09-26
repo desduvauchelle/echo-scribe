@@ -3,6 +3,7 @@
     "iconThinkingAlt": "Elaborazione",
     "iconTranscribingAlt": "Trascrizione",
     "iconRecordingAlt": "Registrazione",
+    "takingNotes": "Prendo appunti…",
     "transcribing": "Trascrizione…",
     "processingDefault": "Elaborazione…",
     "recordingMeetingWithApp": "Registrazione · {{appName}}",
@@ -146,5 +147,17 @@
     "cancel": "Annulla",
     "starting": "Avvio…",
     "startRecording": "Avvia registrazione"
+  },
+  "agentToast": {
+    "ariaLabel": "Richiesta a Tucky",
+    "working": "Ci sto lavorando…",
+    "done": "Fatto",
+    "partial": "Fatto in parte",
+    "failed": "Impossibile completare",
+    "stopped": "Interrotto",
+    "open": "Apri",
+    "dismiss": "Chiudi",
+    "task": "Attività",
+    "note": "Nota"
   }
 }

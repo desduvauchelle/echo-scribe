@@ -749,7 +749,7 @@ pub fn backfill_project(db: &Db, project_id: &str, threshold: f32) -> Result<u32
     let meeting_items: Vec<Item> = db.with_conn(|c| {
         let mut stmt = c.prepare(
             "SELECT id, content, source, kind, project_id, captured_at, created_at,
-                    deleted_at, confidence, classified_by, capture_context
+                    deleted_at, confidence, classified_by, capture_context, importance
              FROM items
              WHERE source = 'meeting' AND kind = 'meeting'
                AND project_id = ?1 AND deleted_at IS NULL",
@@ -769,6 +769,7 @@ pub fn backfill_project(db: &Db, project_id: &str, threshold: f32) -> Result<u32
                 confidence: r.get::<_, Option<f64>>("confidence")?.map(|v| v as f32),
                 classified_by: r.get("classified_by")?,
                 capture_context: r.get("capture_context")?,
+                importance: crate::db::items::importance_from_row(r)?,
             })
         })?;
         let mut out = Vec::new();
@@ -837,6 +838,7 @@ mod tests {
             confidence,
             classified_by: Some("classifier-v1".into()),
             capture_context: None,
+            importance: None,
         }
     }
 
@@ -1096,6 +1098,7 @@ mod tests {
             confidence: None,
             classified_by: None,
             capture_context: None,
+            importance: None,
         }
     }
 

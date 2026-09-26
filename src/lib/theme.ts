@@ -15,6 +15,7 @@ const DARK_CANVAS = "#080e0d";
 // be garbage-collected along with its "change" listener, silently breaking
 // auto-mode tracking of OS theme changes.
 let systemLightQuery: MediaQueryList | null = null;
+let transparentBackground = false;
 const systemLight = (): MediaQueryList => {
   if (!systemLightQuery) {
     systemLightQuery = window.matchMedia("(prefers-color-scheme: light)");
@@ -40,7 +41,9 @@ function apply(pref: ThemePref): void {
   root.style.colorScheme = resolved;
   // The pre-mount background in each window's index.html is set before CSS
   // loads; keep it in step when the theme changes at runtime.
-  root.style.backgroundColor = resolved === "light" ? LIGHT_CANVAS : DARK_CANVAS;
+  root.style.backgroundColor = transparentBackground
+    ? "transparent"
+    : resolved === "light" ? LIGHT_CANVAS : DARK_CANVAS;
 }
 
 export function setThemePref(pref: ThemePref): void {
@@ -53,7 +56,8 @@ export function setThemePref(pref: ThemePref): void {
 }
 
 /** Apply the stored preference and track OS + cross-window changes. */
-export function initTheme(): void {
+export function initTheme(options?: { transparentBackground?: boolean }): void {
+  transparentBackground = options?.transparentBackground ?? false;
   apply(getThemePref());
   systemLight().addEventListener("change", () => {
     if (getThemePref() === "auto") apply("auto");

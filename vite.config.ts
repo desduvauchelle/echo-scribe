@@ -17,10 +17,13 @@ export default defineConfig({
       input: {
         main: resolve(__dirname, "index.html"),
         "desktop-pet": resolve(__dirname, "src/desktop-pet/index.html"),
+        "desktop-pet-focus": resolve(__dirname, "src/desktop-pet/focus.html"),
+        "activity-bubble": resolve(__dirname, "src/activity-bubble/index.html"),
         overlay: resolve(__dirname, "src/overlay/index.html"),
         consent: resolve(__dirname, "src/consent-overlay/index.html"),
         "meeting-toast": resolve(__dirname, "src/meeting-toast/index.html"),
         "action-toast": resolve(__dirname, "src/action-toast/index.html"),
+        "agent-toast": resolve(__dirname, "src/agent-toast/index.html"),
         "meeting-hud": resolve(__dirname, "src/meeting-hud/index.html"),
         "screenrec-setup": resolve(__dirname, "src/screenrec-setup/index.html"),
         "camera-preview": resolve(__dirname, "src/camera-preview/index.html"),

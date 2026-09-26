@@ -15,10 +15,12 @@ use thiserror::Error;
 
 pub mod chat;
 pub mod daily_summaries;
+pub mod daily_focus_notes;
 pub mod embeddings;
 pub mod events;
 pub mod guide_templates;
 pub mod items;
+pub mod meeting_debrief;
 pub mod meeting_guide_runs;
 pub mod meeting_intelligence;
 pub mod meetings;

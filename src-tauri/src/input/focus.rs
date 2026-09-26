@@ -20,8 +20,15 @@ use objc2_application_services::AXUIElement;
 #[cfg(target_os = "macos")]
 use objc2_core_foundation::CFRetained;
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct FocusContext {
+    /// Content-free diagnostics persisted with the capture, even when log filtering
+    /// disables informational messages. Never used as classification evidence.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diagnostics: Option<CaptureDiagnostics>,
+    #[serde(default)]
+    pub signals: Vec<super::context::ContextSignal>,
+    #[serde(default)]
     pub pid: i32,
     pub bundle_id: Option<String>,
     pub app_name: Option<String>,
@@ -46,6 +53,22 @@ pub struct FocusContext {
     /// Diagnostic source for `content_title`/`content_url`.
     #[serde(default)]
     pub content_source: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct CaptureDiagnostics {
+    pub reader_version: u32,
+    pub elapsed_ms: u64,
+    pub visited: usize,
+    pub pending: usize,
+    pub stop_reason: String,
+    pub depth_limited: usize,
+    pub child_lists_at_limit: usize,
+    pub queue_limited: usize,
+    pub skipped_surfaces: usize,
+    pub claude_headers: usize,
+    pub popup_controls: usize,
+    pub roles: std::collections::BTreeMap<String, usize>,
 }
 
 /// Opaque handle to the AX UI element that had keyboard focus at capture
@@ -315,6 +338,8 @@ pub fn capture_context() -> Option<FocusContext> {
     if pid == std::process::id() as i32 {
         tracing::debug!(target: "focus", "capture_context: frontmost is Tucky, skipping AX probes");
         return Some(FocusContext {
+            diagnostics: None,
+            signals: Vec::new(),
             pid,
             bundle_id,
             app_name,
@@ -332,15 +357,28 @@ pub fn capture_context() -> Option<FocusContext> {
     let browser_tab_title = bundle_id
         .as_deref()
         .and_then(capture_browser_tab_title_macos);
-    let (content_title, content_url, content_source) = capture_content_metadata_macos(
+    let (content_title, content_url, content_source, signals, mut diagnostics) = metadata::capture(
         pid,
         app_name.as_deref(),
         window_title.as_deref(),
         browser_tab_title.as_deref(),
         browser_url.as_deref(),
+        bundle_id.as_deref(),
     );
 
+    // Never combine a title from the original window with metadata obtained
+    // after a user switches apps/windows while an AX/AppleScript call runs.
+    if current_frontmost_pid() != Some(pid) || capture_window_title_macos(pid) != window_title {
+        diagnostics.stop_reason = "focus_changed".into();
+        return Some(FocusContext {
+            diagnostics: Some(diagnostics),
+            pid, bundle_id, app_name, window_title,
+            ..Default::default()
+        });
+    }
     Some(FocusContext {
+        diagnostics: Some(diagnostics),
+        signals,
         pid,
         bundle_id,
         app_name,
@@ -1659,53 +1697,8 @@ fn capture_browser_tab_title_macos(bundle_id: &str) -> Option<String> {
     run_osascript_with_timeout(script)
 }
 
-/// Derive a more specific content title/URL than the app-level window title.
-///
-/// Priority order:
-/// 1. Browser tab title/URL, already acquired through app-specific safe paths.
-/// 2. Focused window AX attributes such as AXDocument, AXURL, AXDescription.
-/// 3. Focused high-level element attributes, excluding text-entry values.
-/// 4. A bounded shallow scan for selected tabs and web/document areas.
 #[cfg(target_os = "macos")]
-fn capture_content_metadata_macos(
-    pid: i32,
-    app_name: Option<&str>,
-    window_title: Option<&str>,
-    browser_tab_title: Option<&str>,
-    browser_url: Option<&str>,
-) -> (Option<String>, Option<String>, Option<String>) {
-    if let Some(title) = normalize_content_candidate(browser_tab_title, app_name, window_title) {
-        return (
-            Some(title),
-            browser_url.and_then(normalize_url_candidate),
-            Some("browser_tab".to_string()),
-        );
-    }
-
-    let Some(window) = focused_window_element_macos(pid) else {
-        return (None, None, None);
-    };
-
-    if let Some(found) =
-        inspect_ax_element_for_content(&window, app_name, window_title, "ax_window", false)
-    {
-        return found;
-    }
-
-    if let Some(focused) = focused_ui_element_macos(pid) {
-        if let Some(found) = inspect_ax_element_for_content(
-            &focused,
-            app_name,
-            window_title,
-            "ax_focused_element",
-            false,
-        ) {
-            return found;
-        }
-    }
-
-    scan_ax_children_for_content(&window, app_name, window_title).unwrap_or((None, None, None))
-}
+mod metadata;
 
 #[cfg(target_os = "macos")]
 fn focused_window_element_macos(pid: i32) -> Option<CFRetained<AXUIElement>> {
@@ -1747,89 +1740,6 @@ fn focused_ui_element_macos(pid: i32) -> Option<CFRetained<AXUIElement>> {
         }
         CFRetained::from_raw(NonNull::new(raw as *mut AXUIElement)?).into()
     }
-}
-
-#[cfg(target_os = "macos")]
-fn inspect_ax_element_for_content(
-    element: &AXUIElement,
-    app_name: Option<&str>,
-    window_title: Option<&str>,
-    source: &str,
-    allow_text_value: bool,
-) -> Option<(Option<String>, Option<String>, Option<String>)> {
-    let role = copy_ax_string_attribute(element, "AXRole");
-    let title = copy_ax_string_attribute(element, "AXTitle")
-        .or_else(|| copy_ax_string_attribute(element, "AXDescription"))
-        .or_else(|| copy_ax_string_attribute(element, "AXDocument"))
-        .and_then(|s| normalize_content_candidate(Some(&s), app_name, window_title));
-    let title = title.or_else(|| {
-        if allow_text_value && is_high_signal_role(role.as_deref()) {
-            copy_ax_string_attribute(element, "AXValue")
-                .and_then(|s| normalize_content_candidate(Some(&s), app_name, window_title))
-        } else {
-            None
-        }
-    });
-    let url = copy_ax_url_like_attribute(element, "AXURL")
-        .or_else(|| copy_ax_url_like_attribute(element, "AXDocument"))
-        .and_then(|s| normalize_url_candidate(&s));
-
-    if title.is_some() || url.is_some() {
-        Some((title, url, Some(source.to_string())))
-    } else {
-        None
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn scan_ax_children_for_content(
-    root: &AXUIElement,
-    app_name: Option<&str>,
-    window_title: Option<&str>,
-) -> Option<(Option<String>, Option<String>, Option<String>)> {
-    use objc2_core_foundation::Type;
-
-    let mut stack = vec![root.retain()];
-    let mut visited = 0usize;
-
-    while let Some(element) = stack.pop() {
-        visited += 1;
-        if visited > 40 {
-            break;
-        }
-
-        let role = copy_ax_string_attribute(&element, "AXRole");
-        if is_high_signal_role(role.as_deref()) {
-            if let Some(found) = inspect_ax_element_for_content(
-                &element,
-                app_name,
-                window_title,
-                role.as_deref().unwrap_or("ax_child"),
-                false,
-            ) {
-                return Some(found);
-            }
-        }
-
-        if stack.len() < 40 {
-            stack.extend(copy_ax_children(&element).into_iter().take(12));
-        }
-    }
-
-    None
-}
-
-#[cfg(target_os = "macos")]
-fn is_high_signal_role(role: Option<&str>) -> bool {
-    matches!(
-        role,
-        Some("AXWebArea")
-            | Some("AXTabGroup")
-            | Some("AXTab")
-            | Some("AXDocument")
-            | Some("AXGroup")
-            | Some("AXScrollArea")
-    )
 }
 
 #[cfg(target_os = "macos")]
@@ -1985,7 +1895,7 @@ fn copy_ax_children(element: &AXUIElement) -> Vec<CFRetained<AXUIElement>> {
         };
         let array: CFRetained<CFArray<AXUIElement>> =
             CFRetained::cast_unchecked::<CFArray<AXUIElement>>(array);
-        array.iter().take(12).collect()
+        array.iter().take(24).collect()
     }
 }
 
@@ -1999,7 +1909,10 @@ fn normalize_content_candidate(
         return None;
     }
     let s_l = s.to_lowercase();
-    let generic = ["home", "untitled", "new tab", "start page", "settings"];
+    let generic = ["home", "untitled", "new tab", "start page", "settings",
+        "work with chatgpt", "message chatgpt", "ask anything", "ask a follow-up",
+        "reply to claude...", "reply to claude…", "message claude", "new chat", "new conversation",
+        "prompt", "message", "message body", "file contents", "primary pane", "main window", "content", "sidebar"];
     if generic.iter().any(|g| s_l == *g) {
         return None;
     }
@@ -2023,6 +1936,9 @@ fn normalize_content_candidate(
 fn normalize_url_candidate(candidate: &str) -> Option<String> {
     let s = normalize_raw_string(candidate)?;
     let s_l = s.to_lowercase();
+    if s_l.starts_with("claude.ai/") || s_l.starts_with("chatgpt.com/") {
+        return Some(format!("https://{s}"));
+    }
     if s_l.starts_with("http://")
         || s_l.starts_with("https://")
         || s_l.starts_with("file://")
@@ -2079,6 +1995,12 @@ mod tests {
     use super::*;
 
     #[test]
+    fn generic_composer_label_is_not_a_conversation_title() {
+        assert!(normalize_content_candidate(Some("Work with ChatGPT"), Some("ChatGPT"), None).is_none());
+        assert!(normalize_content_candidate(Some("Reply to Claude..."), Some("Claude"), None).is_none());
+    }
+
+    #[test]
     fn capture_context_returns_some_with_valid_pid() {
         let ctx = capture_context();
         if let Some(c) = ctx {
@@ -2107,6 +2029,8 @@ mod tests {
     #[test]
     fn activate_app_reports_no_path_for_invalid_pid() {
         let ctx = FocusContext {
+            diagnostics: None,
+            signals: Vec::new(),
             pid: -1,
             bundle_id: None,
             app_name: None,
@@ -2127,6 +2051,8 @@ mod tests {
     #[test]
     fn restore_focus_with_invalid_pid_returns_no_activation() {
         let ctx = FocusContext {
+            diagnostics: None,
+            signals: Vec::new(),
             pid: -1,
             bundle_id: None,
             app_name: None,
@@ -2222,6 +2148,8 @@ mod tests {
         // pid -1 never resolves, so no candidate element can accept text: the
         // paste must be blocked rather than fired blindly.
         let ctx = FocusContext {
+            diagnostics: None,
+            signals: Vec::new(),
             pid: -1,
             bundle_id: None,
             app_name: None,
@@ -2245,6 +2173,8 @@ mod tests {
     #[test]
     fn uneditable_capture_never_redirects_an_edit() {
         let ctx = FocusContext {
+            diagnostics: None,
+            signals: Vec::new(),
             pid: -1,
             bundle_id: None,
             app_name: None,

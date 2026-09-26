@@ -3,16 +3,36 @@
     "titles": [
       "Ein wenig Platz für deine Gedanken.",
       "Was geht dir durch den Kopf?",
-      "Gedanken, die einen zweiten Blick verdienen."
+      "Gedanken, die einen zweiten Blick verdienen.",
+      "Sprich es aus. Ich schreibe mit.",
+      "Dein Gehirn hat angerufen. Es will ein Backup.",
+      "Psst. Woran arbeiten wir gerade?",
+      "Leere Seite, null Urteil.",
+      "Laut nachdenken? Ausgezeichnet.",
+      "Zu viele Tabs im Kopf offen?",
+      "Schon zurück? Ich hab dich vermisst.",
+      "Keine Idee ist zu klein, um sie zu behalten.",
+      "Erst Kaffee oder erst Ideen?",
+      "Aus Gemurmel wird Schwung.",
+      "Ich bin ganz Ohr. Na ja, fast nur Ohr."
     ],
     "descriptions": [
       "Nimm deinen Gedankenfaden wieder auf.",
       "Deine nächste Idee hat hier ihren Platz.",
-      "Finde einen Faden und folge ihm."
+      "Finde einen Faden und folge ihm.",
+      "Abschweifen erlaubt. Ich räume danach auf.",
+      "Sag es laut, bevor es davonschwebt.",
+      "Ich habe deine Notizen warmgehalten.",
+      "Halbgare Gedanken sind mir die liebsten.",
+      "Das ist quasi mein ganzer Job.",
+      "Schließ ein paar, indem du sie aussprichst.",
+      "Mal sehen, was du so getrieben hast.",
+      "Die Kleinen werden hier schnell groß.",
+      "So oder so, ich bin bereit, wenn du es bist.",
+      "Chaotisch sagen. Sauber lesen.",
+      "Leg los, ich höre zu."
     ],
     "another": "Ein anderer Gedanke",
-    "hide": "Begrüßung ausblenden",
-    "show": "Tuckys Begrüßung anzeigen",
     "label": "Ein Moment mit Tucky"
   },
   "app": {
@@ -21,6 +41,7 @@
       "search": "Suchen"
     },
     "sidebar": {
+      "hideLearn": "„Learn Tucky“ ausblenden",
       "dictate": {
         "activeTooltip": "Diktieren — {{binding}} loslassen zum Stoppen",
         "idleTooltip": "{{binding}} gedrückt halten zum Diktieren",
@@ -101,38 +122,88 @@
     },
     "activity": {
       "searchResultsLabel": "Suchergebnisse",
+      "label": "Aktivität",
       "todayLabel": "Heute",
+      "yesterdayLabel": "Gestern",
       "matchesFor": "Treffer für „{{query}}“",
-      "recentActivity": "Letzte Aktivität",
-      "mostRecent": "Neueste zuerst",
       "loading": "Wird geladen…",
       "loadMore": "Mehr laden"
     },
     "stats": {
       "regionLabel": "Aktivitätsstatistik",
-      "overviewLabel": "Aktivitätsübersicht",
       "viewStats": "Statistik ansehen",
-      "today": "Heute",
-      "thisWeek": "Diese Woche",
-      "wordsCount": "{{count}} Wörter",
-      "timeThisWeek": "Zeit diese Woche",
-      "wordsThisWeek": "Wörter diese Woche",
-      "exactCount": "{{count}} exakt",
-      "timeAllTime": "Zeit gesamt",
-      "allTime": "Gesamter Zeitraum",
-      "totalCount": "{{count}} insgesamt",
-      "thisWeekCount": "{{count}} diese Woche",
-      "todayCount": "{{count}} {{label}} heute"
+      "pulseLabel": "Diese Woche:",
+      "pulseTodayLabel": "Heute:",
+      "pulseEmpty": "Noch nichts erfasst.",
+      "pulse": {
+        "transcriptions_one": "Diktat",
+        "transcriptions_other": "Diktate",
+        "notes_one": "Notiz",
+        "notes_other": "Notizen",
+        "tasks_one": "Aufgabe",
+        "tasks_other": "Aufgaben",
+        "meetings_one": "Meeting",
+        "meetings_other": "Meetings",
+        "recordings_one": "Aufnahme",
+        "recordings_other": "Aufnahmen"
+      }
     },
-    "recap": {
-      "quietDay": "Ruhiger Tag — nichts aufgezeichnet.",
-      "notGenerated": "Für gestern wurde kein Recap erstellt.",
-      "yesterdayLabel": "Gestern · {{date}}",
-      "close": "Schließen",
-      "sections": {
-        "whatHappened": "Was passiert ist",
-        "whatMattered": "Was wichtig war",
-        "whatsNext": "Was als Nächstes ansteht"
+    "focus": {
+      "label": "Fokus",
+      "title": "Das Wichtigste pro Projekt",
+      "progress": "{{done}}/{{total}} erledigt",
+      "showMore": "{{count}} weitere anzeigen",
+      "showLess": "Weniger anzeigen",
+      "emptyTitle": "Noch kein Fokus festgelegt",
+      "emptyHint": "Sag Tucky „Füge eine Fokusaufgabe zu … hinzu“ oder klick auf Hinzufügen.",
+      "remove": "Entfernen",
+      "unknownProject": "Ohne Projekt",
+      "add": "Hinzufügen",
+      "addItem": "Eintrag hinzufügen",
+      "addPlaceholder": "Neuer Fokuspunkt…",
+      "pickProject": "Fokus hinzufügen für…",
+      "noProject": "Kein Projekt",
+      "dragHandle": "Ziehen zum Sortieren: {{text}}",
+      "dragHint": "Ziehen zum Sortieren (Alt+↑/↓)",
+      "editHint": "Doppelklicken zum Bearbeiten",
+      "addItemTo": "Eintrag zu {{project}} hinzufügen",
+      "saveFailed": "Die Änderung konnte nicht gespeichert werden. Bitte erneut versuchen.",
+      "addFailed": "Der Eintrag konnte nicht hinzugefügt werden. Bitte erneut versuchen."
+    },
+    "debrief": {
+      "label": "Meeting-Nachbereitung",
+      "title": "Schließe dein Meeting ab",
+      "openMeeting": "Meeting öffnen",
+      "project": "Projekt",
+      "noProject": "Kein Projekt",
+      "people": "Mit",
+      "noPeople": "Noch niemand bestätigt",
+      "unknownSpeaker": "Unbekannte Person",
+      "removePerson": "{{name}} entfernen",
+      "addPerson": "Person hinzufügen",
+      "searchPeople": "Name suchen oder hinzufügen…",
+      "createPerson": "„{{name}}“ als neue Person hinzufügen",
+      "noMatches": "Keine passenden Personen",
+      "whoIsThis": "Wer ist {{name}}?",
+      "linkSpeaker": "Zuordnen…",
+      "followUps": "Vorgeschlagene Folgeaufgaben",
+      "noFollowUps": "Keine Folgeaufgaben erkannt",
+      "allHandled": "Alle Folgeaufgaben erledigt",
+      "taskText": "Aufgabe",
+      "assignee": "Zuständig",
+      "me": "Ich",
+      "addTask": "Aufgabe hinzufügen",
+      "skip": "Überspringen",
+      "added": "Hinzugefügt",
+      "done": "Fertig",
+      "dismiss": "Verwerfen",
+      "dismissAll": "Alle Nachbesprechungen verwerfen",
+      "errors": {
+        "project": "Das Projekt des Meetings konnte nicht aktualisiert werden. Bitte versuche es erneut.",
+        "people": "Die Teilnehmenden konnten nicht aktualisiert werden. Bitte versuche es erneut.",
+        "task": "Die Aufgabe konnte nicht hinzugefügt werden. Bitte versuche es erneut.",
+        "skip": "Der Vorschlag konnte nicht übersprungen werden. Bitte versuche es erneut.",
+        "complete": "Die Nachbereitung konnte nicht abgeschlossen werden. Bitte versuche es erneut."
       }
     }
   },
@@ -391,13 +462,13 @@
     },
     "emptyState": {
       "chatWithMemory": "Chatte mit deinem Gedächtnis",
-      "startOrSelect": "Starte einen neuen Chat oder wähle eine frühere Unterhaltung.",
+      "startOrSelect": "Schreib unten, um einen neuen Chat zu starten, oder wähle eine frühere Unterhaltung.",
       "newConversation": "Neue Unterhaltung",
       "tryAsking": "Frag nach deinen Erfassungen, Notizen und Aufgaben. Versuch's mit „Was habe ich heute erfasst?“"
     },
     "input": {
       "placeholderActive": "Frage zu deinen Notizen… (Enter zum Senden)",
-      "placeholderInactive": "Starte zuerst einen neuen Chat",
+      "placeholderInactive": "Frag etwas, um einen neuen Chat zu starten…",
       "ariaLabel": "Nachricht",
       "send": "Senden",
       "hint": "Umschalt+Enter für neue Zeile"
@@ -460,7 +531,8 @@
       "completeFailed": "Erledigen fehlgeschlagen: {{error}}",
       "uncompleteFailed": "Als offen markieren fehlgeschlagen: {{error}}",
       "updateDeadlineFailed": "Fälligkeitsdatum konnte nicht aktualisiert werden: {{error}}"
-    }
+    },
+    "assignedTo": "Zugewiesen an {{name}}"
   },
   "meetings": {
     "status": {

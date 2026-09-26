@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
@@ -6,7 +6,6 @@ import { AlignLeft, Copy, Download, Eye, Info, Loader, MessageSquare, Pencil, Qu
 import Markdown from "./Markdown";
 import Dialog, { useFocusTrap } from "./a11y/Dialog";
 import {
-  completeTask,
   createProject,
   createChatSessionScoped,
   chatWithMemory,
@@ -18,6 +17,7 @@ import {
   getMeetingPreferences,
   generateMeetingArtifact,
   listGuideRuns,
+  listFocusTasks,
   listMeetingParticipants,
   listMeetingArtifacts,
   listPeople,
@@ -26,7 +26,6 @@ import {
   listProjects,
   listTagsForItem,
   listTasks,
-  parseCaptureContext,
   regenerateGuideReview,
   renameMeeting,
   regenerateMeetingSummary,
@@ -35,16 +34,13 @@ import {
   runRecipe,
   saveRecipe,
   saveSummaryTemplate,
-  setTaskDeadline,
   setMeetingSpeakerLabel,
-  uncompleteTask,
   updateItem,
   updateMeetingNotes,
   updateMeetingSummaryMarkdown,
   updateMeetingTranscript,
   type GuideRun,
   type Item,
-  type ItemKind,
   type MeetingRow,
   type MeetingParticipant,
   type MeetingArtifact,
@@ -60,10 +56,10 @@ import { ask } from "@tauri-apps/plugin-dialog";
 import { listen } from "@tauri-apps/api/event";
 import { parseGuideReview, parseTimeline, verdictClass } from "../lib/guideReview";
 import GuideTrendView from "./GuideTrendView";
+import { ItemBody, ItemHeader } from "./ItemView";
 import {
   meetingStatusDescription,
   meetingStatusLabel,
-  relativeTimeLabel,
 } from "../lib/displayText";
 import { summaryMarkdown } from "../lib/meetingDisplay";
 import { useActivityPanel } from "./ActivityPanelContext";
@@ -143,6 +139,7 @@ function PanelBody({
   const [projects, setProjects] = useState<Project[]>([]);
   const [deadline, setDeadline] = useState<string | null>(null);
   const [completedAt, setCompletedAt] = useState<string | null>(null);
+  const [focused, setFocused] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [meetingExportOpen, setMeetingExportOpen] = useState(false);
@@ -168,14 +165,19 @@ function PanelBody({
       setMeeting(null);
     }
     if (it.kind === "task") {
-      // listTasks is the only API surface that exposes deadline/completed_at.
-      const tasks = await listTasks({ include_completed: true }).catch(() => []);
+      const [tasks, focusTasks] = await Promise.all([
+        listTasks({ include_completed: true }).catch(() => []),
+        listFocusTasks().catch(() => []),
+      ]);
       const row = tasks.find((t) => t.item.id === itemId);
+      const focusRow = focusTasks.find((task) => task.item.id === itemId);
       setDeadline(row?.deadline ?? null);
-      setCompletedAt(row?.completed_at ?? null);
+      setCompletedAt(row?.completed_at ?? focusRow?.completed_at ?? null);
+      setFocused(!!focusRow);
     } else {
       setDeadline(null);
       setCompletedAt(null);
+      setFocused(false);
     }
   }, [itemId, t]);
 
@@ -248,32 +250,44 @@ function PanelBody({
 
   return (
     <>
-      <header className="flex items-center justify-between border-b border-line px-4 py-3">
-        <div id="activity-panel-title" className="min-w-0 text-sm font-medium text-fg">
-          {loading ? t("activityPanel.panelBody.loading") : item ? activityTitle(item, meeting, t) : t("activityPanel.panelBody.titleFallback")}
-        </div>
-        <div className="flex items-center gap-1.5">
-          {meeting && ["complete", "recovered"].includes(meeting.status) ? (
+      {!loading && item && !meeting ? (
+        <ItemHeader
+          item={item}
+          titleId="activity-panel-title"
+          title={activityTitle(item, meeting, t)}
+          onKindChange={onItemChange}
+          onDelete={() => void onDelete()}
+          onRestore={() => void onRestore()}
+          onClose={onClose}
+        />
+      ) : (
+        <header className="flex items-center justify-between border-b border-line px-4 py-3">
+          <div id="activity-panel-title" className="min-w-0 text-sm font-medium text-fg">
+            {loading ? t("activityPanel.panelBody.loading") : item ? activityTitle(item, meeting, t) : t("activityPanel.panelBody.titleFallback")}
+          </div>
+          <div className="flex items-center gap-1.5">
+            {meeting && ["complete", "recovered"].includes(meeting.status) ? (
+              <button
+                type="button"
+                onClick={() => setExportDialogOpen(true)}
+                className="inline-flex items-center gap-1.5 rounded-md border border-line px-2.5 py-1 text-[11px] font-medium text-muted transition-colors hover:bg-elevated hover:text-fg"
+              >
+                <Download size={13} strokeWidth={2} aria-hidden="true" />
+                {t("activityPanel.panelBody.export")}
+              </button>
+            ) : null}
             <button
               type="button"
-              onClick={() => setExportDialogOpen(true)}
-              className="inline-flex items-center gap-1.5 rounded-md border border-line px-2.5 py-1 text-[11px] font-medium text-muted transition-colors hover:bg-elevated hover:text-fg"
+              onClick={onClose}
+              aria-label={t("activityPanel.panelBody.closePanel")}
+              className="rounded p-1 text-muted hover:bg-elevated hover:text-fg"
             >
-              <Download size={13} strokeWidth={2} aria-hidden="true" />
-              {t("activityPanel.panelBody.export")}
+              <X size={16} strokeWidth={2.25} />
             </button>
-          ) : null}
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label={t("activityPanel.panelBody.closePanel")}
-            className="rounded p-1 text-muted hover:bg-elevated hover:text-fg"
-          >
-            <X size={16} strokeWidth={2.25} />
-          </button>
-        </div>
-      </header>
-      <div className="flex-1 overflow-y-auto px-4 py-3 text-sm text-fg">
+          </div>
+        </header>
+      )}
+      <div className={`flex-1 overflow-y-auto text-sm text-fg ${item && !meeting ? "px-5 py-5" : "px-4 py-3"}`}>
         {loading ? (
           <div className="text-xs text-muted">{t("activityPanel.panelBody.loading")}</div>
         ) : error ? (
@@ -297,43 +311,38 @@ function PanelBody({
                 }}
               />
             ) : (
-              <>
-                <HeaderSection item={item} meeting={meeting} />
-                <ContentSection item={item} onChange={onItemChange} />
-                <KindSection item={item} onChange={onItemChange} />
-                <ProjectSection
-                  item={item}
-                  projects={projects}
-                  onProjectsChange={setProjects}
-                  onChange={onItemChange}
-                />
-                <TagsSection
-                  item={item}
-                  tags={tags}
-                  onTagsChange={setTags}
-                  onSaved={onSavedSideEffect}
-                />
-                <MetadataSection item={item} />
-                {item.kind === "task" ? (
-                  <TaskSection
-                    itemId={item.id}
-                    deadline={deadline}
-                    completedAt={completedAt}
-                    onChange={(d, c) => {
-                      setDeadline(d);
-                      setCompletedAt(c);
-                      bumpRefresh();
-                    }}
-                  />
-                ) : null}
-              </>
+              <ItemBody
+                item={item}
+                projects={projects}
+                tags={tags}
+                deadline={deadline}
+                completedAt={completedAt}
+                focused={focused}
+                onItemChange={onItemChange}
+                onProjectsChange={setProjects}
+                onTagsChange={setTags}
+                onTaskChange={(d, c) => {
+                  setDeadline(d);
+                  setCompletedAt(c);
+                  bumpRefresh();
+                }}
+                onFocusChange={(value) => {
+                  setFocused(value);
+                  bumpRefresh();
+                }}
+                onSaved={onSavedSideEffect}
+              />
             )}
-            <ItemDetailPanel itemId={item.id} />
-            <ActionsSection
-              item={item}
-              onDelete={onDelete}
-              onRestore={onRestore}
-            />
+            {meeting ? (
+              <>
+                <ItemDetailPanel itemId={item.id} />
+                <ActionsSection
+                  item={item}
+                  onDelete={onDelete}
+                  onRestore={onRestore}
+                />
+              </>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -522,31 +531,6 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-function HeaderSection({ item, meeting }: { item: Item; meeting: MeetingRow | null }) {
-  const { t } = useTranslation();
-  const badges: string[] = [];
-  if (meeting) badges.push(t("activityPanel.header.meetingBadge"));
-  else if (item.source === "voice_at_cursor" || item.kind === "transcription")
-    badges.push(t("activityPanel.header.transcriptionBadge"));
-  else if (item.source === "log_capture") badges.push(t("activityPanel.header.logCaptureBadge"));
-  if (item.kind === "task") badges.push(t("activityPanel.header.taskBadge"));
-  if (item.deleted_at) badges.push(t("activityPanel.header.deletedBadge"));
-
-  return (
-    <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted">
-      {badges.map((b) => (
-        <span
-          key={b}
-          className="rounded-full bg-elevated px-2 py-0.5 text-fg"
-        >
-          {b}
-        </span>
-      ))}
-      <span>{relativeTimeLabel(t, item.captured_at)}</span>
-    </div>
-  );
-}
-
 function EditToggle({ editing, onClick }: { editing: boolean; onClick: () => void }) {
   const { t } = useTranslation();
   return (
@@ -565,100 +549,6 @@ function EditToggle({ editing, onClick }: { editing: boolean; onClick: () => voi
         </>
       )}
     </button>
-  );
-}
-
-function ContentSection({ item, onChange }: { item: Item; onChange: (i: Item) => void }) {
-  const { t } = useTranslation();
-  const [draft, setDraft] = useState(item.content);
-  const [editing, setEditing] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    setDraft(item.content);
-  }, [item.id, item.content]);
-
-  // Debounced auto-save on edit.
-  useEffect(() => {
-    if (draft === item.content) return;
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(async () => {
-      setSaving(true);
-      try {
-        const updated = await updateItem({ id: item.id, content: draft });
-        onChange(updated);
-      } finally {
-        setSaving(false);
-      }
-    }, 600);
-    return () => {
-      if (saveTimer.current) clearTimeout(saveTimer.current);
-    };
-  }, [draft, item.content, item.id, onChange]);
-
-  return (
-    <div>
-      <div className="mb-1.5 flex items-center justify-between">
-        <SectionLabel>{t("activityPanel.content.label")}</SectionLabel>
-        <div className="flex items-center gap-2">
-          {editing ? (
-            <span role="status" className="text-[10px] text-faint">
-              {saving ? t("activityPanel.content.saving") : draft !== item.content ? t("activityPanel.content.unsaved") : t("activityPanel.content.saved")}
-            </span>
-          ) : null}
-          <EditToggle editing={editing} onClick={() => setEditing((e) => !e)} />
-        </div>
-      </div>
-      {editing ? (
-        <textarea
-          autoFocus
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          rows={8}
-          className="w-full rounded-md border border-line bg-surface px-2.5 py-2 font-mono text-[12.5px] text-fg transition-colors focus:border-accent focus:outline-none"
-        />
-      ) : draft.trim() ? (
-        <Markdown>{draft}</Markdown>
-      ) : (
-        <div className="text-[12px] italic text-faint">{t("activityPanel.content.empty")}</div>
-      )}
-    </div>
-  );
-}
-
-function KindSection({ item, onChange }: { item: Item; onChange: (i: Item) => void }) {
-  const { t } = useTranslation();
-  const set = async (k: "" | ItemKind) => {
-    const updated = await updateItem({ id: item.id, kind: k });
-    onChange(updated);
-  };
-  return (
-    <div>
-      <SectionLabel>{t("activityPanel.kind.label")}</SectionLabel>
-      <div className="flex gap-1">
-        {(["transcription", "note", "task", ""] as const).map((k) => (
-          <button
-            key={k || "unset"}
-            type="button"
-            onClick={() => void set(k)}
-            className={`rounded-md border px-2.5 py-1 text-xs transition-colors ${
-              (item.kind ?? "") === k
-                ? "border-accent bg-accent text-canvas"
-                : "border-line text-muted hover:bg-elevated hover:text-fg"
-            }`}
-          >
-            {k === ""
-              ? t("activityPanel.kind.unset")
-              : k === "task"
-                ? t("activityPanel.kind.task")
-                : k === "transcription"
-                  ? t("activityPanel.kind.transcription")
-                  : t("activityPanel.kind.note")}
-          </button>
-        ))}
-      </div>
-    </div>
   );
 }
 
@@ -817,124 +707,6 @@ function TagsSection({
           placeholder={t("activityPanel.tags.addPlaceholder")}
           className="min-w-[80px] rounded-md border border-line bg-surface px-2 py-0.5 text-[11px] text-fg focus:border-accent focus:outline-none"
         />
-      </div>
-    </div>
-  );
-}
-
-function MetadataSection({ item }: { item: Item }) {
-  const { t } = useTranslation();
-  const ctx = useMemo(
-    () => parseCaptureContext(item.capture_context),
-    [item.capture_context],
-  );
-  const rows: { label: string; value: string | null | undefined }[] = [
-    { label: t("activityPanel.metadata.source"), value: humanSource(item.source, t) },
-    { label: t("activityPanel.metadata.app"), value: ctx?.app_name },
-    { label: t("activityPanel.metadata.window"), value: ctx?.window_title },
-    { label: t("activityPanel.metadata.content"), value: ctx?.content_title },
-    { label: t("activityPanel.metadata.contentUrl"), value: ctx?.content_url },
-    { label: t("activityPanel.metadata.contentSource"), value: ctx?.content_source },
-    { label: t("activityPanel.metadata.browserTab"), value: ctx?.browser_tab_title },
-    { label: t("activityPanel.metadata.url"), value: ctx?.browser_url },
-    { label: t("activityPanel.metadata.bundleId"), value: ctx?.bundle_id },
-    { label: t("activityPanel.metadata.confidence"), value: item.confidence != null ? `${Math.round(item.confidence * 100)}%` : null },
-    { label: t("activityPanel.metadata.classifiedBy"), value: item.classified_by },
-  ];
-  const visible = rows.filter((r) => r.value);
-  if (visible.length === 0) {
-    return (
-      <div>
-        <SectionLabel>{t("activityPanel.metadata.label")}</SectionLabel>
-        <div className="text-[11px] text-muted">{t("activityPanel.metadata.empty")}</div>
-      </div>
-    );
-  }
-  return (
-    <div>
-      <SectionLabel>{t("activityPanel.metadata.label")}</SectionLabel>
-      <dl className="space-y-1 text-[11px]">
-        {visible.map((r) => (
-          <div key={r.label} className="flex gap-2">
-            <dt className="w-24 shrink-0 text-faint">{r.label}</dt>
-            <dd className="min-w-0 flex-1 break-words text-muted">{r.value}</dd>
-          </div>
-        ))}
-      </dl>
-    </div>
-  );
-}
-
-function humanSource(s: Item["source"], t: TFunction): string {
-  switch (s) {
-    case "voice_at_cursor": return t("activityPanel.source.voiceAtCursor");
-    case "log_capture": return t("activityPanel.source.logCapture");
-    case "meeting": return t("activityPanel.source.meeting");
-  }
-}
-
-function TaskSection({
-  itemId,
-  deadline,
-  completedAt,
-  onChange,
-}: {
-  itemId: string;
-  deadline: string | null;
-  completedAt: string | null;
-  onChange: (deadline: string | null, completedAt: string | null) => void;
-}) {
-  const { t } = useTranslation();
-  // deadline stored as ISO string. Use a date-only <input type="date"> bound to
-  // the YYYY-MM-DD prefix so timezones don't shift the displayed day.
-  const dateValue = deadline ? deadline.slice(0, 10) : "";
-
-  const onCheck = async () => {
-    if (completedAt) {
-      await uncompleteTask(itemId);
-      onChange(deadline, null);
-    } else {
-      await completeTask(itemId);
-      onChange(deadline, new Date().toISOString());
-    }
-  };
-
-  const onDateChange = async (v: string) => {
-    const iso = v ? `${v}T00:00:00Z` : null;
-    await setTaskDeadline(itemId, iso);
-    onChange(iso, completedAt);
-  };
-
-  return (
-    <div>
-      <SectionLabel>{t("activityPanel.task.label")}</SectionLabel>
-      <div className="space-y-2 text-xs">
-        <label className="flex items-center gap-2">
-          <input
-            type="checkbox"
-            checked={!!completedAt}
-            onChange={() => void onCheck()}
-          />
-          <span className="text-muted">{completedAt ? t("activityPanel.task.completed") : t("activityPanel.task.markComplete")}</span>
-        </label>
-        <label className="flex items-center gap-2">
-          <span className="w-20 text-faint">{t("activityPanel.task.deadline")}</span>
-          <input
-            type="date"
-            value={dateValue}
-            onChange={(e) => void onDateChange(e.target.value)}
-            className="rounded-md border border-line bg-surface px-2 py-1 text-xs text-fg focus:border-accent focus:outline-none"
-          />
-          {dateValue ? (
-            <button
-              type="button"
-              onClick={() => void onDateChange("")}
-              className="text-faint hover:text-danger"
-            >
-              {t("activityPanel.task.clear")}
-            </button>
-          ) : null}
-        </label>
       </div>
     </div>
   );

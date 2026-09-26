@@ -4,6 +4,7 @@ import { Check, CheckSquare, Copy, Mic, StickyNote } from "lucide-react";
 import type { Item, Project } from "../lib/api";
 import { listTagsForItem } from "../lib/api";
 import { relativeTimeLabel } from "../lib/displayText";
+import { capitalizeFirst } from "../lib/text";
 import { useActivityPanel } from "./ActivityPanelContext";
 
 type Props = {
@@ -19,6 +20,9 @@ type Props = {
   rightSlot?: React.ReactNode;
   /** Flat, information-dense row used by the dashboard ledger. */
   variant?: "card" | "ledger";
+  /** Suppress the project pill when it matches this id (e.g. on that
+   *  project's own page, where the pill is redundant). */
+  hideProjectId?: string | null;
 };
 
 function KindIcon({ kind, source }: { kind: Item["kind"]; source: Item["source"] }) {
@@ -71,6 +75,7 @@ export default function ItemCard({
   leadingSlot,
   rightSlot,
   variant = "card",
+  hideProjectId,
 }: Props) {
   const { t } = useTranslation();
   const { openItem } = useActivityPanel();
@@ -91,10 +96,14 @@ export default function ItemCard({
     };
   }, [item.id]);
 
-  const project = item.project_id ? projects?.get(item.project_id) : null;
-  const lineClamp = compact ? "line-clamp-2" : "line-clamp-3";
+  const project =
+    item.project_id && item.project_id !== hideProjectId
+      ? projects?.get(item.project_id)
+      : null;
   const isVoice = item.source === "voice_at_cursor";
   const ledger = variant === "ledger";
+  // Ledger dictations are high-volume; two lines keep the feed scannable.
+  const lineClamp = compact || (ledger && isVoice) ? "line-clamp-2" : "line-clamp-3";
   const kindLabel = isVoice
     ? t("itemCard.kindTranscription")
     : item.kind === "task"
@@ -112,7 +121,7 @@ export default function ItemCard({
     <div
       className={`group relative flex w-full gap-3 text-left ${
         ledger
-          ? "activity-ledger-row px-2 py-3"
+          ? `activity-ledger-row px-2 ${isVoice ? "py-2.5" : "py-3"}`
           : `material-feed-card rounded-xl border border-line ${compact ? "px-3 py-2.5" : "px-3.5 py-3"} hover:border-line-strong`
       } ${
         isVoice && !ledger ? "border-l-2 border-l-accent/70" : ""
@@ -141,13 +150,29 @@ export default function ItemCard({
             {kindLabel}
           </div>
         ) : null}
-        <div
-          className={`leading-relaxed ${contentClass} ${lineClamp} whitespace-pre-wrap break-words`}
-        >
-          {highlightContent(item.content, highlight)}
+        {/* Title line: content + trailing controls (copy, deadline pill…).
+            The meta line below spans the full width so the timestamp sits
+            flush right. */}
+        <div className="flex items-start gap-3">
+          <div
+            className={`min-w-0 flex-1 leading-relaxed ${contentClass} ${lineClamp} whitespace-pre-wrap break-words`}
+          >
+            {highlightContent(
+              item.kind === "task" ? capitalizeFirst(item.content) : item.content,
+              highlight,
+            )}
+          </div>
+          {isVoice || rightSlot ? (
+            <div
+              className={`relative z-10 flex shrink-0 flex-col items-end gap-1 ${isVoice ? "-my-1" : ""}`}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {isVoice ? <CopyContentButton value={item.content} /> : null}
+              {rightSlot}
+            </div>
+          ) : null}
         </div>
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-muted">
-          <span>{relativeTimeLabel(t, item.captured_at)}</span>
           {project ? (
             <span className="rounded-full bg-elevated px-2 py-0.5 text-fg">
               {project.name}
@@ -161,14 +186,10 @@ export default function ItemCard({
               #{t}
             </span>
           ))}
+          <span className="ml-auto shrink-0 tabular-nums">
+            {relativeTimeLabel(t, item.captured_at)}
+          </span>
         </div>
-      </div>
-      <div
-        className="relative z-10 flex shrink-0 flex-col items-end gap-1"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {isVoice ? <CopyContentButton value={item.content} /> : null}
-        {rightSlot}
       </div>
     </div>
   );

@@ -3,6 +3,7 @@
     "iconThinkingAlt": "Aan het denken",
     "iconTranscribingAlt": "Transcriberen",
     "iconRecordingAlt": "Opnemen",
+    "takingNotes": "Notities maken…",
     "transcribing": "Transcriberen…",
     "processingDefault": "Bezig met verwerken…",
     "recordingMeetingWithApp": "Opnemen · {{appName}}",
@@ -146,5 +147,17 @@
     "cancel": "Annuleren",
     "starting": "Bezig met starten…",
     "startRecording": "Opname starten"
+  },
+  "agentToast": {
+    "ariaLabel": "Tucky-verzoek",
+    "working": "Bezig…",
+    "done": "Klaar",
+    "partial": "Deels klaar",
+    "failed": "Kon niet afronden",
+    "stopped": "Gestopt",
+    "open": "Openen",
+    "dismiss": "Sluiten",
+    "task": "Taak",
+    "note": "Notitie"
   }
 }

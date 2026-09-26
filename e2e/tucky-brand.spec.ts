@@ -3,7 +3,7 @@ import { installTauriMock } from "./mock";
 
 const ready = { onboardingCompleted: true, permissions: { microphone: true, accessibility: true }, speechModelReady: true, llmReady: true };
 
-test("greeting can change and stay hidden without removing activity categories or stats", async ({ page }) => {
+test("greeting changes via the loop icon and sits above stats and activity categories", async ({ page }) => {
   await installTauriMock(page, ready);
   await page.goto("/");
   const greeting = page.getByRole("region", { name: "A moment with Tucky" });
@@ -11,16 +11,11 @@ test("greeting can change and stay hidden without removing activity categories o
   const title = await greeting.getByRole("heading").innerText();
   await greeting.getByRole("button", { name: "Another thought" }).click();
   await expect(greeting.getByRole("heading")).not.toHaveText(title);
-  await greeting.getByRole("button", { name: "Hide greeting" }).click();
-  await expect(greeting).toHaveCount(0);
-  await page.reload();
-  await expect(greeting).toHaveCount(0);
+  await expect(greeting.getByRole("button", { name: "Hide greeting" })).toHaveCount(0);
   await expect(page.getByRole("region", { name: "Activity statistics" })).toBeVisible();
   for (const name of ["Dictations", "Notes", "Tasks", "Meetings", "Recordings"]) {
     await expect(page.locator(".echo-filter-toolbar").getByRole("button", { name, exact: true })).toBeVisible();
   }
-  await page.getByRole("button", { name: "Show Tucky’s greeting" }).click();
-  await expect(greeting).toBeVisible();
   await page.screenshot({ path: "test-results/tucky-dashboard.png" });
   await page.locator(".echo-toolbar-search").click();
   await expect(page.getByRole("textbox", { name: "Search captures", exact: true })).toBeVisible();

@@ -11,6 +11,7 @@ export type Scenario = {
   }>;
   lowMemoryMode?: boolean;
   memorySaveError?: boolean;
+  wakeWordSaveError?: boolean;
   onboardingCompleted?: boolean;
   /** Speech model already downloaded + active (the Start gate). */
   speechModelReady?: boolean;
@@ -47,6 +48,27 @@ export type Scenario = {
     created_at: string;
     updated_at: string;
   }>;
+  /** Pending post-meeting debriefs (list_pending_debriefs). Default: none,
+   *  so the dashboard debrief section stays hidden in unrelated tests. */
+  debriefs?: Array<{
+    meetingId: string;
+    title: string;
+    startedAt: string;
+    durationMs: number | null;
+    projectId: string | null;
+    participants: Array<Record<string, unknown>>;
+    suggestions: Array<{ id: string; text: string; ownerName: string | null; status: "pending" }>;
+  }>;
+  /** Items returned by list_items (the activity feed). Default: none. */
+  feedItems?: Array<Record<string, any> & { id: string; kind: string | null; project_id: string | null }>;
+  /** Task rows (list_tasks); complete/uncomplete_task update them. */
+  tasks?: Array<{ item: Record<string, any> & { id: string }; deadline: string | null; completed_at: string | null }>;
+  /** item id → tags (list_tags_for_item). */
+  itemTags?: Record<string, string[]>;
+  focusTaskIds?: string[];
+  dailyFocusNotes?: Record<string, string>;
+  deferDailyFocusStart?: boolean;
+  dictionaryEntries?: Array<{ spoken_form: string; replacement: string; language: string }>;
 };
 
 /**
@@ -71,6 +93,7 @@ export async function installTauriMock(page: Page, scenario: Scenario = {}) {
       },
       voiceWorkflows: [] as Array<{ id: string; phrase: string; url: string; enabled: boolean }>,
       lowMemoryMode: sc.lowMemoryMode ?? false,
+      wakeStatus: { enabled: false, state: "off", message: "Wake word is off" },
       onboardingCompleted: sc.onboardingCompleted ?? false,
       speechModelReady: sc.speechModelReady ?? false,
       llmReady: sc.llmReady ?? false,
@@ -93,6 +116,15 @@ export async function installTauriMock(page: Page, scenario: Scenario = {}) {
       pipelineRunning: false,
       people: [...(sc.people ?? [])],
       companies: [...(sc.companies ?? [])],
+      debriefs: JSON.parse(JSON.stringify(sc.debriefs ?? [])) as NonNullable<typeof sc.debriefs>,
+      feedItems: JSON.parse(JSON.stringify(sc.feedItems ?? [])) as NonNullable<typeof sc.feedItems>,
+      tasks: JSON.parse(JSON.stringify(sc.tasks ?? [])) as NonNullable<typeof sc.tasks>,
+      dictionaryEntries: [...(sc.dictionaryEntries ?? [])],
+      dailyFocusNotes: {
+        ...(sc.dailyFocusNotes ?? {}),
+        ...JSON.parse(localStorage.getItem("mock:daily-focus-notes") ?? "{}"),
+      },
+      morningFocusEnabled: localStorage.getItem("mock:morning-focus-enabled") !== "false",
     };
     const calls: { cmd: string; args: unknown }[] = [];
     const unhandled: string[] = [];
@@ -144,7 +176,16 @@ export async function installTauriMock(page: Page, scenario: Scenario = {}) {
     (window as any).__TAURI_EVENT_PLUGIN_INTERNALS__ = {
       unregisterListener: (_event: string, id: number) => listeners.delete(id),
     };
+    const focusTasks: Array<{ item: any; completed_at: string | null; focus_rank: number }> =
+      state.feedItems.filter((item) => sc.focusTaskIds?.includes(item.id))
+        .map((item, index) => ({ item, completed_at: null, focus_rank: index + 1 }));
     const handlers: Record<string, (args: any) => unknown> = {
+      get_wake_word_status: () => state.wakeStatus,
+      set_wake_word_enabled: ({ enabled }) => {
+        if (sc.wakeWordSaveError) throw new Error("Microphone access is required");
+        state.wakeStatus = { enabled, state: enabled ? "listening" : "off", message: enabled ? "Listening for “Tucky”" : "Wake word is off" };
+        (window as any).__MOCK_EMIT__("wakeword:status", state.wakeStatus);
+      },
       get_voice_workflows: () => state.voiceWorkflows,
       set_voice_workflows: ({ workflows }) => {
         state.voiceWorkflows = workflows;
@@ -230,6 +271,10 @@ export async function installTauriMock(page: Page, scenario: Scenario = {}) {
       set_rebinding: () => undefined,
       smoke_checkpoint: () => undefined,
       frontend_log: () => undefined,
+      get_dictionary_entries: () => [...state.dictionaryEntries],
+      set_dictionary_entries: (args: any) => {
+        state.dictionaryEntries = [...args.entries];
+      },
       get_dashboard_stats: () => {
         const period = { transcriptions: 0, words: 0 };
         const category = (today: number, week: number, month: number, all: number, timed = false) => ({
@@ -271,6 +316,111 @@ export async function installTauriMock(page: Page, scenario: Scenario = {}) {
         };
       },
       get_project_assistant_report: () => null,
+      // Dashboard Focus section: a tiny in-memory store.
+      list_focus_tasks: () => focusTasks.map((f) => ({ ...f, item: { ...f.item } })),
+      get_daily_focus_note: (args: any) => state.dailyFocusNotes[args.localDate]
+        ? { local_date: args.localDate, content: state.dailyFocusNotes[args.localDate], updated_at: "2026-09-25T12:00:00Z" }
+        : null,
+      get_morning_focus_enabled: () => state.morningFocusEnabled,
+      set_morning_focus_enabled: (args: any) => {
+        state.morningFocusEnabled = args.enabled;
+        localStorage.setItem("mock:morning-focus-enabled", String(args.enabled));
+        (window as any).__MOCK_EMIT__("morning-focus:enabled-changed", args.enabled);
+      },
+      desktop_pet_focus_set_visible: () => undefined,
+      save_daily_focus_note: (args: any) => {
+        state.dailyFocusNotes[args.localDate] = args.content.trim();
+        localStorage.setItem("mock:daily-focus-notes", JSON.stringify(state.dailyFocusNotes));
+        (window as any).__MOCK_EMIT__("daily-focus:changed", { local_date: args.localDate, content: state.dailyFocusNotes[args.localDate], updated_at: "2026-09-25T12:00:00Z" });
+        return { local_date: args.localDate, content: state.dailyFocusNotes[args.localDate], updated_at: "2026-09-25T12:00:00Z" };
+      },
+      set_daily_focus_recording: (args: any) => {
+        if (args.recording && sc.deferDailyFocusStart) {
+          (window as any).__MOCK_DAILY_FOCUS_STARTED__ = () => (window as any).__MOCK_EMIT__("voice:recording_started", null);
+        } else {
+          (window as any).__MOCK_EMIT__(args.recording ? "voice:recording_started" : "voice:recording_stopped", null);
+        }
+      },
+      set_task_focus: (args: any) => {
+        const existing = focusTasks.findIndex((task) => task.item.id === args.itemId);
+        if (args.focus && existing < 0) {
+          const item = state.feedItems.find((row) => row.id === args.itemId);
+          if (item) focusTasks.push({ item, completed_at: null, focus_rank: focusTasks.length + 1 });
+        } else if (!args.focus && existing >= 0) {
+          focusTasks.splice(existing, 1);
+        }
+        (window as any).__MOCK_EMIT__("focus:changed", null);
+      },
+      get_item: (args: any) => state.feedItems.find((item) => item.id === args.id) ?? focusTasks.find((task) => task.item.id === args.id)?.item ?? null,
+      add_focus_task: (args: any) => {
+        const now = "2026-09-25T12:00:00Z";
+        const item = {
+          id: `focus-${focusTasks.length + 1}-${Date.now()}`,
+          content: args.content,
+          source: "log_capture",
+          kind: "task",
+          project_id: args.projectId ?? null,
+          captured_at: now,
+          created_at: now,
+          deleted_at: null,
+          confidence: 1,
+          classified_by: "user",
+          capture_context: null,
+          importance: null,
+        };
+        focusTasks.push({ item, completed_at: null, focus_rank: focusTasks.length + 1 });
+        return item;
+      },
+      reorder_focus_tasks: (args: any) => {
+        const byId = new Map(focusTasks.map((f) => [f.item.id, f]));
+        const next = args.order
+          .map((o: { item_id: string; project_id: string | null }, i: number) => {
+            const f = byId.get(o.item_id);
+            if (f) {
+              f.item.project_id = o.project_id;
+              f.focus_rank = i + 1;
+            }
+            return f;
+          })
+          .filter(Boolean);
+        focusTasks.splice(0, focusTasks.length, ...next);
+      },
+      complete_task: (args: any) => {
+        const f = focusTasks.find((x) => x.item.id === args.itemId);
+        if (f) f.completed_at = "2026-09-25T12:00:00Z";
+        const task = state.tasks.find((x) => x.item.id === args.itemId);
+        if (task) task.completed_at = "2026-09-25T12:00:00Z";
+      },
+      uncomplete_task: (args: any) => {
+        const f = focusTasks.find((x) => x.item.id === args.itemId);
+        if (f) f.completed_at = null;
+        const task = state.tasks.find((x) => x.item.id === args.itemId);
+        if (task) task.completed_at = null;
+      },
+      // Activity feed + Tasks view.
+      list_items: (args: any) =>
+        state.feedItems
+          .filter(
+            (i) =>
+              (!args.kind || i.kind === args.kind) &&
+              (!args.projectId || i.project_id === args.projectId),
+          )
+          .slice(args.offset ?? 0, (args.offset ?? 0) + (args.limit ?? 50)),
+      list_tasks: (args: any) =>
+        state.tasks
+          .filter((x) => (args.includeCompleted ? x.completed_at !== null : x.completed_at === null))
+          .filter((x) => !args.projectId || x.item.project_id === args.projectId)
+          .map((x) => JSON.parse(JSON.stringify(x))),
+      list_tags_for_item: (args: any) => sc.itemTags?.[args.itemId] ?? [],
+      delete_item: (args: any) => {
+        const i = focusTasks.findIndex((x) => x.item.id === args.id);
+        if (i >= 0) focusTasks.splice(i, 1);
+      },
+      update_item: (args: any) => {
+        const f = focusTasks.find((x) => x.item.id === args.args.id);
+        if (f && typeof args.args.content === "string") f.item.content = args.args.content;
+        return f?.item ?? null;
+      },
       list_projects: () =>
         Array.from({ length: state.projectCount }, (_, index) => ({
           id: `project-${index + 1}`,
@@ -375,6 +525,44 @@ export async function installTauriMock(page: Page, scenario: Scenario = {}) {
         state.companies = state.companies.filter((company) => company.id !== a.id);
       },
       daily_summary_get: () => null,
+      // Post-meeting debrief. Mutations update the in-memory debriefs so a
+      // refetch reflects them, like the real backend.
+      list_pending_debriefs: () => JSON.parse(JSON.stringify(state.debriefs)),
+      accept_meeting_task_suggestion: (a) => {
+        for (const d of state.debriefs) d.suggestions = d.suggestions.filter((s) => s.id !== a.suggestionId);
+        return `task-from-${a.suggestionId}`;
+      },
+      dismiss_meeting_task_suggestion: (a) => {
+        for (const d of state.debriefs) d.suggestions = d.suggestions.filter((s) => s.id !== a.suggestionId);
+      },
+      set_meeting_project: (a) => {
+        const d = state.debriefs.find((x) => x.meetingId === a.meetingId);
+        if (d) d.projectId = a.projectId ?? null;
+      },
+      add_meeting_participant: (a) => {
+        const d = state.debriefs.find((x) => x.meetingId === a.meetingId);
+        const person = state.people.find((p) => p.id === a.personId);
+        if (d && person) {
+          d.participants.push({
+            meeting_id: a.meetingId,
+            speaker_key: `manual:${person.id}`,
+            person_id: person.id,
+            display_name: person.name,
+            source: "user",
+            confirmed: true,
+            created_at: "2026-09-25T10:00:00Z",
+            updated_at: "2026-09-25T10:00:00Z",
+          });
+        }
+      },
+      remove_meeting_participant: (a) => {
+        const d = state.debriefs.find((x) => x.meetingId === a.meetingId);
+        if (d) d.participants = d.participants.filter((p) => p.speaker_key !== a.speakerKey);
+      },
+      complete_meeting_debrief: (a) => {
+        state.debriefs = state.debriefs.filter((x) => x.meetingId !== a.meetingId);
+      },
+      set_task_assignee: () => undefined,
       "plugin:autostart|is_enabled": () => false,
       "plugin:event|listen": (args) => {
         const id = nextEventId++;

@@ -11,14 +11,12 @@ test("dashboard stats switch categories and open the detailed view", async ({ pa
 
   const overview = page.getByRole("region", { name: "Activity statistics" });
   await expect(page.getByRole("tablist", { name: "Activity type" })).toHaveCount(0);
-  await expect(overview.getByText("Dictations", { exact: true })).toBeVisible();
-  await expect(overview.getByText("Notes", { exact: true })).toBeVisible();
-  await expect(overview.getByText("Tasks", { exact: true })).toBeVisible();
-  await expect(overview.getByText("Meetings", { exact: true })).toBeVisible();
-  await expect(overview.getByText("Recordings", { exact: true })).toBeVisible();
+  for (const text of ["86 dictations", "14 notes", "11 tasks", "5 meetings", "3 recordings"]) {
+    await expect(overview).toContainText(text);
+  }
 
+  // View stats opens the detailed view on the active filter's category.
   await page.getByRole("button", { name: "Meetings", exact: true }).click();
-  await expect(page.getByText("Time this week")).toBeVisible();
   await overview.getByRole("button", { name: "View stats" }).click();
 
   await expect(page.getByRole("heading", { name: "Stats" })).toBeVisible();
@@ -32,7 +30,7 @@ test("dashboard stats switch categories and open the detailed view", async ({ pa
   // The back button must return to the dashboard.
   await page.getByRole("button", { name: "Back to dashboard" }).click();
   await expect(page.getByRole("heading", { name: "Stats" })).toHaveCount(0);
-  await expect(overview.getByText("Dictations", { exact: true })).toBeVisible();
+  await expect(overview).toContainText("86 dictations");
 });
 
 // Drive the same IPC event emitted by persist_capture after a saved dictation.
@@ -51,18 +49,20 @@ for (const detailed of [false, true]) {
       permissions: { microphone: true, accessibility: true },
       speechModelReady: true,
     });
-    await page.addInitScript(() => {
+    await page.addInitScript((detailed) => {
       const w = window as any;
       w.__DICTATION_COUNT__ = 43;
       const invoke = w.__TAURI_INTERNALS__.invoke;
       w.__TAURI_INTERNALS__.invoke = async (cmd: string, args: unknown) => {
         const result = await invoke(cmd, args);
         if (cmd === "get_dashboard_stats") {
-          result.categories.transcriptions.today.count = w.__DICTATION_COUNT__;
+          // Today feeds the detailed view; the week total feeds the dashboard pulse.
+          if (detailed) result.categories.transcriptions.today.count = w.__DICTATION_COUNT__;
+          else result.categories.transcriptions.week.count = w.__DICTATION_COUNT__;
         }
         return result;
       };
-    });
+    }, detailed);
     await page.goto("/");
     await page.getByRole("button", { name: "Dictations", exact: true }).click();
     const overview = page.getByRole("region", { name: "Activity statistics" });

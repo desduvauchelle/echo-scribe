@@ -16,7 +16,6 @@ import {
 } from "../../lib/api";
 import { compactNumber } from "../../lib/format";
 import {
-  STATS_CATEGORIES,
   StatsCategoryTabs,
   categoryMeta,
   formatDuration,
@@ -119,10 +118,6 @@ export default function StatsView({ initialCategory, onBack }: Props) {
     1,
     ...stats.daily_activity.map((day) => activityValue(day, category)),
   );
-  const allTimeMax = Math.max(
-    1,
-    ...STATS_CATEGORIES.map(({ key }) => stats.categories[key].all_time.count),
-  );
 
   return (
     <div className="h-full overflow-y-auto px-6 py-6">
@@ -172,69 +167,35 @@ export default function StatsView({ initialCategory, onBack }: Props) {
           />
         </section>
 
-        <div className="mt-4 grid gap-4 xl:grid-cols-[1.45fr_1fr]">
-          <section className="rounded-xl border border-line bg-surface p-5">
-            <div className="mb-5 flex items-start justify-between gap-3">
-              <div>
-                <h2 className="text-sm font-semibold">{t("stats.week.heading")}</h2>
-                <p className="mt-0.5 text-xs text-muted">{t("stats.week.subtitle", { label: meta.label.toLowerCase() })}</p>
-              </div>
-              <span className="rounded-full bg-accent-soft px-2 py-1 text-[11px] font-medium text-accent">
-                {t("stats.common.totalCount", { count: selected.week.count })}
-              </span>
+        <section className="mt-4 rounded-xl border border-line bg-surface p-5">
+          <div className="mb-5 flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold">{t("stats.week.heading")}</h2>
+              <p className="mt-0.5 text-xs text-muted">{t("stats.week.subtitle", { label: meta.label.toLowerCase() })}</p>
             </div>
-            <div className="flex h-44 items-end gap-2" role="img" aria-label={t("stats.week.chartAriaLabel", { label: meta.label.toLowerCase() })}>
-              {week.map((day) => {
-                const value = activityValue(day, category);
-                return (
-                  <div key={day.date} className="flex min-w-0 flex-1 flex-col items-center gap-2">
-                    <span className="text-[10px] tabular-nums text-muted">{value || ""}</span>
-                    <div className="flex h-28 w-full items-end rounded-md bg-elevated/70 px-1">
-                      <div
-                        className={`w-full rounded-sm ${value === 0 ? "bg-line" : "bg-accent"}`}
-                        style={{ height: value === 0 ? 3 : `${Math.max(10, (value / weekMax) * 100)}%` }}
-                        title={t("stats.week.barTitle", { day: longDay(day.date), value })}
-                      />
-                    </div>
-                    <span className="truncate text-[10px] text-faint">{shortDay(day.date)}</span>
+            <span className="rounded-full bg-accent-soft px-2 py-1 text-[11px] font-medium text-accent">
+              {t("stats.common.totalCount", { count: selected.week.count })}
+            </span>
+          </div>
+          <div className="flex h-44 items-end gap-2" role="img" aria-label={t("stats.week.chartAriaLabel", { label: meta.label.toLowerCase() })}>
+            {week.map((day) => {
+              const value = activityValue(day, category);
+              return (
+                <div key={day.date} className="flex min-w-0 flex-1 flex-col items-center gap-2">
+                  <span className="text-[10px] tabular-nums text-muted">{value || ""}</span>
+                  <div className="flex h-28 w-full items-end rounded-md bg-elevated/70 px-1">
+                    <div
+                      className={`w-full rounded-sm ${value === 0 ? "bg-line" : "bg-accent"}`}
+                      style={{ height: value === 0 ? 3 : `${Math.max(10, (value / weekMax) * 100)}%` }}
+                      title={t("stats.week.barTitle", { day: longDay(day.date), value })}
+                    />
                   </div>
-                );
-              })}
-            </div>
-          </section>
-
-          <section className="rounded-xl border border-line bg-surface p-5">
-            <h2 className="text-sm font-semibold">{t("stats.mix.heading")}</h2>
-            <p className="mt-0.5 text-xs text-muted">{t("stats.mix.subtitle")}</p>
-            <div className="mt-5 flex flex-col gap-3.5">
-              {STATS_CATEGORIES.map(({ key, label, icon: Icon }) => {
-                const value = stats.categories[key].all_time.count;
-                return (
-                  <button
-                    key={key}
-                    type="button"
-                    onClick={() => setCategory(key)}
-                    className="group text-left"
-                  >
-                    <span className="mb-1.5 flex items-center justify-between text-[11px]">
-                      <span className="flex items-center gap-1.5 text-muted group-hover:text-fg">
-                        <Icon size={11} aria-hidden="true" />
-                        {label}
-                      </span>
-                      <span className="tabular-nums text-fg">{value.toLocaleString()}</span>
-                    </span>
-                    <span className="block h-1.5 overflow-hidden rounded-full bg-elevated">
-                      <span
-                        className={`block h-full rounded-full ${key === category ? "bg-accent" : "bg-faint"}`}
-                        style={{ width: `${Math.max(value > 0 ? 3 : 0, (value / allTimeMax) * 100)}%` }}
-                      />
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </section>
-        </div>
+                  <span className="truncate text-[10px] text-faint">{shortDay(day.date)}</span>
+                </div>
+              );
+            })}
+          </div>
+        </section>
 
         <section className="mt-4 rounded-xl border border-line bg-surface p-5">
           <div className="flex items-start justify-between gap-3">
@@ -244,9 +205,9 @@ export default function StatsView({ initialCategory, onBack }: Props) {
             </div>
             <span className="text-[11px] text-muted">{t("stats.heatmap.less")}&nbsp;&nbsp;·&nbsp;&nbsp;{t("stats.heatmap.more")}</span>
           </div>
-          <div className="mt-5 overflow-x-auto pb-1">
+          <div className="mt-5">
             <div
-              className="grid w-max grid-flow-col grid-rows-7 gap-1"
+              className="grid w-full grid-flow-col grid-rows-7 gap-1.5 [grid-auto-columns:minmax(0,1fr)]"
               role="img"
               aria-label={t("stats.heatmap.ariaLabel", { label: meta.label.toLowerCase() })}
             >
@@ -264,7 +225,7 @@ export default function StatsView({ initialCategory, onBack }: Props) {
                 return (
                   <span
                     key={day.date}
-                    className={`h-3 w-3 rounded-[3px] ${tone}`}
+                    className={`h-5 w-full rounded-[4px] ${tone}`}
                     title={t("stats.heatmap.cellTitle", {
                       day: longDay(day.date),
                       value,

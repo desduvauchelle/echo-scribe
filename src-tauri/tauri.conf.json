@@ -40,9 +40,10 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "externalBin": ["binaries/echo-scribe-syscap", "binaries/echo-scribe-screenrec"],
+    "externalBin": ["binaries/echo-scribe-syscap", "binaries/echo-scribe-screenrec", "binaries/tucky-wakeword"],
     "category": "Productivity",
     "resources": [
+      "resources/wakeword/",
       "resources/tray_idle.png",
       "resources/tray_logo_active.png",
       "resources/tray_badge_dictation.png",

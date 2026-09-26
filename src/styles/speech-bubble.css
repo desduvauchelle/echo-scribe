@@ -1,0 +1,19 @@
+:root {
+  --bubble-bg: #fff9e9;
+  --bubble-border: #c6b894;
+  --bubble-fg: #382d1d;
+  --bubble-muted: #71634c;
+  --bubble-accent: #5a663e;
+  --bubble-subtle: #eee4cc;
+  --bubble-shadow: #261f1730;
+}
+
+:root[data-theme="dark"] {
+  --bubble-bg: #1b2922;
+  --bubble-border: #58705e;
+  --bubble-fg: #f2f4e9;
+  --bubble-muted: #bac8b5;
+  --bubble-accent: #9dd5af;
+  --bubble-subtle: #30443a;
+  --bubble-shadow: #030b0899;
+}

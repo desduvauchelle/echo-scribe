@@ -52,6 +52,7 @@ const KEY_INPUT_DEVICE_SORT: &str = "input_device_sort";
 const KEY_DAILY_RECAP_ENABLED: &str = "daily_recap_enabled";
 const KEY_DAILY_RECAP_DELIVER_HOUR: &str = "daily_recap_deliver_hour";
 const KEY_DAILY_RECAP_INCLUDE_WEEKENDS: &str = "daily_recap_include_weekends";
+const KEY_MORNING_FOCUS_ENABLED: &str = "morning_focus_enabled";
 const KEY_GUIDE_OVERLAY_MODE: &str = "guide_overlay_mode";
 const KEY_GUIDE_OVERLAY_FRAME: &str = "guide_overlay_frame";
 const KEY_APP_LAUNCHER_ENABLED: &str = "app_launcher_enabled";
@@ -393,6 +394,20 @@ impl SettingsStore {
             .unwrap_or(true)
     }
 
+    pub fn wake_word_enabled(&self) -> bool {
+        self.store.get("wake_word_enabled").and_then(|v| v.as_bool()).unwrap_or(false)
+    }
+
+    pub fn set_wake_word_enabled(&self, enabled: bool) -> Result<(), SettingsError> {
+        let previous = self.wake_word_enabled();
+        self.store.set("wake_word_enabled", serde_json::Value::Bool(enabled));
+        if let Err(error) = self.store.save() {
+            self.store.set("wake_word_enabled", serde_json::Value::Bool(previous));
+            return Err(SettingsError::Store(error.to_string()));
+        }
+        Ok(())
+    }
+
     /// Setter for whether prefix trigger routing is enabled
     pub fn set_trigger_word_routing_enabled(&self, on: bool) -> Result<(), SettingsError> {
         self.store.set(
@@ -472,6 +487,41 @@ impl SettingsStore {
             .save()
             .map_err(|e| SettingsError::Store(e.to_string()))?;
         Ok(())
+    }
+
+    /// Remember the explicit Show/Hide choice across application launches.
+    pub fn desktop_pet_visible(&self) -> bool {
+        self.store.get("desktop_pet_visible")
+            .and_then(|v| v.as_bool()).unwrap_or(false)
+    }
+
+    pub fn set_desktop_pet_visible(&self, visible: bool) -> Result<(), SettingsError> {
+        self.store.set("desktop_pet_visible", serde_json::json!(visible));
+        self.store.save().map_err(|e| SettingsError::Store(e.to_string()))
+    }
+
+    /// Whether the pet's separate daily-focus bubble is shown. Existing
+    /// installs default to showing it until the user chooses to hide it.
+    pub fn desktop_pet_focus_visible(&self) -> bool {
+        self.store.get("desktop_pet_focus_visible")
+            .and_then(|v| v.as_bool()).unwrap_or(true)
+    }
+
+    pub fn set_desktop_pet_focus_visible(&self, visible: bool) -> Result<(), SettingsError> {
+        self.store.set("desktop_pet_focus_visible", serde_json::json!(visible));
+        self.store.save().map_err(|e| SettingsError::Store(e.to_string()))
+    }
+
+    /// Controls the optional daily focus prompt and its saved-note display.
+    /// Existing installs keep the feature visible until they turn it off.
+    pub fn morning_focus_enabled(&self) -> bool {
+        self.store.get(KEY_MORNING_FOCUS_ENABLED)
+            .and_then(|v| v.as_bool()).unwrap_or(true)
+    }
+
+    pub fn set_morning_focus_enabled(&self, enabled: bool) -> Result<(), SettingsError> {
+        self.store.set(KEY_MORNING_FOCUS_ENABLED, serde_json::json!(enabled));
+        self.store.save().map_err(|e| SettingsError::Store(e.to_string()))
     }
 
     pub fn desktop_pet_size(&self) -> u8 {

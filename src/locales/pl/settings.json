@@ -365,6 +365,14 @@
     }
   },
   "general": {
+    "sidebar": {
+      "title": "Pasek boczny",
+      "subtitle": "Wybierz, co pojawia się na lewym pasku bocznym.",
+      "showLearn": {
+        "label": "Pokazuj Learn Tucky na pasku bocznym",
+        "description": "Lekcje Tucky zawsze o jedno kliknięcie."
+      }
+    },
     "startup": {
       "title": "Uruchamianie",
       "subtitle": "Uruchamiaj Tucky automatycznie po zalogowaniu."

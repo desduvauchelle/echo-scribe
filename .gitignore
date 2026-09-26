@@ -56,6 +56,9 @@ _old/
 
 # Tauri / Rust
 src-tauri/target/
+src-tauri/wakeword/target/
+src-tauri/resources/wakeword/*.onnx
+src-tauri/resources/wakeword/tokens.txt
 src-tauri/gen/
 
 # Compiled Swift sidecars (built by scripts/build-syscap.sh + build-screenrec.sh,

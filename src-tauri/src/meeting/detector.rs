@@ -530,6 +530,8 @@ pub fn spawn(manager: Arc<MeetingManager>, settings: SettingsStore, app_handle: 
 
             let frontmost = cand.bundle_id.clone();
             let ctx = crate::input::focus::FocusContext {
+                diagnostics: if ctx.bundle_id.as_deref() == Some(cand.bundle_id.as_str()) { ctx.diagnostics.clone() } else { None },
+                signals: if ctx.bundle_id.as_deref() == Some(cand.bundle_id.as_str()) { ctx.signals.clone() } else { Vec::new() },
                 pid: ctx.pid,
                 bundle_id: Some(cand.bundle_id.clone()),
                 app_name: Some(cand.display_name.clone()),
@@ -556,6 +558,7 @@ pub fn spawn(manager: Arc<MeetingManager>, settings: SettingsStore, app_handle: 
                     info!(app = %frontmost, "auto-starting meeting (Always)");
                     let app_for_monitor = frontmost.clone();
                     let start_ctx = crate::meeting::MeetingStartContext {
+                        focus: Some(ctx.clone()),
                         window_title: ctx.window_title.clone(),
                         browser_url: ctx.browser_url.clone(),
                         browser_tab_title: ctx.browser_tab_title.clone(),

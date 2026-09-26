@@ -3,6 +3,7 @@
     "iconThinkingAlt": "Thinking",
     "iconTranscribingAlt": "Transcribing",
     "iconRecordingAlt": "Recording",
+    "takingNotes": "Taking notes…",
     "transcribing": "Transcribing…",
     "processingDefault": "Processing…",
     "recordingMeetingWithApp": "Recording · {{appName}}",
@@ -151,5 +152,17 @@
     "cancel": "Cancel",
     "starting": "Starting…",
     "startRecording": "Start Recording"
+  },
+  "agentToast": {
+    "ariaLabel": "Tucky request",
+    "working": "Working on it…",
+    "done": "Done",
+    "partial": "Partly done",
+    "failed": "Couldn’t finish",
+    "stopped": "Stopped",
+    "open": "Open",
+    "dismiss": "Dismiss",
+    "task": "Task",
+    "note": "Note"
   }
 }

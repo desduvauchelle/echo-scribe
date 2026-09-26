@@ -40,14 +40,24 @@
       "transcriptionBadge": "Dictado",
       "logCaptureBadge": "Captura rápida",
       "taskBadge": "Tarea",
-      "deletedBadge": "Eliminado"
+      "deletedBadge": "Eliminado",
+      "unsorted": "Sin clasificar",
+      "changeType": "Cambiar tipo",
+      "copy": "Copiar texto",
+      "copied": "Copiado",
+      "copyFailed": "No se pudo copiar al portapapeles.",
+      "moveToTrash": "Mover a la papelera",
+      "restore": "Restaurar de la papelera",
+      "inTrash": "En la papelera",
+      "saveFailed": "No se pudo guardar el cambio. Consulta Ajustes → Diagnóstico → registros."
     },
     "content": {
       "label": "Contenido",
       "saving": "Guardando…",
       "unsaved": "Sin guardar",
       "saved": "Guardado",
-      "empty": "Sin contenido."
+      "empty": "Sin contenido.",
+      "editAriaLabel": "Editar texto"
     },
     "kind": {
       "label": "Tipo",
@@ -94,7 +104,8 @@
       "completed": "Completada",
       "markComplete": "Marcar como completada",
       "deadline": "Fecha límite",
-      "clear": "Borrar"
+      "clear": "Borrar",
+      "markIncomplete": "Marcar como pendiente"
     },
     "meetingView": {
       "peopleToggle": "Personas",
@@ -209,6 +220,32 @@
       "copyContent": "Copiar contenido",
       "restore": "Restaurar",
       "delete": "Eliminar"
+    },
+    "props": {
+      "due": "Vence",
+      "importance": "Importancia",
+      "noProject": "Sin proyecto",
+      "addTag": "Añadir etiqueta…",
+      "setDue": "Fijar fecha límite…",
+      "overdue": "Vencida",
+      "today": "Hoy",
+      "tomorrow": "Mañana",
+      "clearDue": "Quitar fecha límite"
+    },
+    "importance": {
+      "high": "Alta",
+      "medium": "Media",
+      "low": "Baja"
+    },
+    "captured": {
+      "label": "Capturado desde",
+      "details": "Detalles",
+      "projectAssistant": "Asistente de proyectos",
+      "filedByAssistant": "Archivado automáticamente por el asistente de proyectos",
+      "sortedByAi": "Clasificado por IA · {{pct}} % de confianza"
+    },
+    "history": {
+      "label": "Historial"
     }
   },
   "activityPanelContext": {},
@@ -339,7 +376,10 @@
       "kind_changed": "Tipo cambiado",
       "project_changed": "Proyecto cambiado",
       "tags_changed": "Etiquetas actualizadas",
-      "classified": "Clasificado automáticamente"
+      "classified": "Clasificado automáticamente",
+      "project_assigned": "Archivado en",
+      "paste_dispatched": "Pegado",
+      "importance_changed": "Importancia cambiada"
     },
     "activityTab": {
       "noActivity": "No hay actividad registrada."
@@ -492,7 +532,15 @@
       "cyan": "Cian",
       "blue": "Azul",
       "violet": "Violeta",
-      "pink": "Rosa"
+      "pink": "Rosa",
+      "burgundy": "Burdeos",
+      "coral": "Coral",
+      "amber": "Ámbar",
+      "lime": "Lima",
+      "teal": "Verde azulado",
+      "sky": "Azul cielo",
+      "indigo": "Índigo",
+      "slate": "Gris pizarra"
     },
     "nameRequired": "El nombre del proyecto es obligatorio.",
     "saveFailed": "Error al guardar: {{error}}",
@@ -798,6 +846,8 @@
     },
     "dictionary": {
       "title": "Diccionario",
+      "manage": "Administrar diccionario",
+      "close": "Cerrar",
       "description": "Asigna una palabra o frase hablada a una ortografía, mayúsculas o puntuación exactas.",
       "exportJson": "Exportar JSON",
       "importJson": "Importar JSON",

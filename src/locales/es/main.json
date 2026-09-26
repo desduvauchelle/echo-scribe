@@ -3,16 +3,36 @@
     "titles": [
       "Un pequeño espacio para tus pensamientos.",
       "¿Tienes algo en mente?",
-      "Algunas ideas que merece la pena retomar."
+      "Algunas ideas que merece la pena retomar.",
+      "Dilo en voz alta. Yo tomo notas.",
+      "Tu cerebro ha llamado. Quiere una copia de seguridad.",
+      "Psst. ¿En qué estamos trabajando?",
+      "Página en blanco, cero juicios.",
+      "¿Pensando en voz alta? Excelente.",
+      "¿Demasiadas pestañas abiertas en la cabeza?",
+      "¿Ya de vuelta? Te echaba de menos.",
+      "Ninguna idea es demasiado pequeña.",
+      "¿Primero café o primero ideas?",
+      "Convirtamos murmullos en impulso.",
+      "Soy todo oídos. Bueno, casi todo."
     ],
     "descriptions": [
       "Retoma el hilo de tus ideas.",
       "Tu próxima idea tiene un lugar aquí.",
-      "Encuentra un hilo y síguelo."
+      "Encuentra un hilo y síguelo.",
+      "Divagar está permitido. Yo ordeno después.",
+      "Dilo en voz alta antes de que se escape.",
+      "Te he guardado las notas calentitas.",
+      "Las ideas a medio hacer son mis favoritas.",
+      "Básicamente, ese es mi trabajo.",
+      "Cierra unas cuantas diciéndolas en voz alta.",
+      "Veamos en qué has andado.",
+      "Aquí las pequeñas crecen rápido.",
+      "Sea como sea, estoy listo cuando tú lo estés.",
+      "Dilo desordenado. Léelo en limpio.",
+      "Adelante, te escucho."
     ],
     "another": "Otra idea",
-    "hide": "Ocultar saludo",
-    "show": "Mostrar el saludo de Tucky",
     "label": "Un momento con Tucky"
   },
   "app": {
@@ -21,6 +41,7 @@
       "search": "Buscar"
     },
     "sidebar": {
+      "hideLearn": "Ocultar Learn Tucky",
       "dictate": {
         "activeTooltip": "Dictando — suelta {{binding}} para detener",
         "idleTooltip": "Mantén pulsado {{binding}} para dictar",
@@ -101,38 +122,88 @@
     },
     "activity": {
       "searchResultsLabel": "Resultados de búsqueda",
+      "label": "Actividad",
       "todayLabel": "Hoy",
+      "yesterdayLabel": "Ayer",
       "matchesFor": "Coincidencias para «{{query}}»",
-      "recentActivity": "Actividad reciente",
-      "mostRecent": "Más reciente",
       "loading": "Cargando…",
       "loadMore": "Cargar más"
     },
     "stats": {
       "regionLabel": "Estadísticas de actividad",
-      "overviewLabel": "Resumen de actividad",
       "viewStats": "Ver estadísticas",
-      "today": "Hoy",
-      "thisWeek": "Esta semana",
-      "wordsCount": "{{count}} palabras",
-      "timeThisWeek": "Tiempo esta semana",
-      "wordsThisWeek": "Palabras esta semana",
-      "exactCount": "{{count}} exactas",
-      "timeAllTime": "Tiempo total",
-      "allTime": "Todo el tiempo",
-      "totalCount": "{{count}} en total",
-      "thisWeekCount": "{{count}} esta semana",
-      "todayCount": "{{count}} {{label}} hoy"
+      "pulseLabel": "Esta semana:",
+      "pulseTodayLabel": "Hoy:",
+      "pulseEmpty": "Aún no hay nada registrado.",
+      "pulse": {
+        "transcriptions_one": "dictado",
+        "transcriptions_other": "dictados",
+        "notes_one": "nota",
+        "notes_other": "notas",
+        "tasks_one": "tarea",
+        "tasks_other": "tareas",
+        "meetings_one": "reunión",
+        "meetings_other": "reuniones",
+        "recordings_one": "grabación",
+        "recordings_other": "grabaciones"
+      }
     },
-    "recap": {
-      "quietDay": "Día tranquilo — nada registrado.",
-      "notGenerated": "No se generó un resumen para ayer.",
-      "yesterdayLabel": "Ayer · {{date}}",
-      "close": "Cerrar",
-      "sections": {
-        "whatHappened": "Qué pasó",
-        "whatMattered": "Qué importó",
-        "whatsNext": "Qué sigue"
+    "focus": {
+      "label": "Enfoque",
+      "title": "Lo importante por proyecto",
+      "progress": "{{done}}/{{total}} hecho",
+      "showMore": "Mostrar {{count}} más",
+      "showLess": "Mostrar menos",
+      "emptyTitle": "Aún no hay enfoque",
+      "emptyHint": "Dile a Tucky «Añade una tarea de enfoque a…» o pulsa Añadir.",
+      "remove": "Quitar",
+      "unknownProject": "Sin proyecto",
+      "add": "Añadir",
+      "addItem": "Añadir elemento",
+      "addPlaceholder": "Nuevo elemento…",
+      "pickProject": "Añadir enfoque para…",
+      "noProject": "Sin proyecto",
+      "dragHandle": "Arrastra para reordenar: {{text}}",
+      "dragHint": "Arrastra para reordenar (Alt+↑/↓)",
+      "editHint": "Doble clic para editar",
+      "addItemTo": "Añadir elemento a {{project}}",
+      "saveFailed": "No se pudo guardar el cambio. Inténtalo de nuevo.",
+      "addFailed": "No se pudo añadir el elemento. Inténtalo de nuevo."
+    },
+    "debrief": {
+      "label": "Resumen de la reunión",
+      "title": "Cierra tu reunión",
+      "openMeeting": "Abrir reunión",
+      "project": "Proyecto",
+      "noProject": "Sin proyecto",
+      "people": "Con",
+      "noPeople": "Nadie confirmado todavía",
+      "unknownSpeaker": "Participante desconocido",
+      "removePerson": "Quitar a {{name}}",
+      "addPerson": "Añadir persona",
+      "searchPeople": "Busca o añade un nombre…",
+      "createPerson": "Añadir «{{name}}» como persona nueva",
+      "noMatches": "No hay personas que coincidan",
+      "whoIsThis": "¿Quién es {{name}}?",
+      "linkSpeaker": "Vincular…",
+      "followUps": "Seguimientos sugeridos",
+      "noFollowUps": "No se detectaron seguimientos",
+      "allHandled": "Todos los seguimientos gestionados",
+      "taskText": "Tarea",
+      "assignee": "Responsable",
+      "me": "Yo",
+      "addTask": "Añadir tarea",
+      "skip": "Omitir",
+      "added": "Añadida",
+      "done": "Listo",
+      "dismiss": "Descartar",
+      "dismissAll": "Descartar todos los resúmenes",
+      "errors": {
+        "project": "No se pudo actualizar el proyecto de la reunión. Inténtalo de nuevo.",
+        "people": "No se pudo actualizar quién estuvo en la reunión. Inténtalo de nuevo.",
+        "task": "No se pudo añadir la tarea. Inténtalo de nuevo.",
+        "skip": "No se pudo omitir la sugerencia. Inténtalo de nuevo.",
+        "complete": "No se pudo cerrar el resumen. Inténtalo de nuevo."
       }
     }
   },
@@ -391,13 +462,13 @@
     },
     "emptyState": {
       "chatWithMemory": "Chatea con tu memoria",
-      "startOrSelect": "Inicia un nuevo chat o selecciona una conversación anterior.",
+      "startOrSelect": "Escribe abajo para iniciar un nuevo chat o selecciona una conversación anterior.",
       "newConversation": "Nueva conversación",
       "tryAsking": "Pregunta sobre tus capturas, notas y tareas. Prueba «¿qué capturé hoy?»"
     },
     "input": {
       "placeholderActive": "Pregunta sobre tus notas… (Enter para enviar)",
-      "placeholderInactive": "Primero inicia un nuevo chat",
+      "placeholderInactive": "Pregunta algo para iniciar un nuevo chat…",
       "ariaLabel": "Mensaje",
       "send": "Enviar",
       "hint": "Mayús+Enter para salto de línea"
@@ -460,7 +531,8 @@
       "completeFailed": "Error al completar: {{error}}",
       "uncompleteFailed": "Error al desmarcar: {{error}}",
       "updateDeadlineFailed": "Error al actualizar la fecha límite: {{error}}"
-    }
+    },
+    "assignedTo": "Asignada a {{name}}"
   },
   "meetings": {
     "status": {

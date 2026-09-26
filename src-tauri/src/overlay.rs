@@ -35,9 +35,28 @@ mod recording_overlay_cleanup_tests {
     }
 }
 
-const OVERLAY_WIDTH: f64 = 240.0;
+#[cfg(test)]
+mod recording_widget_visibility_tests {
+    use super::recording_widget_visible;
+
+    #[test]
+    fn companion_bubble_replaces_voice_widget_but_preserves_meeting_controls() {
+        assert!(!recording_widget_visible(0, false));
+        for state in [1, 2, 3] { assert!(recording_widget_visible(state, false)); }
+        assert!(!recording_widget_visible(1, true));
+        assert!(!recording_widget_visible(2, true));
+        assert!(recording_widget_visible(3, true));
+    }
+}
+
+const OVERLAY_WIDTH: f64 = 160.0;
+const STATUS_OVERLAY_WIDTH: f64 = 240.0;
 const MEETING_OVERLAY_WIDTH: f64 = 320.0;
-const OVERLAY_HEIGHT: f64 = 64.0;
+const OVERLAY_HEIGHT: f64 = 48.0;
+const STATUS_OVERLAY_HEIGHT: f64 = 64.0;
+const ACTIVITY_BUBBLE_WIDTH: f64 = 300.0;
+const ACTIVITY_BUBBLE_HEIGHT: f64 = 76.0;
+const ACTIVITY_BUBBLE_GAP: i32 = 10;
 /// Distance from the bottom of the screen.
 const OVERLAY_BOTTOM_OFFSET: f64 = 80.0;
 
@@ -46,13 +65,13 @@ const CONSENT_OVERLAY_WIDTH: f64 = 520.0;
 const CONSENT_OVERLAY_HEIGHT: f64 = 96.0;
 
 /// Granola-style meeting-start toast dimensions and screen-edge spacing.
-const MEETING_TOAST_WIDTH: f64 = 460.0;
-const MEETING_TOAST_HEIGHT: f64 = 96.0;
+const MEETING_TOAST_WIDTH: f64 = 370.0;
+const MEETING_TOAST_HEIGHT: f64 = 90.0;
 /// Voice-action confirmation toast dimensions ("Keeping your Mac awake for
 /// 2 hours" etc.). Slimmer than the meeting toast — icon + two text lines.
-const ACTION_TOAST_WIDTH: f64 = 380.0;
-const ACTION_TOAST_HEIGHT: f64 = 84.0;
-/// Vertical gap between the meeting toast and an action toast shown below it.
+const ACTION_TOAST_WIDTH: f64 = 320.0;
+const ACTION_TOAST_HEIGHT: f64 = 82.0;
+/// Vertical gap between the action toast and the pill / agent toast below it.
 const ACTION_TOAST_STACK_GAP: f64 = 10.0;
 const CUSTOM_TOAST_RIGHT_MARGIN: f64 = 20.0;
 /// Leave room for one ordinary macOS notification banner. The supported
@@ -60,6 +79,428 @@ const CUSTOM_TOAST_RIGHT_MARGIN: f64 = 20.0;
 /// reserved slot is more reliable than trying to screen-scrape Notification
 /// Center or depend on private Accessibility structure.
 const CUSTOM_TOAST_TOP_MARGIN: f64 = 148.0;
+const PET_TOAST_GAP: i64 = 12;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ToastRect {
+    x: i64,
+    y: i64,
+    width: i64,
+    height: i64,
+}
+
+impl ToastRect {
+    fn right(self) -> i64 {
+        self.x + self.width
+    }
+    fn bottom(self) -> i64 {
+        self.y + self.height
+    }
+    fn overlaps(self, other: Self) -> bool {
+        self.x < other.right()
+            && self.right() > other.x
+            && self.y < other.bottom()
+            && self.bottom() > other.y
+    }
+    fn fits(self, area: Self) -> bool {
+        self.x >= area.x
+            && self.y >= area.y
+            && self.right() <= area.right()
+            && self.bottom() <= area.bottom()
+    }
+}
+
+fn choose_pet_toast_position(
+    pet: ToastRect,
+    size: (i64, i64),
+    area: ToastRect,
+    obstacles: &[ToastRect],
+) -> Option<(i32, i32)> {
+    let (width, height) = size;
+    if width > area.width || height > area.height {
+        return None;
+    }
+    let centered_y = (pet.y + (pet.height - height) / 2).clamp(area.y, area.bottom() - height);
+    let centered_x = (pet.x + (pet.width - width) / 2).clamp(area.x, area.right() - width);
+    let mut candidates = vec![
+        (pet.x - width - PET_TOAST_GAP, centered_y),
+        (centered_x, pet.y - height - PET_TOAST_GAP),
+        (pet.right() + PET_TOAST_GAP, centered_y),
+        (centered_x, pet.bottom() + PET_TOAST_GAP),
+    ];
+    // Stack beside existing notices if all four immediate slots are occupied.
+    for obstacle in obstacles {
+        candidates.push((centered_x, obstacle.y - height - PET_TOAST_GAP));
+        candidates.push((centered_x, obstacle.bottom() + PET_TOAST_GAP));
+        candidates.push((obstacle.x - width - PET_TOAST_GAP, centered_y));
+        candidates.push((obstacle.right() + PET_TOAST_GAP, centered_y));
+    }
+    candidates.into_iter().find_map(|(x, y)| {
+        let rect = ToastRect {
+            x,
+            y,
+            width,
+            height,
+        };
+        (rect.fits(area) && !rect.overlaps(pet) && obstacles.iter().all(|other| !rect.overlaps(*other)))
+            .then_some((x as i32, y as i32))
+    })
+}
+
+fn window_rect(window: &tauri::WebviewWindow<Wry>) -> Option<ToastRect> {
+    let position = window.outer_position().ok()?;
+    let size = window.outer_size().ok()?;
+    Some(ToastRect {
+        x: i64::from(position.x),
+        y: i64::from(position.y),
+        width: i64::from(size.width),
+        height: i64::from(size.height),
+    })
+}
+
+pub(crate) fn toast_position_near_pet(
+    app_handle: &AppHandle<Wry>,
+    toast: &tauri::WebviewWindow<Wry>,
+) -> Option<tauri::PhysicalPosition<i32>> {
+    let pet = app_handle.get_webview_window("desktop_pet")?;
+    if !pet.is_visible().ok()? {
+        return None;
+    }
+    let pet_rect = window_rect(&pet)?;
+    let toast_size = window_rect(toast)?;
+    let monitor = pet.current_monitor().ok().flatten()?;
+    let work = monitor.work_area();
+    let area = ToastRect {
+        x: i64::from(work.position.x),
+        y: i64::from(work.position.y),
+        width: i64::from(work.size.width),
+        height: i64::from(work.size.height),
+    };
+    let obstacles: Vec<_> = [
+        "recording_overlay",
+        "action_toast",
+        "meeting_start_toast",
+        "consent_overlay",
+        "agent_toast",
+        "activity_bubble",
+        "desktop_pet_focus",
+    ]
+    .into_iter()
+    .filter(|label| *label != toast.label())
+    .filter_map(|label| app_handle.get_webview_window(label))
+    .filter(|window| window.is_visible().unwrap_or(false))
+    .filter_map(|window| window_rect(&window))
+    .collect();
+    choose_pet_toast_position(
+        pet_rect,
+        (toast_size.width, toast_size.height),
+        area,
+        &obstacles,
+    )
+    .map(|(x, y)| tauri::PhysicalPosition::new(x, y))
+}
+
+fn position_meeting_toast(app_handle: &AppHandle<Wry>, toast: &tauri::WebviewWindow<Wry>) {
+    if let Some(position) = toast_position_near_pet(app_handle, toast) {
+        let _ = toast.set_position(tauri::Position::Physical(position));
+    } else if let Some(position) = toast_position_above_widget(app_handle, toast) {
+        let _ = toast.set_position(position);
+    } else if let Some((x, y)) = calculate_meeting_toast_position(app_handle) {
+        let _ = toast.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
+    }
+}
+
+fn position_action_toast(app_handle: &AppHandle<Wry>, toast: &tauri::WebviewWindow<Wry>) {
+    if let Some(position) = toast_position_near_pet(app_handle, toast) {
+        let _ = toast.set_position(tauri::Position::Physical(position));
+    } else if let Some(position) = toast_position_above_widget(app_handle, toast) {
+        let _ = toast.set_position(position);
+    } else if let Some((x, y)) = calculate_action_toast_position(app_handle) {
+        let _ = toast.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
+    }
+}
+
+fn toast_position_above_widget(
+    app: &AppHandle<Wry>, toast: &tauri::WebviewWindow<Wry>,
+) -> Option<tauri::PhysicalPosition<i32>> {
+    let widget = app.get_webview_window("recording_overlay")?;
+    let widget_rect = window_rect(&widget)?;
+    let anchor = app.get_webview_window("activity_bubble")
+        .filter(|bubble| bubble.label() != toast.label() && bubble.is_visible().unwrap_or(false))
+        .and_then(|bubble| window_rect(&bubble))
+        .unwrap_or(widget_rect);
+    let toast_rect = window_rect(toast)?;
+    let monitor = widget.current_monitor().ok().flatten()?;
+    let work = monitor.work_area();
+    let area = ToastRect {
+        x: i64::from(work.position.x), y: i64::from(work.position.y),
+        width: i64::from(work.size.width), height: i64::from(work.size.height),
+    };
+    let (x, y) = choose_widget_bubble_position(anchor, (toast_rect.width, toast_rect.height), area)?;
+    Some(tauri::PhysicalPosition::new(x, y))
+}
+
+fn choose_widget_bubble_position(anchor: ToastRect, size: (i64, i64), area: ToastRect) -> Option<(i32, i32)> {
+    let (width, height) = size;
+    if width > area.width || height > area.height { return None; }
+    let x = (anchor.x + (anchor.width - width) / 2).clamp(area.x, area.right() - width);
+    let above = anchor.y - height - i64::from(ACTIVITY_BUBBLE_GAP);
+    let below = anchor.bottom() + i64::from(ACTIVITY_BUBBLE_GAP);
+    let y = if above >= area.y { above }
+        else if below + height <= area.bottom() { below }
+        else { return None };
+    Some((x as i32, y as i32))
+}
+
+// 0: idle, 1: microphone waveform, 2: progress, 3: meeting controls.
+static OVERLAY_PRESENTATION: AtomicU32 = AtomicU32::new(0);
+static PRE_PET_POSITION: std::sync::Mutex<Option<tauri::PhysicalPosition<i32>>> =
+    std::sync::Mutex::new(None);
+
+fn recording_widget_visible(presentation: u32, pet_visible: bool) -> bool {
+    presentation != 0 && (!pet_visible || presentation == 3)
+}
+
+pub(crate) fn pet_replaces_recording_widget() -> bool {
+    OVERLAY_PRESENTATION.load(Ordering::SeqCst) == 1
+}
+
+fn sync_recording_widget(app: &AppHandle<Wry>) {
+    let Some(window) = app.get_webview_window("recording_overlay") else { return; };
+    let pet_visible = app.get_webview_window("desktop_pet")
+        .is_some_and(|pet| pet.is_visible().unwrap_or(false));
+    let bubble_visible = app.get_webview_window("activity_bubble")
+        .is_some_and(|bubble| bubble.is_visible().unwrap_or(false));
+    let presentation = OVERLAY_PRESENTATION.load(Ordering::SeqCst);
+    if !recording_widget_visible(presentation, pet_visible && bubble_visible) {
+        if presentation != 0 { let _ = window.hide(); }
+        return;
+    }
+    if let Some(position) = toast_position_near_pet(app, &window) {
+        if let Ok(mut previous) = PRE_PET_POSITION.lock() {
+            if previous.is_none() { *previous = window.outer_position().ok(); }
+        }
+        let _ = window.set_position(position);
+    } else if !pet_visible {
+        if let Ok(mut previous) = PRE_PET_POSITION.lock() {
+            if let Some(position) = previous.take() {
+                let _ = window.set_position(position);
+                keep_recording_overlay_visible(&window);
+            }
+        }
+    }
+    let _ = window.show();
+    let _ = window.set_always_on_top(true);
+}
+
+fn position_consent_overlay(app: &AppHandle<Wry>, window: &tauri::WebviewWindow<Wry>) {
+    if let Some(position) = toast_position_near_pet(app, window) {
+        let _ = window.set_position(position);
+    } else if let Some((x, y)) = calculate_consent_overlay_position(app) {
+        let _ = window.set_position(tauri::LogicalPosition::new(x, y));
+    }
+}
+
+/// Reflow short-lived notices when the pet or recording pill moves or changes size.
+pub(crate) fn reposition_visible_toasts(app_handle: &AppHandle<Wry>) {
+    sync_recording_widget(app_handle);
+    if let Some(bubble) = app_handle.get_webview_window("activity_bubble") {
+        if bubble.is_visible().unwrap_or(false) {
+            position_activity_bubble(app_handle, &bubble);
+        }
+    }
+    crate::agent_toast::reposition(app_handle);
+    if let Some(window) = app_handle.get_webview_window("consent_overlay") {
+        if window.is_visible().unwrap_or(false) {
+            position_consent_overlay(app_handle, &window);
+        }
+    }
+    if let Some(toast) = app_handle.get_webview_window("meeting_start_toast") {
+        if toast.is_visible().unwrap_or(false) {
+            position_meeting_toast(app_handle, &toast);
+        }
+    }
+    if let Some(toast) = app_handle.get_webview_window("action_toast") {
+        if toast.is_visible().unwrap_or(false) {
+            position_action_toast(app_handle, &toast);
+        }
+    }
+}
+
+pub fn create_activity_bubble(app: &AppHandle<Wry>) {
+    if app.get_webview_window("activity_bubble").is_some() { return; }
+    if let Err(e) = WebviewWindowBuilder::new(
+        app, "activity_bubble", tauri::WebviewUrl::App("src/activity-bubble/index.html".into()),
+    )
+    .title("Tucky status")
+    .inner_size(ACTIVITY_BUBBLE_WIDTH, ACTIVITY_BUBBLE_HEIGHT)
+    .resizable(false)
+    .decorations(false)
+    .transparent(true)
+    .shadow(false)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .focusable(false)
+    .focused(false)
+    .visible(false)
+    .closable(false)
+    .build() {
+        warn!(?e, "activity bubble creation failed");
+    }
+}
+
+fn position_activity_bubble(app: &AppHandle<Wry>, bubble: &tauri::WebviewWindow<Wry>) -> &'static str {
+    if let Some(position) = toast_position_near_pet(app, bubble) {
+        let placement = app.get_webview_window("desktop_pet")
+            .and_then(|pet| window_rect(&pet))
+            .and_then(|pet| window_rect(bubble).map(|size| {
+                let placed = ToastRect { x: i64::from(position.x), y: i64::from(position.y), ..size };
+                activity_bubble_pointer(placed, pet)
+            }))
+            .unwrap_or("bottom");
+        let _ = bubble.set_position(position);
+        let _ = bubble.emit("activity-bubble-placement", placement);
+        return placement;
+    }
+    if let Some(position) = toast_position_above_widget(app, bubble) {
+        let placement = app.get_webview_window("recording_overlay")
+            .and_then(|widget| window_rect(&widget))
+            .and_then(|widget| window_rect(bubble).map(|size| {
+                let placed = ToastRect { x: i64::from(position.x), y: i64::from(position.y), ..size };
+                activity_bubble_pointer(placed, widget)
+            }))
+            .unwrap_or("bottom");
+        let _ = bubble.set_position(position);
+        let _ = bubble.emit("activity-bubble-placement", placement);
+        return placement;
+    }
+    let _ = bubble.emit("activity-bubble-placement", "bottom");
+    "bottom"
+}
+
+fn activity_bubble_pointer(bubble: ToastRect, pet: ToastRect) -> &'static str {
+    if bubble.right() <= pet.x { "right" }
+    else if bubble.x >= pet.right() { "left" }
+    else if bubble.bottom() <= pet.y { "bottom" }
+    else if bubble.y >= pet.bottom() { "top" }
+    else { "bottom" }
+}
+
+fn show_activity_bubble(app: &AppHandle<Wry>, mode: &str, label: Option<&str>) {
+    if app.get_webview_window("activity_bubble").is_none() { create_activity_bubble(app); }
+    let Some(bubble) = app.get_webview_window("activity_bubble") else { return; };
+    let placement = position_activity_bubble(app, &bubble);
+    if let Err(error) = bubble.show() {
+        warn!(?error, "activity bubble show failed");
+        return;
+    }
+    if let Some(focus) = app.get_webview_window("desktop_pet_focus") { let _ = focus.destroy(); }
+    let _ = bubble.set_always_on_top(true);
+    let _ = bubble.emit("show-activity-bubble", serde_json::json!({ "mode": mode, "label": label, "placement": placement }));
+}
+
+fn hide_activity_bubble(app: &AppHandle<Wry>) {
+    if let Some(bubble) = app.get_webview_window("activity_bubble") { let _ = bubble.hide(); }
+    let _ = crate::desktop_pet::sync_daily_focus_bubble(app);
+}
+
+#[cfg(test)]
+mod pet_toast_position_tests {
+    use super::{activity_bubble_pointer, choose_pet_toast_position as choose, ToastRect as Rect};
+
+    #[test]
+    fn bubble_pointer_tracks_which_side_faces_the_pet() {
+        let pet = Rect { x: 400, y: 300, width: 100, height: 112 };
+        assert_eq!(activity_bubble_pointer(Rect { x: 88, y: 310, width: 300, height: 76 }, pet), "right");
+        assert_eq!(activity_bubble_pointer(Rect { x: 512, y: 310, width: 300, height: 76 }, pet), "left");
+        assert_eq!(activity_bubble_pointer(Rect { x: 300, y: 212, width: 300, height: 76 }, pet), "bottom");
+        assert_eq!(activity_bubble_pointer(Rect { x: 300, y: 424, width: 300, height: 76 }, pet), "top");
+    }
+
+    #[test]
+    fn prefers_left_of_pet_and_avoids_recording_overlay() {
+        let area = Rect {
+            x: 0,
+            y: 24,
+            width: 1440,
+            height: 876,
+        };
+        let pet = Rect {
+            x: 1300,
+            y: 760,
+            width: 100,
+            height: 112,
+        };
+        assert_eq!(choose(pet, (310, 64), area, &[]), Some((978, 784)));
+        let recording = Rect {
+            x: 960,
+            y: 780,
+            width: 160,
+            height: 48,
+        };
+        assert_eq!(
+            choose(pet, (310, 64), area, &[recording]),
+            Some((1130, 684))
+        );
+    }
+
+    #[test]
+    fn crowded_pet_stacks_notices_without_covering_pet_or_other_cards() {
+        let area = Rect { x: -1200, y: 0, width: 1200, height: 900 };
+        let pet = Rect { x: -200, y: 750, width: 100, height: 112 };
+        let left = Rect { x: -572, y: 646, width: 360, height: 216 };
+        let above = Rect { x: -350, y: 418, width: 350, height: 216 };
+        let obstacles = [left, above];
+        let (x, y) = choose(pet, (360, 104), area, &obstacles).expect("stacked position");
+        let result = Rect { x: x.into(), y: y.into(), width: 360, height: 104 };
+        assert!(result.fits(area));
+        assert!(!result.overlaps(pet));
+        assert!(obstacles.iter().all(|other| !result.overlaps(*other)));
+    }
+
+    #[test]
+    fn avoids_another_toast_and_handles_no_space() {
+        let area = Rect {
+            x: 0,
+            y: 24,
+            width: 500,
+            height: 300,
+        };
+        let pet = Rect {
+            x: 390,
+            y: 230,
+            width: 100,
+            height: 80,
+        };
+        let other = Rect {
+            x: 120,
+            y: 220,
+            width: 260,
+            height: 72,
+        };
+        assert_eq!(choose(pet, (260, 64), area, &[other]), Some((240, 154)));
+        assert_eq!(choose(pet, (600, 64), area, &[]), None);
+    }
+}
+
+#[cfg(test)]
+mod widget_bubble_position_tests {
+    use super::{choose_widget_bubble_position as place, ToastRect as Rect};
+
+    #[test]
+    fn centers_above_widget_and_stays_inside_secondary_display() {
+        let area = Rect { x: -1440, y: 24, width: 1440, height: 876 };
+        let widget = Rect { x: -800, y: 790, width: 160, height: 48 };
+        assert_eq!(place(widget, (300, 76), area), Some((-870, 704)));
+    }
+
+    #[test]
+    fn moves_below_widget_when_there_is_no_space_above() {
+        let area = Rect { x: 0, y: 24, width: 800, height: 600 };
+        let widget = Rect { x: 320, y: 40, width: 160, height: 48 };
+        assert_eq!(place(widget, (300, 76), area), Some((250, 98)));
+    }
+}
 
 /// Creates the recording overlay window (hidden by default).
 ///
@@ -116,6 +557,8 @@ pub fn create_recording_overlay(app_handle: &AppHandle<Wry>) {
                     let position = window.outer_position().ok();
                     if position.is_some() && position == previous {
                         keep_recording_overlay_visible(&window);
+                    } else if position.is_some() && position != previous {
+                        reposition_visible_toasts(window.app_handle());
                     }
                     previous = position;
                 }
@@ -280,14 +723,30 @@ mod recording_overlay_position_tests {
     }
 }
 
+/// Keep the pill's visual center in place when capture changes to a wider
+/// status or meeting state, including after the user has dragged it.
+fn resize_overlay_around_center(overlay: &tauri::WebviewWindow<Wry>, width: f64, height: f64) {
+    let previous = overlay.outer_position().ok().zip(overlay.outer_size().ok());
+    if overlay
+        .set_size(tauri::Size::Logical(tauri::LogicalSize { width, height }))
+        .is_err()
+    {
+        return;
+    }
+    if let (Some((position, old_size)), Ok(new_size)) = (previous, overlay.outer_size()) {
+        if old_size != new_size {
+            let x = position.x + (old_size.width as i32 - new_size.width as i32) / 2;
+            let y = position.y + (old_size.height as i32 - new_size.height as i32) / 2;
+            let _ = overlay.set_position(tauri::PhysicalPosition::new(x, y));
+        }
+    }
+}
+
 fn show_overlay_state(app_handle: &AppHandle<Wry>, state: &str) {
+    OVERLAY_PRESENTATION.store(1, Ordering::SeqCst);
     RECORDING_OVERLAY_REVISION.fetch_add(1, Ordering::SeqCst);
     if let Some(overlay) = app_handle.get_webview_window("recording_overlay") {
-        let _ = overlay.show();
-        let _ = overlay.set_size(tauri::Size::Logical(tauri::LogicalSize {
-            width: OVERLAY_WIDTH,
-            height: OVERLAY_HEIGHT,
-        }));
+        resize_overlay_around_center(&overlay, OVERLAY_WIDTH, OVERLAY_HEIGHT);
         keep_recording_overlay_visible(&overlay);
         // The overlay must never become the key window — if it does, Cmd+V
         // lands here instead of the user's target app. On macOS, showing a
@@ -296,6 +755,21 @@ fn show_overlay_state(app_handle: &AppHandle<Wry>, state: &str) {
         // which avoids makeKeyAndOrderFront semantics.
         let _ = overlay.set_always_on_top(true);
         let _ = overlay.emit("show-overlay", state);
+        show_activity_bubble(app_handle, state, None);
+        reposition_visible_toasts(app_handle);
+    }
+}
+
+fn show_status_overlay_state(app_handle: &AppHandle<Wry>, state: &str) {
+    OVERLAY_PRESENTATION.store(2, Ordering::SeqCst);
+    RECORDING_OVERLAY_REVISION.fetch_add(1, Ordering::SeqCst);
+    if let Some(overlay) = app_handle.get_webview_window("recording_overlay") {
+        resize_overlay_around_center(&overlay, STATUS_OVERLAY_WIDTH, STATUS_OVERLAY_HEIGHT);
+        keep_recording_overlay_visible(&overlay);
+        let _ = overlay.set_always_on_top(true);
+        let _ = overlay.emit("show-overlay", state);
+        show_activity_bubble(app_handle, state, None);
+        reposition_visible_toasts(app_handle);
     }
 }
 
@@ -303,13 +777,10 @@ fn show_overlay_state(app_handle: &AppHandle<Wry>, state: &str) {
 /// Emits a JSON object payload (vs. the plain-string payload for the other
 /// modes) so the frontend can pick up the contextual app name.
 pub fn show_meeting_overlay(app_handle: &AppHandle<Wry>, detected_app_name: Option<&str>) {
+    OVERLAY_PRESENTATION.store(3, Ordering::SeqCst);
     RECORDING_OVERLAY_REVISION.fetch_add(1, Ordering::SeqCst);
     if let Some(overlay) = app_handle.get_webview_window("recording_overlay") {
-        let _ = overlay.show();
-        let _ = overlay.set_size(tauri::Size::Logical(tauri::LogicalSize {
-            width: MEETING_OVERLAY_WIDTH,
-            height: OVERLAY_HEIGHT,
-        }));
+        resize_overlay_around_center(&overlay, MEETING_OVERLAY_WIDTH, STATUS_OVERLAY_HEIGHT);
         keep_recording_overlay_visible(&overlay);
         let _ = overlay.set_always_on_top(true);
         let _ = overlay.emit(
@@ -319,6 +790,7 @@ pub fn show_meeting_overlay(app_handle: &AppHandle<Wry>, detected_app_name: Opti
                 "app_name": detected_app_name,
             }),
         );
+        reposition_visible_toasts(app_handle);
     }
 }
 
@@ -341,7 +813,7 @@ pub fn show_action_recording_overlay(app_handle: &AppHandle<Wry>) {
 
 /// Shows the overlay in "transcribing" state (pulsing text).
 pub fn show_transcribing_overlay(app_handle: &AppHandle<Wry>) {
-    show_overlay_state(app_handle, "transcribing");
+    show_status_overlay_state(app_handle, "transcribing");
 }
 
 /// Switches the overlay to a generic "processing" state with a custom label
@@ -349,13 +821,10 @@ pub fn show_transcribing_overlay(app_handle: &AppHandle<Wry>) {
 /// the transcribing state — pulsing text, no waveform, no icon swap — but
 /// the label tells the user which downstream step is currently running.
 pub fn show_processing_overlay(app_handle: &AppHandle<Wry>, label: &str) {
+    OVERLAY_PRESENTATION.store(2, Ordering::SeqCst);
     RECORDING_OVERLAY_REVISION.fetch_add(1, Ordering::SeqCst);
     if let Some(overlay) = app_handle.get_webview_window("recording_overlay") {
-        let _ = overlay.show();
-        let _ = overlay.set_size(tauri::Size::Logical(tauri::LogicalSize {
-            width: OVERLAY_WIDTH,
-            height: OVERLAY_HEIGHT,
-        }));
+        resize_overlay_around_center(&overlay, STATUS_OVERLAY_WIDTH, STATUS_OVERLAY_HEIGHT);
         keep_recording_overlay_visible(&overlay);
         let _ = overlay.set_always_on_top(true);
         let _ = overlay.emit(
@@ -365,11 +834,15 @@ pub fn show_processing_overlay(app_handle: &AppHandle<Wry>, label: &str) {
                 "label": label,
             }),
         );
+        show_activity_bubble(app_handle, "processing", Some(label));
+        reposition_visible_toasts(app_handle);
     }
 }
 
 /// Hides the overlay with a fade-out delay so the CSS animation can play.
 pub fn hide_recording_overlay(app_handle: &AppHandle<Wry>) {
+    OVERLAY_PRESENTATION.store(0, Ordering::SeqCst);
+    hide_activity_bubble(app_handle);
     let revision = RECORDING_OVERLAY_REVISION.fetch_add(1, Ordering::SeqCst) + 1;
     if let Some(overlay) = app_handle.get_webview_window("recording_overlay") {
         let _ = overlay.emit("hide-overlay", ());
@@ -390,6 +863,8 @@ pub fn hide_recording_overlay(app_handle: &AppHandle<Wry>) {
 /// Used before pasting so the always-on-top overlay doesn't interfere
 /// with focus restore and Cmd+V delivery to the target app.
 pub fn hide_recording_overlay_now(app_handle: &AppHandle<Wry>) {
+    OVERLAY_PRESENTATION.store(0, Ordering::SeqCst);
+    hide_activity_bubble(app_handle);
     RECORDING_OVERLAY_REVISION.fetch_add(1, Ordering::SeqCst);
     if let Some(overlay) = app_handle.get_webview_window("recording_overlay") {
         let _ = overlay.hide();
@@ -443,9 +918,7 @@ pub fn create_consent_overlay(app_handle: &AppHandle<Wry>) {
 /// Frontend listens for `show-consent` and renders three buttons.
 pub fn show_consent_overlay(app_handle: &AppHandle<Wry>, bundle_id: &str, app_name: &str) {
     if let Some(overlay) = app_handle.get_webview_window("consent_overlay") {
-        if let Some((x, y)) = calculate_consent_overlay_position(app_handle) {
-            let _ = overlay.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
-        }
+        position_consent_overlay(app_handle, &overlay);
         let _ = overlay.show();
         // Avoid making the overlay key (same reason as recording_overlay).
         let _ = overlay.set_always_on_top(true);
@@ -526,9 +999,7 @@ pub fn show_meeting_start_toast(app_handle: &AppHandle<Wry>, detected_app_name: 
         create_meeting_start_toast(app_handle);
     }
     if let Some(toast) = app_handle.get_webview_window("meeting_start_toast") {
-        if let Some((x, y)) = calculate_meeting_toast_position(app_handle) {
-            let _ = toast.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
-        }
+        position_meeting_toast(app_handle, &toast);
         if let Err(e) = toast.show() {
             warn!(?e, "meeting-start toast show failed");
         }
@@ -553,27 +1024,40 @@ pub fn hide_meeting_start_toast(app_handle: &AppHandle<Wry>) {
     }
 }
 
-/// Top-right slot for the action toast — same anchor as the meeting toast,
-/// pushed one slot down when the meeting toast is currently visible so the
-/// two never overlap (e.g. "stop meeting" spoken while the start toast is
-/// still fading).
+/// Bottom-center, just above the recording pill — the same spot the user's
+/// eyes are on after speaking a command. Uses the pill's live rect when it's
+/// on screen, otherwise where the pill would sit. Stacks above the agent
+/// toast when that card is showing so the two never overlap.
 fn calculate_action_toast_position(app_handle: &AppHandle<Wry>) -> Option<(f64, f64)> {
-    let monitor = app_handle.primary_monitor().ok().flatten()?;
-    let scale = monitor.scale_factor();
-    let monitor_x = monitor.position().x as f64 / scale;
-    let monitor_y = monitor.position().y as f64 / scale;
-    let monitor_width = monitor.size().width as f64 / scale;
+    let visible_rect = |label: &str| {
+        let w = app_handle.get_webview_window(label)?;
+        if !w.is_visible().unwrap_or(false) {
+            return None;
+        }
+        let (pos, size, scale) = (
+            w.outer_position().ok()?,
+            w.outer_size().ok()?,
+            w.scale_factor().ok()?,
+        );
+        Some((
+            pos.x as f64 / scale,
+            pos.y as f64 / scale,
+            size.width as f64 / scale,
+        ))
+    };
 
-    let x = monitor_x + monitor_width - ACTION_TOAST_WIDTH - CUSTOM_TOAST_RIGHT_MARGIN;
-    let mut y = monitor_y + CUSTOM_TOAST_TOP_MARGIN;
-    let meeting_toast_visible = app_handle
-        .get_webview_window("meeting_start_toast")
-        .map(|w| w.is_visible().unwrap_or(false))
-        .unwrap_or(false);
-    if meeting_toast_visible {
-        y += MEETING_TOAST_HEIGHT + ACTION_TOAST_STACK_GAP;
+    let (center_x, mut bottom) = match visible_rect("recording_overlay") {
+        Some((x, y, w)) => (x + w / 2.0, y),
+        None => {
+            let (x, y) = calculate_overlay_position(app_handle, ACTION_TOAST_WIDTH)?;
+            (x + ACTION_TOAST_WIDTH / 2.0, y)
+        }
+    };
+    if let Some((_, agent_top, _)) = visible_rect("agent_toast") {
+        bottom = bottom.min(agent_top);
     }
-    Some((x, y))
+    let y = bottom - ACTION_TOAST_STACK_GAP - ACTION_TOAST_HEIGHT;
+    Some((center_x - ACTION_TOAST_WIDTH / 2.0, y))
 }
 
 /// Creates the voice-action confirmation toast window (hidden by default).
@@ -633,9 +1117,7 @@ pub fn show_action_toast(app_handle: &AppHandle<Wry>, kind: &str, message: &str)
             warn!("action toast window unavailable; confirmation not shown");
             return;
         };
-        if let Some((x, y)) = calculate_action_toast_position(&app) {
-            let _ = toast.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
-        }
+        position_action_toast(&app, &toast);
         if let Err(e) = toast.show() {
             warn!(?e, "action toast show failed");
         }
@@ -1351,5 +1833,25 @@ mod screenrec_setup_close_tests {
         assert!(closed.area_picker, "area picker should be hidden");
         assert!(closed.countdown, "countdown should be hidden");
         assert!(closed.camera_preview, "camera preview should be hidden");
+    }
+}
+
+#[cfg(test)]
+mod pet_recording_presentation_tests {
+    use super::recording_widget_visible;
+
+    #[test]
+    fn pet_replaces_waveform_and_progress_but_keeps_meeting_controls() {
+        assert!(!recording_widget_visible(1, true));
+        assert!(!recording_widget_visible(2, true));
+        assert!(recording_widget_visible(3, true));
+        assert!(!recording_widget_visible(0, true));
+    }
+
+    #[test]
+    fn hiding_pet_during_capture_restores_waveform() {
+        assert!(recording_widget_visible(1, false));
+        assert!(recording_widget_visible(2, false));
+        assert!(!recording_widget_visible(0, false));
     }
 }

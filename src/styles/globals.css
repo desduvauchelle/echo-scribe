@@ -3,6 +3,21 @@
 @import "@fontsource-variable/inter/wght.css";
 @import "@fontsource-variable/jetbrains-mono/wght.css";
 
+/* Clickable controls should advertise their action. Keep this in the base
+   layer so explicit text, drag, resize and disabled cursor utilities win. */
+@layer base {
+  :where(button, a[href], select, summary, input[type="button"],
+    input[type="submit"], input[type="reset"], input[type="checkbox"],
+    input[type="radio"], [role="button"], [role="checkbox"],
+    [role="switch"], [role="tab"], [role="menuitem"]):not(:disabled):not([aria-disabled="true"]) {
+    cursor: pointer;
+  }
+
+  :where(:disabled, [aria-disabled="true"]) {
+    cursor: default;
+  }
+}
+
 @theme {
   --font-sans: "Inter Variable", ui-sans-serif, system-ui, -apple-system,
     "Segoe UI", Roboto, sans-serif;
@@ -292,18 +307,6 @@ html:is([data-app-view="main"], [data-app-view="settings"]) #root {
   border-left: 1px solid var(--color-line);
 }
 
-.echo-recap-row .material-panel {
-  display: block;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-}
-
-.echo-recap-row .material-panel:hover {
-  background: var(--row-hover);
-}
-
 .activity-ledger-row {
   border: 0;
   border-bottom: 1px solid var(--color-line);
@@ -433,6 +436,18 @@ button.no-press {
   }
 }
 
+/* Meeting debrief: an accepted follow-up flashes "Added", then fades out
+   (the row is removed after ~1.4s either way). */
+@keyframes echo-debrief-added {
+  0% { opacity: 0; transform: translateY(2px); background: transparent; }
+  15% { opacity: 1; transform: translateY(0); background: color-mix(in srgb, var(--color-success) 12%, transparent); }
+  70% { opacity: 1; }
+  100% { opacity: 0; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .echo-debrief-added { animation: echo-debrief-added 1400ms ease-out both; }
+}
+
 /* Tucky's surrounding shell. Activity filters, stats and item styles remain unchanged. */
 :root[data-theme="light"] .echo-app-shell,
 :root[data-theme="light"] .echo-settings-shell {
@@ -466,28 +481,129 @@ button.no-press {
   position: relative;
   display: flex;
   align-items: center;
-  min-height: 132px;
-  margin-top: 12px;
-  padding: 16px 180px 16px 0;
+  min-height: 122px;
+  margin-top: 4px;
+  padding: 10px 180px 12px 0;
   border-bottom: 1px solid var(--color-line);
 }
+.tucky-greeting-copy { flex: 1; min-width: 0; }
 .tucky-greeting h2 { font-size: 23px; line-height: 1.25; font-weight: 520; letter-spacing: -.65px; }
-.tucky-greeting p { color: var(--color-muted); font-size: 12px; line-height: 1.6; margin-top: 8px; }
-.tucky-greeting-actions { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 9px; }
-.tucky-greeting-actions button,
-.tucky-greeting-restore button {
+.tucky-greeting p { color: var(--color-muted); font-size: 12px; line-height: 1.6; margin-top: 6px; }
+.tucky-greeting-sub { display: flex; align-items: center; gap: 6px; }
+.tucky-greeting-another {
+  display: inline-flex; align-items: center; justify-content: center;
+  flex-shrink: 0; width: 18px; height: 18px;
+  border-radius: 999px; color: var(--color-muted); cursor: pointer;
+  transition: color .15s, background-color .15s;
+}
+.tucky-greeting-another:hover { color: var(--color-fg); background: color-mix(in srgb, var(--color-fg) 8%, transparent); }
+.tucky-greeting-another svg { transition: transform .4s ease; }
+.tucky-greeting-another:hover svg { transform: rotate(180deg); }
+.tucky-focus-bubble {
+  position: relative;
+  z-index: 2;
+  width: min(100%, 740px);
+  margin-top: 12px;
+  padding: 11px 14px 10px;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 34%, var(--color-line));
+  border-radius: 15px 15px 5px 15px;
+  background: var(--color-surface);
+  box-shadow: 0 5px 18px #0000000b;
+}
+.tucky-focus-bubble::after {
+  content: "";
+  position: absolute;
+  right: -9px;
+  bottom: 17px;
+  width: 15px;
+  height: 15px;
+  transform: rotate(45deg);
+  border-right: 1px solid color-mix(in srgb, var(--color-accent) 34%, var(--color-line));
+  border-top: 1px solid color-mix(in srgb, var(--color-accent) 34%, var(--color-line));
+  background: var(--color-surface);
+}
+.tucky-focus-bubble-label, .morning-focus-eyebrow { color: var(--color-accent); font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+.tucky-greeting .tucky-focus-bubble p { color: var(--color-fg); font-size: 13px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
+.tucky-greeting .tucky-focus-bubble.is-expanded p { display: block; max-height: 40vh; overflow-y: auto; }
+.tucky-focus-bubble-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 5px; }
+.tucky-focus-bubble-actions button { color: var(--color-muted); font-size: 11px; }
+.tucky-focus-bubble-actions button:hover { color: var(--color-fg); }
+.morning-focus-panel { container-type: inline-size; padding: 18px 0 20px; border-bottom: 1px solid var(--color-line); }
+.morning-focus-heading { display: flex; align-items: start; justify-content: space-between; gap: 12px; }
+.morning-focus-heading h2 { margin: 4px 0 12px; color: var(--color-fg); font-size: 15px; font-weight: 600; line-height: 1.4; }
+.morning-focus-heading-actions { display: flex; flex: none; align-items: center; gap: 4px; }
+.morning-focus-cancel { flex: none; border-radius: 6px; padding: 3px 5px; color: var(--color-muted); font-size: 12px; }
+.morning-focus-cancel:hover { color: var(--color-fg); background: var(--color-elevated); }
+.morning-focus-dismiss { display: inline-flex; width: 26px; height: 26px; align-items: center; justify-content: center; border-radius: 6px; color: var(--color-faint); }
+.morning-focus-dismiss:hover:not(:disabled) { color: var(--color-fg); background: var(--color-elevated); }
+.morning-focus-dismiss:disabled { opacity: .5; }
+.morning-focus-composer { display: flex; align-items: center; border: 1px solid var(--color-line-strong); border-radius: 10px; background: var(--material-panel); transition: border-color .15s ease, box-shadow .15s ease; }
+.morning-focus-composer:focus-within { border-color: var(--color-accent); box-shadow: 0 0 0 2px var(--color-accent-soft); }
+.morning-focus-type { flex: 1; min-width: 0; }
+.morning-focus-panel textarea { display: block; width: 100%; min-height: 44px; max-height: 240px; resize: none; border: 0; border-radius: 10px 0 0 10px; padding: 11px 14px; background: transparent; color: var(--color-fg); font: inherit; font-size: 13px; line-height: 1.55; outline: none; }
+.morning-focus-panel textarea::placeholder { color: var(--color-faint); }
+.morning-focus-actions { display: flex; flex: none; align-items: center; gap: 5px; min-height: 44px; padding: 4px 7px 4px 5px; border-left: 1px solid var(--color-line); }
+.morning-focus-voice { display: flex; min-width: 0; align-items: center; }
+.morning-focus-mic { display: inline-flex; min-height: 36px; align-items: center; gap: 9px; border: 0; border-radius: 7px; padding: 5px 8px; background: transparent; color: var(--color-fg); touch-action: none; text-align: left; transition: background-color .15s ease; }
+.morning-focus-mic svg { flex: none; color: var(--color-accent); }
+.morning-focus-mic-copy { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+.morning-focus-mic:hover:not(:disabled), .morning-focus-mic[aria-pressed="true"] { background: var(--color-accent-soft); }
+.morning-focus-mic strong { font-size: 11px; font-weight: 600; line-height: 1.2; }
+.morning-focus-mic-copy > span { color: var(--color-muted); font-size: 10px; line-height: 1.2; }
+.morning-focus-save { display: inline-flex; min-height: 34px; align-items: center; justify-content: center; border-radius: 7px; padding: 0 13px; background: var(--color-accent); color: var(--color-canvas); font-size: 12px; font-weight: 600; white-space: nowrap; transition: background-color .15s ease; }
+.morning-focus-save:hover:not(:disabled) { background: var(--color-accent-hover); }
+.morning-focus-actions button:disabled { opacity: .5; cursor: default; }
+.morning-focus-actions .morning-focus-save:disabled { background: var(--color-elevated); color: var(--color-muted); opacity: 1; }
+.morning-focus-actions button:focus-visible, .morning-focus-heading-actions button:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.morning-focus-error { margin-top: 8px; color: var(--color-danger); font-size: 12px; }
+@container (max-width: 620px) {
+  .morning-focus-composer { flex-wrap: wrap; }
+  .morning-focus-type { flex-basis: 100%; }
+  .morning-focus-panel textarea { border-radius: 10px 10px 0 0; }
+  .morning-focus-actions { width: 100%; justify-content: space-between; border-top: 1px solid var(--color-line); border-left: 0; }
+}
+@container (max-width: 320px) {
+  .morning-focus-actions { flex-wrap: wrap; }
+  .morning-focus-voice, .morning-focus-save { width: 100%; }
+}
+@media(prefers-reduced-motion:reduce) {
+  .morning-focus-composer, .morning-focus-mic, .morning-focus-save { transition: none; }
+}
+/* One-line activity summary that replaced the dashboard stat cards. */
+.tucky-pulse {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 6px;
+  margin-top: 8px;
+  color: var(--color-muted);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+.tucky-pulse-label { color: var(--color-faint); font-weight: 500; cursor: pointer; }
+.tucky-pulse-label:hover { color: var(--color-fg); text-decoration: underline; text-underline-offset: 3px; }
+.tucky-pulse-label:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; border-radius: 2px; }
+.tucky-pulse-item strong { color: var(--color-fg); font-weight: 600; font-variant-numeric: tabular-nums; }
+.tucky-pulse-sep { color: var(--color-faint); }
+.tucky-pulse-link {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 4px 0;
-  border-radius: 3px;
-  color: var(--color-muted);
-  font-size: 11px;
+  gap: 2px;
+  color: var(--color-accent);
+  font-weight: 500;
   cursor: pointer;
 }
-.tucky-greeting-actions button:hover,
-.tucky-greeting-restore button:hover { color: var(--color-fg); text-decoration: underline; text-underline-offset: 3px; }
-.tucky-greeting-restore { display: flex; justify-content: flex-end; padding-top: 6px; }
+.tucky-pulse-link:hover { text-decoration: underline; text-underline-offset: 3px; }
+/* Day dividers inside the activity ledger. */
+.echo-feed-day {
+  padding: 14px 8px 6px;
+  border-bottom: 1px solid var(--color-line);
+  color: var(--color-muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
 .tucky-peeking {
   position: absolute;
   width: 156px;
@@ -497,12 +613,10 @@ button.no-press {
   pointer-events: none;
   user-select: none;
   z-index: 1;
-  mix-blend-mode: lighten;
 }
 .tucky-peeking img { width: 100%; height: 100%; object-fit: contain; transform: translateY(8px); clip-path: inset(0 0 6.5% 0); }
 .tucky-peeking-light { display: none; }
-:root[data-theme="light"] .tucky-peeking { mix-blend-mode: multiply; }
-:root[data-theme="light"] .tucky-peeking-light { display: block; filter: brightness(1.015); }
+:root[data-theme="light"] .tucky-peeking-light { display: block; }
 :root[data-theme="light"] .tucky-peeking-dark { display: none; }
 .tucky-settings-heading { position: relative; min-height: 92px; padding-top: 8px; padding-right: 130px; }
 .tucky-settings-heading .tucky-peeking { width: 108px; height: 90px; bottom: -5px; }
@@ -527,6 +641,11 @@ button.no-press {
   .tucky-greeting .tucky-peeking { width: 117px; height: 98px; right: -8px; bottom: -7px; }
   .tucky-settings-heading { padding-right: 100px; }
   .tucky-settings-heading .tucky-peeking { width: 90px; height: 75px; }
+}
+@media(max-width:650px) {
+  .tucky-greeting { padding-right: 0; }
+  .tucky-greeting .tucky-peeking { display: none; }
+  .tucky-focus-bubble::after { display: none; }
 }
 :root:not([data-theme="light"]) .echo-app-shell,
 :root:not([data-theme="light"]) .echo-settings-shell { --material-canvas: #17251d; --material-sidebar: #132018; }

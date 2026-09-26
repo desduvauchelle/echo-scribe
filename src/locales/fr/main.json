@@ -3,16 +3,36 @@
     "titles": [
       "Un petit espace pour vos pensées.",
       "Une idée en tête ?",
-      "Quelques pensées à retrouver."
+      "Quelques pensées à retrouver.",
+      "Parlez, je prends des notes.",
+      "Votre cerveau a appelé. Il veut une sauvegarde.",
+      "Psst. Sur quoi travaille-t-on ?",
+      "Page blanche, zéro jugement.",
+      "Vous pensez à voix haute ? Parfait.",
+      "Trop d’onglets ouverts dans la tête ?",
+      "Déjà de retour ? Vous m’avez manqué.",
+      "Aucune idée n’est trop petite.",
+      "Café d’abord, ou idées d’abord ?",
+      "Transformons les marmonnements en élan.",
+      "Je suis tout ouïe. Enfin, presque."
     ],
     "descriptions": [
       "Reprenez le fil de vos idées.",
       "Votre prochaine idée a sa place ici.",
-      "Trouvez un fil et suivez-le."
+      "Trouvez un fil et suivez-le.",
+      "Les digressions sont bienvenues. Je range après.",
+      "Dites-le avant que ça s’envole.",
+      "J’ai gardé vos notes au chaud.",
+      "Les idées à moitié cuites sont mes préférées.",
+      "C’est à peu près tout mon métier.",
+      "Fermez-en quelques-uns en les disant à voix haute.",
+      "Voyons ce que vous avez fabriqué.",
+      "Ici, les petites grandissent vite.",
+      "Dans tous les cas, je suis prêt quand vous l’êtes.",
+      "Dites-le en vrac. Relisez-le au propre.",
+      "Allez-y, je vous écoute."
     ],
     "another": "Une autre pensée",
-    "hide": "Masquer l’accueil",
-    "show": "Afficher l’accueil de Tucky",
     "label": "Un moment avec Tucky"
   },
   "app": {
@@ -21,6 +41,7 @@
       "search": "Rechercher"
     },
     "sidebar": {
+      "hideLearn": "Masquer Learn Tucky",
       "dictate": {
         "activeTooltip": "Dictée en cours — relâchez {{binding}} pour arrêter",
         "idleTooltip": "Maintenez {{binding}} pour dicter",
@@ -101,38 +122,88 @@
     },
     "activity": {
       "searchResultsLabel": "Résultats de recherche",
+      "label": "Activité",
       "todayLabel": "Aujourd’hui",
+      "yesterdayLabel": "Hier",
       "matchesFor": "Résultats pour « {{query}} »",
-      "recentActivity": "Activité récente",
-      "mostRecent": "Plus récent",
       "loading": "Chargement…",
       "loadMore": "Charger plus"
     },
     "stats": {
       "regionLabel": "Statistiques d’activité",
-      "overviewLabel": "Aperçu de l’activité",
       "viewStats": "Voir les statistiques",
-      "today": "Aujourd’hui",
-      "thisWeek": "Cette semaine",
-      "wordsCount": "{{count}} mots",
-      "timeThisWeek": "Temps cette semaine",
-      "wordsThisWeek": "Mots cette semaine",
-      "exactCount": "{{count}} exact",
-      "timeAllTime": "Temps depuis toujours",
-      "allTime": "Depuis toujours",
-      "totalCount": "{{count}} au total",
-      "thisWeekCount": "{{count}} cette semaine",
-      "todayCount": "{{count}} {{label}} aujourd’hui"
+      "pulseLabel": "Cette semaine :",
+      "pulseTodayLabel": "Aujourd’hui :",
+      "pulseEmpty": "Rien de capturé pour l’instant.",
+      "pulse": {
+        "transcriptions_one": "dictée",
+        "transcriptions_other": "dictées",
+        "notes_one": "note",
+        "notes_other": "notes",
+        "tasks_one": "tâche",
+        "tasks_other": "tâches",
+        "meetings_one": "réunion",
+        "meetings_other": "réunions",
+        "recordings_one": "enregistrement",
+        "recordings_other": "enregistrements"
+      }
     },
-    "recap": {
-      "quietDay": "Journée calme — rien d’enregistré.",
-      "notGenerated": "Aucun récap n’a été généré pour hier.",
-      "yesterdayLabel": "Hier · {{date}}",
-      "close": "Fermer",
-      "sections": {
-        "whatHappened": "Ce qui s’est passé",
-        "whatMattered": "Ce qui a compté",
-        "whatsNext": "La suite"
+    "focus": {
+      "label": "Focus",
+      "title": "L’essentiel par projet",
+      "progress": "{{done}}/{{total}} fait",
+      "showMore": "Afficher {{count}} de plus",
+      "showLess": "Afficher moins",
+      "emptyTitle": "Aucun focus pour l’instant",
+      "emptyHint": "Dites à Tucky « Ajoute un focus à… », ou appuyez sur Ajouter.",
+      "remove": "Retirer",
+      "unknownProject": "Sans projet",
+      "add": "Ajouter",
+      "addItem": "Ajouter un élément",
+      "addPlaceholder": "Nouvel élément…",
+      "pickProject": "Ajouter un focus pour…",
+      "noProject": "Sans projet",
+      "dragHandle": "Glisser pour réordonner : {{text}}",
+      "dragHint": "Glisser pour réordonner (Alt+↑/↓)",
+      "editHint": "Double-cliquez pour modifier",
+      "addItemTo": "Ajouter un élément à {{project}}",
+      "saveFailed": "Impossible d’enregistrer ce changement. Réessayez.",
+      "addFailed": "Impossible d’ajouter l’élément. Réessayez."
+    },
+    "debrief": {
+      "label": "Bilan de réunion",
+      "title": "Clôturez votre réunion",
+      "openMeeting": "Ouvrir la réunion",
+      "project": "Projet",
+      "noProject": "Aucun projet",
+      "people": "Avec",
+      "noPeople": "Personne n’est encore confirmé",
+      "unknownSpeaker": "Intervenant inconnu",
+      "removePerson": "Retirer {{name}}",
+      "addPerson": "Ajouter une personne",
+      "searchPeople": "Rechercher ou ajouter un nom…",
+      "createPerson": "Ajouter « {{name}} » comme nouvelle personne",
+      "noMatches": "Aucune personne correspondante",
+      "whoIsThis": "Qui est {{name}} ?",
+      "linkSpeaker": "Associer…",
+      "followUps": "Suivis suggérés",
+      "noFollowUps": "Aucun suivi repéré",
+      "allHandled": "Tous les suivis sont traités",
+      "taskText": "Tâche",
+      "assignee": "Responsable",
+      "me": "Moi",
+      "addTask": "Ajouter la tâche",
+      "skip": "Ignorer",
+      "added": "Ajoutée",
+      "done": "Terminé",
+      "dismiss": "Écarter",
+      "dismissAll": "Écarter tous les débriefs",
+      "errors": {
+        "project": "Impossible de mettre à jour le projet de la réunion. Veuillez réessayer.",
+        "people": "Impossible de mettre à jour les participants. Veuillez réessayer.",
+        "task": "Impossible d’ajouter cette tâche. Veuillez réessayer.",
+        "skip": "Impossible d’ignorer cette suggestion. Veuillez réessayer.",
+        "complete": "Impossible de clôturer ce bilan. Veuillez réessayer."
       }
     }
   },
@@ -391,13 +462,13 @@
     },
     "emptyState": {
       "chatWithMemory": "Discutez avec votre mémoire",
-      "startOrSelect": "Démarrez un nouveau chat ou sélectionnez une conversation précédente.",
+      "startOrSelect": "Écrivez ci-dessous pour démarrer un nouveau chat, ou sélectionnez une conversation précédente.",
       "newConversation": "Nouvelle conversation",
       "tryAsking": "Posez des questions sur vos captures, notes et tâches. Essayez « qu’ai-je capturé aujourd’hui ? »"
     },
     "input": {
       "placeholderActive": "Posez une question sur vos notes… (Entrée pour envoyer)",
-      "placeholderInactive": "Démarrez d’abord un nouveau chat",
+      "placeholderInactive": "Posez une question pour démarrer un nouveau chat…",
       "ariaLabel": "Message",
       "send": "Envoyer",
       "hint": "Maj+Entrée pour un retour à la ligne"
@@ -460,7 +531,8 @@
       "completeFailed": "Échec de la validation : {{error}}",
       "uncompleteFailed": "Échec de l’annulation de la validation : {{error}}",
       "updateDeadlineFailed": "Échec de la mise à jour de l’échéance : {{error}}"
-    }
+    },
+    "assignedTo": "Assignée à {{name}}"
   },
   "meetings": {
     "status": {

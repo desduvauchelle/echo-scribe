@@ -4,6 +4,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+pub mod debrief;
 pub mod detector;
 pub mod grammar;
 pub mod guidance;
@@ -142,6 +143,7 @@ struct ActiveMeeting {
     detected_app_name: Option<String>,
     /// Frontmost window title at meeting-start time. For Zoom/Teams this often
     /// contains the meeting topic (e.g. "Weekly Standup - Zoom Meeting").
+    start_focus: Option<crate::input::focus::FocusContext>,
     start_window_title: Option<String>,
     /// Browser URL at meeting-start time for browser-based meetings
     /// (Google Meet, Zoom Web, WebEx, etc.).
@@ -220,6 +222,7 @@ pub(crate) fn spawn_guide_review_job(
 /// prompt to give the LLM hints about topic and participants.
 #[derive(Debug, Clone, Default)]
 pub struct MeetingStartContext {
+    pub focus: Option<crate::input::focus::FocusContext>,
     pub window_title: Option<String>,
     pub browser_url: Option<String>,
     pub browser_tab_title: Option<String>,
@@ -556,6 +559,7 @@ impl MeetingManager {
 
         let id_for_db = id.clone();
         let started_for_db = started_at.clone();
+        let capture_context = start_context.focus.as_ref().and_then(|c| serde_json::to_string(c).ok());
         let detected_app_for_db = detected_app.clone();
         let detected_app_name_for_db = detected_app_name.clone();
         let title = detected_app_name_for_db
@@ -565,9 +569,9 @@ impl MeetingManager {
         self.db
             .with_conn(move |conn| {
                 conn.execute(
-                    "INSERT INTO items (id, content, source, kind, captured_at, created_at)
-                     VALUES (?1, ?2, 'meeting', 'meeting', ?3, ?3)",
-                    rusqlite::params![id_for_db, title, started_for_db],
+                    "INSERT INTO items (id, content, source, kind, captured_at, created_at, capture_context)
+                     VALUES (?1, ?2, 'meeting', 'meeting', ?3, ?3, ?4)",
+                    rusqlite::params![id_for_db, title, started_for_db, capture_context],
                 )?;
                 crate::db::meetings::insert_meeting(
                     conn,
@@ -711,6 +715,7 @@ impl MeetingManager {
             started_at_ms,
             detection_key,
             detected_app_name,
+            start_focus: start_context.focus,
             start_window_title: start_context.window_title,
             start_browser_url: start_context.browser_url,
             start_browser_tab_title: start_context.browser_tab_title,
@@ -860,6 +865,7 @@ impl MeetingManager {
         let (user_notes, summary_template) = meeting_inputs;
 
         let start_context = MeetingStartContext {
+            focus: active.start_focus.clone(),
             window_title: active.start_window_title.clone(),
             browser_url: active.start_browser_url.clone(),
             browser_tab_title: active.start_browser_tab_title.clone(),
@@ -923,7 +929,8 @@ impl MeetingManager {
         let guide_transcript_hash = transcript_hash.clone();
         let synthesis_for_db = synthesis.as_ref().ok().cloned();
         let existing_projects_clone = existing_projects.clone();
-        self.db
+        let suggestions_written = self
+            .db
             .with_conn(move |conn| {
                 // Finalize meeting row (sets status = 'complete').
                 crate::db::meetings::finalize_meeting(
@@ -986,10 +993,26 @@ impl MeetingManager {
                     if !s.tags.is_empty() {
                         crate::db::items::replace_tags(conn, &id_db3, &s.tags)?;
                     }
+                    // Post-meeting debrief: store the stage-3 follow-ups as
+                    // *suggestions* only (never tasks) and open the debrief.
+                    let n = crate::db::meeting_debrief::record_initial_suggestions(
+                        conn,
+                        &id_db3,
+                        &s.suggested_tasks,
+                        &ended_at,
+                    )?;
+                    return Ok(Some(n));
                 }
-                Ok(())
+                Ok(None)
             })
             .map_err(|e| MeetingError::Db(e.to_string()))?;
+        if let Some(n) = suggestions_written {
+            tracing::info!(target: "meeting", meeting_id = %id, suggestions = n, "debrief opened with task suggestions");
+            let _ = self.app_handle.emit(
+                "meeting-debrief-updated",
+                serde_json::json!({"meetingId": id}),
+            );
+        }
 
         // Step 7.5: post-meeting insight jobs are deliberately independent of
         // the main summary. Attached guides keep their timeline and review;
@@ -1263,9 +1286,17 @@ impl MeetingManager {
             .with_conn(|conn| crate::db::projects::list_projects(conn, false))
             .unwrap_or_default();
 
-        // Retry path: window/URL context wasn't persisted, so synthesis runs
-        // from the transcript alone.
-        let retry_context = MeetingStartContext::default();
+        // Reuse the original snapshot; never capture whichever app happens to
+        // be focused when an old meeting is retried.
+        let focus = self.db.with_conn(|conn| crate::db::items::get_item(conn, id))
+            .ok().flatten().and_then(|item| item.capture_context)
+            .and_then(|raw| serde_json::from_str::<crate::input::focus::FocusContext>(&raw).ok());
+        let retry_context = MeetingStartContext {
+            window_title: focus.as_ref().and_then(|c| c.window_title.clone()),
+            browser_url: focus.as_ref().and_then(|c| c.browser_url.clone()),
+            browser_tab_title: focus.as_ref().and_then(|c| c.browser_tab_title.clone()),
+            focus,
+        };
         let settings = crate::settings::SettingsStore::load(&self.app_handle).ok();
         let custom_prompt = settings.as_ref().map(|s| s.meeting_summary_prompt());
 
@@ -1306,6 +1337,7 @@ impl MeetingManager {
             let id_for_db = id.to_string();
             let meeting_tags = s.tags.clone();
             let meeting_project_name = s.project_name.clone();
+            let suggested_tasks = s.suggested_tasks.clone();
             let existing_projects_clone = existing_projects.clone();
             let template_id = summary_template.as_ref().map(|t| t.id.clone());
             let template_snapshot_json = summary_template
@@ -1323,7 +1355,8 @@ impl MeetingManager {
                     )
                 )
             };
-            self.db
+            let replaced = self
+                .db
                 .with_conn(move |conn| {
                     // Only advance status to 'complete' from expected
                     // pre-states; never regress from 'recovered' or other
@@ -1374,9 +1407,22 @@ impl MeetingManager {
                     if !meeting_tags.is_empty() {
                         crate::db::items::replace_tags(conn, &id_for_db, &meeting_tags)?;
                     }
-                    Ok(())
+                    // Refresh debrief suggestions: only still-pending ones are
+                    // replaced; accepted/dismissed history is kept. Never
+                    // creates tasks.
+                    crate::db::meeting_debrief::replace_pending_suggestions(
+                        conn,
+                        &id_for_db,
+                        &suggested_tasks,
+                        &chrono::Utc::now().to_rfc3339(),
+                    )
                 })
                 .map_err(|e| MeetingError::Db(e.to_string()))?;
+            tracing::info!(target: "meeting", meeting_id = %id, suggestions = replaced, "retry summary refreshed pending task suggestions");
+            let _ = self.app_handle.emit(
+                "meeting-debrief-updated",
+                serde_json::json!({"meetingId": id}),
+            );
             let _ = try_export_meeting_after_finalize(&self.db, settings.as_ref(), id);
         }
         Ok(())

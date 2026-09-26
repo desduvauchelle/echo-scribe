@@ -2,6 +2,6 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "desktop-pet",
   "description": "The pet can be dragged and receive window visibility events.",
-  "windows": ["desktop_pet"],
+  "windows": ["desktop_pet", "desktop_pet_focus"],
   "permissions": ["core:default", "core:window:allow-start-dragging"]
 }

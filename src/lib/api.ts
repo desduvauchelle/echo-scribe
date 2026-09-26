@@ -104,6 +104,10 @@ export const getActionTriggerWord = (): Promise<string> =>
 export const setActionTriggerWord = (word: string): Promise<void> =>
   invoke("set_action_trigger_word", { word });
 
+export type WakeWordStatus = { enabled: boolean; state: string; message: string };
+export const getWakeWordStatus = () => invoke<WakeWordStatus>("get_wake_word_status");
+export const setWakeWordEnabled = (enabled: boolean) => invoke<void>("set_wake_word_enabled", { enabled });
+
 export type Classification = {
   kind: "note" | "task";
   project_id: string | null;
@@ -197,6 +201,7 @@ export const deleteSpeechModel = (id: string): Promise<void> =>
 
 export type ItemKind = "note" | "task" | "meeting" | "transcription";
 export type ItemSource = "voice_at_cursor" | "log_capture" | "meeting";
+export type ItemImportance = "high" | "medium" | "low";
 
 export type Item = {
   id: string;
@@ -211,10 +216,13 @@ export type Item = {
   classified_by: string | null;
   /** JSON-serialized FocusContext, if captured at recording time. */
   capture_context: string | null;
+  /** User-set importance; null = not set. */
+  importance: ItemImportance | null;
 };
 
 /** Parsed shape of the JSON stored in `Item.capture_context`. All fields optional. */
 export type ParsedCaptureContext = {
+  signals?: { kind: string; value: string; source: string }[];
   pid?: number;
   bundle_id?: string | null;
   app_name?: string | null;
@@ -231,6 +239,16 @@ export function parseCaptureContext(raw: string | null | undefined): ParsedCaptu
   try {
     const obj = JSON.parse(raw);
     if (typeof obj !== "object" || obj === null) return null;
+    if (obj.signals !== undefined) {
+      obj.signals = Array.isArray(obj.signals)
+        ? obj.signals.filter((s: unknown): s is { kind: string; value: string; source: string } =>
+            typeof s === "object" && s !== null &&
+            typeof (s as Record<string, unknown>).kind === "string" &&
+            typeof (s as Record<string, unknown>).value === "string" &&
+            typeof (s as Record<string, unknown>).source === "string",
+          ).slice(0, 12)
+        : [];
+    }
     return obj as ParsedCaptureContext;
   } catch {
     return null;
@@ -336,6 +354,9 @@ export type TaskWithItem = {
   item: Item;
   deadline: string | null;
   completed_at: string | null;
+  /** Person the task is assigned to; null/absent = the user themselves. */
+  assignee_person_id?: string | null;
+  assignee_name?: string | null;
 };
 
 export const listItems = (args: {
@@ -401,6 +422,8 @@ export type UpdateItemInput = {
   project_id?: string | null;
   /** undefined = leave alone, "" = clear, "note"|"task" = set */
   kind?: "" | ItemKind;
+  /** undefined = leave alone, "" = clear, "high"|"medium"|"low" = set */
+  importance?: ItemImportance | "";
   /** undefined = leave alone, [] / [...] = replace tag set */
   tags?: string[];
 };
@@ -417,6 +440,7 @@ export const updateItem = (input: UpdateItemInput): Promise<Item> => {
     args.project_id = input.project_id;
   }
   if (input.kind !== undefined) args.kind = input.kind;
+  if (input.importance !== undefined) args.importance = input.importance;
   if (input.tags !== undefined) args.tags = input.tags;
   return invoke("update_item", { args });
 };
@@ -517,6 +541,39 @@ export const completeTask = (item_id: string): Promise<void> =>
 
 export const uncompleteTask = (item_id: string): Promise<void> =>
   invoke("uncomplete_task", { itemId: item_id });
+
+// ----- Focus tasks (dashboard Focus section) -----
+
+/** A task flagged as focus: shown only on the dashboard, ordered by rank. */
+export type FocusTask = {
+  item: Item;
+  completed_at: string | null;
+  focus_rank: number;
+};
+
+export const listFocusTasks = (): Promise<FocusTask[]> => invoke("list_focus_tasks");
+
+export type DailyFocusNote = { local_date: string; content: string; updated_at: string };
+export const getDailyFocusNote = (localDate: string): Promise<DailyFocusNote | null> =>
+  invoke("get_daily_focus_note", { localDate });
+export const getMorningFocusEnabled = (): Promise<boolean> => invoke("get_morning_focus_enabled");
+export const setMorningFocusEnabled = (enabled: boolean): Promise<void> =>
+  invoke("set_morning_focus_enabled", { enabled });
+export const saveDailyFocusNote = (localDate: string, content: string): Promise<DailyFocusNote> =>
+  invoke("save_daily_focus_note", { localDate, content });
+export const setDailyFocusRecording = (recording: boolean): Promise<void> =>
+  invoke("set_daily_focus_recording", { recording });
+
+export const setTaskFocus = (itemId: string, focus: boolean): Promise<void> =>
+  invoke("set_task_focus", { itemId, focus });
+
+export const addFocusTask = (project_id: string | null, content: string): Promise<Item> =>
+  invoke("add_focus_task", { projectId: project_id, content });
+
+/** Persist the whole board order; `project_id` carries cross-card moves. */
+export const reorderFocusTasks = (
+  order: { item_id: string; project_id: string | null }[],
+): Promise<void> => invoke("reorder_focus_tasks", { order });
 
 export const setTaskDeadline = (
   item_id: string,
@@ -1050,6 +1107,9 @@ export type MeetingPreferences = {
 
 export type MeetingParticipant = {
   meeting_id: string;
+  /** "you"/"them" channel labels. People added by hand in the meeting
+   *  debrief arrive as `manual:<person_id>` (not in this union, so treat the
+   *  key as a plain string when handling debrief participants). */
   speaker_key: "you" | "them";
   person_id: string | null;
   display_name: string;
@@ -1124,6 +1184,54 @@ export const setMeetingSpeakerLabel = (
   displayName: string,
   personId: string | null = null,
 ): Promise<void> => invoke("set_meeting_speaker_label", { id, speakerKey, displayName, personId });
+
+// ----- Post-meeting debrief -----
+
+/** A follow-up the model spotted in a finished meeting. Never turned into a
+ *  task automatically — only when the user accepts it. */
+export type TaskSuggestion = {
+  id: string;
+  text: string;
+  /** Who the transcript says owns it ("me", "Sarah", …); null if unclear. */
+  ownerName: string | null;
+  status: "pending";
+};
+
+/** A finished meeting awaiting the user's debrief (project, people, follow-ups). */
+export type MeetingDebrief = {
+  meetingId: string;
+  title: string;
+  startedAt: string;
+  durationMs: number | null;
+  projectId: string | null;
+  participants: MeetingParticipant[];
+  suggestions: TaskSuggestion[];
+};
+
+export const listPendingDebriefs = (): Promise<MeetingDebrief[]> =>
+  invoke("list_pending_debriefs");
+/** Creates a task from a suggestion. Resolves to the new item id. */
+export const acceptMeetingTaskSuggestion = (input: {
+  suggestionId: string;
+  text: string;
+  assigneePersonId: string | null;
+  projectId: string | null;
+  deadline: string | null;
+}): Promise<string> => invoke("accept_meeting_task_suggestion", input);
+export const dismissMeetingTaskSuggestion = (suggestionId: string): Promise<void> =>
+  invoke("dismiss_meeting_task_suggestion", { suggestionId });
+export const setMeetingProject = (meetingId: string, projectId: string | null): Promise<void> =>
+  invoke("set_meeting_project", { meetingId, projectId });
+export const addMeetingParticipant = (meetingId: string, personId: string): Promise<void> =>
+  invoke("add_meeting_participant", { meetingId, personId });
+export const removeMeetingParticipant = (meetingId: string, speakerKey: string): Promise<void> =>
+  invoke("remove_meeting_participant", { meetingId, speakerKey });
+export const completeMeetingDebrief = (
+  meetingId: string,
+  status: "done" | "dismissed",
+): Promise<void> => invoke("complete_meeting_debrief", { meetingId, status });
+export const setTaskAssignee = (itemId: string, personId: string | null): Promise<void> =>
+  invoke("set_task_assignee", { itemId, personId });
 
 export type Recipe = {
   id: string;

@@ -12,6 +12,7 @@ import {
   Search,
   Users,
   Settings as SettingsIcon,
+  X,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -43,6 +44,7 @@ import SpeechSetupStatus from "../components/SpeechSetupStatus";
 import type { LessonId } from "../lib/learning";
 import type { PageId } from "./Settings";
 import { useLearning } from "../components/LearningContext";
+import { setLearnSidebarHidden, useLearnSidebarHidden } from "../lib/learnSidebar";
 
 export type MainSection =
   | { kind: "learn"; lesson?: LessonId }
@@ -61,6 +63,7 @@ type Props = {
 export default function Main({ onOpenSettings }: Props) {
   const { t } = useTranslation("main");
   const { state: learning } = useLearning();
+  const learnHidden = useLearnSidebarHidden();
   const [section, setSection] = useState<MainSection>({ kind: "dashboard" });
   const [projects, setProjects] = useState<Project[]>([]);
   const [showAllProjects, setShowAllProjects] = useState(false);
@@ -386,7 +389,24 @@ export default function Main({ onOpenSettings }: Props) {
 
         <div className="echo-sidebar-bottom flex shrink-0 flex-col gap-3 border-t border-line px-2 pb-2 pt-3">
           <SpeechSetupStatus />
-          <NavItem icon={BookOpen} label={t("learning.title")} active={section.kind === "learn"} onClick={() => openLesson()} />
+          {learnHidden ? null : (
+            // Sibling buttons (not nested) so hiding never triggers navigation.
+            <div className="group/learn relative flex flex-col">
+              <NavItem icon={BookOpen} label={t("learning.title")} active={section.kind === "learn"} onClick={() => openLesson()} />
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setLearnSidebarHidden(true);
+                }}
+                title={t("app.sidebar.hideLearn")}
+                aria-label={t("app.sidebar.hideLearn")}
+                className="absolute right-1.5 top-1/2 flex h-5 w-5 -translate-y-1/2 cursor-pointer items-center justify-center rounded text-faint opacity-0 transition-opacity hover:bg-elevated hover:text-fg focus-visible:opacity-100 group-hover/learn:opacity-100 group-focus-within/learn:opacity-100"
+              >
+                <X size={13} strokeWidth={2} aria-hidden="true" />
+              </button>
+            </div>
+          )}
           <PermissionWarningBanner onOpenSettings={() => onOpenSettings("permissions")}
             onOpenAiSettings={() => onOpenSettings("language-model")}
             showMeetingSetup={learning.counts.meetings > 0 || (section.kind === "learn" && section.lesson === "meetings")}

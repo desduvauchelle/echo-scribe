@@ -9,7 +9,6 @@
   right: 20px;
   bottom: -4px;
 }
-.tucky-recording-heading .tucky-peeking-dark { filter: contrast(1.4); }
 .tucky-recording-setup button:focus-visible,
 .tucky-recording-setup select:focus-visible,
 .tucky-recording-setup input:focus-visible,

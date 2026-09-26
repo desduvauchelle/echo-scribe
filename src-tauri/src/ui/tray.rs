@@ -62,6 +62,8 @@ pub struct TrayHandle<R: Runtime> {
     /// Whether a keep-awake power assertion is held — shows the top-right
     /// awake badge regardless of activity.
     awake_active: AtomicBool,
+    wake_status_item: Mutex<Option<MenuItem<R>>>,
+    wake_toggle_item: Mutex<Option<MenuItem<R>>>,
 }
 
 impl<R: Runtime> TrayHandle<R> {
@@ -95,6 +97,8 @@ impl<R: Runtime> TrayHandle<R> {
             screenrec_paused: AtomicBool::new(false),
             meeting_active: AtomicBool::new(false),
             awake_active: AtomicBool::new(false),
+            wake_status_item: Mutex::new(built.wake_status_item),
+            wake_toggle_item: Mutex::new(built.wake_toggle_item),
         })
     }
 
@@ -141,6 +145,8 @@ impl<R: Runtime> TrayHandle<R> {
                 if let Ok(mut g) = self.keep_awake_items.lock() {
                     *g = built.keep_awake_items;
                 }
+                if let Ok(mut g) = self.wake_status_item.lock() { *g = built.wake_status_item; }
+                if let Ok(mut g) = self.wake_toggle_item.lock() { *g = built.wake_toggle_item; }
             }
             Err(e) => warn!(target: "tray", ?e, "failed to rebuild tray menu"),
         }
@@ -188,6 +194,17 @@ impl<R: Runtime> TrayHandle<R> {
         }
         if let Err(e) = self.icon.set_icon_as_template(template) {
             warn!(target: "tray", ?e, template, "failed to toggle tray icon template mode");
+        }
+    }
+
+    pub fn set_wake_status(&self, status: &crate::wakeword::WakeStatus) {
+        if let Ok(item) = self.wake_status_item.lock() {
+            if let Some(item) = item.as_ref() { let _ = item.set_text(&status.message); }
+        }
+        if let Ok(item) = self.wake_toggle_item.lock() {
+            if let Some(item) = item.as_ref() {
+                let _ = item.set_text(if status.enabled { "Pause wake word" } else { "Enable wake word" });
+            }
         }
     }
 
@@ -301,6 +318,7 @@ enum MenuEntry {
         paused: bool,
     },
     KeepAwake,
+    WakeWord,
     DesktopPet,
     Settings,
     Quit,
@@ -337,6 +355,7 @@ fn menu_plan(s: &MenuState) -> Vec<MenuEntry> {
     plan.push(MenuEntry::PauseHotkeys {
         paused: s.hotkeys_paused,
     });
+    if cfg!(target_os = "macos") { plan.push(MenuEntry::WakeWord); }
     if s.keep_awake_supported {
         plan.push(MenuEntry::KeepAwake);
     }
@@ -353,6 +372,8 @@ struct BuiltMenu<R: Runtime> {
     menu: Menu<R>,
     keep_awake_menu: Option<Submenu<R>>,
     keep_awake_items: Vec<(KeepAwakeMode, CheckMenuItem<R>)>,
+    wake_status_item: Option<MenuItem<R>>,
+    wake_toggle_item: Option<MenuItem<R>>,
 }
 
 /// Render a `menu_plan` into real menu items. Item ids are stable across
@@ -366,6 +387,8 @@ fn build_menu<R: Runtime>(
     let mut items: Vec<Box<dyn IsMenuItem<R>>> = Vec::new();
     let mut keep_awake_menu = None;
     let mut keep_awake_items = Vec::new();
+    let mut wake_status_item = None;
+    let mut wake_toggle_item = None;
 
     for entry in menu_plan(state) {
         match entry {
@@ -448,6 +471,16 @@ fn build_menu<R: Runtime>(
                 keep_awake_menu = Some(submenu);
                 keep_awake_items = ka_items;
             }
+            MenuEntry::WakeWord => {
+                let status = app.try_state::<AppState>()
+                    .and_then(|s| s.wake_status.lock().ok().map(|v| v.clone())).unwrap_or_default();
+                let label = MenuItem::with_id(app, "wake_status", &status.message, false, None::<&str>)?;
+                let toggle = MenuItem::with_id(app, "wake_toggle", if status.enabled { "Pause wake word" } else { "Enable wake word" }, true, None::<&str>)?;
+                items.push(Box::new(label.clone()));
+                items.push(Box::new(toggle.clone()));
+                wake_status_item = Some(label);
+                wake_toggle_item = Some(toggle);
+            }
             MenuEntry::DesktopPet => items.push(Box::new(CheckMenuItem::with_id(
                 app,
                 "desktop_pet",
@@ -480,6 +513,8 @@ fn build_menu<R: Runtime>(
         menu,
         keep_awake_menu,
         keep_awake_items,
+        wake_status_item,
+        wake_toggle_item,
     })
 }
 
@@ -502,6 +537,10 @@ impl TrayHandle<Wry> {
         crate::desktop_pet::restore_size(app.state::<AppState>().settings.desktop_pet_size());
         let refresh_app = app.clone();
         std::thread::spawn(move || {
+            if let Err(e) = crate::desktop_pet::restore_visibility(&refresh_app) {
+                warn!(%e, "desktop pet restore failed");
+                let _ = refresh_app.emit("asr:error", format!("Could not restore desktop pet: {e}"));
+            }
             if let Ok(tray) = refresh_app.state::<AppState>().tray.lock() { tray.rebuild_menu(); };
         });
         let app_for_handler = app.clone();
@@ -525,6 +564,26 @@ impl TrayHandle<Wry> {
                         });
                     }
                 }
+                "desktop_pet_focus_toggle" => {
+                    let app = app_for_handler.clone();
+                    std::thread::spawn(move || {
+                        let visible = !app.state::<AppState>().settings.desktop_pet_focus_visible();
+                        if let Err(e) = crate::desktop_pet::set_focus_visible(&app, visible) {
+                            warn!(%e, "desktop pet focus toggle failed");
+                            let _ = app.emit("asr:error", format!("Could not toggle today's focus: {e}"));
+                        }
+                    });
+                }
+                "desktop_pet_cancel" => {
+                    if let Ok(tx) = app_for_handler.state::<AppState>().coord_tx.lock() {
+                        if let Some(tx) = tx.as_ref() {
+                            let _ = tx.send(crate::coordinator::CoordinatorMsg::Hotkey(
+                                crate::coordinator::Action::Cancel,
+                                crate::input::hotkeys::HotkeyEvent::Pressed,
+                            ));
+                        }
+                    }
+                }
                 "desktop_pet" | "desktop_pet_hide" => {
                     let hide_only = event.id().as_ref() == "desktop_pet_hide";
                     let app = app_for_handler.clone();
@@ -541,6 +600,16 @@ impl TrayHandle<Wry> {
                 "settings" => {
                     show_main_window(&app_for_handler);
                     let _ = app_for_handler.emit("open_settings", ());
+                }
+                "wake_toggle" => {
+                    let app = app_for_handler.clone();
+                    std::thread::spawn(move || {
+                        let state = app.state::<AppState>();
+                        let enabled = !state.settings.wake_word_enabled();
+                        if let Err(error) = crate::commands::set_wake_word_enabled(app.clone(), state, enabled) {
+                            let _ = app.emit("asr:error", error);
+                        }
+                    });
                 }
                 "copy_last" => {
                     let state = app_for_handler.state::<AppState>();
@@ -563,6 +632,7 @@ impl TrayHandle<Wry> {
                         let start_ctx = {
                             let ctx = crate::input::focus::capture_context();
                             crate::meeting::MeetingStartContext {
+                                focus: ctx.clone(),
                                 window_title: ctx.as_ref().and_then(|c| c.window_title.clone()),
                                 browser_url: ctx.as_ref().and_then(|c| c.browser_url.clone()),
                                 browser_tab_title: ctx

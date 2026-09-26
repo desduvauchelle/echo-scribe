@@ -359,6 +359,20 @@
     }
   },
   "general": {
+    "morningFocus": {
+      "title": "Morning focus",
+      "subtitle": "Choose whether Tucky asks for a focus note on the dashboard each day.",
+      "label": "Show morning focus",
+      "description": "Turn this off to hide the prompt and note. Your saved note is kept if you turn it back on."
+    },
+    "sidebar": {
+      "title": "Sidebar",
+      "subtitle": "Choose what appears in the left sidebar.",
+      "showLearn": {
+        "label": "Show Learn Tucky in sidebar",
+        "description": "Keep the Learn Tucky lessons one click away."
+      }
+    },
     "startup": {
       "title": "Startup",
       "subtitle": "Launch Tucky automatically when you log in."

@@ -9,26 +9,22 @@ import {
   type Project,
   type TaskWithItem,
 } from "../../lib/api";
-import ItemCard from "../../components/ItemCard";
+import TaskRow from "../../components/TaskRow";
 import { useActivityPanel } from "../../components/ActivityPanelContext";
 import { useToasts } from "../../components/ToastProvider";
-import {
-  dateInputToIso,
-  isSameLocalDay,
-  isoToDateInput,
-  parseIso,
-  shortDate,
-} from "../../lib/format";
-import { Check, CheckCircle2, ListTodo } from "lucide-react";
+import { dateInputToIso } from "../../lib/format";
+import { CheckCircle2, ListTodo } from "lucide-react";
 import { EmptyState, SkeletonList } from "./ActivityFeed";
 
 type Props = {
   projects: Map<string, Project>;
   /** When true, render without outer page chrome (header, h-full, own scroll). */
   embedded?: boolean;
+  /** Only show tasks in this project (the project page). */
+  projectId?: string | null;
 };
 
-export default function TasksView({ projects, embedded = false }: Props) {
+export default function TasksView({ projects, embedded = false, projectId = null }: Props) {
   const { t } = useTranslation("main");
   const [open, setOpen] = useState<TaskWithItem[]>([]);
   const [done, setDone] = useState<TaskWithItem[]>([]);
@@ -43,19 +39,19 @@ export default function TasksView({ projects, embedded = false }: Props) {
     setLoadingOpen(true);
     setError(null);
     try {
-      const t = await listTasks({ include_completed: false, project_id: null });
+      const t = await listTasks({ include_completed: false, project_id: projectId });
       setOpen(t);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoadingOpen(false);
     }
-  }, []);
+  }, [projectId]);
 
   const fetchDone = useCallback(async () => {
     setLoadingDone(true);
     try {
-      const doneTasks = await listTasks({ include_completed: true, project_id: null });
+      const doneTasks = await listTasks({ include_completed: true, project_id: projectId });
       setDone(doneTasks);
     } catch (e) {
       toasts.push({
@@ -67,7 +63,7 @@ export default function TasksView({ projects, embedded = false }: Props) {
     } finally {
       setLoadingDone(false);
     }
-  }, [toasts, t]);
+  }, [toasts, t, projectId]);
 
   useEffect(() => {
     void fetchOpen();
@@ -249,151 +245,5 @@ export default function TasksView({ projects, embedded = false }: Props) {
         </section>
       </div>
     </div>
-  );
-}
-
-function TaskRow({
-  task,
-  projects,
-  completed,
-  onToggle,
-  onChangeDeadline,
-}: {
-  task: TaskWithItem;
-  projects: Map<string, Project>;
-  completed: boolean;
-  onToggle: () => void;
-  onChangeDeadline: (value: string) => void;
-}) {
-  return (
-    <ItemCard
-      item={task.item}
-      projects={projects}
-      compact
-      leadingSlot={
-        <TaskCheckbox completed={completed} onToggle={onToggle} />
-      }
-      rightSlot={
-        <DeadlineBadge
-          deadlineIso={task.deadline}
-          completedAtIso={task.completed_at}
-          onChange={onChangeDeadline}
-        />
-      }
-    />
-  );
-}
-
-function TaskCheckbox({
-  completed,
-  onToggle,
-}: {
-  completed: boolean;
-  onToggle: () => void;
-}) {
-  const { t } = useTranslation("main");
-  return (
-    <button
-      type="button"
-      role="checkbox"
-      aria-checked={completed}
-      aria-label={completed ? t("tasks.checkbox.markNotDoneAria") : t("tasks.checkbox.completeAria")}
-      title={completed ? t("tasks.checkbox.markOpenTitle") : t("tasks.checkbox.completeAria")}
-      onClick={onToggle}
-      className={`grid h-5 w-5 place-items-center rounded-md border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 ${
-        completed
-          ? "border-success/40 bg-success/15 text-success hover:bg-success/20"
-          : "border-warning/45 bg-warning/10 text-warning hover:bg-warning/20"
-      }`}
-    >
-      {completed ? <Check size={13} strokeWidth={2.5} aria-hidden="true" /> : null}
-    </button>
-  );
-}
-
-function DeadlineBadge({
-  deadlineIso,
-  completedAtIso,
-  onChange,
-}: {
-  deadlineIso: string | null;
-  completedAtIso: string | null;
-  onChange: (value: string) => void;
-}) {
-  const { t } = useTranslation("main");
-  const [editing, setEditing] = useState(false);
-  const [value, setValue] = useState(isoToDateInput(deadlineIso));
-
-  useEffect(() => {
-    setValue(isoToDateInput(deadlineIso));
-  }, [deadlineIso]);
-
-  if (completedAtIso) {
-    return (
-      <span className="rounded-full bg-success/15 px-2 py-0.5 text-[10px] text-success">
-        {t("tasks.deadline.doneLabel", { date: shortDate(completedAtIso) })}
-      </span>
-    );
-  }
-
-  const tMs = parseIso(deadlineIso);
-  const now = Date.now();
-  let tone = "border-line text-muted";
-  let label = t("tasks.deadline.noDeadline");
-  if (tMs !== null) {
-    if (tMs < now) {
-      tone = "border-danger/40 text-danger";
-      label = t("tasks.deadline.overdue", { date: shortDate(deadlineIso!) });
-    } else if (isSameLocalDay(tMs, now)) {
-      tone = "border-warning/40 text-warning";
-      label = t("tasks.deadline.today", { date: shortDate(deadlineIso!) });
-    } else {
-      tone = "border-line text-muted";
-      label = shortDate(deadlineIso!);
-    }
-  }
-
-  if (editing) {
-    return (
-      <div className="flex items-center gap-1">
-        <input
-          type="date"
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          className="rounded border border-line bg-canvas px-1 py-0.5 text-[10px]"
-          autoFocus
-        />
-        <button
-          type="button"
-          onClick={() => {
-            onChange(value);
-            setEditing(false);
-          }}
-          className="rounded border border-line px-1 py-0.5 text-[10px] hover:bg-elevated"
-        >
-          {t("tasks.deadline.ok")}
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            onChange("");
-            setEditing(false);
-          }}
-          className="rounded border border-line px-1 py-0.5 text-[10px] hover:bg-elevated"
-        >
-          {t("tasks.deadline.clear")}
-        </button>
-      </div>
-    );
-  }
-
-  return (
-    <button
-      type="button"
-      onClick={() => setEditing(true)}
-      className={`rounded-full border px-2 py-0.5 text-[10px] ${tone} hover:bg-surface`}
-    >
-      {label}
-    </button>
   );
 }

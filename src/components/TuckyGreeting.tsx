@@ -1,8 +1,7 @@
-import { useEffect, useState } from "react";
-import { ArrowRight } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
+import { RefreshCw, Pencil } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-const HIDDEN_KEY = "tucky.greeting.hidden";
 const NEXT_KEY = "tucky.greeting.next";
 
 function read(key: string): string | null {
@@ -20,24 +19,34 @@ export function TuckyPeeking() {
   </div>;
 }
 
-export default function TuckyGreeting() {
+/** `pulse` is a one-line activity summary shown under the subtitle. */
+export default function TuckyGreeting({ pulse, focusNote, onEditFocusNote }: { pulse?: ReactNode; focusNote?: string; onEditFocusNote?: () => void } = {}) {
   const { t } = useTranslation("main");
-  const [hidden, setHidden] = useState(() => read(HIDDEN_KEY) === "true");
+  const titles = t("greeting.titles", { returnObjects: true });
+  const count = Array.isArray(titles) && titles.length > 0 ? titles.length : 1;
   const [index, setIndex] = useState(() => {
     const value = Number(read(NEXT_KEY));
-    return Number.isInteger(value) && value >= 0 ? value % 3 : 0;
+    return Number.isInteger(value) && value >= 0 ? value % count : 0;
   });
-  useEffect(() => { write(NEXT_KEY, String((index + 1) % 3)); }, [index]);
-  const toggle = (value: boolean) => { setHidden(value); write(HIDDEN_KEY, String(value)); };
-  if (hidden) return <div className="tucky-greeting-restore"><button type="button" onClick={() => toggle(false)}>{t("greeting.show")}</button></div>;
+  const [focusExpanded, setFocusExpanded] = useState(false);
+  useEffect(() => { write(NEXT_KEY, String((index + 1) % count)); }, [index, count]);
   return <section className="tucky-greeting" aria-label={t("greeting.label")}>
     <div className="tucky-greeting-copy">
       <h2>{t(`greeting.titles.${index}`)}</h2>
-      <p>{t(`greeting.descriptions.${index}`)}</p>
-      <div className="tucky-greeting-actions">
-        <button type="button" onClick={() => setIndex((value) => (value + 1) % 3)}>{t("greeting.another")}<ArrowRight size={12} aria-hidden="true" /></button>
-        <button type="button" onClick={() => toggle(true)}>{t("greeting.hide")}</button>
-      </div>
+      <p className="tucky-greeting-sub">
+        <span>{t(`greeting.descriptions.${index}`)}</span>
+        <button type="button" className="tucky-greeting-another" aria-label={t("greeting.another")} title={t("greeting.another")}
+          onClick={() => setIndex((value) => (value + 1) % count)}><RefreshCw size={11} aria-hidden="true" /></button>
+      </p>
+      {pulse}
+      {focusNote ? <div className={`tucky-focus-bubble ${focusExpanded ? "is-expanded" : ""}`}>
+        <span className="tucky-focus-bubble-label">{t("dashboard.morningFocus.today")}</span>
+        <p>{focusNote}</p>
+        <div className="tucky-focus-bubble-actions">
+          <button type="button" onClick={() => setFocusExpanded((value) => !value)} aria-expanded={focusExpanded}>{focusExpanded ? t("dashboard.morningFocus.less") : t("dashboard.morningFocus.more")}</button>
+          <button type="button" onClick={onEditFocusNote} aria-label={t("dashboard.morningFocus.edit")} title={t("dashboard.morningFocus.edit")}><Pencil size={13} aria-hidden="true" /></button>
+        </div>
+      </div> : null}
     </div>
     <TuckyPeeking />
   </section>;

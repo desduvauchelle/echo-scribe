@@ -77,6 +77,13 @@ pub struct TaskWithItem {
     pub item: Item,
     pub deadline: Option<String>,
     pub completed_at: Option<String>,
+    /// Person the task is assigned to (migration 35). `None` = me.
+    #[serde(default)]
+    pub assignee_person_id: Option<String>,
+    /// Name of the assignee, joined from `people`. `None` when unassigned or
+    /// the person was deleted.
+    #[serde(default)]
+    pub assignee_name: Option<String>,
 }
 
 /// List tasks. Returns rows joined with their backing item.
@@ -94,11 +101,16 @@ pub fn list_tasks(
     let mut sql = String::from(
         "SELECT items.id, items.content, items.source, items.kind,
                 items.project_id, items.captured_at, items.created_at, items.deleted_at,
-                items.confidence, items.classified_by, items.capture_context,
-                tasks.deadline AS deadline, tasks.completed_at AS completed_at
+                items.confidence, items.classified_by, items.capture_context, items.importance,
+                tasks.deadline AS deadline, tasks.completed_at AS completed_at,
+                tasks.assignee_person_id AS assignee_person_id,
+                assignee.name AS assignee_name
          FROM items
          LEFT JOIN tasks ON tasks.item_id = items.id
-         WHERE items.deleted_at IS NULL AND items.kind = 'task'",
+         LEFT JOIN people assignee
+           ON assignee.id = tasks.assignee_person_id AND assignee.deleted_at IS NULL
+         WHERE items.deleted_at IS NULL AND items.kind = 'task'
+           AND tasks.focus_rank IS NULL",
     );
     let mut args: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
     if let Some(pid) = project_id {
@@ -125,6 +137,8 @@ pub fn list_tasks(
             item,
             deadline,
             completed_at,
+            assignee_person_id: row.get("assignee_person_id")?,
+            assignee_name: row.get("assignee_name")?,
         })
     })?;
     let mut out = Vec::new();
@@ -132,6 +146,144 @@ pub fn list_tasks(
         out.push(r?);
     }
     Ok(out)
+}
+
+// ── Focus tasks ──────────────────────────────────────────────────────────
+// A focus task is an ordinary task item whose `tasks.focus_rank` is set. It
+// shows only in the dashboard Focus section (ordered by rank) and is left out
+// of `list_tasks`.
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct FocusTask {
+    pub item: Item,
+    pub completed_at: Option<String>,
+    pub focus_rank: i64,
+}
+
+pub fn list_focus_tasks(conn: &Connection) -> Result<Vec<FocusTask>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT items.id, items.content, items.source, items.kind,
+                items.project_id, items.captured_at, items.created_at, items.deleted_at,
+                items.confidence, items.classified_by, items.capture_context, items.importance,
+                tasks.completed_at AS completed_at, tasks.focus_rank AS focus_rank
+         FROM items
+         JOIN tasks ON tasks.item_id = items.id
+         WHERE items.deleted_at IS NULL AND items.kind = 'task'
+           AND tasks.focus_rank IS NOT NULL
+         ORDER BY tasks.focus_rank ASC, items.captured_at ASC",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok(FocusTask {
+            item: row_to_item_for_join(row)?,
+            completed_at: row.get("completed_at")?,
+            focus_rank: row.get("focus_rank")?,
+        })
+    })?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r?);
+    }
+    Ok(out)
+}
+
+/// Is `item_id` a (live) focus task?
+pub fn is_focus_task(conn: &Connection, item_id: &str) -> Result<bool, DbError> {
+    let n: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM tasks JOIN items ON items.id = tasks.item_id
+         WHERE tasks.item_id = ?1 AND tasks.focus_rank IS NOT NULL AND items.deleted_at IS NULL",
+        params![item_id],
+        |r| r.get(0),
+    )?;
+    Ok(n > 0)
+}
+
+/// Mark a task as focus (appended to the end of the list) or back to an
+/// ordinary task (`focus = false`). Creates the task row if missing.
+pub fn set_focus(conn: &Connection, item_id: &str, focus: bool) -> Result<(), DbError> {
+    if focus {
+        if is_focus_task(conn, item_id)? {
+            return Ok(());
+        }
+        conn.execute(
+            "INSERT INTO tasks(item_id, deadline, completed_at, focus_rank)
+             VALUES(?1, NULL, NULL, (SELECT COALESCE(MAX(focus_rank), 0) + 1 FROM tasks))
+             ON CONFLICT(item_id) DO UPDATE SET focus_rank = excluded.focus_rank",
+            params![item_id],
+        )?;
+    } else {
+        conn.execute(
+            "UPDATE tasks SET focus_rank = NULL WHERE item_id = ?1",
+            params![item_id],
+        )?;
+    }
+    Ok(())
+}
+
+/// Create a new focus task item at the end of the focus list.
+pub fn add_focus_task(
+    conn: &Connection,
+    project_id: Option<&str>,
+    content: &str,
+    classified_by: &str,
+) -> Result<Item, DbError> {
+    let now = super::items::chrono_now_iso();
+    let item = Item {
+        id: ulid::Ulid::new().to_string(),
+        content: content.to_string(),
+        source: super::items::ItemSource::LogCapture,
+        kind: Some(super::items::ItemKind::Task),
+        project_id: project_id.map(str::to_string),
+        captured_at: now.clone(),
+        created_at: now,
+        deleted_at: None,
+        confidence: Some(1.0),
+        classified_by: Some(classified_by.to_string()),
+        capture_context: None,
+        importance: None,
+    };
+    let tx = conn.unchecked_transaction()?;
+    super::items::insert_item(&tx, &item)?;
+    set_focus(&tx, &item.id, true)?;
+    super::events::insert_event(&tx, &item.id, "created", Some("focus"))?;
+    tx.commit()?;
+    Ok(item)
+}
+
+/// One row of a reordered focus board: the item and the project it now sits
+/// under (`None` = no project).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FocusOrderEntry {
+    pub item_id: String,
+    pub project_id: Option<String>,
+}
+
+/// Rewrite focus ranks (and project moves from cross-card drags) in one go.
+/// Only rows that are already focus tasks are touched.
+pub fn reorder_focus_tasks(conn: &Connection, order: &[FocusOrderEntry]) -> Result<(), DbError> {
+    let tx = conn.unchecked_transaction()?;
+    for (i, entry) in order.iter().enumerate() {
+        let n = tx.execute(
+            "UPDATE tasks SET focus_rank = ?2 WHERE item_id = ?1 AND focus_rank IS NOT NULL",
+            params![entry.item_id, (i + 1) as i64],
+        )?;
+        if n == 0 {
+            continue;
+        }
+        let moved = tx.execute(
+            "UPDATE items SET project_id = ?2 WHERE id = ?1 AND project_id IS NOT ?2",
+            params![entry.item_id, entry.project_id],
+        )?;
+        if moved > 0 {
+            super::events::insert_event(
+                &tx,
+                &entry.item_id,
+                "project_assigned",
+                entry.project_id.as_deref(),
+            )?;
+        }
+    }
+    tx.commit()?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -159,6 +311,7 @@ mod tests {
             confidence: None,
             classified_by: None,
             capture_context: None,
+            importance: None,
         }
     }
 
@@ -300,5 +453,54 @@ mod tests {
         let only_p1 = list_tasks(&c, false, Some("p1")).unwrap();
         assert_eq!(only_p1.len(), 1);
         assert_eq!(only_p1[0].item.id, "a");
+    }
+
+    #[test]
+    fn focus_tasks_are_separate_from_task_lists_and_reorderable() {
+        let c = fresh();
+        crate::db::projects::insert_project(
+            &c,
+            &crate::db::projects::Project {
+                id: "p1".into(),
+                name: "p1".into(),
+                created_at: "2026-05-01T00:00:00Z".into(),
+                archived_at: None,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        insert_item(&c, &task_item("plain", "2026-05-01T00:00:00Z")).unwrap();
+        let a = add_focus_task(&c, None, "first", "user").unwrap();
+        let b = add_focus_task(&c, None, "second", "user").unwrap();
+
+        // Focus tasks stay out of the ordinary task list…
+        let open: Vec<_> = list_tasks(&c, false, None).unwrap().into_iter().map(|t| t.item.id).collect();
+        assert_eq!(open, vec!["plain".to_string()]);
+        // …and come back in rank order from the focus list.
+        let focus: Vec<_> = list_focus_tasks(&c).unwrap().into_iter().map(|t| t.item.id).collect();
+        assert_eq!(focus, vec![a.id.clone(), b.id.clone()]);
+
+        // Reorder + move `a` into a project; non-focus ids are ignored.
+        reorder_focus_tasks(
+            &c,
+            &[
+                FocusOrderEntry { item_id: b.id.clone(), project_id: None },
+                FocusOrderEntry { item_id: "plain".into(), project_id: Some("x".into()) },
+                FocusOrderEntry { item_id: a.id.clone(), project_id: Some("p1".into()) },
+            ],
+        )
+        .unwrap();
+        let focus = list_focus_tasks(&c).unwrap();
+        assert_eq!(focus[0].item.id, b.id);
+        assert_eq!(focus[1].item.id, a.id);
+        assert_eq!(focus[1].item.project_id.as_deref(), Some("p1"));
+        assert!(!is_focus_task(&c, "plain").unwrap());
+
+        // Completing keeps it on the board; un-focusing returns it to tasks.
+        complete_task(&c, &a.id, "2026-05-02T00:00:00Z").unwrap();
+        assert!(list_focus_tasks(&c).unwrap()[1].completed_at.is_some());
+        set_focus(&c, &b.id, false).unwrap();
+        assert_eq!(list_focus_tasks(&c).unwrap().len(), 1);
+        assert!(list_tasks(&c, false, None).unwrap().iter().any(|t| t.item.id == b.id));
     }
 }

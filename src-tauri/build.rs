@@ -14,6 +14,11 @@ fn main() {
     let profile = std::env::var("PROFILE").unwrap_or_default();
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     if profile == "release" && target_os == "macos" {
+        let wakeword = std::process::Command::new("bash")
+            .arg("../scripts/build-wakeword.sh")
+            .status()
+            .expect("failed to run build-wakeword.sh");
+        if !wakeword.success() { panic!("wakeword build failed"); }
         let syscap = std::process::Command::new("bash")
             .arg("../scripts/build-syscap.sh")
             .status()
@@ -37,6 +42,11 @@ fn main() {
     println!("cargo:rerun-if-changed=syscap/Package.swift");
     println!("cargo:rerun-if-changed=screenrec/main.swift");
     println!("cargo:rerun-if-changed=screenrec/Package.swift");
+    println!("cargo:rerun-if-changed=wakeword/src/main.rs");
+    println!("cargo:rerun-if-changed=wakeword/Cargo.toml");
+    println!("cargo:rerun-if-changed=wakeword/Cargo.lock");
+    println!("cargo:rerun-if-changed=../scripts/build-wakeword.sh");
+    println!("cargo:rerun-if-changed=resources/wakeword/keywords.txt");
 
     tauri_build::build();
 

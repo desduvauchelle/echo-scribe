@@ -52,12 +52,16 @@ type Props = {
    *  used by the nested action items. */
   projects?: Map<string, Project>;
   variant?: "card" | "ledger";
+  /** Suppress the project pill when the meeting belongs to this project
+   *  (its own project page). Matches by name — meetings only carry the
+   *  resolved name — and is forwarded to nested action-item rows by id. */
+  hideProject?: { id: string; name: string } | null;
 };
 
 /** Meeting row for the dashboard feed. Shows what the meeting was, and folds
  *  the tasks it produced underneath it rather than scattering them through the
  *  feed as standalone cards. */
-export default function MeetingCard({ mtg, projects, variant = "card" }: Props) {
+export default function MeetingCard({ mtg, projects, variant = "card", hideProject }: Props) {
   const { t } = useTranslation();
   const { openItem } = useActivityPanel();
   const [expanded, setExpanded] = useState(false);
@@ -159,24 +163,25 @@ export default function MeetingCard({ mtg, projects, variant = "card" }: Props) 
           ) : null}
 
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-muted">
-            <span>{relativeTimeLabel(t, mtg.started_at)}</span>
-            {!status.pill ? (
-              <>
-                <span>·</span>
-                <span>{localizedMeetingDuration(t, mtg.duration_ms)}</span>
-              </>
-            ) : null}
-            {mtg.detected_app_name ? (
-              <>
-                <span>·</span>
-                <span>{mtg.detected_app_name}</span>
-              </>
-            ) : null}
-            {mtg.project_name ? (
+            {mtg.project_name && mtg.project_name !== hideProject?.name ? (
               <span className="rounded-full bg-elevated px-2 py-0.5 text-fg">
                 {mtg.project_name}
               </span>
             ) : null}
+            {[
+              !status.pill ? localizedMeetingDuration(t, mtg.duration_ms) : null,
+              mtg.detected_app_name || null,
+            ]
+              .filter((part): part is string => !!part)
+              .map((part, i) => (
+                <span key={i}>
+                  {i > 0 ? <span aria-hidden="true">· </span> : null}
+                  {part}
+                </span>
+              ))}
+            <span className="ml-auto shrink-0 tabular-nums">
+              {relativeTimeLabel(t, mtg.started_at)}
+            </span>
           </div>
         </div>
       </button>
@@ -212,6 +217,7 @@ export default function MeetingCard({ mtg, projects, variant = "card" }: Props) 
                     projects={projects}
                     compact
                     variant={variant}
+                    hideProjectId={hideProject?.id}
                   />
                 ))
               ) : (

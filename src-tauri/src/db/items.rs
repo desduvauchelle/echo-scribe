@@ -59,6 +59,34 @@ impl ItemKind {
     }
 }
 
+/// User-set priority of an item. `None` on the item = not set.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ItemImportance {
+    High,
+    Medium,
+    Low,
+}
+
+impl ItemImportance {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ItemImportance::High => "high",
+            ItemImportance::Medium => "medium",
+            ItemImportance::Low => "low",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "high" => Some(ItemImportance::High),
+            "medium" => Some(ItemImportance::Medium),
+            "low" => Some(ItemImportance::Low),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Item {
     pub id: String,
@@ -72,6 +100,9 @@ pub struct Item {
     pub confidence: Option<f32>,
     pub classified_by: Option<String>,
     pub capture_context: Option<String>,
+    /// Optional user-set importance (migration 34). `None` = not set.
+    #[serde(default)]
+    pub importance: Option<ItemImportance>,
 }
 
 pub(crate) fn row_to_item_for_search(row: &Row<'_>) -> rusqlite::Result<Item> {
@@ -103,16 +134,28 @@ fn row_to_item(row: &Row<'_>) -> rusqlite::Result<Item> {
         confidence: row.get::<_, Option<f64>>("confidence")?.map(|v| v as f32),
         classified_by: row.get("classified_by")?,
         capture_context: row.get("capture_context")?,
+        importance: importance_from_row(row)?,
     })
+}
+
+/// Read the optional `importance` column. Tolerates a SELECT that doesn't
+/// project the column (returns `None`) so an older query elsewhere can't
+/// break item loading; any other error still propagates.
+pub(crate) fn importance_from_row(row: &Row<'_>) -> rusqlite::Result<Option<ItemImportance>> {
+    match row.get::<_, Option<String>>("importance") {
+        Ok(v) => Ok(v.and_then(|s| ItemImportance::parse(&s))),
+        Err(rusqlite::Error::InvalidColumnName(_)) => Ok(None),
+        Err(e) => Err(e),
+    }
 }
 
 pub fn insert_item(conn: &Connection, item: &Item) -> Result<(), DbError> {
     conn.execute(
         "INSERT INTO items
             (id, content, source, kind, project_id, captured_at, created_at,
-             deleted_at, confidence, classified_by, capture_context)
+             deleted_at, confidence, classified_by, capture_context, importance)
          VALUES
-            (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
         params![
             item.id,
             item.content,
@@ -125,6 +168,7 @@ pub fn insert_item(conn: &Connection, item: &Item) -> Result<(), DbError> {
             item.confidence.map(|f| f as f64),
             item.classified_by,
             item.capture_context,
+            item.importance.map(|i| i.as_str()),
         ],
     )?;
     Ok(())
@@ -141,9 +185,10 @@ pub fn insert_item_with_raw(
     conn.execute(
         "INSERT INTO items
             (id, content, source, kind, project_id, captured_at, created_at,
-             deleted_at, confidence, classified_by, capture_context, raw_content)
+             deleted_at, confidence, classified_by, capture_context, raw_content,
+             importance)
          VALUES
-            (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
         params![
             item.id,
             item.content,
@@ -157,6 +202,7 @@ pub fn insert_item_with_raw(
             item.classified_by,
             item.capture_context,
             raw_content,
+            item.importance.map(|i| i.as_str()),
         ],
     )?;
     Ok(())
@@ -178,7 +224,7 @@ pub fn get_raw_content(conn: &Connection, id: &str) -> Result<Option<String>, Db
 pub fn get_item(conn: &Connection, id: &str) -> Result<Option<Item>, DbError> {
     let mut stmt = conn.prepare(
         "SELECT id, content, source, kind, project_id, captured_at, created_at,
-                deleted_at, confidence, classified_by, capture_context
+                deleted_at, confidence, classified_by, capture_context, importance
          FROM items WHERE id = ?1",
     )?;
     let mut rows = stmt.query(params![id])?;
@@ -194,7 +240,7 @@ pub fn get_item(conn: &Connection, id: &str) -> Result<Option<Item>, DbError> {
 pub fn latest_voice_capture(conn: &Connection) -> Result<Option<Item>, DbError> {
     let mut stmt = conn.prepare(
         "SELECT id, content, source, kind, project_id, captured_at, created_at,
-                deleted_at, confidence, classified_by, capture_context
+                deleted_at, confidence, classified_by, capture_context, importance
          FROM items
          WHERE source = 'voice_at_cursor' AND deleted_at IS NULL
          ORDER BY captured_at DESC
@@ -218,7 +264,7 @@ pub fn list_items(
 ) -> Result<Vec<Item>, DbError> {
     let mut sql = String::from(
         "SELECT id, content, source, kind, project_id, captured_at, created_at,
-                deleted_at, confidence, classified_by, capture_context
+                deleted_at, confidence, classified_by, capture_context, importance
          FROM items WHERE deleted_at IS NULL",
     );
     let mut args: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
@@ -253,7 +299,7 @@ pub fn list_items(
 pub fn list_items_since(conn: &Connection, since: Option<&str>) -> Result<Vec<Item>, DbError> {
     let mut sql = String::from(
         "SELECT id, content, source, kind, project_id, captured_at, created_at,
-                deleted_at, confidence, classified_by, capture_context
+                deleted_at, confidence, classified_by, capture_context, importance
          FROM items WHERE deleted_at IS NULL",
     );
     let mut args: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
@@ -293,7 +339,8 @@ pub fn restore_item(conn: &Connection, id: &str) -> Result<(), DbError> {
 
 /// In-place item update. Each field is optional; `None` means "leave alone".
 /// `project_id` uses double-Option semantics: outer `None` = leave alone,
-/// outer `Some(None)` = clear, outer `Some(Some(id))` = set.
+/// outer `Some(None)` = clear, outer `Some(Some(id))` = set. `kind` and
+/// `importance` use the same double-Option semantics.
 #[allow(clippy::too_many_arguments)]
 pub fn update_item(
     conn: &Connection,
@@ -301,6 +348,7 @@ pub fn update_item(
     content: Option<&str>,
     project_id: Option<Option<&str>>,
     kind: Option<Option<ItemKind>>,
+    importance: Option<Option<ItemImportance>>,
 ) -> Result<(), DbError> {
     if let Some(c) = content {
         conn.execute(
@@ -318,6 +366,12 @@ pub fn update_item(
         conn.execute(
             "UPDATE items SET kind = ?1 WHERE id = ?2",
             params![k.map(|kk| kk.as_str()), id],
+        )?;
+    }
+    if let Some(imp) = importance {
+        conn.execute(
+            "UPDATE items SET importance = ?1 WHERE id = ?2",
+            params![imp.map(|i| i.as_str()), id],
         )?;
     }
     Ok(())
@@ -427,6 +481,7 @@ mod tests {
             confidence: None,
             classified_by: None,
             capture_context: None,
+            importance: None,
         }
     }
 
@@ -592,13 +647,13 @@ mod tests {
         let conn = fresh_db();
         insert_item(&conn, &make_item("a", "x", "2026-05-01T00:00:00Z")).unwrap();
         // Content + kind set.
-        update_item(&conn, "a", Some("hello"), None, Some(Some(ItemKind::Task))).unwrap();
+        update_item(&conn, "a", Some("hello"), None, Some(Some(ItemKind::Task)), None).unwrap();
         let it = get_item(&conn, "a").unwrap().unwrap();
         assert_eq!(it.content, "hello");
         assert_eq!(it.kind, Some(ItemKind::Task));
 
         // Clear kind via Some(None).
-        update_item(&conn, "a", None, None, Some(None)).unwrap();
+        update_item(&conn, "a", None, None, Some(None), None).unwrap();
         let it = get_item(&conn, "a").unwrap().unwrap();
         assert_eq!(it.kind, None);
 
@@ -615,13 +670,62 @@ mod tests {
             },
         )
         .unwrap();
-        update_item(&conn, "a", None, Some(Some("proj-1")), None).unwrap();
+        update_item(&conn, "a", None, Some(Some("proj-1")), None, None).unwrap();
         assert_eq!(
             get_item(&conn, "a").unwrap().unwrap().project_id.as_deref(),
             Some("proj-1")
         );
-        update_item(&conn, "a", None, Some(None), None).unwrap();
+        update_item(&conn, "a", None, Some(None), None, None).unwrap();
         assert!(get_item(&conn, "a").unwrap().unwrap().project_id.is_none());
+    }
+
+    #[test]
+    fn update_item_importance_set_leave_alone_clear() {
+        let conn = fresh_db();
+        insert_item(&conn, &make_item("a", "x", "2026-05-01T00:00:00Z")).unwrap();
+        assert_eq!(get_item(&conn, "a").unwrap().unwrap().importance, None);
+
+        // Set.
+        update_item(&conn, "a", None, None, None, Some(Some(ItemImportance::High))).unwrap();
+        assert_eq!(
+            get_item(&conn, "a").unwrap().unwrap().importance,
+            Some(ItemImportance::High)
+        );
+
+        // Leave alone: outer None (while editing another field) keeps it.
+        update_item(&conn, "a", Some("edited"), None, None, None).unwrap();
+        let it = get_item(&conn, "a").unwrap().unwrap();
+        assert_eq!(it.content, "edited");
+        assert_eq!(it.importance, Some(ItemImportance::High));
+
+        // Change + visible through list_items.
+        update_item(&conn, "a", None, None, None, Some(Some(ItemImportance::Low))).unwrap();
+        assert_eq!(
+            list_items(&conn, None, None, 50, 0).unwrap()[0].importance,
+            Some(ItemImportance::Low)
+        );
+
+        // Clear.
+        update_item(&conn, "a", None, None, None, Some(None)).unwrap();
+        assert_eq!(get_item(&conn, "a").unwrap().unwrap().importance, None);
+
+        // Insert round-trips importance; the CHECK constraint rejects junk.
+        let mut b = make_item("b", "y", "2026-05-01T00:00:01Z");
+        b.importance = Some(ItemImportance::Medium);
+        insert_item(&conn, &b).unwrap();
+        assert_eq!(get_item(&conn, "b").unwrap().unwrap(), b);
+        assert!(conn
+            .execute("UPDATE items SET importance = 'urgent' WHERE id = 'b'", [])
+            .is_err());
+    }
+
+    #[test]
+    fn item_deserializes_without_importance_field() {
+        let json = r#"{"id":"a","content":"x","source":"voice_at_cursor","kind":null,
+            "project_id":null,"captured_at":"t","created_at":"t","deleted_at":null,
+            "confidence":null,"classified_by":null,"capture_context":null}"#;
+        let it: Item = serde_json::from_str(json).unwrap();
+        assert_eq!(it.importance, None);
     }
 
     #[test]

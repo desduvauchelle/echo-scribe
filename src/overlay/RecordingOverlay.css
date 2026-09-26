@@ -19,6 +19,22 @@
 }
 .recording-overlay:active { cursor: grabbing; }
 .recording-overlay.fade-in { opacity: 1; }
+.recording-overlay.recording-mode {
+  height: 48px;
+  grid-template-columns: 32px minmax(0, 1fr) 32px;
+  gap: 8px;
+  padding: 6px 8px;
+  border-color: #64856b99;
+  box-shadow: 0 4px 14px #081b1533;
+}
+.recording-mode .overlay-left, .recording-mode .tucky-face { width: 32px; height: 32px; }
+.recording-mode .activity-dot { width: 7px; height: 7px; border-width: 1px; }
+.recording-mode .overlay-middle { align-items: center; justify-content: center; }
+.recording-mode .overlay-right { justify-content: center; }
+.recording-mode .companion-name { display: none; }
+.recording-mode .bars-container { height: 16px; gap: 3px; justify-content: center; width: 100%; }
+.recording-mode .bar { width: 3px; max-height: 16px; }
+.recording-mode .cancel-button { width: 24px; height: 24px; }
 .overlay-left { position: relative; width: 46px; height: 46px; }
 .tucky-face { display: block; width: 46px; height: 46px; border-radius: 50%; }
 .activity-dot {

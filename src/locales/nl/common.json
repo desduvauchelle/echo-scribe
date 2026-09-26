@@ -40,14 +40,24 @@
       "transcriptionBadge": "Dictaat",
       "logCaptureBadge": "Log capture",
       "taskBadge": "Taak",
-      "deletedBadge": "Verwijderd"
+      "deletedBadge": "Verwijderd",
+      "unsorted": "Ongesorteerd",
+      "changeType": "Type wijzigen",
+      "copy": "Tekst kopiëren",
+      "copied": "Gekopieerd",
+      "copyFailed": "Kopiëren naar het klembord mislukt.",
+      "moveToTrash": "Naar prullenbak",
+      "restore": "Terugzetten uit prullenbak",
+      "inTrash": "In prullenbak",
+      "saveFailed": "Wijziging kon niet worden opgeslagen. Zie Instellingen → Diagnose → logs."
     },
     "content": {
       "label": "Inhoud",
       "saving": "Bezig met opslaan…",
       "unsaved": "Niet opgeslagen",
       "saved": "Opgeslagen",
-      "empty": "Geen inhoud."
+      "empty": "Geen inhoud.",
+      "editAriaLabel": "Tekst bewerken"
     },
     "kind": {
       "label": "Soort",
@@ -94,7 +104,8 @@
       "completed": "Voltooid",
       "markComplete": "Markeer als voltooid",
       "deadline": "Deadline",
-      "clear": "Wissen"
+      "clear": "Wissen",
+      "markIncomplete": "Markeren als open"
     },
     "meetingView": {
       "peopleToggle": "Personen",
@@ -209,6 +220,32 @@
       "copyContent": "Inhoud kopiëren",
       "restore": "Herstellen",
       "delete": "Verwijderen"
+    },
+    "props": {
+      "due": "Deadline",
+      "importance": "Belang",
+      "noProject": "Geen project",
+      "addTag": "Tag toevoegen…",
+      "setDue": "Deadline instellen…",
+      "overdue": "Te laat",
+      "today": "Vandaag",
+      "tomorrow": "Morgen",
+      "clearDue": "Deadline wissen"
+    },
+    "importance": {
+      "high": "Hoog",
+      "medium": "Gemiddeld",
+      "low": "Laag"
+    },
+    "captured": {
+      "label": "Vastgelegd in",
+      "details": "Details",
+      "projectAssistant": "Projectassistent",
+      "filedByAssistant": "Automatisch gearchiveerd door de projectassistent",
+      "sortedByAi": "Gesorteerd door AI · {{pct}}% zekerheid"
+    },
+    "history": {
+      "label": "Geschiedenis"
     }
   },
   "activityPanelContext": {},
@@ -339,7 +376,10 @@
       "kind_changed": "Soort gewijzigd",
       "project_changed": "Project gewijzigd",
       "tags_changed": "Tags bijgewerkt",
-      "classified": "Automatisch geclassificeerd"
+      "classified": "Automatisch geclassificeerd",
+      "project_assigned": "Gearchiveerd onder",
+      "paste_dispatched": "Geplakt",
+      "importance_changed": "Belang gewijzigd"
     },
     "activityTab": {
       "noActivity": "Geen activiteit vastgelegd."
@@ -492,7 +532,15 @@
       "cyan": "Cyaan",
       "blue": "Blauw",
       "violet": "Violet",
-      "pink": "Roze"
+      "pink": "Roze",
+      "burgundy": "Bordeauxrood",
+      "coral": "Koraal",
+      "amber": "Amber",
+      "lime": "Limoengroen",
+      "teal": "Blauwgroen",
+      "sky": "Hemelsblauw",
+      "indigo": "Indigo",
+      "slate": "Leigrijs"
     },
     "nameRequired": "Projectnaam is verplicht.",
     "saveFailed": "Opslaan mislukt: {{error}}",
@@ -798,6 +846,8 @@
     },
     "dictionary": {
       "title": "Woordenboek",
+      "manage": "Woordenboek beheren",
+      "close": "Sluiten",
       "description": "Koppel een gesproken woord of zin aan een exacte spelling, hoofdlettergebruik of interpunctie.",
       "exportJson": "JSON exporteren",
       "importJson": "JSON importeren",

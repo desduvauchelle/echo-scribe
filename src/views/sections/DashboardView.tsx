@@ -1,25 +1,18 @@
-import TuckyGreeting from "../../components/TuckyGreeting";
+import MorningFocus from "../../components/MorningFocus";
 import { listen } from "@tauri-apps/api/event";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  CheckSquare,
   ChevronRight,
+  Crosshair,
   Download,
-  LayoutGrid,
   Loader2,
-  Mic,
-  Phone,
   Search as SearchIcon,
-  StickyNote,
   Tags,
-  Video,
   X,
-  type LucideIcon,
 } from "lucide-react";
 import {
   exportActivity,
-  getDailySummary,
   getDashboardStats,
   listItems,
   listMeetings,
@@ -27,11 +20,8 @@ import {
   runProjectTaggerAll,
   searchItems,
   type ProjectTaggerProgress,
-  type DailySummary,
-  type DailySummarySectionItem,
   type DashboardStats,
   type Item,
-  type ItemKind,
   type MeetingRow,
   type Project,
   type RecordingRow,
@@ -39,27 +29,28 @@ import {
 } from "../../lib/api";
 import { useToasts } from "../../components/ToastProvider";
 import Menu from "../../components/a11y/Menu";
-import Dialog from "../../components/a11y/Dialog";
 import ActivityLedgerEntry from "../../components/ActivityLedgerEntry";
-import {
-  STATS_CATEGORIES,
-  categoryMeta,
-  formatDuration,
-} from "../../components/StatsCategoryTabs";
+import { useTaskIndex } from "../../lib/useTaskIndex";
+import { STATS_CATEGORIES } from "../../components/StatsCategoryTabs";
+import SectionHeader from "../../components/SectionHeader";
 import { compactNumber } from "../../lib/format";
 import {
+  groupFeedByDay,
   mergeBrowseFeed,
   mergeFeed,
   recordingMatches,
+  type FeedDayGroup,
   type FeedEntry,
 } from "../../lib/feed";
 import { useActivityPanel } from "../../components/ActivityPanelContext";
 import { SkeletonList } from "./ActivityFeed";
 import TasksView from "./TasksView";
+import KindFilterBar, { type KindFilter } from "../../components/KindFilterBar";
+import FocusBoard from "../../components/FocusBoard";
+import MeetingDebriefSection from "../../components/MeetingDebrief";
 import { LearningCard } from "../../components/Learning";
 import { useLearning } from "../../components/LearningContext";
 import type { LessonId } from "../../lib/learning";
-import { RecapBulletText } from "../../components/RecapBulletText";
 
 const PAGE_SIZE = 50;
 
@@ -71,7 +62,6 @@ type Props = {
   onLesson?: (id?: LessonId) => void;
 };
 
-type KindFilter = "all" | ItemKind | "recording";
 
 function statsCategoryForFilter(filter: KindFilter): StatsCategoryKey | null {
   switch (filter) {
@@ -88,25 +78,6 @@ function statsCategoryForFilter(filter: KindFilter): StatsCategoryKey | null {
     case "all":
       return null;
   }
-}
-
-function yesterdayLocalIso(): string {
-  const now = new Date();
-  now.setDate(now.getDate() - 1);
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, "0");
-  const d = String(now.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
-}
-
-function dayLabel(iso: string): string {
-  const [y, m, d] = iso.split("-").map(Number);
-  const dt = new Date(y, m - 1, d);
-  return dt.toLocaleDateString(undefined, {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-  });
 }
 
 type ExportRangeKey = "day" | "today" | "week" | "month" | "all";
@@ -159,10 +130,9 @@ function emptyLabel(t: (key: string) => string, kind: KindFilter): string {
 
 export default function DashboardView({ projects, onOpenStats, searchRequest = 0, initialFilter, onLesson }: Props) {
   const learning = useLearning();
-  const { t } = useTranslation("main");
+  const { t, i18n } = useTranslation("main");
   const EXPORT_RANGES = exportRanges(t);
   const [stats, setStats] = useState<DashboardStats | null>(null);
-  const [summary, setSummary] = useState<DailySummary | null>(null);
   const [items, setItems] = useState<Item[]>([]);
   const [recordings, setRecordings] = useState<RecordingRow[]>([]);
   const [meetings, setMeetings] = useState<MeetingRow[]>([]);
@@ -170,8 +140,8 @@ export default function DashboardView({ projects, onOpenStats, searchRequest = 0
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [kindFilter, setKindFilter] = useState<KindFilter>(initialFilter ?? "all");
-  const [recapOpen, setRecapOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showEmptyFocus, setShowEmptyFocus] = useState(false);
 
   const [searchOpen, setSearchOpen] = useState(searchRequest > 0);
   const [query, setQuery] = useState("");
@@ -194,7 +164,7 @@ export default function DashboardView({ projects, onOpenStats, searchRequest = 0
   const { push: pushToast } = useToasts();
 
   const { refreshTick, selectedItemId, selectedRecordingId } = useActivityPanel();
-  const yesterday = useMemo(() => yesterdayLocalIso(), []);
+  const { tasks: taskIndex, reload: reloadTaskIndex } = useTaskIndex();
 
   // Current kind filter, read inside callbacks (event listeners, refetch) so
   // they always fetch the active filter without being recreated on each change.
@@ -243,17 +213,12 @@ export default function DashboardView({ projects, onOpenStats, searchRequest = 0
 
   const loadAll = useCallback(async () => {
     try {
-      const [s, d] = await Promise.all([
-        getDashboardStats(),
-        getDailySummary(yesterday),
-      ]);
-      setStats(s);
-      setSummary(d);
+      setStats(await getDashboardStats());
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
-  }, [yesterday]);
+  }, []);
 
   useEffect(() => {
     void loadAll();
@@ -406,8 +371,39 @@ export default function DashboardView({ projects, onOpenStats, searchRequest = 0
   }, [selectedItemId, selectedRecordingId, isSearching, searchEntries, learning.state.retrieved, learning.update]);
 
   const renderEntry = (entry: FeedEntry) => (
-    <ActivityLedgerEntry key={entry.key} entry={entry} projects={projects} />
+    <ActivityLedgerEntry
+      key={entry.key}
+      entry={entry}
+      projects={projects}
+      tasks={taskIndex}
+      onTaskChanged={() => void reloadTaskIndex()}
+    />
   );
+
+  const groupLabel = (group: FeedDayGroup) =>
+    group.day === "today"
+      ? t("dashboard.activity.todayLabel")
+      : group.day === "yesterday"
+        ? t("dashboard.activity.yesterdayLabel")
+        : group.date.toLocaleDateString(i18n.language, {
+            weekday: "long",
+            month: "long",
+            day: "numeric",
+            ...(group.date.getFullYear() !== new Date().getFullYear()
+              ? { year: "numeric" as const }
+              : {}),
+          });
+
+  /** Feed entries under small per-day dividers (Today / Yesterday / date). */
+  const renderGrouped = (entries: FeedEntry[]) =>
+    groupFeedByDay(entries).map((group) => (
+      <div key={group.key} role="group" aria-label={groupLabel(group)}>
+        <div className="echo-feed-day" aria-hidden="true">
+          {groupLabel(group)}
+        </div>
+        {group.entries.map(renderEntry)}
+      </div>
+    ));
 
   const runExport = async (format: "markdown" | "csv") => {
     setExporting(true);
@@ -512,189 +508,153 @@ export default function DashboardView({ projects, onOpenStats, searchRequest = 0
     );
   }
 
+  const toolbarActions = (
+    <>
+      <button type="button" onClick={() => setShowEmptyFocus(true)}
+        aria-label={t("dashboard.focus.addFirst")} title={t("dashboard.focus.addFirst")}
+        className="native-toolbar-button grid h-7 w-7 place-items-center rounded-md text-muted hover:text-fg">
+        <Crosshair size={14} aria-hidden="true" />
+      </button>
+      <button
+        type="button"
+        onClick={() => void runTagging()}
+        disabled={tagging}
+        aria-label={t("dashboard.tagging.button")}
+        title={t("dashboard.tagging.buttonTooltip")}
+        className="native-toolbar-button flex h-7 items-center gap-1.5 rounded-md px-2 text-muted hover:text-fg disabled:opacity-70"
+      >
+        {tagging ? (
+          <span aria-live="polite" className="flex items-center gap-1.5">
+            <Loader2 size={14} className="animate-spin" />
+            {tagProgress ? (
+              <span className="text-[11px] tabular-nums">
+                {t("dashboard.tagging.progress", {
+                  processed: tagProgress.processed,
+                  total: tagProgress.total,
+                })}
+                {tagProgress.assigned > 0
+                  ? ` · ${t("dashboard.tagging.taggedSuffix", { count: tagProgress.assigned })}`
+                  : ""}
+              </span>
+            ) : null}
+          </span>
+        ) : (
+          <Tags size={14} />
+        )}
+      </button>
+      <Menu
+        open={exportOpen}
+        onOpenChange={setExportOpen}
+        renderTrigger={(props) => (
+          <button
+            {...props}
+            type="button"
+            aria-label={t("dashboard.export.title")}
+            title={t("dashboard.export.title")}
+            className="native-toolbar-button grid h-7 w-7 place-items-center rounded-md text-muted hover:text-fg"
+          >
+            <Download size={14} />
+          </button>
+        )}
+      >
+            <div className="absolute right-0 top-full z-20 mt-1.5 w-56 rounded-lg border border-line bg-canvas p-3 shadow-xl">
+              <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.08em] text-muted">
+                {t("dashboard.export.title")}
+              </div>
+              <div className="flex flex-col gap-1">
+                {EXPORT_RANGES.map((r) => (
+                  <button
+                    key={r.key}
+                    type="button"
+                    onClick={() => setExportRange(r.key)}
+                    className={`rounded px-2 py-1 text-left text-xs transition-colors ${
+                      exportRange === r.key
+                        ? "bg-fg text-canvas"
+                        : "text-muted hover:bg-elevated hover:text-fg"
+                    }`}
+                  >
+                    {r.label}
+                  </button>
+                ))}
+              </div>
+              <div className="mt-3 flex gap-1.5">
+                <button
+                  type="button"
+                  disabled={exporting}
+                  onClick={() => void runExport("markdown")}
+                  className="flex-1 rounded border border-line bg-surface px-2 py-1 text-xs hover:bg-elevated disabled:opacity-50"
+                >
+                  {exporting ? t("dashboard.export.exporting") : t("dashboard.export.formats.markdown")}
+                </button>
+                <button
+                  type="button"
+                  disabled={exporting}
+                  onClick={() => void runExport("csv")}
+                  className="flex-1 rounded border border-line bg-surface px-2 py-1 text-xs hover:bg-elevated disabled:opacity-50"
+                >
+                  {exporting ? t("dashboard.export.exporting") : t("dashboard.export.formats.csv")}
+                </button>
+              </div>
+            </div>
+      </Menu>
+    </>
+  );
+
   return (
     <div className="echo-dashboard flex h-full min-h-0 flex-col overflow-hidden">
       <div className="echo-dashboard-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain px-7 pb-5">
-        <TuckyGreeting />
+        <MorningFocus
+          pulse={
+            stats ? (
+              <WeekPulse
+                stats={stats}
+                onOpen={() => onOpenStats(statsCategory ?? "transcriptions")}
+              />
+            ) : null
+          }
+        />
         {onLesson && <LearningCard onLesson={onLesson} />}
-        <div className="echo-filter-toolbar flex items-center justify-between gap-3 py-3">
-          <div className="flex min-w-0 flex-wrap items-center gap-0.5">
-          {(
-            [
-              ["all", t("dashboard.filters.all"), LayoutGrid],
-              ["transcription", t("dashboard.filters.transcriptions"), Mic],
-              ["note", t("dashboard.filters.notes"), StickyNote],
-              ["task", t("dashboard.filters.tasks"), CheckSquare],
-              ["meeting", t("dashboard.filters.meetings"), Phone],
-              ["recording", t("dashboard.filters.recordings"), Video],
-            ] as [KindFilter, string, LucideIcon][]
-          ).map(([value, label, Icon]) => {
-            const active = value === kindFilter;
-            return (
-              <button
-                key={value}
-                type="button"
-                aria-pressed={active}
-                onClick={() => setKindFilter(value)}
-                className={`material-filter flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[11px] ${
-                  active
-                    ? "is-active"
-                    : "text-muted hover:text-fg"
-                }`}
-              >
-                <Icon size={12} strokeWidth={2} />
-                {label}
-              </button>
-            );
-          })}
-          </div>
-          <div className="flex shrink-0 items-center gap-1">
-          <button
-            type="button"
-            onClick={() => void runTagging()}
-            disabled={tagging}
-            aria-label={t("dashboard.tagging.button")}
-            title={t("dashboard.tagging.buttonTooltip")}
-            className="native-toolbar-button flex h-7 items-center gap-1.5 rounded-md px-2 text-muted hover:text-fg disabled:opacity-70"
-          >
-            {tagging ? (
-              <span aria-live="polite" className="flex items-center gap-1.5">
-                <Loader2 size={14} className="animate-spin" />
-                {tagProgress ? (
-                  <span className="text-[11px] tabular-nums">
-                    {t("dashboard.tagging.progress", {
-                      processed: tagProgress.processed,
-                      total: tagProgress.total,
-                    })}
-                    {tagProgress.assigned > 0
-                      ? ` · ${t("dashboard.tagging.taggedSuffix", { count: tagProgress.assigned })}`
-                      : ""}
-                  </span>
-                ) : null}
-              </span>
-            ) : (
-              <Tags size={14} />
-            )}
-          </button>
-          <Menu
-            open={exportOpen}
-            onOpenChange={setExportOpen}
-            renderTrigger={(props) => (
-              <button
-                {...props}
-                type="button"
-                aria-label={t("dashboard.export.title")}
-                title={t("dashboard.export.title")}
-                className="native-toolbar-button grid h-7 w-7 place-items-center rounded-md text-muted hover:text-fg"
-              >
-                <Download size={14} />
-              </button>
-            )}
-          >
-                <div className="absolute right-0 top-full z-20 mt-1.5 w-56 rounded-lg border border-line bg-canvas p-3 shadow-xl">
-                  <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.08em] text-muted">
-                    {t("dashboard.export.title")}
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    {EXPORT_RANGES.map((r) => (
-                      <button
-                        key={r.key}
-                        type="button"
-                        onClick={() => setExportRange(r.key)}
-                        className={`rounded px-2 py-1 text-left text-xs transition-colors ${
-                          exportRange === r.key
-                            ? "bg-fg text-canvas"
-                            : "text-muted hover:bg-elevated hover:text-fg"
-                        }`}
-                      >
-                        {r.label}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="mt-3 flex gap-1.5">
-                    <button
-                      type="button"
-                      disabled={exporting}
-                      onClick={() => void runExport("markdown")}
-                      className="flex-1 rounded border border-line bg-surface px-2 py-1 text-xs hover:bg-elevated disabled:opacity-50"
-                    >
-                      {exporting ? t("dashboard.export.exporting") : t("dashboard.export.formats.markdown")}
-                    </button>
-                    <button
-                      type="button"
-                      disabled={exporting}
-                      onClick={() => void runExport("csv")}
-                      className="flex-1 rounded border border-line bg-surface px-2 py-1 text-xs hover:bg-elevated disabled:opacity-50"
-                    >
-                      {exporting ? t("dashboard.export.exporting") : t("dashboard.export.formats.csv")}
-                    </button>
-                  </div>
-                </div>
-          </Menu>
-          </div>
-        </div>
 
-        {searchOpen ? (
-        <div className="material-search mb-3 flex items-center gap-2 rounded-md px-3 py-2 focus-within:ring-1 focus-within:ring-accent">
-          <SearchIcon size={14} className="shrink-0 text-faint" />
-          <input
-            ref={searchInputRef}
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={t("dashboard.search.placeholder")}
-            aria-label={t("dashboard.search.ariaLabel")}
-            className="flex-1 bg-transparent text-[13px] text-fg outline-none placeholder:text-faint"
-            onKeyDown={(e) => {
-              if (e.key === "Escape") closeSearch();
-            }}
+        {!isSearching ? <MeetingDebriefSection projects={projects} /> : null}
+
+        {!isSearching ? <FocusBoard projects={projects} showEmpty={showEmptyFocus} onHideEmpty={() => setShowEmptyFocus(false)} /> : null}
+
+        <section className="echo-activity-ledger py-3" aria-labelledby="activity-heading">
+          <SectionHeader
+            eyebrow={isSearching ? t("dashboard.activity.searchResultsLabel") : t("dashboard.activity.label")}
+            title={isSearching ? t("dashboard.activity.matchesFor", { query: query.trim() }) : undefined}
+            headingId="activity-heading"
+            actions={toolbarActions}
+            className="mb-0"
           />
-          <button
-            type="button"
-            onClick={closeSearch}
-            aria-label={t("dashboard.search.closeLabel")}
-            className="rounded p-0.5 text-faint hover:bg-elevated hover:text-fg"
-          >
-            <X size={14} />
-          </button>
-        </div>
-        ) : null}
 
-        {!isSearching &&
-          (stats ? (
-            <StatStrip
-              stats={stats}
-              category={statsCategory}
-              onOpen={() => onOpenStats(statsCategory ?? "transcriptions")}
+          {searchOpen ? (
+          <div className="material-search mt-2 flex items-center gap-2 rounded-md px-3 py-2 focus-within:ring-1 focus-within:ring-accent">
+            <SearchIcon size={14} className="shrink-0 text-faint" />
+            <input
+              ref={searchInputRef}
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={t("dashboard.search.placeholder")}
+              aria-label={t("dashboard.search.ariaLabel")}
+              className="flex-1 bg-transparent text-[13px] text-fg outline-none placeholder:text-faint"
+              onKeyDown={(e) => {
+                if (e.key === "Escape") closeSearch();
+              }}
             />
-          ) : (
-            <div className="h-[76px] border-y border-line" />
-          ))}
-
-        {!isSearching ? (
-          <div className="echo-recap-row py-3">
-            <RecapCard
-              summary={summary}
-              dateLabel={dayLabel(yesterday)}
-              onOpen={() => setRecapOpen(true)}
-            />
+            <button
+              type="button"
+              onClick={closeSearch}
+              aria-label={t("dashboard.search.closeLabel")}
+              className="rounded p-0.5 text-faint hover:bg-elevated hover:text-fg"
+            >
+              <X size={14} />
+            </button>
           </div>
-        ) : null}
+          ) : null}
 
-        <section className="echo-activity-ledger" aria-labelledby="activity-heading">
-          <div className="flex items-center justify-between border-b border-line py-2.5">
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.13em] text-accent">
-                {isSearching ? t("dashboard.activity.searchResultsLabel") : t("dashboard.activity.todayLabel")}
-              </p>
-              <h2 id="activity-heading" className="mt-0.5 text-[14px] font-semibold text-fg">
-                {isSearching
-                  ? t("dashboard.activity.matchesFor", { query: query.trim() })
-                  : t("dashboard.activity.recentActivity")}
-              </h2>
-            </div>
-            <span className="text-[10px] text-faint">{t("dashboard.activity.mostRecent")}</span>
-          </div>
+          <KindFilterBar value={kindFilter} onChange={setKindFilter} />
 
         {isTasks ? (
           <div className="py-3">
@@ -709,7 +669,7 @@ export default function DashboardView({ projects, onOpenStats, searchRequest = 0
               {t("dashboard.search.noResults", { query: query.trim() })}
             </p>
           ) : (
-            searchEntries.map(renderEntry)
+            renderGrouped(searchEntries)
           )}
           </div>
         ) : (
@@ -726,7 +686,7 @@ export default function DashboardView({ projects, onOpenStats, searchRequest = 0
             </p>
           ) : (
             <>
-              {browseEntries.map(renderEntry)}
+              {renderGrouped(browseEntries)}
               {hasMore && !isRecordings && !isMeetings ? (
                 <div className="my-3 flex justify-center">
                   <button
@@ -746,263 +706,70 @@ export default function DashboardView({ projects, onOpenStats, searchRequest = 0
         </section>
       </div>
 
-      {recapOpen && summary?.status === "generated" ? (
-        <RecapModal
-          summary={summary}
-          dateLabel={dayLabel(yesterday)}
-          onClose={() => setRecapOpen(false)}
-        />
-      ) : null}
     </div>
   );
 }
 
-function StatStrip({
+const PULSE_PERIOD_KEY = "tucky.dashboard.pulsePeriod";
+type PulsePeriod = "today" | "week";
+
+/** One-line activity pulse under the greeting; replaces the stat cards.
+ *  Always shows every category (zero counts are skipped), independent of the
+ *  activity filter. */
+function WeekPulse({
   stats,
-  category,
   onOpen,
 }: {
   stats: DashboardStats;
-  category: StatsCategoryKey | null;
   onOpen: () => void;
 }) {
   const { t } = useTranslation("main");
-  const selected = category ? stats.categories[category] : null;
-  const meta = category ? categoryMeta(category) : null;
-  const timed = category === "meetings" || category === "recordings";
+  const [period, setPeriod] = useState<PulsePeriod>(() => {
+    try {
+      return localStorage.getItem(PULSE_PERIOD_KEY) === "today" ? "today" : "week";
+    } catch {
+      return "week";
+    }
+  });
+  const togglePeriod = () => {
+    const next = period === "week" ? "today" : "week";
+    setPeriod(next);
+    try {
+      localStorage.setItem(PULSE_PERIOD_KEY, next);
+    } catch { /* Keep the toggle usable when storage is unavailable. */ }
+  };
+  const parts = STATS_CATEGORIES.map(({ key }) => ({
+    key,
+    count: stats.categories[key][period].count,
+  })).filter((p) => p.count > 0);
 
   return (
     <div
       role="region"
       aria-label={t("dashboard.stats.regionLabel")}
-      className="echo-stat-strip border-y border-line"
+      className="tucky-pulse"
     >
-      <div className="flex h-8 items-center justify-between border-b border-line px-4">
-        <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted">
-          {meta ? meta.label : t("dashboard.stats.overviewLabel")}
-        </span>
-        <button
-          type="button"
-          onClick={onOpen}
-          className="native-toolbar-button flex h-6 items-center gap-1 rounded px-2 text-[10px] font-medium text-muted hover:text-fg"
-          aria-label={t("dashboard.stats.viewStats")}
-        >
-          {t("dashboard.stats.viewStats")}
-          <ChevronRight size={11} aria-hidden="true" />
-        </button>
-      </div>
-
-      {selected && meta ? (
-        <div className="grid grid-cols-2 sm:grid-cols-4">
-          <StatCell
-            label={t("dashboard.stats.today")}
-            value={compactNumber(selected.today.count)}
-            sub={selected.today.count === 1 ? meta.singular : meta.label.toLowerCase()}
-          />
-          <StatCell
-            label={t("dashboard.stats.thisWeek")}
-            value={compactNumber(selected.week.count)}
-            sub={timed ? formatDuration(selected.week.duration_ms) : t("dashboard.stats.wordsCount", { count: compactNumber(selected.week.words) })}
-          />
-          <StatCell
-            label={timed ? t("dashboard.stats.timeThisWeek") : t("dashboard.stats.wordsThisWeek")}
-            value={timed ? formatDuration(selected.week.duration_ms) : compactNumber(selected.week.words)}
-            sub={timed ? `${selected.week.count} ${selected.week.count === 1 ? meta.singular : meta.label.toLowerCase()}` : t("dashboard.stats.exactCount", { count: selected.week.words.toLocaleString() })}
-          />
-          <StatCell
-            label={timed ? t("dashboard.stats.timeAllTime") : t("dashboard.stats.allTime")}
-            value={timed ? formatDuration(selected.all_time.duration_ms) : compactNumber(selected.all_time.count)}
-            sub={timed ? t("dashboard.stats.totalCount", { count: selected.all_time.count.toLocaleString() }) : t("dashboard.stats.wordsCount", { count: compactNumber(selected.all_time.words) })}
-          />
-        </div>
+      <button type="button" onClick={togglePeriod} className="tucky-pulse-label">
+        {t(period === "week" ? "dashboard.stats.pulseLabel" : "dashboard.stats.pulseTodayLabel")}
+      </button>
+      {parts.length === 0 ? (
+        <span>{t("dashboard.stats.pulseEmpty")}</span>
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-5">
-          {STATS_CATEGORIES.map(({ key, label, singular }) => {
-            const categoryStats = stats.categories[key];
-            return (
-              <StatCell
-                key={key}
-                label={label}
-                value={compactNumber(categoryStats.today.count)}
-                sub={t("dashboard.stats.thisWeekCount", { count: compactNumber(categoryStats.week.count) })}
-                srText={t("dashboard.stats.todayCount", {
-                  count: categoryStats.today.count,
-                  label: categoryStats.today.count === 1 ? singular : label.toLowerCase(),
-                })}
-              />
-            );
-          })}
-        </div>
+        parts.map((p, i) => (
+          <Fragment key={p.key}>
+            {i > 0 ? <span className="tucky-pulse-sep" aria-hidden="true">·</span> : null}
+            <span className="tucky-pulse-item">
+              <strong>{compactNumber(p.count)}</strong>{" "}
+              {t(`dashboard.stats.pulse.${p.key}`, { count: p.count })}
+            </span>
+          </Fragment>
+        ))
       )}
+      <span className="tucky-pulse-sep" aria-hidden="true">·</span>
+      <button type="button" onClick={onOpen} className="tucky-pulse-link">
+        {t("dashboard.stats.viewStats")}
+        <ChevronRight size={11} aria-hidden="true" />
+      </button>
     </div>
-  );
-}
-
-function StatCell({
-  label,
-  value,
-  sub,
-  srText,
-}: {
-  label: string;
-  value: string | number;
-  sub: string;
-  srText?: string;
-}) {
-  return (
-    <div className="echo-stat-cell min-w-0 px-4 py-3">
-      <span className="block truncate text-[10px] font-medium text-muted">{label}</span>
-      <span className="mt-1 block text-[22px] tabular-nums leading-none text-fg">{value}</span>
-      <span className="mt-1 block truncate text-[10px] text-faint">{sub}</span>
-      {srText ? <span className="sr-only">{srText}</span> : null}
-    </div>
-  );
-}
-
-function RecapCard({
-  summary,
-  dateLabel,
-  onOpen,
-}: {
-  summary: DailySummary | null;
-  dateLabel: string;
-  onOpen: () => void;
-}) {
-  const { t } = useTranslation("main");
-  const generated = summary?.status === "generated";
-  const preview = generated
-    ? summary.narrative.slice(0, 140) +
-      (summary.narrative.length > 140 ? "…" : "")
-    : summary?.status === "skipped_empty"
-      ? t("dashboard.recap.quietDay")
-      : t("dashboard.recap.notGenerated");
-
-  const body = (
-    <div className="flex items-center gap-3">
-      <div className="min-w-0 flex-1">
-        <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted">
-          {t("dashboard.recap.yesterdayLabel", { date: dateLabel })}
-        </div>
-        <p className="mt-0.5 line-clamp-1 text-[13px] text-fg">{preview}</p>
-      </div>
-      {generated ? (
-        <ChevronRight size={16} className="shrink-0 text-faint" />
-      ) : null}
-    </div>
-  );
-
-  if (!generated) {
-    return (
-      <div className="material-panel rounded-xl border border-line px-4 py-3">
-        {body}
-      </div>
-    );
-  }
-
-  return (
-    <button
-      type="button"
-      onClick={onOpen}
-      className="material-panel is-interactive w-full cursor-pointer rounded-xl border border-line px-4 py-3 text-left"
-    >
-      {body}
-    </button>
-  );
-}
-
-function RecapModal({
-  summary,
-  dateLabel,
-  onClose,
-}: {
-  summary: DailySummary;
-  dateLabel: string;
-  onClose: () => void;
-}) {
-  const { t } = useTranslation("main");
-  return (
-    <Dialog
-      onClose={onClose}
-      labelledBy="recap-modal-title"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6"
-      panelClassName="flex max-h-[80vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-line bg-canvas shadow-xl"
-    >
-        <header className="flex items-center justify-between border-b border-line px-6 py-4">
-          <h2
-            id="recap-modal-title"
-            className="text-base font-semibold tracking-tight text-fg"
-          >
-            {dateLabel}
-          </h2>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label={t("dashboard.recap.close")}
-            className="rounded-md p-1 text-muted hover:bg-elevated hover:text-fg"
-          >
-            <X size={16} />
-          </button>
-        </header>
-        <div className="flex flex-col gap-6 overflow-y-auto px-6 py-5">
-          <p className="text-sm leading-relaxed text-fg">
-            {summary.narrative}
-          </p>
-          <RecapSection
-            title={t("dashboard.recap.sections.whatHappened")}
-            items={recapOutcomeItems(summary, "what_happened")}
-          />
-          <RecapSection
-            title={t("dashboard.recap.sections.whatMattered")}
-            items={summary.sections.what_mattered ?? []}
-          />
-          <RecapSection
-            title={t("dashboard.recap.sections.whatsNext")}
-            items={recapOutcomeItems(summary, "whats_next")}
-          />
-        </div>
-    </Dialog>
-  );
-}
-
-function recapOutcomeItems(
-  summary: DailySummary,
-  section: "what_happened" | "whats_next",
-): DailySummarySectionItem[] {
-  const current = summary.sections[section];
-  if (current) return current;
-
-  return section === "what_happened"
-    ? [
-        ...(summary.sections.meetings ?? []),
-        ...(summary.sections.focus_work ?? []),
-        ...(summary.sections.notes ?? []),
-      ]
-    : summary.sections.things_that_came_up ?? [];
-}
-
-function RecapSection({
-  title,
-  items,
-}: {
-  title: string;
-  items: DailySummarySectionItem[];
-}) {
-  if (items.length === 0) return null;
-  return (
-    <section>
-      <h3 className="mb-2 text-[13px] font-semibold tracking-tight text-fg">
-        {title}
-      </h3>
-      <ul className="flex flex-col gap-1.5">
-        {items.map((it, i) => (
-          <li
-            key={i}
-            className="rounded-md border border-line bg-surface/60 p-3 text-sm text-fg"
-          >
-            <RecapBulletText text={it.text} />
-          </li>
-        ))}
-      </ul>
-    </section>
   );
 }

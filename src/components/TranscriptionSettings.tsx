@@ -19,6 +19,7 @@ import {
   type TranscriptionSnippet,
 } from "../lib/api";
 import { useToasts } from "./ToastProvider";
+import Dialog from "./a11y/Dialog";
 
 export default function TranscriptionSettings() {
   return (
@@ -170,6 +171,7 @@ function ToggleRow(props: {
 
 function DictionaryCard() {
   const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
   const [entries, setEntries] = useState<DictionaryEntry[] | null>(null);
   const [spokenForm, setSpokenForm] = useState("");
   const [replacement, setReplacement] = useState("");
@@ -211,40 +213,60 @@ function DictionaryCard() {
   );
 
   return (
-    <div className="flex flex-col gap-3 rounded-lg border border-line bg-canvas p-4">
-      <div className="flex items-start justify-between gap-3">
+    <>
+      <div className="flex items-center justify-between gap-4 rounded-lg border border-line bg-canvas p-4">
         <div>
           <div className="text-sm font-semibold text-fg">{t("transcriptionSettings.dictionary.title")}</div>
           <p className="text-xs text-muted">{t("transcriptionSettings.dictionary.description")}</p>
         </div>
-        <div className="flex shrink-0 gap-2 text-xs">
-          <button type="button" onClick={() => downloadJson("tucky-dictionary.json", entries ?? [])} className="text-muted hover:text-fg">{t("transcriptionSettings.dictionary.exportJson")}</button>
-          <label className="cursor-pointer text-muted hover:text-fg">{t("transcriptionSettings.dictionary.importJson")}<input type="file" accept="application/json,.json" className="hidden" onChange={(event) => {
-            const file = event.target.files?.[0];
-            if (!file) return;
-            void readJsonFile<DictionaryEntry[]>(file).then((value) => {
-              if (!Array.isArray(value) || value.some((item) => !item.spoken_form || typeof item.replacement !== "string")) throw new Error(t("transcriptionSettings.dictionary.invalidFile"));
-              return persist(value.map((item) => ({ ...item, language: item.language || "auto" })));
-            }).catch((e) => toasts.push({ tone: "error", message: e instanceof Error ? e.message : String(e) }));
-            event.target.value = "";
-          }} /></label>
-        </div>
+        <button type="button" onClick={() => setOpen(true)} className="shrink-0 rounded border border-line px-3 py-1.5 text-xs font-medium text-fg hover:bg-elevated">
+          {t("transcriptionSettings.dictionary.manage")}
+        </button>
       </div>
-      <div className="grid grid-cols-[1fr_1fr_auto] gap-2">
-        <input value={spokenForm} onChange={(e) => setSpokenForm(e.target.value)} placeholder={t("transcriptionSettings.dictionary.spokenPlaceholder")} className="rounded border border-line bg-canvas px-2 py-1.5 text-sm" />
-        <input value={replacement} onChange={(e) => setReplacement(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") add(); }} placeholder={t("transcriptionSettings.dictionary.replacementPlaceholder")} className="rounded border border-line bg-canvas px-2 py-1.5 text-sm" />
-        <button type="button" onClick={add} disabled={!spokenForm.trim() || !replacement.trim()} className="rounded bg-accent px-3 py-1.5 text-sm text-canvas disabled:opacity-40">{t("transcriptionSettings.dictionary.add")}</button>
-      </div>
-      {(entries?.length ?? 0) > 4 && <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t("transcriptionSettings.dictionary.searchPlaceholder")} className="rounded border border-line bg-canvas px-2 py-1.5 text-sm" />}
-      <div className="flex max-h-52 flex-col gap-1 overflow-y-auto">
-        {visible.map((entry) => (
-          <div key={`${entry.language}:${entry.spoken_form}`} className="flex items-center justify-between gap-3 rounded border border-line px-2 py-1.5 text-sm">
-            <span className="min-w-0"><span className="text-muted">{entry.spoken_form}</span> <span className="text-muted">→</span> <span className="font-medium text-fg">{entry.replacement}</span></span>
-            <button type="button" onClick={() => void persist((entries ?? []).filter((item) => item !== entry))} className="text-xs text-muted hover:text-danger">{t("transcriptionSettings.dictionary.remove")}</button>
+      {open && (
+        <Dialog
+          onClose={() => setOpen(false)}
+          labelledBy="dictionary-dialog-title"
+          panelClassName="flex max-h-[min(85vh,760px)] w-full max-w-[760px] min-h-0 flex-col rounded-xl border border-line bg-surface p-5 text-fg shadow-2xl"
+        >
+          <div className="flex shrink-0 items-start justify-between gap-4 border-b border-line pb-4">
+            <div>
+              <h2 id="dictionary-dialog-title" className="text-base font-semibold text-fg">{t("transcriptionSettings.dictionary.title")}</h2>
+              <p className="mt-1 text-xs text-muted">{t("transcriptionSettings.dictionary.description")}</p>
+            </div>
+            <button type="button" onClick={() => setOpen(false)} className="rounded border border-line px-3 py-1.5 text-xs text-muted hover:bg-elevated hover:text-fg">
+              {t("transcriptionSettings.dictionary.close")}
+            </button>
           </div>
-        ))}
-      </div>
-    </div>
+          <div className="mt-4 grid shrink-0 grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_auto]">
+            <input value={spokenForm} onChange={(e) => setSpokenForm(e.target.value)} placeholder={t("transcriptionSettings.dictionary.spokenPlaceholder")} aria-label={t("transcriptionSettings.dictionary.spokenPlaceholder")} className="min-w-0 rounded border border-line bg-canvas px-2 py-1.5 text-sm" />
+            <input value={replacement} onChange={(e) => setReplacement(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") add(); }} placeholder={t("transcriptionSettings.dictionary.replacementPlaceholder")} aria-label={t("transcriptionSettings.dictionary.replacementPlaceholder")} className="min-w-0 rounded border border-line bg-canvas px-2 py-1.5 text-sm" />
+            <button type="button" onClick={add} disabled={!spokenForm.trim() || !replacement.trim()} className="rounded bg-accent px-3 py-1.5 text-sm text-canvas disabled:opacity-40">{t("transcriptionSettings.dictionary.add")}</button>
+          </div>
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t("transcriptionSettings.dictionary.searchPlaceholder")} aria-label={t("transcriptionSettings.dictionary.searchPlaceholder")} className="mt-3 shrink-0 rounded border border-line bg-canvas px-2 py-1.5 text-sm" />
+          <div className="mt-3 flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto overscroll-contain">
+            {visible.map((entry) => (
+              <div key={`${entry.language}:${entry.spoken_form}`} className="flex items-center justify-between gap-3 rounded border border-line px-2 py-1.5 text-sm">
+                <span className="min-w-0 break-words"><span className="text-muted">{entry.spoken_form}</span> <span className="text-muted">→</span> <span className="font-medium text-fg">{entry.replacement}</span></span>
+                <button type="button" onClick={() => void persist((entries ?? []).filter((item) => item !== entry))} className="shrink-0 text-xs text-muted hover:text-danger">{t("transcriptionSettings.dictionary.remove")}</button>
+              </div>
+            ))}
+          </div>
+          <div className="mt-4 flex shrink-0 justify-end gap-3 border-t border-line pt-3 text-xs">
+            <button type="button" onClick={() => downloadJson("tucky-dictionary.json", entries ?? [])} className="text-muted hover:text-fg">{t("transcriptionSettings.dictionary.exportJson")}</button>
+            <label className="cursor-pointer text-muted hover:text-fg">{t("transcriptionSettings.dictionary.importJson")}<input type="file" accept="application/json,.json" className="hidden" onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (!file) return;
+              void readJsonFile<DictionaryEntry[]>(file).then((value) => {
+                if (!Array.isArray(value) || value.some((item) => !item.spoken_form || typeof item.replacement !== "string")) throw new Error(t("transcriptionSettings.dictionary.invalidFile"));
+                return persist(value.map((item) => ({ ...item, language: item.language || "auto" })));
+              }).catch((e) => toasts.push({ tone: "error", message: e instanceof Error ? e.message : String(e) }));
+              event.target.value = "";
+            }} /></label>
+          </div>
+        </Dialog>
+      )}
+    </>
   );
 }
 

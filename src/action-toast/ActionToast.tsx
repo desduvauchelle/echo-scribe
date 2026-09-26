@@ -199,7 +199,7 @@ export default function ActionToast() {
         onMouseEnter={clearTimers}
         onMouseLeave={() => scheduleDismiss(1_500)}
       >
-        <div className="action-toast-mark" style={{ background: meta.accent }} aria-hidden="true">
+        <div className="action-toast-mark" style={{ borderColor: meta.accent }} aria-hidden="true">
           {meta.icon}
         </div>
 

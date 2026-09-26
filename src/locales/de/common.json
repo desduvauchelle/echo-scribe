@@ -40,14 +40,24 @@
       "transcriptionBadge": "Diktat",
       "logCaptureBadge": "Sprachnotiz",
       "taskBadge": "Aufgabe",
-      "deletedBadge": "Gelöscht"
+      "deletedBadge": "Gelöscht",
+      "unsorted": "Unsortiert",
+      "changeType": "Typ ändern",
+      "copy": "Text kopieren",
+      "copied": "Kopiert",
+      "copyFailed": "Kopieren in die Zwischenablage fehlgeschlagen.",
+      "moveToTrash": "In den Papierkorb",
+      "restore": "Aus dem Papierkorb wiederherstellen",
+      "inTrash": "Im Papierkorb",
+      "saveFailed": "Änderung konnte nicht gespeichert werden. Siehe Einstellungen → Diagnose → Logs."
     },
     "content": {
       "label": "Inhalt",
       "saving": "Wird gespeichert…",
       "unsaved": "Nicht gespeichert",
       "saved": "Gespeichert",
-      "empty": "Kein Inhalt."
+      "empty": "Kein Inhalt.",
+      "editAriaLabel": "Text bearbeiten"
     },
     "kind": {
       "label": "Art",
@@ -94,7 +104,8 @@
       "completed": "Erledigt",
       "markComplete": "Als erledigt markieren",
       "deadline": "Fällig am",
-      "clear": "Löschen"
+      "clear": "Löschen",
+      "markIncomplete": "Als offen markieren"
     },
     "meetingView": {
       "peopleToggle": "Personen",
@@ -209,6 +220,32 @@
       "copyContent": "Inhalt kopieren",
       "restore": "Wiederherstellen",
       "delete": "Löschen"
+    },
+    "props": {
+      "due": "Fällig",
+      "importance": "Wichtigkeit",
+      "noProject": "Kein Projekt",
+      "addTag": "Tag hinzufügen…",
+      "setDue": "Fälligkeit festlegen…",
+      "overdue": "Überfällig",
+      "today": "Heute",
+      "tomorrow": "Morgen",
+      "clearDue": "Fälligkeit entfernen"
+    },
+    "importance": {
+      "high": "Hoch",
+      "medium": "Mittel",
+      "low": "Niedrig"
+    },
+    "captured": {
+      "label": "Erfasst in",
+      "details": "Details",
+      "projectAssistant": "Projektassistent",
+      "filedByAssistant": "Automatisch vom Projektassistenten abgelegt",
+      "sortedByAi": "Von KI sortiert · {{pct}} % Sicherheit"
+    },
+    "history": {
+      "label": "Verlauf"
     }
   },
   "activityPanelContext": {},
@@ -339,7 +376,10 @@
       "kind_changed": "Art geändert",
       "project_changed": "Projekt geändert",
       "tags_changed": "Tags aktualisiert",
-      "classified": "Automatisch klassifiziert"
+      "classified": "Automatisch klassifiziert",
+      "project_assigned": "Abgelegt unter",
+      "paste_dispatched": "Eingefügt",
+      "importance_changed": "Wichtigkeit geändert"
     },
     "activityTab": {
       "noActivity": "Keine Aktivität aufgezeichnet."
@@ -492,7 +532,15 @@
       "cyan": "Cyan",
       "blue": "Blau",
       "violet": "Violett",
-      "pink": "Pink"
+      "pink": "Pink",
+      "burgundy": "Bordeauxrot",
+      "coral": "Koralle",
+      "amber": "Bernstein",
+      "lime": "Limettengrün",
+      "teal": "Petrol",
+      "sky": "Himmelblau",
+      "indigo": "Indigo",
+      "slate": "Schiefergrau"
     },
     "nameRequired": "Projektname ist erforderlich.",
     "saveFailed": "Speichern fehlgeschlagen: {{error}}",
@@ -798,6 +846,8 @@
     },
     "dictionary": {
       "title": "Wörterbuch",
+      "manage": "Wörterbuch verwalten",
+      "close": "Schließen",
       "description": "Ordne einem gesprochenen Wort oder einer Phrase eine exakte Schreibweise, Groß-/Kleinschreibung oder Zeichensetzung zu.",
       "exportJson": "JSON exportieren",
       "importJson": "JSON importieren",

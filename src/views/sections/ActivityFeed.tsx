@@ -1,19 +1,27 @@
 import { listen } from "@tauri-apps/api/event";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Inbox, Mic } from "lucide-react";
 import {
   countItemsForProject,
   listItems,
+  listMeetings,
   listRecordings,
   type Item,
-  type ItemKind,
+  type MeetingRow,
   type Project,
   type RecordingRow,
 } from "../../lib/api";
 import ActivityLedgerEntry from "../../components/ActivityLedgerEntry";
-import { mergeFeed, type FeedEntry } from "../../lib/feed";
+import { useTaskIndex } from "../../lib/useTaskIndex";
+import KindFilterBar, { type KindFilter } from "../../components/KindFilterBar";
+import {
+  groupFeedByDay,
+  mergeFeed,
+  type FeedDayGroup,
+  type FeedEntry,
+} from "../../lib/feed";
 import { useActivityPanel } from "../../components/ActivityPanelContext";
+import TasksView from "./TasksView";
 
 type Props = {
   /** Optional project filter; when present, the feed shows only that project. */
@@ -22,17 +30,18 @@ type Props = {
   projects: Map<string, Project>;
 };
 
-type KindFilter = "all" | ItemKind | "recording";
-
 const PAGE_SIZE = 50;
 
+/** Project page feed. Uses the Dashboard's filter toolbar, ledger section and
+ *  entry components so both pages look the same. */
 export default function ActivityFeed({
   project,
   projects,
 }: Props) {
-  const { t } = useTranslation("main");
+  const { t, i18n } = useTranslation("main");
   const [items, setItems] = useState<Item[]>([]);
   const [recordings, setRecordings] = useState<RecordingRow[]>([]);
+  const [meetings, setMeetings] = useState<MeetingRow[]>([]);
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -42,15 +51,23 @@ export default function ActivityFeed({
   const { refreshTick } = useActivityPanel();
 
   const projectId = project?.id ?? null;
+  const { tasks: taskIndex, reload: reloadTaskIndex } = useTaskIndex(projectId);
+  // Read inside fetch callbacks so listeners always fetch the active filter.
+  const kindRef = useRef<KindFilter>(kindFilter);
+  kindRef.current = kindFilter;
 
   const fetchPage = useCallback(
     async (mode: "reset" | "append") => {
+      const kf = kindRef.current;
+      // Tasks render through TasksView; recordings have their own source.
+      if (kf === "task" || kf === "recording") return;
       setLoading(true);
       setError(null);
       try {
         const nextOffset = mode === "reset" ? 0 : offset;
         const page = await listItems({
           project_id: projectId,
+          kind: kf === "all" ? undefined : kf,
           limit: PAGE_SIZE,
           offset: nextOffset,
         });
@@ -71,6 +88,15 @@ export default function ActivityFeed({
     [offset, projectId],
   );
 
+  // Meeting rows let meeting items render as the Dashboard's meeting card.
+  const loadMeetings = useCallback(async () => {
+    try {
+      setMeetings(await listMeetings());
+    } catch {
+      /* non-fatal: meetings fall back to plain item rows */
+    }
+  }, []);
+
   // Recordings have no project, so they only appear in the global feed.
   const loadRecordings = useCallback(async () => {
     if (projectId) {
@@ -89,16 +115,21 @@ export default function ActivityFeed({
     setOffset(0);
     setHasMore(true);
     void fetchPage("reset");
-    void loadRecordings();
     // Intentionally re-run only when filters/project change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId]);
+  }, [projectId, kindFilter]);
+
+  useEffect(() => {
+    void loadRecordings();
+    void loadMeetings();
+  }, [loadRecordings, loadMeetings]);
 
   // Refetch when the activity panel reports a save/delete.
   useEffect(() => {
     if (refreshTick === 0) return;
     void fetchPage("reset");
     void loadRecordings();
+    void loadMeetings();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshTick]);
 
@@ -110,14 +141,18 @@ export default function ActivityFeed({
         if (cancelled) return;
         void fetchPage("reset");
         void loadRecordings();
+        void loadMeetings();
       };
-      const u1 = await listen("item:created", handler);
-      const u2 = await listen("app:refresh", handler);
+      const subs = await Promise.all([
+        listen("item:created", handler),
+        listen("app:refresh", handler),
+        listen("meeting-status", handler),
+        listen("meeting-complete", handler),
+      ]);
       if (cancelled) {
-        u1();
-        u2();
+        subs.forEach((u) => u());
       } else {
-        unlisteners.push(u1, u2);
+        unlisteners.push(...subs);
       }
     };
     void subscribe();
@@ -147,150 +182,126 @@ export default function ActivityFeed({
     };
   }, [project]);
 
-  const filteredItems = useMemo(() => {
-    if (kindFilter === "recording") return [];
-    if (kindFilter === "all") return items;
-    if (kindFilter === "transcription") {
-      return items.filter(
-        (i) => i.kind === "transcription" || i.source === "voice_at_cursor",
-      );
-    }
-    if (kindFilter === "meeting") {
-      return items.filter(
-        (i) => i.kind === "meeting" || i.source === "meeting",
-      );
-    }
-    return items.filter((i) => i.kind === kindFilter);
-  }, [items, kindFilter]);
-
-  // Recordings interleave under "All" and "Recordings" (global feed only).
   const entries = useMemo<FeedEntry[]>(() => {
-    const recs =
-      kindFilter === "all" || kindFilter === "recording" ? recordings : [];
-    return mergeFeed(filteredItems, recs);
-  }, [filteredItems, recordings, kindFilter]);
+    if (kindFilter === "recording") return mergeFeed([], recordings);
+    const visible =
+      kindFilter === "transcription"
+        ? items.filter((i) => i.kind === "transcription" || i.source === "voice_at_cursor")
+        : items;
+    // Swap loaded meeting items for their meeting row → MeetingCard.
+    const loadedIds = new Set(visible.map((i) => i.id));
+    const mtgs = meetings.filter((m) => loadedIds.has(m.item_id));
+    const recs = kindFilter === "all" ? recordings : [];
+    return mergeFeed(visible, recs, mtgs);
+  }, [items, recordings, meetings, kindFilter]);
+
+  const isTasks = kindFilter === "task";
+
+  // Same day dividers (and i18n keys / .echo-feed-day styling) as the Dashboard.
+  const groupLabel = (group: FeedDayGroup) =>
+    group.day === "today"
+      ? t("dashboard.activity.todayLabel")
+      : group.day === "yesterday"
+        ? t("dashboard.activity.yesterdayLabel")
+        : group.date.toLocaleDateString(i18n.language, {
+            weekday: "long",
+            month: "long",
+            day: "numeric",
+            ...(group.date.getFullYear() !== new Date().getFullYear()
+              ? { year: "numeric" as const }
+              : {}),
+          });
 
   return (
-    <div className="flex h-full flex-col">
-      {!project && (
-        <div className="border-b border-line bg-canvas/40 px-6 py-4">
-          <h1 className="text-lg font-semibold tracking-tight">{t("activityFeed.header.allActivityTitle")}</h1>
-          <p className="text-xs text-muted">{t("activityFeed.header.allActivitySubtitle")}</p>
-        </div>
-      )}
-
-      <div className="flex flex-wrap items-center gap-3 border-b border-line bg-canvas/40 px-6 py-3 text-xs text-muted">
-        {project && projectCount !== null && <span className="mr-auto">{t("activityFeed.header.captureCount", { count: projectCount })}</span>}
-        <FilterGroup<KindFilter>
-          label={t("activityFeed.filter.kindLabel")}
+    <div className="echo-dashboard flex h-full min-h-0 flex-col overflow-hidden">
+      <div className="echo-dashboard-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain px-7 pb-5">
+        <KindFilterBar
           value={kindFilter}
-          options={[
-            { value: "all", label: t("activityFeed.filter.options.all") },
-            { value: "transcription", label: t("activityFeed.filter.options.transcription") },
-            { value: "note", label: t("activityFeed.filter.options.note") },
-            { value: "task", label: t("activityFeed.filter.options.task") },
-            { value: "meeting", label: t("activityFeed.filter.options.meeting") },
-            { value: "recording", label: t("activityFeed.filter.options.recording") },
-          ]}
           onChange={setKindFilter}
-        />
-      </div>
+          hide={project ? ["recording"] : []}
+        >
+          {project && projectCount !== null ? (
+            <span className="text-[11px] tabular-nums text-faint">
+              {t("activityFeed.header.captureCount", { count: projectCount })}
+            </span>
+          ) : null}
+        </KindFilterBar>
 
-      <div className="flex-1 overflow-y-auto px-6 py-4">
-        {error ? (
-          <div className="mb-3 rounded-md border border-danger/40 bg-danger/15 px-3 py-2 text-sm text-danger">
-            {error}{" "}
-            <button
-              type="button"
-              onClick={() => void fetchPage("reset")}
-              className="ml-2 underline"
-            >
-              {t("activityFeed.error.retry")}
-            </button>
-          </div>
-        ) : null}
+        <section
+          className="echo-activity-ledger"
+          aria-label={project ? project.name : t("activityFeed.header.allActivityTitle")}
+        >
 
-        {loading && entries.length === 0 ? (
-          <SkeletonList />
-        ) : entries.length === 0 ? (
-          <EmptyState
-            icon={
-              project ? (
-                <Inbox size={20} strokeWidth={1.75} />
-              ) : (
-                <Mic size={20} strokeWidth={1.75} />
-              )
-            }
-            title={
-              kindFilter === "recording"
-                ? t("activityFeed.emptyState.noRecordings")
-                : project
-                  ? t("activityFeed.emptyState.nothingInProject", { name: project.name })
-                  : t("activityFeed.emptyState.noCaptures")
-            }
-            subtitle={
-              kindFilter === "recording"
-                ? t("activityFeed.emptyState.recordingsSubtitle")
-                : project
-                  ? t("activityFeed.emptyState.projectSubtitle")
-                  : t("activityFeed.emptyState.defaultSubtitle")
-            }
-          />
-        ) : (
-          <div className="echo-activity-ledger flex flex-col">
-            {entries.map((entry) => (
-              <ActivityLedgerEntry
-                key={entry.key}
-                entry={entry}
-                projects={projects}
-              />
-            ))}
-            {hasMore && kindFilter !== "recording" ? (
-              <div className="my-3 flex justify-center">
-                <button
-                  type="button"
-                  onClick={() => void fetchPage("append")}
-                  disabled={loading}
-                  className="rounded border border-line px-4 py-1 text-xs hover:bg-elevated disabled:opacity-50"
-                >
-                  {loading ? t("activityFeed.loadMore.loading") : t("activityFeed.loadMore.label")}
-                </button>
-              </div>
-            ) : null}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
+          {error ? (
+            <div className="my-3 rounded-md border border-danger/40 bg-danger/15 px-3 py-2 text-sm text-danger">
+              {error}{" "}
+              <button
+                type="button"
+                onClick={() => void fetchPage("reset")}
+                className="ml-2 underline"
+              >
+                {t("activityFeed.error.retry")}
+              </button>
+            </div>
+          ) : null}
 
-function FilterGroup<T extends string>(props: {
-  label: string;
-  value: T;
-  options: { value: T; label: string }[];
-  onChange: (v: T) => void;
-}) {
-  return (
-    <div className="flex items-center gap-1">
-      <span className="text-faint">{props.label}:</span>
-      <div className="flex overflow-hidden rounded-md border border-line">
-        {props.options.map((opt) => {
-          const active = opt.value === props.value;
-          return (
-            <button
-              key={opt.value}
-              type="button"
-              onClick={() => props.onChange(opt.value)}
-              className={`px-2 py-1 ${
-                active
-                  ? "bg-fg text-canvas"
-                  : "bg-surface text-muted hover:bg-elevated"
-              }`}
-            >
-              {opt.label}
-            </button>
-          );
-        })}
+          {isTasks ? (
+            <div className="py-3">
+              <TasksView projects={projects} embedded projectId={projectId} />
+            </div>
+          ) : loading && entries.length === 0 ? (
+            <SkeletonList />
+          ) : entries.length === 0 ? (
+            <div className="px-4 py-8 text-center">
+              <p className="text-xs text-muted">
+                {kindFilter === "recording"
+                  ? t("activityFeed.emptyState.noRecordings")
+                  : project
+                    ? t("activityFeed.emptyState.nothingInProject", { name: project.name })
+                    : t("activityFeed.emptyState.noCaptures")}
+              </p>
+              <p className="mt-1 text-[11px] text-faint">
+                {kindFilter === "recording"
+                  ? t("activityFeed.emptyState.recordingsSubtitle")
+                  : project
+                    ? t("activityFeed.emptyState.projectSubtitle")
+                    : t("activityFeed.emptyState.defaultSubtitle")}
+              </p>
+            </div>
+          ) : (
+            <div className="flex flex-col">
+              {groupFeedByDay(entries).map((group) => (
+                <div key={group.key} role="group" aria-label={groupLabel(group)}>
+                  <div className="echo-feed-day" aria-hidden="true">
+                    {groupLabel(group)}
+                  </div>
+                  {group.entries.map((entry) => (
+                    <ActivityLedgerEntry
+                      key={entry.key}
+                      entry={entry}
+                      projects={projects}
+                      hideProject={project}
+                      tasks={taskIndex}
+                      onTaskChanged={() => void reloadTaskIndex()}
+                    />
+                  ))}
+                </div>
+              ))}
+              {hasMore && kindFilter !== "recording" ? (
+                <div className="my-3 flex justify-center">
+                  <button
+                    type="button"
+                    onClick={() => void fetchPage("append")}
+                    disabled={loading}
+                    className="rounded border border-line px-4 py-1 text-xs hover:bg-elevated disabled:opacity-50"
+                  >
+                    {loading ? t("activityFeed.loadMore.loading") : t("activityFeed.loadMore.label")}
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          )}
+        </section>
       </div>
     </div>
   );

@@ -652,6 +652,58 @@ ALTER TABLE projects ADD COLUMN instructions TEXT;
 ALTER TABLE projects ADD COLUMN reference_folders TEXT NOT NULL DEFAULT '[]';
 "#,
     ),
+    (
+        34,
+        r#"
+ALTER TABLE items ADD COLUMN importance TEXT
+  CHECK (importance IS NULL OR importance IN ('high','medium','low'));
+"#,
+    ),
+    (
+        35,
+        r#"
+-- Post-meeting debrief: NULL = legacy / not applicable, else
+-- 'pending' | 'done' | 'dismissed'.
+ALTER TABLE meetings ADD COLUMN debrief_status TEXT;
+
+-- Who a task is assigned to. NULL = me.
+ALTER TABLE tasks ADD COLUMN assignee_person_id TEXT REFERENCES people(id) ON DELETE SET NULL;
+
+-- LLM-suggested follow-ups from a meeting. Never auto-promoted: a row only
+-- becomes a task item when the user accepts it in the debrief.
+CREATE TABLE meeting_task_suggestions (
+  id              TEXT PRIMARY KEY,
+  meeting_id      TEXT NOT NULL REFERENCES meetings(item_id) ON DELETE CASCADE,
+  text            TEXT NOT NULL,
+  owner_name      TEXT,
+  status          TEXT NOT NULL DEFAULT 'pending',
+  created_item_id TEXT REFERENCES items(id),
+  created_at      TEXT NOT NULL,
+  updated_at      TEXT NOT NULL
+);
+CREATE INDEX idx_meeting_task_suggestions_meeting
+  ON meeting_task_suggestions(meeting_id, status);
+"#,
+    ),
+    (
+        36,
+        r#"
+-- Dashboard "Focus" tasks: the two or three things to push on today. NULL =
+-- ordinary task; a number = focus task, ordered by it on the dashboard. Focus
+-- tasks are kept out of the regular task lists.
+ALTER TABLE tasks ADD COLUMN focus_rank INTEGER;
+"#,
+    ),
+    (
+        37,
+        r#"
+CREATE TABLE daily_focus_notes (
+  local_date TEXT PRIMARY KEY,
+  content TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+"#,
+    ),
 ];
 
 const META_TABLE_SQL: &str = r#"
@@ -909,7 +961,7 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(version, "33");
+        assert_eq!(version, MIGRATIONS.last().unwrap().0.to_string());
     }
 
     #[test]
@@ -1098,6 +1150,27 @@ mod tests {
         run_migrations(&mut conn).unwrap();
         conn.execute_batch("SELECT summary_template_id, transparency_ack, consent_message FROM meeting_preferences LIMIT 0")
             .unwrap();
+    }
+
+    #[test]
+    fn migration_v35_adds_meeting_debrief_schema() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        run_migrations(&mut conn).unwrap();
+        conn.execute_batch(
+            "SELECT debrief_status FROM meetings LIMIT 0;
+             SELECT assignee_person_id FROM tasks LIMIT 0;
+             SELECT id, meeting_id, text, owner_name, status, created_item_id, created_at, updated_at
+             FROM meeting_task_suggestions LIMIT 0;",
+        )
+        .unwrap();
+        let idx: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_meeting_task_suggestions_meeting'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(idx, 1);
     }
 
     #[test]

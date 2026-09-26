@@ -21,13 +21,21 @@ type Props = {
 
 const COLOR_PALETTE: Array<{ value: string; nameKey: string }> = [
   { value: "#ef4444", nameKey: "red" },
+  { value: "#9f1239", nameKey: "burgundy" },
+  { value: "#fb7185", nameKey: "coral" },
   { value: "#f97316", nameKey: "orange" },
+  { value: "#f59e0b", nameKey: "amber" },
   { value: "#eab308", nameKey: "yellow" },
+  { value: "#84cc16", nameKey: "lime" },
   { value: "#22c55e", nameKey: "green" },
+  { value: "#14b8a6", nameKey: "teal" },
   { value: "#06b6d4", nameKey: "cyan" },
+  { value: "#0ea5e9", nameKey: "sky" },
   { value: "#3b82f6", nameKey: "blue" },
+  { value: "#6366f1", nameKey: "indigo" },
   { value: "#8b5cf6", nameKey: "violet" },
   { value: "#ec4899", nameKey: "pink" },
+  { value: "#64748b", nameKey: "slate" },
 ];
 
 export default function ProjectEditor({
@@ -373,13 +381,13 @@ export default function ProjectEditor({
 
       <div className="flex flex-col gap-1 text-xs text-muted">
         {t("projectEditor.colorLabel")}
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {COLOR_PALETTE.map((c) => (
             <button
               type="button"
               key={c.value}
               onClick={() => setColor(c.value === color ? null : c.value)}
-              className={`h-6 w-6 rounded-full border-2 ${c.value === color ? "border-fg" : "border-transparent"}`}
+              className={`h-6 w-6 shrink-0 rounded-full border-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fg ${c.value === color ? "border-fg" : "border-transparent"}`}
               style={{ backgroundColor: c.value }}
               aria-pressed={c.value === color}
               aria-label={t(`projectEditor.colorNames.${c.nameKey}`)}

@@ -37,6 +37,7 @@ export default function ChatView({ projects }: Props) {
   const [projectFilter, setProjectFilter] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const skipLoadForRef = useRef<string | null>(null);
 
   useEffect(() => {
     void loadSessions();
@@ -47,6 +48,10 @@ export default function ChatView({ projects }: Props) {
   useEffect(() => {
     if (!activeSessionId) {
       setMessages([]);
+      return;
+    }
+    if (skipLoadForRef.current === activeSessionId) {
+      skipLoadForRef.current = null;
       return;
     }
     loadChatMessages(activeSessionId).then(setMessages).catch(console.error);
@@ -95,13 +100,28 @@ export default function ChatView({ projects }: Props) {
   };
 
   const send = async () => {
-    if (!activeSessionId) return;
     const text = input.trim();
     if (!text || loading) return;
+    let sessionId = activeSessionId;
+    if (!sessionId) {
+      // No chat selected: typing + Send starts a new chat implicitly.
+      try {
+        const session = await createChatSession(projectFilter);
+        sessionId = session.id;
+        // The new session has no stored messages; skip the load effect so it
+        // doesn't clobber the optimistic user message below.
+        skipLoadForRef.current = session.id;
+        setSessions((prev) => [session, ...prev]);
+        setActiveSessionId(session.id);
+      } catch (e) {
+        console.error("chat: failed to create session on send", e);
+        return;
+      }
+    }
     setInput("");
     const optimisticMsg: ChatMessage = {
       id: crypto.randomUUID(),
-      session_id: activeSessionId,
+      session_id: sessionId,
       role: "user",
       content: text,
       created_at: new Date().toISOString(),
@@ -109,11 +129,11 @@ export default function ChatView({ projects }: Props) {
     setMessages((prev) => [...prev, optimisticMsg]);
     setLoading(true);
     try {
-      const { reply, sources } = await chatWithMemory(activeSessionId, text, projectFilter);
+      const { reply, sources } = await chatWithMemory(sessionId, text, projectFilter);
       const assistantId = crypto.randomUUID();
       const assistantMsg: ChatMessage = {
         id: assistantId,
-        session_id: activeSessionId,
+        session_id: sessionId,
         role: "assistant",
         content: reply,
         created_at: new Date().toISOString(),
@@ -126,7 +146,7 @@ export default function ChatView({ projects }: Props) {
     } catch (e) {
       const errMsg: ChatMessage = {
         id: crypto.randomUUID(),
-        session_id: activeSessionId,
+        session_id: sessionId,
         role: "assistant",
         content: t("chat.errorPrefix", { error: e instanceof Error ? e.message : String(e) }),
         created_at: new Date().toISOString(),
@@ -263,12 +283,12 @@ export default function ChatView({ projects }: Props) {
               rows={2}
               aria-label={t("chat.input.ariaLabel")}
               className="flex-1 resize-none rounded-md border border-line bg-canvas px-3 py-2 text-sm focus:border-accent focus:outline-none disabled:opacity-40"
-              disabled={loading || !activeSessionId}
+              disabled={loading}
             />
             <button
               type="button"
               onClick={() => void send()}
-              disabled={!input.trim() || loading || !activeSessionId}
+              disabled={!input.trim() || loading}
               className="inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-accent px-3 py-2 text-xs font-semibold text-canvas transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-40"
             >
               <Send size={12} strokeWidth={2.25} aria-hidden="true" />

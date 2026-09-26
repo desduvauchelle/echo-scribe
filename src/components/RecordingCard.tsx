@@ -98,14 +98,12 @@ export default function RecordingCard({
           </span>
         </div>
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-muted">
-          <span>{relativeTimeLabel(t, new Date(rec.created_at).toISOString())}</span>
-          <span>·</span>
-          <span>{fmtSize(rec.size_bytes)}</span>
           {project ? (
             <span className="rounded-full bg-elevated px-2 py-0.5 text-fg">
               {project.name}
             </span>
           ) : null}
+          <span>{fmtSize(rec.size_bytes)}</span>
           {rec.upload_status === "uploading" ? (
             <span className="inline-flex items-center gap-1 text-muted">
               <Loader size={11} className="animate-spin" aria-hidden="true" /> {t("recordingCard.uploading")}
@@ -119,6 +117,9 @@ export default function RecordingCard({
           {rec.upload_status === "error" ? (
             <span className="text-danger">{t("recordingCard.uploadFailed")}</span>
           ) : null}
+          <span className="ml-auto shrink-0 tabular-nums">
+            {relativeTimeLabel(t, new Date(rec.created_at).toISOString())}
+          </span>
         </div>
       </div>
 

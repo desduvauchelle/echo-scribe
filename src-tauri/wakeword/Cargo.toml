@@ -1,0 +1,14 @@
+[package]
+name = "tucky-wakeword"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# A separate process keeps this engine's ONNX runtime isolated from Parakeet.
+[workspace]
+
+[dependencies]
+sherpa-onnx = "=1.13.8"
+
+[profile.release]
+strip = true

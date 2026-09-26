@@ -81,6 +81,7 @@ pub struct AppState {
     /// `start_pipeline`.
     pub coord_tx: Mutex<Option<UnboundedSender<CoordinatorMsg>>>,
     pub pipeline_state: StateHandle,
+    pub wake_status: Mutex<crate::wakeword::WakeStatus>,
     pub asr: Arc<AsrPipeline>,
     pub llm: Arc<Llm>,
     pub embedder: Arc<crate::embed::Embedder>,
@@ -455,6 +456,38 @@ pub fn update_edit_selection_binding(
 #[tauri::command]
 pub fn get_trigger_word_routing_enabled(state: State<'_, AppState>) -> bool {
     state.settings.trigger_word_routing_enabled()
+}
+
+#[tauri::command]
+pub fn get_wake_word_status(state: State<'_, AppState>) -> crate::wakeword::WakeStatus {
+    let mut status = state.wake_status.lock().map(|s| s.clone()).unwrap_or_default();
+    let enabled = state.settings.wake_word_enabled();
+    if enabled && !status.enabled {
+        status.state = "paused".into();
+        status.message = "Finish Tucky setup to resume wake-word listening".into();
+    }
+    status.enabled = enabled;
+    status
+}
+
+#[tauri::command]
+pub fn set_wake_word_enabled(app: AppHandle, state: State<'_, AppState>, enabled: bool) -> Result<(), String> {
+    if state.settings.wake_word_enabled() == enabled { return Ok(()); }
+    if enabled {
+        crate::wakeword::paths(&app)?;
+        if !permissions::status().microphone { return Err("Allow microphone access first".into()); }
+        if !state.asr.ready() { return Err("Download a speech model first".into()); }
+        if !state.settings.app_launcher_enabled() { return Err("Enable Tucky commands first".into()); }
+    }
+    state.settings.set_wake_word_enabled(enabled).map_err(|e| e.to_string())?;
+    if enabled { ensure_pipeline_started(&state, &app); }
+    crate::wakeword::publish(&app,
+        if enabled { "starting" } else { "off" },
+        if enabled { "Starting wake-word listener…" } else { "Wake word is off" });
+    if let Ok(tx) = state.coord_tx.lock() {
+        if let Some(tx) = tx.as_ref() { let _ = tx.send(CoordinatorMsg::WakeTick); }
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -902,12 +935,17 @@ pub fn search_items(
 }
 
 #[tauri::command]
-pub fn delete_item(state: State<'_, AppState>, id: String) -> Result<(), String> {
+pub fn delete_item(app: AppHandle, state: State<'_, AppState>, id: String) -> Result<(), String> {
     let db = require_db(&state)?;
+    let was_focus = db.with_conn(|c| db::tasks::is_focus_task(c, &id)).map_err(|e| e.to_string())?;
     db.with_conn(|c| db::items::soft_delete_item(c, &id))
         .map_err(|e| e.to_string())?;
     let id_for_event = id.clone();
     let _ = db.with_conn(move |c| db::events::insert_event(c, &id_for_event, "deleted", None));
+    if was_focus {
+        let _ = app.emit("focus:changed", ());
+        let _ = crate::desktop_pet::sync_daily_focus_bubble(&app);
+    }
     Ok(())
 }
 
@@ -1415,23 +1453,178 @@ pub fn list_tasks(
 }
 
 #[tauri::command]
-pub fn complete_task(state: State<'_, AppState>, item_id: String) -> Result<(), String> {
+pub fn complete_task(app: AppHandle, state: State<'_, AppState>, item_id: String) -> Result<(), String> {
     let db = require_db(&state)?;
     let now = chrono_now_iso();
     db.with_conn(|c| db::tasks::complete_task(c, &item_id, &now))
         .map_err(|e| e.to_string())?;
     let id_ev = item_id.clone();
     let _ = db.with_conn(move |c| db::events::insert_event(c, &id_ev, "completed", None));
+    // The dashboard Focus board shows completion state; ticking a task
+    // elsewhere (feed, Tasks view) must refresh it too.
+    let _ = app.emit("focus:changed", ());
     Ok(())
 }
 
 #[tauri::command]
-pub fn uncomplete_task(state: State<'_, AppState>, item_id: String) -> Result<(), String> {
+pub fn uncomplete_task(app: AppHandle, state: State<'_, AppState>, item_id: String) -> Result<(), String> {
     let db = require_db(&state)?;
     db.with_conn(|c| db::tasks::uncomplete_task(c, &item_id))
         .map_err(|e| e.to_string())?;
     let id_ev = item_id.clone();
     let _ = db.with_conn(move |c| db::events::insert_event(c, &id_ev, "uncompleted", None));
+    let _ = app.emit("focus:changed", ());
+    Ok(())
+}
+
+// ----- Focus tasks (dashboard Focus section) -----
+
+fn valid_local_date(date: &str) -> bool {
+    let bytes = date.as_bytes();
+    bytes.len() == 10 && bytes[4] == b'-' && bytes[7] == b'-'
+        && bytes.iter().enumerate().all(|(i, byte)| i == 4 || i == 7 || byte.is_ascii_digit())
+        && chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d").is_ok()
+}
+
+#[tauri::command]
+pub fn get_daily_focus_note(
+    state: State<'_, AppState>,
+    local_date: String,
+) -> Result<Option<db::daily_focus_notes::DailyFocusNote>, String> {
+    if !valid_local_date(&local_date) { return Err("Invalid local date".into()); }
+    let db = require_db(&state)?;
+    db.with_conn(|conn| db::daily_focus_notes::get(conn, &local_date)).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_morning_focus_enabled(state: State<'_, AppState>) -> bool {
+    state.settings.morning_focus_enabled()
+}
+
+#[tauri::command]
+pub fn set_morning_focus_enabled(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    enabled: bool,
+) -> Result<(), String> {
+    state.settings.set_morning_focus_enabled(enabled).map_err(|e| e.to_string())?;
+    let _ = app.emit("morning-focus:enabled-changed", enabled);
+    let _ = crate::desktop_pet::sync_daily_focus_bubble(&app);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn save_daily_focus_note(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    local_date: String,
+    content: String,
+) -> Result<db::daily_focus_notes::DailyFocusNote, String> {
+    if !valid_local_date(&local_date) { return Err("Invalid local date".into()); }
+    let content = content.trim();
+    if content.chars().count() > 8000 {
+        return Err("Write a note of up to 8,000 characters".into());
+    }
+    let db = require_db(&state)?;
+    let note = db.with_conn(|conn| db::daily_focus_notes::save(conn, &local_date, content))
+        .map_err(|e| e.to_string())?;
+    let _ = app.emit("daily-focus:changed", &note);
+    let _ = crate::desktop_pet::sync_daily_focus_bubble(&app);
+    Ok(note)
+}
+
+#[tauri::command]
+pub fn set_daily_focus_recording(
+    window: tauri::WebviewWindow<Wry>,
+    state: State<'_, AppState>,
+    recording: bool,
+) -> Result<(), String> {
+    if window.label() != "main" { return Err("Only the dashboard can control this recording".into()); }
+    if state.paused_hotkeys.load(Ordering::SeqCst) { return Err("Resume voice capture first".into()); }
+    if recording {
+        if !state.asr.ready() { return Err("Download a speech model first".into()); }
+        ensure_pipeline_started(&state, window.app_handle());
+    }
+    let expected = if recording { coordinator::PipelineState::Idle }
+        else { coordinator::PipelineState::Recording(Action::VoiceAtCursor) };
+    if *state.pipeline_state.lock().map_err(|e| e.to_string())? != expected {
+        return Err("Another voice action is in progress".into());
+    }
+    let slot = state.coord_tx.lock().map_err(|e| e.to_string())?;
+    let tx = slot.as_ref().ok_or("Voice pipeline is not running")?;
+    tx.send(CoordinatorMsg::Hotkey(Action::VoiceAtCursor,
+        if recording { HotkeyEvent::Pressed } else { HotkeyEvent::Released }))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn list_focus_tasks(state: State<'_, AppState>) -> Result<Vec<db::tasks::FocusTask>, String> {
+    let db = require_db(&state)?;
+    db.with_conn(db::tasks::list_focus_tasks).map_err(|e| {
+        error!(target: "focus", error = %e, "list_focus_tasks failed");
+        "Couldn't load focus tasks. See Settings → Diagnostics → logs for details.".to_string()
+    })
+}
+
+#[tauri::command]
+pub fn set_task_focus(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    item_id: String,
+    focus: bool,
+) -> Result<(), String> {
+    let db = require_db(&state)?;
+    let item = db.with_conn(|conn| db::items::get_item(conn, &item_id))
+        .map_err(|e| e.to_string())?
+        .filter(|item| item.deleted_at.is_none() && item.kind == Some(db::items::ItemKind::Task))
+        .ok_or("Only active tasks can be focused.")?;
+    db.with_conn(|conn| db::tasks::set_focus(conn, &item.id, focus))
+        .map_err(|e| e.to_string())?;
+    let _ = app.emit("focus:changed", ());
+    let _ = app.emit("app:refresh", ());
+    let _ = crate::desktop_pet::sync_daily_focus_bubble(&app);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn add_focus_task(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    project_id: Option<String>,
+    content: String,
+) -> Result<db::items::Item, String> {
+    let content = content.trim();
+    if content.is_empty() {
+        return Err("A focus item needs some text.".into());
+    }
+    let db = require_db(&state)?;
+    let item = db
+        .with_conn(|c| db::tasks::add_focus_task(c, project_id.as_deref(), content, "user"))
+        .map_err(|e| {
+            error!(target: "focus", error = %e, "add_focus_task failed");
+            "Couldn't add the focus item. See Settings → Diagnostics → logs for details."
+                .to_string()
+        })?;
+    info!(target: "focus", item_id = %item.id, has_project = project_id.is_some(), "added focus task");
+    let _ = app.emit("focus:changed", ());
+    let _ = crate::desktop_pet::sync_daily_focus_bubble(&app);
+    Ok(item)
+}
+
+#[tauri::command]
+pub fn reorder_focus_tasks(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    order: Vec<db::tasks::FocusOrderEntry>,
+) -> Result<(), String> {
+    let db = require_db(&state)?;
+    db.with_conn(|c| db::tasks::reorder_focus_tasks(c, &order))
+        .map_err(|e| {
+            error!(target: "focus", error = %e, rows = order.len(), "reorder_focus_tasks failed");
+            "Couldn't save the new order. See Settings → Diagnostics → logs for details."
+                .to_string()
+        })?;
+    let _ = app.emit("focus:changed", ());
     Ok(())
 }
 
@@ -1458,6 +1651,9 @@ pub struct UpdateItemArgs {
     pub project_id: Option<Option<String>>,
     /// `Some("note")` | `Some("task")` | `Some("")` (clear). `None` → leave alone.
     pub kind: Option<String>,
+    /// `Some("high"|"medium"|"low")` → set, `Some("")` → clear, `None` → leave alone.
+    #[serde(default)]
+    pub importance: Option<String>,
     /// `Some(vec![...])` → replace tag set. `None` → leave alone.
     pub tags: Option<Vec<String>>,
 }
@@ -1473,8 +1669,9 @@ where
 }
 
 #[tauri::command]
-pub fn update_item(state: State<'_, AppState>, args: UpdateItemArgs) -> Result<Item, String> {
+pub fn update_item(app: AppHandle, state: State<'_, AppState>, args: UpdateItemArgs) -> Result<Item, String> {
     let db = require_db(&state)?;
+    let was_focus = db.with_conn(|c| db::tasks::is_focus_task(c, &args.id)).map_err(|e| e.to_string())?;
     let kind_arg: Option<Option<ItemKind>> = match args.kind.as_deref() {
         None => None,
         Some("") => Some(None),
@@ -1482,6 +1679,15 @@ pub fn update_item(state: State<'_, AppState>, args: UpdateItemArgs) -> Result<I
             ItemKind::parse(k).ok_or_else(|| format!("invalid kind: {k}"))?,
         )),
     };
+    let importance_arg: Option<Option<db::items::ItemImportance>> =
+        match args.importance.as_deref() {
+            None => None,
+            Some("") => Some(None),
+            Some(v) => Some(Some(db::items::ItemImportance::parse(v).ok_or_else(|| {
+                tracing::warn!(target: "items", item_id = %args.id, value = %v, "rejected invalid importance");
+                format!("invalid importance: {v}")
+            })?)),
+        };
     let id_for_db = args.id.clone();
     let content_owned = args.content.clone();
     let project_arg = args.project_id.clone();
@@ -1495,6 +1701,7 @@ pub fn update_item(state: State<'_, AppState>, args: UpdateItemArgs) -> Result<I
             content_owned.as_deref(),
             project_ref,
             kind_arg,
+            importance_arg,
         )?;
         if let Some(tags) = &tags_arg {
             db::items::replace_tags(c, &id_for_db, tags)?;
@@ -1518,6 +1725,18 @@ pub fn update_item(state: State<'_, AppState>, args: UpdateItemArgs) -> Result<I
         let _ = db
             .with_conn(move |c| db::events::insert_event(c, &id_ev, "kind_changed", Some(&detail)));
     }
+    if let Some(ref imp_val) = args.importance {
+        tracing::info!(target: "items", item_id = %args.id, importance = %imp_val, "importance changed");
+        let id_ev = args.id.clone();
+        let detail = if imp_val.is_empty() {
+            "importance cleared".to_string()
+        } else {
+            format!("importance set to {imp_val}")
+        };
+        let _ = db.with_conn(move |c| {
+            db::events::insert_event(c, &id_ev, "importance_changed", Some(&detail))
+        });
+    }
     if let Some(ref proj) = args.project_id {
         let id_ev = args.id.clone();
         let detail = match proj {
@@ -1538,6 +1757,11 @@ pub fn update_item(state: State<'_, AppState>, args: UpdateItemArgs) -> Result<I
         .with_conn(move |c| db::items::get_item(c, &id_for_get))
         .map_err(|e| e.to_string())?
         .ok_or_else(|| "item not found after update".to_string())?;
+
+    if was_focus {
+        let _ = app.emit("focus:changed", ());
+        let _ = crate::desktop_pet::sync_daily_focus_bubble(&app);
+    }
 
     // Re-export markdown if the item is routed to a project with an
     // export_folder. Stable filename → overwrite. `try_export_item` is
@@ -3233,6 +3457,7 @@ pub async fn start_meeting_manual(state: tauri::State<'_, AppState>) -> Result<S
 pub(crate) fn capture_meeting_start_context() -> crate::meeting::MeetingStartContext {
     let ctx = crate::input::focus::capture_context();
     crate::meeting::MeetingStartContext {
+        focus: ctx.clone(),
         window_title: ctx.as_ref().and_then(|c| c.window_title.clone()),
         browser_url: ctx.as_ref().and_then(|c| c.browser_url.clone()),
         browser_tab_title: ctx.as_ref().and_then(|c| c.browser_tab_title.clone()),

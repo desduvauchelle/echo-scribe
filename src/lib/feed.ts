@@ -115,3 +115,50 @@ export function recordingMatches(r: RecordingRow, query: string): boolean {
     .filter(Boolean)
     .some((s) => (s as string).toLowerCase().includes(q));
 }
+
+/** Which day bucket a feed group falls into, relative to "now" (local time). */
+export type FeedDay = "today" | "yesterday" | "earlier";
+
+export type FeedDayGroup = {
+  /** Local calendar day, YYYY-MM-DD — stable React key. */
+  key: string;
+  day: FeedDay;
+  /** Local midnight of the group's day, for date labels. */
+  date: Date;
+  entries: FeedEntry[];
+};
+
+function localDayKey(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/** Split a newest-first feed into consecutive local-day groups (Today,
+ *  Yesterday, then one group per earlier date). Order is preserved. */
+export function groupFeedByDay(
+  entries: FeedEntry[],
+  now: Date = new Date(),
+): FeedDayGroup[] {
+  const todayKey = localDayKey(now);
+  const y = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+  const yesterdayKey = localDayKey(y);
+  const groups: FeedDayGroup[] = [];
+  for (const entry of entries) {
+    const at = new Date(entry.ts);
+    const key = localDayKey(at);
+    const last = groups[groups.length - 1];
+    if (last && last.key === key) {
+      last.entries.push(entry);
+      continue;
+    }
+    groups.push({
+      key,
+      day: key === todayKey ? "today" : key === yesterdayKey ? "yesterday" : "earlier",
+      date: new Date(at.getFullYear(), at.getMonth(), at.getDate()),
+      entries: [entry],
+    });
+  }
+  return groups;
+}

@@ -22,7 +22,7 @@ pub fn search_items(
     let mut sql = String::from(
         "SELECT items.id, items.content, items.source, items.kind,
                 items.project_id, items.captured_at, items.created_at, items.deleted_at,
-                items.confidence, items.classified_by, items.capture_context
+                items.confidence, items.classified_by, items.capture_context, items.importance
          FROM items
          JOIN items_fts ON items.rowid = items_fts.rowid
          WHERE items_fts MATCH ?1 AND items.deleted_at IS NULL",
@@ -59,7 +59,7 @@ pub fn search_items_for_project(
     let sql = if project_id.is_some() {
         "SELECT items.id, items.content, items.source, items.kind,
                 items.project_id, items.captured_at, items.created_at, items.deleted_at,
-                items.confidence, items.classified_by, items.capture_context
+                items.confidence, items.classified_by, items.capture_context, items.importance
          FROM items
          JOIN items_fts ON items.rowid = items_fts.rowid
          WHERE items_fts MATCH ?1 AND items.deleted_at IS NULL AND items.project_id = ?3
@@ -68,7 +68,7 @@ pub fn search_items_for_project(
     } else {
         "SELECT items.id, items.content, items.source, items.kind,
                 items.project_id, items.captured_at, items.created_at, items.deleted_at,
-                items.confidence, items.classified_by, items.capture_context
+                items.confidence, items.classified_by, items.capture_context, items.importance
          FROM items
          JOIN items_fts ON items.rowid = items_fts.rowid
          WHERE items_fts MATCH ?1 AND items.deleted_at IS NULL
@@ -105,7 +105,7 @@ pub fn search_items_with_date_window(
     let mut sql = String::from(
         "SELECT items.id, items.content, items.source, items.kind,
                 items.project_id, items.captured_at, items.created_at, items.deleted_at,
-                items.confidence, items.classified_by, items.capture_context
+                items.confidence, items.classified_by, items.capture_context, items.importance
          FROM items
          JOIN items_fts ON items.rowid = items_fts.rowid
          WHERE items_fts MATCH ?1 AND items.deleted_at IS NULL",
@@ -166,6 +166,7 @@ mod tests {
             confidence: None,
             classified_by: None,
             capture_context: None,
+            importance: None,
         }
     }
 

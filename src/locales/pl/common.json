@@ -40,14 +40,24 @@
       "transcriptionBadge": "Dyktando",
       "logCaptureBadge": "Notatka głosowa",
       "taskBadge": "Zadanie",
-      "deletedBadge": "Usunięte"
+      "deletedBadge": "Usunięte",
+      "unsorted": "Bez typu",
+      "changeType": "Zmień typ",
+      "copy": "Kopiuj tekst",
+      "copied": "Skopiowano",
+      "copyFailed": "Nie udało się skopiować do schowka.",
+      "moveToTrash": "Przenieś do kosza",
+      "restore": "Przywróć z kosza",
+      "inTrash": "W koszu",
+      "saveFailed": "Nie udało się zapisać zmiany. Zobacz Ustawienia → Diagnostyka → logi."
     },
     "content": {
       "label": "Treść",
       "saving": "Zapisywanie…",
       "unsaved": "Niezapisane",
       "saved": "Zapisano",
-      "empty": "Brak treści."
+      "empty": "Brak treści.",
+      "editAriaLabel": "Edytuj tekst"
     },
     "kind": {
       "label": "Rodzaj",
@@ -94,7 +104,8 @@
       "completed": "Ukończone",
       "markComplete": "Oznacz jako ukończone",
       "deadline": "Termin",
-      "clear": "Wyczyść"
+      "clear": "Wyczyść",
+      "markIncomplete": "Oznacz jako niewykonane"
     },
     "meetingView": {
       "peopleToggle": "Osoby",
@@ -213,6 +224,32 @@
       "copyContent": "Kopiuj treść",
       "restore": "Przywróć",
       "delete": "Usuń"
+    },
+    "props": {
+      "due": "Termin",
+      "importance": "Ważność",
+      "noProject": "Brak projektu",
+      "addTag": "Dodaj tag…",
+      "setDue": "Ustaw termin…",
+      "overdue": "Po terminie",
+      "today": "Dziś",
+      "tomorrow": "Jutro",
+      "clearDue": "Usuń termin"
+    },
+    "importance": {
+      "high": "Wysoka",
+      "medium": "Średnia",
+      "low": "Niska"
+    },
+    "captured": {
+      "label": "Przechwycono z",
+      "details": "Szczegóły",
+      "projectAssistant": "Asystent projektów",
+      "filedByAssistant": "Automatycznie przypisane przez asystenta projektów",
+      "sortedByAi": "Posortowane przez AI · {{pct}}% pewności"
+    },
+    "history": {
+      "label": "Historia"
     }
   },
   "activityPanelContext": {},
@@ -345,7 +382,10 @@
       "kind_changed": "Rodzaj zmieniony",
       "project_changed": "Projekt zmieniony",
       "tags_changed": "Tagi zaktualizowane",
-      "classified": "Automatycznie sklasyfikowano"
+      "classified": "Automatycznie sklasyfikowano",
+      "project_assigned": "Przypisano do",
+      "paste_dispatched": "Wklejono",
+      "importance_changed": "Zmieniono ważność"
     },
     "activityTab": {
       "noActivity": "Nie zarejestrowano żadnej aktywności."
@@ -512,7 +552,15 @@
       "cyan": "Turkusowy",
       "blue": "Niebieski",
       "violet": "Fioletowy",
-      "pink": "Różowy"
+      "pink": "Różowy",
+      "burgundy": "Bordowy",
+      "coral": "Koralowy",
+      "amber": "Bursztynowy",
+      "lime": "Limonkowy",
+      "teal": "Morski",
+      "sky": "Błękitny",
+      "indigo": "Indygo",
+      "slate": "Łupkowy"
     },
     "nameRequired": "Nazwa projektu jest wymagana.",
     "saveFailed": "Zapis nie powiódł się: {{error}}",
@@ -836,6 +884,8 @@
     },
     "dictionary": {
       "title": "Słownik",
+      "manage": "Zarządzaj słownikiem",
+      "close": "Zamknij",
       "description": "Przypisz wypowiedziane słowo lub frazę do dokładnej pisowni, wielkości liter lub interpunkcji.",
       "exportJson": "Eksportuj JSON",
       "importJson": "Importuj JSON",

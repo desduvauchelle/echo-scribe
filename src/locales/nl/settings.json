@@ -359,6 +359,14 @@
     }
   },
   "general": {
+    "sidebar": {
+      "title": "Zijbalk",
+      "subtitle": "Kies wat er in de linkerzijbalk staat.",
+      "showLearn": {
+        "label": "Learn Tucky tonen in de zijbalk",
+        "description": "Houd de lessen van Tucky één klik verwijderd."
+      }
+    },
     "startup": {
       "title": "Opstarten",
       "subtitle": "Start Tucky automatisch wanneer je inlogt."

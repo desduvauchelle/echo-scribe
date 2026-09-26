@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -38,6 +39,7 @@ impl RecorderError {
 
 /// Optional callback that receives amplitude levels for overlay visualization.
 pub type LevelCallback = Arc<dyn Fn(Vec<f32>) + Send + Sync>;
+pub type ChunkCallback = Arc<dyn Fn(&[f32], u32, u16) + Send + Sync>;
 
 pub struct Recorder {
     stream: Option<Stream>,
@@ -48,6 +50,10 @@ pub struct Recorder {
     preferred_device_name: Option<String>,
     /// Name of the device the most recent successful start() actually used.
     active_device_name: Option<String>,
+    chunk_callback: Option<ChunkCallback>,
+    buffer_limit_secs: Arc<AtomicUsize>,
+    levels_enabled: Arc<AtomicBool>,
+    stream_failed: Arc<AtomicBool>,
 }
 
 impl Recorder {
@@ -60,6 +66,10 @@ impl Recorder {
             level_callback: None,
             preferred_device_name: None,
             active_device_name: None,
+            chunk_callback: None,
+            buffer_limit_secs: Arc::new(AtomicUsize::new(0)),
+            levels_enabled: Arc::new(AtomicBool::new(true)),
+            stream_failed: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -67,6 +77,30 @@ impl Recorder {
     /// 0..1) at roughly 20 Hz. Used to drive the overlay waveform bars.
     pub fn set_level_callback<F: Fn(Vec<f32>) + Send + Sync + 'static>(&mut self, cb: F) {
         self.level_callback = Some(Arc::new(cb));
+    }
+
+    /// Standby audio is bounded in RAM. Zero preserves normal dictation.
+    pub fn set_buffer_limit_secs(&self, seconds: usize) {
+        self.buffer_limit_secs.store(seconds, Ordering::Relaxed);
+    }
+
+    pub fn set_levels_enabled(&self, enabled: bool) {
+        self.levels_enabled.store(enabled, Ordering::Relaxed);
+    }
+
+    pub fn set_chunk_callback(&mut self, callback: Option<ChunkCallback>) {
+        self.chunk_callback = callback;
+    }
+
+    pub fn stream_failed(&self) -> bool {
+        self.stream_failed.load(Ordering::Relaxed)
+    }
+
+    pub fn discard(&mut self) {
+        self.stream.take();
+        if let Ok(mut samples) = self.samples.lock() {
+            samples.clear();
+        }
     }
 
     /// Set the preferred input device by name. `None` (default) means "use the
@@ -135,6 +169,12 @@ impl Recorder {
 
         let samples = Arc::clone(&self.samples);
         let level_cb = self.level_callback.clone();
+        let chunk_cb = self.chunk_callback.clone();
+        let buffer_limit = Arc::clone(&self.buffer_limit_secs);
+        let levels_enabled = Arc::clone(&self.levels_enabled);
+        self.stream_failed.store(false, Ordering::Relaxed);
+        let stream_failed = Arc::clone(&self.stream_failed);
+        let sample_rate = self.sample_rate;
         // Accumulate samples between level emissions. At 48 kHz we want ~50 ms
         // windows (2400 samples) to emit levels at ~20 Hz.
         let emit_threshold = (self.sample_rate as usize / 20).max(512);
@@ -146,36 +186,81 @@ impl Recorder {
             SampleFormat::F32 => device.build_input_stream(
                 &stream_config,
                 move |data: &[f32], _| {
-                    append_samples(&samples, data);
-                    if let Some(ref cb) = level_cb {
+                    append_samples_bounded(
+                        &samples,
+                        data,
+                        buffer_limit.load(Ordering::Relaxed)
+                            * sample_rate as usize
+                            * channels as usize,
+                    );
+                    if let Some(ref cb) = chunk_cb {
+                        cb(data, sample_rate, channels);
+                    }
+                    if let Some(ref cb) = level_cb
+                        .as_ref()
+                        .filter(|_| levels_enabled.load(Ordering::Relaxed))
+                    {
                         maybe_emit_levels(data, channels, &pending_count, emit_threshold, cb);
                     }
                 },
-                |err| warn!(?err, "input stream error"),
+                move |err| {
+                    stream_failed.store(true, Ordering::Relaxed);
+                    warn!(?err, "input stream error");
+                },
                 None,
             ),
             SampleFormat::I16 => device.build_input_stream(
                 &stream_config,
                 move |data: &[i16], _| {
                     let converted: Vec<f32> = data.iter().map(|s| s.to_sample::<f32>()).collect();
-                    append_samples(&samples, &converted);
-                    if let Some(ref cb) = level_cb {
+                    append_samples_bounded(
+                        &samples,
+                        &converted,
+                        buffer_limit.load(Ordering::Relaxed)
+                            * sample_rate as usize
+                            * channels as usize,
+                    );
+                    if let Some(ref cb) = chunk_cb {
+                        cb(&converted, sample_rate, channels);
+                    }
+                    if let Some(ref cb) = level_cb
+                        .as_ref()
+                        .filter(|_| levels_enabled.load(Ordering::Relaxed))
+                    {
                         maybe_emit_levels(&converted, channels, &pending_count, emit_threshold, cb);
                     }
                 },
-                |err| warn!(?err, "input stream error"),
+                move |err| {
+                    stream_failed.store(true, Ordering::Relaxed);
+                    warn!(?err, "input stream error");
+                },
                 None,
             ),
             SampleFormat::U16 => device.build_input_stream(
                 &stream_config,
                 move |data: &[u16], _| {
                     let converted: Vec<f32> = data.iter().map(|s| s.to_sample::<f32>()).collect();
-                    append_samples(&samples, &converted);
-                    if let Some(ref cb) = level_cb {
+                    append_samples_bounded(
+                        &samples,
+                        &converted,
+                        buffer_limit.load(Ordering::Relaxed)
+                            * sample_rate as usize
+                            * channels as usize,
+                    );
+                    if let Some(ref cb) = chunk_cb {
+                        cb(&converted, sample_rate, channels);
+                    }
+                    if let Some(ref cb) = level_cb
+                        .as_ref()
+                        .filter(|_| levels_enabled.load(Ordering::Relaxed))
+                    {
                         maybe_emit_levels(&converted, channels, &pending_count, emit_threshold, cb);
                     }
                 },
-                |err| warn!(?err, "input stream error"),
+                move |err| {
+                    stream_failed.store(true, Ordering::Relaxed);
+                    warn!(?err, "input stream error");
+                },
                 None,
             ),
             other => {
@@ -198,7 +283,11 @@ impl Recorder {
     pub fn stop(&mut self) -> Result<(Vec<f32>, u32), RecorderError> {
         let stream = self.stream.take().ok_or(RecorderError::NotRunning)?;
         drop(stream); // dropping stops the cpal stream
-        let samples = self.samples.lock().map(|s| s.clone()).unwrap_or_default();
+        let samples = self
+            .samples
+            .lock()
+            .map(|mut s| std::mem::take(&mut *s))
+            .unwrap_or_default();
         info!(sample_count = samples.len(), "stopped recorder");
         Ok((samples, self.sample_rate))
     }
@@ -210,9 +299,45 @@ impl Recorder {
     }
 }
 
-fn append_samples(buf: &Arc<Mutex<Vec<f32>>>, data: &[f32]) {
+fn append_samples_bounded(buf: &Arc<Mutex<Vec<f32>>>, data: &[f32], limit: usize) {
     if let Ok(mut b) = buf.lock() {
-        b.extend_from_slice(data);
+        if limit == 0 {
+            b.extend_from_slice(data);
+        } else if data.len() >= limit {
+            b.clear();
+            b.extend_from_slice(&data[data.len() - limit..]);
+        } else {
+            let excess = (b.len() + data.len()).saturating_sub(limit);
+            b.drain(..excess);
+            b.extend_from_slice(data);
+        }
+    }
+}
+
+#[cfg(test)]
+mod buffer_tests {
+    use super::*;
+
+    #[test]
+    fn standby_keeps_only_recent_audio_then_promotes_without_losing_preroll() {
+        let samples = Arc::new(Mutex::new(Vec::new()));
+        append_samples_bounded(&samples, &[1.0, 2.0, 3.0], 3);
+        append_samples_bounded(&samples, &[4.0, 5.0], 3);
+        assert_eq!(*samples.lock().unwrap(), vec![3.0, 4.0, 5.0]);
+        append_samples_bounded(&samples, &[6.0, 7.0], 8);
+        assert_eq!(*samples.lock().unwrap(), vec![3.0, 4.0, 5.0, 6.0, 7.0]);
+        append_samples_bounded(&samples, &[8.0, 9.0, 10.0, 11.0], 3);
+        assert_eq!(*samples.lock().unwrap(), vec![9.0, 10.0, 11.0]);
+    }
+
+    #[test]
+    fn normal_dictation_remains_unbounded_and_discard_releases_audio() {
+        let mut recorder = Recorder::new();
+        append_samples_bounded(&recorder.samples, &[1.0, 2.0, 3.0], 0);
+        append_samples_bounded(&recorder.samples, &[4.0], 0);
+        assert_eq!(recorder.samples.lock().unwrap().len(), 4);
+        recorder.discard();
+        assert!(recorder.samples.lock().unwrap().is_empty());
     }
 }
 

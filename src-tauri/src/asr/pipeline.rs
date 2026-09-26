@@ -11,6 +11,7 @@
 //! the LLM engine's lifecycle. Default: 120 s. `Duration::ZERO` = never unload.
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
@@ -40,6 +41,15 @@ pub struct AsrPipeline {
     active_model: Arc<RwLock<Option<ModelEntry>>>,
     last_used: Arc<Mutex<Instant>>,
     unload_after: Arc<Mutex<Duration>>,
+    active_jobs: Arc<AtomicUsize>,
+}
+
+struct TranscriptionGuard(Arc<AtomicUsize>);
+
+impl Drop for TranscriptionGuard {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
 }
 
 /// Split a buffer of `len` samples into consecutive `[start, end)` windows of
@@ -72,6 +82,7 @@ impl AsrPipeline {
             active_model: Arc::new(RwLock::new(None)),
             last_used: Arc::new(Mutex::new(Instant::now())),
             unload_after: Arc::new(Mutex::new(unload_after)),
+            active_jobs: Arc::new(AtomicUsize::new(0)),
         }
     }
 
@@ -128,6 +139,16 @@ impl AsrPipeline {
             Ok(g) => g.is_some(),
             Err(_) => false,
         }
+    }
+
+    /// Includes file/meeting transcription outside the dictation coordinator.
+    pub fn is_busy(&self) -> bool {
+        self.active_jobs.load(Ordering::SeqCst) > 0 || self.engine.try_lock().is_err()
+    }
+
+    fn begin_transcription(&self) -> TranscriptionGuard {
+        self.active_jobs.fetch_add(1, Ordering::SeqCst);
+        TranscriptionGuard(self.active_jobs.clone())
     }
 
     /// Seconds since the last successful transcription. Used by the memory
@@ -238,6 +259,7 @@ impl AsrPipeline {
         from_rate: u32,
         channels: u16,
     ) -> Result<String, AsrError> {
+        let _activity = self.begin_transcription();
         let t0 = Instant::now();
 
         // Resolve the active model + path before spawning blocking work.
@@ -393,6 +415,7 @@ impl AsrPipeline {
 
     /// Transcribe a WAV file produced by ChunkedWavWriter. Returns the trimmed text.
     pub async fn transcribe_file(&self, path: &std::path::Path) -> Result<String, AsrError> {
+        let _activity = self.begin_transcription();
         let (samples, rate, channels) = Self::load_wav_16k_mono_int16(path)?;
         self.transcribe(samples, rate, channels).await
     }
@@ -408,6 +431,8 @@ impl AsrPipeline {
         channels: u16,
         progress: impl Fn(u8) + Send + 'static,
     ) -> Result<String, AsrError> {
+        // Keep standby paused between chunks, including progress callbacks.
+        let _activity = self.begin_transcription();
         const WINDOW_SECS: usize = 60;
         let window = WINDOW_SECS * from_rate as usize * channels.max(1) as usize;
         let ranges = window_ranges(samples.len(), window);
@@ -502,6 +527,7 @@ impl AsrPipeline {
         channels: u16,
         progress: impl Fn(f64) + Send + 'static,
     ) -> Result<Vec<crate::asr::captions::CaptionSegment>, AsrError> {
+        let _activity = self.begin_transcription();
         const WINDOW_SECS: usize = 60;
         let ch = channels.max(1) as usize;
         let window = WINDOW_SECS * from_rate as usize * ch;
@@ -535,6 +561,29 @@ impl AsrPipeline {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn busy_spans_nested_jobs_and_clears_only_after_the_last_job() {
+        let pipeline = AsrPipeline::default();
+        assert!(!pipeline.is_busy());
+        let file_job = pipeline.begin_transcription();
+        let chunk_job = pipeline.begin_transcription();
+        assert!(pipeline.is_busy());
+        drop(chunk_job);
+        assert!(pipeline.is_busy(), "pause must cover gaps between chunks");
+        drop(file_job);
+        assert!(!pipeline.is_busy());
+    }
+
+    #[tokio::test]
+    async fn failed_transcription_releases_busy_state() {
+        let pipeline = AsrPipeline::default();
+        assert!(pipeline
+            .transcribe(vec![0.0; 160], 16_000, 1)
+            .await
+            .is_err());
+        assert!(!pipeline.is_busy());
+    }
 
     #[tokio::test]
     #[ignore = "requires the locally downloaded Parakeet model"]

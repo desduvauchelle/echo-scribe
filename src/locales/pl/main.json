@@ -3,16 +3,36 @@
     "titles": [
       "Trochę miejsca na Twoje myśli.",
       "Co Ci chodzi po głowie?",
-      "Kilka myśli, do których warto wrócić."
+      "Kilka myśli, do których warto wrócić.",
+      "Mów śmiało. Ja notuję.",
+      "Dzwonił Twój mózg. Chce kopii zapasowej.",
+      "Psst. Nad czym dziś pracujemy?",
+      "Czysta strona, zero oceniania.",
+      "Myślisz na głos? Świetnie.",
+      "Za dużo otwartych kart w głowie?",
+      "Już wracasz? Tęskniłem.",
+      "Żaden pomysł nie jest za mały.",
+      "Najpierw kawa czy najpierw pomysły?",
+      "Zamieńmy mamrotanie w rozpęd.",
+      "Zamieniam się w słuch. No, prawie cały."
     ],
     "descriptions": [
       "Podejmij wątek swoich myśli.",
       "Twój kolejny pomysł ma tu swoje miejsce.",
-      "Znajdź wątek i podążaj za nim."
+      "Znajdź wątek i podążaj za nim.",
+      "Dygresje mile widziane. Posprzątam później.",
+      "Powiedz to na głos, zanim gdzieś odpłynie.",
+      "Trzymałem Twoje notatki w cieple.",
+      "Niedokończone myśli to moje ulubione.",
+      "To właściwie cała moja praca.",
+      "Zamknij kilka, mówiąc je na głos.",
+      "Zobaczmy, co porabiałeś.",
+      "Tutaj małe szybko rosną.",
+      "Tak czy inaczej, jestem gotowy, kiedy Ty.",
+      "Powiedz chaotycznie. Przeczytaj porządnie.",
+      "Śmiało, słucham."
     ],
     "another": "Inna myśl",
-    "hide": "Ukryj powitanie",
-    "show": "Pokaż powitanie Tucky",
     "label": "Chwila z Tucky"
   },
   "app": {
@@ -21,6 +41,7 @@
       "search": "Szukaj"
     },
     "sidebar": {
+      "hideLearn": "Ukryj Learn Tucky",
       "dictate": {
         "activeTooltip": "Dyktowanie — zwolnij {{binding}}, aby zatrzymać",
         "idleTooltip": "Przytrzymaj {{binding}}, aby dyktować",
@@ -103,38 +124,98 @@
     },
     "activity": {
       "searchResultsLabel": "Wyniki wyszukiwania",
+      "label": "Aktywność",
       "todayLabel": "Dziś",
+      "yesterdayLabel": "Wczoraj",
       "matchesFor": "Wyniki dla „{{query}}”",
-      "recentActivity": "Ostatnia aktywność",
-      "mostRecent": "Najnowsze",
       "loading": "Ładowanie…",
       "loadMore": "Wczytaj więcej"
     },
     "stats": {
       "regionLabel": "Statystyki aktywności",
-      "overviewLabel": "Przegląd aktywności",
       "viewStats": "Zobacz statystyki",
-      "today": "Dziś",
-      "thisWeek": "Ten tydzień",
-      "wordsCount": "{{count}} słów",
-      "timeThisWeek": "Czas w tym tygodniu",
-      "wordsThisWeek": "Słowa w tym tygodniu",
-      "exactCount": "{{count}} dokładnie",
-      "timeAllTime": "Czas łącznie",
-      "allTime": "Cały okres",
-      "totalCount": "{{count}} łącznie",
-      "thisWeekCount": "{{count}} w tym tygodniu",
-      "todayCount": "{{count}} {{label}} dziś"
+      "pulseLabel": "W tym tygodniu:",
+      "pulseTodayLabel": "Dziś:",
+      "pulseEmpty": "Jeszcze nic nie zapisano.",
+      "pulse": {
+        "transcriptions_one": "dyktowanie",
+        "transcriptions_few": "dyktowania",
+        "transcriptions_many": "dyktowań",
+        "transcriptions_other": "dyktowania",
+        "notes_one": "notatka",
+        "notes_few": "notatki",
+        "notes_many": "notatek",
+        "notes_other": "notatki",
+        "tasks_one": "zadanie",
+        "tasks_few": "zadania",
+        "tasks_many": "zadań",
+        "tasks_other": "zadania",
+        "meetings_one": "spotkanie",
+        "meetings_few": "spotkania",
+        "meetings_many": "spotkań",
+        "meetings_other": "spotkania",
+        "recordings_one": "nagranie",
+        "recordings_few": "nagrania",
+        "recordings_many": "nagrań",
+        "recordings_other": "nagrania"
+      }
     },
-    "recap": {
-      "quietDay": "Spokojny dzień — nic nie zarejestrowano.",
-      "notGenerated": "Nie wygenerowano podsumowania za wczoraj.",
-      "yesterdayLabel": "Wczoraj · {{date}}",
-      "close": "Zamknij",
-      "sections": {
-        "whatHappened": "Co się wydarzyło",
-        "whatMattered": "Co było ważne",
-        "whatsNext": "Co dalej"
+    "focus": {
+      "label": "Fokus",
+      "title": "Co ważne w każdym projekcie",
+      "progress": "{{done}}/{{total}} zrobione",
+      "showMore": "Pokaż jeszcze {{count}}",
+      "showLess": "Pokaż mniej",
+      "emptyTitle": "Brak ustalonego fokusu",
+      "emptyHint": "Powiedz Tucky „Dodaj zadanie fokusowe do…” lub kliknij Dodaj.",
+      "remove": "Usuń",
+      "unknownProject": "Bez projektu",
+      "add": "Dodaj",
+      "addItem": "Dodaj element",
+      "addPlaceholder": "Nowy element…",
+      "pickProject": "Dodaj fokus dla…",
+      "noProject": "Bez projektu",
+      "dragHandle": "Przeciągnij, aby zmienić kolejność: {{text}}",
+      "dragHint": "Przeciągnij, aby zmienić kolejność (Alt+↑/↓)",
+      "editHint": "Kliknij dwukrotnie, aby edytować",
+      "addItemTo": "Dodaj element do {{project}}",
+      "saveFailed": "Nie udało się zapisać zmiany. Spróbuj ponownie.",
+      "addFailed": "Nie udało się dodać elementu. Spróbuj ponownie."
+    },
+    "debrief": {
+      "label": "Podsumowanie spotkania",
+      "title": "Zamknij swoje spotkanie",
+      "openMeeting": "Otwórz spotkanie",
+      "project": "Projekt",
+      "noProject": "Brak projektu",
+      "people": "Z",
+      "noPeople": "Nikt jeszcze nie potwierdzony",
+      "unknownSpeaker": "Nieznany rozmówca",
+      "removePerson": "Usuń: {{name}}",
+      "addPerson": "Dodaj osobę",
+      "searchPeople": "Wyszukaj lub dodaj imię…",
+      "createPerson": "Dodaj „{{name}}” jako nową osobę",
+      "noMatches": "Brak pasujących osób",
+      "whoIsThis": "Kim jest {{name}}?",
+      "linkSpeaker": "Powiąż…",
+      "followUps": "Sugerowane działania",
+      "noFollowUps": "Nie wykryto działań do podjęcia",
+      "allHandled": "Wszystkie działania obsłużone",
+      "taskText": "Zadanie",
+      "assignee": "Osoba odpowiedzialna",
+      "me": "Ja",
+      "addTask": "Dodaj zadanie",
+      "skip": "Pomiń",
+      "added": "Dodano",
+      "done": "Gotowe",
+      "dismiss": "Odrzuć",
+      "dismissAll": "Odrzuć wszystkie podsumowania",
+      "errors": {
+        "project": "Nie udało się zaktualizować projektu spotkania. Spróbuj ponownie.",
+        "people": "Nie udało się zaktualizować uczestników. Spróbuj ponownie.",
+        "task": "Nie udało się dodać zadania. Spróbuj ponownie.",
+        "skip": "Nie udało się pominąć sugestii. Spróbuj ponownie.",
+        "complete": "Nie udało się zamknąć podsumowania. Spróbuj ponownie."
       }
     }
   },
@@ -395,13 +476,13 @@
     },
     "emptyState": {
       "chatWithMemory": "Rozmawiaj ze swoją pamięcią",
-      "startOrSelect": "Rozpocznij nowy czat lub wybierz poprzednią rozmowę.",
+      "startOrSelect": "Napisz poniżej, aby rozpocząć nowy czat, lub wybierz poprzednią rozmowę.",
       "newConversation": "Nowa rozmowa",
       "tryAsking": "Zapytaj o swoje wpisy, notatki i zadania. Spróbuj „co dziś zarejestrowałem/am?”"
     },
     "input": {
       "placeholderActive": "Zapytaj o swoje notatki… (Enter, aby wysłać)",
-      "placeholderInactive": "Najpierw rozpocznij nowy czat",
+      "placeholderInactive": "Zadaj pytanie, aby rozpocząć nowy czat…",
       "ariaLabel": "Wiadomość",
       "send": "Wyślij",
       "hint": "Shift+Enter, aby przejść do nowej linii"
@@ -466,7 +547,8 @@
       "completeFailed": "Ukończenie nie powiodło się: {{error}}",
       "uncompleteFailed": "Cofnięcie ukończenia nie powiodło się: {{error}}",
       "updateDeadlineFailed": "Aktualizacja terminu nie powiodła się: {{error}}"
-    }
+    },
+    "assignedTo": "Przypisane do: {{name}}"
   },
   "meetings": {
     "status": {

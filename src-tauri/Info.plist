@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Tucky transcribes what you say into text at your cursor. Audio is processed locally and never leaves your machine.</string>
+    <string>Tucky transcribes your speech and, when you enable wake-word listening, listens for “Tucky” to start a voice command. Audio is processed locally and never leaves your machine.</string>
     <key>NSAccessibilityUsageDescription</key>
     <string>Tucky needs Accessibility access to listen for the global dictation hotkey and paste transcribed text at your cursor in any app.</string>
     <key>NSAppleEventsUsageDescription</key>

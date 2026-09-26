@@ -12,6 +12,7 @@ import {
   type ChatMessage,
   type ClaudeSessionSummary,
   type ClaudeSessionMessage,
+  type Project,
 } from "../lib/api";
 import { relativeTimeLabel } from "../lib/displayText";
 
@@ -19,14 +20,18 @@ type Tab = "activity" | "sessions";
 
 type Props = {
   itemId: string;
+  /** Draw the top rule + spacing. Off when the caller already frames it. */
+  framed?: boolean;
+  /** Used to show project names instead of raw ids in project events. */
+  projects?: Project[];
 };
 
-export default function ItemDetailPanel({ itemId }: Props) {
+export default function ItemDetailPanel({ itemId, framed = true, projects }: Props) {
   const { t } = useTranslation();
   const [tab, setTab] = useState<Tab>("activity");
 
   return (
-    <div className="mt-3 border-t border-line pt-3">
+    <div className={framed ? "mt-3 border-t border-line pt-3" : ""}>
       <div className="mb-2 flex gap-1">
         <TabButton
           active={tab === "activity"}
@@ -43,7 +48,7 @@ export default function ItemDetailPanel({ itemId }: Props) {
       </div>
 
       {tab === "activity" ? (
-        <ActivityTab itemId={itemId} />
+        <ActivityTab itemId={itemId} projects={projects} />
       ) : (
         <SessionsTab itemId={itemId} />
       )}
@@ -76,7 +81,7 @@ function TabButton({
   );
 }
 
-function ActivityTab({ itemId }: { itemId: string }) {
+function ActivityTab({ itemId, projects }: { itemId: string; projects?: Project[] }) {
   const { t } = useTranslation();
   const [events, setEvents] = useState<ItemEvent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -117,7 +122,9 @@ function ActivityTab({ itemId }: { itemId: string }) {
               {t(`itemDetailPanel.eventLabels.${ev.event_type}`, ev.event_type)}
             </span>
             {ev.detail ? (
-              <span className="ml-1 text-faint">{ev.detail}</span>
+              <span className="ml-1 text-faint">
+                {projects?.find((p) => p.id === ev.detail)?.name ?? ev.detail}
+              </span>
             ) : null}
             <span className="ml-2 text-faint">
               {relativeTimeLabel(t, ev.created_at)}

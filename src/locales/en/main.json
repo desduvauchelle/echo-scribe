@@ -3,16 +3,36 @@
     "titles": [
       "A little space for your thoughts.",
       "Something on your mind?",
-      "A few thoughts worth coming back to."
+      "A few thoughts worth coming back to.",
+      "Talk it out. I’ll take notes.",
+      "Your brain called. It wants a backup.",
+      "Psst. What are we working on?",
+      "Fresh page, zero judgment.",
+      "Thinking out loud? Excellent.",
+      "Too many tabs open in your head?",
+      "Back already? I missed you.",
+      "No idea is too small to keep.",
+      "Coffee first, or ideas first?",
+      "Let’s turn mumbling into momentum.",
+      "I’m all ears. Well, mostly ears."
     ],
     "descriptions": [
       "Pick up where your mind left off.",
       "Your next idea has a place here.",
-      "Find a thread and follow it."
+      "Find a thread and follow it.",
+      "Rambling welcome. I’ll tidy up after.",
+      "Say it out loud before it wanders off.",
+      "I’ve been keeping your notes warm.",
+      "Half-baked thoughts are my favorite kind.",
+      "That’s pretty much my whole job.",
+      "Close a few by saying them out loud.",
+      "Let’s see what you’ve been up to.",
+      "The tiny ones grow up fast around here.",
+      "Either way, I’m ready when you are.",
+      "Say it messy. Read it clean.",
+      "Go on, I’m listening."
     ],
     "another": "Another thought",
-    "hide": "Hide greeting",
-    "show": "Show Tucky’s greeting",
     "label": "A moment with Tucky"
   },
   "learning": {
@@ -107,8 +127,8 @@
       },
       "tasks": {
         "title": "Turn a thought into a next step",
-        "summary": "Review a task, set a deadline, and check it off.",
-        "body": "A task captured by voice appears under Tasks in the Dashboard. Open it to adjust its deadline. Check it off when the work is done.",
+        "summary": "Track tasks and keep a few priorities in Focus.",
+        "body": "Regular tasks appear under Tasks in the Dashboard, where you can set a deadline and check them off. Focus tasks are the few priorities you want in front of you right now. They appear in the Dashboard’s Focus area, grouped by project, instead of the regular Tasks list. Press Add in Focus to create one. If smart features are set up, you can also say “Tucky, add a focus task to LiveCase: plan the campaign.” Check off a Focus task when it’s done.",
         "action": "Open my tasks"
       },
       "chat": {
@@ -179,6 +199,7 @@
       "search": "Search"
     },
     "sidebar": {
+      "hideLearn": "Hide Learn Tucky",
       "dictate": {
         "activeTooltip": "Dictating — release {{binding}} to stop",
         "idleTooltip": "Hold {{binding}} to dictate",
@@ -259,38 +280,108 @@
     },
     "activity": {
       "searchResultsLabel": "Search results",
+      "label": "Activity",
       "todayLabel": "Today",
+      "yesterdayLabel": "Yesterday",
       "matchesFor": "Matches for “{{query}}”",
-      "recentActivity": "Recent activity",
-      "mostRecent": "Most recent",
       "loading": "Loading…",
       "loadMore": "Load more"
     },
     "stats": {
       "regionLabel": "Activity statistics",
-      "overviewLabel": "Activity overview",
       "viewStats": "View stats",
-      "today": "Today",
-      "thisWeek": "This week",
-      "wordsCount": "{{count}} words",
-      "timeThisWeek": "Time this week",
-      "wordsThisWeek": "Words this week",
-      "exactCount": "{{count}} exact",
-      "timeAllTime": "Time all time",
-      "allTime": "All time",
-      "totalCount": "{{count}} total",
-      "thisWeekCount": "{{count}} this week",
-      "todayCount": "{{count}} {{label}} today"
+      "pulseLabel": "This week:",
+      "pulseTodayLabel": "Today:",
+      "pulseEmpty": "Nothing captured yet.",
+      "pulse": {
+        "transcriptions_one": "dictation",
+        "transcriptions_other": "dictations",
+        "notes_one": "note",
+        "notes_other": "notes",
+        "tasks_one": "task",
+        "tasks_other": "tasks",
+        "meetings_one": "meeting",
+        "meetings_other": "meetings",
+        "recordings_one": "recording",
+        "recordings_other": "recordings"
+      }
     },
-    "recap": {
-      "quietDay": "Quiet day — nothing recorded.",
-      "notGenerated": "No recap was generated for yesterday.",
-      "yesterdayLabel": "Yesterday · {{date}}",
-      "close": "Close",
-      "sections": {
-        "whatHappened": "What happened",
-        "whatMattered": "What mattered",
-        "whatsNext": "What's next"
+    "focus": {
+      "label": "Focus",
+      "addFirst": "Add a focus task",
+      "title": "What matters per project",
+      "progress": "{{done}}/{{total}} done",
+      "showMore": "Show {{count}} more",
+      "showLess": "Show less",
+      "emptyTitle": "No focus set yet",
+      "emptyHint": "Ask Tucky “Add a focus task to…”, or press Add.",
+      "remove": "Remove",
+      "unknownProject": "Unassigned",
+      "add": "Add",
+      "addItem": "Add item",
+      "addPlaceholder": "New focus item…",
+      "pickProject": "Add focus for…",
+      "noProject": "No project",
+      "dragHandle": "Drag to reorder: {{text}}",
+      "dragHint": "Drag to reorder (Alt+↑/↓)",
+      "editHint": "Double-click to edit",
+      "addItemTo": "Add item to {{project}}",
+      "saveFailed": "Couldn't save that change to your focus list. Please try again.",
+      "addFailed": "Couldn't add the focus item. Please try again."
+    },
+    "morningFocus": {
+      "eyebrow": "Morning focus",
+      "question": "What are the few things you need to do today to make it successful?",
+      "placeholder": "Today's priorities…",
+      "hold": "Hold to speak",
+      "holdHint": "Release to transcribe",
+      "release": "Release to finish",
+      "orType": "Or type it here",
+      "transcribing": "Transcribing…",
+      "save": "Save today's focus",
+      "saving": "Saving…",
+      "today": "Today's focus",
+      "edit": "Edit today's focus",
+      "cancel": "Cancel",
+      "dismiss": "Turn off morning focus",
+      "more": "Read all",
+      "less": "Show less",
+      "dictationFailed": "Couldn't add the dictation here. Please try again."
+    },
+    "debrief": {
+      "label": "Meeting debrief",
+      "title": "Wrap up your meeting",
+      "openMeeting": "Open meeting",
+      "project": "Project",
+      "noProject": "No project",
+      "people": "With",
+      "noPeople": "No one confirmed yet",
+      "unknownSpeaker": "Unknown speaker",
+      "removePerson": "Remove {{name}}",
+      "addPerson": "Add person",
+      "searchPeople": "Search or add a name…",
+      "createPerson": "Add “{{name}}” as a new person",
+      "noMatches": "No matching people",
+      "whoIsThis": "Who is {{name}}?",
+      "linkSpeaker": "Link…",
+      "followUps": "Suggested follow-ups",
+      "noFollowUps": "No follow-ups spotted",
+      "allHandled": "All follow-ups handled",
+      "taskText": "Task",
+      "assignee": "Assignee",
+      "me": "Me",
+      "addTask": "Add task",
+      "skip": "Skip",
+      "added": "Added",
+      "done": "Done",
+      "dismiss": "Dismiss",
+      "dismissAll": "Dismiss all debriefs",
+      "errors": {
+        "project": "Couldn't update the meeting's project. Please try again.",
+        "people": "Couldn't update who was in the meeting. Please try again.",
+        "task": "Couldn't add that task. Please try again.",
+        "skip": "Couldn't skip that suggestion. Please try again.",
+        "complete": "Couldn't close this debrief. Please try again."
       }
     }
   },
@@ -549,13 +640,13 @@
     },
     "emptyState": {
       "chatWithMemory": "Chat with your memory",
-      "startOrSelect": "Start a new chat or select a previous conversation.",
+      "startOrSelect": "Type below to start a new chat, or select a previous conversation.",
       "newConversation": "New conversation",
       "tryAsking": "Ask about your captures, notes, and tasks. Try \"what did I capture today?\""
     },
     "input": {
       "placeholderActive": "Ask about your notes… (Enter to send)",
-      "placeholderInactive": "Start a new chat first",
+      "placeholderInactive": "Ask anything to start a new chat…",
       "ariaLabel": "Message",
       "send": "Send",
       "hint": "Shift+Enter for newline"
@@ -618,7 +709,8 @@
       "completeFailed": "Complete failed: {{error}}",
       "uncompleteFailed": "Uncomplete failed: {{error}}",
       "updateDeadlineFailed": "Update deadline failed: {{error}}"
-    }
+    },
+    "assignedTo": "Assigned to {{name}}"
   },
   "meetings": {
     "status": {

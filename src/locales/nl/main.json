@@ -3,16 +3,36 @@
     "titles": [
       "Een beetje ruimte voor je gedachten.",
       "Waar denk je aan?",
-      "Een paar gedachten om op terug te komen."
+      "Een paar gedachten om op terug te komen.",
+      "Praat het uit. Ik maak aantekeningen.",
+      "Je brein belde. Het wil een back-up.",
+      "Psst. Waar werken we aan?",
+      "Lege pagina, geen oordeel.",
+      "Hardop denken? Uitstekend.",
+      "Te veel tabbladen open in je hoofd?",
+      "Nu al terug? Ik heb je gemist.",
+      "Geen idee is te klein om te bewaren.",
+      "Eerst koffie, of eerst ideeën?",
+      "Van gemompel naar momentum.",
+      "Ik ben een en al oor. Nou ja, bijna."
     ],
     "descriptions": [
       "Pak de draad van je gedachten weer op.",
       "Je volgende idee heeft hier een plek.",
-      "Vind een draad en volg die."
+      "Vind een draad en volg die.",
+      "Afdwalen mag. Ik ruim daarna op.",
+      "Zeg het hardop voordat het wegdwaalt.",
+      "Ik heb je notities warm gehouden.",
+      "Halfbakken gedachten zijn mijn favoriet.",
+      "Dat is zo’n beetje mijn hele baan.",
+      "Sluit er een paar door ze hardop te zeggen.",
+      "Eens kijken wat je hebt uitgespookt.",
+      "De kleintjes worden hier snel groot.",
+      "Hoe dan ook, ik ben er klaar voor als jij het bent.",
+      "Zeg het rommelig. Lees het netjes.",
+      "Ga je gang, ik luister."
     ],
     "another": "Een andere gedachte",
-    "hide": "Begroeting verbergen",
-    "show": "Tucky’s begroeting tonen",
     "label": "Een moment met Tucky"
   },
   "app": {
@@ -21,6 +41,7 @@
       "search": "Zoeken"
     },
     "sidebar": {
+      "hideLearn": "Learn Tucky verbergen",
       "dictate": {
         "activeTooltip": "Dicteren — laat {{binding}} los om te stoppen",
         "idleTooltip": "Houd {{binding}} ingedrukt om te dicteren",
@@ -101,38 +122,88 @@
     },
     "activity": {
       "searchResultsLabel": "Zoekresultaten",
+      "label": "Activiteit",
       "todayLabel": "Vandaag",
+      "yesterdayLabel": "Gisteren",
       "matchesFor": "Overeenkomsten voor “{{query}}”",
-      "recentActivity": "Recente activiteit",
-      "mostRecent": "Meest recent",
       "loading": "Laden…",
       "loadMore": "Meer laden"
     },
     "stats": {
       "regionLabel": "Activiteitsstatistieken",
-      "overviewLabel": "Activiteitsoverzicht",
       "viewStats": "Statistieken bekijken",
-      "today": "Vandaag",
-      "thisWeek": "Deze week",
-      "wordsCount": "{{count}} woorden",
-      "timeThisWeek": "Tijd deze week",
-      "wordsThisWeek": "Woorden deze week",
-      "exactCount": "{{count}} exact",
-      "timeAllTime": "Tijd sinds het begin",
-      "allTime": "Sinds het begin",
-      "totalCount": "{{count}} totaal",
-      "thisWeekCount": "{{count}} deze week",
-      "todayCount": "{{count}} {{label}} vandaag"
+      "pulseLabel": "Deze week:",
+      "pulseTodayLabel": "Vandaag:",
+      "pulseEmpty": "Nog niets vastgelegd.",
+      "pulse": {
+        "transcriptions_one": "dictaat",
+        "transcriptions_other": "dictaten",
+        "notes_one": "notitie",
+        "notes_other": "notities",
+        "tasks_one": "taak",
+        "tasks_other": "taken",
+        "meetings_one": "meeting",
+        "meetings_other": "meetings",
+        "recordings_one": "opname",
+        "recordings_other": "opnames"
+      }
     },
-    "recap": {
-      "quietDay": "Rustige dag — niets vastgelegd.",
-      "notGenerated": "Er is geen overzicht gegenereerd voor gisteren.",
-      "yesterdayLabel": "Gisteren · {{date}}",
-      "close": "Sluiten",
-      "sections": {
-        "whatHappened": "Wat er gebeurde",
-        "whatMattered": "Wat ertoe deed",
-        "whatsNext": "Wat volgt"
+    "focus": {
+      "label": "Focus",
+      "title": "Wat telt per project",
+      "progress": "{{done}}/{{total}} klaar",
+      "showMore": "Toon er nog {{count}}",
+      "showLess": "Toon minder",
+      "emptyTitle": "Nog geen focus ingesteld",
+      "emptyHint": "Vraag Tucky “Voeg een focustaak toe aan…”, of klik op Toevoegen.",
+      "remove": "Verwijderen",
+      "unknownProject": "Geen project",
+      "add": "Toevoegen",
+      "addItem": "Item toevoegen",
+      "addPlaceholder": "Nieuw focuspunt…",
+      "pickProject": "Focus toevoegen voor…",
+      "noProject": "Geen project",
+      "dragHandle": "Sleep om te ordenen: {{text}}",
+      "dragHint": "Sleep om te ordenen (Alt+↑/↓)",
+      "editHint": "Dubbelklik om te bewerken",
+      "addItemTo": "Item toevoegen aan {{project}}",
+      "saveFailed": "Kon de wijziging niet opslaan. Probeer het opnieuw.",
+      "addFailed": "Kon het item niet toevoegen. Probeer het opnieuw."
+    },
+    "debrief": {
+      "label": "Vergadering nabespreken",
+      "title": "Rond je vergadering af",
+      "openMeeting": "Vergadering openen",
+      "project": "Project",
+      "noProject": "Geen project",
+      "people": "Met",
+      "noPeople": "Nog niemand bevestigd",
+      "unknownSpeaker": "Onbekende spreker",
+      "removePerson": "{{name}} verwijderen",
+      "addPerson": "Persoon toevoegen",
+      "searchPeople": "Zoek of voeg een naam toe…",
+      "createPerson": "“{{name}}” toevoegen als nieuwe persoon",
+      "noMatches": "Geen overeenkomende personen",
+      "whoIsThis": "Wie is {{name}}?",
+      "linkSpeaker": "Koppelen…",
+      "followUps": "Voorgestelde vervolgacties",
+      "noFollowUps": "Geen vervolgacties gevonden",
+      "allHandled": "Alle vervolgacties afgehandeld",
+      "taskText": "Taak",
+      "assignee": "Toegewezen aan",
+      "me": "Ik",
+      "addTask": "Taak toevoegen",
+      "skip": "Overslaan",
+      "added": "Toegevoegd",
+      "done": "Klaar",
+      "dismiss": "Negeren",
+      "dismissAll": "Alle debriefs negeren",
+      "errors": {
+        "project": "Kon het project van de vergadering niet bijwerken. Probeer het opnieuw.",
+        "people": "Kon de deelnemers niet bijwerken. Probeer het opnieuw.",
+        "task": "Kon de taak niet toevoegen. Probeer het opnieuw.",
+        "skip": "Kon de suggestie niet overslaan. Probeer het opnieuw.",
+        "complete": "Kon de nabespreking niet afronden. Probeer het opnieuw."
       }
     }
   },
@@ -391,13 +462,13 @@
     },
     "emptyState": {
       "chatWithMemory": "Chat met je geheugen",
-      "startOrSelect": "Start een nieuwe chat of selecteer een eerder gesprek.",
+      "startOrSelect": "Typ hieronder om een nieuwe chat te starten, of selecteer een eerder gesprek.",
       "newConversation": "Nieuw gesprek",
       "tryAsking": "Vraag naar je captures, notities en taken. Probeer \"wat heb ik vandaag vastgelegd?\""
     },
     "input": {
       "placeholderActive": "Stel een vraag over je notities… (Enter om te verzenden)",
-      "placeholderInactive": "Start eerst een nieuwe chat",
+      "placeholderInactive": "Stel een vraag om een nieuwe chat te starten…",
       "ariaLabel": "Bericht",
       "send": "Verzenden",
       "hint": "Shift+Enter voor een nieuwe regel"
@@ -460,7 +531,8 @@
       "completeFailed": "Voltooien mislukt: {{error}}",
       "uncompleteFailed": "Ongedaan maken mislukt: {{error}}",
       "updateDeadlineFailed": "Deadline bijwerken mislukt: {{error}}"
-    }
+    },
+    "assignedTo": "Toegewezen aan {{name}}"
   },
   "meetings": {
     "status": {

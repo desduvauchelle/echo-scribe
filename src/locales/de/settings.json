@@ -359,6 +359,14 @@
     }
   },
   "general": {
+    "sidebar": {
+      "title": "Seitenleiste",
+      "subtitle": "Lege fest, was in der linken Seitenleiste erscheint.",
+      "showLearn": {
+        "label": "„Learn Tucky“ in der Seitenleiste zeigen",
+        "description": "Die Lektionen bleiben nur einen Klick entfernt."
+      }
+    },
     "startup": {
       "title": "Start",
       "subtitle": "Startet Tucky automatisch, wenn du dich anmeldest."

@@ -34,7 +34,20 @@ fn get_project(app: &AppHandle, id: &str) -> Result<Project, String> {
         .ok_or("Project storage is unavailable.")?
         .with_conn(|c| db::projects::get_project(c, id))
         .map_err(|e| e.to_string())?
-        .ok_or("Project not found.".into())
+        .ok_or_else(|| {
+            // Hand the model the real IDs so it doesn't burn its step budget
+            // guessing (a rename once took 7 misses before list_projects).
+            let known = state
+                .db
+                .as_ref()
+                .and_then(|db| db.with_conn(|c| db::projects::list_projects(c, true)).ok())
+                .unwrap_or_default()
+                .iter()
+                .take(50)
+                .map(|p| json!({"id": p.id, "name": p.name}))
+                .collect::<Vec<_>>();
+            format!("Project not found. Use one of these project IDs: {}", json!(known))
+        })
 }
 fn field<'a>(args: &'a Value, key: &str) -> Result<&'a str, String> {
     args.get(key)
@@ -135,6 +148,7 @@ fn create_project_item(
         confidence: Some(1.0),
         classified_by: Some("project_agent".into()),
         capture_context: None,
+        importance: None,
     };
     db::items::insert_item(conn, &item)?;
     db::events::insert_event(conn, &item.id, "created", Some("via project_agent"))?;
@@ -150,6 +164,68 @@ fn create_project_item(
         )?;
     }
     Ok(item)
+}
+
+/// A spoken task referring to "this" uses the text selected when recording
+/// began. Only these requests may consume the selection snapshot.
+pub fn is_selected_task_request(request: &str) -> bool {
+    let words = request
+        .to_lowercase()
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|word| !word.is_empty())
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    let has_task = words.iter().any(|word| matches!(word.as_str(), "task" | "todo"));
+    let wants_creation = words.iter().any(|word| matches!(word.as_str(), "create" | "add" | "make" | "save"));
+    let refers_to_selection = words.windows(2).any(|pair| {
+        matches!(pair, [a, b] if matches!(a.as_str(), "for" | "from" | "about" | "using") && b == "this")
+    }) || words.windows(2).any(|pair| matches!(pair, [a, b] if a == "selected" && b == "text"));
+    wants_creation && has_task && refers_to_selection
+}
+
+fn project_for_spoken_task<'a>(request: &str, projects: &'a [Project]) -> Result<&'a Project, String> {
+    let spoken = format!(" {} ", request.to_lowercase()
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|word| !word.is_empty())
+        .collect::<Vec<_>>().join(" "));
+    let matches = projects.iter().filter(|project| {
+        let name = project.name.to_lowercase()
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|word| !word.is_empty())
+            .collect::<Vec<_>>().join(" ");
+        !name.is_empty() && [
+            format!(" project {name} "),
+            format!(" in {name} "),
+            format!(" to {name} "),
+            format!(" for {name} "),
+            format!(" and {name} "),
+        ].iter().any(|phrase| spoken.contains(phrase))
+    }).collect::<Vec<_>>();
+    match matches.as_slice() {
+        [project] => Ok(project),
+        [] => Err("I couldn't identify a project by name. Say its exact name after ‘project’.".into()),
+        _ => Err("I found more than one project name in that request. Please name one project.".into()),
+    }
+}
+
+/// File highlighted text exactly as a task, without asking the language model
+/// to rewrite or interpret text copied from another app.
+pub fn create_task_from_selection(app: &AppHandle, request: &str, selected_text: &str) -> Result<String, String> {
+    let content = selected_text.trim();
+    if content.is_empty() || content.len() > 12_000 {
+        return Err("Select task text between 1 and 12,000 bytes.".into());
+    }
+    let state = app.state::<AppState>();
+    let database = state.db.as_ref().ok_or("Project storage is unavailable.")?;
+    let projects = database.with_conn(|conn| db::projects::list_projects(conn, false))
+        .map_err(|error| error.to_string())?;
+    let project = project_for_spoken_task(request, &projects)?;
+    let item = database.with_conn(|conn| create_project_item(conn, &project.id, content, ItemKind::Task, None))
+        .map_err(|error| error.to_string())?;
+    crate::export::try_export_item(database, &item, state.settings.export_confidence_threshold());
+    let message = format!("Created task in ‘{}’: {}", project.name, content.chars().take(100).collect::<String>());
+    item_changed(app, json!({"id":item.id,"project_id":project.id,"kind":"task"}), message.clone(), true);
+    Ok(message)
 }
 
 #[tauri::command]
@@ -273,6 +349,8 @@ impl Executor for NativeTools {
                     | "update_note"
                     | "complete_task"
                     | "reopen_task"
+                    | "set_focus"
+                    | "delete_focus_task"
                     | "link_folders"
                     | "unlink_folder"
                     | "search_files"
@@ -296,6 +374,10 @@ impl Executor for NativeTools {
                         .get("include_completed")
                         .and_then(Value::as_bool)
                         .unwrap_or(false);
+                    let focus_only = args
+                        .get("focus_only")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false);
                     let state = app.state::<AppState>();
                     let items = state
                         .db
@@ -317,12 +399,18 @@ impl Executor for NativeTools {
                                 if !include_completed && completed {
                                     continue;
                                 }
+                                let focus = item.kind == Some(ItemKind::Task)
+                                    && db::tasks::is_focus_task(conn, &item.id)?;
+                                if focus_only && !focus {
+                                    continue;
+                                }
                                 output.push(json!({
                                     "id": item.id,
                                     "content": item.content,
                                     "kind": item.kind.map(|kind| kind.as_str()),
                                     "deadline_iso": task.as_ref().and_then(|task| task.deadline.as_deref()),
                                     "completed": completed,
+                                    "focus": focus,
                                 }));
                             }
                             Ok(output)
@@ -341,13 +429,27 @@ impl Executor for NativeTools {
                     if kind == ItemKind::Note && args.get("deadline_iso").is_some() {
                         return Err("Notes cannot have deadlines.".into());
                     }
+                    let focus = args.get("focus").and_then(Value::as_bool).unwrap_or(false);
+                    if kind == ItemKind::Note && focus {
+                        return Err("Only tasks can be focus items.".into());
+                    }
                     let state = app.state::<AppState>();
                     let item = state
                         .db
                         .as_ref()
                         .ok_or("Project storage is unavailable.")?
-                        .with_conn(|conn| create_project_item(conn, id, content, kind, deadline))
+                        .with_conn(|conn| {
+                            let item = create_project_item(conn, id, content, kind, deadline)?;
+                            if focus {
+                                db::tasks::set_focus(conn, &item.id, true)?;
+                            }
+                            Ok(item)
+                        })
                         .map_err(|e| e.to_string())?;
+                    if focus {
+                        tracing::info!(target: "focus", item_id = %item.id, "project agent added focus task");
+                        let _ = app.emit("focus:changed", ());
+                    }
                     if let Some(database) = state.db.as_ref() {
                         crate::export::try_export_item(
                             database,
@@ -360,7 +462,7 @@ impl Executor for NativeTools {
                         json!({"id":item.id,"project_id":id,"kind":kind.as_str()}),
                         format!(
                             "Created {} in ‘{}’: {}",
-                            kind.as_str(),
+                            if focus { "focus task" } else { kind.as_str() },
                             project.name,
                             content
                         ),
@@ -380,7 +482,7 @@ impl Executor for NativeTools {
                     require_stored_project_item(database, id, item_id, kind)?;
                     database
                         .with_conn(|conn| {
-                            db::items::update_item(conn, item_id, Some(content), None, None)?;
+                            db::items::update_item(conn, item_id, Some(content), None, None, None)?;
                             db::events::insert_event(conn, item_id, "content_edited", None)?;
                             if kind == ItemKind::Task && args.get("deadline_iso").is_some() {
                                 let deadline = args.get("deadline_iso").and_then(Value::as_str);
@@ -440,6 +542,48 @@ impl Executor for NativeTools {
                         app,
                         json!({"id":item_id,"project_id":id,"completed":tool == "complete_task"}),
                         format!("{verb} task in ‘{}’.", project.name),
+                        false,
+                    ))
+                }
+                "set_focus" | "delete_focus_task" => {
+                    let item_id = field(&args, "item_id")?;
+                    let state = app.state::<AppState>();
+                    let database = state.db.as_ref().ok_or("Project storage is unavailable.")?;
+                    let item = require_stored_project_item(database, id, item_id, ItemKind::Task)?;
+                    let message = if tool == "set_focus" {
+                        let focus = args
+                            .get("focus")
+                            .and_then(Value::as_bool)
+                            .ok_or("Missing focus (true or false).")?;
+                        database
+                            .with_conn(|conn| db::tasks::set_focus(conn, item_id, focus))
+                            .map_err(|e| e.to_string())?;
+                        if focus {
+                            format!("Moved to focus in ‘{}’: {}", project.name, item.content)
+                        } else {
+                            format!("Removed from focus in ‘{}’: {}", project.name, item.content)
+                        }
+                    } else {
+                        let is_focus = database
+                            .with_conn(|conn| db::tasks::is_focus_task(conn, item_id))
+                            .map_err(|e| e.to_string())?;
+                        if !is_focus {
+                            return Err("That task is not a focus task; only focus tasks can be deleted.".into());
+                        }
+                        database
+                            .with_conn(|conn| {
+                                db::items::soft_delete_item(conn, item_id)?;
+                                db::events::insert_event(conn, item_id, "deleted", Some("focus"))
+                            })
+                            .map_err(|e| e.to_string())?;
+                        format!("Deleted focus task in ‘{}’: {}", project.name, item.content)
+                    };
+                    tracing::info!(target: "focus", tool, item_id, "project agent changed focus task");
+                    let _ = app.emit("focus:changed", ());
+                    Ok(item_changed(
+                        app,
+                        json!({"id":item_id,"project_id":id}),
+                        message,
                         false,
                     ))
                 }
@@ -667,6 +811,23 @@ pub fn stop_project_assistant() {
 
 #[tauri::command]
 pub async fn run_project_assistant(app: AppHandle, request: String) -> Result<Report, String> {
+    run_request(app, request, false).await
+}
+
+/// Spoken "Tucky, …" project request. If the main window is already in front the
+/// report dialog shows progress as before; otherwise the app stays in the
+/// background and a toast near the pet shows progress + result.
+pub async fn run_spoken_request(app: AppHandle, request: String) -> Result<Report, String> {
+    let in_front = app.get_webview_window("main").is_some_and(|w| {
+        w.is_visible().unwrap_or(false)
+            && !w.is_minimized().unwrap_or(false)
+            && w.is_focused().unwrap_or(false)
+    });
+    tracing::info!(target: "project_agent", in_front, "spoken project request");
+    run_request(app, request, !in_front).await
+}
+
+async fn run_request(app: AppHandle, request: String, headless: bool) -> Result<Report, String> {
     let request = request.trim();
     if request.is_empty() || request.len() > 4000 {
         return Err("Enter a request of up to 4,000 bytes.".into());
@@ -676,7 +837,21 @@ pub async fn run_project_assistant(app: AppHandle, request: String) -> Result<Re
         .map_err(|_| "Tucky is already handling a project request.".to_string())?;
     let _guard = RunGuard;
     CANCELLED.store(false, Ordering::SeqCst);
-    commands::show_main_window(app.clone())?;
+    if headless {
+        // The agent toast owns progress and the eventual result. Retire the
+        // capture pill before showing it so one request has one visible status.
+        crate::overlay::hide_recording_overlay_now(&app);
+        crate::agent_toast::show(&app);
+    } else {
+        commands::show_main_window(app.clone())?;
+    }
+    // Headless runs use their own event so the hidden main window doesn't pop
+    // its dialog open behind the user's back.
+    let event = if headless {
+        "agent-toast:report"
+    } else {
+        "project-assistant:report"
+    };
     let llm = app.state::<AppState>().llm.clone();
     tracing::info!(target: "project_agent", "project request started");
     let report = project_agent::run(
@@ -688,7 +863,7 @@ pub async fn run_project_assistant(app: AppHandle, request: String) -> Result<Re
             if let Ok(mut last) = LAST_REPORT.lock() {
                 *last = Some(report.clone());
             }
-            let _ = app.emit("project-assistant:report", report);
+            let _ = app.emit(event, report);
         },
     )
     .await;
@@ -700,6 +875,26 @@ pub async fn run_project_assistant(app: AppHandle, request: String) -> Result<Re
 mod tests {
     use super::*;
     use rusqlite::Connection;
+
+    #[test]
+    fn selected_task_intent_requires_a_task_and_selection_reference() {
+        assert!(is_selected_task_request("create a task for this for the project LiveCase"));
+        assert!(is_selected_task_request("add a task from the selected text in LiveCase"));
+        assert!(!is_selected_task_request("add a task to LiveCase to review the proposal"));
+        assert!(!is_selected_task_request("create a note for this in LiveCase"));
+        assert!(!is_selected_task_request("delete the task for this in LiveCase"));
+    }
+
+    #[test]
+    fn spoken_selected_task_resolves_one_existing_project() {
+        let projects = vec![
+            Project { id: "livecase".into(), name: "LiveCase".into(), ..Default::default() },
+            Project { id: "tucky".into(), name: "Tucky".into(), ..Default::default() },
+        ];
+        assert_eq!(project_for_spoken_task("create a task for this for the project LiveCase", &projects).unwrap().id, "livecase");
+        assert!(project_for_spoken_task("create a task for this for the project Unknown", &projects).is_err());
+        assert!(project_for_spoken_task("create a task for this in LiveCase and Tucky", &projects).is_err());
+    }
 
     fn fresh() -> Connection {
         let mut conn = Connection::open_in_memory().unwrap();
