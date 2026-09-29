@@ -51,16 +51,27 @@ pub type GenerateFuture<'a> =
 
 pub trait LlmGenerator: Send + Sync {
     fn generate<'a>(&'a self, req: GenerateRequest) -> GenerateFuture<'a>;
+    fn generate_cancellable<'a>(&'a self, req: GenerateRequest, cancel: Arc<std::sync::atomic::AtomicBool>) -> GenerateFuture<'a> {
+        Box::pin(async move {
+            if cancel.load(std::sync::atomic::Ordering::SeqCst) { return Err(LlmError::Cancelled); }
+            self.generate(req).await
+        })
+    }
 }
 
 impl LlmGenerator for Llm {
     fn generate<'a>(&'a self, req: GenerateRequest) -> GenerateFuture<'a> {
         Box::pin(Llm::generate(self, req))
     }
+    fn generate_cancellable<'a>(&'a self, req: GenerateRequest, cancel: Arc<std::sync::atomic::AtomicBool>) -> GenerateFuture<'a> {
+        Box::pin(self.generate_with_cancel(req, Some(cancel)))
+    }
 }
 
 #[derive(Debug, Error)]
 pub enum LlmError {
+    #[error("generation cancelled")]
+    Cancelled,
     #[error("no llm model is active")]
     NoActiveModel,
     #[error("active llm model {0} is not downloaded yet")]
@@ -217,6 +228,10 @@ impl Llm {
 
     /// Run one prompt. Lazy-loads the engine on first call after activation.
     pub async fn generate(&self, req: GenerateRequest) -> Result<String, LlmError> {
+        self.generate_with_cancel(req, None).await
+    }
+
+    async fn generate_with_cancel(&self, req: GenerateRequest, cancel: Option<Arc<std::sync::atomic::AtomicBool>>) -> Result<String, LlmError> {
         // Resolve active model + on-disk path before any blocking work.
         let (model_path, n_ctx): (PathBuf, u32) = {
             let guard = self.active_model.read().await;
@@ -241,6 +256,7 @@ impl Llm {
 
         let text = tokio::task::spawn_blocking(move || -> Result<String, LlmError> {
             let mut guard = engine_slot.blocking_lock();
+            if cancel.as_ref().is_some_and(|c| c.load(std::sync::atomic::Ordering::SeqCst)) { return Err(LlmError::Cancelled); }
             if guard.is_none() {
                 let rss_before_mib = current_rss_mib();
                 info!(
@@ -261,11 +277,11 @@ impl Llm {
                 );
             }
             let eng = guard.as_ref().expect("engine just loaded");
-            let out = eng.generate(req)?;
+            let out = eng.generate_with_cancel(req, cancel.as_deref());
             if let Ok(mut g) = last_used.lock() {
                 *g = Instant::now();
             }
-            Ok(out)
+            Ok(out?)
         })
         .await
         .map_err(|_| LlmError::Join)??;

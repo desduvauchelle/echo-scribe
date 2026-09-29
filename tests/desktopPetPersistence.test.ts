@@ -20,3 +20,16 @@ test("startup restores visibility before rebuilding the tray", () => {
   expect(tray).toMatch(/std::thread::spawn\(move \|\| \{\s*if let Err\(e\) = crate::desktop_pet::restore_visibility\(&refresh_app\)[\s\S]*?tray.rebuild_menu\(\)/);
   expect(pet).toMatch(/pub fn restore_visibility\([\s\S]*?settings.desktop_pet_visible\(\)[\s\S]*?show_locked\(app\)/);
 });
+
+test("dictation status preserves the focus window and avoids its space", () => {
+  const overlay = readFileSync(new URL("../src-tauri/src/overlay.rs", import.meta.url), "utf8");
+  const showActivity = overlay.slice(overlay.indexOf("fn show_activity_bubble("), overlay.indexOf("fn hide_activity_bubble("));
+  expect(showActivity).not.toContain('get_webview_window("desktop_pet_focus")');
+  const syncFocus = pet.slice(pet.indexOf("pub fn sync_daily_focus_bubble("), pet.indexOf("pub fn set_focus_visible("));
+  expect(syncFocus).not.toContain('"activity_bubble"');
+  const column = readFileSync(new URL("../src-tauri/src/notice_column.rs", import.meta.url), "utf8");
+  const relayout = column.slice(column.indexOf("pub(crate) fn relayout("), column.indexOf("fn set_tail("));
+  // The focus bubble is the first card in the pet's column, so notices stack above it.
+  expect(relayout.indexOf('"desktop_pet_focus"')).toBeLessThan(relayout.indexOf("TRANSIENT.contains"));
+  expect(showActivity).toContain('relayout(app, Some("activity_bubble"))');
+});

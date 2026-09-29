@@ -1,13 +1,13 @@
 {
   "version": 1,
-  "_comment": "Speech recognition model registry. Each entry produces one card in the SpeechModelPicker. version_label / description / language_label / english_only / accuracy_bars / speed_bars drive the card's visual presentation; size_label is the historical Small/Medium/Large bucket. Currently only one model is shipped; add more entries here when transcribe-rs supports them.",
+  "_comment": "Speech recognition model registry. Each entry produces one card in the SpeechModelPicker. version_label / description / language_label / english_only / accuracy_bars / speed_bars drive the card's visual presentation; size_label is the historical Small/Medium/Large bucket. Parakeet uses ONNX; Whisper uses an isolated whisper.cpp worker. Turbo and Qwen are local development options.",
   "models": [
     {
       "id": "parakeet-v3",
       "display_name": "Parakeet",
       "version_label": "V3",
       "description": "Fast and accurate",
-      "language_label": "25 languages · automatic detection",
+      "language_label": "25 languages \u00b7 automatic detection",
       "supported_languages": ["bg", "hr", "cs", "da", "nl", "en", "et", "fi", "fr", "de", "el", "hu", "it", "lv", "lt", "mt", "pl", "pt", "ro", "sk", "sl", "es", "sv", "ru", "uk"],
       "english_only": false,
       "accuracy_bars": 5,
@@ -41,7 +41,118 @@
           "size_bytes": 93939
         }
       ],
-      "notes": "Parakeet TDT 0.6B v3 (int8). Source: istupakov/parakeet-tdt-0.6b-v3-onnx on Hugging Face — the canonical layout transcribe-rs expects. URLs pin revision 8f23f0c0 (2026-08-24); hashes are HF LFS oids cross-checked against two independent local downloads. When bumping the revision, update url + sha256 + size_bytes together."
+      "notes": "Parakeet TDT 0.6B v3 (int8). Source: istupakov/parakeet-tdt-0.6b-v3-onnx on Hugging Face \u2014 the canonical layout transcribe-rs expects. URLs pin revision 8f23f0c0 (2026-08-24); hashes are HF LFS oids cross-checked against two independent local downloads. When bumping the revision, update url + sha256 + size_bytes together."
+    },
+    {
+      "id": "whisper-base",
+      "display_name": "Whisper",
+      "size_label": "Small",
+      "size_bytes": 147951465,
+      "is_default": false,
+      "files": [
+        {
+          "name": "ggml-base.bin",
+          "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-base.bin",
+          "sha256": "60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe",
+          "size_bytes": 147951465
+        }
+      ],
+      "version_label": "Base",
+      "description": "Small download, fast transcription",
+      "language_label": "Multilingual \u00b7 automatic detection",
+      "english_only": false,
+      "supported_languages": ["en", "zh", "de", "es", "ru", "ko", "fr", "ja", "pt", "tr", "pl", "ca", "nl", "ar", "sv", "it", "id", "hi", "fi", "vi", "he", "uk", "el", "ms", "cs", "ro", "da", "hu", "ta", "no", "th", "ur", "hr", "bg", "lt", "la", "mi", "ml", "cy", "sk", "te", "fa", "lv", "bn", "sr", "az", "sl", "kn", "et", "mk", "br", "eu", "is", "hy", "ne", "mn", "bs", "kk", "sq", "sw", "gl", "mr", "pa", "si", "km", "sn", "yo", "so", "af", "oc", "ka", "be", "tg", "sd", "gu", "am", "yi", "lo", "uz", "fo", "ht", "ps", "tk", "nn", "mt", "sa", "lb", "my", "bo", "tl", "mg", "as", "tt", "haw", "ln", "ha", "ba", "jw", "su"],
+      "notes": "Multilingual Whisper Base GGML via isolated whisper.cpp worker; Metal on macOS. Download pinned to the same revision and SHA-256 used in the local comparison."
+    },
+    {
+      "id": "whisper-turbo",
+      "display_name": "Whisper",
+      "size_label": "Medium",
+      "size_bytes": 574041195,
+      "is_default": false,
+      "files": [
+        {
+          "name": "ggml-large-v3-turbo-q5_0.bin",
+          "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-large-v3-turbo-q5_0.bin",
+          "sha256": "394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2",
+          "size_bytes": 574041195
+        }
+      ],
+      "version_label": "Turbo Q5",
+      "description": "Higher accuracy \u00b7 larger download",
+      "language_label": "Multilingual \u00b7 automatic detection",
+      "english_only": false,
+      "supported_languages": ["en", "zh", "de", "es", "ru", "ko", "fr", "ja", "pt", "tr", "pl", "ca", "nl", "ar", "sv", "it", "id", "hi", "fi", "vi", "he", "uk", "el", "ms", "cs", "ro", "da", "hu", "ta", "no", "th", "ur", "hr", "bg", "lt", "la", "mi", "ml", "cy", "sk", "te", "fa", "lv", "bn", "sr", "az", "sl", "kn", "et", "mk", "br", "eu", "is", "hy", "ne", "mn", "bs", "kk", "sq", "sw", "gl", "mr", "pa", "si", "km", "sn", "yo", "so", "af", "oc", "ka", "be", "tg", "sd", "gu", "am", "yi", "lo", "uz", "fo", "ht", "ps", "tk", "nn", "mt", "sa", "lb", "my", "bo", "tl", "mg", "as", "tt", "haw", "ln", "ha", "ba", "jw", "su"],
+      "notes": "Local development option. Whisper Large V3 Turbo Q5 via isolated whisper.cpp worker."
+    },
+    {
+      "id": "qwen3-asr",
+      "display_name": "Qwen3-ASR",
+      "version_label": "0.6B \u00b7 4-bit",
+      "description": "Fast multilingual transcription \u00b7 Apple silicon",
+      "size_label": "Medium",
+      "size_bytes": 712778752,
+      "is_default": false,
+      "files": [
+        {
+          "name": "chat_template.json",
+          "url": "https://huggingface.co/mlx-community/Qwen3-ASR-0.6B-4bit/resolve/313d850181767edf09f00a9c289becca70e58cd0/chat_template.json",
+          "sha256": "75a8cfca24f00de72d796fbfed6858fc9614ef3dabd8696684cc3bc03a9c58ff",
+          "size_bytes": 1161
+        },
+        {
+          "name": "config.json",
+          "url": "https://huggingface.co/mlx-community/Qwen3-ASR-0.6B-4bit/resolve/313d850181767edf09f00a9c289becca70e58cd0/config.json",
+          "sha256": "923618cf5ca452fda0253a6be5c1a17f94a2e4851d3b98beb45848565587bd72",
+          "size_bytes": 7187
+        },
+        {
+          "name": "generation_config.json",
+          "url": "https://huggingface.co/mlx-community/Qwen3-ASR-0.6B-4bit/resolve/313d850181767edf09f00a9c289becca70e58cd0/generation_config.json",
+          "sha256": "1da527824d81e07118facff437e03f2e24a23311e3bdeb2368973fe77e5f275c",
+          "size_bytes": 142
+        },
+        {
+          "name": "merges.txt",
+          "url": "https://huggingface.co/mlx-community/Qwen3-ASR-0.6B-4bit/resolve/313d850181767edf09f00a9c289becca70e58cd0/merges.txt",
+          "sha256": "8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5",
+          "size_bytes": 1671853
+        },
+        {
+          "name": "model.safetensors",
+          "url": "https://huggingface.co/mlx-community/Qwen3-ASR-0.6B-4bit/resolve/313d850181767edf09f00a9c289becca70e58cd0/model.safetensors",
+          "sha256": "70c7e67e588062adce4f10796e47ad42ead51c6671eda61a0987eae38ca95ddf",
+          "size_bytes": 708236945
+        },
+        {
+          "name": "model.safetensors.index.json",
+          "url": "https://huggingface.co/mlx-community/Qwen3-ASR-0.6B-4bit/resolve/313d850181767edf09f00a9c289becca70e58cd0/model.safetensors.index.json",
+          "sha256": "e3bb80ef0fd42a5be07b04e90c97d60460bbde8af3531e0bfe9100a61404d81a",
+          "size_bytes": 71814
+        },
+        {
+          "name": "preprocessor_config.json",
+          "url": "https://huggingface.co/mlx-community/Qwen3-ASR-0.6B-4bit/resolve/313d850181767edf09f00a9c289becca70e58cd0/preprocessor_config.json",
+          "sha256": "45e120a4eda2c20c5d7f2ea9354e63536bf35e27aa573fb7cdf78017b378770d",
+          "size_bytes": 330
+        },
+        {
+          "name": "tokenizer_config.json",
+          "url": "https://huggingface.co/mlx-community/Qwen3-ASR-0.6B-4bit/resolve/313d850181767edf09f00a9c289becca70e58cd0/tokenizer_config.json",
+          "sha256": "4942d005604266809309cabc9f4e9cb89ce855d59b14681fdc0e1cc62ea26c4c",
+          "size_bytes": 12487
+        },
+        {
+          "name": "vocab.json",
+          "url": "https://huggingface.co/mlx-community/Qwen3-ASR-0.6B-4bit/resolve/313d850181767edf09f00a9c289becca70e58cd0/vocab.json",
+          "sha256": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910",
+          "size_bytes": 2776833
+        }
+      ],
+      "language_label": "Multilingual \u00b7 automatic detection",
+      "supported_languages": ["zh", "en", "yue", "ar", "de", "fr", "es", "pt", "id", "it", "ko", "ru", "th", "vi", "ja", "tr", "hi", "ms", "nl", "sv", "da", "fi", "pl", "cs", "fil", "fa", "el", "hu", "mk", "ro"],
+      "english_only": false,
+      "notes": "Local development only. MLX Audio 0.5.6. Segment times represent audio chunks, not word alignment. Model revision and hashes match the personal voice benchmark."
     }
   ]
 }

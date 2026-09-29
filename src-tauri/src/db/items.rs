@@ -358,7 +358,7 @@ pub fn update_item(
     }
     if let Some(pid) = project_id {
         conn.execute(
-            "UPDATE items SET project_id = ?1 WHERE id = ?2",
+            "UPDATE items SET project_id = ?1, classified_by = 'manual', confidence = NULL WHERE id = ?2",
             params![pid, id],
         )?;
     }

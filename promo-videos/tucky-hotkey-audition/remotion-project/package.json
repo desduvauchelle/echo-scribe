@@ -1,0 +1,23 @@
+{
+  "name": "promo-film",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "studio": "remotion studio src/index.ts",
+    "render": "remotion render src/index.ts Film out/film-raw.mp4 --codec h264 --crf 16 --audio-codec aac",
+    "thumb": "remotion still src/index.ts Thumbnail ../thumbnail.png --image-format png"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.441",
+    "@remotion/google-fonts": "4.0.441",
+    "@remotion/noise": "4.0.441",
+    "@remotion/shapes": "4.0.441",
+    "@remotion/transitions": "4.0.441",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.7",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "remotion": "4.0.441",
+    "typescript": "~5.8.3"
+  }
+}

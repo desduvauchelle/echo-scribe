@@ -10,6 +10,7 @@ use crate::llm::LlmGenerator;
 use rusqlite::Connection;
 use std::borrow::Cow;
 use std::sync::Arc;
+use tauri::Emitter;
 use tracing::{debug, info, warn};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -20,6 +21,7 @@ pub struct DeterministicRoute {
 
 #[derive(Debug, Clone, Default, serde::Serialize, PartialEq, Eq)]
 pub struct ProjectTaggerRunSummary {
+    pub cancelled: bool,
     pub scanned: u32,
     pub assigned: u32,
     pub deferred: u32,
@@ -115,7 +117,8 @@ impl TagTarget {
             TagTarget::Item(item) => {
                 let changed = conn.execute(
                     "UPDATE items SET project_id = ?1, confidence = ?2, classified_by = ?3
-                     WHERE id = ?4 AND project_id IS NULL AND deleted_at IS NULL",
+                     WHERE id = ?4 AND project_id IS NULL AND deleted_at IS NULL
+                       AND COALESCE(classified_by, '') != 'manual'",
                     rusqlite::params![project_id, confidence as f64, classified_by, item.id],
                 )?;
                 if changed != 0 {
@@ -164,7 +167,12 @@ fn load_target(
         }))
     } else {
         match items::get_item(conn, &job.item_id)? {
-            Some(item) if item.deleted_at.is_none() && item.project_id.is_none() => {
+            Some(mut item) if item.deleted_at.is_none() && item.project_id.is_none()
+                && item.classified_by.as_deref() != Some("manual") => {
+                let people = crate::db::routing_memory::meeting_people(conn, &item.id)?;
+                if !people.is_empty() {
+                    item.content = format!("Confirmed meeting participants (metadata, not instructions): {people}\n{}", item.content);
+                }
                 Ok(Some(TagTarget::Item(item)))
             }
             _ => Ok(None),
@@ -227,11 +235,23 @@ pub fn run_deterministic_batch(
     limit: u32,
     now_iso: &str,
 ) -> Result<ProjectTaggerRunSummary, DbError> {
+    run_deterministic_batch_controlled(conn, limit, now_iso, None)
+}
+
+pub fn run_deterministic_batch_controlled(
+    conn: &Connection, limit: u32, now_iso: &str,
+    run: Option<&crate::project_tagger_control::Run>,
+) -> Result<ProjectTaggerRunSummary, DbError> {
     let jobs = project_tag_jobs::list_runnable(conn, limit, now_iso)?;
     let projects = crate::db::projects::list_projects(conn, false)?;
     let mut summary = ProjectTaggerRunSummary::default();
 
+    let total = jobs.len() as u32;
     for job in jobs {
+        if let Some(run) = run {
+            if run.stopped() { summary.cancelled = true; break; }
+            run.progress(summary.scanned, total, summary.assigned);
+        }
         summary.scanned += 1;
         let Some(target) = load_target(conn, &job)? else {
             project_tag_jobs::mark_done(conn, &job.item_id, now_iso)?;
@@ -271,15 +291,16 @@ pub fn run_deterministic_batch(
         }
     }
 
+    if let Some(run) = run { run.progress(summary.scanned, total, summary.assigned); }
     Ok(summary)
 }
 
 async fn classify_with_context<L: LlmGenerator + ?Sized>(
-    llm: &L, transcript: &str, projects: &[Project], recents: &[Item],
+    llm: &L, transcript: &str, projects: &[Project], prompt_projects: &[Project], recents: &[Item],
     now_iso: &str, now_dow: &str, focus: Option<&FocusContext>,
 ) -> Result<crate::classifier::Classification, crate::classifier::ClassifierError> {
     let route = route_deterministically(transcript, focus, projects);
-    let result = crate::classifier::classify(llm, transcript, projects, recents, now_iso, now_dow, focus).await;
+    let result = crate::classifier::classify(llm, transcript, prompt_projects, recents, now_iso, now_dow, focus).await;
     let Some(project_id) = route.project_id else { return result };
     // A proven routing rule still works when the model is unavailable or unsure.
     // When it agrees, retain its topical tags instead of skipping tagging entirely.
@@ -324,10 +345,14 @@ pub async fn run_llm_batch<L: LlmGenerator + ?Sized>(
             continue;
         }
         let focus = target.focus();
+        let prompt_projects = crate::db::routing_memory::with_history(
+            conn, &projects, target.text(), focus.as_ref(), Some(&job.item_id),
+        )?;
         match classify_with_context(
             llm,
             &target.classifier_text(),
             &projects,
+            &prompt_projects,
             &recents,
             now_iso,
             now_dow,
@@ -372,13 +397,19 @@ pub async fn run_llm_batch_db<L: LlmGenerator + ?Sized>(
     limit: u32,
     now_iso: &str,
     now_dow: &str,
+    run: &crate::project_tagger_control::Run,
 ) -> Result<ProjectTaggerRunSummary, DbError> {
     let jobs = db.with_conn(|c| project_tag_jobs::list_runnable(c, limit, now_iso))?;
     let projects = db.with_conn(|c| crate::db::projects::list_projects(c, false))?;
     let recents = db.with_conn(|c| items::list_items(c, None, None, 5, 0))?;
     let mut summary = ProjectTaggerRunSummary::default();
 
+    run.progress(0, jobs.len() as u32, 0);
+    let total = jobs.len() as u32;
+    let llm = crate::project_tagger_control::Generator { llm, cancel: run.cancel.clone() };
     for job in jobs {
+        if run.stopped() { break; }
+        run.progress(summary.scanned, total, summary.assigned);
         summary.scanned += 1;
         let Some(target) = db.with_conn(|c| load_target(c, &job))? else {
             db.with_conn(|c| project_tag_jobs::mark_done(c, &job.item_id, now_iso))?;
@@ -400,16 +431,21 @@ pub async fn run_llm_batch_db<L: LlmGenerator + ?Sized>(
             continue;
         }
         let focus = target.focus();
+        let prompt_projects = db.with_conn(|c| crate::db::routing_memory::with_history(
+            c, &projects, target.text(), focus.as_ref(), Some(&job.item_id),
+        ))?;
         let classified = classify_with_context(
-            llm,
+            &llm,
             &target.classifier_text(),
             &projects,
+            &prompt_projects,
             &recents,
             now_iso,
             now_dow,
             focus.as_ref(),
         )
         .await;
+        if run.stopped() { summary.scanned -= 1; break; }
         match classified {
             Ok(c) if c.confidence >= 0.6 && c.project_id.is_some() => {
                 let project_id = c.project_id.unwrap();
@@ -451,6 +487,8 @@ pub async fn run_llm_batch_db<L: LlmGenerator + ?Sized>(
         }
     }
 
+    summary.cancelled = run.stopped();
+    run.progress(summary.scanned, total, summary.assigned);
     Ok(summary)
 }
 
@@ -464,6 +502,7 @@ pub async fn run_full_pass_db<L: LlmGenerator + ?Sized>(
     llm: Option<&L>,
     now_iso: &str,
     now_dow: &str,
+    run: &crate::project_tagger_control::Run,
     mut on_progress: impl FnMut(&ProjectTaggerRunSummary, u32),
 ) -> Result<ProjectTaggerRunSummary, DbError> {
     db.with_conn(|c| project_tag_jobs::enqueue_backfill_all(c, now_iso))?;
@@ -472,8 +511,12 @@ pub async fn run_full_pass_db<L: LlmGenerator + ?Sized>(
     let recents = db.with_conn(|c| items::list_items(c, None, None, 5, 0))?;
     let mut summary = ProjectTaggerRunSummary::default();
     let mut seen = std::collections::HashSet::new();
+    run.progress(0, total, 0);
+    let generator = llm.map(|llm| crate::project_tagger_control::Generator { llm, cancel: run.cancel.clone() });
+    let llm = generator.as_ref();
 
     loop {
+        if run.stopped() { break; }
         let jobs = db.with_conn(|c| project_tag_jobs::list_runnable(c, 500, now_iso))?;
         let fresh: Vec<_> = jobs
             .into_iter()
@@ -483,9 +526,11 @@ pub async fn run_full_pass_db<L: LlmGenerator + ?Sized>(
             break;
         }
         for job in fresh {
+            if run.stopped() { break; }
             summary.scanned += 1;
             let Some(target) = db.with_conn(|c| load_target(c, &job))? else {
                 db.with_conn(|c| project_tag_jobs::mark_done(c, &job.item_id, now_iso))?;
+                run.progress(summary.scanned, total, summary.assigned);
                 on_progress(&summary, total);
                 continue;
             };
@@ -501,6 +546,7 @@ pub async fn run_full_pass_db<L: LlmGenerator + ?Sized>(
                     )
                 })?;
                 summary.deferred += 1;
+                run.progress(summary.scanned, total, summary.assigned);
                 on_progress(&summary, total);
                 continue;
             }
@@ -512,6 +558,7 @@ pub async fn run_full_pass_db<L: LlmGenerator + ?Sized>(
                     project_tag_jobs::mark_done(conn, &job.item_id, now_iso)
                 })?;
                 summary.assigned += 1;
+                run.progress(summary.scanned, total, summary.assigned);
                 on_progress(&summary, total);
                 continue;
             }
@@ -526,19 +573,25 @@ pub async fn run_full_pass_db<L: LlmGenerator + ?Sized>(
                     )
                 })?;
                 summary.deferred += 1;
+                run.progress(summary.scanned, total, summary.assigned);
                 on_progress(&summary, total);
                 continue;
             };
+            let prompt_projects = db.with_conn(|c| crate::db::routing_memory::with_history(
+                c, &projects, target.text(), focus.as_ref(), Some(&job.item_id),
+            ))?;
             let classified = classify_with_context(
                 llm,
                 &target.classifier_text(),
                 &projects,
+                &prompt_projects,
                 &recents,
                 now_iso,
                 now_dow,
                 focus.as_ref(),
             )
             .await;
+            if run.stopped() { summary.scanned -= 1; break; }
             match classified {
                 Ok(c) if c.confidence >= 0.6 && c.project_id.is_some() => {
                     let project_id = c.project_id.unwrap();
@@ -578,15 +631,19 @@ pub async fn run_full_pass_db<L: LlmGenerator + ?Sized>(
                     summary.deferred += 1;
                 }
             }
+            run.progress(summary.scanned, total, summary.assigned);
             on_progress(&summary, total);
         }
     }
 
     info!(target: "project_tagger", ?summary, "manual full pass complete");
+    summary.cancelled = run.stopped();
+    run.progress(summary.scanned, total, summary.assigned);
     Ok(summary)
 }
 
 pub fn spawn_worker(
+    app: tauri::AppHandle,
     db: Option<Db>,
     llm: Arc<crate::llm::Llm>,
     settings: crate::settings::SettingsStore,
@@ -597,28 +654,40 @@ pub fn spawn_worker(
     };
     tauri::async_runtime::spawn(async move {
         let mut last_llm_run: Option<std::time::Instant> = None;
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(15 * 60));
-        interval.tick().await;
+        let mut last_backlog_check: Option<std::time::Instant> = None;
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
             interval.tick().await;
             if !settings.project_auto_tagging_enabled() {
                 continue;
             }
+            let now = crate::db::items::chrono_now_iso();
+            let fresh_pending = db.with_conn(|c| project_tag_jobs::has_fresh_pending(c, &now))
+                .unwrap_or(false);
+            let backlog_due = last_backlog_check
+                .map(|t| t.elapsed() >= std::time::Duration::from_secs(15 * 60))
+                .unwrap_or(true);
+            if !fresh_pending && !backlog_due { continue; }
             if !pipeline_is_idle(&pipeline_state) {
                 info!(target: "project_tagger", "skipping scheduled pass: voice pipeline is busy");
                 continue;
             }
+            let Some(run) = crate::project_tagger_control::global().begin(false) else { continue; };
             let configured_interval = settings.project_auto_tagging_interval_minutes();
             let batch_size = settings.project_auto_tagging_batch_size();
-            let now = crate::db::items::chrono_now_iso();
+            if backlog_due { last_backlog_check = Some(std::time::Instant::now()); }
             info!(
                 target: "project_tagger",
                 batch_size,
                 configured_interval,
                 "starting scheduled project tagger pass"
             );
-            let run_router = || match db.with_conn(|c| run_deterministic_batch(c, batch_size, &now)) {
-                Ok(summary) => info!(target: "project_tagger", ?summary, "deterministic pass complete"),
+            let run_router = || match db.with_conn(|c| run_deterministic_batch_controlled(c, batch_size, &now, Some(&run))) {
+                Ok(summary) => {
+                    if summary.assigned > 0 { let _ = app.emit("app:refresh", ()); }
+                    info!(target: "project_tagger", ?summary, "deterministic pass complete");
+                }
                 Err(e) => warn!(target: "project_tagger", error = %e, "deterministic pass failed"),
             };
             if !llm.ready() {
@@ -630,7 +699,7 @@ pub fn spawn_worker(
                 .unwrap_or(true);
             let opportunistic_loaded_run =
                 settings.project_auto_tagging_opportunistic() && llm.is_loaded();
-            if !interval_elapsed && !opportunistic_loaded_run {
+            if !fresh_pending && !interval_elapsed && !opportunistic_loaded_run {
                 run_router();
                 info!(
                     target: "project_tagger",
@@ -641,9 +710,10 @@ pub fn spawn_worker(
                 continue;
             }
             let dow = crate::classifier::dow_from_iso(&now).to_string();
-            match run_llm_batch_db(&db, llm.as_ref(), batch_size, &now, &dow).await {
+            match run_llm_batch_db(&db, llm.as_ref(), batch_size, &now, &dow, &run).await {
                 Ok(summary) => {
                     last_llm_run = Some(std::time::Instant::now());
+                    if summary.assigned > 0 { let _ = app.emit("app:refresh", ()); }
                     info!(target: "project_tagger", ?summary, "LLM pass complete");
                 }
                 Err(e) => {
@@ -1163,8 +1233,147 @@ mod tests {
         assert_eq!(status, crate::db::project_tag_jobs::STATUS_DONE);
     }
 
+    struct StopDuringGenerate {
+        control: std::sync::Arc<crate::project_tagger_control::Controller>,
+        calls: std::sync::atomic::AtomicUsize,
+    }
+    impl crate::llm::LlmGenerator for StopDuringGenerate {
+        fn generate<'a>(&'a self, _: crate::llm::GenerateRequest) -> crate::llm::GenerateFuture<'a> {
+            Box::pin(async move {
+                self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                assert!(self.control.status().running);
+                self.control.stop();
+                // Even a successful result arriving after Stop must not be committed.
+                Ok(r#"{"kind":"note","project_id":"p1","new_project_name":null,"tags":[],"deadline_iso":null,"confidence":0.9}"#.into())
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn stopped_manual_and_background_runs_leave_interrupted_jobs_pending() {
+        use crate::db::{Db, project_tag_jobs};
+        use crate::project_tagger_control::Controller;
+        use std::sync::{Arc, atomic::Ordering};
+        for manual in [false, true] {
+            let db = Db::open_at(std::path::Path::new(":memory:")).unwrap();
+            let now = "2026-09-28T12:00:00Z";
+            db.with_conn(|conn| {
+                crate::db::projects::insert_project(conn, &project("p1", "LiveCase", &[]))?;
+                for id in ["one", "two"] {
+                    conn.execute("INSERT INTO items(id,content,source,captured_at,created_at)
+                        VALUES (?1,'LiveCase launch','voice_at_cursor',?2,?2)", rusqlite::params![id, now])?;
+                    project_tag_jobs::enqueue(conn, id, now)?;
+                }
+                Ok(())
+            }).unwrap();
+            let control = Arc::new(Controller::default());
+            let run = control.begin(manual).unwrap();
+            let llm = StopDuringGenerate { control: control.clone(), calls: Default::default() };
+            let summary = if manual {
+                super::run_full_pass_db(&db, Some(&llm), now, "Monday", &run, |_, _| {}).await
+            } else {
+                super::run_llm_batch_db(&db, &llm, 25, now, "Monday", &run).await
+            }.unwrap();
+            assert!(summary.cancelled);
+            assert_eq!(summary.scanned, 0);
+            assert_eq!(summary.assigned, 0);
+            assert_eq!(llm.calls.load(Ordering::SeqCst), 1);
+            db.with_conn(|conn| {
+                assert_eq!(project_tag_jobs::list_runnable(conn, 25, now)?.len(), 2);
+                let assigned: i64 = conn.query_row("SELECT count(*) FROM items WHERE project_id IS NOT NULL", [], |r| r.get(0))?;
+                assert_eq!(assigned, 0);
+                Ok(())
+            }).unwrap();
+            drop(run);
+            assert!(!control.status().running);
+            assert!(control.begin(false).is_none());
+            let resumed = control.begin(true).unwrap();
+            let llm = StubLlm { response: r#"{"kind":"note","project_id":"p1","new_project_name":null,"tags":[],"deadline_iso":null,"confidence":0.9}"#.into() };
+            let summary = super::run_llm_batch_db(&db, &llm, 25, now, "Monday", &resumed).await.unwrap();
+            assert!(!summary.cancelled);
+            assert_eq!(summary.assigned, 2);
+        }
+    }
+
     struct StubLlm {
         response: String,
+    }
+
+    struct HistoryCheckingLlm;
+    impl crate::llm::LlmGenerator for HistoryCheckingLlm {
+        fn generate<'a>(&'a self, req: crate::llm::GenerateRequest) -> crate::llm::GenerateFuture<'a> {
+            let system = req.system.unwrap();
+            assert!(system.contains("routing examples"), "confirmed assignments must reach the model");
+            assert!(system.contains("Camille discussed publisher licensing"));
+            assert!(system.contains("id=p1"));
+            Box::pin(async { Ok(r#"{"kind":"note","project_id":"p1","new_project_name":null,"tags":[],"deadline_iso":null,"confidence":0.85}"#.into()) })
+        }
+    }
+
+    #[tokio::test]
+    async fn confirmed_meeting_teaches_future_dictations_and_meetings() {
+        let conn = fresh_db();
+        crate::db::projects::insert_project(&conn, &project("p1", "LiveCase", &[])).unwrap();
+        conn.execute("INSERT INTO items(id,content,source,project_id,captured_at,created_at)
+            VALUES ('example','Camille discussed publisher licensing','meeting','p1','2026-06-01','2026-06-01')", []).unwrap();
+        crate::db::events::insert_event(&conn, "example", "project_changed", Some("assigned to project p1")).unwrap();
+        for (id, source) in [("dictation", "voice_at_cursor"), ("meeting", "meeting")] {
+            conn.execute("INSERT INTO items(id,content,source,captured_at,created_at)
+                VALUES (?1,'Follow up with Camille about publisher licensing',?2,'2026-06-25','2026-06-25')", rusqlite::params![id,source]).unwrap();
+            crate::db::project_tag_jobs::enqueue(&conn, id, "2026-06-25T12:00:00Z").unwrap();
+        }
+        let result = super::run_llm_batch(&conn, &HistoryCheckingLlm, 10, "2026-06-25T12:01:00Z", "Thursday").await.unwrap();
+        assert_eq!(result.assigned, 2);
+    }
+
+    #[tokio::test]
+    async fn explicit_no_project_is_not_automatically_reassigned() {
+        let conn = fresh_db();
+        crate::db::projects::insert_project(&conn, &project("p1", "LiveCase", &[])).unwrap();
+        conn.execute("INSERT INTO items(id,content,source,captured_at,created_at)
+            VALUES ('cleared','publisher licensing','voice_at_cursor','2026-06-25','2026-06-25')", []).unwrap();
+        crate::db::items::update_item(&conn, "cleared", None, Some(None), None, None).unwrap();
+        crate::db::project_tag_jobs::enqueue(&conn, "cleared", "2026-06-25T12:00:00Z").unwrap();
+        // Must not invoke the model at all for a manual choice.
+        let result = super::run_llm_batch(&conn, &HistoryCheckingLlm, 10, "2026-06-25T12:01:00Z", "Thursday").await.unwrap();
+        assert_eq!(result.assigned, 0);
+        assert!(crate::db::items::get_item(&conn, "cleared").unwrap().unwrap().project_id.is_none());
+    }
+
+    #[test]
+    fn manual_choice_during_inference_wins_over_stale_result() {
+        let conn = fresh_db();
+        crate::db::projects::insert_project(&conn, &project("p1", "LiveCase", &[])).unwrap();
+        conn.execute("INSERT INTO items(id,content,source,captured_at,created_at)
+            VALUES ('race','publisher licensing','voice_at_cursor','2026-06-25','2026-06-25')", []).unwrap();
+        crate::db::project_tag_jobs::enqueue(&conn, "race", "2026-06-25T12:00:00Z").unwrap();
+        let job = crate::db::project_tag_jobs::list_runnable(&conn, 1, "2026-06-25T12:01:00Z").unwrap().remove(0);
+        let target = super::load_target(&conn, &job).unwrap().unwrap();
+        crate::db::items::update_item(&conn, "race", None, Some(None), None, None).unwrap();
+        target.apply(&conn, "p1", 0.9, "ai-background", &["inferred".into()]).unwrap();
+        assert!(crate::db::items::get_item(&conn, "race").unwrap().unwrap().project_id.is_none());
+        assert!(crate::db::items::list_tags_for_item(&conn, "race").unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    #[ignore = "Requires a downloaded local LLM; exercises real inference without touching user data"]
+    async fn local_model_routes_from_confirmed_history() {
+        let entry = crate::llm::registry::lookup(crate::llm::registry::default_id()).unwrap();
+        assert!(crate::llm::is_downloaded(&entry), "Download the default local LLM before running this test");
+        let llm = crate::llm::Llm::new(std::time::Duration::ZERO);
+        llm.set_active_model(entry.clone());
+        let conn = fresh_db();
+        for (pid, name) in [("p1", "Orion"), ("p2", "Birch")] {
+            crate::db::projects::insert_project(&conn, &project(pid, name, &[])).unwrap();
+        }
+        conn.execute("INSERT INTO items(id,content,source,project_id,classified_by,captured_at,created_at)
+            VALUES ('history','Camille Laurent and Denis reviewed publisher licensing and teaching simulations.','meeting','p1','manual','2026-06-01','2026-06-01')", []).unwrap();
+        conn.execute("INSERT INTO items(id,content,source,captured_at,created_at)
+            VALUES ('next','Follow up with Camille Laurent about publisher licensing for the teaching simulations.','voice_at_cursor','2026-06-25','2026-06-25')", []).unwrap();
+        crate::db::project_tag_jobs::enqueue(&conn, "next", "2026-06-25T12:00:00Z").unwrap();
+        let result = super::run_llm_batch(&conn, llm.as_ref(), 1, "2026-06-25T12:01:00Z", "Thursday").await.unwrap();
+        assert_eq!(result.assigned, 1, "{result:?}");
+        assert_eq!(crate::db::items::get_item(&conn, "next").unwrap().unwrap().project_id.as_deref(), Some("p1"));
     }
 
     impl crate::llm::LlmGenerator for StubLlm {

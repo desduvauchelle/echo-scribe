@@ -813,6 +813,15 @@ mod stay_awake_tests {
     }
 
     #[test]
+    fn strips_observed_taki_mishearing() {
+        assert_eq!(
+            strip_trigger_prefix("Taki, for the project LiveCase, can you remind me to redo the catalog page?"),
+            Some("for the project LiveCase, can you remind me to redo the catalog page?".to_string())
+        );
+        assert_eq!(strip_trigger_prefix("Takings were up this week."), None);
+    }
+
+    #[test]
     fn does_not_recover_duration_bearing_regular_dictation() {
         assert_eq!(strip_trigger_prefix("Keep this draft for two hours."), None);
         assert_eq!(
@@ -829,7 +838,7 @@ mod stay_awake_tests {
 pub fn strip_trigger_prefix(text: &str) -> Option<String> {
     let text_trimmed = text.trim();
     let text_lower = text_trimmed.to_lowercase();
-    for trigger in &["tucky", "tuckey", "tuckie", "tuki"] {
+    for trigger in crate::wakeword::TRIGGER_SPELLINGS {
         if text_lower.starts_with(trigger) {
             let trigger_len = trigger.len();
             if text_lower.len() == trigger_len {
@@ -967,6 +976,7 @@ mod capture_command_tests {
             "add a task to the project LiveCase to finish the pipeline",
             "can you add a task to the project life case to finish the pipeline on Zendesk",
             "create a note in the project LiveCase about the pipeline",
+            "in project LiveCase, the task about the pipeline, can you mark it as done",
         ] {
             let detected = detect_action(&NoModel, spoken, &[]).await.unwrap();
             assert_eq!(

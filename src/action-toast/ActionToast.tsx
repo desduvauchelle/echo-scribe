@@ -1,5 +1,5 @@
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { hideNotice, tailClass, tailStyle, useBubbleTail } from "../lib/bubbleTail";
 import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -117,6 +117,7 @@ function kindMeta(kind: string) {
 export default function ActionToast() {
   const { t } = useTranslation("windows");
   const [payload, setPayload] = useState<ActionToastPayload | null>(null);
+  const tail = useBubbleTail();
   const [visible, setVisible] = useState(false);
   const [exiting, setExiting] = useState(false);
   const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -135,9 +136,7 @@ export default function ActionToast() {
     hideTimer.current = setTimeout(() => {
       setVisible(false);
       setExiting(false);
-      void getCurrentWindow()
-        .hide()
-        .catch(() => {});
+      void hideNotice();
     }, EXIT_MS);
   }, [clearTimers]);
 
@@ -194,7 +193,8 @@ export default function ActionToast() {
   return (
     <div className="action-toast-stage">
       <section
-        className={`action-toast${visible ? " is-visible" : ""}${exiting ? " is-exiting" : ""}`}
+        className={`action-toast${visible ? " is-visible" : ""}${exiting ? " is-exiting" : ""}${tailClass(tail)}`}
+        style={tailStyle(tail)}
         aria-label={t("actionToast.ariaLabel")}
         onMouseEnter={clearTimers}
         onMouseLeave={() => scheduleDismiss(1_500)}

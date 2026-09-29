@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { createPortal } from "react-dom";
+import Dialog from "./a11y/Dialog";
 import { useTranslation } from "react-i18next";
 import {
   deleteSpeechModel,
@@ -9,8 +11,9 @@ import {
   type DownloadProgress,
   type SpeechModelStatus,
 } from "../lib/api";
+import { asrModelBenchmarks, benchmarkGrade } from "../lib/asrModelBenchmarks";
 import { formatBytes } from "../lib/format";
-import { DownloadIcon, GlobeIcon, TrashIcon } from "./icons";
+import { DownloadIcon, TrashIcon } from "./icons";
 
 type Props = {
   onChange?: () => void;
@@ -58,234 +61,58 @@ type CardProps = {
   onDelete: () => void;
 };
 
-function ModelCard({
-  model,
-  active,
-  downloading,
-  downloadError,
-  busy,
-  onDownload,
-  onActivate,
-  onDelete,
-}: CardProps) {
+export function SpeechModelRow({ model, active, downloading, downloadError, busy, onDownload, onActivate, onDelete }: CardProps) {
   const { t } = useTranslation();
-  const disabled = !model.supported;
-  const isDownloading = downloading !== null && !model.downloaded;
-
+  const benchmark = (import.meta.env.DEV || import.meta.env.VITE_LOCAL_ASR === "1") ? asrModelBenchmarks[model.id] : undefined;
+  const inProgress = downloading !== null && !model.downloaded;
+  const buttonClass = "inline-flex items-center gap-1 rounded-md border border-line px-2 py-1.5 text-xs hover:bg-elevated disabled:cursor-not-allowed disabled:opacity-50";
   return (
-    <div
-      title={disabled ? t("speechModelPicker.modelCard.notSupported") : undefined}
-      className={[
-        "rounded-xl border p-4 transition-colors",
-        active
-          ? "border-accent/40 bg-surface"
-          : "border-line bg-surface/70",
-        disabled ? "cursor-not-allowed opacity-50" : "",
-      ].join(" ")}
-    >
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <span className="text-base font-semibold text-fg">
-              {model.display_name}
-              {model.version_label ? (
-                <span className="ml-1.5 text-muted">
-                  {model.version_label}
-                </span>
-              ) : null}
-            </span>
-            {active ? (
-              <span className="inline-flex items-center gap-1 rounded-full bg-accent/15 px-2 py-0.5 text-[11px] font-medium text-accent">
-                <svg
-                  width="10"
-                  height="10"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="3"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <polyline points="5 12 10 17 19 8" />
-                </svg>
-                {t("speechModelPicker.modelCard.active")}
-              </span>
-            ) : null}
-          </div>
-          {model.description ? (
-            <p className="mt-1 text-sm text-muted">{model.description}</p>
-          ) : null}
-        </div>
-
-        {(model.accuracy_bars > 0 || model.speed_bars > 0) && !isDownloading ? (
-          <div className="shrink-0 space-y-1">
-            {model.accuracy_bars > 0 ? (
-              <div className="flex items-center justify-end gap-2 text-[11px] text-muted">
-                <span>{t("speechModelPicker.modelCard.accuracy")}</span>
-                <SegmentBar value={model.accuracy_bars} />
-              </div>
-            ) : null}
-            {model.speed_bars > 0 ? (
-              <div className="flex items-center justify-end gap-2 text-[11px] text-muted">
-                <span>{t("speechModelPicker.modelCard.speed")}</span>
-                <SegmentBar value={model.speed_bars} />
-              </div>
-            ) : null}
-          </div>
-        ) : null}
-      </div>
-
-      {isDownloading && downloading ? (
-        <div className="mt-3">
-          <div
-            role="progressbar"
-            aria-label={t("speechModelPicker.modelCard.downloadProgressAria")}
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={
-              downloading.bytes_total > 0
-                ? Math.min(
-                    100,
-                    Math.round(
-                      (downloading.bytes_downloaded / downloading.bytes_total) *
-                        100,
-                    ),
-                  )
-                : 0
-            }
-            className="h-1.5 w-full overflow-hidden rounded-full bg-elevated"
-          >
-            <div
-              className="h-full bg-accent transition-all"
-              style={{
-                width: `${
-                  downloading.bytes_total > 0
-                    ? Math.min(
-                        100,
-                        Math.round(
-                          (downloading.bytes_downloaded /
-                            downloading.bytes_total) *
-                            100,
-                        ),
-                      )
-                    : 0
-                }%`,
-              }}
-            />
-          </div>
-          <div className="mt-1 text-[11px] text-muted">
-            {formatBytes(downloading.bytes_downloaded)} /{" "}
-            {formatBytes(downloading.bytes_total)} (
-            {downloading.bytes_total > 0
-              ? Math.round(
-                  (downloading.bytes_downloaded / downloading.bytes_total) *
-                    100,
-                )
-              : 0}
-            %)
-          </div>
-          {downloading.retrying ? (
-            <div className="mt-1 text-[11px] text-warning">
-              {t("speechModelPicker.modelCard.retrying")}
+    <tr className={active ? "bg-accent/5" : ""}>
+      <th scope="row" className="px-4 py-3 text-left font-normal">
+        <div className="text-sm font-semibold">{model.display_name} <span className="text-muted">{model.version_label}</span></div>
+        <div className="mt-1 text-[11px] text-muted">{formatBytes(model.size_bytes)} download</div>
+        <div className="text-[11px] text-muted">{model.language_label}</div>
+        {downloadError ? <p role="alert" className="mt-1 max-w-56 text-xs text-danger">{downloadError}</p> : null}
+        {model.incomplete && !inProgress ? <p className="mt-1 text-xs text-warning">{t("speechModelPicker.modelCard.incompleteDownload", { size: formatBytes(model.disk_bytes) })}</p> : null}
+      </th>
+      <td className="px-3 py-3">
+        <SegmentBar value={benchmark ? benchmarkGrade("errors", benchmark.errors) : model.accuracy_bars} />
+        <div className="mt-1 text-[11px] text-muted whitespace-nowrap">{benchmark ? `${(benchmark.errors / 53 * 100).toFixed(1)}% word errors` : "Not measured"}</div>
+      </td>
+      <td className="px-3 py-3">
+        <SegmentBar value={benchmark ? benchmarkGrade("warmSeconds", benchmark.warmSeconds) : model.speed_bars} />
+        <div className="mt-1 text-[11px] text-muted whitespace-nowrap">{benchmark ? `${benchmark.warmSeconds.toFixed(2)} s transcription` : "Not measured"}</div>
+        {benchmark ? <div className="text-[11px] text-muted">{benchmark.loadSeconds.toFixed(2)} s load</div> : null}
+      </td>
+      <td className="px-3 py-3">
+        {benchmark ? <><SegmentBar value={benchmarkGrade("memoryGiB", benchmark.memoryGiB)} /><div className="mt-1 text-[11px] text-muted whitespace-nowrap">{benchmark.memoryGiB.toFixed(2)} GiB peak</div></> : <span className="text-xs text-muted">Not measured</span>}
+      </td>
+      <td className="px-4 py-3">
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {inProgress && downloading ? (
+            <div className="w-32 text-xs text-muted" aria-live="polite">
+              <progress aria-label="Model download" className="h-1.5 w-full accent-accent" max={Math.max(1, downloading.bytes_total)} value={downloading.bytes_downloaded} />
+              {downloading.retrying ? "Retrying…" : `${Math.min(100, Math.round(downloading.bytes_downloaded / Math.max(1, downloading.bytes_total) * 100))}% downloaded`}
             </div>
-          ) : null}
-        </div>
-      ) : null}
-
-      {model.incomplete && !isDownloading ? (
-        <div className="mt-2 text-[11px] text-warning">
-          {t("speechModelPicker.modelCard.incompleteDownload", {
-            size: formatBytes(model.disk_bytes),
-          })}
-        </div>
-      ) : null}
-
-      {downloadError && !isDownloading ? (
-        <p className="mt-2 text-xs text-danger">
-          {t("speechModelPicker.modelCard.downloadFailed", { error: downloadError })}
-        </p>
-      ) : null}
-
-      <div className="mt-3 flex items-center justify-between border-t border-line/80 pt-3">
-        <div className="inline-flex items-center gap-1.5 text-[11px] text-muted">
-          <GlobeIcon english_only={model.english_only} />
-          <span>{model.language_label || (model.english_only ? t("speechModelPicker.modelCard.englishOnly") : t("speechModelPicker.modelCard.multiLanguage"))}</span>
-        </div>
-
-        <div className="flex shrink-0 items-center gap-2">
-          {!model.supported ? (
-            <span className="inline-flex items-center rounded-full bg-elevated px-2 py-0.5 text-xs text-muted">
-              {t("speechModelPicker.modelCard.unavailable")}
-            </span>
-          ) : isDownloading ? (
-            <span className="text-xs text-muted">{t("speechModelPicker.modelCard.downloading")}</span>
-          ) : model.downloaded && active ? (
-            <button
-              type="button"
-              onClick={onDelete}
-              disabled={busy}
-              className="inline-flex items-center gap-1 text-xs text-muted transition-colors hover:text-danger disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <TrashIcon />
-              {t("speechModelPicker.modelCard.delete")}
-            </button>
           ) : model.downloaded ? (
             <>
-              <button
-                type="button"
-                onClick={onDelete}
-                disabled={busy}
-                className="inline-flex items-center gap-1 text-xs text-muted transition-colors hover:text-danger disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <TrashIcon />
-                {t("speechModelPicker.modelCard.delete")}
-              </button>
-              <button
-                type="button"
-                onClick={onActivate}
-                disabled={busy}
-                className="rounded-md border border-line px-3 py-1 text-xs hover:bg-elevated disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {t("speechModelPicker.modelCard.useThisModel")}
-              </button>
+              {active ? <span className="text-xs font-medium text-accent">{t("speechModelPicker.modelCard.active")}</span> : <button type="button" disabled={busy || !model.supported} onClick={onActivate} className={buttonClass}>{t("speechModelPicker.modelCard.useThisModel")}</button>}
+              <button type="button" disabled={busy} onClick={onDelete} className={buttonClass} aria-label={`Remove ${model.display_name} ${model.version_label}`}><TrashIcon /></button>
             </>
           ) : (
             <>
-              {model.incomplete ? (
-                <button
-                  type="button"
-                  onClick={onDelete}
-                  disabled={busy}
-                  className="inline-flex items-center gap-1 text-xs text-muted transition-colors hover:text-danger disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <TrashIcon />
-                  {t("speechModelPicker.modelCard.remove")}
-                </button>
-              ) : null}
-              {model.size_bytes > 0 ? (
-                <span className="text-[11px] text-muted">
-                  {formatBytes(model.size_bytes)}
-                </span>
-              ) : null}
-              <button
-                type="button"
-                onClick={onDownload}
-                disabled={busy}
-                className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1 text-xs font-semibold text-canvas transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <DownloadIcon />
-                {t("speechModelPicker.modelCard.download")}
-              </button>
+              {model.incomplete ? <button type="button" disabled={busy} onClick={onDelete} className={buttonClass} aria-label={`Remove incomplete ${model.display_name} ${model.version_label}`}><TrashIcon /></button> : null}
+              <button type="button" disabled={busy || !model.supported} onClick={onDownload} className={buttonClass}><DownloadIcon />{model.supported ? t("speechModelPicker.modelCard.download") : t("speechModelPicker.modelCard.unavailable")}</button>
             </>
           )}
         </div>
-      </div>
-    </div>
+      </td>
+    </tr>
   );
 }
 
 export default function SpeechModelPicker({ onChange }: Props) {
+  const [open, setOpen] = useState(false);
   const { t } = useTranslation();
   const [models, setModels] = useState<SpeechModelStatus[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -443,65 +270,39 @@ export default function SpeechModelPicker({ onChange }: Props) {
     );
   }
 
-  const downloaded = models.filter((m) => m.downloaded);
-  const available = models.filter((m) => !m.downloaded);
-
+  const active = models.find(model => model.active && model.downloaded);
+  const downloading = Object.entries(downloads).some(([id]) => !models.find(model => model.id === id)?.downloaded);
   return (
-    <div className="flex flex-col gap-5">
-      <div>
-        <h3 className="text-base font-semibold text-fg">
-          {t("speechModelPicker.title")}
-        </h3>
-        <p className="mt-1 text-sm text-muted">
-          {t("speechModelPicker.description")}
-        </p>
+    <>
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line bg-surface p-4">
+        <div>
+          <h3 className="text-sm font-semibold">{t("speechModelPicker.title")}</h3>
+          <p className="mt-1 text-sm text-muted">{active ? `${active.display_name} ${active.version_label}` : "Choose a speech model"}</p>
+          {downloading ? <p className="mt-1 text-xs text-muted" role="status">Model download in progress…</p> : null}
+        </div>
+        <button type="button" onClick={() => setOpen(true)} aria-haspopup="dialog" aria-expanded={open} className="rounded-lg border border-line px-3 py-2 text-sm font-medium hover:bg-elevated">Compare models</button>
       </div>
-
-      {downloaded.length > 0 ? (
-        <section className="space-y-2">
-          <h4 className="text-xs font-medium uppercase tracking-[0.08em] text-muted">
-            {t("speechModelPicker.downloadedHeading")}
-          </h4>
-          <div className="flex flex-col gap-3">
-            {downloaded.map((model) => (
-              <ModelCard
-                key={model.id}
-                model={model}
-                active={model.active}
-                downloading={downloads[model.id] ?? null}
-                downloadError={downloadErrors[model.id] ?? null}
-                busy={busyId === model.id}
-                onDownload={() => void handleDownload(model)}
-                onActivate={() => void handleActivate(model)}
-                onDelete={() => void handleDelete(model)}
-              />
-            ))}
+      {open ? createPortal(
+        <Dialog label="Speech models" onClose={() => setOpen(false)} panelClassName="flex max-h-[85vh] w-full max-w-5xl flex-col rounded-xl border border-line bg-canvas shadow-xl">
+          <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
+            <div><h2 className="text-base font-semibold">Speech models</h2><p className="mt-1 text-xs text-muted">Compare, download, and choose your dictation model.</p></div>
+            <button type="button" onClick={() => setOpen(false)} className="rounded-md border border-line px-3 py-1.5 text-sm hover:bg-elevated">Done</button>
           </div>
-        </section>
-      ) : null}
-
-      {available.length > 0 ? (
-        <section className="space-y-2">
-          <h4 className="text-xs font-medium uppercase tracking-[0.08em] text-muted">
-            {t("speechModelPicker.availableHeading")}
-          </h4>
-          <div className="flex flex-col gap-3">
-            {available.map((model) => (
-              <ModelCard
-                key={model.id}
-                model={model}
-                active={model.active}
-                downloading={downloads[model.id] ?? null}
-                downloadError={downloadErrors[model.id] ?? null}
-                busy={busyId === model.id}
-                onDownload={() => void handleDownload(model)}
-                onActivate={() => void handleActivate(model)}
-                onDelete={() => void handleDelete(model)}
-              />
-            ))}
+          <div className="min-h-0 overflow-auto">
+            <table className="w-full min-w-[760px] border-collapse text-left">
+              <caption className="sr-only">Speech model accuracy, speed, memory, and download controls</caption>
+              <thead className="sticky top-0 bg-surface text-xs text-muted"><tr>
+                <th scope="col" className="px-4 py-2">Model</th><th scope="col" className="px-3 py-2">Accuracy</th><th scope="col" className="px-3 py-2">Speed</th><th scope="col" className="px-3 py-2">RAM efficiency</th><th scope="col" className="px-4 py-2 text-right">Actions</th>
+              </tr></thead>
+              <tbody className="divide-y divide-line">{models.map(model => <SpeechModelRow key={model.id} model={model} active={model.active && model.downloaded} downloading={downloads[model.id] ?? null} downloadError={downloadErrors[model.id] ?? null} busy={busyId === model.id} onDownload={() => void handleDownload(model)} onActivate={() => void handleActivate(model)} onDelete={() => void handleDelete(model)} />)}</tbody>
+            </table>
           </div>
-        </section>
+          <div className="border-t border-line px-4 py-3 text-[11px] text-muted">
+            <p>More bars is better; RAM efficiency means lower memory use. Downloads continue when you close this popup.</p>
+            <details className="mt-1"><summary className="cursor-pointer">About these ratings</summary><p className="mt-1">Measured on your 29-second recording with a 53-word reference, without vocabulary hints, on an Apple M5 Pro with 64 GB RAM. Best result gets 5 bars; one bar is deducted per model with a better result. Ties share a rating. Speed is the median of nine warm runs. RAM is peak macOS physical footprint, including GPU allocations. Load time excludes Python imports and uses existing disk caches. One sample does not establish overall quality.</p></details>
+          </div>
+        </Dialog>, document.body,
       ) : null}
-    </div>
+    </>
   );
 }

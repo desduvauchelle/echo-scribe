@@ -45,6 +45,7 @@ sign_executable() {
 sign_executable "echo-scribe-syscap" "com.echoscribe.app.syscap"
 sign_executable "echo-scribe-screenrec" "com.echoscribe.app.screenrec"
 sign_executable "tucky-wakeword" "com.echoscribe.app.wakeword"
+sign_executable "tucky-whisper" "com.echoscribe.app.whisper"
 
 # Preserve old MCP paths and updater validation inside the signed bundle.
 if [[ -x "$APP_PATH/Contents/MacOS/Tucky" ]]; then

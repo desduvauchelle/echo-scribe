@@ -53,6 +53,17 @@ export default function MorningFocus({ pulse }: { pulse?: ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
+    let unlisten: (() => void) | undefined;
+    void listen<DailyFocusNote>("daily-focus:changed", ({ payload }) => {
+      if (payload.local_date !== day) return;
+      setNote(payload.content ? payload : null);
+      if (!editing) setDraft(payload.content);
+    }).then((stop) => { if (cancelled) stop(); else unlisten = stop; });
+    return () => { cancelled = true; unlisten?.(); };
+  }, [day, editing]);
+
+  useEffect(() => {
+    let cancelled = false;
     void getMorningFocusEnabled().then((value) => { if (!cancelled) setEnabled(value); })
       .catch((e) => { if (!cancelled) setError(String(e)); });
     let unlisten: (() => void) | undefined;

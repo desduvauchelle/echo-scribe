@@ -61,6 +61,36 @@ test("clearing today's focus removes the saved note", async ({ page }) => {
   await expect(page.locator(".morning-focus-panel textarea")).toHaveValue("");
 });
 
+test("today's focus refreshes when an assistant tool changes the note", async ({ page }) => {
+  await page.clock.install({ time: new Date("2026-09-25T10:00:00") });
+  await installTauriMock(page, {
+    onboardingCompleted: true,
+    permissions: { microphone: true, accessibility: true },
+    speechModelReady: true,
+    llmReady: true,
+    dailyFocusNotes: { "2026-09-25": "Original focus." },
+  });
+  await page.goto("/");
+  await expect(page.locator(".tucky-focus-bubble")).toContainText("Original focus.");
+  await page.evaluate(() => (window as any).__TAURI_INTERNALS__.invoke("save_daily_focus_note", {
+    localDate: "2026-09-25", content: "Updated by Tucky.",
+  }));
+  await expect(page.locator(".tucky-focus-bubble")).toContainText("Updated by Tucky.");
+  await page.getByRole("button", { name: "Edit today's focus" }).click();
+  await page.locator(".morning-focus-panel textarea").fill("Unsaved draft.");
+  await page.evaluate(() => (window as any).__TAURI_INTERNALS__.invoke("save_daily_focus_note", {
+    localDate: "2026-09-25", content: "Changed again by Tucky.",
+  }));
+  await expect(page.locator(".morning-focus-panel textarea")).toHaveValue("Unsaved draft.");
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await expect(page.locator(".tucky-focus-bubble")).toContainText("Changed again by Tucky.");
+  await page.evaluate(() => (window as any).__TAURI_INTERNALS__.invoke("save_daily_focus_note", {
+    localDate: "2026-09-25", content: "",
+  }));
+  await expect(page.locator(".tucky-focus-bubble")).toHaveCount(0);
+  await expect(page.locator(".morning-focus-panel textarea")).toHaveValue("");
+});
+
 test("morning focus starts compact, grows with text, and can be disabled then restored", async ({ page }) => {
   await page.clock.install({ time: new Date("2026-09-25T10:00:00") });
   await installTauriMock(page, {
@@ -181,7 +211,7 @@ test("keyboard press and release control the hold button", async ({ page }) => {
 
 test("desktop pet shows today's note in a separate compact speech bubble", async ({ page }) => {
   await page.clock.install({ time: new Date("2026-09-25T10:00:00") });
-  await page.setViewportSize({ width: 300, height: 160 });
+  await page.setViewportSize({ width: 355, height: 220 });
   await installTauriMock(page, { dailyFocusNotes: { "2026-09-25": "Ship the release.\nTalk to the customer." } });
   await page.goto("/src/desktop-pet/focus.html");
   await expect(page.getByRole("complementary", { name: "Today's focus" })).toContainText("Talk to the customer.");
@@ -193,20 +223,20 @@ test("desktop pet shows today's note in a separate compact speech bubble", async
 
 test("desktop pet focus bubble shows tasks without a note", async ({ page }) => {
   await page.clock.install({ time: new Date("2026-09-25T10:00:00") });
-  await page.setViewportSize({ width: 320, height: 220 });
+  await page.setViewportSize({ width: 375, height: 280 });
   await installTauriMock(page, {
     feedItems: [{ id: "focus-1", kind: "task", project_id: null, content: "Call the customer" }],
     focusTaskIds: ["focus-1"],
   });
   await page.goto("/src/desktop-pet/focus.html");
   await expect(page.getByRole("complementary", { name: "Today's focus" })).toBeVisible();
-  await expect(page.getByRole("region", { name: "Focus tasks" }).getByRole("listitem")).toHaveText("Call the customer");
+  await expect(page.getByRole("region", { name: "Focus tasks" }).locator(".pet-focus-task-text")).toHaveText("Call the customer");
   if (process.env.FOCUS_SHOTS) await page.screenshot({ path: `${process.env.FOCUS_SHOTS}/pet-focus-tasks.png` });
 });
 
 test("desktop pet focus bubble keeps note and tasks readable together", async ({ page }) => {
   await page.clock.install({ time: new Date("2026-09-25T10:00:00") });
-  await page.setViewportSize({ width: 320, height: 220 });
+  await page.setViewportSize({ width: 375, height: 280 });
   const tasks = Array.from({ length: 6 }, (_, index) => ({
     id: `focus-${index}`, kind: "task", project_id: null, content: `Priority ${index + 1}`,
   }));
@@ -218,8 +248,10 @@ test("desktop pet focus bubble keeps note and tasks readable together", async ({
   await page.goto("/src/desktop-pet/focus.html");
   const bubble = page.getByRole("complementary", { name: "Today's focus" });
   await expect(bubble).toContainText("Ship the release.");
+  await expect(bubble.getByRole("listitem")).toHaveCount(3);
+  await expect(bubble).toContainText("+3 more");
+  await bubble.getByRole("button", { name: "Show 3 more tasks in No project" }).click();
   await expect(bubble.getByRole("listitem")).toHaveCount(6);
-  expect(await page.locator(".pet-focus-content").evaluate((content) => content.scrollHeight > content.clientHeight)).toBe(true);
   if (process.env.FOCUS_SHOTS) await page.screenshot({ path: `${process.env.FOCUS_SHOTS}/pet-focus-combined.png` });
 });
 
@@ -235,5 +267,24 @@ test("turning off morning focus removes its pet note but keeps focus tasks", asy
   await expect(bubble).toContainText("Ship the release.");
   await page.evaluate(() => (window as any).__MOCK_EMIT__("morning-focus:enabled-changed", false));
   await expect(bubble).not.toContainText("Ship the release.");
-  await expect(bubble.getByRole("listitem")).toHaveText("Call the customer");
+  await expect(bubble.locator(".pet-focus-task-text")).toHaveText("Call the customer");
+});
+
+test("pet focus groups projects and reserves room for the shadow", async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 280 });
+  const feedItems = Array.from({ length: 8 }, (_, i) => ({
+    id: `item-${i}`, kind: "task", project_id: i < 4 ? "project-1" : "project-2", content: `Task ${i}`,
+  }));
+  await installTauriMock(page, { projectCount: 2, feedItems, focusTaskIds: feedItems.map(item => item.id) });
+  await page.goto("/src/desktop-pet/focus.html");
+  for (const name of ["Project 1", "Project 2"]) {
+    const group = page.getByRole("region", { name, exact: true });
+    await expect(group.getByRole("listitem")).toHaveCount(3);
+    await expect(group).toContainText("+1 more");
+  }
+  if (process.env.FOCUS_SHOTS) await page.screenshot({ path: `${process.env.FOCUS_SHOTS}/pet-focus-projects.png` });
+  const bounds = await page.locator(".pet-focus-bubble").boundingBox();
+  expect(bounds!.x).toBeGreaterThanOrEqual(32);
+  expect(bounds!.y).toBeGreaterThanOrEqual(28);
+  expect(280 - bounds!.y - bounds!.height).toBeGreaterThanOrEqual(44);
 });

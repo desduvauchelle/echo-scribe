@@ -43,6 +43,7 @@ function DesktopPet() {
       subscribe("log_capture:auto_filed", () => react("saved")),
       subscribe("voice:paste_dispatched", () => react("saved")),
       subscribe("meeting-complete", () => react("saved")),
+      subscribe("desktop-pet:focus-task-saved", () => react("saved")),
       subscribe("voice:recording_stopped", () => react("thinking")),
       subscribe("show-overlay", ({ payload }) => {
         const mode = typeof payload === "string" ? payload : (payload as { mode?: string } | null)?.mode;
@@ -76,6 +77,10 @@ function DesktopPet() {
     schedule();
     return () => { clearTimeout(timer); clearTimeout(settle); };
   }, [mode]);
+  const press = useRef<{ id: number; x: number; y: number } | null>(null);
+  const openTucky = () => {
+    if (isTauri()) void invoke("show_main_window").catch(console.error);
+  };
   const previousListening = useRef(false);
   const svg = useRef<SVGSVGElement>(null);
   useEffect(() => {
@@ -124,18 +129,37 @@ function DesktopPet() {
       reduced.removeEventListener("change", reset);
     };
   }, []);
-  return <><main className={preview ? "preview-mode" : undefined} title="Drag to move. Right-click to hide. Change size in Settings or the right-click menu."
+  return <><main className={preview ? "preview-mode" : undefined} title="Click to open Tucky. Drag to move. Right-click to hide. Change size in Settings or the right-click menu."
     onContextMenu={event => {
       event.preventDefault();
       if (isTauri()) void invoke("desktop_pet_context_menu").catch(console.error);
     }}>
-    <svg ref={svg} data-ear-twitch={mode === "idle" ? earTwitch : undefined} viewBox="180 100 900 1080" role="img" aria-label={`Tucky: ${states[mode][0]}`}
+    <svg ref={svg} data-ear-twitch={mode === "idle" ? earTwitch : undefined} viewBox="180 100 900 1080" role="button" tabIndex={0} aria-label={`Open Tucky: ${states[mode][0]}`}
+      onKeyDown={event => {
+        if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openTucky(); }
+      }}
       onPointerDown={event => {
         if (event.button === 0 && isTauri()) {
           event.preventDefault();
-          void getCurrentWindow().startDragging().catch(console.error);
+          press.current = { id: event.pointerId, x: event.clientX, y: event.clientY };
+          event.currentTarget.setPointerCapture(event.pointerId);
         }
-      }}>
+      }}
+      onPointerMove={event => {
+        const start = press.current;
+        if (!start || start.id !== event.pointerId || Math.hypot(event.clientX - start.x, event.clientY - start.y) < 5) return;
+        press.current = null;
+        event.currentTarget.releasePointerCapture(event.pointerId);
+        void getCurrentWindow().startDragging().catch(console.error);
+      }}
+      onPointerUp={event => {
+        if (press.current?.id !== event.pointerId) return;
+        press.current = null;
+        event.currentTarget.releasePointerCapture(event.pointerId);
+        openTucky();
+      }}
+      onPointerCancel={() => { press.current = null; }}
+      onLostPointerCapture={() => { press.current = null; }}>
       <defs>
         {[470, 788].map(cx => <clipPath id={`eye-${cx}`} key={cx}><ellipse cx={cx} cy="509" rx="69" ry="94" /></clipPath>)}
       </defs>

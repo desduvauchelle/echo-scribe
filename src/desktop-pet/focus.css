@@ -1,19 +1,48 @@
 html, body, #root { box-sizing: border-box; width: 100%; height: 100%; margin: 0; overflow: hidden; background: transparent; }
-.pet-focus-bubble { position: relative; display: flex; flex-direction: column; box-sizing: border-box; height: calc(100% - 12px); margin: 0 7px 12px 2px; padding: 14px 17px; border: 1px solid var(--bubble-border); border-radius: 17px 17px 5px 17px; background: var(--bubble-bg); box-shadow: 0 8px 22px var(--bubble-shadow); color: var(--bubble-fg); font: 13px/1.45 system-ui, sans-serif; }
-.pet-focus-bubble::after { content: ""; position: absolute; right: 14px; bottom: -9px; width: 16px; height: 16px; transform: rotate(45deg); border-right: 1px solid var(--bubble-border); border-bottom: 1px solid var(--bubble-border); background: var(--bubble-bg); }
-.pet-focus-header { display: flex; align-items: start; justify-content: space-between; gap: 8px; margin-bottom: 7px; }
+.pet-focus-bubble { position: relative; display: flex; flex-direction: column; box-sizing: border-box; height: calc(100% - var(--bubble-inset-height)); margin: var(--bubble-insets); padding: 14px 17px; border: 1px solid var(--bubble-border); border-radius: 17px 17px 5px 17px; background: var(--bubble-bg); box-shadow: 0 8px 22px var(--bubble-shadow); color: var(--bubble-fg); font: 13px/1.45 system-ui, sans-serif; }
+.pet-focus-bubble::after { content: ""; position: absolute; left: calc(var(--tail-x, calc(100% - var(--bubble-inset-height))) - 8px); bottom: -9px; width: 16px; height: 16px; transform: rotate(45deg); border-right: 1px solid var(--bubble-border); border-bottom: 1px solid var(--bubble-border); background: var(--bubble-bg); }
+/* Only the card nearest Tucky points at him (notice_column.rs). */
+.pet-focus-bubble.tail-none::after { display: none; }
+.pet-focus-bubble.tail-none { border-radius: 17px; }
+.pet-focus-header { display: flex; align-items: start; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
 .pet-focus-bubble span { display: block; padding-top: 3px; color: var(--bubble-accent); font-size: 10px; font-weight: 700; letter-spacing: .11em; text-transform: uppercase; }
 .pet-focus-bubble button { display: grid; place-items: center; width: 24px; height: 24px; margin: -5px -8px 0 0; padding: 0; border: 0; border-radius: 7px; background: transparent; color: var(--bubble-muted); cursor: pointer; font: 20px/1 system-ui, sans-serif; }
 .pet-focus-bubble button:hover, .pet-focus-bubble button:focus-visible { background: var(--bubble-subtle); color: var(--bubble-fg); }
 .pet-focus-bubble button:focus-visible { outline: 2px solid var(--bubble-accent); outline-offset: 1px; }
-.pet-focus-content { min-height: 0; overflow: auto; scrollbar-width: thin; }
+.pet-focus-content { min-height: 0; margin-right: -17px; padding-right: 17px; overflow: auto; scrollbar-width: thin; }
+.pet-focus-bubble .pet-focus-note { display: block; width: 100%; height: auto; margin: 0; padding: 0; text-align: left; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--bubble-fg); font: inherit; line-height: inherit; }
+.pet-focus-bubble .pet-focus-note:hover { background: transparent; color: var(--bubble-fg); text-decoration: underline; text-decoration-color: var(--bubble-muted); }
 .pet-focus-bubble p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-.pet-focus-tasks { margin-top: 10px; }
+.pet-focus-tasks { margin-top: 12px; }
 .pet-focus-tasks:first-child { margin-top: 0; }
-.pet-focus-tasks:not(:first-child) { padding-top: 10px; border-top: 1px solid var(--bubble-border); }
-.pet-focus-tasks span { margin-bottom: 5px; }
 .pet-focus-tasks ul { margin: 0; padding: 0; list-style: none; }
-.pet-focus-tasks li { position: relative; padding: 3px 0 3px 17px; overflow-wrap: anywhere; }
-.pet-focus-tasks li::before { content: ""; position: absolute; top: 9px; left: 0; width: 7px; height: 7px; border: 1px solid var(--bubble-accent); border-radius: 50%; }
-.pet-focus-tasks li.is-done { color: var(--bubble-muted); text-decoration: line-through; }
-.pet-focus-tasks li.is-done::before { content: "✓"; top: 4px; width: auto; height: auto; border: 0; color: var(--bubble-accent); font-size: 12px; text-decoration: none; }
+.pet-focus-tasks li { position: relative; min-height: 26px; overflow-wrap: anywhere; }
+.pet-focus-bubble .pet-focus-task-button { display: flex; align-items: flex-start; gap: 5px; width: 100%; height: auto; min-height: 26px; margin: 0; padding: 2px 0; text-align: left; border-radius: 5px; font: inherit; }
+.pet-focus-bubble .pet-focus-complete { display: grid; flex: 0 0 20px; place-items: center; width: 20px; height: 20px; margin: 3px 0 0 -4px; padding: 0; border-radius: 50%; font-size: 11px; line-height: 1; letter-spacing: 0; color: var(--bubble-accent); }
+.pet-focus-complete::before { content: ""; width: 8px; height: 8px; border: 1px solid currentColor; border-radius: 50%; }
+.pet-focus-complete { font-size: 0 !important; }
+.pet-focus-tasks li.is-exiting .pet-focus-complete { font-size: 11px !important; }
+.pet-focus-tasks li.is-exiting .pet-focus-complete::before { display: none; }
+.pet-focus-task-text { flex: 1; padding-top: 2px !important; color: var(--bubble-fg) !important; font-size: 12px !important; font-weight: 400 !important; letter-spacing: 0 !important; text-transform: none !important; }
+.pet-focus-task-button:hover .pet-focus-task-text { text-decoration: underline; text-decoration-color: var(--bubble-muted); }
+.pet-focus-tasks li.is-exiting { animation: focus-task-exit 520ms ease-in forwards; }
+.pet-focus-flight { position: absolute; top: 0; left: 0; pointer-events: none; color: var(--bubble-accent); animation: focus-task-flight 500ms ease-in forwards; }
+.pet-focus-sparkles { position: absolute; top: -4px; left: 8px; pointer-events: none; color: #dfb967; animation: focus-task-sparkle 430ms ease-out forwards; }
+@keyframes focus-task-exit { 20% { transform: scale(1.02); opacity: 1; } 100% { transform: scale(.96); opacity: 0; } }
+@keyframes focus-task-flight { 100% { transform: translate(var(--fly-x), var(--fly-y)) scale(.3); opacity: 0; } }
+@keyframes focus-task-sparkle { 45% { transform: scale(1.8) rotate(35deg); opacity: 1; } 100% { transform: scale(2.5) rotate(80deg); opacity: 0; } }
+
+.pet-focus-project + .pet-focus-project { margin-top: 12px; }
+.pet-focus-project h2 { display: flex; align-items: center; gap: 6px; margin: 0 0 3px; color: var(--bubble-accent); font-size: 11px; font-weight: 650; overflow-wrap: anywhere; }
+.pet-focus-project h2 i { flex: 0 0 10px; width: 10px; height: 10px; border-radius: 3px; font-style: normal; line-height: 10px; }
+.pet-focus-project li { font-size: 12px; }
+.pet-focus-bubble .pet-focus-more { display: block; width: auto; height: auto; margin: 3px 0 0 17px; padding: 2px 4px; color: var(--bubble-muted); font-size: 10px; text-align: left; }
+.pet-focus-bubble .pet-focus-resize { position: absolute; left: -8px; top: -8px; width: 22px; height: 22px; margin: 0; border-radius: 7px; color: var(--bubble-muted); font-size: 13px; cursor: nwse-resize; touch-action: none; opacity: 0; }
+.pet-focus-bubble .pet-focus-resize:hover, .pet-focus-bubble .pet-focus-resize:focus-visible { opacity: 1; }
+.pet-focus-error { color: #e28b81; font-size: 11px; }
+@media (prefers-reduced-motion: reduce) {
+  .pet-focus-tasks li.is-exiting, .pet-focus-flight, .pet-focus-sparkles { animation: none; }
+  .pet-focus-flight, .pet-focus-sparkles { display: none; }
+}
+
+.pet-focus-content:focus-visible { outline: 2px solid var(--bubble-accent); outline-offset: -2px; border-radius: 3px; }

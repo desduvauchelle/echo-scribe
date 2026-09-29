@@ -1,6 +1,6 @@
 //! End-to-end speech recognition pipeline: resample → Parakeet inference.
 //!
-//! The pipeline owns a lazily-initialized [`ParakeetEngine`]. The active model
+//! The pipeline owns a lazily-initialized [`SpeechEngine`]. The active model
 //! is set via [`AsrPipeline::set_active_model`] (typically from `lib.rs::run`'s
 //! setup hook, after reading saved settings, or from the
 //! `set_active_speech_model` Tauri command). The engine itself is loaded on
@@ -19,7 +19,8 @@ use thiserror::Error;
 use tracing::{info, warn};
 
 use super::downloader::{is_downloaded, model_dir};
-use super::parakeet::{EngineError, ParakeetEngine};
+use super::engine::SpeechEngine;
+use super::parakeet::EngineError;
 use super::registry::ModelEntry;
 use crate::audio::resample::resample_to_16k_mono;
 use crate::util::rss::current_rss_mib;
@@ -37,7 +38,7 @@ pub enum AsrError {
 }
 
 pub struct AsrPipeline {
-    engine: Arc<Mutex<Option<ParakeetEngine>>>,
+    engine: Arc<Mutex<Option<SpeechEngine>>>,
     active_model: Arc<RwLock<Option<ModelEntry>>>,
     last_used: Arc<Mutex<Instant>>,
     unload_after: Arc<Mutex<Duration>>,
@@ -197,7 +198,7 @@ impl AsrPipeline {
         }
     }
 
-    /// Fire-and-forget background load of the Parakeet engine. Call this as
+    /// Fire-and-forget background load of the speech engine. Call this as
     /// soon as recording starts so the engine is warm by the time the user
     /// releases the hotkey. If the engine is already loaded this is a no-op.
     pub fn warm_up(&self) {
@@ -221,15 +222,19 @@ impl AsrPipeline {
                 Ok(g) => g,
                 Err(_) => return,
             };
-            if guard.is_none() {
+            if !guard
+                .as_mut()
+                .is_some_and(|engine| engine.matches(&model_path))
+            {
+                *guard = None;
                 let rss_before_mib = current_rss_mib();
                 info!(
                     target: "mem",
                     path = %model_path.display(),
                     rss_mib_before = rss_before_mib,
-                    "[mem] pre-loading Parakeet engine (optimistic warm-up)"
+                    "[mem] pre-loading speech engine (optimistic warm-up)"
                 );
-                match ParakeetEngine::load(&model_path) {
+                match SpeechEngine::load(&model_path) {
                     Ok(eng) => {
                         *guard = Some(eng);
                         let rss_after_mib = current_rss_mib();
@@ -237,7 +242,7 @@ impl AsrPipeline {
                             target: "mem",
                             rss_mib_after = rss_after_mib,
                             load_mib = rss_after_mib.saturating_sub(rss_before_mib),
-                            "[mem] Parakeet engine loaded (warm-up)"
+                            "[mem] speech engine loaded (warm-up)"
                         );
                     }
                     Err(e) => warn!(error = ?e, "warm-up load failed; will retry on transcribe"),
@@ -250,7 +255,7 @@ impl AsrPipeline {
         });
     }
 
-    /// Resample to 16 kHz mono and run Parakeet inference. Both steps run on
+    /// Resample to 16 kHz mono and run the selected speech engine. Both steps run on
     /// `tokio::task::spawn_blocking` because they're CPU-bound and the engine
     /// holds an ONNX session that's expensive to share across runtimes.
     pub async fn transcribe(
@@ -308,22 +313,26 @@ impl AsrPipeline {
         let t1 = Instant::now();
         let text = tokio::task::spawn_blocking(move || -> Result<String, AsrError> {
             let mut guard = engine_slot.lock().map_err(|_| AsrError::Join)?;
-            if guard.is_none() {
+            if !guard
+                .as_mut()
+                .is_some_and(|engine| engine.matches(&model_path))
+            {
+                *guard = None;
                 let rss_before_mib = current_rss_mib();
                 info!(
                     target: "mem",
                     path = %model_path.display(),
                     rss_mib_before = rss_before_mib,
-                    "[mem] lazy-loading Parakeet engine"
+                    "[mem] lazy-loading speech engine"
                 );
-                let eng = ParakeetEngine::load(&model_path)?;
+                let eng = SpeechEngine::load(&model_path)?;
                 *guard = Some(eng);
                 let rss_after_mib = current_rss_mib();
                 info!(
                     target: "mem",
                     rss_mib_after = rss_after_mib,
                     load_mib = rss_after_mib.saturating_sub(rss_before_mib),
-                    "[mem] Parakeet engine loaded (lazy)"
+                    "[mem] speech engine loaded (lazy)"
                 );
             }
             let eng = guard.as_mut().expect("engine just loaded");
@@ -454,7 +463,7 @@ impl AsrPipeline {
         Ok(parts.join(" "))
     }
 
-    /// Resample to 16 kHz mono and run Parakeet inference, returning the model's
+    /// Resample to 16 kHz mono and run the selected speech engine, returning the model's
     /// **native** sentence-level timed segments (`start`/`end` in seconds,
     /// relative to the first sample of `samples`).
     ///
@@ -497,8 +506,12 @@ impl AsrPipeline {
         let segments = tokio::task::spawn_blocking(
             move || -> Result<Vec<transcribe_rs::TranscriptionSegment>, AsrError> {
                 let mut guard = engine_slot.lock().map_err(|_| AsrError::Join)?;
-                if guard.is_none() {
-                    let eng = ParakeetEngine::load(&model_path)?;
+                if !guard
+                    .as_mut()
+                    .is_some_and(|engine| engine.matches(&model_path))
+                {
+                    *guard = None;
+                    let eng = SpeechEngine::load(&model_path)?;
                     *guard = Some(eng);
                 }
                 let eng = guard.as_mut().expect("engine just loaded");
@@ -665,5 +678,40 @@ mod transcribe_file_tests {
         assert_eq!(rate, 16_000);
         assert_eq!(channels, 1);
         assert_eq!(samples.len(), 32_000);
+    }
+}
+
+#[cfg(test)]
+mod model_switch_tests {
+    use super::*;
+    #[tokio::test]
+    #[ignore = "Requires downloaded models and TUCKY_ASR_TEST_WAV with the proposal sample"]
+    async fn real_pipeline_switches_between_parakeet_and_whisper() {
+        let wav = std::env::var("TUCKY_ASR_TEST_WAV").expect("set the test WAV path");
+        let pipeline = AsrPipeline::default();
+        let mut ids = vec!["parakeet-v3", "whisper-base"];
+        if cfg!(any(debug_assertions, tucky_local_asr)) { ids.push("whisper-turbo"); }
+        if cfg!(all(any(debug_assertions, tucky_local_asr), target_os = "macos", target_arch = "aarch64")) { ids.push("qwen3-asr"); }
+        ids.push("parakeet-v3");
+        for id in ids {
+            let entry = crate::asr::registry::lookup(id).unwrap().clone();
+            pipeline.set_active_model(entry);
+            assert!(pipeline.ready());
+            let text = pipeline
+                .transcribe_file(PathBuf::from(&wav).as_path())
+                .await
+                .unwrap();
+            assert!(text.to_lowercase().contains("proposal"), "{id}: {text}");
+            assert!(text.to_lowercase().contains("marie"), "{id}: {text}");
+            assert_eq!(pipeline.active_model_id().as_deref(), Some(id));
+            let (samples, rate, channels) =
+                AsrPipeline::load_wav_16k_mono_int16(std::path::Path::new(&wav)).unwrap();
+            let segments = pipeline
+                .transcribe_segments_chunk(samples, rate, channels)
+                .await
+                .unwrap();
+            assert!(!segments.is_empty(), "{id} must retain caption support");
+            assert!(segments.iter().all(|s| s.start >= 0.0 && s.end >= s.start));
+        }
     }
 }

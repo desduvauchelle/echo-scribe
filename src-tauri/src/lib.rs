@@ -3,6 +3,7 @@ pub mod audio;
 pub mod chat_memory;
 pub mod classifier;
 pub mod commands;
+mod asr_lab;
 pub mod coordinator;
 pub mod daily_summary;
 pub mod db;
@@ -20,6 +21,8 @@ pub mod mcp_install;
 pub mod mcp_permissions;
 pub mod meeting;
 pub mod overlay;
+pub mod notice_column;
+mod notice_input;
 mod desktop_pet;
 pub mod permissions;
 pub mod platform;
@@ -28,6 +31,7 @@ pub mod project_assistant;
 pub mod agent_toast;
 pub mod project_files;
 pub mod project_tagger;
+mod project_tagger_control;
 pub mod recording_feedback;
 pub mod screenrec;
 pub mod settings;
@@ -257,11 +261,18 @@ pub fn run() {
             .build())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
+            asr_lab::asr_lab_status,
+            asr_lab::asr_lab_download,
+            asr_lab::asr_lab_run,
+            asr_lab::asr_lab_export,
             desktop_pet::desktop_pet_get_size,
             desktop_pet::desktop_pet_set_size,
             desktop_pet::desktop_pet_state,
             desktop_pet::desktop_pet_context_menu,
             desktop_pet::desktop_pet_focus_set_visible,
+            desktop_pet::desktop_pet_focus_save_size,
+            desktop_pet::desktop_pet_focus_resize,
+            desktop_pet::desktop_pet_focus_sync,
             permissions_status,
             platform_capabilities,
             open_microphone_settings,
@@ -392,6 +403,8 @@ pub fn run() {
             set_project_auto_tagging_enabled,
             project_tagger_status,
             project_tagger_backfill,
+            crate::commands::get_project_tagger_status,
+            crate::commands::stop_project_tagger,
             run_project_tagger_all,
             run_project_tagger_deterministic_once,
             run_project_tagger_llm_once,
@@ -403,6 +416,8 @@ pub fn run() {
             crate::project_assistant::get_project_assistant_report,
             crate::project_assistant::stop_project_assistant,
             crate::agent_toast::resize_agent_toast,
+            crate::notice_column::bubble_tail,
+            crate::notice_column::notice_hide,
             crate::agent_toast::open_project_assistant_report,
             export_project_backfill,
             list_item_events,
@@ -831,6 +846,7 @@ pub fn run() {
             app.manage(app_state);
 
             crate::project_tagger::spawn_worker(
+                app.handle().clone(),
                 project_tagger_db,
                 project_tagger_llm,
                 project_tagger_settings,
@@ -914,6 +930,7 @@ pub fn run() {
             crate::overlay::create_meeting_start_toast(&app.handle().clone());
             crate::overlay::create_action_toast(&app.handle().clone());
             crate::agent_toast::create(&app.handle().clone());
+            crate::notice_input::start(app.handle().clone());
             crate::overlay::create_meeting_hud(&app.handle().clone());
 
             // Seed builtin guide templates exactly once. The settings flag —

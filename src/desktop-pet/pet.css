@@ -2,6 +2,7 @@ html, body, #root { margin: 0; width: 100%; height: 100%; overflow: hidden; back
 main { height: 100%; box-sizing: border-box; padding: 4px 5px; display: grid; grid-template-rows: minmax(0, 1fr) 16px; place-items: center; user-select: none; -webkit-user-select: none; }
 svg { width: 100%; height: 100%; filter: drop-shadow(0 2px 2px rgba(32, 22, 12, 0.32)); overflow: visible; cursor: grab; touch-action: none; }
 svg:active { cursor: grabbing; }
+svg:focus-visible { outline: 2px solid #718055; outline-offset: -3px; border-radius: 8px; }
 .pupil { transform: translate(var(--eye-x, 0px), var(--eye-y, 0px)); transition: transform 100ms linear; }
 .headphones { opacity: 0; transform: translateY(-80px); transition: opacity 180ms ease, transform 220ms ease; pointer-events: none; }
 .headphones-on { opacity: 1; transform: translateY(0); }

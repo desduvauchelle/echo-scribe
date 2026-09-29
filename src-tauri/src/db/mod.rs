@@ -27,6 +27,7 @@ pub mod meetings;
 pub mod project_tag_jobs;
 pub mod projects;
 pub mod recordings;
+pub mod routing_memory;
 pub mod schema;
 pub mod search;
 pub mod stats;

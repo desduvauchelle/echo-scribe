@@ -68,7 +68,19 @@ static REGISTRY: OnceLock<Vec<ModelEntry>> = OnceLock::new();
 fn parse() -> Vec<ModelEntry> {
     let parsed: RegistryFile = serde_json::from_str(REGISTRY_JSON)
         .expect("models.json failed to parse — fix the JSON, not this code path");
-    parsed.models
+    parsed
+        .models
+        .into_iter()
+        .filter(|model| match model.id.as_str() {
+            "whisper-turbo" => cfg!(any(debug_assertions, tucky_local_asr)),
+            "qwen3-asr" => cfg!(all(
+                any(debug_assertions, tucky_local_asr),
+                target_os = "macos",
+                target_arch = "aarch64"
+            )),
+            _ => true,
+        })
+        .collect()
 }
 
 pub fn registry() -> &'static [ModelEntry] {
@@ -114,6 +126,43 @@ mod tests {
     fn lookup_finds_known_models() {
         assert!(lookup("parakeet-v3").is_some());
         assert!(lookup("parakeet-bogus").is_none());
+    }
+
+    #[test]
+    fn whisper_base_has_pinned_multilingual_download() {
+        let model = lookup("whisper-base").unwrap();
+        assert!(is_supported(model));
+        assert!(!model.english_only);
+        assert_eq!(model.files.len(), 1);
+        assert_eq!(model.files[0].name, "ggml-base.bin");
+        assert_eq!(model.files[0].size_bytes, 147951465);
+        assert_eq!(model.files[0].sha256.len(), 64);
+        assert!(model.supported_languages.contains(&"fr".to_owned()));
+    }
+
+    #[test]
+    fn experimental_models_have_verified_downloads_and_are_dev_only() {
+        assert_eq!(lookup("whisper-turbo").is_some(), cfg!(any(debug_assertions, tucky_local_asr)));
+        assert_eq!(
+            lookup("qwen3-asr").is_some(),
+            cfg!(all(
+                any(debug_assertions, tucky_local_asr),
+                target_os = "macos",
+                target_arch = "aarch64"
+            ))
+        );
+        for id in ["whisper-turbo", "qwen3-asr"] {
+            if let Some(model) = lookup(id) {
+                assert_eq!(
+                    model.size_bytes,
+                    model.files.iter().map(|f| f.size_bytes).sum::<u64>()
+                );
+                assert!(model
+                    .files
+                    .iter()
+                    .all(|f| f.sha256.len() == 64 && !f.url.contains("/main/")));
+            }
+        }
     }
 
     #[test]

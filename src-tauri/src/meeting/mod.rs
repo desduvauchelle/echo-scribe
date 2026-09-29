@@ -873,6 +873,15 @@ impl MeetingManager {
         let settings = crate::settings::SettingsStore::load(&self.app_handle).ok();
         let custom_prompt = settings.as_ref().map(|s| s.meeting_summary_prompt());
 
+        let existing_projects = self.db.with_conn(|conn| {
+            crate::db::routing_memory::with_history(
+                conn, &existing_projects,
+                &format!("{}\n{}", user_notes, synthesizer::flatten_transcript(&segments)),
+                start_context.focus.as_ref(), Some(&id),
+            )
+        }).unwrap_or(existing_projects);
+
+        let routing_participants = self.db.with_conn(|conn| crate::db::routing_memory::meeting_people(conn, &id)).unwrap_or_default();
         crate::util::rss::log_rss("before synthesize");
         let synthesis = synthesizer::synthesize(
             self.llm.clone(),
@@ -881,6 +890,7 @@ impl MeetingManager {
             duration_ms,
             &existing_projects,
             &start_context,
+            &routing_participants,
             custom_prompt.as_deref(),
             Some(&user_notes),
             summary_template.as_ref(),
@@ -978,7 +988,9 @@ impl MeetingManager {
 
                     if let Some(ref pid) = meeting_project_id {
                         conn.execute(
-                            "UPDATE items SET project_id = ?1 WHERE id = ?2",
+                            "UPDATE items SET project_id = ?1 WHERE id = ?2
+                               AND project_id IS NULL AND deleted_at IS NULL
+                               AND COALESCE(classified_by, '') != 'manual'",
                             rusqlite::params![pid, id_db3],
                         )?;
                     } else {
@@ -1319,7 +1331,15 @@ impl MeetingManager {
                 .unwrap_or_default(),
         };
         let user_notes = row.user_notes.clone().unwrap_or_default();
+        let existing_projects = self.db.with_conn(|conn| {
+            crate::db::routing_memory::with_history(
+                conn, &existing_projects,
+                &format!("{}\n{}", user_notes, synthesizer::flatten_transcript(&segments)),
+                retry_context.focus.as_ref(), Some(id),
+            )
+        }).unwrap_or(existing_projects);
 
+        let routing_participants = self.db.with_conn(|conn| crate::db::routing_memory::meeting_people(conn, id)).unwrap_or_default();
         let synthesis = synthesizer::synthesize(
             self.llm.clone(),
             &segments,
@@ -1327,6 +1347,7 @@ impl MeetingManager {
             duration_ms,
             &existing_projects,
             &retry_context,
+            &routing_participants,
             custom_prompt.as_deref(),
             Some(&user_notes),
             summary_template.as_ref(),
@@ -1394,7 +1415,9 @@ impl MeetingManager {
                     )?;
                     if let Some(ref pid) = meeting_project_id {
                         conn.execute(
-                            "UPDATE items SET project_id = ?1 WHERE id = ?2",
+                            "UPDATE items SET project_id = ?1 WHERE id = ?2
+                               AND project_id IS NULL AND deleted_at IS NULL
+                               AND COALESCE(classified_by, '') != 'manual'",
                             rusqlite::params![pid, id_for_db],
                         )?;
                     } else {

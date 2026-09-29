@@ -10,6 +10,11 @@ use std::path::PathBuf;
 ///      them at build time avoids committing binaries while keeping the
 ///      runtime path zero-IO.
 fn main() {
+    println!("cargo:rustc-check-cfg=cfg(tucky_local_asr)");
+    println!("cargo:rerun-if-env-changed=TUCKY_LOCAL_ASR");
+    if std::env::var("TUCKY_LOCAL_ASR").as_deref() == Ok("1") {
+        println!("cargo:rustc-cfg=tucky_local_asr");
+    }
     // Build the Swift sidecars in release mode only (not during cargo check/test).
     let profile = std::env::var("PROFILE").unwrap_or_default();
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
@@ -18,7 +23,9 @@ fn main() {
             .arg("../scripts/build-wakeword.sh")
             .status()
             .expect("failed to run build-wakeword.sh");
-        if !wakeword.success() { panic!("wakeword build failed"); }
+        if !wakeword.success() {
+            panic!("wakeword build failed");
+        }
         let syscap = std::process::Command::new("bash")
             .arg("../scripts/build-syscap.sh")
             .status()
@@ -47,6 +54,44 @@ fn main() {
     println!("cargo:rerun-if-changed=wakeword/Cargo.lock");
     println!("cargo:rerun-if-changed=../scripts/build-wakeword.sh");
     println!("cargo:rerun-if-changed=resources/wakeword/keywords.txt");
+
+    // Build the isolated Whisper runtime for both local development and bundles.
+    // A separate target directory prevents nested Cargo from locking this build.
+    let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
+    let target = std::env::var("TARGET").unwrap();
+    let worker_target = manifest_dir.join("target/whisper-worker");
+    for file in [
+        "whisper-worker/Cargo.toml",
+        "whisper-worker/Cargo.lock",
+        "whisper-worker/src/main.rs",
+    ] {
+        println!("cargo:rerun-if-changed={file}");
+    }
+    let status = std::process::Command::new(std::env::var("CARGO").unwrap())
+        .args(["build", "--release", "--locked", "--manifest-path"])
+        .arg(manifest_dir.join("whisper-worker/Cargo.toml"))
+        .arg("--target-dir")
+        .arg(&worker_target)
+        .arg("--target")
+        .arg(&target)
+        .status()
+        .expect("could not build Whisper worker");
+    assert!(status.success(), "Whisper worker build failed");
+    let suffix = if target.contains("windows") {
+        ".exe"
+    } else {
+        ""
+    };
+    let binaries = manifest_dir.join("binaries");
+    fs::create_dir_all(&binaries).unwrap();
+    fs::copy(
+        worker_target
+            .join(&target)
+            .join(format!("release/tucky-whisper{suffix}")),
+        binaries.join(format!("tucky-whisper-{target}{suffix}")),
+    )
+    .expect("could not copy Whisper worker");
+    println!("cargo:rustc-env=TUCKY_TARGET_TRIPLE={target}");
 
     tauri_build::build();
 

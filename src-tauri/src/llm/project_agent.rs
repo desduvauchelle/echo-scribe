@@ -22,11 +22,13 @@ create_project {"name":"name","description":"optional","purpose":"optional","ins
 update_project {"project_id":"id","name":"optional","description":"optional or null","purpose":"optional or null","instructions":"optional or null"}
 archive_project {"project_id":"id"} / unarchive_project {"project_id":"id"}
 list_project_items {"project_id":"id","kind":"optional task or note","include_completed":"optional boolean","focus_only":"optional boolean"} -> recent tasks and notes with IDs; tasks carry "focus": true when they are Focus tasks. Use this before editing or completing an existing item; never invent item IDs.
+get_today_focus_note {} -> today's dashboard focus note, if one exists. This is not a task or a project note.
+set_today_focus_note {"content":"note text"} -> replace today's dashboard focus note. An empty string clears it. This is not a Focus task.
 create_task {"project_id":"id","content":"task text","deadline_iso":"optional ISO 8601 datetime","focus":"optional boolean"} -> focus true makes it a Focus task.
 create_note {"project_id":"id","content":"note text"}
 update_task {"project_id":"id","item_id":"id","content":"new task text","deadline_iso":"optional ISO 8601 datetime or null"}
 update_note {"project_id":"id","item_id":"id","content":"new note text"}
-complete_task {"project_id":"id","item_id":"id"} / reopen_task {"project_id":"id","item_id":"id"}
+complete_task {"project_id":"id","item_id":"id"} -> mark an existing project task done. / reopen_task {"project_id":"id","item_id":"id"} -> mark it not done.
 set_focus {"project_id":"id","item_id":"id","focus":true|false} -> turns an existing task into a Focus task, or back into an ordinary task.
 delete_focus_task {"project_id":"id","item_id":"id"} -> removes a Focus task entirely. Only works on Focus tasks.
 link_folders {"project_id":"id"} -> opens a native folder chooser for the user; never ask them to type a filesystem path. Cancel means nothing was linked. Do not open it again after cancellation.
@@ -34,8 +36,10 @@ unlink_folder {"project_id":"id","folder_id":"id"} -> removes a reference link, 
 search_files {"project_id":"id","folder_id":"id","query":"literal text or filename substring; empty lists readable files"}
 read_file {"project_id":"id","folder_id":"id","path":"relative path from search results","start_line":1}
 search_notes {"project_id":"id","query":"words to search in Tucky's saved project notes and meetings"}
-Focus tasks are the few things the user wants to focus on right now; they show only in the dashboard Focus section, not the task list. When the user talks about focus ("add a focus task", "set my focus", "I want to focus on", "my focus for X"), use focus tasks: one create_task with focus true per item they list. "Remove X from my focus" means delete_focus_task. Mark focus items done with complete_task.
+Today's focus note is the single daily note shown with Tucky on the dashboard. For requests about the focus note, today's focus in prose, or what Tucky should ask/remind the user to focus on today, use get_today_focus_note or set_today_focus_note. Use get_today_focus_note first when the user asks to edit or add to the existing note. Do not turn this note into a task.
+Focus tasks are the few actionable tasks the user wants to focus on right now; they show only in the dashboard Focus section, not the task list. For explicit focus tasks, use one create_task with focus true per item they list. "Remove X from my focus tasks" means delete_focus_task. Mark focus tasks done with complete_task.
 For an ordinary request to create a task, omit focus or set it to false. A project name by itself does not imply focus.
+When the user asks to mark a task done in a named project, list_projects to resolve the project, then list_project_items with kind "task" to find the task by its description. Complete only one clear match using its returned item_id. If several tasks could match, ask which one; never guess or create a new task.
 Rules:
 Only make changes the user explicitly requested. Archive only when requested. Never delete files or projects. Never change export settings.
 For a file-based question get_project, search the relevant linked folders, then read matching passages. If a search has no matches, retry with one distinctive keyword or a filename before concluding nothing was found. If the user asks about project decisions, also search_notes.
@@ -107,6 +111,7 @@ fn is_mutation(tool: &str) -> bool {
             | "reopen_task"
             | "set_focus"
             | "delete_focus_task"
+            | "set_today_focus_note"
             | "link_folders"
             | "unlink_folder"
     )
@@ -401,6 +406,33 @@ mod tests {
             vec!["list_projects", "create_task"]
         );
         assert_eq!(report.changes, vec!["Created Website"]);
+    }
+    #[tokio::test]
+    async fn completes_a_described_task_in_the_named_project() {
+        let model = Model(Mutex::new(vec![
+            r#"{"tool":"list_projects","arguments":{}}"#.into(),
+            r#"{"tool":"list_project_items","arguments":{"project_id":"livecase","kind":"task"}}"#.into(),
+            r#"{"tool":"complete_task","arguments":{"project_id":"livecase","item_id":"task-1"}}"#.into(),
+            r#"{"tool":"finish","arguments":{"answer":"Marked the task done."}}"#.into(),
+        ]));
+        let tools = Tools(Mutex::new(vec![]));
+        let report = run(&model, &tools, "In project LiveCase, mark the task about the pipeline as done", &AtomicBool::new(false), |_| {}).await;
+        assert_eq!(report.status, "done");
+        assert_eq!(*tools.0.lock().unwrap(), vec!["list_projects", "list_project_items", "complete_task"]);
+        assert_eq!(report.changes.len(), 1);
+    }
+    #[tokio::test]
+    async fn updates_todays_focus_note_without_creating_a_focus_task() {
+        let model = Model(Mutex::new(vec![
+            r#"{"tool":"get_today_focus_note","arguments":{}}"#.into(),
+            r#"{"tool":"set_today_focus_note","arguments":{"content":"Finish the release"}}"#.into(),
+            r#"{"tool":"finish","arguments":{"answer":"Updated today's focus note."}}"#.into(),
+        ]));
+        let tools = Tools(Mutex::new(vec![]));
+        let report = run(&model, &tools, "Update my focus note for today", &AtomicBool::new(false), |_| {}).await;
+        assert_eq!(report.status, "done");
+        assert_eq!(*tools.0.lock().unwrap(), vec!["get_today_focus_note", "set_today_focus_note"]);
+        assert_eq!(report.changes.len(), 1);
     }
     #[tokio::test]
     async fn reference_reading_disables_later_mutations() {

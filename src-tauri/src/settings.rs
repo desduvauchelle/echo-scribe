@@ -512,6 +512,21 @@ impl SettingsStore {
         self.store.save().map_err(|e| SettingsError::Store(e.to_string()))
     }
 
+    pub fn desktop_pet_focus_size(&self) -> Option<(f64, f64)> {
+        let size = self.store.get("desktop_pet_focus_size")?;
+        let width = size.get("width")?.as_f64()?;
+        let height = size.get("height")?.as_f64()?;
+        (width.is_finite() && height.is_finite()).then_some((width.clamp(280.0, 720.0), height.clamp(200.0, 700.0)))
+    }
+
+    pub fn set_desktop_pet_focus_size(&self, width: f64, height: f64) -> Result<(), SettingsError> {
+        self.store.set("desktop_pet_focus_size", serde_json::json!({
+            "width": width.clamp(280.0, 720.0),
+            "height": height.clamp(200.0, 700.0),
+        }));
+        self.store.save().map_err(|e| SettingsError::Store(e.to_string()))
+    }
+
     /// Controls the optional daily focus prompt and its saved-note display.
     /// Existing installs keep the feature visible until they turn it off.
     pub fn morning_focus_enabled(&self) -> bool {

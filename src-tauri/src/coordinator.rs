@@ -1442,6 +1442,7 @@ async fn run_classifier(
         Some(db) => db
             .with_conn(|c| {
                 let projects = crate::db::projects::list_projects(c, false)?;
+                let projects = crate::db::routing_memory::with_history(c, &projects, transcript, focus, None)?;
                 let recents = crate::db::items::list_items(c, None, None, 5, 0)?;
                 Ok::<_, crate::db::DbError>((projects, recents))
             })

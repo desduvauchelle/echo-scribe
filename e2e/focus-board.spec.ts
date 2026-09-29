@@ -35,15 +35,15 @@ test("focus board: add, edit, complete, reorder and remove persist through the b
     projectCount: 3,
   });
   await page.goto("/");
-  await page.getByRole("button", { name: "Add a focus task" }).click();
+  await expect(page.getByRole("button", { name: "Add a focus task" })).toHaveCount(0);
+  // Initial focus can arrive from the assistant; the board retains its own add controls.
+  await page.evaluate(async () => {
+    await (window as any).__TAURI_INTERNALS__.invoke("add_focus_task", { projectId: "project-1", content: "Ship the onboarding rewrite" });
+    (window as any).__MOCK_EMIT__("focus:changed", null);
+  });
   const board = page.locator(".echo-focus-board");
-  await expect(board.getByText("No focus set yet")).toBeVisible();
-  await shot(page, "1-empty");
-
-  // Empty state → pick a project → type several items in a row.
-  await board.getByRole("button", { name: /No focus set yet/ }).click();
-  await page.getByRole("menuitem", { name: "Project 1" }).click();
-  await addVia(page, ["Ship the onboarding rewrite", "Fix the capture crash", "Record the promo"]);
+  await page.getByRole("button", { name: "Add item to Project 1" }).click();
+  await addVia(page, ["Fix the capture crash", "Record the promo"]);
   // A Tucky-created task can add another project to the board.
   await page.evaluate(async () => {
     await (window as any).__TAURI_INTERNALS__.invoke("add_focus_task", { projectId: "project-2", content: "Close the partnership deal" });
@@ -186,13 +186,11 @@ test("focus section disappears when its last task is removed", async ({ page }) 
     llmReady: true,
   });
   await page.goto("/");
-  await page.getByRole("button", { name: "Add a focus task" }).click();
+  await page.evaluate(async () => {
+    await (window as any).__TAURI_INTERNALS__.invoke("add_focus_task", { projectId: null, content: "Finish one thing" });
+    (window as any).__MOCK_EMIT__("focus:changed", null);
+  });
   const board = page.locator(".echo-focus-board");
-  await board.getByRole("button", { name: /No focus set yet/ }).click();
-  await page.getByRole("menuitem", { name: "No project" }).click();
-  await board.locator("input").fill("Finish one thing");
-  await board.locator("input").press("Enter");
-  await board.locator("input").press("Escape");
   await expect(board).toContainText("Finish one thing");
   await board.locator("[data-focus-row]").hover();
   await board.getByRole("button", { name: "Remove" }).click();
@@ -207,11 +205,11 @@ test("focus task eye opens the existing activity detail view", async ({ page }) 
     projectCount: 1,
   });
   await page.goto("/");
-  await page.getByRole("button", { name: "Add a focus task" }).click();
+  await page.evaluate(async () => {
+    await (window as any).__TAURI_INTERNALS__.invoke("add_focus_task", { projectId: "project-1", content: "Prepare launch notes" });
+    (window as any).__MOCK_EMIT__("focus:changed", null);
+  });
   const board = page.locator(".echo-focus-board");
-  await board.getByRole("button", { name: /No focus set yet/ }).click();
-  await page.getByRole("menuitem", { name: "Project 1" }).click();
-  await addVia(page, ["Prepare launch notes"]);
 
   const row = board.locator("[data-focus-row]").first();
   await row.hover();

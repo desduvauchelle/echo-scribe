@@ -253,6 +253,10 @@
       "nothing": "Nothing here yet."
     },
     "tagging": {
+      "stop": "Stop tagging",
+      "stopping": "Stopping tagging…",
+      "resume": "Resume tagging",
+      "stopTooltip": "Stop tagging and pause automatic tagging until you resume",
       "button": "Tag all captures",
       "buttonTooltip": "Tag all untagged captures with a project",
       "progress": "{{processed}}/{{total}}",

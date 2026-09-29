@@ -1,13 +1,9 @@
 html, body, #root { box-sizing: border-box; width: 100%; height: 100%; margin: 0; overflow: hidden; background: transparent; }
-.activity-bubble { position: relative; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center; width: calc(100% - 12px); height: calc(100% - 12px); margin: 0 6px 12px; padding: 10px 16px; border: 1px solid var(--bubble-border); border-radius: 16px 16px 5px 16px; background: var(--bubble-bg); box-shadow: 0 7px 18px var(--bubble-shadow); color: var(--bubble-fg); font: 13px/1.35 system-ui, sans-serif; }
-.activity-bubble::after { content: ""; position: absolute; left: calc(50% - 8px); bottom: -9px; width: 16px; height: 16px; transform: rotate(45deg); border-right: 1px solid var(--bubble-border); border-bottom: 1px solid var(--bubble-border); background: var(--bubble-bg); }
-.activity-bubble.points-right, .activity-bubble.points-left { height: calc(100% - 12px); margin-top: 6px; margin-bottom: 6px; border-radius: 16px; }
-.activity-bubble.points-right { margin-left: 0; margin-right: 12px; }
-.activity-bubble.points-right::after { left: auto; right: -9px; top: calc(50% - 8px); bottom: auto; border-top: 1px solid var(--bubble-border); border-bottom: 0; }
-.activity-bubble.points-left { margin-left: 12px; margin-right: 0; }
-.activity-bubble.points-left::after { left: -9px; right: auto; top: calc(50% - 8px); bottom: auto; border-left: 1px solid var(--bubble-border); border-right: 0; }
-.activity-bubble.points-top { margin-top: 12px; margin-bottom: 0; border-radius: 16px; }
-.activity-bubble.points-top::after { left: calc(50% - 8px); top: -9px; bottom: auto; border-top: 1px solid var(--bubble-border); border-bottom: 0; border-left: 1px solid var(--bubble-border); border-right: 0; }
+.activity-bubble { position: relative; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center; width: calc(100% - 2 * var(--bubble-inset-side)); height: calc(100% - var(--bubble-inset-height)); margin: var(--bubble-insets); padding: 10px 16px; border: 1px solid var(--bubble-border); border-radius: 16px 16px 5px 16px; background: var(--bubble-bg); box-shadow: 0 7px 18px var(--bubble-shadow); color: var(--bubble-fg); font: 13px/1.35 system-ui, sans-serif; }
+.activity-bubble::after { content: ""; position: absolute; left: calc(var(--tail-x, 50%) - 8px); bottom: -9px; width: 16px; height: 16px; transform: rotate(45deg); border-right: 1px solid var(--bubble-border); border-bottom: 1px solid var(--bubble-border); background: var(--bubble-bg); }
+/* Only the card nearest Tucky / the pill points at it (notice_column.rs). */
+.activity-bubble.tail-none::after { display: none; }
+.activity-bubble.tail-none { border-radius: 16px; }
 .activity-bubble-eyebrow { color: var(--bubble-accent); font-size: 10px; font-weight: 700; letter-spacing: .11em; text-transform: uppercase; }
 .activity-bubble strong { margin-top: 3px; font-size: 13px; font-weight: 600; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .activity-bubble-dots { position: absolute; right: 15px; bottom: 17px; display: flex; gap: 3px; }

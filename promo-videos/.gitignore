@@ -1,0 +1,39 @@
+# Promo films: only text and code are tracked (story cards, scripts, READMEs, YOUTUBE.md,
+# src/, package.json, narration lines.json / voice.json, tools/*.cjs).
+# All media is ignored: renders, narration takes, music, images, logos, avatars.
+
+node_modules/
+out/
+stems/
+npm-install.log
+
+# video
+*.mp4
+*.mov
+*.webm
+*.m4v
+*.mkv
+*.avi
+*.gif
+
+# audio (including the Hume narration takes)
+*.mp3
+*.wav
+*.aac
+*.m4a
+*.flac
+*.ogg
+
+# images (exports and source images alike)
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.svg
+*.avif
+*.ico
+*.psd
+
+# documents / archives
+*.pdf
+*.zip

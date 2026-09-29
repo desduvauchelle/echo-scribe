@@ -472,6 +472,13 @@ impl Listener {
     }
 }
 
+/// Spellings the ASR produces for "Tucky". Parakeet regularly hears it as
+/// "Taki" (seen repeatedly in the user's history); "Take" is also common but is
+/// an everyday word, so it is deliberately not accepted.
+pub const TRIGGER_SPELLINGS: &[&str] = &[
+    "tucky", "tuckey", "tuckie", "tuki", "taki", "takki", "tacky", "tacki",
+];
+
 /// The acoustic detector is deliberately followed by a strict transcript gate.
 /// Pre-roll can include earlier speech; discard it through the first whole
 /// wake word, preserving subsequent mentions inside the request. Never use
@@ -486,7 +493,7 @@ pub fn command_from_transcript(text: &str) -> Option<String> {
             start.get_or_insert(offset);
         } else if let Some(begin) = start.take() {
             let word = text[begin..offset].to_lowercase();
-            if ["tucky", "tuckey", "tuckie", "tuki"].contains(&word.as_str()) {
+            if TRIGGER_SPELLINGS.contains(&word.as_str()) {
                 let command = text[offset..]
                     .trim_start_matches(|c: char| c.is_whitespace() || c.is_ascii_punctuation());
                 return (!command.is_empty()).then(|| command.to_string());
@@ -518,6 +525,17 @@ mod tests {
             command_from_transcript("Tuckie, save a task: test this"),
             Some("save a task: test this".into())
         );
+    }
+    #[test]
+    fn common_asr_misspellings_of_tucky_still_trigger() {
+        for text in ["Taki, remind me to redo the catalog page", "Tacky remind me to redo the catalog page"] {
+            assert_eq!(
+                command_from_transcript(text),
+                Some("remind me to redo the catalog page".into()),
+                "{text}"
+            );
+        }
+        assert_eq!(command_from_transcript("Take my computer awake"), None);
     }
     #[test]
     fn a_request_can_mention_tucky_without_losing_its_contents() {

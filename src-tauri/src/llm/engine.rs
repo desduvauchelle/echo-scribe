@@ -37,6 +37,8 @@ use super::prompt::{build_gemma4_prompt, strip_trailing_stops};
 
 #[derive(Debug, Error)]
 pub enum EngineError {
+    #[error("generation cancelled")]
+    Cancelled,
     #[error("llama backend init failed: {0}")]
     Backend(String),
     #[error("model load failed: {0}")]
@@ -150,6 +152,14 @@ impl LlmEngine {
     /// build chat messages, apply the model's chat template, tokenize, run
     /// prefill, sample tokens until EOS / max_tokens / stop string.
     pub fn generate(&self, req: GenerateRequest) -> Result<String, EngineError> {
+        self.generate_with_cancel(req, None)
+    }
+
+    pub fn generate_with_cancel(&self, req: GenerateRequest, cancel: Option<&std::sync::atomic::AtomicBool>) -> Result<String, EngineError> {
+        let check_cancel = || {
+            if cancel.is_some_and(|c| c.load(std::sync::atomic::Ordering::SeqCst)) { Err(EngineError::Cancelled) } else { Ok(()) }
+        };
+        check_cancel()?;
         if req.user.trim().is_empty() {
             return Err(EngineError::Request("user prompt is empty".into()));
         }
@@ -247,6 +257,7 @@ impl LlmEngine {
                 .add(*tok, i as i32, &[0], is_last)
                 .map_err(|e| EngineError::Decode(format!("batch.add: {e}")))?;
         }
+        check_cancel()?;
         ctx.decode(&mut batch)
             .map_err(|e| EngineError::Decode(format!("prefill decode: {e}")))?;
 
@@ -273,6 +284,7 @@ impl LlmEngine {
         let mut n_decoded = 0usize;
 
         while n_decoded < req.max_tokens {
+            check_cancel()?;
             let token = sampler.sample(&ctx, batch.n_tokens() - 1);
             sampler.accept(token);
 

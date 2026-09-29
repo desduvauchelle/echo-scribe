@@ -4,7 +4,6 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { useTranslation } from "react-i18next";
 import {
   ChevronRight,
-  Crosshair,
   Download,
   Loader2,
   Search as SearchIcon,
@@ -19,7 +18,9 @@ import {
   listRecordings,
   runProjectTaggerAll,
   searchItems,
-  type ProjectTaggerProgress,
+  getProjectTaggerRunStatus,
+  stopProjectTagger,
+  type ProjectTaggerRunStatus,
   type DashboardStats,
   type Item,
   type MeetingRow,
@@ -141,7 +142,6 @@ export default function DashboardView({ projects, onOpenStats, searchRequest = 0
   const [loadingMore, setLoadingMore] = useState(false);
   const [kindFilter, setKindFilter] = useState<KindFilter>(initialFilter ?? "all");
   const [error, setError] = useState<string | null>(null);
-  const [showEmptyFocus, setShowEmptyFocus] = useState(false);
 
   const [searchOpen, setSearchOpen] = useState(searchRequest > 0);
   const [query, setQuery] = useState("");
@@ -159,8 +159,31 @@ export default function DashboardView({ projects, onOpenStats, searchRequest = 0
   const [exportOpen, setExportOpen] = useState(false);
   const [exportRange, setExportRange] = useState<ExportRangeKey>("day");
   const [exporting, setExporting] = useState(false);
-  const [tagging, setTagging] = useState(false);
-  const [tagProgress, setTagProgress] = useState<ProjectTaggerProgress | null>(null);
+  const [tagStatus, setTagStatus] = useState<ProjectTaggerRunStatus | null>(null);
+  const [tagCommandPending, setTagCommandPending] = useState(false);
+  const tagRequest = useRef(0);
+  const tagging = tagStatus?.running ?? false;
+  const tagProgress = tagStatus && tagStatus.total > 0 ? tagStatus : null;
+  const refreshTagStatus = useCallback(async () => {
+    const request = ++tagRequest.current;
+    const status = await getProjectTaggerRunStatus();
+    if (request === tagRequest.current) {
+      setTagStatus(previous => previous &&
+        previous.running === status.running && previous.stopping === status.stopping &&
+        previous.paused === status.paused && previous.processed === status.processed &&
+        previous.total === status.total && previous.assigned === status.assigned ? previous : status);
+    }
+  }, []);
+  useEffect(() => {
+    let disposed = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      try { await refreshTagStatus(); } catch { /* Retry a temporarily unavailable backend. */ }
+      if (!disposed) timer = setTimeout(poll, 750);
+    };
+    void poll();
+    return () => { disposed = true; ++tagRequest.current; clearTimeout(timer); };
+  }, [refreshTagStatus]);
   const { push: pushToast } = useToasts();
 
   const { refreshTick, selectedItemId, selectedRecordingId } = useActivityPanel();
@@ -432,17 +455,29 @@ export default function DashboardView({ projects, onOpenStats, searchRequest = 0
 
   /** Manual "tag everything now": queues every untagged capture (all item
    *  kinds + recordings), then works through the whole queue — router first,
-   *  local AI where the router can't decide. Progress streams back via
-   *  `tagger:progress` events and shows on the button. */
+   *  local AI where the router can't decide. The shared backend status also
+   *  covers automatic runs and survives dashboard navigation. */
   const runTagging = async () => {
-    setTagging(true);
-    setTagProgress(null);
-    let unlisten: (() => void) | null = null;
+    if (tagCommandPending) return;
+    if (tagging) {
+      setTagCommandPending(true);
+      ++tagRequest.current;
+      try {
+        await stopProjectTagger();
+        await refreshTagStatus();
+      } catch (e) {
+        pushToast({ tone: "error", message: String(e) });
+      } finally { setTagCommandPending(false); }
+      return;
+    }
+    setTagCommandPending(true);
     try {
-      unlisten = await listen<ProjectTaggerProgress>("tagger:progress", (e) => {
-        setTagProgress(e.payload);
-      });
-      const s = await runProjectTaggerAll();
+      const running = runProjectTaggerAll();
+      // The long-running command is deliberately not a UI-local loading flag.
+      // Polling observes the backend lease and enables Stop as soon as it starts.
+      setTagCommandPending(false);
+      const s = await running;
+      if (s.cancelled) return;
       const undecided = s.scanned - s.assigned;
       if (s.scanned === 0) {
         pushToast({
@@ -488,9 +523,8 @@ export default function DashboardView({ projects, onOpenStats, searchRequest = 0
         }),
       });
     } finally {
-      unlisten?.();
-      setTagging(false);
-      setTagProgress(null);
+      setTagCommandPending(false);
+      void refreshTagStatus().catch(() => {});
     }
   };
 
@@ -510,23 +544,18 @@ export default function DashboardView({ projects, onOpenStats, searchRequest = 0
 
   const toolbarActions = (
     <>
-      <button type="button" onClick={() => setShowEmptyFocus(true)}
-        aria-label={t("dashboard.focus.addFirst")} title={t("dashboard.focus.addFirst")}
-        className="native-toolbar-button grid h-7 w-7 place-items-center rounded-md text-muted hover:text-fg">
-        <Crosshair size={14} aria-hidden="true" />
-      </button>
       <button
         type="button"
         onClick={() => void runTagging()}
-        disabled={tagging}
-        aria-label={t("dashboard.tagging.button")}
-        title={t("dashboard.tagging.buttonTooltip")}
+        disabled={!tagStatus || tagCommandPending || tagStatus.stopping}
+        aria-label={t(tagStatus?.stopping ? "dashboard.tagging.stopping" : tagging ? "dashboard.tagging.stop" : tagStatus?.paused ? "dashboard.tagging.resume" : "dashboard.tagging.button")}
+        title={t(tagging ? "dashboard.tagging.stopTooltip" : "dashboard.tagging.buttonTooltip")}
         className="native-toolbar-button flex h-7 items-center gap-1.5 rounded-md px-2 text-muted hover:text-fg disabled:opacity-70"
       >
         {tagging ? (
           <span aria-live="polite" className="flex items-center gap-1.5">
             <Loader2 size={14} className="animate-spin" />
-            {tagProgress ? (
+            {tagStatus?.stopping ? <span className="text-[11px]">{t("dashboard.tagging.stopping")}</span> : tagProgress ? (
               <span className="text-[11px] tabular-nums">
                 {t("dashboard.tagging.progress", {
                   processed: tagProgress.processed,
@@ -617,7 +646,7 @@ export default function DashboardView({ projects, onOpenStats, searchRequest = 0
 
         {!isSearching ? <MeetingDebriefSection projects={projects} /> : null}
 
-        {!isSearching ? <FocusBoard projects={projects} showEmpty={showEmptyFocus} onHideEmpty={() => setShowEmptyFocus(false)} /> : null}
+        {!isSearching ? <FocusBoard projects={projects} /> : null}
 
         <section className="echo-activity-ledger py-3" aria-labelledby="activity-heading">
           <SectionHeader

@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import Dialog from "./a11y/Dialog";
 import { useTranslation } from "react-i18next";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
@@ -43,7 +45,7 @@ function ModelCard({
   return (
     <div
       title={disabled ? t("llmModelPicker.modelCard.notYetSupported") : undefined}
-      className={`flex items-center justify-between gap-4 rounded-lg border border-line bg-surface p-4 ${
+      className={`flex flex-wrap items-center justify-between gap-4 rounded-lg border border-line bg-surface p-4 ${
         disabled ? "cursor-not-allowed opacity-50" : ""
       }`}
     >
@@ -197,6 +199,7 @@ function ModelCard({
 }
 
 export default function LlmModelPicker() {
+  const [open, setOpen] = useState(false);
   const { t } = useTranslation();
   const [models, setModels] = useState<LlmModelStatus[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -348,8 +351,33 @@ export default function LlmModelPicker() {
   const available = models.filter((m) => !m.downloaded);
   const totalBytes = downloaded.reduce((sum, m) => sum + (m.disk_bytes || 0), 0);
 
+  const active = downloaded.find(model => model.active);
+  const downloadingCount = Object.keys(downloads).filter(id => !models.find(model => model.id === id)?.downloaded).length;
+
   return (
-    <div className="flex flex-col gap-5">
+    <>
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line bg-surface p-4">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold">{active ? `${active.display_name} · ${active.size_label}` : t("llmModelPicker.noModelSelected")}</p>
+          <p className="mt-1 text-xs text-muted" aria-live="polite">
+            {downloadingCount > 0
+              ? t("llmModelPicker.downloadInBackground")
+              : active ? `${active.family} · ${formatBytes(active.size_bytes)}` : t("llmModelPicker.chooseModelHint")}
+          </p>
+        </div>
+        <button type="button" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)} className="shrink-0 rounded-lg border border-line px-3 py-2 text-sm font-medium text-fg hover:bg-elevated">
+          {t("llmModelPicker.changeModel")}
+        </button>
+      </div>
+      {open ? createPortal(
+        <Dialog label={t("llmModelPicker.dialogTitle")} onClose={() => setOpen(false)} panelClassName="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-2xl border border-line bg-canvas shadow-xl">
+          <div className="flex items-center justify-between gap-4 border-b border-line px-5 py-4">
+            <h2 className="text-lg font-semibold">{t("llmModelPicker.dialogTitle")}</h2>
+            <button type="button" onClick={() => setOpen(false)} className="rounded-lg border border-line px-3 py-1.5 text-sm hover:bg-elevated">{t("llmModelPicker.done")}</button>
+          </div>
+          <div className="min-h-0 overflow-y-auto p-5">
+            <p className="mb-4 text-xs text-muted">{t("llmModelPicker.dialogHint")}</p>
+            <div className="flex flex-col gap-5">
       {downloaded.length > 0 ? (
         <section className="space-y-2">
           <div className="flex items-center justify-between">
@@ -400,6 +428,10 @@ export default function LlmModelPicker() {
           </div>
         </section>
       ) : null}
-    </div>
+            </div>
+          </div>
+        </Dialog>, document.body,
+      ) : null}
+    </>
   );
 }

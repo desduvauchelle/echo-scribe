@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { hideNotice, tailClass, tailStyle, useBubbleTail } from "../lib/bubbleTail";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -14,6 +14,7 @@ const EXIT_MS = 260;
 export default function MeetingStartToast() {
   const { t } = useTranslation("windows");
   const [appName, setAppName] = useState<string | null>(null);
+  const tail = useBubbleTail();
   const [actionError, setActionError] = useState<string | null>(null);
   const [visible, setVisible] = useState(false);
   const [exiting, setExiting] = useState(false);
@@ -33,7 +34,7 @@ export default function MeetingStartToast() {
     hideTimer.current = setTimeout(() => {
       setVisible(false);
       setExiting(false);
-      void getCurrentWindow().hide();
+      void hideNotice();
     }, EXIT_MS);
   }, [clearTimers]);
 
@@ -101,7 +102,8 @@ export default function MeetingStartToast() {
   return (
     <div className="meeting-toast-stage">
       <section
-        className={`meeting-toast${visible ? " is-visible" : ""}${exiting ? " is-exiting" : ""}`}
+        className={`meeting-toast${visible ? " is-visible" : ""}${exiting ? " is-exiting" : ""}${tailClass(tail)}`}
+        style={tailStyle(tail)}
         aria-label={t("meetingToast.ariaLabel")}
         onMouseEnter={clearTimers}
         onMouseLeave={() => scheduleDismiss(1_500)}

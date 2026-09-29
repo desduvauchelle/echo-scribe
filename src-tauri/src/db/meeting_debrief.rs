@@ -349,7 +349,7 @@ pub fn set_meeting_project(
     project_id: Option<&str>,
 ) -> Result<usize, DbError> {
     let n = conn.execute(
-        "UPDATE items SET project_id = ?2
+        "UPDATE items SET project_id = ?2, classified_by = 'manual', confidence = NULL
          WHERE id = ?1 AND EXISTS (SELECT 1 FROM meetings WHERE item_id = ?1)",
         params![meeting_id, project_id],
     )?;

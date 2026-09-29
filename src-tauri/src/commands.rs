@@ -650,6 +650,12 @@ pub fn set_active_speech_model(state: State<'_, AppState>, id: String) -> Result
     let entry = registry::lookup(&id)
         .ok_or_else(|| format!("unknown speech model id: {id}"))?
         .clone();
+    if !downloader::is_downloaded(&entry) {
+        return Err("Download this speech model before selecting it".into());
+    }
+    if state.asr.is_busy() {
+        return Err("Wait for the current transcription to finish before switching models".into());
+    }
     state
         .settings
         .set_speech_model_id(&entry.id)
@@ -691,8 +697,16 @@ pub async fn download_speech_model(
 }
 
 #[tauri::command]
-pub fn delete_speech_model(id: String) -> Result<(), String> {
+pub fn delete_speech_model(state: State<'_, AppState>, id: String) -> Result<(), String> {
     let entry = registry::lookup(&id).ok_or_else(|| format!("unknown speech model id: {id}"))?;
+    if state.asr.is_busy() {
+        return Err("Wait for the current transcription to finish before deleting a model".into());
+    }
+    if state.asr.active_model_id().as_deref() == Some(id.as_str()) {
+        // Release loaded weights (including the Whisper worker) before uninstall.
+        // Retain the selection so re-downloading the model restores readiness.
+        state.asr.set_active_model(entry.clone());
+    }
     let dir = downloader::model_dir(entry);
     if dir.is_dir() {
         std::fs::remove_dir_all(&dir).map_err(|e| e.to_string())?;
@@ -1915,16 +1929,29 @@ pub fn run_project_tagger_deterministic_once(
     state: State<'_, AppState>,
     limit: Option<u32>,
 ) -> Result<crate::project_tagger::ProjectTaggerRunSummary, String> {
+    let run = crate::project_tagger_control::global().begin(true)
+        .ok_or("Project tagging is already running.")?;
     let db = require_db(&state)?;
     let now = chrono_now_iso();
     db.with_conn(|c| {
-        crate::project_tagger::run_deterministic_batch(
+        crate::project_tagger::run_deterministic_batch_controlled(
             c,
             limit.unwrap_or_else(|| state.settings.project_auto_tagging_batch_size()),
             &now,
+            Some(&run),
         )
     })
     .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_project_tagger_status() -> crate::project_tagger_control::Status {
+    crate::project_tagger_control::global().status()
+}
+
+#[tauri::command]
+pub fn stop_project_tagger() -> crate::project_tagger_control::Status {
+    crate::project_tagger_control::global().stop()
 }
 
 /// Payload for `tagger:progress` events emitted during `run_project_tagger_all`.
@@ -1944,6 +1971,8 @@ pub async fn run_project_tagger_all(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<crate::project_tagger::ProjectTaggerRunSummary, String> {
+    let run = crate::project_tagger_control::global().begin(true)
+        .ok_or("Project tagging is already running.")?;
     let db = require_db(&state)?.clone();
     let now = chrono_now_iso();
     let dow = crate::classifier::dow_from_iso(&now).to_string();
@@ -1963,9 +1992,9 @@ pub async fn run_project_tagger_all(
             },
         );
     };
-    crate::project_tagger::run_full_pass_db(&db, llm, &now, &dow, on_progress)
-        .await
-        .map_err(|e| e.to_string())
+    let result = crate::project_tagger::run_full_pass_db(&db, llm, &now, &dow, &run, on_progress).await;
+    let _ = app.emit("app:refresh", ());
+    result.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1973,6 +2002,8 @@ pub async fn run_project_tagger_llm_once(
     state: State<'_, AppState>,
     limit: Option<u32>,
 ) -> Result<crate::project_tagger::ProjectTaggerRunSummary, String> {
+    let run = crate::project_tagger_control::global().begin(true)
+        .ok_or("Project tagging is already running.")?;
     if !state.llm.ready() {
         return Err("No local AI model is ready for project tagging.".into());
     }
@@ -1981,7 +2012,7 @@ pub async fn run_project_tagger_llm_once(
     let now = chrono_now_iso();
     let dow = crate::classifier::dow_from_iso(&now).to_string();
     let limit = limit.unwrap_or_else(|| state.settings.project_auto_tagging_batch_size());
-    crate::project_tagger::run_llm_batch_db(&db, llm.as_ref(), limit, &now, &dow)
+    crate::project_tagger::run_llm_batch_db(&db, llm.as_ref(), limit, &now, &dow, &run)
         .await
         .map_err(|e| e.to_string())
 }

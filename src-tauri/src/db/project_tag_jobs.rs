@@ -146,15 +146,32 @@ pub fn list_runnable(
 ) -> Result<Vec<ProjectTagJob>, DbError> {
     let limit = limit.clamp(1, 500);
     let mut stmt = conn.prepare(
-        "SELECT item_id, target, status, attempts, next_run_at, last_error, created_at, updated_at
-           FROM project_tag_jobs
-          WHERE status = ?1
-             OR (status = ?2 AND (next_run_at IS NULL OR next_run_at <= ?3))
-          ORDER BY created_at ASC
-          LIMIT ?4",
+        "WITH runnable AS (
+            SELECT * FROM project_tag_jobs
+             WHERE status = ?1
+                OR (status = ?2 AND (next_run_at IS NULL OR next_run_at <= ?3))
+          ), fresh AS (
+            SELECT item_id FROM runnable
+             WHERE status = ?1 AND attempts = 0
+               AND julianday(created_at) >= julianday(?3) - 1
+             ORDER BY created_at DESC, item_id ASC LIMIT ?5
+          )
+          SELECT item_id, target, status, attempts, next_run_at, last_error, created_at, updated_at
+            FROM runnable
+           ORDER BY CASE WHEN item_id IN (SELECT item_id FROM fresh) THEN 0 ELSE 1 END,
+                    CASE WHEN item_id IN (SELECT item_id FROM fresh) THEN created_at END DESC,
+                    attempts ASC, updated_at ASC, created_at ASC, item_id ASC
+           LIMIT ?4",
     )?;
     let rows = stmt.query_map(
-        params![STATUS_PENDING, STATUS_DEFERRED, now_iso, limit as i64],
+        params![
+            STATUS_PENDING,
+            STATUS_DEFERRED,
+            now_iso,
+            limit as i64,
+            // Reserve at least one slot for older work when a batch has room.
+            (limit - (limit / 4).max(u32::from(limit > 1))) as i64
+        ],
         |r| {
             Ok(ProjectTagJob {
                 item_id: r.get("item_id")?,
@@ -173,6 +190,17 @@ pub fn list_runnable(
         out.push(row?);
     }
     Ok(out)
+}
+
+/// New captures can run promptly without waiting for the hourly backlog pass.
+pub fn has_fresh_pending(conn: &Connection, now_iso: &str) -> Result<bool, DbError> {
+    Ok(conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM project_tag_jobs
+          WHERE status = 'pending' AND attempts = 0
+            AND julianday(created_at) >= julianday(?1) - 1)",
+        [now_iso],
+        |r| r.get(0),
+    )?)
 }
 
 /// How many jobs are runnable right now (pending, or deferred past their
@@ -289,6 +317,38 @@ mod tests {
             ],
         )
         .unwrap();
+    }
+
+    #[test]
+    fn fresh_jobs_get_priority_without_starving_backlog() {
+        let conn = fresh_db();
+        for (id, time) in [
+            ("old-1", "2026-06-01T10:00:00Z"),
+            ("old-2", "2026-06-02T10:00:00Z"),
+            ("fresh-1", "2026-06-25T10:00:00Z"),
+            ("fresh-2", "2026-06-25T11:00:00Z"),
+            ("fresh-3", "2026-06-25T12:00:00Z"),
+        ] {
+            insert_voice_item(&conn, id, None, false);
+            super::enqueue(&conn, id, time).unwrap();
+        }
+        let jobs = super::list_runnable(&conn, 4, "2026-06-25T12:01:00Z").unwrap();
+        assert_eq!(
+            jobs.iter().map(|j| j.item_id.as_str()).collect::<Vec<_>>(),
+            vec!["fresh-3", "fresh-2", "fresh-1", "old-1"]
+        );
+    }
+
+    #[test]
+    fn retries_do_not_block_first_attempts() {
+        let conn = fresh_db();
+        for id in ["retry", "unseen"] {
+            insert_voice_item(&conn, id, None, false);
+            super::enqueue(&conn, id, "2026-06-01T10:00:00Z").unwrap();
+        }
+        super::defer(&conn, "retry", None, Some("unsure"), "2026-06-25T10:00:00Z").unwrap();
+        let jobs = super::list_runnable(&conn, 1, "2026-06-25T12:01:00Z").unwrap();
+        assert_eq!(jobs[0].item_id, "unseen");
     }
 
     #[test]

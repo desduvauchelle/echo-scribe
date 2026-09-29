@@ -1,4 +1,11 @@
+/* Transparent paint area, mirrored by notice_column::BUBBLE_*.
+   Native windows must include this space: overflow cannot paint outside a webview. */
 :root {
+  --bubble-inset-top: 28px;
+  --bubble-inset-side: 32px;
+  --bubble-inset-bottom: 44px;
+  --bubble-inset-height: calc(var(--bubble-inset-top) + var(--bubble-inset-bottom));
+  --bubble-insets: var(--bubble-inset-top) var(--bubble-inset-side) var(--bubble-inset-bottom);
   --bubble-bg: #fff9e9;
   --bubble-border: #c6b894;
   --bubble-fg: #382d1d;

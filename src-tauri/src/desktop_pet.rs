@@ -347,7 +347,7 @@ fn show_locked(app: &AppHandle<Wry>) -> tauri::Result<()> {
 fn focus_bubble_content(db: &crate::db::Db, day: &str) -> Result<(bool, bool), crate::db::DbError> {
     db.with_conn(|conn| Ok((
         crate::db::daily_focus_notes::get(conn, day)?.is_some(),
-        !crate::db::tasks::list_focus_tasks(conn)?.is_empty(),
+        crate::db::tasks::list_focus_tasks(conn)?.iter().any(|task| task.completed_at.is_none()),
     )))
 }
 
@@ -363,21 +363,26 @@ pub fn sync_daily_focus_bubble(app: &AppHandle<Wry>) -> tauri::Result<()> {
         .and_then(|db| focus_bubble_content(db, &day).ok())
         .unwrap_or((false, false));
     let has_note = has_note && settings.morning_focus_enabled();
-    let activity_visible = app.get_webview_window("activity_bubble")
-        .is_some_and(|bubble| bubble.is_visible().unwrap_or(false));
-    if pet.as_ref().and_then(|w| w.is_visible().ok()) != Some(true) || (!has_note && !has_tasks) || !focus_visible || activity_visible {
+    if pet.as_ref().and_then(|w| w.is_visible().ok()) != Some(true) || (!has_note && !has_tasks) || !focus_visible {
         if let Some(bubble) = app.get_webview_window("desktop_pet_focus") { bubble.destroy()?; }
         return Ok(());
     }
-    let pet = pet.unwrap();
-    let (width, height) = if has_tasks { (320.0, 220.0) } else { (300.0, 160.0) };
+    // Card size plus the transparent insets the notice column expects
+    // — see `speech-bubble.css`. Preserve the visible card dimensions.
+    let (card_width, card_height) = if has_tasks { (311.0, 208.0) } else { (291.0, 148.0) };
+    let (width, height) = settings.desktop_pet_focus_size().unwrap_or((
+        card_width + crate::notice_column::BUBBLE_WIDTH_INSET,
+        card_height + crate::notice_column::BUBBLE_HEIGHT_INSET,
+    ));
     let bubble = if let Some(bubble) = app.get_webview_window("desktop_pet_focus") { bubble } else {
         tauri::webview::WebviewWindowBuilder::new(
             app, "desktop_pet_focus", tauri::WebviewUrl::App("src/desktop-pet/focus.html".into()),
         )
         .title("Today's focus")
         .inner_size(width, height)
-        .resizable(false)
+        .min_inner_size(280.0, 200.0)
+        .max_inner_size(720.0, 700.0)
+        .resizable(true)
         .decorations(false)
         .transparent(true)
         .shadow(false)
@@ -390,28 +395,8 @@ pub fn sync_daily_focus_bubble(app: &AppHandle<Wry>) -> tauri::Result<()> {
         .closable(false)
         .build()?
     };
-    let current_size = bubble.inner_size()?.to_logical::<f64>(bubble.scale_factor()?);
-    if (current_size.width - width).abs() > 1.0 || (current_size.height - height).abs() > 1.0 {
-        bubble.set_size(tauri::LogicalSize::new(width, height))?;
-    }
-    let pet_position = pet.outer_position()?;
-    let pet_size = pet.outer_size()?;
-    let bubble_size = bubble.outer_size()?;
-    let monitor = pet.current_monitor()?.or(pet.primary_monitor()?);
-    if let Some(monitor) = monitor {
-        let area = monitor.work_area();
-        let left = area.position.x;
-        let top = area.position.y;
-        let right = left + area.size.width as i32;
-        let bottom = top + area.size.height as i32;
-        let x = (pet_position.x + pet_size.width as i32 - bubble_size.width as i32)
-            .clamp(left, (right - bubble_size.width as i32).max(left));
-        let above = pet_position.y - bubble_size.height as i32 - 8;
-        let below = pet_position.y + pet_size.height as i32 + 8;
-        let y = if above >= top { above } else { below }
-            .clamp(top, (bottom - bubble_size.height as i32).max(top));
-        bubble.set_position(tauri::PhysicalPosition::new(x, y))?;
-    }
+    // Keep a user-resized window as it is. New windows restore the saved size.
+    crate::notice_column::relayout(app, Some("desktop_pet_focus"));
     bubble.show()?;
     Ok(())
 }
@@ -428,6 +413,41 @@ pub fn desktop_pet_focus_set_visible(window: tauri::WebviewWindow<Wry>, visible:
         return Err("Only the pet focus bubble can hide itself".into());
     }
     set_focus_visible(window.app_handle(), visible)
+}
+
+#[tauri::command]
+pub fn desktop_pet_focus_save_size(window: tauri::WebviewWindow<Wry>) -> Result<(), String> {
+    if window.label() != "desktop_pet_focus" { return Err("Only the focus bubble can save its size".into()); }
+    let size = window.inner_size().map_err(|e| e.to_string())?
+        .to_logical::<f64>(window.scale_factor().map_err(|e| e.to_string())?);
+    window.app_handle().state::<crate::commands::AppState>().settings
+        .set_desktop_pet_focus_size(size.width, size.height).map_err(|e| e.to_string())?;
+    crate::notice_column::relayout(window.app_handle(), None);
+    Ok(())
+}
+
+fn focus_size(width: f64, height: f64) -> Result<tauri::LogicalSize<f64>, String> {
+    if !width.is_finite() || !height.is_finite() {
+        return Err("Focus size must be finite".into());
+    }
+    Ok(tauri::LogicalSize::new(width.clamp(280.0, 720.0), height.clamp(200.0, 700.0)))
+}
+
+/// macOS does not support the native resize-drag API, so the corner handle
+/// sends its desired size as the pointer moves. The notice column keeps the
+/// bottom-right edge anchored beside the pet.
+#[tauri::command]
+pub fn desktop_pet_focus_resize(window: tauri::WebviewWindow<Wry>, width: f64, height: f64) -> Result<(), String> {
+    if window.label() != "desktop_pet_focus" { return Err("Only the focus bubble can resize itself".into()); }
+    window.set_size(focus_size(width, height)?).map_err(|e| e.to_string())?;
+    crate::notice_column::relayout(window.app_handle(), None);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn desktop_pet_focus_sync(window: tauri::WebviewWindow<Wry>) -> Result<(), String> {
+    if window.label() != "desktop_pet_focus" { return Err("Only the focus bubble can refresh itself".into()); }
+    sync_daily_focus_bubble(window.app_handle()).map_err(|e| e.to_string())
 }
 
 /// The pet alone can access its relative pointer and the public recording indicator.
@@ -514,6 +534,12 @@ pub fn desktop_pet_context_menu(window: tauri::WebviewWindow<Wry>) -> Result<(),
 mod tests {
     use super::*;
     #[test]
+    fn focus_resize_clamps_and_rejects_invalid_dimensions() {
+        let size = focus_size(900.0, 100.0).unwrap();
+        assert_eq!((size.width, size.height), (720.0, 200.0));
+        assert!(focus_size(f64::NAN, 300.0).is_err());
+    }
+    #[test]
     fn bubble_content_detects_note_or_focus_tasks() {
         let db = crate::db::Db::open_at(std::path::Path::new(":memory:")).unwrap();
         let day = "2026-09-25";
@@ -523,6 +549,13 @@ mod tests {
         db.with_conn(|conn| { crate::db::tasks::add_focus_task(conn, None, "Call the customer", "user")?; Ok(()) }).unwrap();
         assert_eq!(focus_bubble_content(&db, day).unwrap(), (true, true));
         assert_eq!(focus_bubble_content(&db, "2026-09-26").unwrap(), (false, true));
+        db.with_conn(|conn| {
+            let id = crate::db::tasks::list_focus_tasks(conn)?[0].item.id.clone();
+            crate::db::tasks::complete_task(conn, &id, "2026-09-25T12:00:00Z")?;
+            Ok(())
+        }).unwrap();
+        assert_eq!(focus_bubble_content(&db, day).unwrap(), (true, false));
+        assert_eq!(focus_bubble_content(&db, "2026-09-26").unwrap(), (false, false));
     }
     #[test]
     fn audio_meter_sanitizes_input_and_expires_stale_levels() {

@@ -1,0 +1,28 @@
+{
+  "name": "tucky-promo",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "studio": "remotion studio src/index.ts",
+    "render": "remotion render src/index.ts Tucky out/tucky-promo.mp4 --codec h264 --crf 16 --audio-codec aac",
+    "still": "remotion still src/index.ts Promo"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "@remotion/cli": "^4.0.441",
+    "@remotion/google-fonts": "^4.0.441",
+    "@remotion/noise": "^4.0.441",
+    "@remotion/shapes": "^4.0.441",
+    "@remotion/transitions": "^4.0.441",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.7",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "remotion": "^4.0.441",
+    "typescript": "^5.8.3"
+  }
+}

@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { hideNotice, tailClass, tailStyle, useBubbleTail } from "../lib/bubbleTail";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ProjectAssistantReport } from "../lib/api";
@@ -35,6 +35,7 @@ function plain(markdown: string): string {
 export default function AgentToast() {
   const { t } = useTranslation("windows");
   const [report, setReport] = useState<ProjectAssistantReport | null>(null);
+  const tail = useBubbleTail();
   const [visible, setVisible] = useState(false);
   const [exiting, setExiting] = useState(false);
   const cardRef = useRef<HTMLElement | null>(null);
@@ -55,7 +56,7 @@ export default function AgentToast() {
     hideTimer.current = setTimeout(() => {
       setVisible(false);
       setExiting(false);
-      void getCurrentWindow().hide().catch(() => {});
+      void hideNotice();
     }, EXIT_MS);
   }, [clearTimers]);
 
@@ -95,7 +96,8 @@ export default function AgentToast() {
     const el = cardRef.current;
     if (!el) return;
     const report = () => {
-      void invoke("resize_agent_toast", { height: Math.ceil(el.getBoundingClientRect().height) + 22 }).catch(() => {});
+      const stage = getComputedStyle(el.parentElement!);
+      void invoke("resize_agent_toast", { height: Math.ceil(el.offsetHeight + parseFloat(stage.paddingTop) + parseFloat(stage.paddingBottom)) }).catch(() => {});
     };
     report();
     const observer = new ResizeObserver(report);
@@ -126,7 +128,8 @@ export default function AgentToast() {
     <div className="agent-toast-stage">
       <section
         ref={cardRef}
-        className={`agent-toast is-${tone}${visible ? " is-visible" : ""}${exiting ? " is-exiting" : ""}`}
+        className={`agent-toast is-${tone}${visible ? " is-visible" : ""}${exiting ? " is-exiting" : ""}${tailClass(tail)}`}
+        style={tailStyle(tail)}
         aria-label={t("agentToast.ariaLabel")}
         onMouseEnter={() => { if (dismissTimer.current) clearTimeout(dismissTimer.current); }}
         onMouseLeave={() => scheduleDismiss(report, 2_000)}

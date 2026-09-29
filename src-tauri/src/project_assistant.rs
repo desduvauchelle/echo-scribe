@@ -335,6 +335,25 @@ impl Executor for NativeTools {
                     format!("Created project ‘{}’.", project.name),
                 ));
             }
+            if tool == "get_today_focus_note" || tool == "set_today_focus_note" {
+                let local_date = chrono::Local::now().format("%Y-%m-%d").to_string();
+                let state = app.state::<AppState>();
+                if tool == "get_today_focus_note" {
+                    let note = commands::get_daily_focus_note(state, local_date.clone())?;
+                    return Ok(ToolResult::data(json!({"local_date":local_date,"note":note})));
+                }
+                let content = field(&args, "content")?.to_string();
+                let note = commands::save_daily_focus_note(app.clone(), state, local_date, content)?;
+                return Ok(ToolResult {
+                    data: json!(note),
+                    change: Some(if note.content.is_empty() {
+                        "Cleared today's focus note.".into()
+                    } else {
+                        "Updated today's focus note.".into()
+                    }),
+                    sources: vec![],
+                });
+            }
             // Unknown tool names never reach any storage or filesystem operation.
             if !matches!(
                 tool,

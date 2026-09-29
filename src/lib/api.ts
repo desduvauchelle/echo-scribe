@@ -342,6 +342,7 @@ export type ProjectTaggerStatus = {
 };
 
 export type ProjectTaggerRunSummary = {
+  cancelled: boolean;
   scanned: number;
   assigned: number;
   deferred: number;
@@ -513,6 +514,17 @@ export const runProjectTaggerLlmOnce = (
   limit?: number,
 ): Promise<ProjectTaggerRunSummary> =>
   invoke("run_project_tagger_llm_once", { limit: limit ?? null });
+
+export type ProjectTaggerRunStatus = {
+  running: boolean;
+  stopping: boolean;
+  paused: boolean;
+  processed: number;
+  total: number;
+  assigned: number;
+};
+export const getProjectTaggerRunStatus = (): Promise<ProjectTaggerRunStatus> => invoke("get_project_tagger_status");
+export const stopProjectTagger = (): Promise<ProjectTaggerRunStatus> => invoke("stop_project_tagger");
 
 /** Payload of `tagger:progress` events emitted during runProjectTaggerAll. */
 export type ProjectTaggerProgress = {

@@ -31,6 +31,7 @@ import { setLearnSidebarHidden, useLearnSidebarHidden } from "../lib/learnSideba
 import DesktopPetSettings from "../components/DesktopPetSettings";
 import AppLanguagePicker from "../components/AppLanguagePicker";
 import HotkeyRebinder from "../components/HotkeyRebinder";
+import AsrComparison from "../components/AsrComparison";
 import SpeechModelPicker from "../components/SpeechModelPicker";
 import LlmModelPicker from "../components/LlmModelPicker";
 import ProjectManager from "../components/ProjectManager";
@@ -78,7 +79,6 @@ import {
   setLlmUnloadSecs,
   setMuteWhileRecording,
   setPreferredInputDevice,
-  testLlmInference,
   getAppLauncherEnabled,
   setAppLauncherEnabled,
   getActionCounter,
@@ -335,6 +335,7 @@ function DictationPage() {
   return (
     <div className="flex flex-col gap-8">
       <SpeechModelPicker />
+      {import.meta.env.DEV && <AsrComparison />}
 
       <Section
         title={t("dictation.microphone.title")}
@@ -425,9 +426,6 @@ function LanguageModelPage() {
         subtitle={t("languageModel.model.subtitle")}
       >
         <LlmModelPicker />
-        <div className="mt-4">
-          <TestInference />
-        </div>
       </Section>
 
       <Section
@@ -2679,57 +2677,6 @@ function DiagnosticsPane() {
           {recent || t("diagnostics.recentLog.empty")}
         </pre>
       </div>
-    </div>
-  );
-}
-
-function TestInference() {
-  const { t } = useTranslation("settings");
-  const [prompt, setPrompt] = useState(t("languageModel.testInference.defaultPrompt"));
-  const [response, setResponse] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const onRun = async () => {
-    setBusy(true);
-    setError(null);
-    setResponse(null);
-    try {
-      const r = await testLlmInference(prompt);
-      setResponse(r);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="rounded-lg border border-line bg-canvas p-3">
-      <p className="text-xs font-semibold tracking-tight text-muted">
-        {t("languageModel.testInference.title")}
-      </p>
-      <div className="mt-2 flex gap-2">
-        <input
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          className="flex-1 rounded-md border border-line bg-surface px-3 py-1 text-sm focus:border-accent focus:outline-none"
-        />
-        <button
-          type="button"
-          onClick={() => void onRun()}
-          disabled={busy || !prompt.trim()}
-          className="rounded-md bg-accent px-3 py-1 text-xs font-semibold text-canvas hover:bg-accent-hover disabled:opacity-50"
-        >
-          {busy ? t("languageModel.testInference.running") : t("languageModel.testInference.runButton")}
-        </button>
-      </div>
-      {error ? <p className="mt-2 text-xs text-danger">{error}</p> : null}
-      {response ? (
-        <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-md border border-line bg-canvas p-2 text-xs text-fg">
-          {response}
-        </pre>
-      ) : null}
     </div>
   );
 }

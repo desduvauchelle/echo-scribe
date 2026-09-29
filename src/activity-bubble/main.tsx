@@ -6,25 +6,20 @@ import { initTheme } from "../lib/theme";
 import "../i18n";
 import "../styles/speech-bubble.css";
 import "./style.css";
+import { tailClass, tailStyle, useBubbleTail } from "../lib/bubbleTail";
 
-type Placement = "bottom" | "right" | "left" | "top";
-type Activity = { mode: "recording" | "log-recording" | "action-recording" | "transcribing" | "processing" | "meeting"; label?: string; placement?: Placement };
+type Activity = { mode: "recording" | "log-recording" | "action-recording" | "transcribing" | "processing" | "meeting"; label?: string };
 
 initTheme({ transparentBackground: true });
 
 function ActivityBubble() {
   const { t } = useTranslation("windows");
   const [activity, setActivity] = useState<Activity | null>(null);
-  const [placement, setPlacement] = useState<Placement>("bottom");
+  const tail = useBubbleTail();
   useEffect(() => {
-    const shown = listen<Activity>("show-activity-bubble", ({ payload }) => {
-      setActivity(payload);
-      setPlacement(payload.placement ?? "bottom");
-    });
-    const moved = listen<Placement>("activity-bubble-placement", ({ payload }) => setPlacement(payload));
+    const shown = listen<Activity>("show-activity-bubble", ({ payload }) => setActivity(payload));
     return () => {
       void shown.then((unlisten) => unlisten()).catch(() => {});
-      void moved.then((unlisten) => unlisten()).catch(() => {});
     };
   }, []);
   if (!activity) return null;
@@ -33,7 +28,7 @@ function ActivityBubble() {
     : activity.mode === "processing" ? activity.label || t("overlay.processingDefault")
     : activity.mode === "meeting" ? t("overlay.recordingMeeting")
     : t("overlay.iconRecordingAlt");
-  return <aside className={`activity-bubble points-${placement}`} role="status" aria-live="polite">
+  return <aside className={`activity-bubble${tailClass(tail)}`} style={tailStyle(tail)} role="status" aria-live="polite">
     <span className="activity-bubble-eyebrow">Tucky</span>
     <strong>{label}</strong>
     <span className="activity-bubble-dots" aria-hidden="true"><i /><i /><i /></span>

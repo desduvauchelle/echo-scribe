@@ -417,6 +417,13 @@
     "rightSide": "Right {{key}}"
   },
   "llmModelPicker": {
+    "noModelSelected": "No model selected",
+    "chooseModelHint": "Choose a downloaded model or download a new one.",
+    "downloadInBackground": "Model download in progress…",
+    "changeModel": "Change model",
+    "dialogTitle": "Language models",
+    "done": "Done",
+    "dialogHint": "Select, download, or remove a model. Downloads continue when you close this popup.",
     "loadError": "Couldn't load LLM models: {{error}}",
     "downloadedModelsHeading": "Downloaded models",
     "totalOnDisk": "{{size}} on disk",
