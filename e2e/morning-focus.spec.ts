@@ -1,9 +1,9 @@
 import { expect, test } from "@playwright/test";
 import { installTauriMock } from "./mock";
 
-test("morning focus appears at 9, saves and edits without an empty focus board", async ({ page }) => {
+test("morning focus is available before 9, saves and edits without an empty focus board", async ({ page }) => {
   if (process.env.FOCUS_SHOTS) await page.emulateMedia({ colorScheme: process.env.FOCUS_THEME === "light" ? "light" : "dark" });
-  await page.clock.install({ time: new Date("2026-09-25T08:59:00") });
+  await page.clock.install({ time: new Date("2026-09-25T08:38:00") });
   await installTauriMock(page, {
     onboardingCompleted: true,
     permissions: { microphone: true, accessibility: true },
@@ -12,8 +12,6 @@ test("morning focus appears at 9, saves and edits without an empty focus board",
   });
   await page.goto("/");
   await expect(page.locator(".echo-focus-board")).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: /What are the few things/ })).toHaveCount(0);
-  await page.clock.fastForward("01:00");
   await expect(page.getByRole("heading", { name: /What are the few things/ })).toBeVisible();
   if (process.env.FOCUS_SHOTS) await page.screenshot({ path: `${process.env.FOCUS_SHOTS}/morning-prompt.png` });
   await page.setViewportSize({ width: 500, height: 800 });

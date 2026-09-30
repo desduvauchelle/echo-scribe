@@ -5,7 +5,7 @@ import { useActivityPanel } from "../components/ActivityPanelContext";
 
 /** item id → task state (deadline, completion, assignee) for the activity
  *  feed, which only loads bare items. Built from open + completed tasks plus
- *  focus-board tasks (which `list_tasks` excludes). Refreshes on the same
+ *  focus-board tasks as a fallback if task-list loading fails. Refreshes on the same
  *  signals as the feed. Failures are non-fatal: a missing entry renders as an
  *  open task with no deadline. */
 export function useTaskIndex(projectId: string | null = null) {

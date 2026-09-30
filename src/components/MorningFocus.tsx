@@ -30,7 +30,6 @@ export default function MorningFocus({ pulse }: { pulse?: ReactNode }) {
   const recordingStarted = useRef(false);
   const releaseRequested = useRef(false);
   const stopRequested = useRef(false);
-  const afterNine = now.getHours() >= 9;
 
   const load = useCallback(async (date: string) => {
     try {
@@ -176,7 +175,7 @@ export default function MorningFocus({ pulse }: { pulse?: ReactNode }) {
     }
   };
 
-  const showEditor = enabled === true && loadedDay === day && afterNine && (!note || editing);
+  const showEditor = enabled === true && loadedDay === day && (!note || editing);
   useEffect(() => {
     const input = inputRef.current;
     if (!showEditor || !input) return;

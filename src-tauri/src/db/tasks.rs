@@ -109,8 +109,7 @@ pub fn list_tasks(
          LEFT JOIN tasks ON tasks.item_id = items.id
          LEFT JOIN people assignee
            ON assignee.id = tasks.assignee_person_id AND assignee.deleted_at IS NULL
-         WHERE items.deleted_at IS NULL AND items.kind = 'task'
-           AND tasks.focus_rank IS NULL",
+         WHERE items.deleted_at IS NULL AND items.kind = 'task'",
     );
     let mut args: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
     if let Some(pid) = project_id {
@@ -150,8 +149,8 @@ pub fn list_tasks(
 
 // ── Focus tasks ──────────────────────────────────────────────────────────
 // A focus task is an ordinary task item whose `tasks.focus_rank` is set. It
-// shows only in the dashboard Focus section (ordered by rank) and is left out
-// of `list_tasks`.
+// also appears in the dashboard Focus section (ordered by rank), while
+// remaining visible in ordinary task lists.
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct FocusTask {
@@ -456,7 +455,7 @@ mod tests {
     }
 
     #[test]
-    fn focus_tasks_are_separate_from_task_lists_and_reorderable() {
+    fn focus_tasks_are_visible_in_task_lists_and_reorderable() {
         let c = fresh();
         crate::db::projects::insert_project(
             &c,
@@ -473,10 +472,13 @@ mod tests {
         let a = add_focus_task(&c, None, "first", "user").unwrap();
         let b = add_focus_task(&c, None, "second", "user").unwrap();
 
-        // Focus tasks stay out of the ordinary task list…
+        // Focus is a sticky flag: all three tasks belong in the ordinary list.
         let open: Vec<_> = list_tasks(&c, false, None).unwrap().into_iter().map(|t| t.item.id).collect();
-        assert_eq!(open, vec!["plain".to_string()]);
-        // …and come back in rank order from the focus list.
+        assert_eq!(open.len(), 3);
+        assert!(open.contains(&"plain".to_string()));
+        assert!(open.contains(&a.id));
+        assert!(open.contains(&b.id));
+        // The focus list keeps its independent rank order.
         let focus: Vec<_> = list_focus_tasks(&c).unwrap().into_iter().map(|t| t.item.id).collect();
         assert_eq!(focus, vec![a.id.clone(), b.id.clone()]);
 
@@ -496,9 +498,21 @@ mod tests {
         assert_eq!(focus[1].item.project_id.as_deref(), Some("p1"));
         assert!(!is_focus_task(&c, "plain").unwrap());
 
-        // Completing keeps it on the board; un-focusing returns it to tasks.
+        // Project filtering includes focused tasks and excludes other projects.
+        let project_tasks = list_tasks(&c, false, Some("p1")).unwrap();
+        assert_eq!(project_tasks.len(), 1);
+        assert_eq!(project_tasks[0].item.id, a.id);
+
+        // Completing keeps focus and moves the task from open to done.
         complete_task(&c, &a.id, "2026-05-02T00:00:00Z").unwrap();
         assert!(list_focus_tasks(&c).unwrap()[1].completed_at.is_some());
+        assert!(list_tasks(&c, false, Some("p1")).unwrap().is_empty());
+        let done = list_tasks(&c, true, Some("p1")).unwrap();
+        assert_eq!(done.len(), 1);
+        assert_eq!(done[0].item.id, a.id);
+        uncomplete_task(&c, &a.id).unwrap();
+        assert_eq!(list_tasks(&c, false, Some("p1")).unwrap().len(), 1);
+        assert!(list_tasks(&c, true, Some("p1")).unwrap().is_empty());
         set_focus(&c, &b.id, false).unwrap();
         assert_eq!(list_focus_tasks(&c).unwrap().len(), 1);
         assert!(list_tasks(&c, false, None).unwrap().iter().any(|t| t.item.id == b.id));

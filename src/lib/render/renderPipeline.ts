@@ -311,6 +311,10 @@ async function pickCodec(width: number, height: number): Promise<CodecChoice> {
     framerate: TARGET_FPS,
     // Hint hardware/accelerated encoders; browser falls back to software.
     hardwareAcceleration: "no-preference",
+    // WebKit's default "quality" mode buffers frames for lookahead. It can
+    // need more input than our bounded queue allows, leaving both the encoder
+    // and compositor waiting forever. Emit promptly within the same queue cap.
+    latencyMode: "realtime",
   };
 
   const candidates: CodecChoice[] = [

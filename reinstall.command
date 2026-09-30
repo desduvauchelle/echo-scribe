@@ -23,6 +23,11 @@ for arg in "$@"; do
     esac
 done
 
+# Local reinstalls retain the speech models and measured comparison scores.
+# Set both flags to 0 to build the standard distribution catalog instead.
+export TUCKY_LOCAL_ASR="${TUCKY_LOCAL_ASR:-1}"
+export VITE_LOCAL_ASR="${VITE_LOCAL_ASR:-$TUCKY_LOCAL_ASR}"
+
 echo "==> Building release bundle…"
 bun tauri build --bundles app
 

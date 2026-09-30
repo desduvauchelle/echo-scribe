@@ -91,11 +91,13 @@ export default function TasksView({ projects, embedded = false, projectId = null
       };
       const u1 = await listen("item:created", handler);
       const u2 = await listen("app:refresh", handler);
+      const u3 = await listen("focus:changed", handler);
       if (cancelled) {
         u1();
         u2();
+        u3();
       } else {
-        unlisteners.push(u1, u2);
+        unlisteners.push(u1, u2, u3);
       }
     };
     void subscribe();
