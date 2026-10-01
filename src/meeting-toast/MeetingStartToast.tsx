@@ -1,6 +1,7 @@
+import { BubbleSurface } from "../components/BubbleSurface";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { hideNotice, tailClass, tailStyle, useBubbleTail } from "../lib/bubbleTail";
+import { hideNotice, useBubbleTail } from "../lib/bubbleTail";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -101,9 +102,9 @@ export default function MeetingStartToast() {
 
   return (
     <div className="meeting-toast-stage">
-      <section
-        className={`meeting-toast${visible ? " is-visible" : ""}${exiting ? " is-exiting" : ""}${tailClass(tail)}`}
-        style={tailStyle(tail)}
+      <BubbleSurface
+        className={`meeting-toast${visible ? " is-visible" : ""}${exiting ? " is-exiting" : ""}`}
+        tail={tail}
         aria-label={t("meetingToast.ariaLabel")}
         onMouseEnter={clearTimers}
         onMouseLeave={() => scheduleDismiss(1_500)}
@@ -147,7 +148,7 @@ export default function MeetingStartToast() {
             <path d="M3 3l6 6M9 3L3 9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
           </svg>
         </button>
-      </section>
+      </BubbleSurface>
     </div>
   );
 }

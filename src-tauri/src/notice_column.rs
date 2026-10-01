@@ -11,7 +11,7 @@
 //! Each notice window keeps transparent padding around its visible card for the
 //! shadow and pointer tail; `insets` mirrors that CSS so spacing is computed on
 //! the cards the user actually sees, not on the window frames. Only the card
-//! nearest the anchor draws a tail, aimed at the pet's head / the pill's center
+//! nearest the visible pet draws a tail, aimed at its head
 //! (`bubble-tail` event + `bubble_tail` command).
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -155,7 +155,7 @@ pub(crate) fn layout(
         }
         return slots;
     }
-    if let (Some(first), Some(item)) = (slots.first_mut(), items.first()) {
+    if let (Align::Pet, Some(first), Some(item)) = (align, slots.first_mut(), items.first()) {
         let (_, right, _, left) = item.insets;
         let card_width = item.width - left - right;
         // Keep the tail clear of the card's rounded corners (~28 logical px).
@@ -226,8 +226,9 @@ pub(crate) fn relayout(app: &AppHandle<Wry>, showing: Option<&str>) {
     let with_pet = align == Align::Pet;
     let windows: Vec<_> = labels
         .into_iter()
-        // Without the pet, the consent prompt keeps its notification-safe corner.
-        .filter(|label| with_pet || *label != "consent_overlay")
+        // Without the pet, consent keeps its notification-safe corner and
+        // dictation status stays in the pill rather than a second bubble.
+        .filter(|label| with_pet || !matches!(*label, "consent_overlay" | "activity_bubble"))
         .filter_map(|label| visible(app, label, showing).map(|w| (label, w)))
         .collect();
     let Some(monitor) = anchor_window.current_monitor().ok().flatten()
@@ -287,7 +288,7 @@ pub fn bubble_tail(window: tauri::WebviewWindow<Wry>) -> Tail {
         .lock()
         .ok()
         .and_then(|tails| tails.as_ref()?.get(window.label()).copied())
-        .unwrap_or(Tail { side: "bottom", x: 0.0 })
+        .unwrap_or(Tail { side: "none", x: 0.0 })
 }
 
 /// A notice dismissing itself: hide it and close the gap it leaves.
@@ -353,6 +354,7 @@ mod tests {
         let pill = Rect { x: -800, y: 790, width: 160, height: 48 };
         let slots = layout(pill, &[item(412, 154)], area, Align::Center, 10, 14);
         assert_eq!(slots[0].x + 206, -720);
+        assert!(slots[0].tail_x.is_none(), "badge notifications must have no pet pointer");
         let edge = Rect { x: -1440, y: 790, width: 160, height: 48 };
         let slots = layout(edge, &[item(412, 154)], area, Align::Center, 10, 14);
         assert_eq!(slots[0].x, -1440);

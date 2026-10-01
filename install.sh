@@ -116,9 +116,27 @@ if ! run_install mv "$STAGED/$APP_BUNDLE" "$INSTALL_DIR/$APP_BUNDLE"; then
   exit 1
 fi
 run_install rmdir "$STAGED"
-# Preserve existing MCP commands and login items that use the old app path.
+# Preserve existing MCP commands that use the old app path.
 run_install ln -s "$APP_BUNDLE" "$INSTALL_DIR/$LEGACY_BUNDLE"
 echo "Previous installation backup: $BACKUP"
+
+# Existing login items must use the real binary: Tauri rejects symlinked
+# executable paths when resolving resources on macOS. Keep the same identity
+# and arguments, and leave disabled/absent login items absent.
+if [[ -x "$INSTALL_DIR/$APP_BUNDLE/Contents/MacOS/Tucky" ]]; then
+  LOGIN_DIR="${TUCKY_LAUNCH_AGENT_DIR:-$HOME/Library/LaunchAgents}"
+  for login_name in "Echo Scribe" "Tucky"; do
+    LOGIN_ITEM="$LOGIN_DIR/$login_name.plist"
+    [[ -f "$LOGIN_ITEM" ]] || continue
+    LOGIN_EXE="$(/usr/libexec/PlistBuddy -c 'Print :ProgramArguments:0' "$LOGIN_ITEM" 2>/dev/null || true)"
+    if [[ "$LOGIN_EXE" == "$INSTALL_DIR/$LEGACY_BUNDLE/Contents/MacOS/echo-scribe" ||
+          "$LOGIN_EXE" == "$INSTALL_DIR/$LEGACY_BUNDLE/Contents/MacOS/Tucky" ||
+          "$LOGIN_EXE" == "$INSTALL_DIR/$APP_BUNDLE/Contents/MacOS/echo-scribe" ]]; then
+      /usr/libexec/PlistBuddy -c "Set :ProgramArguments:0 $INSTALL_DIR/$APP_BUNDLE/Contents/MacOS/Tucky" "$LOGIN_ITEM"
+      echo "Updated $login_name login item to the direct Tucky executable."
+    fi
+  done
+fi
 
 # Strip quarantine so Gatekeeper doesn't block the unsigned app
 run_install xattr -dr com.apple.quarantine "$INSTALL_DIR/$APP_BUNDLE" 2>/dev/null || true

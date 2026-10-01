@@ -9,6 +9,7 @@ FIXTURE_DIR="$WORK_DIR/fixture"
 BIN_DIR="$WORK_DIR/bin"
 INSTALL_DIR="$WORK_DIR/Applications"
 ARCHIVE="$WORK_DIR/EchoScribe-aarch64.tar.gz"
+export TUCKY_LAUNCH_AGENT_DIR="$WORK_DIR/LaunchAgents"
 
 mkdir -p "$FIXTURE_DIR/Tucky.app/Contents/MacOS" "$BIN_DIR"
 printf 'fixture app\n' > "$FIXTURE_DIR/Tucky.app/Contents/Info.plist"
@@ -71,12 +72,26 @@ PATH="$BIN_DIR:$PATH" INSTALL_DIR="$WORK_DIR/LegacyInstall" \
 test -x "$WORK_DIR/LegacyInstall/Tucky.app/Contents/MacOS/echo-scribe"
 echo "Tucky upgrade, legacy archive, and failed-download preservation checks passed."
 
+# Preserve login-item identity, options, and enabled state while migrating its path.
+mkdir -p "$TUCKY_LAUNCH_AGENT_DIR"
+LOGIN_ITEM="$TUCKY_LAUNCH_AGENT_DIR/Echo Scribe.plist"
+/usr/libexec/PlistBuddy -c 'Add :Label string Echo Scribe' "$LOGIN_ITEM"
+/usr/libexec/PlistBuddy -c 'Add :ProgramArguments array' "$LOGIN_ITEM"
+/usr/libexec/PlistBuddy -c "Add :ProgramArguments:0 string $INSTALL_DIR/Echo Scribe.app/Contents/MacOS/echo-scribe" "$LOGIN_ITEM"
+/usr/libexec/PlistBuddy -c 'Add :ProgramArguments:1 string --existing-option' "$LOGIN_ITEM"
+/usr/libexec/PlistBuddy -c 'Add :RunAtLoad bool true' "$LOGIN_ITEM"
+
 # Upgrade to the renamed binary while preserving the old executable alias.
 mv "$FIXTURE_DIR/Tucky.app/Contents/MacOS/echo-scribe" "$FIXTURE_DIR/Tucky.app/Contents/MacOS/Tucky"
 ln -s Tucky "$FIXTURE_DIR/Tucky.app/Contents/MacOS/echo-scribe"
 PATH="$BIN_DIR:$PATH" INSTALL_DIR="$INSTALL_DIR" LOCAL_APP_BUNDLE="$FIXTURE_DIR/Tucky.app" \
   SKIP_STOP=1 SKIP_LAUNCH=1 bash "$ROOT_DIR/install.sh"
 test -x "$INSTALL_DIR/Tucky.app/Contents/MacOS/Tucky"
+test "$(/usr/libexec/PlistBuddy -c 'Print :ProgramArguments:0' "$LOGIN_ITEM")" = "$INSTALL_DIR/Tucky.app/Contents/MacOS/Tucky"
+test "$(/usr/libexec/PlistBuddy -c 'Print :ProgramArguments:1' "$LOGIN_ITEM")" = '--existing-option'
+test "$(/usr/libexec/PlistBuddy -c 'Print :Label' "$LOGIN_ITEM")" = 'Echo Scribe'
+test "$(/usr/libexec/PlistBuddy -c 'Print :RunAtLoad' "$LOGIN_ITEM")" = 'true'
+test ! -e "$TUCKY_LAUNCH_AGENT_DIR/Tucky.plist"
 test -L "$INSTALL_DIR/Echo Scribe.app/Contents/MacOS/echo-scribe"
 "$INSTALL_DIR/Echo Scribe.app/Contents/MacOS/echo-scribe" --mcp
 bash "$ROOT_DIR/scripts/package-release.sh" "$FIXTURE_DIR/Tucky.app" "$WORK_DIR/renamed-releases"

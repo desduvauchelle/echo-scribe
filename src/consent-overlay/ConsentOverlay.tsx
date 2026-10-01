@@ -1,3 +1,4 @@
+import { BubbleSurface } from "../components/BubbleSurface";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import React, { useEffect, useRef, useState } from "react";
@@ -93,7 +94,7 @@ const ConsentOverlay: React.FC = () => {
   if (!payload) return null;
 
   return (
-    <div
+    <BubbleSurface as="div"
       className={`consent-overlay${isVisible ? " visible" : ""}`}
       role="alertdialog"
       aria-modal="true"
@@ -138,7 +139,7 @@ const ConsentOverlay: React.FC = () => {
           {t("consentOverlay.takeNotes")}
         </button>
       </div>
-    </div>
+    </BubbleSurface>
   );
 };
 

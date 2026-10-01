@@ -116,6 +116,7 @@ pub(crate) fn pet_replaces_recording_widget() -> bool {
 }
 
 fn sync_recording_widget(app: &AppHandle<Wry>) {
+    sync_activity_bubble(app);
     let Some(window) = app.get_webview_window("recording_overlay") else { return; };
     let pet_visible = app.get_webview_window("desktop_pet")
         .is_some_and(|pet| pet.is_visible().unwrap_or(false));
@@ -168,6 +169,35 @@ pub(crate) fn reposition_visible_toasts(app_handle: &AppHandle<Wry>) {
     }
 }
 
+// Keep the current status so showing the pet mid-capture can replace the pill.
+static LAST_ACTIVITY_BUBBLE: std::sync::Mutex<Option<(String, Option<String>)>> =
+    std::sync::Mutex::new(None);
+
+fn remember_activity_bubble(mode: &str, label: Option<&str>) {
+    if let Ok(mut activity) = LAST_ACTIVITY_BUBBLE.lock() {
+        *activity = Some((mode.to_owned(), label.map(str::to_owned)));
+    }
+}
+
+fn sync_activity_bubble(app: &AppHandle<Wry>) {
+    let pet_visible = app.get_webview_window("desktop_pet")
+        .is_some_and(|pet| pet.is_visible().unwrap_or(false));
+    if !pet_visible {
+        if let Some(bubble) = app.get_webview_window("activity_bubble") {
+            let _ = bubble.hide();
+        }
+        return;
+    }
+    if app.get_webview_window("activity_bubble")
+        .is_some_and(|bubble| bubble.is_visible().unwrap_or(false)) {
+        return;
+    }
+    let activity = LAST_ACTIVITY_BUBBLE.lock().ok().and_then(|activity| activity.clone());
+    if let Some((mode, label)) = activity {
+        show_activity_bubble(app, &mode, label.as_deref());
+    }
+}
+
 pub fn create_activity_bubble(app: &AppHandle<Wry>) {
     if app.get_webview_window("activity_bubble").is_some() { return; }
     if let Err(e) = WebviewWindowBuilder::new(
@@ -191,6 +221,15 @@ pub fn create_activity_bubble(app: &AppHandle<Wry>) {
 }
 
 fn show_activity_bubble(app: &AppHandle<Wry>, mode: &str, label: Option<&str>) {
+    remember_activity_bubble(mode, label);
+    let pet_visible = app.get_webview_window("desktop_pet")
+        .is_some_and(|pet| pet.is_visible().unwrap_or(false));
+    if !pet_visible {
+        if let Some(bubble) = app.get_webview_window("activity_bubble") {
+            let _ = bubble.hide();
+        }
+        return;
+    }
     if app.get_webview_window("activity_bubble").is_none() { create_activity_bubble(app); }
     let Some(bubble) = app.get_webview_window("activity_bubble") else { return; };
     crate::notice_column::note_shown(app, "activity_bubble");
@@ -205,6 +244,9 @@ fn show_activity_bubble(app: &AppHandle<Wry>, mode: &str, label: Option<&str>) {
 }
 
 fn hide_activity_bubble(app: &AppHandle<Wry>) {
+    if let Ok(mut activity) = LAST_ACTIVITY_BUBBLE.lock() {
+        activity.take();
+    }
     if let Some(bubble) = app.get_webview_window("activity_bubble") { let _ = bubble.hide(); }
     let _ = crate::desktop_pet::sync_daily_focus_bubble(app);
 }

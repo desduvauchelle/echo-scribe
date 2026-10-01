@@ -253,8 +253,8 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_notification::init())
-        // Keep the existing login-item identity; the installer preserves its
-        // old executable path with a compatibility link to Tucky.app.
+        // Keep the existing login-item identity; the installer migrates its
+        // executable path to the real Tucky binary.
         .plugin(tauri_plugin_autostart::Builder::new()
             .app_name(if data_folder_name() == "EchoScribe" { "Echo Scribe" } else { "Tucky Fresh" })
             .macos_launcher(tauri_plugin_autostart::MacosLauncher::LaunchAgent)

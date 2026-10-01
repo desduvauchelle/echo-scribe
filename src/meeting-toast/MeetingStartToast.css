@@ -19,11 +19,7 @@
   align-items: center;
   gap: 7px;
   padding: 8px 10px;
-  color: #fbf6ea;
-  background: linear-gradient(120deg, #123b2d, #0e241b);
   border: 1px solid #64856b99;
-  border-radius: 32px;
-  box-shadow: 0 4px 14px #081b1533;
   opacity: 0;
   transform: translate3d(0, 6px, 0) scale(0.98);
   transform-origin: center;
@@ -207,18 +203,8 @@
 .meeting-toast {
   position: relative;
   height: 100%;
-  color: var(--bubble-fg);
-  background: var(--bubble-bg);
-  border-color: var(--bubble-border);
-  border-radius: 17px 17px 5px 17px;
-  box-shadow: 0 7px 18px var(--bubble-shadow);
 }
-.meeting-toast::after {
-  content: ""; position: absolute; left: calc(var(--tail-x, 50%) - 7px); bottom: -8px;
-  width: 14px; height: 14px; transform: rotate(45deg);
-  border-right: 1px solid var(--bubble-border); border-bottom: 1px solid var(--bubble-border);
-  background: var(--bubble-bg);
-}
+
 .meeting-toast-mark { background: var(--bubble-subtle); border-color: var(--bubble-border); }
 .meeting-toast-mark span { background: var(--bubble-accent); }
 .meeting-toast-copy span, .meeting-toast button { color: var(--bubble-muted); }
@@ -226,6 +212,3 @@
 .meeting-toast button { background: var(--bubble-subtle); border-color: var(--bubble-border); }
 .meeting-toast button:hover { color: var(--bubble-fg); background: var(--bubble-subtle); border-color: var(--bubble-border); }
 .meeting-toast button:focus-visible { outline-color: var(--bubble-accent); }
-/* Only the card nearest Tucky / the pill points at it (notice_column.rs). */
-.meeting-toast.tail-none::after { display: none; }
-.meeting-toast.tail-none { border-radius: 17px; }

@@ -33,3 +33,16 @@ test("dictation status preserves the focus window and avoids its space", () => {
   expect(relayout.indexOf('"desktop_pet_focus"')).toBeLessThan(relayout.indexOf("TRANSIENT.contains"));
   expect(showActivity).toContain('relayout(app, Some("activity_bubble"))');
 });
+
+test("activity bubble is pet-only and follows visibility changes during capture", () => {
+  const overlay = readFileSync(new URL("../src-tauri/src/overlay.rs", import.meta.url), "utf8");
+  const show = overlay.slice(overlay.indexOf("fn show_activity_bubble("), overlay.indexOf("fn hide_activity_bubble("));
+  expect(show.indexOf("if !pet_visible")).toBeGreaterThanOrEqual(0);
+  expect(show.indexOf("if !pet_visible")).toBeLessThan(show.indexOf("create_activity_bubble(app)"));
+  expect(show).toContain("remember_activity_bubble(mode, label)");
+  const sync = overlay.slice(overlay.indexOf("fn sync_activity_bubble("), overlay.indexOf("pub fn create_activity_bubble("));
+  expect(sync).toContain("bubble.hide()");
+  expect(sync).toContain("show_activity_bubble(app");
+  expect(overlay).toMatch(/fn sync_recording_widget\([^]*?sync_activity_bubble\(app\)/);
+  expect(overlay).toMatch(/fn hide_activity_bubble\([^]*?LAST_ACTIVITY_BUBBLE[^]*?\.take\(\)/);
+});

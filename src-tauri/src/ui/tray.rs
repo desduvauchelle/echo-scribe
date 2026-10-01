@@ -950,17 +950,63 @@ fn show_main_window<R: Runtime>(app: &AppHandle<R>) {
     }
 }
 
-/// Load a bundled tray asset as raw RGBA. Returns `None` (with a log) when
-/// the file is missing/corrupt or isn't the expected 64x64.
+/// Load a tray asset as raw RGBA, using embedded bytes for every built-in icon.
+/// Returns `None` (with a log) for corrupt images or unexpected dimensions.
 fn load_resource_rgba<R: Runtime>(app: &AppHandle<R>, path: &str) -> Option<Vec<u8>> {
-    let resolved = match app.path().resolve(path, BaseDirectory::Resource) {
-        Ok(p) => p,
-        Err(e) => {
-            warn!(target: "tray", ?e, path, "failed to resolve tray asset path");
-            return None;
+    load_icon_rgba(path, || app.path().resolve(path, BaseDirectory::Resource))
+}
+
+fn load_icon_rgba(
+    path: &str,
+    resolve: impl FnOnce() -> tauri::Result<std::path::PathBuf>,
+) -> Option<Vec<u8>> {
+    // Launching through the legacy symlink makes Tauri's resource directory
+    // unavailable on macOS. These small, fixed images travel with the binary.
+    let embedded: Option<&[u8]> = match path {
+        "resources/tray_idle.png" => Some(include_bytes!("../../resources/tray_idle.png")),
+        "resources/tray_logo_active.png" => {
+            Some(include_bytes!("../../resources/tray_logo_active.png"))
+        }
+        "resources/tray_badge_dictation.png" => {
+            Some(include_bytes!("../../resources/tray_badge_dictation.png"))
+        }
+        "resources/tray_badge_screenrec.png" => {
+            Some(include_bytes!("../../resources/tray_badge_screenrec.png"))
+        }
+        "resources/tray_badge_transcribing.png" => Some(include_bytes!(
+            "../../resources/tray_badge_transcribing.png"
+        )),
+        "resources/tray_badge_thinking.png" => {
+            Some(include_bytes!("../../resources/tray_badge_thinking.png"))
+        }
+        "resources/tray_badge_meeting.png" => {
+            Some(include_bytes!("../../resources/tray_badge_meeting.png"))
+        }
+        "resources/tray_badge_awake.png" => {
+            Some(include_bytes!("../../resources/tray_badge_awake.png"))
+        }
+        "resources/menu_stop_meeting.png" => {
+            Some(include_bytes!("../../resources/menu_stop_meeting.png"))
+        }
+        "resources/menu_stop_screenrec.png" => {
+            Some(include_bytes!("../../resources/menu_stop_screenrec.png"))
+        }
+        _ => None,
+    };
+    let image = match embedded {
+        Some(bytes) => Image::from_bytes(bytes),
+        None => {
+            let resolved = match resolve() {
+                Ok(path) => path,
+                Err(e) => {
+                    warn!(target: "tray", ?e, path, "failed to resolve tray asset path");
+                    return None;
+                }
+            };
+            Image::from_path(resolved)
         }
     };
-    match Image::from_path(&resolved) {
+    match image {
         Ok(img) if img.width() == ICON_SIZE && img.height() == ICON_SIZE => {
             Some(img.rgba().to_vec())
         }
@@ -975,7 +1021,7 @@ fn load_resource_rgba<R: Runtime>(app: &AppHandle<R>, path: &str) -> Option<Vec<
             None
         }
         Err(e) => {
-            warn!(target: "tray", ?e, ?resolved, "failed to load tray asset");
+            warn!(target: "tray", ?e, path, "failed to load tray asset");
             None
         }
     }
@@ -1033,6 +1079,34 @@ fn fallback_icon() -> Image<'static> {
 mod menu_plan_tests {
     use super::*;
 
+    #[test]
+    fn tray_images_survive_unavailable_resource_directory() {
+        let paths = [
+            "resources/tray_idle.png",
+            "resources/tray_logo_active.png",
+            "resources/tray_badge_dictation.png",
+            "resources/tray_badge_screenrec.png",
+            "resources/tray_badge_transcribing.png",
+            "resources/tray_badge_thinking.png",
+            "resources/tray_badge_meeting.png",
+            "resources/tray_badge_awake.png",
+            "resources/menu_stop_meeting.png",
+            "resources/menu_stop_screenrec.png",
+        ];
+        for path in paths {
+            let rgba = load_icon_rgba(path, || Err(tauri::Error::UnknownPath))
+                .unwrap_or_else(|| panic!("{path} must load even when resource lookup fails"));
+            assert_eq!(rgba.len(), (ICON_SIZE * ICON_SIZE * 4) as usize);
+            assert!(
+                rgba.chunks_exact(4).any(|pixel| pixel[3] == 0),
+                "{path} must have a transparent background"
+            );
+            assert!(
+                rgba.chunks_exact(4).any(|pixel| pixel[3] > 0),
+                "{path} must have a visible glyph"
+            );
+        }
+    }
     fn idle() -> MenuState {
         MenuState {
             keep_awake_supported: true,

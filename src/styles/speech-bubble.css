@@ -24,3 +24,35 @@
   --bubble-subtle: #30443a;
   --bubble-shadow: #030b0899;
 }
+
+/* Shape and paint shared by every floating notification and status widget.
+   Double specificity keeps per-window layout/animation rules independent. */
+.bubble-surface.bubble-surface {
+  --bubble-radius: 17px;
+  position: relative;
+  color: var(--bubble-fg);
+  background: var(--bubble-bg);
+  border: 1px solid var(--bubble-border);
+  border-radius: var(--bubble-radius);
+  box-shadow: 0 7px 18px var(--bubble-shadow);
+}
+.bubble-surface.bubble-surface:not(.tail-none) {
+  border-bottom-right-radius: 5px;
+}
+.bubble-surface.bubble-surface::after {
+  content: "";
+  position: absolute;
+  left: calc(var(--tail-x, 50%) - 7px);
+  bottom: -8px;
+  width: 14px;
+  height: 14px;
+  transform: rotate(45deg);
+  border-right: 1px solid var(--bubble-border);
+  border-bottom: 1px solid var(--bubble-border);
+  background: var(--bubble-bg);
+}
+.bubble-surface.bubble-surface.tail-none::after { display: none; }
+.bubble-surface.bubble-surface-pill {
+  --bubble-radius: 999px;
+  box-shadow: 0 4px 14px var(--bubble-shadow);
+}

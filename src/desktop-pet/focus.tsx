@@ -1,3 +1,4 @@
+import { BubbleSurface } from "../components/BubbleSurface";
 import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { emit, listen } from "@tauri-apps/api/event";
@@ -7,7 +8,7 @@ import { completeTask, getDailyFocusNote, getMorningFocusEnabled, listFocusTasks
 import { initTheme } from "../lib/theme";
 import "../styles/speech-bubble.css";
 import "./focus.css";
-import { tailClass, tailStyle, useBubbleTail } from "../lib/bubbleTail";
+import { useBubbleTail } from "../lib/bubbleTail";
 
 initTheme({ transparentBackground: true });
 
@@ -133,7 +134,7 @@ function FocusBubble() {
     });
   };
   if (!visibleNote && activeTasks.length === 0) return null;
-  return <aside ref={bubbleRef} className={`pet-focus-bubble${tailClass(tail)}`} style={tailStyle(tail)} aria-label="Today's focus">
+  return <BubbleSurface as="aside" ref={bubbleRef} className={`pet-focus-bubble`} tail={tail} aria-label="Today's focus">
     <div className="pet-focus-header">
       <span>Today's focus</span>
       <button type="button" aria-label="Hide today's focus" title="Hide today's focus"
@@ -185,7 +186,7 @@ function FocusBubble() {
       }}
       onPointerUp={finishResize}
       onPointerCancel={finishResize}>◤</button>
-  </aside>;
+  </BubbleSurface>;
 }
 
 createRoot(document.getElementById("root")!).render(<FocusBubble />);

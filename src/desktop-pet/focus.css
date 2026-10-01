@@ -1,9 +1,6 @@
 html, body, #root { box-sizing: border-box; width: 100%; height: 100%; margin: 0; overflow: hidden; background: transparent; }
-.pet-focus-bubble { position: relative; display: flex; flex-direction: column; box-sizing: border-box; height: calc(100% - var(--bubble-inset-height)); margin: var(--bubble-insets); padding: 14px 17px; border: 1px solid var(--bubble-border); border-radius: 17px 17px 5px 17px; background: var(--bubble-bg); box-shadow: 0 8px 22px var(--bubble-shadow); color: var(--bubble-fg); font: 13px/1.45 system-ui, sans-serif; }
-.pet-focus-bubble::after { content: ""; position: absolute; left: calc(var(--tail-x, calc(100% - var(--bubble-inset-height))) - 8px); bottom: -9px; width: 16px; height: 16px; transform: rotate(45deg); border-right: 1px solid var(--bubble-border); border-bottom: 1px solid var(--bubble-border); background: var(--bubble-bg); }
-/* Only the card nearest Tucky points at him (notice_column.rs). */
-.pet-focus-bubble.tail-none::after { display: none; }
-.pet-focus-bubble.tail-none { border-radius: 17px; }
+.pet-focus-bubble { position: relative; display: flex; flex-direction: column; box-sizing: border-box; height: calc(100% - var(--bubble-inset-height)); margin: var(--bubble-insets); padding: 14px 17px; border: 1px solid var(--bubble-border);     font: 13px/1.45 system-ui, sans-serif; }
+
 .pet-focus-header { display: flex; align-items: start; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
 .pet-focus-bubble span { display: block; padding-top: 3px; color: var(--bubble-accent); font-size: 10px; font-weight: 700; letter-spacing: .11em; text-transform: uppercase; }
 .pet-focus-bubble button { display: grid; place-items: center; width: 24px; height: 24px; margin: -5px -8px 0 0; padding: 0; border: 0; border-radius: 7px; background: transparent; color: var(--bubble-muted); cursor: pointer; font: 20px/1 system-ui, sans-serif; }

@@ -1,6 +1,7 @@
+import { BubbleSurface } from "../components/BubbleSurface";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { hideNotice, tailClass, tailStyle, useBubbleTail } from "../lib/bubbleTail";
+import { hideNotice, useBubbleTail } from "../lib/bubbleTail";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ProjectAssistantReport } from "../lib/api";
@@ -126,10 +127,10 @@ export default function AgentToast() {
 
   return (
     <div className="agent-toast-stage">
-      <section
+      <BubbleSurface
         ref={cardRef}
-        className={`agent-toast is-${tone}${visible ? " is-visible" : ""}${exiting ? " is-exiting" : ""}${tailClass(tail)}`}
-        style={tailStyle(tail)}
+        className={`agent-toast is-${tone}${visible ? " is-visible" : ""}${exiting ? " is-exiting" : ""}`}
+        tail={tail}
         aria-label={t("agentToast.ariaLabel")}
         onMouseEnter={() => { if (dismissTimer.current) clearTimeout(dismissTimer.current); }}
         onMouseLeave={() => scheduleDismiss(report, 2_000)}
@@ -184,7 +185,7 @@ export default function AgentToast() {
         )}
 
         {answer && <p className="agent-toast-answer">{answer}</p>}
-      </section>
+      </BubbleSurface>
     </div>
   );
 }

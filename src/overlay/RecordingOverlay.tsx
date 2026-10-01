@@ -1,3 +1,4 @@
+import { BubbleSurface } from "../components/BubbleSurface";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import React, { useEffect, useRef, useState } from "react";
@@ -19,7 +20,7 @@ const TranscriptIcon: React.FC = () => (
   <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
     <path
       d="M2 2.5h8M2 5h8M2 7.5h5"
-      stroke="#c9d8c9"
+      stroke="currentColor"
       strokeWidth="1.2"
       strokeLinecap="round"
     />
@@ -30,7 +31,7 @@ const GuideIcon: React.FC = () => (
   <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
     <path
       d="M6 1.5l1.2 2.8L10 5.5 7.2 6.7 6 9.5 4.8 6.7 2 5.5l2.8-1.2L6 1.5Z"
-      fill="#fbf6ea"
+      fill="currentColor"
     />
   </svg>
 );
@@ -39,7 +40,7 @@ const CancelIcon: React.FC = () => (
   <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
     <path
       d="M3.17 3.17a.5.5 0 0 1 .7 0L6 5.29l2.13-2.12a.5.5 0 0 1 .7.7L6.71 6l2.12 2.13a.5.5 0 0 1-.7.7L6 6.71 3.87 8.83a.5.5 0 0 1-.7-.7L5.29 6 3.17 3.87a.5.5 0 0 1 0-.7Z"
-      fill="#fbf6ea"
+      fill="currentColor"
     />
   </svg>
 );
@@ -121,7 +122,7 @@ const RecordingOverlay: React.FC = () => {
   };
 
   return (
-    <div onMouseDown={drag} className={`recording-overlay ${isVisible ? "fade-in" : ""} ${isRecording ? "recording-mode" : ""} ${state === "log-recording" ? "log-mode" : ""} ${isMeeting ? "meeting-mode" : ""} ${state === "action-recording" ? "action-mode" : ""} ${isProcessing ? "processing-mode" : ""}`}>
+    <BubbleSurface as="div" variant="pill" onMouseDown={drag} className={`recording-overlay ${isVisible ? "fade-in" : ""} ${isRecording ? "recording-mode" : ""} ${state === "log-recording" ? "log-mode" : ""} ${isMeeting ? "meeting-mode" : ""} ${state === "action-recording" ? "action-mode" : ""} ${isProcessing ? "processing-mode" : ""}`}>
       <div className={`overlay-left face-${face}`}>
         <img className="tucky-face" src={`/mascot/${face}.png`} alt="Tucky" draggable={false} />
         <span className="activity-dot" aria-hidden="true" />
@@ -219,7 +220,7 @@ const RecordingOverlay: React.FC = () => {
           </>
         )}
       </div>
-    </div>
+    </BubbleSurface>
   );
 };
 

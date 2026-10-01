@@ -5,12 +5,12 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 
 /**
  * Pointer tail for notice windows stacked by `notice_column.rs`. Only the card
- * nearest Tucky / the recording pill draws a tail; `x` is its center in px
+ * nearest the visible pet draws a tail; `x` is its center in px
  * from the card's left edge (0 = let the CSS default decide).
  */
 export type BubbleTail = { side: "bottom" | "none"; x: number };
 
-const DEFAULT_TAIL: BubbleTail = { side: "bottom", x: 0 };
+const DEFAULT_TAIL: BubbleTail = { side: "none", x: 0 };
 
 export function useBubbleTail(): BubbleTail {
   const [tail, setTail] = useState<BubbleTail>(DEFAULT_TAIL);

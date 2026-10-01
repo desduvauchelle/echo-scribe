@@ -1,3 +1,15 @@
+/* The standalone pill uses the same palette as companion notifications. */
+:root {
+  --overlay-warm: #876323;
+  --overlay-action: #35747a;
+  --overlay-meeting: #976020;
+}
+:root[data-theme="dark"] {
+  --overlay-warm: #e0b26a;
+  --overlay-action: #7fc4cc;
+  --overlay-meeting: #f0ae65;
+}
+
 .recording-overlay {
   height: 64px;
   width: 100vw;
@@ -6,10 +18,6 @@
   gap: 10px;
   align-items: center;
   padding: 8px 10px 8px 8px;
-  background: linear-gradient(120deg, #123b2d, #0e241b);
-  border: 1px solid #64856b;
-  border-radius: 32px;
-  color: #fbf6ea;
   opacity: 0;
   transition: opacity 200ms ease-out;
   box-sizing: border-box;
@@ -24,8 +32,8 @@
   grid-template-columns: 32px minmax(0, 1fr) 32px;
   gap: 8px;
   padding: 6px 8px;
-  border-color: #64856b99;
-  box-shadow: 0 4px 14px #081b1533;
+  border-color: var(--bubble-border);
+  box-shadow: 0 4px 14px var(--bubble-shadow);
 }
 .recording-mode .overlay-left, .recording-mode .tucky-face { width: 32px; height: 32px; }
 .recording-mode .activity-dot { width: 7px; height: 7px; border-width: 1px; }
@@ -39,26 +47,27 @@
 .tucky-face { display: block; width: 46px; height: 46px; border-radius: 50%; }
 .activity-dot {
   position: absolute; right: 0; bottom: 0; width: 9px; height: 9px;
-  border: 2px solid #123b2d; border-radius: 50%; background: #8fe0ba;
+  border: 2px solid var(--bubble-bg); border-radius: 50%; background: var(--bubble-accent);
 }
-.face-meeting .activity-dot { background: #f0ae65; }
-.face-thinking .activity-dot { background: #e0b26a; animation: status-pulse 1.5s infinite ease-in-out; }
+.face-meeting .activity-dot { background: var(--overlay-meeting); }
+.face-thinking .activity-dot { background: var(--overlay-warm); animation: status-pulse 1.5s infinite ease-in-out; }
 .overlay-middle { display: flex; flex-direction: column; min-width: 0; gap: 4px; }
-.companion-name { color: #c9d8c9; font-size: 10px; font-weight: 650; letter-spacing: .06em; }
+.companion-name { color: var(--bubble-muted); font-size: 10px; font-weight: 650; letter-spacing: .06em; }
 .overlay-right { display: flex; align-items: center; gap: 4px; }
 .bars-container { display: flex; align-items: center; gap: 3px; height: 20px; overflow: hidden; }
-.bar { width: 5px; min-height: 4px; max-height: 20px; background: #8fe0ba; border-radius: 3px; }
-.log-mode .bar { background: #e0b26a; }
-.action-mode .bar { background: #7fc4cc; }
+.bar { width: 5px; min-height: 4px; max-height: 20px; background: var(--bubble-accent); border-radius: 3px; }
+.log-mode .bar { background: var(--overlay-warm); }
+.action-mode .bar { background: var(--overlay-action); }
 .status-text { font-size: 12px; line-height: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
 .cancel-button, .hud-button {
-  width: 28px; height: 28px; border-radius: 50%; background: #ffffff0d;
-  border: 1px solid #ffffff18; display: flex; align-items: center; justify-content: center;
+  color: var(--bubble-fg);
+  width: 28px; height: 28px; border-radius: 50%; background: var(--bubble-subtle);
+  border: 1px solid var(--bubble-border); display: flex; align-items: center; justify-content: center;
   cursor: pointer; flex-shrink: 0; padding: 0;
 }
-.cancel-button:hover { background: #b3402e; }
-.hud-button:hover { background: #37654d; }
-.cancel-button:focus-visible, .hud-button:focus-visible { outline: 2px solid #e0b26a; outline-offset: 2px; }
+.cancel-button:hover { background: color-mix(in srgb, var(--bubble-bg) 80%, #b3402e); }
+.hud-button:hover { background: color-mix(in srgb, var(--bubble-subtle) 80%, var(--bubble-accent)); }
+.cancel-button:focus-visible, .hud-button:focus-visible { outline: 2px solid var(--overlay-warm); outline-offset: 2px; }
 @keyframes status-pulse { 50% { opacity: .4; } }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
