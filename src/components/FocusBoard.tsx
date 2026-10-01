@@ -141,6 +141,33 @@ export default function FocusBoard({ projects, showEmpty = false, onHideEmpty }:
     if (refreshTick > 0) void load();
   }, [refreshTick, load]);
 
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout>;
+    const scheduleMidnight = () => {
+      clearTimeout(timer);
+      const now = new Date();
+      const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+      timer = setTimeout(() => {
+        void load();
+        scheduleMidnight();
+      }, midnight.getTime() - now.getTime());
+    };
+    // Refresh after sleep or returning to the app, when midnight may have passed.
+    const resume = () => {
+      if (document.visibilityState === "hidden") return;
+      void load();
+      scheduleMidnight();
+    };
+    scheduleMidnight();
+    window.addEventListener("focus", resume);
+    document.addEventListener("visibilitychange", resume);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("focus", resume);
+      document.removeEventListener("visibilitychange", resume);
+    };
+  }, [load]);
+
   /** Apply `next` optimistically, run `save`; on failure reload the truth
    *  from the backend and tell the user. */
   const commit = async (next: FocusItem[], save: () => Promise<unknown>) => {

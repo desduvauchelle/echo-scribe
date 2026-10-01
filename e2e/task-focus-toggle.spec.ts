@@ -26,7 +26,7 @@ test("task card can turn Focus off and on without changing ordinary tags", async
     itemTags: { [item.id]: ["urgent"] },
   });
   await page.goto("/");
-  await page.getByRole("button", { name: /Open task: Prepare the project brief/ }).click();
+  await page.locator(".echo-focus-board").getByRole("button", { name: /Open task: Prepare the project brief/ }).click();
   const panel = page.getByRole("dialog", { name: "Prepare the project brief" });
   await expect(panel.getByRole("checkbox", { name: "Focus" })).toBeChecked();
   await panel.getByRole("checkbox", { name: "Focus" }).click();

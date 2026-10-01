@@ -563,7 +563,8 @@ export type FocusTask = {
   focus_rank: number;
 };
 
-export const listFocusTasks = (): Promise<FocusTask[]> => invoke("list_focus_tasks");
+export const listFocusTasks = (includeCompletedHistory = false): Promise<FocusTask[]> =>
+  invoke("list_focus_tasks", { includeCompletedHistory });
 
 export type DailyFocusNote = { local_date: string; content: string; updated_at: string };
 export const getDailyFocusNote = (localDate: string): Promise<DailyFocusNote | null> =>

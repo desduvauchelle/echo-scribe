@@ -167,7 +167,7 @@ function PanelBody({
     if (it.kind === "task") {
       const [tasks, focusTasks] = await Promise.all([
         listTasks({ include_completed: true }).catch(() => []),
-        listFocusTasks().catch(() => []),
+        listFocusTasks(true).catch(() => []),
       ]);
       const row = tasks.find((t) => t.item.id === itemId);
       const focusRow = focusTasks.find((task) => task.item.id === itemId);

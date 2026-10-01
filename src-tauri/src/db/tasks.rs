@@ -160,6 +160,20 @@ pub struct FocusTask {
 }
 
 pub fn list_focus_tasks(conn: &Connection) -> Result<Vec<FocusTask>, DbError> {
+    list_focus_tasks_on_date(
+        conn,
+        Some(&chrono::Local::now().format("%Y-%m-%d").to_string()),
+    )
+}
+
+/// Read all focused tasks for task details and historical views.
+pub fn list_focus_tasks_with_history(conn: &Connection) -> Result<Vec<FocusTask>, DbError> {
+    list_focus_tasks_on_date(conn, None)
+}
+
+/// Keep today's completions visible until local midnight. History and focus
+/// ranks stay intact so reopening a task restores it to the board.
+fn list_focus_tasks_on_date(conn: &Connection, local_date: Option<&str>) -> Result<Vec<FocusTask>, DbError> {
     let mut stmt = conn.prepare(
         "SELECT items.id, items.content, items.source, items.kind,
                 items.project_id, items.captured_at, items.created_at, items.deleted_at,
@@ -169,9 +183,10 @@ pub fn list_focus_tasks(conn: &Connection) -> Result<Vec<FocusTask>, DbError> {
          JOIN tasks ON tasks.item_id = items.id
          WHERE items.deleted_at IS NULL AND items.kind = 'task'
            AND tasks.focus_rank IS NOT NULL
+           AND (?1 IS NULL OR tasks.completed_at IS NULL OR date(tasks.completed_at, 'localtime') >= ?1)
          ORDER BY tasks.focus_rank ASC, items.captured_at ASC",
     )?;
-    let rows = stmt.query_map([], |row| {
+    let rows = stmt.query_map(params![local_date], |row| {
         Ok(FocusTask {
             item: row_to_item_for_join(row)?,
             completed_at: row.get("completed_at")?,
@@ -312,6 +327,68 @@ mod tests {
             capture_context: None,
             importance: None,
         }
+    }
+
+    #[test]
+    fn focus_rolls_over_at_local_midnight_including_utc_timestamps() {
+        use chrono::TimeZone;
+        let c = fresh();
+        let open = add_focus_task(&c, None, "unfinished", "user").unwrap();
+        let before = add_focus_task(&c, None, "before midnight", "user").unwrap();
+        let at = add_focus_task(&c, None, "at midnight", "user").unwrap();
+        let before_midnight = chrono::Local
+            .with_ymd_and_hms(2026, 9, 30, 23, 59, 59)
+            .earliest()
+            .unwrap()
+            .with_timezone(&chrono::Utc)
+            .to_rfc3339();
+        let midnight = chrono::Local
+            .with_ymd_and_hms(2026, 10, 1, 0, 0, 0)
+            .earliest()
+            .unwrap()
+            .to_rfc3339();
+        complete_task(&c, &before.id, &before_midnight).unwrap();
+        assert_eq!(list_focus_tasks_on_date(&c, Some("2026-09-30")).unwrap().len(), 3);
+        complete_task(&c, &at.id, &midnight).unwrap();
+        let rows = list_focus_tasks_on_date(&c, Some("2026-10-01")).unwrap();
+        assert_eq!(
+            rows.iter().map(|t| t.item.id.as_str()).collect::<Vec<_>>(),
+            vec![open.id.as_str(), at.id.as_str()]
+        );
+        assert!(rows[0].completed_at.is_none());
+        assert!(rows[1].completed_at.is_some());
+        assert_eq!(list_focus_tasks_on_date(&c, Some("2026-10-02")).unwrap().len(), 1);
+        assert_eq!(list_tasks(&c, true, None).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn focus_hides_previous_days_completed_tasks_without_removing_history() {
+        let c = fresh();
+        let open = add_focus_task(&c, None, "unfinished", "user").unwrap();
+        let yesterday = add_focus_task(&c, None, "yesterday", "user").unwrap();
+        let today = add_focus_task(&c, None, "today", "user").unwrap();
+        let now = chrono::Local::now();
+        let previous_date = now.date_naive().pred_opt().unwrap();
+        let previous = previous_date
+            .and_hms_opt(12, 0, 0)
+            .unwrap()
+            .and_local_timezone(chrono::Local)
+            .earliest()
+            .unwrap();
+        complete_task(&c, &yesterday.id, &previous.to_rfc3339()).unwrap();
+        complete_task(&c, &today.id, &now.to_rfc3339()).unwrap();
+
+        let ids: Vec<_> = list_focus_tasks(&c)
+            .unwrap()
+            .into_iter()
+            .map(|t| t.item.id)
+            .collect();
+        assert_eq!(ids, vec![open.id, today.id]);
+        assert!(is_focus_task(&c, &yesterday.id).unwrap());
+        assert_eq!(list_focus_tasks_with_history(&c).unwrap().len(), 3);
+        assert_eq!(list_tasks(&c, true, None).unwrap().len(), 2);
+        uncomplete_task(&c, &yesterday.id).unwrap();
+        assert_eq!(list_focus_tasks(&c).unwrap().len(), 3);
     }
 
     #[test]
@@ -504,7 +581,7 @@ mod tests {
         assert_eq!(project_tasks[0].item.id, a.id);
 
         // Completing keeps focus and moves the task from open to done.
-        complete_task(&c, &a.id, "2026-05-02T00:00:00Z").unwrap();
+        complete_task(&c, &a.id, &chrono::Local::now().to_rfc3339()).unwrap();
         assert!(list_focus_tasks(&c).unwrap()[1].completed_at.is_some());
         assert!(list_tasks(&c, false, Some("p1")).unwrap().is_empty());
         let done = list_tasks(&c, true, Some("p1")).unwrap();

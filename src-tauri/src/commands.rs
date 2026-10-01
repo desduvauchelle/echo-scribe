@@ -1572,9 +1572,18 @@ pub fn set_daily_focus_recording(
 }
 
 #[tauri::command]
-pub fn list_focus_tasks(state: State<'_, AppState>) -> Result<Vec<db::tasks::FocusTask>, String> {
+pub fn list_focus_tasks(
+    state: State<'_, AppState>,
+    include_completed_history: Option<bool>,
+) -> Result<Vec<db::tasks::FocusTask>, String> {
     let db = require_db(&state)?;
-    db.with_conn(db::tasks::list_focus_tasks).map_err(|e| {
+    db.with_conn(|conn| {
+        if include_completed_history.unwrap_or(false) {
+            db::tasks::list_focus_tasks_with_history(conn)
+        } else {
+            db::tasks::list_focus_tasks(conn)
+        }
+    }).map_err(|e| {
         error!(target: "focus", error = %e, "list_focus_tasks failed");
         "Couldn't load focus tasks. See Settings → Diagnostics → logs for details.".to_string()
     })

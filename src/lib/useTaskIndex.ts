@@ -22,7 +22,7 @@ export function useTaskIndex(projectId: string | null = null) {
         console.warn("task index: list done tasks failed", e);
         return [] as TaskWithItem[];
       }),
-      listFocusTasks().catch((e) => {
+      listFocusTasks(true).catch((e) => {
         console.warn("task index: list focus tasks failed", e);
         return [];
       }),
