@@ -8,6 +8,8 @@ There is no idle body movement. The original squirrel has pointer-following eyes
 
 Artwork is the existing squirrel from `src-tauri/icons/tucky-master.png`, copied unchanged into `public/mascot/pet-original.png`. The inline SVG uses a dark-perimeter trace of the original pixels to clip out the pale background, then overlays movable eyes and headphones. A subtle CSS drop shadow lifts the silhouette above the desktop. This is an animated SVG composition containing the original PNG, not a fully vector-traced replacement.
 
+Recording and processing status appear to the left of the pet, independently of Today's Focus and the notification column above it. Near the display's left edge, status moves to the pet's right. Its window stays inside the display work area as the pet moves or changes size. Wake-word requests show “I’m listening…” in that same position, then keep their processing status there. With the pet hidden, a wake request uses the bottom-center widget. The listening bubble includes a live microphone meter and Cancel button; Escape also cancels capture. Spoken dismissals such as “goodbye” and “never mind” discard the request after transcription and return to standby.
+
 ## Verification
 
 - TypeScript and Vite production build passed.

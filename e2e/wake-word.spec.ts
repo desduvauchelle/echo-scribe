@@ -9,6 +9,8 @@ test("wake listening is opt-in, reflects busy state, and can be paused", async (
   const toggle = page.getByRole("checkbox", { name: /Listen for “Tucky”/ });
   await expect(toggle).not.toBeChecked();
   await toggle.check();
+  await expect(page.getByText(/“Hey Tucky, start dictating.” Wait for the new recording cue/)).toBeVisible();
+  await expect(page.getByText(/For a specific window, say/)).toBeVisible();
   await expect(page.getByRole("status").filter({ hasText: "Listening for “Tucky”" })).toBeVisible();
   await page.evaluate(() => (window as any).__MOCK_EMIT__("wakeword:status", { enabled: true, state: "paused", message: "Paused while Tucky is busy" }));
   await expect(toggle).toBeChecked();

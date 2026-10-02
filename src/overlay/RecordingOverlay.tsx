@@ -11,6 +11,7 @@ type OverlayState =
   | "transcribing"
   | "meeting"
   | "action-recording"
+  | "wake-recording"
   | "processing";
 
 type MeetingOverlayPayload = { mode: "meeting"; app_name: string | null };
@@ -111,7 +112,8 @@ const RecordingOverlay: React.FC = () => {
     };
   }, []);
 
-  const isRecording = state === "recording" || state === "log-recording" || state === "action-recording";
+  const isWakeListening = state === "wake-recording";
+  const isRecording = state === "recording" || state === "log-recording" || state === "action-recording" || isWakeListening;
   const isMeeting = state === "meeting";
   const isProcessing = state === "processing";
 
@@ -122,7 +124,7 @@ const RecordingOverlay: React.FC = () => {
   };
 
   return (
-    <BubbleSurface as="div" variant="pill" onMouseDown={drag} className={`recording-overlay ${isVisible ? "fade-in" : ""} ${isRecording ? "recording-mode" : ""} ${state === "log-recording" ? "log-mode" : ""} ${isMeeting ? "meeting-mode" : ""} ${state === "action-recording" ? "action-mode" : ""} ${isProcessing ? "processing-mode" : ""}`}>
+    <BubbleSurface as="div" variant="pill" onMouseDown={drag} className={`recording-overlay ${isVisible ? "fade-in" : ""} ${isRecording ? "recording-mode" : ""} ${isWakeListening ? "wake-mode" : ""} ${state === "log-recording" ? "log-mode" : ""} ${isMeeting ? "meeting-mode" : ""} ${state === "action-recording" ? "action-mode" : ""} ${isProcessing ? "processing-mode" : ""}`}>
       <div className={`overlay-left face-${face}`}>
         <img className="tucky-face" src={`/mascot/${face}.png`} alt="Tucky" draggable={false} />
         <span className="activity-dot" aria-hidden="true" />
@@ -130,7 +132,7 @@ const RecordingOverlay: React.FC = () => {
 
       <div className="overlay-middle">
         <span className="companion-name" aria-hidden="true">Tucky</span>
-        {isRecording && <span className="sr-only" role="status">{t("overlay.iconRecordingAlt")}</span>}
+        {isRecording && <span className={isWakeListening ? "wake-label" : "sr-only"} role="status">{t(isWakeListening ? "overlay.wakeListening" : "overlay.iconRecordingAlt")}</span>}
         {isRecording && (
           <div className="bars-container" aria-hidden="true">
             {levels.map((v, i) => (

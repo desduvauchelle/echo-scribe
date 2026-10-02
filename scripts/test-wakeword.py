@@ -56,11 +56,14 @@ def synthesize(directory, voice, text, index):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--asr", type=Path, help="Path to built check_wake_transcript example")
+    parser.add_argument("--model", help="Speech model ID to pass to the ASR example")
     parser.add_argument("--output", type=Path, help="Keep synthetic fixtures for diagnosis")
     args = parser.parse_args()
     cases = [(voice, phrase, True)
              for voice in ("Samantha", "Daniel", "Karen")
-             for phrase in ("Tucky, open Safari.", "Tucky save a task to review the proposal.")]
+             for phrase in ("Tucky, open Safari.", "Tucky save a task to review the proposal.",
+                            "Hey Tucky, create a task to review the proposal.",
+                            "Hey Tucky, start dictating.", "Hey Tucky, focus on Safari.")]
     cases += [("Samantha", phrase, False) for phrase in (
         "Open Safari.", "We will review the proposal tomorrow.",
         "Kentucky is a state.", "Keep my computer awake for two hours.",
@@ -83,12 +86,19 @@ def main():
                            seconds=elapsed, passed=wakes == 0))
         if args.asr:
             paths = [str(directory / f"{index}.wav") for index in range(len(cases))]
-            result = subprocess.run([str(args.asr), *paths], capture_output=True,
+            model_args = ["--model", args.model] if args.model else []
+            result = subprocess.run([str(args.asr), *model_args, *paths], capture_output=True,
                                     check=True, timeout=180)
             transcripts = json.loads(result.stdout)
+            assert len(transcripts) == len(cases), "ASR omitted fixtures"
             for row, transcription in zip(report, transcripts):
-                row.update(transcript=transcription["transcript"], command=transcription["command"])
+                row.update(transcript=transcription["transcript"], command=transcription["command"], action_type=transcription["action_type"])
                 row["passed"] = row["passed"] and bool(row["wakes"] and row["command"]) == row["expected"]
+                expected_action = ("save_capture" if "task" in row["phrase"] else
+                                   "start_dictation" if "start dictating" in row["phrase"] else
+                                   "focus_window" if "focus on" in row["phrase"] else None)
+                if expected_action:
+                    row["passed"] = row["passed"] and row["action_type"] == expected_action
     print(json.dumps(report, indent=2))
     return 0 if all(row["passed"] for row in report) else 1
 

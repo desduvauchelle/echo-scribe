@@ -228,6 +228,7 @@ pub fn spawn(
         };
         let mut recorder = Recorder::new();
         let mut wake = crate::wakeword::Listener::default();
+        let mut start_hands_free = false;
         let mut wake_clock = tokio::time::interval(std::time::Duration::from_millis(50));
         wake_clock.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         // Frontmost-app snapshot taken at hotkey-press time. We restore it
@@ -256,19 +257,22 @@ pub fn spawn(
         }
 
         loop {
+            let hands_free_start = std::mem::take(&mut start_hands_free);
             let wake_polling = wake.owns_recorder()
                 || app.state::<crate::commands::AppState>().settings.wake_word_enabled();
-            let msg = tokio::select! {
+            let msg = if hands_free_start {
+                CoordinatorMsg::Hotkey(Action::VoiceAtCursor, HotkeyEvent::Pressed)
+            } else { tokio::select! {
                 biased;
                 msg = rx.recv() => match msg { Some(msg) => msg, None => break },
                 _ = wake_clock.tick(), if wake_polling => CoordinatorMsg::WakeTick,
-            };
+            }};
             let msg = if matches!(msg, CoordinatorMsg::WakeTick) {
                 let current = state.lock().unwrap().clone();
                 match wake.tick(&app, &mut recorder, &current).await {
                     crate::wakeword::Tick::None => continue,
                     crate::wakeword::Tick::Wake => CoordinatorMsg::Hotkey(Action::WakeCommand, HotkeyEvent::Pressed),
-                    crate::wakeword::Tick::Finish => CoordinatorMsg::Hotkey(Action::WakeCommand, HotkeyEvent::Released),
+                    crate::wakeword::Tick::Finish => CoordinatorMsg::Hotkey(if wake.is_dictating() { Action::VoiceAtCursor } else { Action::WakeCommand }, HotkeyEvent::Released),
                     crate::wakeword::Tick::Cancel => CoordinatorMsg::Hotkey(Action::Cancel, HotkeyEvent::Pressed),
                 }
             } else { msg };
@@ -309,6 +313,16 @@ pub fn spawn(
                     }
 
                     if action != Action::WakeCommand {
+                        // A hotkey press during hands-free dictation finishes
+                        // it; don't discard the shared recorder under it.
+                        if wake.is_dictating() && !hands_free_start {
+                            if action == Action::VoiceAtCursor {
+                                if let Some(tx) = app.state::<crate::commands::AppState>().coord_tx.lock().unwrap().as_ref() {
+                                    let _ = tx.send(CoordinatorMsg::Hotkey(Action::VoiceAtCursor, HotkeyEvent::Released));
+                                }
+                            }
+                            continue;
+                        }
                         // An explicit hotkey preempts a wake request still being
                         // captured. Standby never holds the dictation microphone.
                         let was_wake = *state.lock().unwrap() == PipelineState::Recording(Action::WakeCommand);
@@ -327,24 +341,28 @@ pub fn spawn(
                     // Snapshot the frontmost app *before* we touch any UI —
                     // showing the overlay can shift key-window status away
                     // from the user's text field.
-                    pending_context = if action == Action::WakeCommand { None } else { focus::capture_context() };
-                    pending_own_capture = None;
-                    if pending_context
-                        .as_ref()
-                        .is_some_and(|ctx| ctx.pid == std::process::id() as i32)
-                    {
-                        pending_own_capture = capture_own_input(&app).await;
-                    }
-                    pending_focus_element = if action == Action::WakeCommand {
-                        focus::current_frontmost_pid()
-                            .filter(|pid| *pid != std::process::id() as i32)
-                            .and_then(focus::capture_focused_element)
-                    } else {
-                        pending_context
+                    if !hands_free_start {
+                        pending_context = if action == Action::WakeCommand {
+                            focus::current_frontmost_pid().map(|pid| FocusContext { pid, ..Default::default() })
+                        } else { focus::capture_context() };
+                        pending_own_capture = None;
+                        if pending_context
                             .as_ref()
-                            .filter(|c| c.pid != std::process::id() as i32 || action == Action::EditSelection)
-                            .and_then(|c| focus::capture_focused_element(c.pid))
-                    };
+                            .is_some_and(|ctx| ctx.pid == std::process::id() as i32)
+                        {
+                            pending_own_capture = capture_own_input(&app).await;
+                        }
+                        pending_focus_element = if action == Action::WakeCommand {
+                            focus::current_frontmost_pid()
+                                .filter(|pid| *pid != std::process::id() as i32)
+                                .and_then(focus::capture_focused_element)
+                        } else {
+                            pending_context
+                                .as_ref()
+                                .filter(|c| c.pid != std::process::id() as i32 || action == Action::EditSelection)
+                                .and_then(|c| focus::capture_focused_element(c.pid))
+                        };
+                    }
                     // A Tucky command may refer to "this" highlighted text.
                     // Snapshot it before the recording overlay can take focus.
                     // Keep it out of ordinary dictation and other commands.
@@ -413,7 +431,7 @@ pub fn spawn(
                     feedback::play(Sfx::Start);
                     match action {
                         Action::VoiceAtCursor => crate::overlay::show_recording_overlay(&app),
-                        Action::WakeCommand => crate::overlay::show_action_recording_overlay(&app),
+                        Action::WakeCommand => crate::overlay::show_wake_recording_overlay(&app),
                         Action::LogCapture => crate::overlay::show_log_recording_overlay(&app),
                         Action::EditSelection => {
                             crate::overlay::show_action_recording_overlay(&app)
@@ -434,8 +452,13 @@ pub fn spawn(
                         wake.promote(&recorder);
                         crate::wakeword::publish(&app, "capturing", "Listening to your request…");
                         Ok(())
+                    } else if hands_free_start {
+                        crate::wakeword::publish(&app, "dictating", "Dictating — pause for two seconds to finish. Escape cancels.");
+                        wake.start_dictation(&mut recorder, preferred.clone())
                     } else { recorder.start() };
                     if let Err(e) = started {
+                        if hands_free_start { wake.stop(&mut recorder); }
+                        crate::audio::mute::on_recording_stop();
                         error!(?e, ?action, "failed to start recorder; returning to Idle");
                         crate::overlay::hide_recording_overlay(&app);
                         force_state(&state, PipelineState::Idle);
@@ -454,7 +477,7 @@ pub fn spawn(
                         // background so it's warm by the time the user releases.
                         // Warming the shared ASR during wake capture would look
                         // like a background transcription to the listener gate.
-                        if action != Action::WakeCommand { asr.warm_up(); }
+                        if action != Action::WakeCommand && !hands_free_start { asr.warm_up(); }
                     }
                 }
                 CoordinatorMsg::Hotkey(action, HotkeyEvent::Released) => {
@@ -467,6 +490,8 @@ pub fn spawn(
                         warn!(?action, "ignored Released: not Recording for this action");
                         continue;
                     }
+                    let hands_free_dictation = wake.is_dictating();
+                    if hands_free_dictation { wake.finish(&mut recorder); }
                     cancel_active.store(false, Ordering::SeqCst);
                     if matches!(action, Action::VoiceAtCursor) {
                         let _ = app.emit("voice:recording_stopped", ());
@@ -478,7 +503,11 @@ pub fn spawn(
                     }
                     crate::audio::mute::on_recording_stop();
                     feedback::play(Sfx::Stop);
-                    crate::overlay::show_transcribing_overlay(&app);
+                    if action == Action::WakeCommand {
+                        crate::overlay::show_processing_overlay(&app, "Working on your request…");
+                    } else {
+                        crate::overlay::show_transcribing_overlay(&app);
+                    }
                     let channels = recorder.channels();
                     let stop_result = recorder.stop();
                     match stop_result {
@@ -509,6 +538,21 @@ pub fn spawn(
                                     on_state_change(TrayPipelineState::Idle).await;
                                 }
                                 Ok(text) => {
+                                    let dismissed = if action == Action::WakeCommand {
+                                        crate::wakeword::dismisses_request(&text)
+                                    } else {
+                                        hands_free_dictation && crate::wakeword::dismisses_dictation(&text)
+                                    };
+                                    if dismissed {
+                                        crate::overlay::hide_recording_overlay_now(&app);
+                                        pending_context = None;
+                                        pending_focus_element = None;
+                                        pending_selection = None;
+                                        force_state(&state, PipelineState::Idle);
+                                        on_state_change(TrayPipelineState::Idle).await;
+                                        let _ = app.emit("voice:recording_cancelled", ());
+                                        continue;
+                                    }
                                     if matches!(action, Action::EditSelection) {
                                         run_edit_selection(
                                             &app,
@@ -558,6 +602,16 @@ pub fn spawn(
                                     let (action, text) =
                                         match try_intercept_action(&app, &llm, if action == Action::WakeCommand { &raw_text } else { &text }, action, pending_selection.as_ref().map(|s| s.text.as_str()), pending_selection_pid).await
                                         {
+                                            InterceptOutcome::StartDictation => {
+                                                pending_selection = None;
+                                                crate::overlay::hide_recording_overlay_now(&app);
+                                                // Retain the original app, AX element, and
+                                                // own-window caret across the command cue.
+                                                force_state(&state, PipelineState::Idle);
+                                                on_state_change(TrayPipelineState::Idle).await;
+                                                start_hands_free = true;
+                                                continue;
+                                            }
                                             InterceptOutcome::Consumed => {
                                                 pending_selection = None;
                                                 crate::overlay::hide_recording_overlay_now(&app);
@@ -1461,6 +1515,8 @@ async fn run_classifier(
 /// Lets the caller decide whether to drop the pipeline, paste an altered
 /// string, or paste the original text unchanged.
 pub enum InterceptOutcome {
+    /// Start a separate silence-ended dictation through the cursor pipeline.
+    StartDictation,
     /// The launcher executed an action (launch_app / draft_email / counters
     /// / etc.). The caller should hide the overlay and return to Idle.
     Consumed,
@@ -1513,10 +1569,6 @@ async fn try_intercept_action(
     let stripped_text = if action == Action::WakeCommand {
         match crate::wakeword::command_from_transcript(text) {
             Some(command) => {
-                let normalized = command.trim_matches(|c: char| c.is_whitespace() || c.is_ascii_punctuation()).to_lowercase();
-                if ["cancel", "never mind", "nevermind", "stop listening"].contains(&normalized.as_str()) {
-                    return InterceptOutcome::Consumed;
-                }
                 command
             }
             None => {
@@ -1606,6 +1658,9 @@ async fn try_intercept_action(
                 return InterceptOutcome::Consumed;
             }
             if cmd.is_action && cmd.confidence >= 0.75 {
+                if cmd.action_type.as_deref() == Some("start_dictation") {
+                    return InterceptOutcome::StartDictation;
+                }
                 info!(
                     action_type = ?cmd.action_type,
                     confidence = cmd.confidence,
@@ -1749,6 +1804,10 @@ async fn try_intercept_action(
                         return InterceptOutcome::Consumed;
                     }
                     Err(e) => {
+                        if matches!(cmd.action_type.as_deref(), Some("focus_window" | "recenter_overlay")) {
+                            crate::overlay::show_action_toast(app, cmd.action_type.as_deref().unwrap(), &e.to_string());
+                            return InterceptOutcome::Consumed;
+                        }
                         if bookmark.is_some() {
                             crate::overlay::show_action_toast(app, "open_url", "Couldn’t open the bookmark. Check its URL in Settings → Tucky command.");
                             return InterceptOutcome::Consumed;

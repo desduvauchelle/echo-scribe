@@ -60,7 +60,7 @@ Analyze the user's voice dictation and classify if it represents a system action
 Respond ONLY with a single JSON object matching this schema:
 {
   \"is_action\": true | false,
-  \"action_type\": \"launch_app\" | \"draft_email\" | \"open_url\" | \"increment_counter\" | \"reset_counter\" | \"show_counter\" | \"format_text\" | \"stay_awake\" | \"stop_stay_awake\" | \"start_screen_recording\" | \"start_meeting\" | \"stop_meeting\" | \"project_agent\" | null,
+  \"action_type\": \"launch_app\" | \"draft_email\" | \"open_url\" | \"increment_counter\" | \"reset_counter\" | \"show_counter\" | \"format_text\" | \"stay_awake\" | \"stop_stay_awake\" | \"start_screen_recording\" | \"start_meeting\" | \"stop_meeting\" | \"start_dictation\" | \"focus_window\" | \"project_agent\" | null,
   \"app_name\": \"<name of app to launch or null>\",
   \"email_to\": \"<recipient name or email address or null>\",
   \"email_subject\": \"<subject line or null>\",
@@ -81,6 +81,8 @@ Common templates:
 - Show counter: 'show counter', 'how many actions', 'what is the count'. action_type: 'show_counter'
 - Stay awake: 'stay awake', 'stay awake for 2 hours', 'keep my mac awake for 30 minutes', 'caffeinate for an hour'. action_type: 'stay_awake'. Set stay_awake_minutes to the spoken duration converted to minutes (e.g. '2 hours' -> 120), or null when no duration was spoken (stay awake indefinitely).
 - Stop staying awake: 'stop staying awake', 'let my mac sleep', 'turn off keep awake', 'stop keep awake'. action_type: 'stop_stay_awake'
+- Start dictation: explicit requests to 'start dictating', 'start dictation', or 'start typing'. action_type: 'start_dictation'. This opens a separate recording after the cue; never classify a stop, cancel, negated request, or a question about instructions as start_dictation.
+- Focus an existing app or window: 'focus on Safari', 'switch to Roadmap in TextEdit', 'move focus to the proposal window'. action_type: 'focus_window'. Put the app name or window title (optionally followed by 'in' and the app name) in app_name. Do not use project_agent for macOS window focus.
 - Start screen recording: 'start screen recording', 'record my screen', 'new screen recording'. action_type: 'start_screen_recording'
 - Start meeting: 'start meeting', 'start the meeting', 'record this meeting', 'start meeting recording'. action_type: 'start_meeting'
 - Stop meeting: 'stop meeting', 'end the meeting', 'stop meeting recording'. action_type: 'stop_meeting'
@@ -88,7 +90,7 @@ Common templates:
 - Format text: the user dictates a 'format as X' phrase followed by the body to reformat. action_type: 'format_text'. Set format_id to the matching template id, and format_body to the dictation text AFTER the trigger phrase (the content to be reformatted). Only use format_text if the user's dictation clearly starts with or contains a format-trigger phrase from the list below.";
 
 const ACTION_SYSTEM_PROMPT_TAIL: &str = "\n\
-- Project assistant: requests to create, find, rename, describe, update, archive or restore a project; create or update tasks and notes in a named project; mark project tasks done or reopen them; link or unlink project reference folders; or answer questions using project files or notes. Set action_type to 'project_agent'. Examples: 'create a project called Website and let me choose its folders', 'add a task to the LiveCase project to finish the pipeline', 'mark the pipeline task done in LiveCase', 'check the Website project files for the navigation decision'. Also anything about the user's focus list: 'add a focus task to Echo Scribe to ship the onboarding', 'set my focus for LiveCase: close the deal and fix the pipeline', 'I want to focus on the pricing page in Website', 'mark the onboarding focus done', 'remove the pricing page from my focus'. Focus requests are always 'project_agent', never 'save_capture'. This action may need several steps.
+- Project assistant: requests to create, find, rename, describe, update, archive or restore a project; create or update tasks and notes in a named project; mark project tasks done or reopen them; link or unlink project reference folders; or answer questions using project files or notes. Set action_type to 'project_agent'. Examples: 'create a project called Website and let me choose its folders', 'add a task to the LiveCase project to finish the pipeline', 'mark the pipeline task done in LiveCase', 'check the Website project files for the navigation decision'. Also anything about the user's focus list: 'add a focus task to Echo Scribe to ship the onboarding', 'set my focus for LiveCase: close the deal and fix the pipeline', 'I want to focus on the pricing page in Website', 'mark the onboarding focus done', 'remove the pricing page from my focus'. Focus-list and focus-task requests are always 'project_agent', never 'save_capture'; macOS app/window focus is 'focus_window'. This action may need several steps.
 Rules:
 - If the user's transcript matches any of these command intents, set is_action to true, appropriate action_type, extract details, and set confidence high (e.g. >= 0.85).
 - If it's just regular dictation (a sentence to type at the cursor, with no command words in front of it), set is_action to false and all other fields to null. Dictation only becomes 'save_capture' when the user actually asks for it to be saved or noted.
@@ -198,6 +200,23 @@ pub fn capture_command(command: &str) -> Option<(String, Option<String>)> {
     Some((body.to_string(), kind.map(str::to_string)))
 }
 
+/// Remove only whole politeness phrases, preserving the user's task/title casing.
+fn polite_command(text: &str) -> &str {
+    let mut text = text.trim();
+    for _ in 0..2 {
+        let lower = text.to_ascii_lowercase();
+        if let Some(prefix) = ["please ", "can you ", "could you ", "would you "]
+            .into_iter().find(|prefix| lower.starts_with(prefix)) {
+            text = text[prefix.len()..].trim_start();
+        } else { break; }
+    }
+    let without_punctuation = text.trim_end_matches(|c: char| c.is_ascii_punctuation());
+    if without_punctuation.to_ascii_lowercase().ends_with(" please") {
+        text = without_punctuation[..without_punctuation.len()-7].trim_end_matches(',').trim_end();
+    }
+    text
+}
+
 /// Detect if the spoken transcript represents a system command action.
 /// `templates` is the user's configured voice format templates; their phrases
 /// are injected into the classifier system prompt so the LLM can pick one.
@@ -206,10 +225,11 @@ pub async fn detect_action<L: LlmGenerator + ?Sized>(
     transcript: &str,
     templates: &[FormatTemplate],
 ) -> Result<ActionCommand, ActionError> {
+    let control_transcript = polite_command(transcript);
     // The coordinator has already checked the user's command-routing settings
     // and removed the trigger word. Recognize complete recording commands here
     // so opening the existing picker does not depend on a loaded LLM.
-    let normalized = transcript
+    let normalized = control_transcript
         .trim()
         .trim_end_matches(|c: char| c.is_ascii_punctuation())
         .to_ascii_lowercase()
@@ -221,6 +241,31 @@ pub async fn detect_action<L: LlmGenerator + ?Sized>(
         .strip_suffix(" please")
         .unwrap_or(command)
         .trim_end_matches(',');
+    if matches!(command, "recenter yourself" | "re-center yourself" | "recentre yourself") {
+        return Ok(ActionCommand {
+            is_action: true,
+            action_type: Some("recenter_overlay".into()),
+            confidence: 1.0,
+            ..Default::default()
+        });
+    }
+    if matches!(command, "start dictating" | "start dictation" | "start typing" | "begin dictation" | "begin dictating") {
+        return Ok(ActionCommand {
+            is_action: true,
+            action_type: Some("start_dictation".into()),
+            confidence: 1.0,
+            ..Default::default()
+        });
+    }
+    if let Some(target) = crate::input::window_focus::command_target(control_transcript) {
+        return Ok(ActionCommand {
+            is_action: true,
+            action_type: Some("focus_window".into()),
+            app_name: Some(target),
+            confidence: 1.0,
+            ..Default::default()
+        });
+    }
     if matches!(
         command,
         "start screen recording"
@@ -342,6 +387,14 @@ pub async fn execute_action(app: &AppHandle, cmd: &ActionCommand) -> Result<Stri
     info!(action_type, "executing voice action command");
 
     match action_type {
+        "recenter_overlay" => {
+            crate::overlay::recenter_recording_overlay(app).map_err(ActionError::Execute)?;
+            Ok("Moved the pill to the bottom center of the screen".into())
+        }
+        "focus_window" => {
+            let target = cmd.app_name.as_deref().ok_or_else(|| ActionError::Execute("Name a window or app to focus".into()))?;
+            crate::input::window_focus::focus(target).await.map_err(ActionError::Execute)
+        }
         "launch_app" => {
             let app_name = cmd
                 .app_name
@@ -666,6 +719,66 @@ mod screen_recording_tests {
         fn generate<'a>(&'a self, _req: GenerateRequest) -> crate::llm::GenerateFuture<'a> {
             Box::pin(async { Err(LlmError::NoActiveModel) })
         }
+    }
+
+    #[tokio::test]
+    async fn recenter_command_works_without_a_language_model() {
+        for phrase in [
+            "Tucky, recenter yourself.",
+            "Hey Tucky, please recenter yourself!",
+            "Tucky, could you recenter yourself please?",
+            "Tucky, re-center yourself",
+        ] {
+            let command = crate::wakeword::command_from_transcript(phrase).unwrap();
+            let detected = detect_action(&NoModel, &command, &[]).await.unwrap();
+            assert_eq!(detected.action_type.as_deref(), Some("recenter_overlay"));
+            assert_eq!(detected.confidence, 1.0);
+        }
+        for command in [
+            "don't recenter yourself",
+            "how do you recenter yourself",
+            "recenter yourself tomorrow",
+            "tell me what recenter yourself means",
+        ] {
+            assert!(matches!(
+                detect_action(&NoModel, command, &[]).await,
+                Err(ActionError::Llm(LlmError::NoActiveModel))
+            ), "{command}");
+        }
+        let detected = detect_action(&NoModel, "save a task to recenter yourself", &[]).await.unwrap();
+        assert_eq!(detected.action_type.as_deref(), Some("save_capture"));
+        assert_eq!(detected.capture_body.as_deref(), Some("recenter yourself"));
+    }
+
+    #[tokio::test]
+    async fn hands_free_commands_work_without_a_language_model() {
+        for phrase in ["Hey Tucky, start dictating.", "Tucky, start dictation", "Hey Tucky, please start typing.", "Hey Tucky, could you start dictation please?"] {
+            let command = crate::wakeword::command_from_transcript(phrase).unwrap();
+            let detected = detect_action(&NoModel, &command, &[]).await.unwrap();
+            assert_eq!(detected.action_type.as_deref(), Some("start_dictation"));
+        }
+        for (phrase, target) in [
+            ("Hey Tucky, focus on Safari.", "Safari"),
+            ("Hey Tucky, switch to the Roadmap window.", "Roadmap"),
+            ("Tucky, move focus to Project Notes in TextEdit", "Project Notes in TextEdit"),
+        ] {
+            let command = crate::wakeword::command_from_transcript(phrase).unwrap();
+            let detected = detect_action(&NoModel, &command, &[]).await.unwrap();
+            assert_eq!(detected.action_type.as_deref(), Some("focus_window"));
+            assert_eq!(detected.app_name.as_deref(), Some(target));
+        }
+    }
+
+    #[tokio::test]
+    async fn hands_free_controls_do_not_start_from_negation_or_task_bodies() {
+        for command in ["stop dictating", "don't start dictating", "can you stop dictating", "how do I start dictation", "start dictation tomorrow", "don't focus on Safari"] {
+            assert!(matches!(detect_action(&NoModel, command, &[]).await, Err(ActionError::Llm(LlmError::NoActiveModel))), "{command}");
+        }
+        let command = crate::wakeword::command_from_transcript("Hey Tucky, create a task to start dictating tomorrow please.").unwrap();
+        let action = detect_action(&NoModel, &command, &[]).await.unwrap();
+        assert_eq!(action.action_type.as_deref(), Some("save_capture"));
+        assert_eq!(action.capture_body.as_deref(), Some("start dictating tomorrow please."));
+        assert_eq!(action.capture_kind.as_deref(), Some("task"));
     }
 
     #[tokio::test]

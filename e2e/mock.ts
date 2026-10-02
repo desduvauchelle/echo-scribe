@@ -571,6 +571,7 @@ export async function installTauriMock(page: Page, scenario: Scenario = {}) {
       },
       get_project_tagger_status: () => ({ running: false, stopping: false, paused: false, processed: 0, total: 0, assigned: 0 }),
       "plugin:event|unlisten": (args) => { listeners.delete(args.eventId); },
+      "plugin:event|emit": () => undefined,
     };
 
     (window as any).__TAURI_INTERNALS__ = {

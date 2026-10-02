@@ -196,13 +196,35 @@ impl Drop for Detector {
 }
 
 /// Endpoint decisions are based on audio duration, independent of callback size.
-#[derive(Default)]
 struct Endpoint {
     elapsed: f64,
     last_voice: f64,
     heard_request: bool,
+    silence_secs: f64,
+    wait_secs: f64,
+    limit_secs: f64,
+}
+impl Default for Endpoint {
+    fn default() -> Self {
+        Self {
+            elapsed: 0.0,
+            last_voice: 0.0,
+            heard_request: false,
+            silence_secs: 1.2,
+            wait_secs: 5.0,
+            limit_secs: 30.0,
+        }
+    }
 }
 impl Endpoint {
+    fn dictation() -> Self {
+        Self {
+            silence_secs: 2.0,
+            wait_secs: 10.0,
+            limit_secs: 120.0,
+            ..Self::default()
+        }
+    }
     fn feed(&mut self, samples: &[f32], rate: u32) -> bool {
         self.elapsed += samples.len() as f64 / rate.max(1) as f64;
         let rms = (samples.iter().map(|x| x * x).sum::<f32>() / samples.len().max(1) as f32).sqrt();
@@ -214,15 +236,16 @@ impl Endpoint {
         self.finished()
     }
     fn finished(&self) -> bool {
-        self.elapsed >= 30.0
+        self.elapsed >= self.limit_secs
             || if self.heard_request {
-                self.elapsed >= 0.8 && self.elapsed - self.last_voice >= 1.2
+                self.elapsed >= 0.8 && self.elapsed - self.last_voice >= self.silence_secs
             } else {
-                self.elapsed >= 5.0
+                self.elapsed >= self.wait_secs
             }
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
 pub enum Tick {
     None,
     Wake,
@@ -261,9 +284,55 @@ pub struct Listener {
     last_audio: Option<Instant>,
     last_tick: Option<SystemTime>,
     last_device_check: Option<Instant>,
+    dictating: bool,
 }
 
 impl Listener {
+    pub fn is_dictating(&self) -> bool {
+        self.dictating
+    }
+
+    /// An explicit start-dictation command opens a fresh bounded recording.
+    /// The command audio is already consumed; none of it reaches the paste.
+    pub fn start_dictation(
+        &mut self,
+        recorder: &mut Recorder,
+        preferred: Option<String>,
+    ) -> Result<(), crate::audio::recorder::RecorderError> {
+        self.dictating = true;
+        self.endpoint = Some(Endpoint::dictation());
+        self.attach_audio(recorder, preferred, 125)
+    }
+
+    fn attach_audio(
+        &mut self,
+        recorder: &mut Recorder,
+        preferred: Option<String>,
+        limit_secs: usize,
+    ) -> Result<(), crate::audio::recorder::RecorderError> {
+        let (send, receive) = sync::sync_channel(32);
+        self.overflow.store(false, Ordering::Relaxed);
+        let overflow = self.overflow.clone();
+        recorder.set_chunk_callback(Some(Arc::new(move |pcm, rate, channels| {
+            let mono = pcm
+                .chunks_exact(channels.max(1) as usize)
+                .map(|frame| frame.iter().sum::<f32>() / channels.max(1) as f32)
+                .collect();
+            if send.try_send(AudioChunk { mono, rate }).is_err() {
+                overflow.store(true, Ordering::Relaxed);
+            }
+        })));
+        recorder.set_buffer_limit_secs(limit_secs);
+        recorder.set_levels_enabled(self.dictating);
+        recorder.set_preferred_device(preferred.clone());
+        self.chunks = Some(receive);
+        recorder.start()?;
+        self.preferred = preferred;
+        self.last_audio = Some(Instant::now());
+        self.last_tick = Some(SystemTime::now());
+        self.next_retry = None;
+        Ok(())
+    }
     pub fn owns_recorder(&self) -> bool {
         self.chunks.is_some()
     }
@@ -275,6 +344,7 @@ impl Listener {
         self.detector = None;
         self.chunks = None;
         self.endpoint = None;
+        self.dictating = false;
         recorder.set_chunk_callback(None);
         recorder.set_buffer_limit_secs(0);
         recorder.set_levels_enabled(true);
@@ -292,6 +362,7 @@ impl Listener {
         self.detector = None;
         self.chunks = None;
         self.endpoint = None;
+        self.dictating = false;
         recorder.set_chunk_callback(None);
         recorder.set_buffer_limit_secs(0);
         recorder.set_levels_enabled(true);
@@ -305,9 +376,11 @@ impl Listener {
     ) -> Tick {
         let s = app.state::<AppState>();
         let enabled = s.settings.wake_word_enabled();
-        let capturing = *pipeline == PipelineState::Recording(Action::WakeCommand);
+        let dictating =
+            self.dictating && *pipeline == PipelineState::Recording(Action::VoiceAtCursor);
+        let capturing = *pipeline == PipelineState::Recording(Action::WakeCommand) || dictating;
         let preferred = s.settings.preferred_input_device();
-        let suspended = !enabled
+        let suspended = (!enabled && !dictating)
             || s.paused_hotkeys.load(Ordering::SeqCst)
             || !s.settings.app_launcher_enabled()
             || s.asr.is_busy()
@@ -328,9 +401,13 @@ impl Listener {
                     .map_or(true, |elapsed| elapsed > Duration::from_secs(2))
             });
         let decision = gate(
-            enabled,
+            enabled || dictating,
             suspended || gap || (self.owns_recorder() && self.preferred != preferred),
-            pipeline,
+            if dictating {
+                &PipelineState::Recording(Action::WakeCommand)
+            } else {
+                pipeline
+            },
         );
         if decision != Gate::Listen {
             self.stop(recorder);
@@ -417,31 +494,43 @@ impl Listener {
             if !crate::permissions::status().microphone {
                 return Err("Allow microphone access to listen for Tucky".into());
             }
-            let (send, receive) = sync::sync_channel(32);
-            self.overflow.store(false, Ordering::Relaxed);
-            let overflow = self.overflow.clone();
-            recorder.set_chunk_callback(Some(Arc::new(move |pcm, rate, channels| {
-                let mono = pcm
-                    .chunks_exact(channels.max(1) as usize)
-                    .map(|frame| frame.iter().sum::<f32>() / channels.max(1) as f32)
-                    .collect();
-                if send.try_send(AudioChunk { mono, rate }).is_err() {
-                    overflow.store(true, Ordering::Relaxed);
-                }
-            })));
-            recorder.set_buffer_limit_secs(3);
-            recorder.set_levels_enabled(false);
-            recorder.set_preferred_device(preferred.clone());
-            // Mark ownership before start so every failure releases callbacks and audio.
-            self.chunks = Some(receive);
-            recorder.start().map_err(|e| e.to_string())?;
-            self.preferred = preferred;
-            self.last_audio = Some(Instant::now());
+            self.attach_audio(recorder, preferred, 3)
+                .map_err(|e| e.to_string())?;
             publish(app, "listening", "Listening for “Tucky”");
         }
         if recorder.stream_failed() || self.overflow.load(Ordering::Relaxed) {
             return Err("Microphone was interrupted. Retrying…".into());
         }
+        let finish = self.drain_audio()?;
+        if self
+            .last_audio
+            .is_some_and(|last| last.elapsed() > Duration::from_secs(2))
+        {
+            return Err("Microphone stopped providing audio. Retrying…".into());
+        }
+        Ok(if finish {
+            self.endpoint_tick()
+        } else if woke {
+            Tick::Wake
+        } else {
+            Tick::None
+        })
+    }
+
+    fn endpoint_tick(&self) -> Tick {
+        if self.dictating
+            && self
+                .endpoint
+                .as_ref()
+                .is_some_and(|endpoint| !endpoint.heard_request)
+        {
+            Tick::Cancel
+        } else {
+            Tick::Finish
+        }
+    }
+
+    fn drain_audio(&mut self) -> Result<bool, String> {
         let mut finish = false;
         if let Some(chunks) = &self.chunks {
             while let Ok(chunk) = chunks.try_recv() {
@@ -456,19 +545,7 @@ impl Listener {
                 }
             }
         }
-        if self
-            .last_audio
-            .is_some_and(|last| last.elapsed() > Duration::from_secs(2))
-        {
-            return Err("Microphone stopped providing audio. Retrying…".into());
-        }
-        Ok(if finish {
-            Tick::Finish
-        } else if woke {
-            Tick::Wake
-        } else {
-            Tick::None
-        })
+        Ok(finish)
     }
 }
 
@@ -503,9 +580,123 @@ pub fn command_from_transcript(text: &str) -> Option<String> {
     None
 }
 
+/// Recognize a dismissal only within an already active voice request.
+pub fn dismisses_request(text: &str) -> bool {
+    let command = command_from_transcript(text).unwrap_or_else(|| text.to_owned());
+    dismisses_dictation(&command)
+}
+
+/// Hands-free dictation has no wake pre-roll to strip. Preserve mentions of
+/// Tucky inside dictated prose rather than interpreting their suffix as a command.
+pub fn dismisses_dictation(command: &str) -> bool {
+    let normalized: String = command.to_lowercase().chars()
+        .filter(|c| !matches!(c, '\'' | '’'))
+        .map(|c| if c.is_alphanumeric() { c } else { ' ' }).collect();
+    let mut words: Vec<_> = normalized.split_whitespace().collect();
+    while words.first().is_some_and(|word| ["please", "okay", "ok", "actually"].contains(word)) {
+        words.remove(0);
+    }
+    loop {
+        if words == ["no", "thanks"] || words == ["no", "thank", "you"] { return true; }
+        if words.ends_with(&["thank", "you"]) {
+            words.truncate(words.len() - 2);
+        } else if words.last().is_some_and(|word| ["please", "thanks"].contains(word) || TRIGGER_SPELLINGS.contains(word)) {
+            words.pop();
+        } else { break; }
+    }
+    let phrase = words.join(" ");
+    let dismissal = matches!(phrase.as_str(),
+        "cancel" | "cancel that" | "cancel this" | "never mind" | "nevermind" |
+        "goodbye" | "good bye" | "bye" | "bye bye" | "go away" | "stop" |
+        "stop listening" | "stop recording" | "stop dictating" | "dismiss" |
+        "dismiss this" | "close this" | "close the bubble" | "forget it" |
+        "thats all" | "thats it" | "no thanks" | "shut up");
+    // Explicit changes of mind can retract a request. Do not match arbitrary
+    // suffixes: a task named "Goodbye" must remain a task.
+    dismissal || [" actually never mind", " actually nevermind", " actually cancel that", " actually forget it"]
+        .iter().any(|suffix| phrase.ends_with(suffix))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn active_request_recognizes_common_dismissals() {
+        for text in [
+            "Hey Tucky, goodbye.", "Goodbye!", "Good bye, Tucky.", "Bye bye",
+            "Nevermind", "Never mind, please.", "Tucky, please go away.",
+            "Okay, cancel that.", "Stop listening", "Stop", "Dismiss this",
+            "Close this", "Forget it", "That's all", "That’s it, thanks",
+            "No thanks", "No thank you", "Tucky, shut up", "Hey Tucky, create a task actually never mind",
+        ] {
+            assert!(dismisses_request(text), "{text}");
+        }
+    }
+
+    #[test]
+    fn dismissal_words_in_requests_are_preserved() {
+        for text in [
+            "Tucky, create a task called Goodbye", "Tucky, save a note: never mind",
+            "Tucky, write goodbye to Sam", "Tucky, do not stop listening",
+            "Tucky, open Goodbye", "Never mind the weather, create a task",
+            "Tucky, start dictating", "Tucky, focus Safari", "", "Tucky",
+        ] {
+            assert!(!dismisses_request(text), "{text}");
+        }
+        assert!(dismisses_dictation("Never mind"));
+        assert!(dismisses_dictation("Goodbye, Tucky"));
+        assert!(!dismisses_dictation("I told Tucky goodbye"));
+        assert!(!dismisses_dictation("Remind me to tell Tucky never mind"));
+    }
+
+    #[test]
+    fn hands_free_audio_waits_then_finishes_and_releases_recorder() {
+        let (send, receive) = sync::channel();
+        let mut listener = Listener {
+            chunks: Some(receive),
+            endpoint: Some(Endpoint::dictation()),
+            dictating: true,
+            ..Default::default()
+        };
+        let frame = |value, seconds| AudioChunk {
+            mono: vec![value; (16_000.0 * seconds) as usize],
+            rate: 16_000,
+        };
+        send.send(frame(0.0, 3.0)).unwrap();
+        assert!(!listener.drain_audio().unwrap());
+        send.send(frame(0.1, 1.0)).unwrap();
+        send.send(frame(0.0, 1.5)).unwrap();
+        assert!(!listener.drain_audio().unwrap());
+        send.send(frame(0.0, 0.6)).unwrap();
+        assert!(listener.drain_audio().unwrap());
+        assert_eq!(listener.endpoint_tick(), Tick::Finish);
+        listener.finish(&mut Recorder::new());
+        assert!(!listener.owns_recorder());
+        assert!(!listener.is_dictating());
+        assert!(listener.endpoint.is_none());
+    }
+    #[test]
+    fn hands_free_silence_cancels_and_continuous_speech_is_bounded() {
+        let mut listener = Listener {
+            endpoint: Some(Endpoint::dictation()),
+            dictating: true,
+            ..Default::default()
+        };
+        assert!(listener
+            .endpoint
+            .as_mut()
+            .unwrap()
+            .feed(&vec![0.0; 160_000], 16_000));
+        assert_eq!(listener.endpoint_tick(), Tick::Cancel);
+        let mut endpoint = Endpoint::dictation();
+        for _ in 0..119 {
+            assert!(!endpoint.feed(&vec![0.1; 16_000], 16_000));
+        }
+        assert!(endpoint.feed(&vec![0.1; 16_000], 16_000));
+        listener.stop(&mut Recorder::new());
+        assert!(!listener.is_dictating());
+        assert!(listener.endpoint.is_none());
+    }
     #[test]
     fn only_a_whole_wake_word_can_authorize_a_command() {
         for text in [
@@ -528,7 +719,10 @@ mod tests {
     }
     #[test]
     fn common_asr_misspellings_of_tucky_still_trigger() {
-        for text in ["Taki, remind me to redo the catalog page", "Tacky remind me to redo the catalog page"] {
+        for text in [
+            "Taki, remind me to redo the catalog page",
+            "Tacky remind me to redo the catalog page",
+        ] {
             assert_eq!(
                 command_from_transcript(text),
                 Some("remind me to redo the catalog page".into()),

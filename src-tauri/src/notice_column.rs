@@ -7,6 +7,7 @@
 //! pet), then transient notices in the order they appeared. New notices append
 //! on top, so an arriving toast never shifts the ones already on screen, and a
 //! card that grows only moves its own top edge.
+//! Recording status sits separately to the pet's left (right at the left edge).
 //!
 //! Each notice window keeps transparent padding around its visible card for the
 //! shadow and pointer tail; `insets` mirrors that CSS so spacing is computed on
@@ -88,6 +89,8 @@ impl Rect {
 pub(crate) struct Item {
     pub width: i64,
     pub height: i64,
+    /// Recording status belongs beside the pet, outside the notice column.
+    pub beside_pet: bool,
     /// (top, right, bottom, left) transparent padding, physical px.
     pub insets: (i64, i64, i64, i64),
 }
@@ -108,10 +111,43 @@ pub(crate) struct Slot {
     pub tail_x: Option<i64>,
 }
 
-/// Pure layout, physical px. `gap` is between cards, `clearance` between the
+/// Keep recording status beside the pet without consuming a notice-column slot.
+/// All dimensions and paint insets are physical px.
+pub(crate) fn layout(
+    anchor: Rect,
+    items: &[Item],
+    area: Rect,
+    align: Align,
+    gap: i64,
+    clearance: i64,
+) -> Vec<Slot> {
+    if align != Align::Pet || !items.iter().any(|item| item.beside_pet) {
+        return layout_column(anchor, items, area, align, gap, clearance);
+    }
+    let column: Vec<_> = items.iter().copied().filter(|item| !item.beside_pet).collect();
+    let mut slots = layout_column(anchor, &column, area, align, gap, clearance).into_iter();
+    items.iter().map(|item| {
+        if !item.beside_pet {
+            return slots.next().expect("one column slot per notice");
+        }
+        let (top, right, bottom, left) = item.insets;
+        let card_height = item.height - top - bottom;
+        // Align visible card edges, retaining the transparent shadow gutters.
+        let left_x = anchor.x - gap - (item.width - right);
+        let x = if left_x >= area.x { left_x } else { anchor.right() + gap - left };
+        let y = anchor.y + (anchor.height - card_height) / 2 - top;
+        Slot {
+            x: x.clamp(area.x, (area.right() - item.width).max(area.x)),
+            y: y.clamp(area.y, (area.bottom() - item.height).max(area.y)),
+            tail_x: None,
+        }
+    }).collect()
+}
+
+/// Pure column layout, physical px. `gap` is between cards, `clearance` between the
 /// anchor and the nearest card. Stacks upward; if the column would leave the
 /// work area it stacks downward below the anchor instead (no tails).
-pub(crate) fn layout(
+fn layout_column(
     anchor: Rect,
     items: &[Item],
     area: Rect,
@@ -247,7 +283,7 @@ pub(crate) fn relayout(app: &AppHandle<Wry>, showing: Option<&str>) {
         .filter_map(|(label, window)| {
             let rect = window_rect(window)?;
             let (t, r, b, l) = insets(label);
-            Some(Item { width: rect.width, height: rect.height, insets: (px(t), px(r), px(b), px(l)) })
+            Some(Item { width: rect.width, height: rect.height, beside_pet: activity_beside_pet(label), insets: (px(t), px(r), px(b), px(l)) })
         })
         .collect();
     if items.len() != windows.len() {
@@ -266,6 +302,10 @@ pub(crate) fn relayout(app: &AppHandle<Wry>, showing: Option<&str>) {
         set_tail(app, label, tail);
     }
     debug!(target: "notice_column", with_pet, count = slots.len(), "notice column laid out");
+}
+
+fn activity_beside_pet(label: &str) -> bool {
+    label == "activity_bubble"
 }
 
 fn set_tail(app: &AppHandle<Wry>, label: &str, tail: Tail) {
@@ -300,14 +340,81 @@ pub fn notice_hide(window: tauri::WebviewWindow<Wry>) {
 
 #[cfg(test)]
 mod tests {
-    use super::{insets, layout, Align, Item, Rect};
+    use super::{activity_beside_pet, insets, layout, Align, Item, Rect};
 
     const AREA: Rect = Rect { x: 0, y: 24, width: 1440, height: 876 };
 
 
     fn item(width: i64, height: i64) -> Item {
         let (t, r, b, l) = insets("desktop_pet_focus");
-        Item { width, height, insets: (t as i64, r as i64, b as i64, l as i64) }
+        Item { width, height, beside_pet: false, insets: (t as i64, r as i64, b as i64, l as i64) }
+    }
+
+    #[test]
+    fn wake_acknowledgment_stays_left_of_pet_without_moving_focus() {
+        let pet = Rect { x: 1300, y: 764, width: 100, height: 108 };
+        let focus = item(375, 280);
+        let wake = Item { beside_pet: activity_beside_pet("activity_bubble"), ..item(352, 126) };
+        let slots = layout(pet, &[focus, wake], AREA, Align::Pet, 10, 14);
+        assert_eq!(slots[0], layout(pet, &[focus], AREA, Align::Pet, 10, 14)[0]);
+        assert_eq!(slots[1].x + wake.width - wake.insets.1, pet.x - 10);
+        assert!(slots[1].tail_x.is_none());
+        assert!(!activity_beside_pet("desktop_pet_focus"));
+    }
+
+    #[test]
+    fn recording_stays_left_of_pet_without_moving_focus_or_notices() {
+        let pet = Rect { x: 1300, y: 764, width: 100, height: 108 };
+        let activity = Item { beside_pet: true, ..item(352, 126) };
+        let before = layout(pet, &[item(375, 280), item(372, 132)], AREA, Align::Pet, 10, 14);
+        let during = layout(pet, &[item(375, 280), activity, item(372, 132)], AREA, Align::Pet, 10, 14);
+        assert_eq!(during[0], before[0]);
+        assert_eq!(during[2], before[1]);
+        assert_eq!(during[1].x + activity.width - activity.insets.1, pet.x - 10);
+        assert_eq!(during[1].y + 28 + 54 / 2, pet.y + pet.height / 2);
+        assert!(during[1].tail_x.is_none());
+        // The same position is used when Today's Focus is hidden.
+        assert_eq!(layout(pet, &[activity], AREA, Align::Pet, 10, 14)[0], during[1]);
+    }
+
+    #[test]
+    fn recording_uses_right_side_at_left_edge_and_stays_in_work_area() {
+        let area = Rect { x: -1440, ..AREA };
+        let pet = Rect { x: -1400, y: 24, width: 100, height: 108 };
+        let activity = Item { beside_pet: true, ..item(352, 126) };
+        let slot = layout(pet, &[activity], area, Align::Pet, 10, 14)[0];
+        assert_eq!(slot.x + activity.insets.3, pet.right() + 10);
+        assert!(slot.x >= area.x && slot.x + activity.width <= area.right());
+        assert!(slot.y >= area.y && slot.y + activity.height <= area.bottom());
+        assert!(slot.tail_x.is_none());
+    }
+
+    #[test]
+    fn recording_tracks_pet_sizes_and_retina_scale_near_bottom_edge() {
+        for scale in [1, 2] {
+            for (width, height) in [(100, 108), (140, 152), (180, 196)] {
+                let area = Rect { x: -1440 * scale, y: 24 * scale, width: 1440 * scale, height: 876 * scale };
+                let pet = Rect { x: -200 * scale, y: (900 - height) * scale, width: width * scale, height: height * scale };
+                let activity = Item {
+                    width: 352 * scale, height: 126 * scale, beside_pet: true,
+                    insets: (28 * scale, 32 * scale, 44 * scale, 32 * scale),
+                };
+                let slot = layout(pet, &[activity], area, Align::Pet, 10 * scale, 14 * scale)[0];
+                assert_eq!(slot.x + activity.width - activity.insets.1, pet.x - 10 * scale);
+                assert!(slot.y >= area.y && slot.y + activity.height <= area.bottom());
+                assert!(slot.tail_x.is_none());
+            }
+        }
+    }
+
+    #[test]
+    fn standalone_pill_layout_ignores_pet_only_placement() {
+        let pill = Rect { x: 800, y: 790, width: 160, height: 48 };
+        let activity = item(352, 126);
+        assert_eq!(
+            layout(pill, &[Item { beside_pet: true, ..activity }], AREA, Align::Center, 10, 14),
+            layout(pill, &[activity], AREA, Align::Center, 10, 14),
+        );
     }
 
     #[test]

@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use tauri::webview::WebviewWindowBuilder;
 use tauri::{AppHandle, Emitter, Manager, Runtime, Wry};
 use tracing::{debug, error, info, warn};
@@ -104,6 +104,8 @@ fn position_action_toast(app_handle: &AppHandle<Wry>, toast: &tauri::WebviewWind
 
 // 0: idle, 1: microphone waveform, 2: progress, 3: meeting controls.
 static OVERLAY_PRESENTATION: AtomicU32 = AtomicU32::new(0);
+static WAKE_REQUEST_PRESENTATION: AtomicBool = AtomicBool::new(false);
+
 static PRE_PET_POSITION: std::sync::Mutex<Option<tauri::PhysicalPosition<i32>>> =
     std::sync::Mutex::new(None);
 
@@ -137,6 +139,12 @@ fn sync_recording_widget(app: &AppHandle<Wry>) {
         if let Ok(mut previous) = PRE_PET_POSITION.lock() {
             if let Some(position) = previous.take() {
                 let _ = window.set_position(position);
+                keep_recording_overlay_visible(&window);
+            }
+        }
+        if WAKE_REQUEST_PRESENTATION.load(Ordering::SeqCst) && !window.is_visible().unwrap_or(false) {
+            if let Some((x, y)) = calculate_overlay_position(app, STATUS_OVERLAY_WIDTH) {
+                let _ = window.set_position(tauri::LogicalPosition::new(x, y));
                 keep_recording_overlay_visible(&window);
             }
         }
@@ -244,6 +252,7 @@ fn show_activity_bubble(app: &AppHandle<Wry>, mode: &str, label: Option<&str>) {
 }
 
 fn hide_activity_bubble(app: &AppHandle<Wry>) {
+    WAKE_REQUEST_PRESENTATION.store(false, Ordering::SeqCst);
     if let Ok(mut activity) = LAST_ACTIVITY_BUBBLE.lock() {
         activity.take();
     }
@@ -363,6 +372,45 @@ fn calculate_overlay_position(app_handle: &AppHandle<Wry>, width: f64) -> Option
     Some((x, y))
 }
 
+/// Place the whole pill in the display's usable area, above the Dock.
+/// Origins and sizes stay physical, including on mixed-scale displays.
+fn bottom_center_overlay_position(
+    area: (i32, i32, u32, u32),
+    size: (u32, u32),
+    scale: f64,
+) -> (i32, i32) {
+    let (ax, ay, aw, ah) = (i64::from(area.0), i64::from(area.1), i64::from(area.2), i64::from(area.3));
+    let (w, h) = (i64::from(size.0), i64::from(size.1));
+    let bottom_gap = (OVERLAY_BOTTOM_OFFSET * scale).round() as i64;
+    (
+        (ax + (aw - w).max(0) / 2) as i32,
+        (ay + (ah - h - bottom_gap).max(0)) as i32,
+    )
+}
+
+pub(crate) fn recenter_recording_overlay(app: &AppHandle<Wry>) -> Result<(), String> {
+    if app.get_webview_window("desktop_pet").is_some_and(|pet| pet.is_visible().unwrap_or(false)) {
+        return Err("Hide the pet first to recenter the standalone pill".into());
+    }
+    let window = app.get_webview_window("recording_overlay")
+        .ok_or("The recording pill is unavailable")?;
+    let monitor = window.current_monitor().map_err(|e| e.to_string())?
+        .or(app.primary_monitor().map_err(|e| e.to_string())?)
+        .ok_or("No display is available")?;
+    let area = monitor.work_area();
+    let size = window.outer_size().map_err(|e| e.to_string())?;
+    let (x, y) = bottom_center_overlay_position(
+        (area.position.x, area.position.y, area.size.width, area.size.height),
+        (size.width, size.height),
+        monitor.scale_factor(),
+    );
+    window.set_position(tauri::PhysicalPosition::new(x, y)).map_err(|e| e.to_string())?;
+    // Do not let a stale pet anchor restore the old dragged position.
+    if let Ok(mut previous) = PRE_PET_POSITION.lock() { *previous = None; }
+    reposition_visible_toasts(app);
+    Ok(())
+}
+
 /// Physical coordinates throughout: never mix logical origins from displays
 /// with different scale factors.
 fn recovered_overlay_position(
@@ -436,7 +484,16 @@ pub(crate) fn keep_recording_overlay_visible(window: &tauri::WebviewWindow<Wry>)
 
 #[cfg(test)]
 mod recording_overlay_position_tests {
-    use super::recovered_overlay_position as recover;
+    use super::{recovered_overlay_position as recover, bottom_center_overlay_position as center};
+
+    #[test]
+    fn recenter_uses_bottom_center_of_work_area() {
+        assert_eq!(center((0, 24, 1920, 976), (240, 64), 1.0), (840, 856));
+        assert_eq!(center((0, 48, 2880, 1700), (480, 128), 2.0), (1200, 1460));
+        assert_eq!(center((-1920, -200, 1920, 1080), (160, 48), 1.0), (-1040, 752));
+        assert_eq!(center((10, 20, 200, 100), (240, 128), 2.0), (10, 20));
+    }
+
     #[test]
     fn preserves_secondary_display_and_negative_coordinates() {
         assert_eq!(
@@ -492,10 +549,12 @@ fn resize_overlay_around_center(overlay: &tauri::WebviewWindow<Wry>, width: f64,
 }
 
 fn show_overlay_state(app_handle: &AppHandle<Wry>, state: &str) {
+    WAKE_REQUEST_PRESENTATION.store(state == "wake-recording", Ordering::SeqCst);
     OVERLAY_PRESENTATION.store(1, Ordering::SeqCst);
     RECORDING_OVERLAY_REVISION.fetch_add(1, Ordering::SeqCst);
     if let Some(overlay) = app_handle.get_webview_window("recording_overlay") {
-        resize_overlay_around_center(&overlay, OVERLAY_WIDTH, OVERLAY_HEIGHT);
+        let width = if state == "wake-recording" { STATUS_OVERLAY_WIDTH } else { OVERLAY_WIDTH };
+        resize_overlay_around_center(&overlay, width, OVERLAY_HEIGHT);
         keep_recording_overlay_visible(&overlay);
         // The overlay must never become the key window — if it does, Cmd+V
         // lands here instead of the user's target app. On macOS, showing a
@@ -526,6 +585,7 @@ fn show_status_overlay_state(app_handle: &AppHandle<Wry>, state: &str) {
 /// Emits a JSON object payload (vs. the plain-string payload for the other
 /// modes) so the frontend can pick up the contextual app name.
 pub fn show_meeting_overlay(app_handle: &AppHandle<Wry>, detected_app_name: Option<&str>) {
+    WAKE_REQUEST_PRESENTATION.store(false, Ordering::SeqCst);
     OVERLAY_PRESENTATION.store(3, Ordering::SeqCst);
     RECORDING_OVERLAY_REVISION.fetch_add(1, Ordering::SeqCst);
     if let Some(overlay) = app_handle.get_webview_window("recording_overlay") {
@@ -558,6 +618,12 @@ pub fn show_log_recording_overlay(app_handle: &AppHandle<Wry>) {
 /// Switches the overlay to "action-recording" state (dedicated Action Hotkey gradient).
 pub fn show_action_recording_overlay(app_handle: &AppHandle<Wry>) {
     show_overlay_state(app_handle, "action-recording");
+}
+
+/// A wake acknowledgment uses the existing status bubble beside the pet, with a
+/// readable listening label in the standalone pill when the pet is hidden.
+pub fn show_wake_recording_overlay(app_handle: &AppHandle<Wry>) {
+    show_overlay_state(app_handle, "wake-recording");
 }
 
 /// Shows the overlay in "transcribing" state (pulsing text).
@@ -889,6 +955,11 @@ pub fn emit_levels(app_handle: &AppHandle<Wry>, levels: &[f32]) {
     crate::desktop_pet::update_levels(levels);
     if let Some(overlay) = app_handle.get_webview_window("recording_overlay") {
         let _ = overlay.emit("mic-level", levels);
+    }
+    if let Some(bubble) = app_handle.get_webview_window("activity_bubble") {
+        if bubble.is_visible().unwrap_or(false) {
+            let _ = bubble.emit("mic-level", levels);
+        }
     }
 }
 

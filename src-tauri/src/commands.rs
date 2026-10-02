@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, Manager, State, Wry};
+use tauri::{AppHandle, Emitter, Listener, Manager, State, Wry};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{error, info, warn};
@@ -743,6 +743,13 @@ pub fn ensure_pipeline_started(state: &AppState, app: &AppHandle) {
     if let Ok(mut slot) = state.coord_tx.lock() {
         *slot = Some(coord_tx.clone());
     }
+
+    // Both the standalone pill and the pet's listening bubble expose Cancel.
+    // Route their button through the same discard path as Escape.
+    let overlay_cancel_tx = coord_tx.clone();
+    app.listen("overlay-cancel", move |_| {
+        let _ = overlay_cancel_tx.send(CoordinatorMsg::Hotkey(Action::Cancel, HotkeyEvent::Pressed));
+    });
 
     let (vac_tx, mut vac_rx) = mpsc::unbounded_channel::<HotkeyEvent>();
     let (es_tx, mut es_rx) = mpsc::unbounded_channel::<HotkeyEvent>();

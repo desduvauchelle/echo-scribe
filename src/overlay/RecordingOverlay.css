@@ -43,6 +43,9 @@
 .recording-mode .bars-container { height: 16px; gap: 3px; justify-content: center; width: 100%; }
 .recording-mode .bar { width: 3px; max-height: 16px; }
 .recording-mode .cancel-button { width: 24px; height: 24px; }
+.wake-mode .overlay-middle { flex-direction: row; gap: 8px; }
+.wake-label { font-size: 12px; white-space: nowrap; }
+.wake-mode .bars-container { flex: 1; }
 .overlay-left { position: relative; width: 46px; height: 46px; }
 .tucky-face { display: block; width: 46px; height: 46px; border-radius: 50%; }
 .activity-dot {

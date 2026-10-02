@@ -1,5 +1,36 @@
 import { expect, test, type Page } from "@playwright/test";
-import { installTauriMock } from "./mock";
+import { installTauriMock, recordedCalls } from "./mock";
+
+test("wake request visibly listens beside the pet and in the standalone fallback", async ({ page }) => {
+  await installTauriMock(page);
+  await page.setViewportSize({ width: 352, height: 126 });
+  await page.goto("/src/activity-bubble/index.html");
+  await expect.poll(async () => {
+    await page.evaluate(() => (window as any).__MOCK_EMIT__("show-activity-bubble", { mode: "wake-recording" }));
+    return page.getByRole("status").textContent();
+  }).toContain("I’m listening…");
+  await page.evaluate(() => (window as any).__MOCK_EMIT__("mic-level", [0.8, 0.6, 0.9, 0.7, 0.5]));
+  await expect(page.locator(".activity-mic-meter i")).toHaveCount(5);
+  expect(await page.locator(".activity-mic-meter i").first().evaluate(el => el.getBoundingClientRect().height)).toBeGreaterThan(4);
+  await page.getByRole("button", { name: "Cancel recording" }).click();
+  expect((await recordedCalls(page)).some(call => call.cmd === "plugin:event|emit" && call.args?.event === "overlay-cancel")).toBe(true);
+  await expectPaintRoom(page, ".activity-bubble");
+  await page.screenshot({ path: "output/playwright/wake-listening-bubble.png" });
+  await page.evaluate(() => (window as any).__MOCK_EMIT__("show-activity-bubble", { mode: "processing", label: "Working on your request…" }));
+  await expect(page.getByRole("status")).toContainText("Working on your request…");
+  await expect(page.getByRole("button", { name: "Cancel recording" })).toHaveCount(0);
+
+  await page.setViewportSize({ width: 240, height: 48 });
+  await page.goto("/src/overlay/index.html");
+  await expect.poll(async () => {
+    await page.evaluate(() => (window as any).__MOCK_EMIT__("show-overlay", "wake-recording"));
+    return page.getByRole("status").textContent();
+  }).toContain("I’m listening…");
+  await expect(page.getByRole("status")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Cancel recording" })).toBeVisible();
+  await expect(page.locator(".recording-overlay")).toHaveCSS("opacity", "1");
+  await page.screenshot({ path: "output/playwright/wake-listening-fallback.png" });
+});
 
 // Exercise the real cards at their native window sizes, including auto-resize.
 async function expectPaintRoom(page: Page, selector: string) {

@@ -1297,7 +1297,7 @@ dependencies = [
 
 [[package]]
 name = "echo-scribe"
-version = "1.0.25"
+version = "1.0.26"
 dependencies = [
  "arboard",
  "base64 0.22.1",
