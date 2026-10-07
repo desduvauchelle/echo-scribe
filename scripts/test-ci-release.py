@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+import shutil
 
 ROOT = Path(__file__).resolve().parent.parent
 WORKFLOW = json.loads(subprocess.check_output(
@@ -14,6 +15,27 @@ WORKFLOW = json.loads(subprocess.check_output(
 
 
 class ReleaseTests(unittest.TestCase):
+    def test_setup_records_success_and_apple_failure_without_password(self):
+        for apple_status, expected in [(0, 'complete'), (12, 'stopped:validating_with_apple:exit=12')]:
+            with tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                (root / 'scripts').mkdir()
+                helper = root / 'scripts/configure-apple-notarization.command'
+                shutil.copyfile(ROOT / 'scripts/configure-apple-notarization.command', helper)
+                shell = '''
+gh() { if [[ "$1" == auth ]]; then return 0; fi; cat >/dev/null; }
+xcrun() { return "$TEST_APPLE_STATUS"; }
+export -f gh xcrun
+bash "$1"
+'''
+                result = subprocess.run(['bash', '-c', shell, 'test', str(helper)],
+                    env=dict(os.environ, TUCKY_APPLE_ID='test@example.com', TEST_APPLE_STATUS=str(apple_status)),
+                    input='fixture-secret-password\n\n', text=True, capture_output=True)
+                status = (root / 'output/apple-signing/notarization-setup.status').read_text().strip()
+                self.assertEqual(status, expected)
+                self.assertEqual(result.returncode, apple_status)
+                self.assertNotIn('fixture-secret-password', status + result.stdout + result.stderr)
+
     def test_all_workflow_shell_steps_parse(self):
         for job in WORKFLOW['jobs'].values():
             for step in job['steps']:
