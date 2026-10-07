@@ -93,9 +93,41 @@ Local verification:
 ```sh
 python3 scripts/test-ci-release.py
 python3 scripts/test-macos-signing.py
+python3 scripts/test-macos-release.py
 bash scripts/test-installer.sh
 ```
 
 References: [Apple Developer ID](https://developer.apple.com/developer-id/)
 and [Tauri macOS signing](https://v2.tauri.app/distribute/sign/macos/).
 For CI keychain handling, see [GitHub's Apple signing guide](https://docs.github.com/en/actions/how-tos/deploy/deploy-to-third-party-platforms/sign-xcode-applications).
+
+## Resume after Apple's account update
+
+The account setup is currently blocked by Apple's agreement state. App Store
+Connect shows **Developer Information Update In Process** and the current
+Free Apps Agreement is **Pending (New Legal Entity)**, although the Developer
+account records the Program License Agreement as accepted. Apple Developer
+Support has been contacted. Repeated password generation does not resolve
+this agreement state.
+
+When the current Free Apps Agreement becomes **Active** and Apple confirms
+the account update is complete:
+
+1. Double-click `scripts/configure-apple-notarization.command`. Paste the
+   Apple-generated app-specific password at the hidden prompt. Use the
+   generated value, not its label or the main Apple account password.
+   Successful validation saves the local Keychain profile and the fifth
+   GitHub secret. Four certificate/account secrets are already configured.
+2. Run `bun run release:mac`. This authenticates before building, then
+   performs the real Apple submissions and verifies the stapled app and DMG.
+3. Open the resulting DMG in Finder and verify its Applications shortcut.
+   Test the approved installation and first launch before publishing.
+4. Merge the distribution PR after review and resolve any remaining PR
+   checks. Create a new version tag that includes these changes to run the
+   real GitHub release workflow. Verify the uploaded DMG and updater archives.
+
+The `macOS distribution checks` workflow tests the release failure gates with
+fixtures and no Apple credentials. Passing it proves orchestration and
+compatibility, not live notarization. The production workflow still requires
+Apple acceptance, stapler validation, Gatekeeper acceptance, and first-launch
+smoke testing before publishing.
