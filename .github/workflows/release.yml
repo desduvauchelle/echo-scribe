@@ -30,6 +30,15 @@ jobs:
         with:
           ref: ${{ inputs.tag || github.ref }}
 
+      - name: Configure Apple signing and notarization
+        env:
+          TUCKY_APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.TUCKY_APPLE_CERTIFICATE_P12_BASE64 }}
+          TUCKY_APPLE_CERTIFICATE_PASSWORD: ${{ secrets.TUCKY_APPLE_CERTIFICATE_PASSWORD }}
+          TUCKY_APPLE_ID: ${{ secrets.TUCKY_APPLE_ID }}
+          TUCKY_APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.TUCKY_APPLE_APP_SPECIFIC_PASSWORD }}
+          TUCKY_APPLE_TEAM_ID: ${{ secrets.TUCKY_APPLE_TEAM_ID }}
+        run: bash scripts/setup-ci-signing.sh
+
       - uses: oven-sh/setup-bun@v2
 
       - uses: dtolnay/rust-toolchain@stable
@@ -45,12 +54,20 @@ jobs:
         run: |
           VERSION="${RELEASE_TAG#v}"
           python3 -c "
-          import json, sys
+          import json, re, sys
+          version = sys.argv[1]
+          if not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?', version):
+              sys.exit('Invalid release version')
           with open('src-tauri/tauri.conf.json') as f:
               d = json.load(f)
-          d['version'] = sys.argv[1]
+          d['version'] = version
           with open('src-tauri/tauri.conf.json', 'w') as f:
               json.dump(d, f, indent=2)
+          with open('package.json') as f:
+              package = json.load(f)
+          package['version'] = version
+          with open('package.json', 'w') as f:
+              json.dump(package, f, indent=2)
           " "$VERSION"
           sed -i "" "s/^version = .*/version = \"$VERSION\"/" src-tauri/Cargo.toml
 
@@ -60,43 +77,40 @@ jobs:
       - name: Build screenrec sidecar
         run: bash scripts/build-screenrec.sh
 
-      - name: Build app bundle
-        # Force ad-hoc signing for distribution. The committed tauri.conf.json
-        # pins a local self-signed identity ("Echo Scribe Local Dev") so local
-        # rebuilds keep their TCC grants; that cert doesn't exist on CI runners,
-        # so override to ad-hoc here (env wins over config).
+      - name: Build and verify Apple-notarized app and DMG
         env:
-          APPLE_SIGNING_IDENTITY: "-"
-        run: bun tauri build --bundles app
-
-      - name: Sign bundle with legacy executable compatibility
-        env:
-          CODESIGN_IDENTITY: "-"
-        run: bash scripts/sign-macos-bundle.sh
+          # Keep the existing public speech-model catalog.
+          TUCKY_LOCAL_ASR: "0"
+          VITE_LOCAL_ASR: "0"
+        run: bun run release:mac
 
       - name: Verify MCP lifecycle and legacy executable path
         run: |
           python3 scripts/test-mcp-lifecycle.py src-tauri/target/release/bundle/macos/Tucky.app/Contents/MacOS/Tucky
           python3 scripts/test-mcp-lifecycle.py src-tauri/target/release/bundle/macos/Tucky.app/Contents/MacOS/echo-scribe
 
-      - name: Package
-        run: bash scripts/package-release.sh
-
       - name: Install + first-launch smoke test
         # Runs the real install.sh against the tarball we just built, then
         # launches the installed app with ECHO_SCRIBE_SMOKE=1 and requires it
         # to self-report a rendered frontend + packaged sidecars. A failure
         # here blocks the release from publishing.
-        run: bash scripts/smoke-test.sh "Tucky-aarch64.tar.gz"
+        run: bash scripts/smoke-test.sh "output/mac-release/Tucky-aarch64.tar.gz"
 
       - name: Upload release asset
         uses: actions/upload-artifact@v4
         with:
           name: release-aarch64
           path: |
-            Tucky-aarch64.tar.gz
-            EchoScribe-aarch64.tar.gz
+            output/mac-release/Tucky-aarch64.tar.gz
+            output/mac-release/EchoScribe-aarch64.tar.gz
+            output/mac-release/Tucky-*.dmg
           if-no-files-found: error
+
+      - name: Remove temporary signing credentials
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/tucky-signing.keychain-db" || true
+          rm -f "$RUNNER_TEMP/tucky-signing.p12"
 
   release:
     needs: build
@@ -115,9 +129,11 @@ jobs:
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           generate_release_notes: true
+          fail_on_unmatched_files: true
           files: |
             Tucky-*.tar.gz
             EchoScribe-*.tar.gz
+            Tucky-*.dmg
 
       - name: Verify published assets
         run: |
@@ -126,3 +142,5 @@ jobs:
             "https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/EchoScribe-aarch64.tar.gz"
           curl --fail --location --retry 5 --retry-all-errors --silent --show-error --head \
             "https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/Tucky-aarch64.tar.gz"
+          curl --fail --location --retry 5 --retry-all-errors --silent --show-error --head \
+            "https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/Tucky-${RELEASE_TAG#v}-arm64.dmg"

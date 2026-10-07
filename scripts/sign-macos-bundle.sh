@@ -12,7 +12,7 @@ if [[ ! -d "$APP_PATH" ]]; then
   exit 1
 fi
 
-IDENTITY="${CODESIGN_IDENTITY:-}"
+IDENTITY="${CODESIGN_IDENTITY:-${APPLE_SIGNING_IDENTITY:-}}"
 if [[ -z "$IDENTITY" ]]; then
   IDENTITY="$(python3 - "$CONFIG" <<'PY'
 import json
@@ -31,6 +31,18 @@ PY
 )"
 fi
 
+# Developer ID releases require a secure timestamp. Keep ad-hoc/local signing
+# usable without contacting Apple's timestamp service.
+SIGN_OPTIONS=(--options runtime)
+if [[ "$IDENTITY" == "Developer ID Application:"* ]]; then
+  SIGN_OPTIONS+=(--timestamp)
+fi
+
+# Sign embedded native libraries before the containing app.
+while IFS= read -r -d '' path; do
+  codesign --force --sign "$IDENTITY" "${SIGN_OPTIONS[@]}" "$path"
+done < <(find "$APP_PATH/Contents" -type f -name '*.dylib' -print0)
+
 sign_executable() {
   local name="$1"
   local identifier="$2"
@@ -39,7 +51,7 @@ sign_executable() {
     echo "sidecar not found: $path" >&2
     exit 1
   fi
-  codesign --force --sign "$IDENTITY" --options runtime --identifier "$identifier" "$path"
+  codesign --force --sign "$IDENTITY" "${SIGN_OPTIONS[@]}" --entitlements "$ENTITLEMENTS" --identifier "$identifier" "$path"
 }
 
 sign_executable "echo-scribe-syscap" "com.echoscribe.app.syscap"
@@ -52,5 +64,5 @@ if [[ -x "$APP_PATH/Contents/MacOS/Tucky" ]]; then
   ln -sfn Tucky "$APP_PATH/Contents/MacOS/echo-scribe"
 fi
 
-codesign --force --sign "$IDENTITY" --options runtime --entitlements "$ENTITLEMENTS" "$APP_PATH"
+codesign --force --sign "$IDENTITY" "${SIGN_OPTIONS[@]}" --entitlements "$ENTITLEMENTS" "$APP_PATH"
 codesign --verify --deep --strict "$APP_PATH"
