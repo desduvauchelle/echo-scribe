@@ -5,7 +5,7 @@
 **[tucky.ai-juicing.com →](https://tucky.ai-juicing.com)**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/desduvauchelle/echo-scribe/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/desduvauchelle/tucky/main/install.sh | bash
 ```
 
 macOS 14+, Apple Silicon or Intel. [What the installer does ↓](#install-on-macos)
@@ -78,7 +78,7 @@ Dictate code comments, documentation drafts, TODO items, or feature ideas withou
 Open Terminal (Cmd+Space, type "Terminal", press Enter) and paste:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/desduvauchelle/echo-scribe/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/desduvauchelle/tucky/main/install.sh | bash
 ```
 
 The script installs to `/Applications/`, handles macOS security permissions, and works on both Apple Silicon and Intel. To update, run the same command again.
@@ -101,7 +101,7 @@ Windows support is currently a development build, published from GitHub Actions.
 
 Download the latest green Windows build:
 
-[Tucky Windows build](https://github.com/desduvauchelle/echo-scribe/actions/workflows/windows.yml)
+[Tucky Windows build](https://github.com/desduvauchelle/tucky/actions/workflows/windows.yml)
 
 Open the latest successful run, download the `tucky-windows` artifact,
 unzip it, and run the `*-setup.exe` installer.
@@ -133,8 +133,8 @@ code signed yet. Some capture features are still macOS-only; see
 macOS only.
 
 ```bash
-git clone https://github.com/desduvauchelle/echo-scribe.git
-cd echo-scribe
+git clone https://github.com/desduvauchelle/tucky.git
+cd tucky
 ./scripts/build-from-source.sh
 ```
 

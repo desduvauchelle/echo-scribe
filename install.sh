@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO="desduvauchelle/echo-scribe"
+REPO="desduvauchelle/tucky"
 APP_BUNDLE="Tucky.app"
 LEGACY_BUNDLE="Echo Scribe.app"
 INSTALL_DIR="${INSTALL_DIR:-/Applications}"
