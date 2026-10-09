@@ -132,6 +132,11 @@ code signed yet. Some capture features are still macOS-only; see
 
 macOS only.
 
+For Developer ID signing and an Apple-notarized Finder installer, see
+[macOS distribution setup](docs/macos-distribution.md). Once the certificate
+and Keychain credentials are configured, `bun run release:mac` builds and
+verifies the DMG locally. This does not publish a release.
+
 ```bash
 git clone https://github.com/desduvauchelle/tucky.git
 cd tucky

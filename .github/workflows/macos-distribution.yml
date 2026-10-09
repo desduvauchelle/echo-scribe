@@ -1,0 +1,41 @@
+name: macOS distribution checks
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - .github/workflows/macos-distribution.yml
+      - scripts/*macos*
+      - scripts/*ci*release*
+      - scripts/setup-ci-signing.sh
+      - scripts/configure-apple-notarization.command
+      - scripts/package-release.sh
+  push:
+    paths:
+      - .github/workflows/release.yml
+      - .github/workflows/macos-distribution.yml
+      - scripts/*macos*
+      - scripts/*ci*release*
+      - scripts/setup-ci-signing.sh
+      - scripts/configure-apple-notarization.command
+      - scripts/package-release.sh
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - name: Check credential gates and tag versioning
+        run: python3 scripts/test-ci-release.py
+      - name: Check signing order and required sidecars
+        run: python3 scripts/test-macos-signing.py
+      - name: Check notarization and Gatekeeper release gates
+        run: python3 scripts/test-macos-release.py
+      - name: Check updater and installer compatibility
+        run: bash scripts/test-installer.sh
