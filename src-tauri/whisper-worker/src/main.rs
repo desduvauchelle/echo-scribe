@@ -9,6 +9,12 @@ use std::{
 };
 use transcribe_rs::whisper_cpp::{WhisperEngine, WhisperInferenceParams};
 
+fn transcription_params(_path: &Path) -> WhisperInferenceParams {
+    // Example prose can leak into recognition as words the user never said.
+    // Keep decoding unprompted, including for Turbo.
+    WhisperInferenceParams::default()
+}
+
 fn emit(value: serde_json::Value) -> io::Result<()> {
     let mut stdout = io::stdout().lock();
     serde_json::to_writer(&mut stdout, &value)?;
@@ -20,6 +26,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         .nth(1)
         .ok_or("Missing Whisper model path")?;
     let mut engine = WhisperEngine::load(Path::new(&path))?;
+    let params = transcription_params(Path::new(&path));
     emit(json!({"ready": true}))?;
     let mut input = io::stdin().lock();
     loop {
@@ -48,7 +55,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             emit(json!({"text": "", "segments": []}))?;
             continue;
         }
-        match engine.transcribe_with(&samples, &WhisperInferenceParams::default()) {
+        match engine.transcribe_with(&samples, &params) {
             Ok(result) => emit(
                 json!({"text": result.text.trim(), "segments": result.segments.unwrap_or_default().iter().map(|s| json!({"start": s.start, "end": s.end, "text": s.text})).collect::<Vec<_>>()}),
             )?,
@@ -60,5 +67,31 @@ fn main() {
     if let Err(error) = run() {
         let _ = emit(json!({"error": error.to_string()}));
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn turbo_does_not_prime_transcription_with_unspoken_text() {
+        let params = transcription_params(Path::new(
+            "/models/whisper-turbo/ggml-large-v3-turbo-q5_0.bin",
+        ));
+        assert!(params.initial_prompt.is_none());
+        assert!(params.language.is_none());
+        assert!(!params.translate);
+        assert!(params.suppress_blank);
+        assert!(params.suppress_non_speech_tokens);
+    }
+
+    #[test]
+    fn other_whisper_models_keep_default_decoding() {
+        for path in ["/models/whisper-base/ggml-base.bin", "/models/other.bin"] {
+            assert!(transcription_params(Path::new(path))
+                .initial_prompt
+                .is_none());
+        }
     }
 }

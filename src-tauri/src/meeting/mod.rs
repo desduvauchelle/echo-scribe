@@ -8,6 +8,7 @@ pub mod debrief;
 pub mod detector;
 pub mod grammar;
 pub mod guidance;
+pub mod live_form;
 pub mod guide_review;
 pub(crate) mod json_repair;
 pub mod pipeline;
@@ -369,6 +370,8 @@ impl MeetingManager {
                             "templateName": t.name,
                             "goal": t.goal,
                             "kind": t.kind,
+                            "formConfig": e.form_config(),
+                            "formAnswers": e.form_answers(),
                             "mode": match e.mode() {
                                 crate::meeting::guidance::Mode::Auto => "auto",
                                 crate::meeting::guidance::Mode::OnDemand => "on_demand",
@@ -398,7 +401,8 @@ impl MeetingManager {
             )
         };
 
-        let initial_mode = match crate::settings::SettingsStore::load(&self.app_handle)
+        if template.kind == "form" { crate::meeting::live_form::FormConfig::parse(&template.notes)?; }
+        let initial_mode = if template.kind == "form" { crate::meeting::guidance::Mode::Auto } else { match crate::settings::SettingsStore::load(&self.app_handle)
             .ok()
             .and_then(|s| s.guide_overlay_mode())
         {
@@ -406,7 +410,7 @@ impl MeetingManager {
                 crate::meeting::guidance::Mode::OnDemand
             }
             _ => crate::meeting::guidance::Mode::Auto,
-        };
+        } };
         let session_id = uuid::Uuid::new_v4().to_string();
 
         let engine = {
@@ -434,6 +438,7 @@ impl MeetingManager {
             if !seed.is_empty() {
                 engine.seed_rolling(seed);
             }
+            engine.seed_form_history(&transcript_arc.lock().unwrap());
             engines.push(engine.clone());
             engine
         };
@@ -496,6 +501,8 @@ impl MeetingManager {
                 "templateName": template.name,
                 "goal": template.goal,
                 "kind": template.kind,
+                "formConfig": engine.form_config(),
+                "formAnswers": engine.form_answers(),
                 "mode": mode_str,
             }),
         );
@@ -521,6 +528,7 @@ impl MeetingManager {
         let removed = {
             let mut engines = active.guide_engines.lock().unwrap();
             let before = engines.len();
+            for engine in engines.iter().filter(|e| e.session_id() == session_id) { engine.finish_form(); }
             engines.retain(|e| e.session_id() != session_id);
             before != engines.len()
         };
@@ -1051,6 +1059,8 @@ impl MeetingManager {
                 let Some(run_id) = engine.run_id() else {
                     continue;
                 };
+                engine.settle_form(&segments).await;
+                engine.finish_form();
                 let template = engine.template_snapshot();
                 reviewed_template_ids.insert(template.id.clone());
                 let timeline = engine.drain_timeline();
@@ -1083,7 +1093,7 @@ impl MeetingManager {
                         tracing::warn!(target: "guide", ?error, "persist guide run metadata failed");
                     }
                 }
-                if template.kind == "tracker" {
+                if template.kind == "tracker" || template.kind == "form" {
                     // Live notes: the timeline IS the artifact. A rubric
                     // review of note-taking instructions is meaningless, so
                     // complete the run immediately with a stub review (a
@@ -1091,7 +1101,7 @@ impl MeetingManager {
                     // by the interrupted-run sweep at next launch).
                     let stub = serde_json::json!({
                         "overall": "",
-                        "synthesis": "Live notes ran during this meeting — open the coaching timeline below to see how the notes evolved.",
+                        "synthesis": if template.kind == "form" { "Live form answers were captured during this meeting." } else { "Live notes ran during this meeting — open the coaching timeline below to see how the notes evolved." },
                         "scorecard": [],
                         "emergent": [],
                     })

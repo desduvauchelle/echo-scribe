@@ -957,9 +957,9 @@ pub fn emit_levels(app_handle: &AppHandle<Wry>, levels: &[f32]) {
         let _ = overlay.emit("mic-level", levels);
     }
     if let Some(bubble) = app_handle.get_webview_window("activity_bubble") {
-        if bubble.is_visible().unwrap_or(false) {
-            let _ = bubble.emit("mic-level", levels);
-        }
+        // Called on CoreAudio's IO thread: synchronous window getters wait
+        // for the main thread, which can itself be waiting on CoreAudio.
+        let _ = bubble.emit("mic-level", levels);
     }
 }
 

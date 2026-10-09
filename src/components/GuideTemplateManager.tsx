@@ -1,4 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
+import { createPortal } from "react-dom";
+import { Trash2, X } from "lucide-react";
+import Dialog from "./a11y/Dialog";
 import { useTranslation } from "react-i18next";
 import {
   listGuideTemplates,
@@ -13,20 +16,29 @@ import {
 } from "../lib/api";
 import { useToasts } from "./ToastProvider";
 
+import LiveFormEditor from "./LiveFormEditor";
+import { parseFormConfig, starterForm, type FormConfig } from "../lib/liveForm";
+
 type Draft = {
   name: string;
   description: string;
   goal: string;
   notes: string;
   kind: GuideTemplateKind;
+  form: FormConfig;
 };
 
-const EMPTY: Draft = { name: "", description: "", goal: "", notes: "", kind: "checklist" };
+type InsightDraft = Omit<GuideInsightConfig, "template_id" | "updated_at">;
+
+const DEFAULT_INSIGHT: InsightDraft = { enabled: false, show_in_daily_recap: true, insight_kind: "rubric", subject_scope: "you" };
+
+const EMPTY: Draft = { name: "", description: "", goal: "", notes: "", kind: "checklist", form: starterForm() };
 
 const KIND_OPTIONS: { value: GuideTemplateKind }[] = [
   { value: "checklist" },
   { value: "coach" },
   { value: "tracker" },
+  { value: "form" },
 ];
 
 const KIND_VALUES: GuideTemplateKind[] = KIND_OPTIONS.map((option) => option.value);
@@ -39,6 +51,10 @@ export default function GuideTemplateManager() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft>(EMPTY);
   const [creating, setCreating] = useState(false);
+  const [draftInsight, setDraftInsight] = useState<InsightDraft>(DEFAULT_INSIGHT);
+  const [saving, setSaving] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<GuideTemplate | null>(null);
+  const titleId = useId();
 
   const refresh = useCallback(() => {
     Promise.all([listGuideTemplates(), listGuideInsightConfigs()])
@@ -59,16 +75,19 @@ export default function GuideTemplateManager() {
     setCreating(true);
     setEditingId(null);
     setDraft(EMPTY);
+    setDraftInsight(DEFAULT_INSIGHT);
   };
 
   const startEdit = (tmpl: GuideTemplate) => {
     setCreating(false);
     setEditingId(tmpl.id);
+    setDraftInsight(configFor(tmpl));
     setDraft({
       name: tmpl.name,
       description: tmpl.description,
       goal: tmpl.goal,
-      notes: tmpl.notes,
+      notes: tmpl.kind === "form" ? "" : tmpl.notes,
+      form: tmpl.kind === "form" ? parseFormConfig(tmpl.notes) ?? starterForm() : starterForm(),
       kind: KIND_VALUES.includes(tmpl.kind) ? tmpl.kind : "checklist",
     });
   };
@@ -84,38 +103,58 @@ export default function GuideTemplateManager() {
       toasts.push({ tone: "error", message: t("guideTemplateManager.nameRequired") });
       return;
     }
+    if (saving) return;
+    setSaving(true);
     try {
+      let templateId = editingId;
       if (creating) {
-        await createGuideTemplate(
+        const created = await createGuideTemplate(
           draft.name,
           draft.description,
           draft.goal,
-          draft.notes,
+          draft.kind === "form" ? JSON.stringify(draft.form) : draft.notes,
           draft.kind,
         );
+        templateId = created.id;
+        // Keep the created ID if saving its tracking settings fails, so retry
+        // updates this template instead of creating a duplicate.
+        setEditingId(created.id);
+        setCreating(false);
       } else if (editingId) {
         await updateGuideTemplate(
           editingId,
           draft.name,
           draft.description,
           draft.goal,
-          draft.notes,
+          draft.kind === "form" ? JSON.stringify(draft.form) : draft.notes,
           draft.kind,
         );
+      }
+      if (templateId && draft.kind !== "tracker" && draft.kind !== "form") {
+        await setGuideInsightConfig({ ...draftInsight, template_id: templateId });
       }
       cancel();
       refresh();
     } catch (e) {
+      refresh();
       toasts.push({ tone: "error", message: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setSaving(false);
     }
   };
 
   const remove = async (id: string) => {
+    if (saving) return;
+    setSaving(true);
     try {
       await deleteGuideTemplate(id);
+      if (editingId === id) cancel();
+      setPendingDelete(null);
       refresh();
     } catch (e) {
       toasts.push({ tone: "error", message: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -129,26 +168,10 @@ export default function GuideTemplateManager() {
       updated_at: "",
     };
 
-  const saveInsightConfig = async (
-    template: GuideTemplate,
-    patch: Partial<Omit<GuideInsightConfig, "template_id" | "updated_at">>,
-  ) => {
-    const next = { ...configFor(template), ...patch };
-    setInsightConfigs((current) => ({ ...current, [template.id]: next }));
-    try {
-      const saved = await setGuideInsightConfig(next);
-      setInsightConfigs((current) => ({ ...current, [template.id]: saved }));
-    } catch (error) {
-      refresh();
-      toasts.push({
-        tone: "error",
-        message: error instanceof Error ? error.message : String(error),
-      });
-    }
-  };
-
   const editor = (
-    <div className="flex flex-col gap-2 rounded-md border border-line bg-canvas p-3">
+    <fieldset disabled={saving} className="flex min-w-0 flex-col gap-4 disabled:opacity-70">
+      <label className="flex flex-col gap-1 text-xs text-muted">
+        {t("guideTemplateManager.nameAriaLabel")}
       <input
         className="rounded-md border border-line bg-canvas px-2 py-1 text-sm focus:border-accent focus:outline-none"
         placeholder={t("guideTemplateManager.namePlaceholder")}
@@ -156,6 +179,9 @@ export default function GuideTemplateManager() {
         value={draft.name}
         onChange={(e) => setDraft({ ...draft, name: e.target.value })}
       />
+      </label>
+      <label className="flex flex-col gap-1 text-xs text-muted">
+        {t("guideTemplateManager.descriptionAriaLabel")}
       <input
         className="rounded-md border border-line bg-canvas px-2 py-1 text-sm focus:border-accent focus:outline-none"
         placeholder={t("guideTemplateManager.descriptionPlaceholder")}
@@ -163,6 +189,8 @@ export default function GuideTemplateManager() {
         value={draft.description}
         onChange={(e) => setDraft({ ...draft, description: e.target.value })}
       />
+      </label>
+      <h3 className="border-t border-line pt-4 text-sm font-semibold">{t("guideTemplateManager.duringMeeting")}</h3>
       <label className="flex flex-col gap-1 text-[11px] text-muted">
         {t("guideTemplateManager.guideStyleLabel")}
         <select
@@ -179,6 +207,8 @@ export default function GuideTemplateManager() {
         </select>
         <span>{t(`guideTemplateManager.kind.${draft.kind}.hint`)}</span>
       </label>
+      <label className="flex flex-col gap-1 text-xs text-muted">
+        {t("guideTemplateManager.goalAriaLabel")}
       <textarea
         className="min-h-[48px] rounded-md border border-line bg-canvas px-2 py-1 text-sm focus:border-accent focus:outline-none"
         placeholder={t("guideTemplateManager.goalPlaceholder")}
@@ -186,44 +216,98 @@ export default function GuideTemplateManager() {
         value={draft.goal}
         onChange={(e) => setDraft({ ...draft, goal: e.target.value })}
       />
-      <textarea
+      </label>
+      {draft.kind === "form" ? <LiveFormEditor value={draft.form} onChange={form => setDraft({ ...draft, form })} /> : <label className="flex flex-col gap-1 text-xs text-muted">{t("guideTemplateManager.notesAriaLabel")}<textarea
         className="min-h-[96px] rounded-md border border-line bg-canvas px-2 py-1 text-sm focus:border-accent focus:outline-none"
         placeholder={t(`guideTemplateManager.kind.${draft.kind}.notesPlaceholder`)}
         aria-label={t("guideTemplateManager.notesAriaLabel")}
         value={draft.notes}
         onChange={(e) => setDraft({ ...draft, notes: e.target.value })}
-      />
-      <div className="flex gap-2">
+      /></label>}
+      {draft.kind !== "tracker" && draft.kind !== "form" && (
+        <section className="space-y-3 border-t border-line pt-4">
+          <h3 className="text-sm font-semibold">{t("guideTemplateManager.afterMeeting")}</h3>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={draftInsight.enabled} onChange={event => setDraftInsight({ ...draftInsight, enabled: event.target.checked })} />
+            {t("guideTemplateManager.trackAfterMeetings")}
+          </label>
+          <p className="text-xs leading-relaxed text-muted">{t("guideTemplateManager.description")}</p>
+          {draftInsight.enabled && (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="flex flex-col gap-1 text-xs text-muted">
+                {t("guideTemplateManager.measureLabel")}
+                <select className="rounded-md border border-line bg-canvas px-2 py-1.5 text-sm text-fg" value={draftInsight.insight_kind} onChange={event => setDraftInsight({ ...draftInsight, insight_kind: event.target.value as GuideInsightConfig["insight_kind"] })}>
+                  <option value="rubric">{t("guideTemplateManager.rubricPerformance")}</option>
+                  <option value="signals">{t("guideTemplateManager.conversationSignals")}</option>
+                </select>
+              </label>
+              <label className="flex flex-col gap-1 text-xs text-muted">
+                {t("guideTemplateManager.analyzeLabel")}
+                <select className="rounded-md border border-line bg-canvas px-2 py-1.5 text-sm text-fg" value={draftInsight.subject_scope} onChange={event => setDraftInsight({ ...draftInsight, subject_scope: event.target.value as GuideInsightConfig["subject_scope"] })}>
+                  <option value="you">{t("guideTemplateManager.mySpeech")}</option>
+                  <option value="them">{t("guideTemplateManager.otherSide")}</option>
+                  <option value="interaction">{t("guideTemplateManager.theInteraction")}</option>
+                </select>
+              </label>
+              <label className="flex items-center gap-2 text-xs sm:col-span-2">
+                <input type="checkbox" checked={draftInsight.show_in_daily_recap} onChange={event => setDraftInsight({ ...draftInsight, show_in_daily_recap: event.target.checked })} />
+                {t("guideTemplateManager.showResultsInDailyRecap")}
+              </label>
+            </div>
+          )}
+        </section>
+      )}
+    </fieldset>
+  );
+
+  const modal = !pendingDelete && (creating || editingId) && createPortal(
+    <Dialog onClose={cancel} dismissible={!saving} labelledBy={titleId}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 backdrop-blur-sm sm:p-6"
+      panelClassName="flex max-h-[90dvh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-line bg-surface text-fg shadow-2xl">
+      <header className="flex shrink-0 items-center justify-between gap-3 border-b border-line px-5 py-4">
+        <h2 id={titleId} className="text-base font-semibold">{t(creating ? "guideTemplateManager.createTitle" : "guideTemplateManager.editTitle")}</h2>
+        <button type="button" onClick={cancel} disabled={saving} aria-label={t("guideTemplateManager.closeEditor")} className="rounded-md p-1.5 hover:bg-elevated disabled:opacity-50"><X size={18} aria-hidden="true" /></button>
+      </header>
+      <div className="min-h-0 overflow-y-auto px-5 py-4">{editor}</div>
+      <footer className="flex shrink-0 justify-end gap-2 border-t border-line px-5 py-3">
+        {editingId && !creating && <button
+          type="button"
+          className="mr-auto flex items-center gap-1 rounded-md px-2 py-1 text-xs text-danger hover:bg-danger/15 disabled:opacity-50"
+          disabled={saving}
+          onClick={() => setPendingDelete(items.find(item => item.id === editingId) ?? null)}
+        >
+          <Trash2 size={14} aria-hidden="true" />
+          {t("guideTemplateManager.deleteTemplate")}
+        </button>}
         <button
           type="button"
           className="rounded-md bg-accent px-3 py-1 text-xs font-semibold text-canvas hover:bg-accent-hover"
+          disabled={saving}
           onClick={() => void save()}
         >
-          {t("guideTemplateManager.saveButton")}
+          {t(saving ? "guideTemplateManager.savingButton" : "guideTemplateManager.saveButton")}
         </button>
         <button
           type="button"
           className="rounded border border-line px-2 py-0.5 text-xs hover:bg-elevated"
+          disabled={saving}
           onClick={cancel}
         >
           {t("guideTemplateManager.cancelButton")}
         </button>
-      </div>
-    </div>
+      </footer>
+    </Dialog>, document.body,
   );
 
   return (
     <div className="flex flex-col gap-3">
       <p className="text-xs leading-relaxed text-muted">
-        {t("guideTemplateManager.description")}
+        {t("guideTemplateManager.listDescription")}
       </p>
       {items.length === 0 && !creating && (
         <p className="text-xs text-muted">{t("guideTemplateManager.emptyState")}</p>
       )}
-      {items.map((tmpl) =>
-        editingId === tmpl.id ? (
-          <div key={tmpl.id}>{editor}</div>
-        ) : (
+      {items.map((tmpl) => (
           <div key={tmpl.id} className="rounded-md border border-line bg-surface px-3 py-2">
             <div className="flex items-center justify-between gap-2">
               <div className="min-w-0 flex-1">
@@ -250,93 +334,40 @@ export default function GuideTemplateManager() {
                 <button
                   type="button"
                   className="rounded border border-line px-2 py-0.5 text-xs hover:bg-danger/15 hover:text-danger"
-                  onClick={() => void remove(tmpl.id)}
+                  onClick={() => setPendingDelete(tmpl)}
                 >
                   {t("guideTemplateManager.deleteButton")}
                 </button>
               </div>
             </div>
-            {(() => {
-              // Trackers produce live notes, not a gradable rubric — the
-              // post-meeting insight review doesn't apply to them.
-              if (tmpl.kind === "tracker") return null;
-              const config = configFor(tmpl);
-              return (
-                <div className="mt-2 border-t border-line pt-2">
-                  <label className="flex items-center gap-2 text-xs text-fg">
-                    <input
-                      type="checkbox"
-                      checked={config.enabled}
-                      onChange={(event) =>
-                        void saveInsightConfig(tmpl, { enabled: event.target.checked })
-                      }
-                    />
-                    {t("guideTemplateManager.trackAfterMeetings")}
-                  </label>
-                  {config.enabled && (
-                    <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                      <label className="flex flex-col gap-1 text-[11px] text-muted">
-                        {t("guideTemplateManager.measureLabel")}
-                        <select
-                          className="rounded border border-line bg-canvas px-2 py-1 text-xs text-fg"
-                          value={config.insight_kind}
-                          onChange={(event) =>
-                            void saveInsightConfig(tmpl, {
-                              insight_kind: event.target.value as GuideInsightConfig["insight_kind"],
-                            })
-                          }
-                        >
-                          <option value="rubric">{t("guideTemplateManager.rubricPerformance")}</option>
-                          <option value="signals">{t("guideTemplateManager.conversationSignals")}</option>
-                        </select>
-                      </label>
-                      <label className="flex flex-col gap-1 text-[11px] text-muted">
-                        {t("guideTemplateManager.analyzeLabel")}
-                        <select
-                          className="rounded border border-line bg-canvas px-2 py-1 text-xs text-fg"
-                          value={config.subject_scope}
-                          onChange={(event) =>
-                            void saveInsightConfig(tmpl, {
-                              subject_scope: event.target.value as GuideInsightConfig["subject_scope"],
-                            })
-                          }
-                        >
-                          <option value="you">{t("guideTemplateManager.mySpeech")}</option>
-                          <option value="them">{t("guideTemplateManager.otherSide")}</option>
-                          <option value="interaction">{t("guideTemplateManager.theInteraction")}</option>
-                        </select>
-                      </label>
-                      <label className="flex items-center gap-2 text-xs text-fg sm:col-span-2">
-                        <input
-                          type="checkbox"
-                          checked={config.show_in_daily_recap}
-                          onChange={(event) =>
-                            void saveInsightConfig(tmpl, {
-                              show_in_daily_recap: event.target.checked,
-                            })
-                          }
-                        />
-                        {t("guideTemplateManager.showResultsInDailyRecap")}
-                      </label>
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
           </div>
-        ),
+      ))}
+      {modal}
+      {pendingDelete && createPortal(
+        <Dialog alert onClose={() => setPendingDelete(null)} dismissible={!saving}
+          label={t("guideTemplateManager.deleteTitle")}
+          panelClassName="w-full max-w-md rounded-xl border border-line bg-surface p-5 text-fg shadow-2xl">
+          <h2 className="text-base font-semibold">{t("guideTemplateManager.deleteTitle")}</h2>
+          <p className="mt-3 text-sm text-muted">{t("guideTemplateManager.deleteConfirmation", { name: pendingDelete.name })}</p>
+          <div className="mt-5 flex justify-end gap-2">
+            <button type="button" disabled={saving} onClick={() => setPendingDelete(null)}
+              className="rounded-md border border-line px-3 py-1.5 text-xs hover:bg-elevated disabled:opacity-50">
+              {t("guideTemplateManager.cancelButton")}
+            </button>
+            <button type="button" disabled={saving} onClick={() => void remove(pendingDelete.id)}
+              className="rounded-md bg-danger px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">
+              {t(saving ? "guideTemplateManager.deletingButton" : "guideTemplateManager.deleteTemplate")}
+            </button>
+          </div>
+        </Dialog>, document.body,
       )}
-      {creating ? (
-        editor
-      ) : (
-        <button
+      <button
           type="button"
           className="self-start rounded border border-line px-2 py-0.5 text-xs hover:bg-elevated"
           onClick={startCreate}
         >
           {t("guideTemplateManager.newTemplateButton")}
-        </button>
-      )}
+      </button>
     </div>
   );
 }

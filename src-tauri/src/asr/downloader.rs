@@ -183,13 +183,13 @@ mod tests {
     #[test]
     fn storage_dir_is_under_data_dir() {
         let p = model_storage_dir();
-        assert!(p.ends_with("EchoScribe/models"));
+        assert!(p.ends_with(format!("{}/models", crate::data_folder_name())));
     }
 
     #[test]
     fn model_dir_uses_model_id() {
         let m = super::super::registry::lookup("parakeet-v3").unwrap();
         let d = model_dir(m);
-        assert!(d.ends_with("EchoScribe/models/parakeet-v3"));
+        assert!(d.ends_with(format!("{}/models/parakeet-v3", crate::data_folder_name())));
     }
 }

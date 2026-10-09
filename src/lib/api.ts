@@ -1,3 +1,4 @@
+import type { FormConfig, FormAnswer } from "./liveForm";
 import { invoke } from "@tauri-apps/api/core";
 
 export type ModKind = "Control" | "Shift" | "Alt" | "Meta";
@@ -1466,7 +1467,7 @@ export const dailyRecapNotificationPermissionStatus = (): Promise<boolean> =>
  *  - "checklist" — track coverage of agenda points from the notes.
  *  - "coach" — notes are principles; contextual nudges, silence is normal.
  *  - "tracker" — silent note-taker; key points are the live bullet notes. */
-export type GuideTemplateKind = "checklist" | "coach" | "tracker";
+export type GuideTemplateKind = "checklist" | "coach" | "tracker" | "form";
 
 export type GuideTemplate = {
   id: string;
@@ -1574,7 +1575,12 @@ export type GuideKeyPoint = {
   status: "covered" | "partial" | "open" | string;
 };
 
+export const guideEditFormAnswer = (sessionId: string, fieldId: string, value: string): Promise<void> =>
+  invoke("guide_edit_form_answer", { sessionId, fieldId, value });
+
 export type GuideInit = {
+  formConfig?: FormConfig | null;
+  formAnswers?: FormAnswer[];
   sessionId: string;
   slot: number;
   templateName: string;
@@ -1584,6 +1590,8 @@ export type GuideInit = {
 };
 
 export type GuideUpdate = {
+  formConfig?: FormConfig | null;
+  formAnswers?: FormAnswer[];
   sessionId: string;
   slot: number;
   meetingId: string;
@@ -2090,6 +2098,7 @@ export type GuideReview = {
 };
 
 export type TimelineEntry = {
+  form_answers?: FormAnswer[];
   at: string;
   key_points: { id: string; label: string; status: string }[];
   suggestions: string[];
@@ -2145,6 +2154,36 @@ export type ProjectAssistantReport = {
 export const runProjectAssistant = (request: string): Promise<ProjectAssistantReport> => invoke("run_project_assistant", { request });
 export const getProjectAssistantReport = (): Promise<ProjectAssistantReport | null> => invoke("get_project_assistant_report");
 export const stopProjectAssistant = (): Promise<void> => invoke("stop_project_assistant");
+
+export type GmailAccount = { id: string; email: string; connected_at: string };
+export type GmailFields = { to: string; cc: string; subject: string; body: string };
+export type GmailMessage = {
+  id: string; thread_id: string; from: string; to: string; cc: string; reply_to: string;
+  subject: string; date: string; snippet: string; body: string; partial: boolean;
+  message_id: string; references: string;
+};
+export type GmailDraft = {
+  id: string; account_id: string; from: string; revision: number; fields: GmailFields;
+  reply_to: GmailMessage | null; gmail_id: string | null; saved_revision: number | null;
+  status: "review" | "saving" | "sending" | "sent" | "write_unknown";
+  sent_message_id: string | null;
+};
+export type GmailSource = { account_id: string; account: string; thread_id: string; subject: string; from: string; date: string };
+export type GmailReport = { request: string; status: string; answer: string; sources: GmailSource[]; draft: GmailDraft | null };
+export type GmailFocus = { draft_id: string; revision: number; fields: GmailFields; selection: string | null };
+export const gmailStatus = (): Promise<{ configured: boolean; accounts: GmailAccount[] }> => invoke("gmail_status");
+export const gmailImportClient = (): Promise<boolean> => invoke("gmail_import_client");
+export const gmailConnect = (): Promise<GmailAccount> => invoke("gmail_connect");
+export const gmailDisconnect = (accountId: string): Promise<void> => invoke("gmail_disconnect", { accountId });
+export const gmailOpenAssistant = (): Promise<void> => invoke("gmail_open_assistant");
+export const gmailAssistantState = (): Promise<{ report: GmailReport | null; draft: GmailDraft | null; busy: boolean }> => invoke("gmail_assistant_state");
+export const gmailRunAssistant = (request: string, focus: GmailFocus | null = null): Promise<GmailReport> => invoke("gmail_run_assistant", { request, focus });
+export const gmailStopAssistant = (): Promise<void> => invoke("gmail_stop_assistant");
+export const gmailUpdateDraft = (draftId: string, revision: number, fields: GmailFields): Promise<GmailDraft> => invoke("gmail_update_draft", { draftId, revision, fields });
+export const gmailSaveDraft = (draftId: string, revision: number): Promise<GmailDraft> => invoke("gmail_save_draft", { draftId, revision });
+export const gmailSendDraft = (draftId: string, revision: number): Promise<GmailDraft> => invoke("gmail_send_draft", { draftId, revision });
+export const gmailOpenDraft = (draftId: string): Promise<void> => invoke("gmail_open_draft", { draftId });
+export const gmailOpenThread = (accountId: string, threadId: string): Promise<void> => invoke("gmail_open_thread", { accountId, threadId });
 
 export const getLowMemoryMode = (): Promise<boolean> => invoke("get_low_memory_mode");
 export const setLowMemoryMode = (enabled: boolean): Promise<void> =>

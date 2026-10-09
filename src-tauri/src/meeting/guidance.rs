@@ -10,6 +10,7 @@
 //! own lock; the guard here only prevents the guidance loop piling jobs
 //! onto itself, which would otherwise sustain Gemma resident under load.
 
+use super::live_form::{self, FormAnswer, FormConfig};
 use crate::db::guide_templates::GuideTemplate;
 use crate::llm::engine::GenerateRequest;
 use crate::llm::Llm;
@@ -58,6 +59,8 @@ pub struct TimelineEntry {
     pub at: String,
     pub key_points: Vec<DerivedPoint>,
     pub suggestions: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub form_answers: Vec<FormAnswer>,
 }
 
 /// One LLM response, mirrored exactly to the JSON schema we ask for.
@@ -67,6 +70,8 @@ pub struct GuidanceResponse {
     pub key_points: Vec<DerivedPoint>,
     #[serde(default)]
     pub suggestions: Vec<String>,
+    #[serde(default)]
+    pub form_answers: Vec<FormAnswer>,
 }
 
 /// Token budget for the rolling transcript window passed to the LLM. Chosen
@@ -80,6 +85,49 @@ const GUIDANCE_MAX_TOKENS: usize = 384;
 /// Trackers maintain up to 10 bullet notes (vs 3-6 checklist points), so
 /// their JSON needs more room.
 const TRACKER_MAX_TOKENS: usize = 640;
+
+fn trim_form_segments(segments: &mut Vec<Segment>) {
+    let mut bytes: usize = segments.iter().map(|s| s.text.len()).sum();
+    while bytes > ROLLING_BYTES && segments.len() > 1 {
+        bytes -= segments.remove(0).text.len();
+    }
+}
+
+/// Called under the engine state lock so manual edits and model results cannot
+/// race their durable snapshots or emitted UI state.
+fn record_form(inner: &Inner, st: &mut State) -> Result<(), String> {
+    if st
+        .timeline
+        .last()
+        .map_or(true, |e| e.form_answers != st.form_answers)
+    {
+        st.timeline.push(TimelineEntry {
+            at: chrono::Utc::now().to_rfc3339(),
+            key_points: vec![],
+            suggestions: vec![],
+            form_answers: st.form_answers.clone(),
+        });
+        if st.timeline.len() > TIMELINE_CAP {
+            st.timeline.remove(0);
+        }
+    }
+    let run_id = inner
+        .run_id
+        .lock()
+        .unwrap()
+        .clone()
+        .ok_or("Form run is not ready")?;
+    let state = inner
+        .app
+        .try_state::<crate::commands::AppState>()
+        .ok_or("App state unavailable")?;
+    let db = state.db.as_ref().ok_or("Database unavailable")?;
+    let json = serde_json::to_string(&st.timeline).map_err(|e| e.to_string())?;
+    db.with_conn(|c| {
+        crate::db::meeting_guide_runs::update_guide_run_timeline(c, &run_id, Some(&json))
+    })
+    .map_err(|e| e.to_string())
+}
 
 /// Suffix of `s` at most `max` bytes long, aligned to a char boundary and —
 /// when possible — to the start of a line so seeded context never opens
@@ -142,6 +190,7 @@ struct Inner {
     /// `true` while a guidance LLM call is running. Forms the skip-if-busy
     /// gate so the loop can't enqueue over itself.
     in_flight: AtomicBool,
+    closed: AtomicBool,
     state: Mutex<State>,
     /// The `meeting_guide_runs.id` this engine writes its timeline/review to.
     run_id: Mutex<Option<String>>,
@@ -162,6 +211,10 @@ struct State {
     /// the prompt so the model doesn't repeat or rephrase advice it already
     /// gave. Bounded to `RECENT_SUGGESTIONS_CAP`.
     recent_suggestions: Vec<String>,
+    form_answers: Vec<FormAnswer>,
+    form_segments: Vec<Segment>,
+    revision: u64,
+    analyzed_revision: u64,
 }
 
 /// Max timeline entries kept per guide run (deduped changes over the call).
@@ -183,6 +236,7 @@ fn push_timeline_if_changed(
             at: now.to_string(),
             key_points: key_points.to_vec(),
             suggestions: suggestions.to_vec(),
+            form_answers: vec![],
         });
     }
 }
@@ -247,6 +301,7 @@ impl GuidanceEngine {
                 app,
                 mode: Mutex::new(initial_mode),
                 in_flight: AtomicBool::new(false),
+                closed: AtomicBool::new(false),
                 state: Mutex::new(State::default()),
                 run_id: Mutex::new(None),
             }),
@@ -271,6 +326,110 @@ impl GuidanceEngine {
         self.inner.template.clone()
     }
 
+    pub fn form_config(&self) -> Option<FormConfig> {
+        (self.inner.template.kind == "form")
+            .then(|| FormConfig::parse(&self.inner.template.notes).ok())
+            .flatten()
+    }
+
+    pub fn form_answers(&self) -> Vec<FormAnswer> {
+        self.inner.state.lock().unwrap().form_answers.clone()
+    }
+
+    pub fn seed_form_history(&self, history: &[Segment]) {
+        if self.inner.template.kind != "form" {
+            return;
+        }
+        let mut st = self.inner.state.lock().unwrap();
+        st.form_segments = history.to_vec();
+        trim_form_segments(&mut st.form_segments);
+        st.revision += 1;
+    }
+
+    pub fn edit_form_answer(&self, id: &str, value: &str) -> Result<(), String> {
+        let config = self.form_config().ok_or("Not a live form guide")?;
+        let mut st = self.inner.state.lock().unwrap();
+        if self.inner.closed.load(Ordering::Acquire) {
+            return Err("Guide has ended".into());
+        }
+        live_form::edit_answer(&config, &mut st.form_answers, id, value)?;
+        record_form(&self.inner, &mut st)?;
+        emit_update(
+            &self.inner,
+            &GuidanceResponse {
+                form_answers: st.form_answers.clone(),
+                ..Default::default()
+            },
+        );
+        Ok(())
+    }
+
+    /// Stop accepting in-flight updates before lifecycle persists the final state.
+    /// Form snapshots are already durable during the call, including on detach.
+    pub fn finish_form(&self) {
+        if self.inner.template.kind != "form" {
+            return;
+        }
+        let mut st = self.inner.state.lock().unwrap();
+        self.inner.closed.store(true, Ordering::Release);
+        if let Err(error) = record_form(&self.inner, &mut st) {
+            warn!(%error, "[guide] final form persistence failed");
+        }
+        if let (Some(run_id), Some(state)) = (
+            self.run_id(),
+            self.inner.app.try_state::<crate::commands::AppState>(),
+        ) {
+            if let Some(db) = state.db.as_ref() {
+                let review = r#"{"overall":"","synthesis":"Live form answers were captured during this meeting.","scorecard":[],"emergent":[]}"#;
+                let _ = db.with_conn(|c| {
+                    crate::db::meeting_guide_runs::update_guide_run_review(
+                        c,
+                        &run_id,
+                        Some(review),
+                        "ready",
+                        Some(&chrono::Utc::now().to_rfc3339()),
+                    )
+                });
+            }
+        }
+    }
+
+    pub async fn settle_form(&self, history: &[Segment]) {
+        if self.inner.template.kind != "form" || self.mode() != Mode::Auto {
+            return;
+        }
+        // Stop background coalescing, wait for the current result, then process
+        // any final ASR segments before the meeting's form is closed.
+        self.set_mode(Mode::OnDemand);
+        self.seed_form_history(history);
+        let wait = async {
+            while self.inner.in_flight.load(Ordering::Acquire) {
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+        };
+        if tokio::time::timeout(std::time::Duration::from_secs(120), wait)
+            .await
+            .is_err()
+        {
+            warn!("[guide] form finalization timed out; keeping durable answers");
+            return;
+        }
+        let needs_final = {
+            let st = self.inner.state.lock().unwrap();
+            st.revision != st.analyzed_revision
+        };
+        if needs_final {
+            if let Err(error) = tokio::time::timeout(
+                std::time::Duration::from_secs(120),
+                run_one_cycle(&self.inner),
+            )
+            .await
+            {
+                warn!(%error, "[guide] final form extraction timed out");
+            }
+        }
+    }
+
     pub fn mode(&self) -> Mode {
         *self.inner.mode.lock().unwrap()
     }
@@ -284,6 +443,14 @@ impl GuidanceEngine {
     pub fn ingest_segment(&self, seg: &Segment) -> bool {
         {
             let mut st = self.inner.state.lock().unwrap();
+            if self.inner.closed.load(Ordering::Acquire) {
+                return false;
+            }
+            if self.inner.template.kind == "form" {
+                st.form_segments.push(seg.clone());
+                trim_form_segments(&mut st.form_segments);
+                st.revision += 1;
+            }
             // Append a speaker tag so the LLM can attribute lines.
             let tag = match seg.speaker {
                 crate::meeting::Speaker::You => "you",
@@ -342,6 +509,9 @@ impl GuidanceEngine {
     /// Run one cycle. Returns immediately if a cycle is already in flight
     /// (skip-if-busy). Spawns a background task — fire and forget.
     pub fn fire_cycle(&self) {
+        if self.inner.closed.load(Ordering::Acquire) {
+            return;
+        }
         // CAS the in-flight gate.
         if self
             .inner
@@ -362,8 +532,25 @@ impl GuidanceEngine {
                 }
             }
             let _g = Guard(&inner.in_flight);
-            if let Err(e) = run_one_cycle(&inner).await {
-                warn!(meeting = %inner.meeting_id, error = %e, "[guide] cycle failed");
+            loop {
+                let revision = inner.state.lock().unwrap().revision;
+                if let Err(e) = run_one_cycle(&inner).await {
+                    warn!(meeting = %inner.meeting_id, error = %e, "[guide] cycle failed");
+                    if inner.template.kind == "form" && !inner.closed.load(Ordering::Acquire) {
+                        let _ = inner.app.emit(
+                            "guide-error",
+                            serde_json::json!({"sessionId":inner.session_id}),
+                        );
+                    }
+                    break;
+                }
+                if inner.template.kind != "form"
+                    || inner.closed.load(Ordering::Acquire)
+                    || *inner.mode.lock().unwrap() != Mode::Auto
+                    || inner.state.lock().unwrap().revision == revision
+                {
+                    break;
+                }
             }
         });
     }
@@ -380,15 +567,34 @@ async fn run_one_cycle(inner: &Inner) -> Result<(), String> {
         return Ok(());
     }
 
-    let (system, user) = crate::llm::prompt::build_guidance_prompt(
-        &inner.template.kind,
-        &inner.template.goal,
-        &inner.template.notes,
-        &rolling,
-        Some(&prior_json),
-        &recent,
-    );
-    let max_tokens = if inner.template.kind == "tracker" {
+    let form_config = if inner.template.kind == "form" {
+        Some(FormConfig::parse(&inner.template.notes)?)
+    } else {
+        None
+    };
+    let (form_segments, form_revision) = {
+        let st = inner.state.lock().unwrap();
+        (st.form_segments.clone(), st.revision)
+    };
+    let (system, user) = if let Some(config) = &form_config {
+        live_form::build_prompt(
+            config,
+            &form_segments,
+            &inner.state.lock().unwrap().form_answers,
+        )
+    } else {
+        crate::llm::prompt::build_guidance_prompt(
+            &inner.template.kind,
+            &inner.template.goal,
+            &inner.template.notes,
+            &rolling,
+            Some(&prior_json),
+            &recent,
+        )
+    };
+    let max_tokens = if let Some(config) = &form_config {
+        256 + config.fields.len() * 160
+    } else if inner.template.kind == "tracker" {
         TRACKER_MAX_TOKENS
     } else {
         GUIDANCE_MAX_TOKENS
@@ -406,7 +612,7 @@ async fn run_one_cycle(inner: &Inner) -> Result<(), String> {
             temperature,
             stop_strings: Vec::new(),
             grammar_gbnf: None,
-            n_ctx: Some(4096),
+            n_ctx: Some(if form_config.is_some() { 8192 } else { 4096 }),
         };
         let raw = match inner.llm.generate(req).await {
             Ok(r) => r,
@@ -423,6 +629,28 @@ async fn run_one_cycle(inner: &Inner) -> Result<(), String> {
         let trimmed = isolate_json_object(&raw).unwrap_or_else(|| raw.clone());
         match serde_json::from_str::<GuidanceResponse>(&trimmed) {
             Ok(resp) => {
+                if let Some(config) = &form_config {
+                    let mut st = inner.state.lock().unwrap();
+                    if inner.closed.load(Ordering::Acquire) {
+                        return Ok(());
+                    }
+                    live_form::merge_answers(
+                        config,
+                        &mut st.form_answers,
+                        resp.form_answers,
+                        &form_segments,
+                    );
+                    st.analyzed_revision = form_revision;
+                    record_form(inner, &mut st)?;
+                    emit_update(
+                        inner,
+                        &GuidanceResponse {
+                            form_answers: st.form_answers.clone(),
+                            ..Default::default()
+                        },
+                    );
+                    return Ok(());
+                }
                 emit_update(inner, &resp);
                 let now = chrono::Utc::now().to_rfc3339();
                 let mut st = inner.state.lock().unwrap();
@@ -499,6 +727,8 @@ fn emit_update(inner: &Inner, resp: &GuidanceResponse) {
             Mode::OnDemand => "on_demand",
         },
         "keyPoints": resp.key_points,
+        "formConfig": if inner.template.kind == "form" { FormConfig::parse(&inner.template.notes).ok() } else { None },
+        "formAnswers": resp.form_answers,
         "suggestions": resp.suggestions,
         "updatedAt": chrono::Utc::now().to_rfc3339(),
     });
@@ -658,6 +888,7 @@ mod tests {
                 at: format!("t{i}"),
                 key_points: vec![],
                 suggestions: vec![],
+                form_answers: vec![],
             })
             .collect();
         let capped = cap_timeline(all, "m");
@@ -669,6 +900,7 @@ mod tests {
                 at: format!("t{i}"),
                 key_points: vec![],
                 suggestions: vec![],
+                form_answers: vec![],
             })
             .collect();
         assert_eq!(cap_timeline(small, "m").len(), 3); // under cap → untouched

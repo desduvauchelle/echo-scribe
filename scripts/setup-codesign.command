@@ -18,7 +18,7 @@
 
 set -euo pipefail
 
-CN="Echo Scribe Local Dev"
+CN="Tucky Local Dev"
 WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
 
@@ -41,14 +41,14 @@ else
     /usr/bin/openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
         -keyout "$WORKDIR/key.pem" \
         -out "$WORKDIR/cert.pem" \
-        -subj "/CN=$CN/O=Echo Scribe Local/C=US" \
+        -subj "/CN=$CN/O=Tucky Local/C=US" \
         -addext "extendedKeyUsage=codeSigning,1.3.6.1.5.5.7.3.3" \
         -addext "basicConstraints=critical,CA:false" \
         -addext "keyUsage=critical,digitalSignature" \
         >/dev/null 2>&1
 
     echo "==> Bundling into PKCS#12…"
-    P12_PASS="echoscribe-temp"
+    P12_PASS="tucky-temp"
     /usr/bin/openssl pkcs12 -export \
         -inkey "$WORKDIR/key.pem" \
         -in "$WORKDIR/cert.pem" \

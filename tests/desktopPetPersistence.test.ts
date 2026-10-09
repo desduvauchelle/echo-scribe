@@ -6,6 +6,15 @@ const settings = readFileSync(new URL("../src-tauri/src/settings.rs", import.met
 const tray = readFileSync(new URL("../src-tauri/src/ui/tray.rs", import.meta.url), "utf8");
 
 // Wiring checks: native windows require the macOS application event loop.
+test("pet and focus windows follow the user across desktop workspaces", () => {
+  for (const label of ["desktop_pet", "desktop_pet_focus"]) {
+    const builder = pet.slice(pet.indexOf(`app,\n        "${label}"`) >= 0
+      ? pet.indexOf(`app,\n        "${label}"`)
+      : pet.indexOf(`app, "${label}"`));
+    expect(builder.slice(0, builder.indexOf(".build()"))).toContain(".visible_on_all_workspaces(true)");
+  }
+});
+
 test("pet visibility has a durable setting with a hidden default", () => {
   expect(settings).toMatch(/pub fn desktop_pet_visible\(&self\)[\s\S]*?get\("desktop_pet_visible"\)[\s\S]*?unwrap_or\(false\)/);
   expect(settings).toMatch(/pub fn set_desktop_pet_visible[\s\S]*?\.store\.save\(\)/);

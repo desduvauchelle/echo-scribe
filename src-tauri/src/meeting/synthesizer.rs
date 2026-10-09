@@ -122,10 +122,65 @@ const CONDENSE_CHUNK_BYTES: usize = 15_000;
 
 fn detected_output_language(text: &str) -> Option<&'static str> {
     let info = whatlang::detect(text)?;
-    // Meeting transcripts are long, so a reliable result should be decisive.
-    // If detection is uncertain, retain the existing model-inference fallback
-    // instead of confidently pinning the wrong language.
-    info.is_reliable().then(|| info.lang().eng_name())
+    if info.is_reliable() {
+        return Some(info.lang().eng_name());
+    }
+    // Code-switching makes whole-transcript detection uncertain. Vote using
+    // reliable individual utterances instead of leaving every LLM pass free
+    // to pick an unrelated language. Ignore speaker labels and short noise.
+    let mut votes = std::collections::BTreeMap::new();
+    for line in text.lines() {
+        let utterance = line
+            .strip_prefix("You: ")
+            .or_else(|| line.strip_prefix("Them: "))
+            .unwrap_or(line)
+            .trim();
+        if utterance.chars().count() < 40 {
+            continue;
+        }
+        if let Some(info) = whatlang::detect(utterance).filter(|i| i.is_reliable()) {
+            *votes.entry(info.lang().eng_name()).or_insert(0usize) += utterance.chars().count();
+        }
+    }
+    votes
+        .into_iter()
+        .max_by_key(|(_, weight)| *weight)
+        .map(|(language, _)| language)
+}
+
+fn wrong_output_language(text: &str, expected: Option<&str>) -> bool {
+    let Some(expected) = expected else {
+        return false;
+    };
+    whatlang::detect(text)
+        .is_some_and(|info| info.is_reliable() && info.lang().eng_name() != expected)
+}
+
+/// Share the language guard between condensation and final notes. Do not feed
+/// a rejected response into history: it would prime the same language again.
+async fn generate_language_checked(
+    llm: &impl crate::llm::LlmGenerator,
+    req: GenerateRequest,
+    output_language: Option<&str>,
+) -> Result<String, String> {
+    for attempt in 0..2 {
+        let mut request = req.clone();
+        if attempt > 0 {
+            request.temperature = 0.0;
+            if let Some(language) = output_language {
+                request.user.push_str(&format!("\nWrite the response in {language}. The previous attempt used the wrong language."));
+            }
+        }
+        let response = llm.generate(request).await.map_err(|e| e.to_string())?;
+        if !wrong_output_language(&response, output_language) {
+            return Ok(response);
+        }
+        warn!(attempt, expected_language = ?output_language, "rejected wrong-language meeting output");
+    }
+    Err(
+        "Meeting output used the wrong language after retry; transcript preserved for regeneration"
+            .into(),
+    )
 }
 
 fn split_for_condensing(text: &str) -> Vec<String> {
@@ -195,8 +250,7 @@ async fn condense_pass(
             n_ctx: Some(8192),
         };
 
-        let chunk_summary = llm
-            .generate(req)
+        let chunk_summary = generate_language_checked(llm, req, output_language)
             .await
             .map_err(|e| format!("Error condensing segment {}: {}", i + 1, e))?;
 
@@ -302,6 +356,11 @@ async fn extract_metadata(
         };
         match serde_json::from_str::<SummaryMetadata>(strip_code_fence(&raw)) {
             Ok(mut meta) => {
+                if wrong_output_language(&meta.suggested_title, detected_output_language(markdown))
+                {
+                    warn!(attempt, "rejected wrong-language meeting title");
+                    continue;
+                }
                 meta.suggested_title = meta.suggested_title.trim().chars().take(60).collect();
                 if meta.suggested_title.is_empty() {
                     meta.suggested_title = fallback_title(markdown);
@@ -408,6 +467,15 @@ async fn extract_task_suggestions(
         };
         match parse_task_suggestions(&raw) {
             Ok(tasks) => {
+                let task_text = tasks
+                    .iter()
+                    .map(|t| t.text.as_str())
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                if wrong_output_language(&task_text, detected_output_language(markdown)) {
+                    warn!(attempt, "rejected wrong-language meeting follow-ups");
+                    continue;
+                }
                 info!(target: "meeting", count = tasks.len(), attempt, "task suggestions extracted");
                 return tasks;
             }
@@ -461,6 +529,16 @@ pub async fn synthesize(
         output_language,
     );
     let mut markdown = String::new();
+    // User-authored prompts/templates may deliberately request a translation.
+    // Keep their existing override behavior; guard the standard notes path.
+    let validation_language = if custom_prompt
+        .is_none_or(|p| p == crate::settings::DEFAULT_MEETING_SUMMARY_PROMPT)
+        && summary_template.is_none_or(|t| t.is_builtin)
+    {
+        output_language
+    } else {
+        None
+    };
     for attempt in 0..2u8 {
         let req = GenerateRequest {
             system: system.clone(),
@@ -472,7 +550,7 @@ pub async fn synthesize(
             grammar_gbnf: None,
             n_ctx: Some(16384),
         };
-        match llm.generate(req).await {
+        match generate_language_checked(llm.as_ref(), req, validation_language).await {
             Ok(raw) => {
                 let cleaned = raw.trim();
                 // A markdown fence around the whole answer is the only
@@ -502,7 +580,14 @@ pub async fn synthesize(
     }
 
     // Stage 2: small metadata extraction over the notes (never fatal).
-    let meta = extract_metadata(llm.as_ref(), &markdown, existing_projects, start_context, routing_participants).await;
+    let meta = extract_metadata(
+        llm.as_ref(),
+        &markdown,
+        existing_projects,
+        start_context,
+        routing_participants,
+    )
+    .await;
     // Stage 3: follow-up suggestions (never fatal, never auto-created).
     let suggested_tasks = extract_task_suggestions(llm.as_ref(), &markdown).await;
     info!(
@@ -616,6 +701,119 @@ mod tests {
         assert!(
             sys.contains("Output language: English"),
             "an English meeting must not leave the output language for the model to infer: {sys}"
+        );
+    }
+
+    #[test]
+    fn mixed_language_meeting_keeps_a_pinned_language() {
+        let text = mixed_language_transcript();
+        assert!(!whatlang::detect(&text).unwrap().is_reliable());
+        assert!(matches!(
+            detected_output_language(&text),
+            Some("English" | "French")
+        ));
+    }
+
+    fn mixed_language_transcript() -> String {
+        "You: We reviewed the website strategy and agreed on the next steps. The dashboard metrics are ready, and we should update the copy today.\n\
+         Them: Nous avons discute des prochaines etapes du projet. Il faut preparer les documents pour la reunion et verifier les resultats avant vendredi.\n".repeat(100)
+    }
+
+    #[tokio::test]
+    async fn mixed_language_condensation_retries_german_output() {
+        let mock = MockLlm {
+            generated_responses: std::sync::Mutex::new(vec![
+                "Wir haben die nächsten Schritte besprochen. Die Ergebnisse müssen vor Freitag überprüft werden und die Unterlagen für die Besprechung vorbereitet werden.".into(),
+                "We reviewed the website strategy and agreed on the next steps. The dashboard metrics are ready, and we should update the copy today.".into(),
+            ]),
+        };
+        let result = condense_pass(
+            &mock,
+            "You: We reviewed the website strategy and agreed on the next steps.\n",
+            Some("English"),
+        )
+        .await
+        .unwrap();
+        assert!(
+            !result.contains("Wir haben"),
+            "wrong-language output must be retried: {result}"
+        );
+        assert!(result.contains("We reviewed"));
+    }
+
+    #[tokio::test]
+    async fn mixed_language_generation_rejects_repeated_wrong_language() {
+        let german = "Wir haben die nächsten Schritte besprochen. Die Ergebnisse müssen vor Freitag überprüft werden und die Unterlagen für die Besprechung vorbereitet werden.";
+        let mock = MockLlm {
+            generated_responses: std::sync::Mutex::new(vec![german.into(), german.into()]),
+        };
+        assert!(
+            generate_language_checked(&mock, GenerateRequest::default(), Some("English"))
+                .await
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn mixed_language_generation_preserves_explicit_translation_override() {
+        let german = "Wir haben die nächsten Schritte besprochen. Die Ergebnisse müssen vor Freitag überprüft werden und die Unterlagen für die Besprechung vorbereitet werden.";
+        let mock = MockLlm {
+            generated_responses: std::sync::Mutex::new(vec![german.into()]),
+        };
+        assert_eq!(
+            generate_language_checked(&mock, GenerateRequest::default(), None)
+                .await
+                .unwrap(),
+            german
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "requires downloaded local Gemma weights; performs real offline inference"]
+    async fn local_model_keeps_mixed_language_meeting_in_source_language() {
+        let llm = crate::llm::Llm::new(std::time::Duration::from_secs(60));
+        let entry = crate::llm::registry::lookup("gemma-4-e2b-it-q4_k_m").unwrap();
+        llm.set_active_model(entry.clone());
+        assert!(llm.ready(), "local Gemma weights required");
+        let text = mixed_language_transcript();
+        let language = detected_output_language(&text).unwrap();
+        let segments = vec![Segment {
+            speaker: crate::meeting::Speaker::You,
+            start_ms: 0,
+            end_ms: 600_000,
+            text,
+        }];
+        let summary = synthesize(
+            llm,
+            &segments,
+            None,
+            600_000,
+            &[],
+            &MeetingStartContext::default(),
+            "",
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        let notes = summary.markdown.unwrap();
+        assert!(!wrong_output_language(&notes, Some(language)), "{notes}");
+        assert!(!wrong_output_language(
+            &summary.suggested_title,
+            Some(language)
+        ));
+        let tasks = summary
+            .suggested_tasks
+            .iter()
+            .map(|t| t.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(!wrong_output_language(&tasks, Some(language)));
+        println!(
+            "PASS: real local model generated {}-byte notes, title and {} follow-ups in {language}",
+            notes.len(),
+            summary.suggested_tasks.len()
         );
     }
 
@@ -765,7 +963,14 @@ mod tests {
                 r#"{"suggested_title": "Roadmap sync", "tags": ["a", "b", "c", "d"], "project_name": "Alpha"}"#.to_string(),
             ]),
         };
-        let meta = extract_metadata(&mock, "## Notes\n- point", &[], &MeetingStartContext::default(), "").await;
+        let meta = extract_metadata(
+            &mock,
+            "## Notes\n- point",
+            &[],
+            &MeetingStartContext::default(),
+            "",
+        )
+        .await;
         assert_eq!(meta.suggested_title, "Roadmap sync");
         assert_eq!(meta.tags.len(), 3, "tags clipped to 3");
         assert_eq!(meta.project_name.as_deref(), Some("Alpha"));
@@ -779,7 +984,14 @@ mod tests {
                 "still not json".to_string(),
             ]),
         };
-        let meta = extract_metadata(&mock, "# Standup notes\n- point", &[], &MeetingStartContext::default(), "").await;
+        let meta = extract_metadata(
+            &mock,
+            "# Standup notes\n- point",
+            &[],
+            &MeetingStartContext::default(),
+            "",
+        )
+        .await;
         assert_eq!(meta.suggested_title, "Standup notes");
         assert!(meta.tags.is_empty());
         assert!(meta.project_name.is_none());

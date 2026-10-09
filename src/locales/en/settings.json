@@ -32,7 +32,8 @@
       "coding-agents": "Coding Agents",
       "permissions": "Permissions",
       "diagnostics": "Diagnostics",
-      "uninstall": "Uninstall"
+      "uninstall": "Uninstall",
+      "gmail": "Gmail"
     }
   },
   "pageDesc": {
@@ -49,7 +50,8 @@
     "coding-agents": "Connect Claude Code, Codex, or any MCP client to search your captures — and, if you opt in, record your screen.",
     "permissions": "Microphone, accessibility, and screen-recording access.",
     "diagnostics": "Inspect logs and reset the app if something breaks.",
-    "uninstall": "Remove the app while choosing whether to keep your local data."
+    "uninstall": "Remove the app while choosing whether to keep your local data.",
+    "gmail": "Connect your Gmail accounts for search, conversation context, and reviewed drafts."
   },
   "common": {
     "cancel": "Cancel",

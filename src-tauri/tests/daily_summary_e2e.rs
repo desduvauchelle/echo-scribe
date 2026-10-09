@@ -3,8 +3,8 @@
 //! parser tolerance, and budget tuning without rebuilding the .app bundle.
 //!
 //! Marked `#[ignore]` so it never runs in CI — it requires:
-//!   - the user's DB at `~/Library/Application Support/EchoScribe/echo.db`
-//!   - the gemma model downloaded under `~/Library/Application Support/EchoScribe/llm-models/`
+//!   - the user's DB at `~/Library/Application Support/Tucky/tucky.db`
+//!   - the gemma model downloaded under `~/Library/Application Support/Tucky/llm-models/`
 //!
 //! Run explicitly:
 //!   `cargo test --test daily_summary_e2e -- --ignored --nocapture`
@@ -20,9 +20,7 @@ use echo_scribe_lib::db::{daily_summaries, Db};
 use echo_scribe_lib::llm::{self, registry, Llm};
 
 fn user_db_path() -> PathBuf {
-    dirs::home_dir()
-        .expect("home dir")
-        .join("Library/Application Support/EchoScribe/echo.db")
+    echo_scribe_lib::db::default_db_path().expect("database path")
 }
 
 fn yesterday_local() -> String {

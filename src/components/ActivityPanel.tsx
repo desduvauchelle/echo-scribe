@@ -1,3 +1,5 @@
+import LiveFormPanel from "./LiveFormPanel";
+import { parseFormConfig } from "../lib/liveForm";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
@@ -1618,6 +1620,9 @@ function GuideReviewSection({
         {runs.map((run) => {
           const review = parseGuideReview(run.review_json);
           const timeline = parseTimeline(run.timeline_json);
+          let formConfig = null;
+          try { const template = JSON.parse(run.template_json); if (template.kind === "form") formConfig = parseFormConfig(template.notes); } catch { /* old or malformed snapshot */ }
+          const formAnswers = timeline[timeline.length - 1]?.form_answers ?? [];
           const overallCls = OVERALL_STYLES[(review?.overall || "").toLowerCase()] ?? "bg-elevated text-muted";
           return (
             <div key={run.id} className="rounded-lg border border-line bg-surface-2">
@@ -1631,7 +1636,7 @@ function GuideReviewSection({
                 {run.status === "pending" ? (
                   <span className="text-[11px] text-muted">{t("activityPanel.guideReview.generating")}</span>
                 ) : null}
-                {run.insight_kind !== "signals" ? (
+                {run.insight_kind !== "signals" && !formConfig ? (
                   <button
                     className="ml-auto text-[11px] text-accent hover:underline"
                     onClick={() => setTrendFor({ id: run.template_id, name: run.template_name })}
@@ -1669,7 +1674,8 @@ function GuideReviewSection({
                 </div>
               ) : null}
 
-              {run.status === "ready" && review ? (
+              {formConfig && <div className="px-3 py-3"><LiveFormPanel config={formConfig} answers={formAnswers} /></div>}
+              {run.status === "ready" && review && !formConfig ? (
                 <div className="space-y-3 px-3 py-3">
                   {review.synthesis ? (
                     <p className="text-[13px] leading-relaxed text-fg">{review.synthesis}</p>

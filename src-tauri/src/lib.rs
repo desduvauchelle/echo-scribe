@@ -28,6 +28,7 @@ pub mod permissions;
 pub mod platform;
 pub mod power;
 pub mod project_assistant;
+pub mod gmail;
 pub mod agent_toast;
 pub mod project_files;
 pub mod project_tagger;
@@ -114,11 +115,23 @@ use crate::llm::Llm;
 use crate::settings::SettingsStore;
 use crate::ui::tray::TrayHandle;
 
-/// Folder name for every per-app data/log directory ("EchoScribe" in normal
-/// builds). Compile-time overridable so an isolated variant (see
-/// `scripts/build-fresh-sim.sh`) can never touch the real install's data.
+/// Canonical data directory, with a fallback for installations not migrated yet.
+/// Isolated builds keep their own compile-time override.
 pub fn data_folder_name() -> &'static str {
-    option_env!("ECHO_SCRIBE_DATA_FOLDER").unwrap_or("EchoScribe")
+    if let Some(folder) = option_env!("ECHO_SCRIBE_DATA_FOLDER") {
+        return folder;
+    }
+    if let Some(home) = dirs::home_dir() {
+        let support = home.join("Library/Application Support");
+        if !support.join("Tucky").exists() && support.join("EchoScribe").exists() {
+            return "EchoScribe";
+        }
+    }
+    "Tucky"
+}
+
+pub fn is_primary_install() -> bool {
+    option_env!("ECHO_SCRIBE_DATA_FOLDER").is_none()
 }
 
 /// Bundle identifier used for identity-keyed side effects (keychain service,
@@ -145,7 +158,7 @@ mod tests {
     fn log_dir_resolves_under_library_logs_when_home_present() {
         // We can't easily mock `dirs::home_dir()`, but on the host where
         // this test runs there *is* a home dir, so the path must end with
-        // "Library/Logs/EchoScribe" and contain the user's home prefix.
+        // "Library/Logs/Tucky" and contain the user's home prefix.
         let p = log_dir();
         let s = p.to_string_lossy();
         if let Some(home) = dirs::home_dir() {
@@ -169,7 +182,7 @@ pub fn run() {
     if let Err(e) = std::fs::create_dir_all(&dir) {
         eprintln!("warning: failed to create log dir {}: {e}", dir.display());
     }
-    let file_appender = tracing_appender::rolling::daily(&dir, "echo-scribe.log");
+    let file_appender = tracing_appender::rolling::daily(&dir, "tucky.log");
     let (file_writer, guard) = tracing_appender::non_blocking(file_appender);
 
     tracing_subscriber::fmt()
@@ -253,10 +266,9 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_notification::init())
-        // Keep the existing login-item identity; the installer migrates its
-        // executable path to the real Tucky binary.
+        // The installer migrates existing login items, preserving their options.
         .plugin(tauri_plugin_autostart::Builder::new()
-            .app_name(if data_folder_name() == "EchoScribe" { "Echo Scribe" } else { "Tucky Fresh" })
+            .app_name(if is_primary_install() { "Tucky" } else { data_folder_name() })
             .macos_launcher(tauri_plugin_autostart::MacosLauncher::LaunchAgent)
             .build())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
@@ -415,6 +427,19 @@ pub fn run() {
             crate::project_assistant::run_project_assistant,
             crate::project_assistant::get_project_assistant_report,
             crate::project_assistant::stop_project_assistant,
+            crate::gmail::gmail_status,
+            crate::gmail::gmail_import_client,
+            crate::gmail::gmail_connect,
+            crate::gmail::gmail_disconnect,
+            crate::gmail::gmail_open_assistant,
+            crate::gmail::gmail_assistant_state,
+            crate::gmail::gmail_run_assistant,
+            crate::gmail::gmail_stop_assistant,
+            crate::gmail::gmail_update_draft,
+            crate::gmail::gmail_save_draft,
+            crate::gmail::gmail_send_draft,
+            crate::gmail::gmail_open_draft,
+            crate::gmail::gmail_open_thread,
             crate::agent_toast::resize_agent_toast,
             crate::notice_column::bubble_tail,
             crate::notice_column::notice_hide,
@@ -503,6 +528,7 @@ pub fn run() {
             commands::start_guided_session,
             commands::guide_set_mode,
             commands::guide_trigger_now,
+            commands::guide_edit_form_answer,
             commands::attach_guide,
             commands::detach_guide,
             commands::list_guide_runs,
@@ -692,7 +718,7 @@ pub fn run() {
             // whether high resident memory is (a) a still-loaded model,
             // (b) the allocator not returning pages after unload, or (c)
             // something else entirely. Target `mem` so it's grep-friendly:
-            // `grep '\[mem\]' echo-scribe.log`.
+            // `rg '\[mem\]' tucky.log`.
             {
                 let llm_sampler = Arc::clone(&llm);
                 let asr_sampler = Arc::clone(&asr);
@@ -770,7 +796,7 @@ pub fn run() {
             let data_dir = app
                 .path()
                 .app_data_dir()
-                .unwrap_or_else(|_| std::path::PathBuf::from("/tmp/EchoScribe"));
+                .unwrap_or_else(|_| std::path::PathBuf::from("/tmp/Tucky"));
             let meeting_db = db.clone().expect("db must be open for meeting manager");
             let meeting_manager = crate::meeting::MeetingManager::new(
                 Arc::clone(&asr),
@@ -785,7 +811,7 @@ pub fn run() {
                 let orphans = crate::meeting::scan_orphans(
                     &app.path()
                         .app_data_dir()
-                        .unwrap_or_else(|_| std::path::PathBuf::from("/tmp/EchoScribe")),
+                        .unwrap_or_else(|_| std::path::PathBuf::from("/tmp/Tucky")),
                     db_ref,
                 );
                 if !orphans.is_empty() {
@@ -946,6 +972,13 @@ pub fn run() {
                         tracing::warn!(target: "meeting_intelligence", ?e, "builtin meeting intelligence seeding failed");
                     }
                     let settings = st.settings.clone();
+                    if !settings.live_form_template_seeded() {
+                        let now = chrono::Utc::now().to_rfc3339();
+                        match db.with_conn(|c| crate::meeting::live_form::seed_starter(c, &now)) {
+                            Ok(()) => { if let Err(error) = settings.set_live_form_template_seeded() { tracing::warn!(%error, "live form seed flag failed"); } }
+                            Err(error) => tracing::warn!(%error, "live form starter seed failed"),
+                        }
+                    }
                     if !settings.builtin_templates_seeded() {
                         let now = chrono::Utc::now().to_rfc3339();
                         match db.with_conn(move |c| {

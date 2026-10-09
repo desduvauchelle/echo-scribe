@@ -1,6 +1,7 @@
 import VoiceWorkflows from "../components/VoiceWorkflows";
 import WakeWordSettings from "../components/WakeWordSettings";
 import MemorySettings from "../components/MemorySettings";
+import GmailSettings from "../components/GmailSettings";
 import { TuckyPeeking } from "../components/TuckyGreeting";
 import { useEffect, useState, type SyntheticEvent } from "react";
 import {
@@ -16,6 +17,7 @@ import {
   Settings as SettingsIcon,
   Sparkles,
   Cloud,
+  Mail,
   FolderKanban,
   ShieldCheck,
   Trash2,
@@ -127,6 +129,7 @@ export type PageId =
   | "language-model"
   | "general"
   | "drive"
+  | "gmail"
   | "projects"
   | "coding-agents"
   | "permissions"
@@ -159,6 +162,7 @@ const NAV_GROUPS: NavGroup[] = [
       { id: "language-model", icon: Sparkles },
       { id: "general", icon: SettingsIcon },
       { id: "drive", icon: Cloud },
+      { id: "gmail", icon: Mail },
       { id: "projects", icon: FolderKanban },
       { id: "coding-agents", icon: Bot },
       { id: "permissions", icon: ShieldCheck },
@@ -189,6 +193,7 @@ const PAGES: Record<PageId, () => React.ReactElement> = {
   "language-model": LanguageModelPage,
   general: GeneralPage,
   drive: DrivePage,
+  gmail: GmailSettings,
   projects: ProjectsPage,
   "coding-agents": CodingAgentsPage,
   permissions: PermissionsPage,

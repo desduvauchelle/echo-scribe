@@ -28,6 +28,24 @@ done
 export TUCKY_LOCAL_ASR="${TUCKY_LOCAL_ASR:-1}"
 export VITE_LOCAL_ASR="${VITE_LOCAL_ASR:-$TUCKY_LOCAL_ASR}"
 
+# Finder and a newly renamed checkout may not inherit the old shell setup.
+if ! command -v bun >/dev/null 2>&1 && [[ -x "$HOME/.bun/bin/bun" ]]; then
+    export PATH="$HOME/.bun/bin:$PATH"
+fi
+if ! command -v cargo >/dev/null 2>&1 && [[ -x "$HOME/.cargo/bin/cargo" ]]; then
+    export PATH="$HOME/.cargo/bin:$PATH"
+fi
+# Reuse the locally cached ONNX library instead of depending on a directory-
+# specific shell variable. An explicit caller-supplied path always wins.
+if [[ -z "${ORT_LIB_PATH:-}" && "$(uname -m)" == "arm64" ]]; then
+    for library in "$HOME"/Library/Caches/ort.pyke.io/dfbin/aarch64-apple-darwin/*/libonnxruntime.a; do
+        if [[ -f "$library" ]]; then
+            export ORT_LIB_PATH="$(dirname "$library")"
+            break
+        fi
+    done
+fi
+
 echo "==> Building release bundle…"
 bun tauri build --bundles app
 
@@ -48,11 +66,16 @@ fi
 
 if [[ $WIPE_MODELS -eq 1 ]]; then
     echo "==> Wiping downloaded models…"
-    rm -rf "$HOME/Library/Application Support/EchoScribe/models"
-    rm -rf "$HOME/Library/Application Support/EchoScribe/llm-models"
+    rm -rf "$HOME/Library/Application Support/Tucky/models" "$HOME/Library/Application Support/EchoScribe/models"
+    rm -rf "$HOME/Library/Application Support/Tucky/llm-models" "$HOME/Library/Application Support/EchoScribe/llm-models"
 fi
 
 echo "==> Installing Tucky (preserving data and previous app backup)…"
-LOCAL_APP_BUNDLE="$BUNDLE" bash install.sh
+# Install without launching so the database can be migrated while closed.
+LOCAL_APP_BUNDLE="$BUNDLE" SKIP_LAUNCH=1 bash install.sh
+python3 scripts/migrate-tucky-data.py
+# Refresh this bundle's LaunchServices registration after the display-name change.
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f /Applications/Tucky.app
+open /Applications/Tucky.app
 
 echo "==> Done."

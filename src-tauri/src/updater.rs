@@ -253,7 +253,7 @@ pub fn launch_update_helper() {
     // The helper script replaces /Applications/Tucky.app in place. An
     // isolated variant (fresh-install simulator) must never do that — it
     // would overwrite the real install.
-    if crate::data_folder_name() != "EchoScribe" {
+    if !crate::is_primary_install() {
         error!("self-update disabled for isolated variant builds");
         return;
     }

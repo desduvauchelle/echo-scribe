@@ -30,6 +30,7 @@ export default defineConfig({
         "area-picker": resolve(__dirname, "src/area-picker/index.html"),
         countdown: resolve(__dirname, "src/countdown/index.html"),
         editor: resolve(__dirname, "src/editor/index.html"),
+        "gmail-assistant": resolve(__dirname, "src/gmail-assistant/index.html"),
       },
     },
   },

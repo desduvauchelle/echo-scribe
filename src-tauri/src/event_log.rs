@@ -5,8 +5,8 @@
 //! easier to back up, easier to audit by hand, no concurrent-writer
 //! coordination needed. The ULID filename sorts chronologically.
 //!
-//! `root` defaults to `~/EchoScribe/` — the user-facing archive — distinct
-//! from the SQLite database under `~/Library/Application Support/EchoScribe/`.
+//! `root` defaults to `~/Tucky/` — the user-facing archive — distinct
+//! from the SQLite database under `~/Library/Application Support/Tucky/`.
 
 use std::path::{Path, PathBuf};
 
@@ -33,7 +33,7 @@ pub struct EventEnvelope {
     pub payload: serde_json::Value,
 }
 
-/// Default root for the event archive: `~/EchoScribe/`.
+/// Default root for the event archive: `~/Tucky/`.
 pub fn default_root() -> Result<PathBuf, EventLogError> {
     Ok(dirs::home_dir()
         .ok_or(EventLogError::NoHome)?

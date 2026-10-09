@@ -30,7 +30,7 @@ INSTALL_DIR="$WORK_DIR/Applications"
 mkdir -p "$SMOKE_HOME"
 
 APP_BIN="$INSTALL_DIR/Tucky.app/Contents/MacOS/Tucky"
-LOG_DIR="$SMOKE_HOME/Library/Logs/EchoScribe"
+LOG_DIR="$SMOKE_HOME/Library/Logs/Tucky"
 
 cleanup() {
   if [[ -n "${APP_PID:-}" ]] && kill -0 "$APP_PID" 2>/dev/null; then
@@ -67,8 +67,8 @@ done
 
 dump_logs() {
   echo "==> App log (last 200 lines):"
-  if compgen -G "$LOG_DIR/echo-scribe.log*" >/dev/null; then
-    tail -n 200 "$LOG_DIR"/echo-scribe.log* || true
+  if compgen -G "$LOG_DIR/tucky.log*" >/dev/null; then
+    tail -n 200 "$LOG_DIR"/tucky.log* || true
   else
     echo "(no log file was written under $LOG_DIR)"
   fi

@@ -18,11 +18,8 @@ use crate::input::hotkeys::HotkeyEvent;
 use crate::llm::Llm;
 
 async fn capture_own_input(app: &AppHandle<Wry>) -> Option<String> {
-    let window = app.get_webview_window("main")?;
-    if !window.is_focused().unwrap_or(false) {
-        return None;
-    }
-    let id = uuid::Uuid::new_v4().to_string();
+    let window = ["main",crate::gmail::WINDOW].into_iter().filter_map(|label|app.get_webview_window(label)).find(|w|w.is_focused().unwrap_or(false))?;
+    let id = format!("{}:{}",window.label(),uuid::Uuid::new_v4());
     let (send, receive) = tokio::sync::oneshot::channel();
     let sender = Arc::new(Mutex::new(Some(send)));
     let listener = window.listen(format!("voice:self_captured:{id}"), move |event| {
@@ -30,7 +27,7 @@ async fn capture_own_input(app: &AppHandle<Wry>) -> Option<String> {
             let _ = send.send(event.payload() == "true");
         }
     });
-    let _ = app.emit_to("main", "voice:self_capture", &id);
+    let _ = app.emit_to(window.label(), "voice:self_capture", &id);
     // Let the DOM snapshot finish before a sibling window can take focus.
     let captured = matches!(
         tokio::time::timeout(std::time::Duration::from_millis(400), receive).await,
@@ -56,7 +53,8 @@ async fn deliver_to_own_input(
     if focus::current_frontmost_pid() != Some(std::process::id() as i32) {
         return false;
     }
-    let Some(window) = app.get_webview_window("main") else {
+    let label=id.split_once(':').map(|(label,_)|label).unwrap_or("main");
+    let Some(window) = app.get_webview_window(label) else {
         return false;
     };
     let (send, receive) = tokio::sync::oneshot::channel();
@@ -239,6 +237,8 @@ pub fn spawn(
         // fails because opening the overlay drops first-responder.
         let mut pending_context: Option<FocusContext> = None;
         let mut pending_own_capture: Option<String> = None;
+        let mut pending_email_context: Option<crate::gmail::FocusSnapshot> = None;
+        let mut recording_guard = None;
         // Held alongside `pending_context`. Non-Send, but the coordinator runs
         // on a `LocalSet` so that's fine. Restoring focus via AX element rather
         // than re-activating the app fixes "paste lands in previous field"
@@ -291,6 +291,7 @@ pub fn spawn(
                             info!(?active, "recording cancelled and discarded");
                             let _ = recorder.stop();
                             wake.stop(&mut recorder);
+                            recording_guard.take();
                             cancel_active.store(false, Ordering::SeqCst);
                             crate::audio::mute::on_recording_stop();
                             feedback::play(Sfx::Stop);
@@ -328,6 +329,7 @@ pub fn spawn(
                         let was_wake = *state.lock().unwrap() == PipelineState::Recording(Action::WakeCommand);
                         wake.stop(&mut recorder);
                         if was_wake {
+                            recording_guard.take();
                             crate::audio::mute::on_recording_stop();
                             force_state(&state, PipelineState::Idle);
                         }
@@ -338,9 +340,11 @@ pub fn spawn(
                         warn!(?action, "ignored Pressed: not in Idle state");
                         continue;
                     }
+                    let startup_started = std::time::Instant::now();
                     // Snapshot the frontmost app *before* we touch any UI —
                     // showing the overlay can shift key-window status away
                     // from the user's text field.
+                    pending_email_context = None;
                     if !hands_free_start {
                         pending_context = if action == Action::WakeCommand {
                             focus::current_frontmost_pid().map(|pid| FocusContext { pid, ..Default::default() })
@@ -352,6 +356,7 @@ pub fn spawn(
                         {
                             pending_own_capture = capture_own_input(&app).await;
                         }
+                        pending_email_context = crate::gmail::capture_focus(&app).await;
                         pending_focus_element = if action == Action::WakeCommand {
                             focus::current_frontmost_pid()
                                 .filter(|pid| *pid != std::process::id() as i32)
@@ -426,6 +431,8 @@ pub fn spawn(
                             }
                         }
                     }
+                    let context_ms = startup_started.elapsed().as_millis();
+                    let ui_started = std::time::Instant::now();
                     on_state_change(TrayPipelineState::Recording).await;
                     crate::audio::mute::on_recording_start();
                     feedback::play(Sfx::Start);
@@ -444,6 +451,9 @@ pub fn spawn(
                     // Apply the user's preferred input device (if any) before
                     // each start. Reading it fresh each time means a settings
                     // change takes effect on the next press without a restart.
+                    let ui_ms = ui_started.elapsed().as_millis();
+                    let recorder_started = std::time::Instant::now();
+                    recording_guard = Some(asr.begin_recording());
                     let preferred = app
                         .try_state::<crate::commands::AppState>()
                         .and_then(|s| s.settings.preferred_input_device());
@@ -456,8 +466,18 @@ pub fn spawn(
                         crate::wakeword::publish(&app, "dictating", "Dictating — pause for two seconds to finish. Escape cancels.");
                         wake.start_dictation(&mut recorder, preferred.clone())
                     } else { recorder.start() };
+                    info!(
+                        ?action,
+                        context_ms,
+                        ui_ms,
+                        recorder_ms = recorder_started.elapsed().as_millis(),
+                        total_ms = startup_started.elapsed().as_millis(),
+                        success = started.is_ok(),
+                        "dictation startup timing"
+                    );
                     if let Err(e) = started {
                         if hands_free_start { wake.stop(&mut recorder); }
+                        recording_guard.take();
                         crate::audio::mute::on_recording_stop();
                         error!(?e, ?action, "failed to start recorder; returning to Idle");
                         crate::overlay::hide_recording_overlay(&app);
@@ -519,7 +539,9 @@ pub fn spawn(
                                 ?action,
                                 "transcribing"
                             );
-                            match asr.transcribe(samples, sr, channels.max(1)).await {
+                            let transcription = asr.transcribe(samples, sr, channels.max(1)).await;
+                            recording_guard.take();
+                            match transcription {
                                 Ok(text) if text.is_empty() => {
                                     warn!("transcription produced empty text; nothing to do");
                                     if matches!(action, Action::LogCapture) {
@@ -554,6 +576,15 @@ pub fn spawn(
                                         continue;
                                     }
                                     if matches!(action, Action::EditSelection) {
+                                        if let Some(snapshot)=pending_email_context.take() {
+                                            if let Err(error)=crate::gmail::run_request(app.clone(),text.clone(),Some(snapshot)).await {
+                                                crate::overlay::show_action_toast(&app,"gmail",&error);
+                                            }
+                                            crate::overlay::hide_recording_overlay_now(&app);
+                                            force_state(&state,PipelineState::Idle);
+                                            on_state_change(TrayPipelineState::Idle).await;
+                                            continue;
+                                        }
                                         run_edit_selection(
                                             &app,
                                             &llm,
@@ -600,7 +631,7 @@ pub fn spawn(
                                     // log-capture pipeline below, so `action` can change here.
                                     let mut capture_kind_hint = None;
                                     let (action, text) =
-                                        match try_intercept_action(&app, &llm, if action == Action::WakeCommand { &raw_text } else { &text }, action, pending_selection.as_ref().map(|s| s.text.as_str()), pending_selection_pid).await
+                                        match try_intercept_action(&app, &llm, if action == Action::WakeCommand { &raw_text } else { &text }, action, pending_selection.as_ref().map(|s| s.text.as_str()), pending_selection_pid, pending_email_context.as_ref()).await
                                         {
                                             InterceptOutcome::StartDictation => {
                                                 pending_selection = None;
@@ -1142,6 +1173,7 @@ pub fn spawn(
                             }
                         }
                         Err(e) => {
+                            recording_guard.take();
                             error!(?e, "recorder.stop failed");
                             let _ = app.emit("asr:error", format!("Recorder error: {e}"));
                             if matches!(action, Action::LogCapture) {
@@ -1545,6 +1577,7 @@ async fn try_intercept_action(
     action: Action,
     selected_text: Option<&str>,
     selection_pid: Option<i32>,
+    email_context: Option<&crate::gmail::FocusSnapshot>,
 ) -> InterceptOutcome {
     if action == Action::WakeCommand && !wake_commands_allowed(app) {
         return InterceptOutcome::Consumed;
@@ -1564,6 +1597,22 @@ async fn try_intercept_action(
 
     if !enabled {
         return InterceptOutcome::Passthrough;
+    }
+
+    // Only edit instructions use draft context; ordinary dictation still types at the caret.
+    if let Some(context)=email_context {
+        let command=if trigger_word.trim().eq_ignore_ascii_case("tucky") {
+            crate::llm::action_launcher::strip_trigger_prefix(text)
+        }else {
+            let prefix=text.trim().chars().take(trigger_word.trim().chars().count()).collect::<String>();
+            (prefix.to_lowercase()==trigger_word.trim().to_lowercase()).then(||text.trim()[prefix.len()..].trim_start_matches(|c:char|c.is_whitespace() || c.is_ascii_punctuation()).to_string())
+        };
+        let request=command.clone().unwrap_or_else(||text.to_string());
+        if crate::gmail::agent::edit_intent(&request) || command.is_some() {
+            crate::overlay::hide_recording_overlay_now(app);
+            if let Err(error)=crate::gmail::run_request(app.clone(),request,Some(context.clone())).await {crate::overlay::show_action_toast(app,"gmail",&error);}
+            return InterceptOutcome::Consumed;
+        }
     }
 
     let stripped_text = if action == Action::WakeCommand {
@@ -1613,6 +1662,13 @@ async fn try_intercept_action(
         return InterceptOutcome::Passthrough;
     }
 
+    let gmail_connected=app.try_state::<crate::commands::AppState>().and_then(|s|s.db.clone()).and_then(|db|db.with_conn(crate::gmail::store::accounts).ok()).is_some_and(|accounts|!accounts.is_empty());
+    if gmail_connected && crate::gmail::agent::email_intent(&stripped_text) {
+        crate::overlay::hide_recording_overlay_now(app);
+        if let Err(error)=crate::gmail::run_request(app.clone(),stripped_text,None).await {crate::overlay::show_action_toast(app,"gmail",&error);}
+        return InterceptOutcome::Consumed;
+    }
+
     if crate::project_assistant::is_selected_task_request(&stripped_text) {
         // Some apps do not expose AXSelectedText. Their existing Cmd+C
         // fallback is safe only while the original app remains frontmost.
@@ -1658,6 +1714,11 @@ async fn try_intercept_action(
                 return InterceptOutcome::Consumed;
             }
             if cmd.is_action && cmd.confidence >= 0.75 {
+                if gmail_connected && cmd.action_type.as_deref()==Some("draft_email") {
+                    crate::overlay::hide_recording_overlay_now(app);
+                    if let Err(error)=crate::gmail::run_request(app.clone(),stripped_text,None).await {crate::overlay::show_action_toast(app,"gmail",&error);}
+                    return InterceptOutcome::Consumed;
+                }
                 if cmd.action_type.as_deref() == Some("start_dictation") {
                     return InterceptOutcome::StartDictation;
                 }

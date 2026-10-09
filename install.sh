@@ -120,9 +120,8 @@ run_install rmdir "$STAGED"
 run_install ln -s "$APP_BUNDLE" "$INSTALL_DIR/$LEGACY_BUNDLE"
 echo "Previous installation backup: $BACKUP"
 
-# Existing login items must use the real binary: Tauri rejects symlinked
-# executable paths when resolving resources on macOS. Keep the same identity
-# and arguments, and leave disabled/absent login items absent.
+# Migrate our existing login item to Tucky without changing its arguments or
+# RunAtLoad preference. Never create an item for users who did not enable it.
 if [[ -x "$INSTALL_DIR/$APP_BUNDLE/Contents/MacOS/Tucky" ]]; then
   LOGIN_DIR="${TUCKY_LAUNCH_AGENT_DIR:-$HOME/Library/LaunchAgents}"
   for login_name in "Echo Scribe" "Tucky"; do
@@ -131,9 +130,17 @@ if [[ -x "$INSTALL_DIR/$APP_BUNDLE/Contents/MacOS/Tucky" ]]; then
     LOGIN_EXE="$(/usr/libexec/PlistBuddy -c 'Print :ProgramArguments:0' "$LOGIN_ITEM" 2>/dev/null || true)"
     if [[ "$LOGIN_EXE" == "$INSTALL_DIR/$LEGACY_BUNDLE/Contents/MacOS/echo-scribe" ||
           "$LOGIN_EXE" == "$INSTALL_DIR/$LEGACY_BUNDLE/Contents/MacOS/Tucky" ||
-          "$LOGIN_EXE" == "$INSTALL_DIR/$APP_BUNDLE/Contents/MacOS/echo-scribe" ]]; then
+          "$LOGIN_EXE" == "$INSTALL_DIR/$APP_BUNDLE/Contents/MacOS/echo-scribe" ||
+          "$LOGIN_EXE" == "$INSTALL_DIR/$APP_BUNDLE/Contents/MacOS/Tucky" ]]; then
       /usr/libexec/PlistBuddy -c "Set :ProgramArguments:0 $INSTALL_DIR/$APP_BUNDLE/Contents/MacOS/Tucky" "$LOGIN_ITEM"
-      echo "Updated $login_name login item to the direct Tucky executable."
+      if [[ "$login_name" == "Echo Scribe" && ! -e "$LOGIN_DIR/Tucky.plist" ]]; then
+        # Unregister the old label; the renamed plist loads at the next login.
+        # Do not launch here, since local reinstalls migrate data before opening.
+        launchctl bootout "gui/$(id -u)/Echo Scribe" 2>/dev/null || true
+        /usr/libexec/PlistBuddy -c 'Set :Label Tucky' "$LOGIN_ITEM"
+        mv "$LOGIN_ITEM" "$LOGIN_DIR/Tucky.plist"
+      fi
+      echo "Updated $login_name login item to Tucky."
     fi
   done
 fi

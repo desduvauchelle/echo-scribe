@@ -595,6 +595,15 @@ impl SettingsStore {
     /// into the DB at least once. Defaults to `false`. This flag — not
     /// `INSERT OR IGNORE` alone — is what lets a user's deletion of a
     /// builtin template stick across subsequent launches.
+    pub fn live_form_template_seeded(&self) -> bool {
+        self.store.get("live_form_template_seeded_v1").and_then(|v| v.as_bool()).unwrap_or(false)
+    }
+
+    pub fn set_live_form_template_seeded(&self) -> Result<(), SettingsError> {
+        self.store.set("live_form_template_seeded_v1", serde_json::json!(true));
+        self.store.save().map_err(|e| SettingsError::Store(e.to_string()))
+    }
+
     pub fn builtin_templates_seeded(&self) -> bool {
         self.store
             .get(KEY_BUILTIN_TEMPLATES_SEEDED)

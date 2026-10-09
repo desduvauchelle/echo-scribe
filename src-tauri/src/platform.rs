@@ -28,7 +28,7 @@ impl Capabilities {
             screen_recording: macos,
             // Self-update replaces /Applications/Tucky.app in place, so
             // it must stay off in isolated variant builds (fresh-install sim).
-            bundle_self_update: macos && crate::data_folder_name() == "EchoScribe",
+            bundle_self_update: macos && crate::is_primary_install(),
         }
     }
 }

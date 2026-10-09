@@ -17,7 +17,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--bundle", required=True)
     parser.add_argument("--after", default="")
-    parser.add_argument("--db", type=Path, default=Path.home() / "Library/Application Support/EchoScribe/echo.db")
+    parser.add_argument("--db", type=Path, default=(Path.home() / "Library/Application Support/Tucky/tucky.db" if (Path.home() / "Library/Application Support/Tucky/tucky.db").exists() else Path.home() / "Library/Application Support/EchoScribe/echo.db"))
     args = parser.parse_args()
     with sqlite3.connect(args.db.resolve().as_uri() + "?mode=ro", uri=True) as db:
         rows = db.execute(

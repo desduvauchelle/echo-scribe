@@ -704,6 +704,20 @@ CREATE TABLE daily_focus_notes (
 );
 "#,
     ),
+    (38, r#"
+CREATE TABLE gmail_accounts (
+  id TEXT PRIMARY KEY,
+  email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  connected_at TEXT NOT NULL
+);
+CREATE TABLE gmail_drafts (
+  id TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL REFERENCES gmail_accounts(id) ON DELETE CASCADE,
+  revision INTEGER NOT NULL,
+  data TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+"#),
 ];
 
 const META_TABLE_SQL: &str = r#"

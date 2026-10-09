@@ -110,7 +110,10 @@
     "noCaught": "Dates and numbers appear here as they come up.",
     "caughtDates": "Dates",
     "caughtNumbers": "Numbers",
-    "caughtSaidBy": "Said by {{speaker}}"
+    "caughtSaidBy": "Said by {{speaker}}",
+    "pauseFilling": "Pause filling",
+    "resumeFilling": "Resume filling",
+    "formUpdateFailed": "Couldn't update the live form. Tucky will retry when more speech is transcribed."
   },
   "screenrecSetup": {
     "searchWindows": "Search apps or windows",

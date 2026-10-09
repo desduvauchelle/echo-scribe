@@ -86,7 +86,7 @@ if CommandLine.arguments.contains("--list-sources") {
                     thumbsDir = URL(fileURLWithPath: CommandLine.arguments[flagIndex + 1], isDirectory: true)
                 } else {
                     thumbsDir = FileManager.default.homeDirectoryForCurrentUser
-                        .appendingPathComponent("Library/Application Support/EchoScribe/recordings/source-thumbs")
+                        .appendingPathComponent("Library/Application Support/Tucky/recordings/source-thumbs")
                 }
                 try? FileManager.default.removeItem(at: thumbsDir)
                 try? FileManager.default.createDirectory(at: thumbsDir, withIntermediateDirectories: true)

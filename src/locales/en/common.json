@@ -295,6 +295,11 @@
         "label": "Note-taker",
         "hint": "Keeps a live bullet list of the main points and posts updates as things change.",
         "notesPlaceholder": "Notes — what to capture, e.g. decisions, numbers, action items (optional)"
+      },
+      "form": {
+        "label": "Live form",
+        "hint": "Fills structured fields from the live transcript, with evidence and manual corrections.",
+        "notesPlaceholder": ""
       }
     },
     "nameRequired": "Template name is required.",
@@ -312,6 +317,10 @@
     "emptyState": "No guide templates yet.",
     "editButton": "Edit",
     "deleteButton": "Delete",
+    "deleteTemplate": "Delete template",
+    "deleteTitle": "Delete template?",
+    "deleteConfirmation": "Delete “{{name}}”? This removes it from your available templates.",
+    "deletingButton": "Deleting…",
     "trackAfterMeetings": "Track after meetings",
     "measureLabel": "Measure",
     "rubricPerformance": "Rubric performance",
@@ -321,7 +330,14 @@
     "otherSide": "Other side",
     "theInteraction": "The interaction",
     "showResultsInDailyRecap": "Show results in Daily recap",
-    "newTemplateButton": "+ New template"
+    "newTemplateButton": "+ New template",
+    "listDescription": "Choose a guide for your meetings. Edit a template to configure its live behavior and after-meeting tracking.",
+    "duringMeeting": "During the meeting",
+    "afterMeeting": "After the meeting",
+    "createTitle": "New guide template",
+    "editTitle": "Edit guide template",
+    "closeEditor": "Close template editor",
+    "savingButton": "Saving…"
   },
   "guideTrendView": {
     "heading": "{{templateName}} — across your calls",
@@ -944,5 +960,64 @@
     "ask": "Ask Tucky",
     "stop": "Stop",
     "stopFailed": "Couldn’t stop the request. Try again."
+  },
+  "liveForm": {
+    "label": "Live form",
+    "fields": "Fields to fill",
+    "fieldsHint": "Up to 12 fields. A name, answer format, and what to listen for.",
+    "addField": "Add field",
+    "newField": "New field",
+    "removeField": "Remove field",
+    "fieldName": "Field name",
+    "format": "Answer format",
+    "choices": "Choices (one per line)",
+    "listenFor": "What should Tucky listen for?",
+    "required": "Required before the form is complete",
+    "whoseAnswers": "Whose answers?",
+    "uncertain": "When an answer is uncertain",
+    "speakers": {
+      "them": "Other participants",
+      "all": "Everyone in the meeting",
+      "you": "You"
+    },
+    "uncertainty": {
+      "review": "Suggest a value and flag for review",
+      "empty": "Leave the field empty"
+    },
+    "options": {
+      "explicit_only": "Use only details explicitly stated in the conversation",
+      "protect_manual": "Keep manual corrections when new transcript arrives",
+      "show_evidence": "Show the supporting quote with each captured answer"
+    },
+    "formats": {
+      "text": "Short text",
+      "long": "Long text",
+      "email": "Email address",
+      "number": "Number",
+      "date": "Date",
+      "choice": "Single choice"
+    },
+    "status": {
+      "captured": "Captured",
+      "review": "Review",
+      "manual": "Edited by you",
+      "waiting": "Waiting"
+    },
+    "progress": "{{filled}} of {{total}} filled",
+    "reviewCount_one": "{{count}} to review",
+    "reviewCount_other": "{{count}} to review",
+    "viewSource": "View source",
+    "sourceFor": "View source for {{name}}",
+    "editAnswer": "Edit answer",
+    "editField": "Edit {{name}}",
+    "waiting": "Not mentioned yet",
+    "cleared": "Cleared by you",
+    "clearAnswer": "Clear answer",
+    "saveEdit": "Save edit",
+    "saving": "Saving…",
+    "cancel": "Cancel",
+    "requiredComplete": "Required fields complete",
+    "listening": "Answers appear as speech is transcribed",
+    "manualProtected": "Manual edits are protected"
   }
 }

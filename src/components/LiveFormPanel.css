@@ -1,0 +1,28 @@
+.live-form { color: var(--color-fg); font-size: 12px; }
+.live-form .form-progress { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px; color: var(--color-muted); font-size: 11px; }
+.live-form .form-progress > span:first-child { color: var(--color-accent); }
+.live-form .form-track { height: 3px; background: var(--color-elevated); border-radius: 3px; overflow: hidden; margin: 8px 0 12px; }
+.live-form .form-track span { display: block; height: 100%; background: var(--color-accent); }
+.live-form .form-field { padding: 9px 0; border-bottom: 1px solid var(--color-line); }
+.live-form .form-field-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.live-form .form-field-name { color: var(--color-muted); min-width: 0; overflow-wrap: anywhere; }
+.live-form .form-actions { display: flex; align-items: center; gap: 3px; flex-shrink: 0; }
+.live-form .form-status { font-size: 10px; padding: 2px 5px; border-radius: 4px; color: var(--color-muted); background: var(--color-elevated); white-space: nowrap; }
+.live-form .form-status.captured, .live-form .form-status.manual { color: var(--color-accent); background: var(--color-accent-soft); }
+.live-form .form-status.review { color: var(--color-warning); background: color-mix(in srgb, var(--color-warning) 12%, var(--color-surface)); }
+.live-form .form-actions .form-icon { display: grid; place-items: center; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--color-muted); cursor: pointer; }
+.live-form .form-actions .form-icon:hover, .live-form .form-actions .form-icon[aria-expanded=true] { color: var(--color-accent); background: var(--color-accent-soft); }
+.live-form .form-value { margin-top: 3px; overflow-wrap: anywhere; white-space: pre-wrap; }
+.live-form .form-value.empty { color: var(--color-muted); }
+.live-form .form-source { margin: 8px 0 0; padding: 8px; background: var(--color-elevated); border-radius: 5px; font-size: 11px; overflow-wrap: anywhere; }
+.live-form .form-source > span { color: var(--color-muted); }
+.live-form .form-source p { margin: 4px 0 0; }
+.live-form .form-edit { margin-top: 8px; }
+.live-form .form-edit input, .live-form .form-edit textarea, .live-form .form-edit select { width: 100%; border: 1px solid var(--color-line); background: var(--color-canvas); color: var(--color-fg); border-radius: 5px; padding: 6px 8px; font: inherit; }
+.live-form .form-edit textarea { min-height: 64px; resize: vertical; }
+.live-form .form-edit-controls { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.live-form .form-edit-controls button { border: 1px solid var(--color-line); background: var(--color-elevated); color: var(--color-fg); border-radius: 5px; padding: 4px 8px; font: inherit; cursor: pointer; }
+.live-form .form-edit-controls button:disabled { opacity: .5; cursor: wait; }
+.live-form .form-error { color: var(--color-danger); margin-top: 6px; }
+.live-form .form-footnote { font-size: 10px; color: var(--color-muted); margin: 10px 0 0; }
+@media (pointer: coarse) { .live-form .form-actions .form-icon { width: 44px; height: 44px; } .live-form .form-edit input, .live-form .form-edit textarea, .live-form .form-edit select { font-size: 16px; } }

@@ -145,7 +145,7 @@ mod tests {
     #[test]
     fn storage_dir_is_under_data_dir() {
         let p = model_storage_dir();
-        assert!(p.ends_with("EchoScribe/llm-models"));
+        assert!(p.ends_with(format!("{}/llm-models", crate::data_folder_name())));
     }
 
     #[test]

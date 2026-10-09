@@ -1,6 +1,6 @@
 //! SQLite persistence for Tucky.
 //!
-//! Connection lives at `~/Library/Application Support/EchoScribe/echo.db`.
+//! Connection lives at `~/Library/Application Support/Tucky/tucky.db`.
 //! The `Db` handle wraps an `Arc<Mutex<Connection>>` so it can be cloned
 //! freely into Tauri's managed state and the coordinator. SQLite's threading
 //! model + a single-file DB + a single mutex is plenty for our write rate
@@ -101,12 +101,31 @@ impl Db {
     }
 }
 
-/// Default on-disk DB path: `~/Library/Application Support/EchoScribe/echo.db`.
+/// Default on-disk DB path: `~/Library/Application Support/Tucky/tucky.db`.
 pub fn default_db_path() -> Result<PathBuf, DbError> {
     let home = dirs::home_dir().ok_or(DbError::NoHome)?;
-    Ok(home
-        .join("Library")
-        .join("Application Support")
-        .join(crate::data_folder_name())
-        .join("echo.db"))
+    let dir = home.join("Library/Application Support").join(crate::data_folder_name());
+    Ok(database_path_in(&dir))
+}
+
+/// Keep an unmigrated database usable after an ordinary update.
+fn database_path_in(dir: &std::path::Path) -> PathBuf {
+    let canonical = dir.join("tucky.db");
+    let legacy = dir.join("echo.db");
+    if !canonical.exists() && legacy.exists() { legacy } else { canonical }
+}
+
+#[cfg(test)]
+mod rebrand_tests {
+    use super::*;
+
+    #[test]
+    fn database_path_preserves_legacy_until_offline_migration() {
+        let temp = tempfile::tempdir().unwrap();
+        assert_eq!(database_path_in(temp.path()), temp.path().join("tucky.db"));
+        std::fs::write(temp.path().join("echo.db"), b"existing").unwrap();
+        assert_eq!(database_path_in(temp.path()), temp.path().join("echo.db"));
+        std::fs::rename(temp.path().join("echo.db"), temp.path().join("tucky.db")).unwrap();
+        assert_eq!(database_path_in(temp.path()), temp.path().join("tucky.db"));
+    }
 }

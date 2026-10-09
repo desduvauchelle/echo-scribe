@@ -291,10 +291,9 @@ mod tests {
     #[test]
     #[ignore]
     fn backfill_real_db_sample() {
-        let home = std::env::var("HOME").unwrap();
-        let src = format!("{home}/Library/Application Support/EchoScribe/echo.db");
+        let src = crate::db::default_db_path().unwrap();
         if !std::path::Path::new(&src).exists() {
-            eprintln!("SKIP: real echo.db not found");
+            eprintln!("SKIP: real Tucky database not found");
             return;
         }
         if !crate::embed::catalog::is_downloaded() {

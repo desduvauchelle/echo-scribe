@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import {
   chatWithMemory,
+  gmailOpenAssistant,
   createChatSession,
   deleteChatSession,
   listChatSessions,
@@ -170,6 +171,7 @@ export default function ChatView({ projects }: Props) {
       {/* Session list panel */}
       <div className="flex w-52 shrink-0 flex-col border-r border-line bg-canvas/60">
         <div className="border-b border-line p-3">
+          <button type="button" onClick={() => void gmailOpenAssistant().catch(console.error)} className="mb-2 w-full rounded-md border border-line px-2 py-1.5 text-xs text-muted hover:bg-elevated">Email assistant</button>
           {projects.length > 0 && (
             <select
               value={projectFilter ?? ""}

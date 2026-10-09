@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 /// - `checklist` — track coverage of agenda points derived from the notes.
 /// - `coach` — notes are principles; contextual nudges only, silence is normal.
 /// - `tracker` — silent note-taker; key points ARE the live bullet notes.
-pub const TEMPLATE_KINDS: &[&str] = &["checklist", "coach", "tracker"];
+pub const TEMPLATE_KINDS: &[&str] = &["checklist", "coach", "tracker", "form"];
 
 fn default_template_kind() -> String {
     "checklist".into()

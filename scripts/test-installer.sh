@@ -27,7 +27,7 @@ esac
 EOF
 chmod +x "$BIN_DIR/uname"
 
-for tool in osascript pkill xattr open; do
+for tool in osascript pkill xattr open launchctl; do
   printf '#!/usr/bin/env bash\nexit 0\n' > "$BIN_DIR/$tool"
   chmod +x "$BIN_DIR/$tool"
 done
@@ -72,7 +72,7 @@ PATH="$BIN_DIR:$PATH" INSTALL_DIR="$WORK_DIR/LegacyInstall" \
 test -x "$WORK_DIR/LegacyInstall/Tucky.app/Contents/MacOS/echo-scribe"
 echo "Tucky upgrade, legacy archive, and failed-download preservation checks passed."
 
-# Preserve login-item identity, options, and enabled state while migrating its path.
+# Preserve login-item options and enabled state while migrating its name and path.
 mkdir -p "$TUCKY_LAUNCH_AGENT_DIR"
 LOGIN_ITEM="$TUCKY_LAUNCH_AGENT_DIR/Echo Scribe.plist"
 /usr/libexec/PlistBuddy -c 'Add :Label string Echo Scribe' "$LOGIN_ITEM"
@@ -87,13 +87,29 @@ ln -s Tucky "$FIXTURE_DIR/Tucky.app/Contents/MacOS/echo-scribe"
 PATH="$BIN_DIR:$PATH" INSTALL_DIR="$INSTALL_DIR" LOCAL_APP_BUNDLE="$FIXTURE_DIR/Tucky.app" \
   SKIP_STOP=1 SKIP_LAUNCH=1 bash "$ROOT_DIR/install.sh"
 test -x "$INSTALL_DIR/Tucky.app/Contents/MacOS/Tucky"
+LOGIN_ITEM="$TUCKY_LAUNCH_AGENT_DIR/Tucky.plist"
 test "$(/usr/libexec/PlistBuddy -c 'Print :ProgramArguments:0' "$LOGIN_ITEM")" = "$INSTALL_DIR/Tucky.app/Contents/MacOS/Tucky"
 test "$(/usr/libexec/PlistBuddy -c 'Print :ProgramArguments:1' "$LOGIN_ITEM")" = '--existing-option'
-test "$(/usr/libexec/PlistBuddy -c 'Print :Label' "$LOGIN_ITEM")" = 'Echo Scribe'
+test "$(/usr/libexec/PlistBuddy -c 'Print :Label' "$LOGIN_ITEM")" = 'Tucky'
 test "$(/usr/libexec/PlistBuddy -c 'Print :RunAtLoad' "$LOGIN_ITEM")" = 'true'
-test ! -e "$TUCKY_LAUNCH_AGENT_DIR/Tucky.plist"
+test ! -e "$TUCKY_LAUNCH_AGENT_DIR/Echo Scribe.plist"
 test -L "$INSTALL_DIR/Echo Scribe.app/Contents/MacOS/echo-scribe"
 "$INSTALL_DIR/Echo Scribe.app/Contents/MacOS/echo-scribe" --mcp
 bash "$ROOT_DIR/scripts/package-release.sh" "$FIXTURE_DIR/Tucky.app" "$WORK_DIR/renamed-releases"
 tar -tzf "$WORK_DIR/renamed-releases/Tucky-aarch64.tar.gz" | grep -q '^Tucky.app/Contents/MacOS/Tucky$'
 echo "Renamed executable and legacy MCP compatibility checks passed."
+
+# A disabled startup preference remains disabled across the rename.
+mv "$TUCKY_LAUNCH_AGENT_DIR/Tucky.plist" "$TUCKY_LAUNCH_AGENT_DIR/Echo Scribe.plist"
+LOGIN_ITEM="$TUCKY_LAUNCH_AGENT_DIR/Echo Scribe.plist"
+/usr/libexec/PlistBuddy -c 'Set :Label Echo Scribe' "$LOGIN_ITEM"
+/usr/libexec/PlistBuddy -c 'Set :RunAtLoad false' "$LOGIN_ITEM"
+PATH="$BIN_DIR:$PATH" INSTALL_DIR="$INSTALL_DIR" LOCAL_APP_BUNDLE="$FIXTURE_DIR/Tucky.app" \
+  SKIP_STOP=1 SKIP_LAUNCH=1 bash "$ROOT_DIR/install.sh"
+test "$(/usr/libexec/PlistBuddy -c 'Print :RunAtLoad' "$TUCKY_LAUNCH_AGENT_DIR/Tucky.plist")" = 'false'
+# A user who never enabled startup must not gain a new login item.
+rm "$TUCKY_LAUNCH_AGENT_DIR/Tucky.plist"
+PATH="$BIN_DIR:$PATH" INSTALL_DIR="$INSTALL_DIR" LOCAL_APP_BUNDLE="$FIXTURE_DIR/Tucky.app" \
+  SKIP_STOP=1 SKIP_LAUNCH=1 bash "$ROOT_DIR/install.sh"
+test ! -e "$TUCKY_LAUNCH_AGENT_DIR/Tucky.plist"
+echo "Disabled and absent login-item preferences preserved."

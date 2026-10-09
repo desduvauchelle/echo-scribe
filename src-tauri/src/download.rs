@@ -160,7 +160,7 @@ fn fmt_gb(bytes: u64) -> String {
 
 pub fn build_client() -> Result<reqwest::Client, FetchError> {
     reqwest::Client::builder()
-        .user_agent(concat!("EchoScribe/", env!("CARGO_PKG_VERSION")))
+        .user_agent(concat!("Tucky/", env!("CARGO_PKG_VERSION")))
         .connect_timeout(CONNECT_TIMEOUT)
         .build()
         .map_err(|e| FetchError::Network(e.to_string()))

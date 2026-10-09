@@ -30,9 +30,11 @@
       "assetProtocol": {
         "enable": true,
         "scope": [
+          "$HOME/Library/Application Support/Tucky/recordings/**",
           "$HOME/Library/Application Support/EchoScribe/recordings/**",
           "$HOME/Library/Application Support/EchoScribe/recordings/source-thumbs/**",
-          "$APPDATA/EchoScribe/recordings/**"
+          "$APPDATA/EchoScribe/recordings/**",
+          "$APPDATA/Tucky/recordings/**"
         ]
       }
     }
@@ -65,7 +67,7 @@
     "macOS": {
       "minimumSystemVersion": "14.0",
       "infoPlist": "Info.plist",
-      "signingIdentity": "F6FD1D39BE4E52054A6B72E1EC5E90A03F5E5B77",
+      "signingIdentity": "Apple Development: Denis Duvauchelle (4H44X3QJND)",
       "entitlements": "Entitlements.plist"
     }
   },

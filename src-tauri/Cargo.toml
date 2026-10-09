@@ -1,6 +1,6 @@
 [package]
 name = "echo-scribe"
-version = "1.0.26"
+version = "1.0.27"
 description = "Tucky — private voice notes, dictation, and work memory"
 authors = ["you"]
 edition = "2021"
@@ -84,6 +84,8 @@ libc = "0.2"
 uuid = { version = "1.23.1", features = ["v4"] }
 chrono = "0.4.44"
 base64 = "0.22"
+mailparse = "0.17"
+html2text = "0.17"
 # RNNoise audio denoiser (pure Rust, embedded model). default-features off to
 # drop the bin feature's clap/hound/dasp CLI deps.
 nnnoiseless = { version = "0.5", default-features = false }
@@ -129,3 +131,9 @@ llama-cpp-sys-2 = { version = "0.1.146", default-features = false }
 # Cargo never garbage-collects target/, so without this it grows without bound.
 [profile.dev]
 debug = "line-tables-only"
+
+# Rust's debug-info stripper can misalign proc-macro dylibs, which macOS 27
+# refuses to load (rust-lang/rust#157750). Keep compile-time tools unstripped;
+# this does not change the release app's optimization or stripping settings.
+[profile.release.build-override]
+strip = "none"

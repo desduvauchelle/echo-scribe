@@ -118,6 +118,7 @@ impl Recorder {
     }
 
     pub fn start(&mut self) -> Result<(), RecorderError> {
+        let startup_started = std::time::Instant::now();
         let host = cpal::default_host();
         let (device, resolved_name) = if let Some(preferred) = &self.preferred_device_name {
             let mut found: Option<cpal::Device> = None;
@@ -159,8 +160,10 @@ impl Recorder {
             sample_rate = self.sample_rate,
             channels = self.channels,
             format = ?config.sample_format(),
+            device_ms = startup_started.elapsed().as_millis(),
             "starting recorder"
         );
+        let stream_started = std::time::Instant::now();
 
         // Reset buffer
         if let Ok(mut s) = self.samples.lock() {
@@ -277,6 +280,11 @@ impl Recorder {
             .map_err(|e| RecorderError::StartStream(e.to_string()))?;
         self.stream = Some(stream);
         self.active_device_name = Some(resolved_name);
+        info!(
+            stream_ms = stream_started.elapsed().as_millis(),
+            total_ms = startup_started.elapsed().as_millis(),
+            "recorder ready"
+        );
         Ok(())
     }
 

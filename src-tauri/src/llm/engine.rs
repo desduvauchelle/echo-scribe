@@ -286,7 +286,8 @@ impl LlmEngine {
         while n_decoded < req.max_tokens {
             check_cancel()?;
             let token = sampler.sample(&ctx, batch.n_tokens() - 1);
-            sampler.accept(token);
+            // llama-cpp-2's sample() already accepts the token. Accepting it
+            // twice advances a grammar twice and can abort inside llama.cpp.
 
             if self.model.is_eog_token(token) {
                 debug!("EOG token reached");

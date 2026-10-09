@@ -89,7 +89,7 @@ pub struct AppState {
     /// startup (in which case persistence is disabled but Phase 1 behavior
     /// still works — paste-at-cursor must never be blocked by DB issues).
     pub db: Option<Db>,
-    /// Root for the user-facing event archive (defaults to `~/EchoScribe/`).
+    /// Root for the user-facing event archive (defaults to `~/Tucky/`).
     pub event_log_root: Option<std::path::PathBuf>,
     /// The non-blocking log appender's worker guard. Held for the lifetime
     /// of `AppState` so logs flush on graceful exit — see `lib.rs::run`.
@@ -2321,11 +2321,14 @@ fn uninstall_data_paths(home: &std::path::Path) -> Vec<std::path::PathBuf> {
         format!("Library/Saved Application State/{bundle}.savedState"),
         folder.to_string(),
     ];
-    if folder == "EchoScribe" {
+    if crate::is_primary_install() {
         // Legacy locations older builds of the real app wrote to. Never
         // included for isolated variants — they belong to the real install.
         relative.extend(
             [
+                "Library/Application Support/EchoScribe",
+                "Library/Logs/EchoScribe",
+                "EchoScribe",
                 "Library/Application Support/Echo Scribe",
                 "Library/Caches/echo-scribe",
                 "Library/WebKit/echo-scribe",
@@ -2880,11 +2883,11 @@ pub fn diagnostics_recent_log(max_lines: Option<usize>) -> Result<String, String
     let max = max_lines.unwrap_or(200).min(2000);
     let dir = crate::log_dir();
     let today = chrono_today_for_filename();
-    let path = dir.join(format!("echo-scribe.log.{today}"));
+    let path = dir.join(format!("tucky.log.{today}"));
     if !path.exists() {
         // Daily appender uses .{YYYY-MM-DD}; if today's hasn't rolled yet the
-        // file may also exist as "echo-scribe.log". Try both.
-        let alt = dir.join("echo-scribe.log");
+        // file may also exist as "tucky.log". Try both.
+        let alt = dir.join("tucky.log");
         if !alt.exists() {
             return Ok(String::new());
         }
@@ -3142,6 +3145,7 @@ pub(crate) fn build_rag_query(message: &str) -> String {
 
 #[tauri::command]
 pub async fn chat_with_memory(
+    app: AppHandle,
     state: State<'_, AppState>,
     session_id: String,
     message: String,
@@ -3160,6 +3164,12 @@ pub async fn chat_with_memory(
     // Persist the user message.
     db.with_conn(|c| chat::insert_message(c, &session_id, "user", &message))
         .map_err(|e| e.to_string())?;
+
+    if crate::gmail::agent::email_intent(&message) && !db.with_conn(crate::gmail::store::accounts).map_err(|e|e.to_string())?.is_empty() {
+        let report=crate::gmail::run_request(app,message.clone(),None).await?;
+        db.with_conn(|c|chat::insert_message(c,&session_id,"assistant",&report.answer)).map_err(|e|e.to_string())?;
+        return Ok(ChatReply {reply:report.answer,sources:report.sources.into_iter().map(|s|ContextSource{source_id:format!("gmail:{}:{}",s.account_id,s.thread_id),date:s.date,kind:"email".into(),content:format!("{} — {} ({})",s.subject,s.from,s.account)}).collect()});
+    }
 
     // Check if this is the first message (session still has placeholder name).
     let is_new = db
@@ -3608,12 +3618,24 @@ pub async fn guide_set_mode(
         .ok_or_else(|| format!("unknown guide mode: {mode}"))?;
     if let Some(engine) = state.meeting_manager.guide_engine_by_id(&session_id).await {
         engine.set_mode(m);
+        if engine.template_snapshot().kind == "form" { return Ok(()); }
     }
     // Persist as the default for future sessions even if the engine is gone.
     state
         .settings
         .set_guide_overlay_mode(m)
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn guide_edit_form_answer(
+    state: tauri::State<'_, AppState>,
+    session_id: String,
+    field_id: String,
+    value: String,
+) -> Result<(), String> {
+    let engine = state.meeting_manager.guide_engine_by_id(&session_id).await.ok_or("No active guide session")?;
+    engine.edit_form_answer(&field_id, &value)
 }
 
 #[tauri::command]
@@ -5064,6 +5086,7 @@ pub fn create_guide_template(
         return Err("template name cannot be empty".into());
     }
     let kind = validate_template_kind(kind)?;
+    if kind == "form" { crate::meeting::live_form::FormConfig::parse(&notes)?; }
     let db = require_db(&state)?;
     let now = chrono_now_iso();
     let t = crate::db::guide_templates::GuideTemplate {
@@ -5097,6 +5120,7 @@ pub fn update_guide_template(
         return Err("template name cannot be empty".into());
     }
     let kind = validate_template_kind(kind)?;
+    if kind == "form" { crate::meeting::live_form::FormConfig::parse(&notes)?; }
     let db = require_db(&state)?;
     let now = chrono_now_iso();
     db.with_conn(move |c| {
@@ -5237,10 +5261,10 @@ pub async fn regenerate_guide_review(
 
     // Tracker runs have no rubric to grade — their timeline is the artifact.
     // Re-complete with the stub so a stale/failed tracker run heals instantly.
-    if template.kind == "tracker" {
+    if template.kind == "tracker" || template.kind == "form" {
         let stub = serde_json::json!({
             "overall": "",
-            "synthesis": "Live notes ran during this meeting — open the coaching timeline below to see how the notes evolved.",
+            "synthesis": if template.kind == "form" { "Live form answers were captured during this meeting." } else { "Live notes ran during this meeting — open the coaching timeline below to see how the notes evolved." },
             "scorecard": [],
             "emergent": [],
         })
@@ -8385,6 +8409,7 @@ mod tests {
     fn uninstall_data_paths_cover_user_data_without_dev_signing_material() {
         let home = std::path::Path::new("/Users/tester");
         let paths = uninstall_data_paths(home);
+        assert!(paths.contains(&home.join("Library/Application Support/Tucky")));
         assert!(paths.contains(&home.join("Library/Application Support/EchoScribe")));
         assert!(paths.contains(&home.join("Library/Application Support/com.echoscribe.app")));
         assert!(paths.contains(&home.join("EchoScribe")));

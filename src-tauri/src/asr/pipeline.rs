@@ -43,6 +43,22 @@ pub struct AsrPipeline {
     last_used: Arc<Mutex<Instant>>,
     unload_after: Arc<Mutex<Duration>>,
     active_jobs: Arc<AtomicUsize>,
+    active_recordings: Arc<AtomicUsize>,
+}
+
+/// Keep the warmed model resident from microphone start through transcription.
+pub struct RecordingGuard {
+    active: Arc<AtomicUsize>,
+    last_used: Arc<Mutex<Instant>>,
+}
+
+impl Drop for RecordingGuard {
+    fn drop(&mut self) {
+        if let Ok(mut used) = self.last_used.lock() {
+            *used = Instant::now();
+        }
+        self.active.fetch_sub(1, Ordering::SeqCst);
+    }
 }
 
 struct TranscriptionGuard(Arc<AtomicUsize>);
@@ -84,6 +100,7 @@ impl AsrPipeline {
             last_used: Arc::new(Mutex::new(Instant::now())),
             unload_after: Arc::new(Mutex::new(unload_after)),
             active_jobs: Arc::new(AtomicUsize::new(0)),
+            active_recordings: Arc::new(AtomicUsize::new(0)),
         }
     }
 
@@ -115,6 +132,11 @@ impl AsrPipeline {
     fn maybe_unload(&self) {
         // Never wait behind inference or evict using an idle snapshot from before it.
         if let Ok(mut guard) = self.engine.try_lock() {
+            // A warmed engine is in use throughout microphone capture, even
+            // though inference has not started and its mutex is available.
+            if self.active_recordings.load(Ordering::SeqCst) > 0 {
+                return;
+            }
             let idle_for = self.idle_for();
             let unload_after = match self.unload_after.lock() {
                 Ok(g) => *g,
@@ -150,6 +172,16 @@ impl AsrPipeline {
     fn begin_transcription(&self) -> TranscriptionGuard {
         self.active_jobs.fetch_add(1, Ordering::SeqCst);
         TranscriptionGuard(self.active_jobs.clone())
+    }
+
+    /// Recording is not an inference job: wake dictation must not gate itself.
+    pub fn begin_recording(&self) -> RecordingGuard {
+        self.active_recordings.fetch_add(1, Ordering::SeqCst);
+        self.touch();
+        RecordingGuard {
+            active: Arc::clone(&self.active_recordings),
+            last_used: Arc::clone(&self.last_used),
+        }
     }
 
     /// Seconds since the last successful transcription. Used by the memory
@@ -574,6 +606,55 @@ impl AsrPipeline {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn recording_guards_release_independently_without_marking_inference_busy() {
+        let pipeline = AsrPipeline::default();
+        let first = pipeline.begin_recording();
+        let second = pipeline.begin_recording();
+        assert_eq!(pipeline.active_recordings.load(Ordering::SeqCst), 2);
+        assert!(!pipeline.is_busy());
+        drop(first);
+        assert_eq!(pipeline.active_recordings.load(Ordering::SeqCst), 1);
+        drop(second);
+        assert_eq!(pipeline.active_recordings.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    #[ignore = "requires the locally downloaded Whisper Turbo model"]
+    async fn recording_keeps_warmed_model_past_idle_limit() {
+        let pipeline = AsrPipeline::new(Duration::from_millis(1));
+        let model = super::super::registry::lookup("whisper-turbo").unwrap();
+        assert!(is_downloaded(model));
+        pipeline.set_active_model(model.clone());
+        let recording = pipeline.begin_recording();
+        pipeline.warm_up();
+        for _ in 0..300 {
+            if pipeline.is_loaded() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        assert!(pipeline.is_loaded(), "warm-up did not load the engine");
+        assert!(
+            !pipeline.is_busy(),
+            "recording must not gate wake dictation as inference"
+        );
+        *pipeline.last_used.lock().unwrap() = Instant::now() - Duration::from_secs(10);
+        pipeline.maybe_unload();
+        assert!(
+            pipeline.is_loaded(),
+            "model evicted while microphone is recording"
+        );
+        drop(recording);
+        assert!(pipeline.idle_for() < Duration::from_secs(1));
+        *pipeline.last_used.lock().unwrap() = Instant::now() - Duration::from_secs(10);
+        pipeline.maybe_unload();
+        assert!(
+            !pipeline.is_loaded(),
+            "idle eviction must resume after recording"
+        );
+    }
 
     #[test]
     fn busy_spans_nested_jobs_and_clears_only_after_the_last_job() {

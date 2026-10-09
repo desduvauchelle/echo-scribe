@@ -10,6 +10,7 @@ import {
   getLiveTranscript,
   guideSetMode,
   guideTriggerNow,
+  guideEditFormAnswer,
   listGuideTemplates,
   listSummaryTemplates,
   saveHudFrame,
@@ -27,7 +28,12 @@ import { caughtOfKind, extractCaught, type CaughtKind } from "../lib/caught";
 import TalkWidgets from "./TalkWidgets";
 import logoUrl from "../../src-tauri/icons/128x128.png";
 
+import LiveFormPanel from "../components/LiveFormPanel";
+import type { FormConfig, FormAnswer } from "../lib/liveForm";
+
 type GuideSession = {
+  formConfig?: FormConfig | null;
+  formAnswers: FormAnswer[];
   sessionId: string;
   slot: number;
   templateName: string;
@@ -128,6 +134,8 @@ export default function MeetingHud() {
               kind: g.kind,
               mode: g.mode,
               keyPoints: prev[g.sessionId]?.keyPoints ?? [],
+              formConfig: g.formConfig,
+              formAnswers: g.formAnswers ?? [],
               collapsed: prev[g.sessionId]?.collapsed ?? false,
             };
           }
@@ -196,10 +204,13 @@ export default function MeetingHud() {
             kind: e.payload.kind,
             mode: e.payload.mode,
             keyPoints: [],
+            formConfig: e.payload.formConfig,
+            formAnswers: e.payload.formAnswers ?? [],
             collapsed: false,
           },
         }));
       }),
+      listen<{ sessionId: string }>("guide-error", () => showToast(t("meetingHud.formUpdateFailed"))),
       listen<GuideUpdate>("guide-update", (e) => {
         const p = e.payload;
         setSessions((prev) => {
@@ -214,6 +225,8 @@ export default function MeetingHud() {
               kind: p.kind ?? existing?.kind,
               mode: p.mode,
               keyPoints: p.keyPoints,
+              formConfig: p.formConfig ?? existing?.formConfig,
+              formAnswers: p.formAnswers ?? existing?.formAnswers ?? [],
               updatedAt: p.updatedAt,
               collapsed: existing?.collapsed ?? false,
             },
@@ -454,7 +467,9 @@ export default function MeetingHud() {
                 </button>
                 <span className="guide-controls">
                   {s.mode === "auto" ? (
-                    <button className="mode" onClick={() => onToggleMode(s)}>{t("meetingHud.auto")}</button>
+                    <button className="mode" onClick={() => onToggleMode(s)}>{t(s.kind === "form" ? "meetingHud.pauseFilling" : "meetingHud.auto")}</button>
+                  ) : s.kind === "form" ? (
+                    <button className="mode" onClick={() => onToggleMode(s)}>{t("meetingHud.resumeFilling")}</button>
                   ) : (
                     <>
                       <button className="mode" onClick={() => guideTriggerNow(s.sessionId).catch(() => {})}>
@@ -476,7 +491,9 @@ export default function MeetingHud() {
               {!s.collapsed && (
                 <>
                   {s.goal && <div className="goal">{s.goal}</div>}
-                  {s.keyPoints.length === 0 ? (
+                  {s.kind === "form" && s.formConfig ? (
+                    <LiveFormPanel config={s.formConfig} answers={s.formAnswers} onSave={(fieldId, value) => guideEditFormAnswer(s.sessionId, fieldId, value)} />
+                  ) : s.keyPoints.length === 0 ? (
                     <div className="waiting">
                       <span className="spinner" aria-hidden="true" />
                       <span>

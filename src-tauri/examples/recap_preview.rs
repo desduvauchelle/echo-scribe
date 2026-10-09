@@ -8,8 +8,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args().skip(1);
     let date = args.next().ok_or("pass a YYYY-MM-DD date")?;
     let model = args.next().unwrap_or_else(|| "gemma-4-e2b-it-q4_k_m".into());
-    let db_path = dirs::data_dir().ok_or("no data dir")?
-        .join(echo_scribe_lib::data_folder_name()).join("echo.db");
+    let db_path = echo_scribe_lib::db::default_db_path()?;
     let conn = rusqlite::Connection::open_with_flags(&db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
     let input = collector::collect(&conn, &date)?;
     eprintln!("meetings={} notes={} dictations={} meaningful={}", input.meetings.len(), input.notes.len(),

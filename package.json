@@ -1,13 +1,14 @@
 {
 	"name": "tucky",
 	"private": true,
-	"version": "1.0.26",
+	"version": "1.0.27",
 	"type": "module",
 	"scripts": {
 		"dev": "vite",
 		"asr:setup": "bash scripts/build-asr-lab.sh",
 		"dev:asr": "bun run asr:setup && ECHO_SCRIBE_DATA_FOLDER=EchoScribeAsrLab ECHO_SCRIBE_BUNDLE_ID=com.echoscribe.asrlab bun run tauri dev --config scripts/asr-lab.conf.json",
 		"build": "tsc && bun --bun x vite build",
+		"release:mac": "bash scripts/release-macos.sh",
 		"test:installer": "bash scripts/test-installer.sh",
 		"test:e2e": "playwright test",
 		"preview": "vite preview",
